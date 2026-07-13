@@ -57,6 +57,10 @@ const messages = {
     keyUp: "Up arrow",
     keyRight: "Right arrow",
     keyPrefix: "C-b",
+    clientsCount: "{count} clients",
+    thisDevice: "this device",
+    disconnect: "Disconnect",
+    unnamed: "unnamed",
   },
   ja: {
     appName: "cmux-tui ウェブ",
@@ -116,6 +120,10 @@ const messages = {
     keyUp: "上矢印",
     keyRight: "右矢印",
     keyPrefix: "C-b",
+    clientsCount: "{count} クライアント",
+    thisDevice: "このデバイス",
+    disconnect: "切断",
+    unnamed: "名前なし",
   },
 } as const;
 

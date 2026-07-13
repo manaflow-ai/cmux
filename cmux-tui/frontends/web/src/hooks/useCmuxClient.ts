@@ -3,11 +3,14 @@ import {
   CmuxClient,
   CmuxTimeoutError,
   WebSocketTransport,
+  type ClientDetachedEvent,
+  type ClientInfo,
   type Id,
   type IdentifyResult,
   type NotificationEvent,
   type Tree,
 } from "cmux/browser";
+import { browserClientName } from "../lib/clientName";
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
 import { activeScreen, treeToViewModel } from "../lib/tree";
 import { t } from "../i18n";
@@ -26,6 +29,7 @@ interface ConnectionState {
   client: CmuxClient | null;
   info: IdentifyResult | null;
   tree: Tree | null;
+  clients: ClientInfo[];
   error: string | null;
   reconnect: ReconnectState | null;
 }
@@ -35,6 +39,7 @@ const initialState: ConnectionState = {
   client: null,
   info: null,
   tree: null,
+  clients: [],
   error: null,
   reconnect: null,
 };
@@ -57,6 +62,11 @@ export function useCmuxClient() {
       if (!activeClient) return;
       const tree = await activeClient.listWorkspaces();
       if (!cancelled) setState((current) => ({ ...current, tree }));
+    };
+    const refreshClients = async () => {
+      if (!activeClient) return;
+      const clients = await activeClient.listClients();
+      if (!cancelled) setState((current) => ({ ...current, clients }));
     };
     refreshRef.current = refresh;
 
@@ -89,14 +99,21 @@ export function useCmuxClient() {
         const info = await client.identify();
         if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
         if (info.protocol !== 6) throw new Error(t("wrongProtocol", { protocol: info.protocol }));
+        // Presence commands are additive (7c5a9e3e60); a protocol-6 server
+        // predating them still serves everything else, so degrade instead of
+        // failing the whole connect.
+        await client.setClientInfo(browserClientName(), "web").catch(() => undefined);
         const events = await client.subscribe();
-        const tree = await client.listWorkspaces();
+        const [tree, clients] = await Promise.all([
+          client.listWorkspaces(),
+          client.listClients().catch(() => []),
+        ]);
         if (cancelled) return;
         canReconnect = true;
         // A successful (re)connect resets the retry baseline so the next drop
         // starts from the first backoff step, not the cap.
         previousAttempt = 0;
-        setState({ status: "connected", client, info, tree, error: null, reconnect: null });
+        setState({ status: "connected", client, info, tree, clients, error: null, reconnect: null });
 
         void (async () => {
           for (;;) {
@@ -123,6 +140,16 @@ export function useCmuxClient() {
             if (["tree-changed", "layout-changed", "surface-resized", "surface-exited", "title-changed"].includes(event.event)) {
               await refresh();
             }
+            if (event.event === "client-attached" || event.event === "client-changed") {
+              await refreshClients();
+            }
+            if (event.event === "client-detached") {
+              const detached = event as ClientDetachedEvent;
+              setState((current) => ({
+                ...current,
+                clients: current.clients.filter((item) => item.client !== detached.client),
+              }));
+            }
           }
         })();
       } catch (error) {
@@ -136,6 +163,7 @@ export function useCmuxClient() {
             client: null,
             info: null,
             tree: null,
+            clients: [],
             error: error instanceof Error ? error.message : String(error),
             reconnect: null,
           });
@@ -219,6 +247,18 @@ export function useCmuxClient() {
       runMutation((client) => client.swapPane({ pane, dir })),
     setRatio: (pane: Id, dir: "right" | "down", ratio: number) =>
       runMutation((client) => client.setRatio(pane, dir, ratio)),
+    detachClient: (clientId: Id) => runMutation(async (client) => {
+      await client.detachClient(clientId);
+      setState((current) => ({
+        ...current,
+        clients: current.clients.filter((item) => item.client !== clientId),
+      }));
+    }),
+  }), [runMutation]);
+
+  const refreshClients = useCallback(() => runMutation(async (client) => {
+    const clients = await client.listClients();
+    setState((current) => ({ ...current, clients }));
   }), [runMutation]);
 
   const dismissToast = useCallback((notification: Id) => {
@@ -235,6 +275,7 @@ export function useCmuxClient() {
     selectScreen,
     selectTab,
     mutations,
+    refreshClients,
     dismissToast,
   };
 }

@@ -1,6 +1,7 @@
 import { useReducer } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { ConnectScreen } from "./components/ConnectScreen";
+import { ClientsIndicator } from "./components/ClientsIndicator";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TerminalPane } from "./components/TerminalPane";
@@ -45,7 +46,12 @@ export default function App() {
         >
           <span aria-hidden="true">☰</span>
         </button>
-        <span>{connection.active?.label || t("terminal")}</span>
+        <span className="mobile-title">{connection.active?.label || t("terminal")}</span>
+        <ClientsIndicator
+          clients={connection.clients}
+          onRefresh={connection.refreshClients}
+          onDetach={connection.mutations.detachClient}
+        />
       </header>
       <button
         className="drawer-backdrop"
@@ -83,10 +89,13 @@ export default function App() {
       <StatusBar
         workspace={activeWorkspace}
         session={connection.info?.session ?? null}
+        clients={connection.clients}
         onSelectScreen={connection.selectScreen}
         onNewScreen={connection.mutations.newScreen}
         onCloseScreen={connection.mutations.closeScreen}
         onRenameScreen={connection.mutations.renameScreen}
+        onRefreshClients={connection.refreshClients}
+        onDetachClient={connection.mutations.detachClient}
       />
       <Toasts toasts={connection.toasts} onDismiss={connection.dismissToast} />
     </main>

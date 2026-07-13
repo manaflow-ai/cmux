@@ -126,3 +126,48 @@ test("generic request preserves exact wire command and typed result", async () =
   assert.deepEqual(sent, { id: 1, cmd: "ping" });
   await client.close();
 });
+
+test("listClients returns the exact client presence response shape", async () => {
+  const response = [{
+    client: 7,
+    transport: "ws",
+    name: "Safari on iPad",
+    kind: "web",
+    connected_seconds: 12,
+    attached: [31],
+    sizes: [{ surface: 31, cols: 126, rows: 38 }],
+    self: true,
+  }];
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.deepEqual(request, { id: 1, cmd: "list-clients" });
+    connection.emit({ id: request.id, ok: true, data: response });
+  });
+  const client = new CmuxClient({ transport });
+
+  assert.deepEqual(await client.listClients(), response);
+  await client.close();
+});
+
+test("subscribe yields client attached, changed, and detached events", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.equal(request.cmd, "subscribe");
+    connection.emit({ event: "client-attached", client: 2, transport: "ws", name: "phone", kind: "web" });
+    connection.emit({ id: request.id, ok: true, data: {} });
+    connection.emit({ event: "client-changed", client: 2, name: "tablet", kind: "web" });
+    connection.emit({ event: "client-detached", client: 2 });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+
+  const events = await client.subscribe();
+  assert.deepEqual(await events.next(), {
+    event: "client-attached",
+    client: 2,
+    transport: "ws",
+    name: "phone",
+    kind: "web",
+  });
+  assert.deepEqual(await events.next(), { event: "client-changed", client: 2, name: "tablet", kind: "web" });
+  assert.deepEqual(await events.next(), { event: "client-detached", client: 2 });
+  events.close();
+  await client.close();
+});

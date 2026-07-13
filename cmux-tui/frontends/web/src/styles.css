@@ -132,8 +132,19 @@ button { color: inherit; touch-action: manipulation; }
 .screen-chip.active { color: var(--status-active-fg); background: var(--status-active-bg); font-weight: 700; }
 .new-screen { color: var(--status-dim); }
 .session-badge { margin-left: auto; display: flex; align-items: center; padding: 0 8px; color: var(--status-dim); white-space: nowrap; }
+.clients-indicator { display: flex; min-width: 0; }
+.clients-trigger { padding: 0 8px; border: 0; background: transparent; color: var(--status-dim); font-size: 11px; white-space: nowrap; cursor: pointer; }
+.clients-trigger:hover, .clients-trigger[aria-expanded="true"] { color: var(--status-active-fg); background: var(--status-active-bg); }
 
 .context-menu { position: fixed; z-index: 100; min-width: 190px; padding: 3px; border: 1px solid var(--menu-border); background: var(--menu-bg); box-shadow: 0 10px 30px rgba(0, 0, 0, .55); }
+.clients-popover { width: min(320px, calc(100vw - 16px)); max-height: min(420px, calc(100vh - 16px)); overflow-y: auto; }
+.client-row { padding: 9px 10px; border-bottom: 1px solid var(--border-inactive); }
+.client-row:last-child { border-bottom: 0; }
+.client-row-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.client-row-heading strong { overflow: hidden; color: var(--status-active-fg); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.client-self { flex: 0 0 auto; color: var(--border-active); font-size: 10px; }
+.client-meta, .client-sizes { margin-top: 3px; color: var(--status-dim); font-size: 10px; }
+.context-menu button.client-disconnect { min-height: 32px; margin-top: 5px; padding: 5px 7px; }
 .context-menu button { display: block; width: 100%; min-height: 36px; padding: 7px 10px; border: 0; outline: none; background: transparent; color: var(--menu-fg); text-align: left; cursor: pointer; }
 .context-menu button:hover, .context-menu button:focus { color: var(--status-active-fg); background: var(--menu-selected-bg); }
 .context-menu button.danger { color: #ffafaf; }
@@ -151,7 +162,9 @@ button { color: inherit; touch-action: manipulation; }
   .app-shell { position: fixed; top: var(--visual-viewport-offset); left: 0; grid-template: calc(44px + env(safe-area-inset-top)) minmax(0, 1fr) / minmax(0, 1fr); width: 100%; height: var(--visual-viewport-height); min-height: 0; }
   .mobile-toolbar { grid-area: 1 / 1; z-index: 10; display: flex; align-items: flex-end; gap: 10px; min-width: 0; padding: env(safe-area-inset-top) calc(12px + env(safe-area-inset-right)) 0 calc(6px + env(safe-area-inset-left)); border-bottom: 1px solid var(--border-inactive); background: var(--tab-bg); }
   .mobile-toolbar button { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; color: var(--terminal-foreground); font-size: 22px; }
-  .mobile-toolbar > span { min-width: 0; padding-bottom: 13px; overflow: hidden; color: var(--status-fg); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-toolbar > .mobile-title { min-width: 0; padding-bottom: 13px; overflow: hidden; color: var(--status-fg); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-toolbar .clients-indicator { margin-left: auto; }
+  .mobile-toolbar .clients-trigger { display: block; width: auto; min-width: 44px; padding: 0 8px; font-size: 11px; }
   .mobile-toolbar button:active { color: var(--border-active); background: var(--status-active-bg); }
   .sidebar { position: fixed; z-index: 50; top: var(--visual-viewport-offset); bottom: calc(100vh - var(--visual-viewport-offset) - var(--visual-viewport-height)); left: 0; width: min(84vw, 320px); padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left); box-shadow: 16px 0 44px rgba(0, 0, 0, .55); transform: translateX(-105%); transition: transform 180ms ease-out; visibility: hidden; }
   .sidebar.open { transform: translateX(0); visibility: visible; }

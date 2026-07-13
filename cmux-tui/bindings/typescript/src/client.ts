@@ -29,6 +29,7 @@ import type {
   Json,
   JsonObject,
   ListAgentsResult,
+  ListClientsResult,
   NotificationLevel,
   NotifyResult,
   PaneDirection,
@@ -321,6 +322,11 @@ export class CmuxClient {
   }
 
   ping(): Promise<PingResult> { return this.request("ping"); }
+  setClientInfo(name?: string, kind?: string): Promise<EmptyResult> {
+    return this.request("set-client-info", { name, kind });
+  }
+  listClients(): Promise<ListClientsResult> { return this.request("list-clients"); }
+  detachClient(client: Id): Promise<EmptyResult> { return this.request("detach-client", { client }); }
   reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
   clearWindowTitle(): Promise<EmptyResult> { return this.request("clear-window-title"); }

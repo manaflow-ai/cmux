@@ -6,6 +6,7 @@ import type {
   Id,
   NotificationLevel,
 } from "./common.js";
+import type { ClientTransport } from "./commands.js";
 
 export interface TreeChangedEvent { event: "tree-changed" }
 export interface LayoutChangedEvent { event: "layout-changed"; screen: Id }
@@ -35,6 +36,20 @@ export interface NotificationEvent {
 
 export interface ConfigReloadRequestedEvent { event: "config-reload-requested" }
 export interface WindowTitleRequestedEvent { event: "window-title-requested"; title: string }
+export interface ClientAttachedEvent {
+  event: "client-attached";
+  client: Id;
+  transport: ClientTransport;
+  name: string | null;
+  kind: string | null;
+}
+export interface ClientChangedEvent {
+  event: "client-changed";
+  client: Id;
+  name: string | null;
+  kind: string | null;
+}
+export interface ClientDetachedEvent { event: "client-detached"; client: Id }
 export interface EmptyEvent { event: "empty" }
 
 /** Effective special colors for an attached terminal surface. */
@@ -111,6 +126,9 @@ export type KnownSubscribeEvent =
   | NotificationEvent
   | ConfigReloadRequestedEvent
   | WindowTitleRequestedEvent
+  | ClientAttachedEvent
+  | ClientChangedEvent
+  | ClientDetachedEvent
   | EmptyEvent;
 
 /** Subscribe events, including unknown future event names. */

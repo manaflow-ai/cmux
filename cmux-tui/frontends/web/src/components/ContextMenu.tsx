@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { ContextMenuPoint } from "../lib/contextMenu";
 
@@ -14,7 +14,15 @@ interface ContextMenuProps {
   onClose(): void;
 }
 
-export function ContextMenu({ point, items, onClose }: ContextMenuProps) {
+interface MenuPopoverProps {
+  point: ContextMenuPoint;
+  onClose(): void;
+  children: ReactNode;
+  className?: string;
+  ariaLabel?: string;
+}
+
+export function MenuPopover({ point, onClose, children, className, ariaLabel }: MenuPopoverProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState(point);
 
@@ -55,12 +63,22 @@ export function ContextMenu({ point, items, onClose }: ContextMenuProps) {
 
   return createPortal(
     <div
-      className="context-menu"
+      className={`context-menu${className ? ` ${className}` : ""}`}
+      aria-label={ariaLabel}
       onKeyDown={moveFocus}
       ref={menuRef}
       role="menu"
       style={{ left: position.x, top: position.y }}
     >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+export function ContextMenu({ point, items, onClose }: ContextMenuProps) {
+  return (
+    <MenuPopover point={point} onClose={onClose}>
       {items.map((item) => (
         <button
           className={item.danger ? "danger" : undefined}
@@ -75,7 +93,6 @@ export function ContextMenu({ point, items, onClose }: ContextMenuProps) {
           {item.label}
         </button>
       ))}
-    </div>,
-    document.body,
+    </MenuPopover>
   );
 }
