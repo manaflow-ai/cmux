@@ -122,6 +122,21 @@ if not match:
 print(match.group(1))
 PY
 )"
+
+write_zig_stub "99.99.99"
+if CMUX_ZIG_VERSION_CHECKED=1 \
+  CMUX_REQUIRED_ZIG_VERSION=99.99.99 \
+  PATH="$BIN_DIR:/usr/bin:/bin" \
+  "$SCRIPT" >"$TMP_DIR/ambient-bypass.out" 2>&1; then
+  echo "FAIL: legacy environment overrides bypassed Ghostty's Zig requirement"
+  exit 1
+fi
+if ! grep -Fq "found 99.99.99" "$TMP_DIR/ambient-bypass.out"; then
+  cat "$TMP_DIR/ambient-bypass.out"
+  echo "FAIL: runtime bypass test did not exercise the incompatible Zig path"
+  exit 1
+fi
+
 write_zig_stub "$REQUIRED_FROM_GHOSTTY"
 if ! PATH="$BIN_DIR:/usr/bin:/bin" "$SCRIPT" >"$TMP_DIR/from-ghostty.out" 2>&1; then
   cat "$TMP_DIR/from-ghostty.out"
