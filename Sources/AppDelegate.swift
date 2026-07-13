@@ -1617,7 +1617,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        let socketPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+        let socketPath = TerminalController.shared.activeSocketPath(preferredPath: config.preferredSocketPath)
         let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
         let pingResponse = health.isHealthy
             ? socketTransport.probeCommand("ping", at: socketPath, timeout: 1.0)
@@ -1629,7 +1629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         payload["socketExpectedPath"] = socketPath
-        payload["socketMode"] = config.mode.rawValue
+        payload["socketMode"] = config.accessMode.rawValue
         payload["socketReady"] = isReady ? "1" : "0"
         payload["socketPingResponse"] = pingResponse ?? ""
         payload["socketIsRunning"] = health.isRunning ? "1" : "0"
@@ -2936,7 +2936,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
-            let expectedPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+            let expectedPath = TerminalController.shared.activeSocketPath(
+                preferredPath: config.preferredSocketPath
+            )
             let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: expectedPath)
             let pingResponse = health.isHealthy
                 ? socketTransport.probeCommand("ping", at: expectedPath, timeout: 1.0)
@@ -12167,14 +12169,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         writeMultiWindowNotificationTestData([
-            "socketExpectedPath": config.path,
-            "socketMode": config.mode.rawValue,
+            "socketExpectedPath": config.preferredSocketPath,
+            "socketMode": config.accessMode.rawValue,
             "socketReady": "pending",
             "socketPingResponse": "",
         ], at: path)
 
-        let socketPath = config.path
-        let socketMode = config.mode.rawValue
+        let socketPath = config.preferredSocketPath
+        let socketMode = config.accessMode.rawValue
         var observer: NSObjectProtocol?
         var timeoutWorkItem: DispatchWorkItem?
 
