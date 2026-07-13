@@ -183,7 +183,7 @@ struct WorkspaceDetailView: View {
                 .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .foregroundStyle(TerminalPalette.chromeForeground(for: store.activeTerminalTheme))
+                .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
         } else {
             WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
         }
@@ -214,7 +214,7 @@ struct WorkspaceDetailView: View {
                     // config + recolors the mounted surface in place (background,
                     // letterbox, default cell colors) without a remount, so
                     // scrollback survives a theme change.
-                    themeGeneration: store.terminalThemeGeneration
+                    configThemeGeneration: store.terminalConfigThemeGeneration
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
@@ -225,14 +225,14 @@ struct WorkspaceDetailView: View {
                 //
                 // The theme is NOT folded into the identity: a theme change recolors
                 // the live surface in place (config rebuild + view recolor driven by
-                // `themeGeneration`), so remounting would only throw away scrollback
+                // `configThemeGeneration`), so remounting would only throw away scrollback
                 // for no visual benefit.
                 .id(terminalID)
                 .onAppear {
                     store.consumeTerminalAutoFocusSuppression(for: terminalID)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(TerminalPalette.background(for: store.activeTerminalTheme))
+                .background(store.activeTerminalTheme.terminalBackgroundColor)
                 // The surface positions its grid + docked toolbar from
                 // `keyboardHeight` directly, so opt out of SwiftUI keyboard
                 // avoidance; otherwise the view ALSO shrinks for the keyboard
@@ -241,11 +241,11 @@ struct WorkspaceDetailView: View {
                 // Keep the grid clear of the Dynamic Island and nav bar.
                 .padding(.top, terminalTopPadding)
             } else {
-                TerminalPalette.background(for: store.activeTerminalTheme)
+                store.activeTerminalTheme.terminalBackgroundColor
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             #else
-            TerminalPalette.background(for: store.activeTerminalTheme)
+            store.activeTerminalTheme.terminalBackgroundColor
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
@@ -293,11 +293,11 @@ struct WorkspaceDetailView: View {
         )
         .background {
             // Fill under translucent chrome with the terminal's own color.
-            TerminalPalette.background(for: store.activeTerminalTheme)
+            store.activeTerminalTheme.terminalBackgroundColor
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
         #else
-        .background(TerminalPalette.background(for: store.activeTerminalTheme))
+        .background(store.activeTerminalTheme.terminalBackgroundColor)
         #endif
         #if !os(iOS)
         .navigationTitle(systemNavigationTitle)
@@ -348,7 +348,7 @@ struct WorkspaceDetailView: View {
             Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
                 .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.chromeForeground(for: store.activeTerminalTheme))
+        .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
         .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }

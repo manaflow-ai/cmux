@@ -18,12 +18,12 @@ extension View {
     @ViewBuilder
     func mobileTerminalNavigationChrome(theme: TerminalTheme? = nil) -> some View {
         #if os(iOS)
-        let colorScheme = theme.map { TerminalPalette.colorScheme(for: $0) } ?? .dark
+        let colorScheme = theme.map { $0.terminalColorScheme } ?? .dark
         if let theme {
             self
                 .navigationBarTitleDisplayMode(.inline)
                 .preferredColorScheme(colorScheme)
-                .toolbarBackground(TerminalPalette.background(for: theme), for: .navigationBar)
+                .toolbarBackground(theme.terminalBackgroundColor, for: .navigationBar)
                 .toolbarBackground(.visible, for: .navigationBar)
                 .toolbarColorScheme(colorScheme, for: .navigationBar)
         } else {

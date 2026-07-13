@@ -18,6 +18,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// without holding a reference to the specific surface.
     private static weak var activeInputSurface: GhosttySurfaceView?
     private weak var runtime: GhosttyRuntime?
+    /// Renderer-effective colors used by this surface and its UIKit chrome.
     public var terminalTheme: TerminalTheme = .monokai {
         didSet { if terminalTheme != oldValue { inputProxy.terminalTheme = terminalTheme; refreshThemeColors() } }
     }
@@ -26,6 +27,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// This remains separate from ``terminalTheme``, which includes dynamic
     /// reverse-video and OSC colors used by surrounding UIKit chrome.
     public var terminalConfigTheme: TerminalTheme = .monokai
+    private var appliedTerminalConfigTheme: TerminalTheme?
     weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
     /// Surface-owned live font size (points). Zoom mutates this; it is the
@@ -595,7 +597,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // hardcoded color, so a fresh mount already shows the Mac's background and
         // a later theme change can recolor it live. The effective theme stays
         // authoritative because raw config defaults can differ under reverse video.
-        backgroundColor = GhosttyRuntime.backgroundUIColor(for: terminalTheme)
+        backgroundColor = terminalTheme.terminalBackgroundUIColor
         isOpaque = true
         clipsToBounds = true
         #if DEBUG
@@ -1839,28 +1841,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         processOutput(data, completion: nil)
     }
 
-    /// Process terminal output and return after the output has been applied.
-    ///
-    /// The call still performs libghostty output processing on the serial
-    /// background output queue. The returned async boundary lets callers apply
-    /// per-surface backpressure without blocking the main actor while Ghostty
-    /// consumes the chunk.
-    /// - Parameter data: VT or PTY bytes to feed into the surface.
-    /// - Returns: `true` when the bytes reached the current surface generation,
-    ///   or `false` when the caller should reset its delivery queue and replay.
-    @discardableResult
-    public func processOutputAndWait(_ data: Data) async -> Bool {
-        return await withCheckedContinuation { continuation in
-            let operationID = registerPendingOutputApply(
-                byteCount: data.count,
-                continuation: continuation
-            )
-            processOutput(data) { [weak self] applied in
-                self?.completePendingOutputApply(id: operationID, returning: applied)
-            }
-        }
-    }
-
     private func makeSurfaceOperationID() -> UInt64 {
         nextSurfaceOperationID &+= 1
         return nextSurfaceOperationID
@@ -1871,7 +1851,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         startDisplayLink()
     }
 
-    private func registerPendingOutputApply(
+    func registerPendingOutputApply(
         byteCount: Int,
         continuation: CheckedContinuation<Bool, Never>
     ) -> UInt64 {
@@ -1893,7 +1873,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @discardableResult
-    private func completePendingOutputApply(id: UInt64, returning result: Bool) -> Bool {
+    func completePendingOutputApply(id: UInt64, returning result: Bool) -> Bool {
         guard let pending = pendingOutputApply, pending.id == id else { return false }
         pendingOutputApply = nil
         pending.continuation.resume(returning: result)
@@ -1976,8 +1956,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return true
     }
 
-    private func processOutput(
+    func processOutput(
         _ data: Data,
+        terminalConfigTheme outputConfigTheme: TerminalTheme? = nil,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
         guard !renderPipelineRecoveryPaused else {
@@ -2005,6 +1986,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         let forwarded = Self.forwardDaemonOutputBytes(data)
         let generation = surfaceGeneration
+        let outputConfigTheme = outputConfigTheme?.validatedOrDefault()
+        let configThemeToApply = outputConfigTheme.flatMap { theme in
+            appliedTerminalConfigTheme == theme ? nil : theme
+        }
+        let preparedConfigBits = configThemeToApply
+            .flatMap { runtime?.makeThemeConfig($0) }
+            .map { Int(bitPattern: $0) }
+        if let outputConfigTheme, preparedConfigBits != nil {
+            appliedTerminalConfigTheme = outputConfigTheme
+        }
         // Track the host's cursor-visible mode (DECTCEM) straight from the VT
         // bytes the surface is about to apply, so the cursor overlay can match a
         // TUI that hides the cursor. nil = this delta carried no DECTCEM, so the
@@ -2019,6 +2010,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
         workQueue.async { [weak self] in
+            if let preparedConfigBits,
+               let preparedConfig = ghostty_config_t(bitPattern: preparedConfigBits) {
+                ghostty_surface_update_theme_config(surface, preparedConfig)
+                ghostty_config_free(preparedConfig)
+            }
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
@@ -2427,7 +2423,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         surface = makeSurface(app: app)
         if let surface {
             GhosttySurfaceView.register(surface: surface, for: self)
-            GhosttyRuntime.applyTheme(terminalConfigTheme, to: self)
+            appliedTerminalConfigTheme = nil
+            applyTerminalConfigTheme()
             // Hide the snapshot fallback immediately. The Metal renderer
             // handles all rendering once the surface exists.
             snapshotFallbackView.isHidden = true
@@ -2731,8 +2728,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             height: ceil(cellHeight)
         )
         overlay.backgroundColor = cursorBlinkState.isVisible
-            ? (configCursorColor ?? GhosttyRuntime.cursorUIColor(for: terminalTheme)).cgColor
-            : (configBackgroundColor ?? GhosttyRuntime.backgroundUIColor(for: terminalTheme)).cgColor
+            ? (configCursorColor ?? terminalTheme.terminalCursorUIColor).cgColor
+            : (configBackgroundColor ?? terminalTheme.terminalBackgroundUIColor).cgColor
         overlay.isHidden = false
     }
 
@@ -2760,19 +2757,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Recolors the surface, fallback, cursor, and input accessory in place.
     @MainActor
     func refreshThemeColors() {
-        let themeBackground = GhosttyRuntime.backgroundUIColor(for: terminalTheme)
+        let themeBackground = terminalTheme.terminalBackgroundUIColor
         backgroundColor = themeBackground
         snapshotFallbackView.backgroundColor = themeBackground
-        snapshotFallbackView.textColor = GhosttyRuntime.foregroundUIColor(for: terminalTheme)
+        snapshotFallbackView.textColor = terminalTheme.terminalForegroundUIColor
         configBackgroundColor = themeBackground
-        configCursorColor = GhosttyRuntime.cursorUIColor(for: terminalTheme)
+        configCursorColor = terminalTheme.terminalCursorUIColor
         inputProxy.terminalTheme = terminalTheme
         updateCursorOverlay()
         needsDraw = true
     }
 
-    func applyThemeConfig(_: ghostty_config_t) {
+    func applyTerminalConfigTheme(_ theme: TerminalTheme, force: Bool) {
+        guard surface != nil else { return }
+        let configTheme = theme.validatedOrDefault()
+        guard force || appliedTerminalConfigTheme != configTheme else { return }
+        appliedTerminalConfigTheme = configTheme
         refreshThemeColors()
+        runtime?.applyTheme(configTheme, to: self)
     }
 
     func setFocus(_ focused: Bool) {
@@ -3430,8 +3432,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func applySnapshotFallbackTheme(from attributedText: NSAttributedString) {
         guard attributedText.length > 0 else {
-            snapshotFallbackView.backgroundColor = GhosttyRuntime.backgroundUIColor(for: terminalTheme)
-            snapshotFallbackView.textColor = GhosttyRuntime.foregroundUIColor(for: terminalTheme)
+            snapshotFallbackView.backgroundColor = terminalTheme.terminalBackgroundUIColor
+            snapshotFallbackView.textColor = terminalTheme.terminalForegroundUIColor
             return
         }
 
@@ -3439,7 +3441,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if let background = attributedText.attribute(.backgroundColor, at: probeIndex, effectiveRange: nil) as? UIColor {
             snapshotFallbackView.backgroundColor = background
         } else {
-            snapshotFallbackView.backgroundColor = GhosttyRuntime.backgroundUIColor(for: terminalTheme)
+            snapshotFallbackView.backgroundColor = terminalTheme.terminalBackgroundUIColor
         }
     }
 

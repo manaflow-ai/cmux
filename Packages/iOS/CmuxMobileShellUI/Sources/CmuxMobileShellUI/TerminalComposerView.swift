@@ -154,7 +154,7 @@ struct TerminalComposerView: View {
 
     var body: some View {
         composerSurface
-        .environment(\.colorScheme, TerminalPalette.colorScheme(for: store.activeTerminalTheme))
+        .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
         // The field is pinned edge-to-edge inside the surface's composer band, so its
         // outer size is locked to the band height and cannot report its own growth.
         // The field's height is driven solely by its content, so ask the host to
@@ -287,7 +287,7 @@ struct TerminalComposerView: View {
                 MobileComposerIconButton(
                     systemImage: "paperclip",
                     foregroundStyle: AnyShapeStyle(
-                        TerminalPalette.chromeForeground(for: store.activeTerminalTheme).opacity(0.78)
+                        store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)
                     ),
                     size: controlHeight,
                     accessibilityIdentifier: "MobileComposerAttach",
@@ -328,7 +328,7 @@ struct TerminalComposerView: View {
                     // transcript; the mic toggle and send stay live (send
                     // hard-cancels dictation -> idle, re-enabling the field).
                     .disabled(dictation.locksComposerField)
-                    .foregroundStyle(TerminalPalette.foreground(for: store.activeTerminalTheme))
+                    .foregroundStyle(store.activeTerminalTheme.terminalForegroundColor)
                     // 6pt container padding + 3pt here keeps the text's 9pt inset
                     // from the round-7 layout, and bottom-aligns the single-line text
                     // with the inline button's circle.
@@ -344,7 +344,7 @@ struct TerminalComposerView: View {
                             .foregroundStyle(
                                 canSend
                                     ? .white
-                                    : TerminalPalette.foreground(for: store.activeTerminalTheme).opacity(0.35)
+                                    : store.activeTerminalTheme.terminalForegroundColor.opacity(0.35)
                             )
                             .frame(width: inlineSendDiameter, height: inlineSendDiameter)
                             .background(
@@ -352,7 +352,7 @@ struct TerminalComposerView: View {
                                     canSend
                                         ? AnyShapeStyle(Color.accentColor)
                                         : AnyShapeStyle(
-                                            TerminalPalette.foreground(for: store.activeTerminalTheme).opacity(0.12)
+                                            store.activeTerminalTheme.terminalForegroundColor.opacity(0.12)
                                         )
                                 )
                             )
@@ -394,7 +394,7 @@ struct TerminalComposerView: View {
             isActive: listening,
             foregroundStyle: listening
                 ? AnyShapeStyle(Color.red)
-                : AnyShapeStyle(TerminalPalette.chromeForeground(for: store.activeTerminalTheme).opacity(0.78)),
+                : AnyShapeStyle(store.activeTerminalTheme.terminalChromeForegroundColor.opacity(0.78)),
             size: controlHeight,
             pulsesWhenActive: true,
             isDisabled: !dictation.isAvailable,
@@ -805,7 +805,7 @@ private struct AttachmentChip: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(TerminalPalette.foreground(for: theme).opacity(0.15), lineWidth: 1)
+                        .strokeBorder(theme.terminalForegroundColor.opacity(0.15), lineWidth: 1)
                 )
 
             Button(action: onRemove) {
@@ -829,10 +829,10 @@ private struct AttachmentChip: View {
                 .scaledToFill()
         } else {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(TerminalPalette.foreground(for: theme).opacity(0.12))
+                .fill(theme.terminalForegroundColor.opacity(0.12))
                 .overlay(
                     Image(systemName: "photo")
-                        .foregroundStyle(TerminalPalette.foreground(for: theme).opacity(0.5))
+                        .foregroundStyle(theme.terminalForegroundColor.opacity(0.5))
                 )
         }
     }

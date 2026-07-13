@@ -2,8 +2,8 @@
 import UIKit
 
 extension UIColor {
-    static func terminalReadableForeground(on background: UIColor) -> UIColor {
-        background.terminalPrefersDarkForeground ? .black : .white
+    var terminalReadableForeground: UIColor {
+        terminalPrefersDarkForeground ? .black : .white
     }
 
     var terminalPrefersDarkForeground: Bool {

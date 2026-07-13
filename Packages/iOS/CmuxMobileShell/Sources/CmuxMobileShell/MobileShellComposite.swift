@@ -333,11 +333,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var activeTerminalTheme: TerminalTheme = .monokai
     /// Raw Ghostty defaults, kept separate so OSC resets exclude dynamic colors.
     public internal(set) var activeTerminalConfigTheme: TerminalTheme = .monokai
-    /// Bumped whenever the selected surface's terminal theme actually changes.
-    /// The mounted representable observes this and updates only its Ghostty
-    /// surface plus SwiftUI/UIKit chrome without remounting, preserving
-    /// scrollback and other scenes' independent themes.
+    /// Bumped when the selected effective theme changes so mounted chrome repaints without remounting.
     public internal(set) var terminalThemeGeneration: UInt64 = 0
+    /// Bumped only when the selected surface's raw Ghostty defaults change.
+    public internal(set) var terminalConfigThemeGeneration: UInt64 = 0
     /// The composer's live draft for the currently selected terminal.
     ///
     /// Edits are persisted per-terminal through the FIFO draft pipeline on every

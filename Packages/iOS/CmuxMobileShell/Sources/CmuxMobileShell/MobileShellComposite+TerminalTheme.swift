@@ -33,6 +33,15 @@ extension MobileShellComposite {
         }
     }
 
+    func hasCurrentTerminalThemeRevision(_ frame: MobileTerminalRenderGridFrame) -> Bool {
+        guard frame.full,
+              let currentRevision = terminalThemeState.revisionsBySurfaceID[frame.surfaceID] else {
+            return true
+        }
+        guard let revision = frame.terminalThemeRevision else { return false }
+        return revision >= currentRevision
+    }
+
     /// Returns the most recent theme for one surface, falling back to the
     /// connected Mac's host-wide theme before its first full frame arrives.
     func terminalTheme(for surfaceID: String) -> TerminalTheme {
@@ -89,19 +98,14 @@ extension MobileShellComposite {
     }
 
     private func setActiveTerminalThemes(chrome: TerminalTheme, config: TerminalTheme) {
-        guard activeTerminalTheme != chrome || activeTerminalConfigTheme != config else { return }
-        activeTerminalTheme = chrome
-        activeTerminalConfigTheme = config
-        terminalThemeGeneration &+= 1
+        if activeTerminalTheme != chrome {
+            activeTerminalTheme = chrome
+            terminalThemeGeneration &+= 1
+        }
+        if activeTerminalConfigTheme != config {
+            activeTerminalConfigTheme = config
+            terminalConfigThemeGeneration &+= 1
+        }
     }
 
-    #if DEBUG
-    /// Feeds a full render-grid frame into the production per-surface theme
-    /// recorder for simulator artifact tests. This symbol is absent in release
-    /// builds; production frames reach the same recorder through terminal output
-    /// delivery.
-    public func debugRecordTerminalTheme(from frame: MobileTerminalRenderGridFrame) {
-        recordTerminalTheme(frame)
-    }
-    #endif
 }

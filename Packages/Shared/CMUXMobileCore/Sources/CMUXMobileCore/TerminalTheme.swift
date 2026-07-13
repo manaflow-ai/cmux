@@ -11,14 +11,6 @@ import Foundation
 ///
 /// Use ``monokai`` as the built-in default when no theme has been supplied.
 public struct TerminalTheme: Codable, Equatable, Sendable {
-    /// A Ghostty color resolved from the cell beneath a cursor or selection.
-    public enum CellRelativeColor: String, Codable, Equatable, Sendable {
-        /// Use the rendered cell foreground.
-        case foreground = "cell-foreground"
-        /// Use the rendered cell background.
-        case background = "cell-background"
-    }
-
     /// Terminal background color (`#rrggbb`).
     public var background: String
     /// Terminal foreground color (`#rrggbb`).

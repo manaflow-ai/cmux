@@ -230,8 +230,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             refreshThemeColors()
         }
     }
-    private var themeBarColor: UIColor { GhosttyRuntime.backgroundUIColor(for: terminalTheme) }
-    private var themeChromeColor: UIColor { .terminalReadableForeground(on: themeBarColor) }
+    private var themeBarColor: UIColor { terminalTheme.terminalBackgroundUIColor }
+    private var themeChromeColor: UIColor { themeBarColor.terminalReadableForeground }
     private static let accessoryHorizontalInset: CGFloat = 16
     private static let accessoryButtonFont = UIFont.systemFont(ofSize: 14, weight: .medium)
     /// One shared SF Symbol config for every icon on the bar (paste, zoom,
@@ -1026,7 +1026,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         config.contentInsets = Self.accessoryButtonContentInsets
         button.configuration = config
         if let actionButton = button as? AccessoryActionButton {
-            actionButton.stickyLockBorderColor = .terminalReadableForeground(on: .systemBlue)
+            actionButton.stickyLockBorderColor = UIColor.systemBlue.terminalReadableForeground
             // On iOS 26 the armed and sticky states share the same prominent-glass blue fill, so the double-tap *lock* is
             // distinguished by a white capsule border drawn over the glass (see
             // ``AccessoryActionButton/isStickyLocked``). On earlier OSes the
@@ -1043,7 +1043,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     private func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
         let activeBackground = UIColor.systemBlue
-        let activeForeground = UIColor.terminalReadableForeground(on: activeBackground)
+        let activeForeground = activeBackground.terminalReadableForeground
         if #available(iOS 26.0, *) {
             var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
             config.baseForegroundColor = armed || sticky ? activeForeground : themeChromeColor

@@ -3,17 +3,6 @@ import CmuxFoundation
 import CmuxTerminalCore
 import Foundation
 
-@MainActor
-enum MobileTerminalThemeFrameRevision {
-    nonisolated static let producerEpoch = UUID().uuidString
-    private static var current: UInt64 = 0
-
-    static func next() -> UInt64 {
-        current &+= 1
-        return current
-    }
-}
-
 extension TerminalTheme {
     /// Builds the wire ``TerminalTheme`` from the Mac's resolved terminal config.
     ///
@@ -85,9 +74,13 @@ extension TerminalTheme {
             background: app.defaultBackgroundColor.hexString(),
             foreground: app.defaultForegroundColor.hexString(),
             cursor: app.defaultCursorColor.hexString(),
+            cursorColorSemantic: resolvedConfigTheme.cursorColorSemantic,
             cursorText: resolvedConfigTheme.cursorText,
+            cursorTextSemantic: resolvedConfigTheme.cursorTextSemantic,
             selectionBackground: app.defaultSelectionBackground.hexString(),
+            selectionBackgroundSemantic: resolvedConfigTheme.selectionBackgroundSemantic,
             selectionForeground: app.defaultSelectionForeground.hexString(),
+            selectionForegroundSemantic: resolvedConfigTheme.selectionForegroundSemantic,
             palette: resolvedConfigTheme.palette
         ).validatedOrDefault()
     }
@@ -118,6 +111,7 @@ extension TerminalTheme {
         if let cursor = frame.terminalCursorColor,
            TerminalTheme.rgbComponents(cursor) != nil {
             resolved.cursor = cursor
+            resolved.cursorColorSemantic = nil
         }
         return resolved
     }

@@ -17,10 +17,10 @@ struct TerminalDisconnectedOverlay: View {
 
     var body: some View {
         ZStack {
-            Rectangle().fill(TerminalPalette.background(for: theme).opacity(0.82)).ignoresSafeArea()
+            Rectangle().fill(theme.terminalBackgroundColor.opacity(0.82)).ignoresSafeArea()
             VStack(spacing: 14) {
                 if status == .reconnecting {
-                    ProgressView().controlSize(.large).tint(TerminalPalette.chromeForeground(for: theme))
+                    ProgressView().controlSize(.large).tint(theme.terminalChromeForegroundColor)
                 } else {
                     Image(systemName: status.symbolName)
                         .font(.system(size: 42))
@@ -28,7 +28,7 @@ struct TerminalDisconnectedOverlay: View {
                 }
                 Text(status.label)
                     .font(.headline)
-                    .foregroundStyle(TerminalPalette.chromeForeground(for: theme))
+                    .foregroundStyle(theme.terminalChromeForegroundColor)
                 // The generic, always-accurate per-status description. We don't
                 // surface the store's classified `connectionError` here because
                 // it is a single global foreground/pairing error not keyed per
@@ -37,13 +37,13 @@ struct TerminalDisconnectedOverlay: View {
                 // Computers screen's per-route Ping instead.
                 Text(status.description)
                     .font(.subheadline)
-                    .foregroundStyle(TerminalPalette.chromeForeground(for: theme).opacity(0.85))
+                    .foregroundStyle(theme.terminalChromeForegroundColor.opacity(0.85))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                 if !host.isEmpty {
                     Text(host)
                         .font(.caption)
-                        .foregroundStyle(TerminalPalette.chromeForeground(for: theme).opacity(0.55))
+                        .foregroundStyle(theme.terminalChromeForegroundColor.opacity(0.55))
                         .lineLimit(1)
                 }
                 if status == .unavailable {

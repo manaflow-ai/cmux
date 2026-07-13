@@ -129,6 +129,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         bytes.append(oscColorOrResetBytes(10, reset: 110, frame.terminalForeground))
         bytes.append(oscColorOrResetBytes(11, reset: 111, frame.terminalBackground))
         bytes.append(oscColorOrResetBytes(12, reset: 112, frame.terminalCursorColor))
+        appendPaletteRestore(to: &bytes)
         bytes.append(sgrBytes(for: defaultStyle))
         // DECSC at home with the default pen resets each screen's saved
         // cursor to the RIS baseline; a stale DECSC from the reused surface

@@ -123,8 +123,8 @@ final class MobileTerminalZoomControlOverlay: UIView {
 
     /// Recolors this transient terminal control for the active surface theme.
     func applyTheme(_ theme: TerminalTheme) {
-        let background = GhosttyRuntime.backgroundUIColor(for: theme)
-        let foreground = UIColor.terminalReadableForeground(on: background)
+        let background = theme.terminalBackgroundUIColor
+        let foreground = background.terminalReadableForeground
         let isLight = background.terminalPrefersDarkForeground
         titleLabel.textColor = foreground
         titleChip.effect = UIBlurEffect(style: isLight ? .systemThinMaterialLight : .systemThinMaterialDark)

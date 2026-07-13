@@ -53,6 +53,11 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             frame.vtPatchBytes()
         }
     }
+
+    var terminalConfigTheme: TerminalTheme? {
+        guard case .renderGrid(let frame) = payload else { return nil }
+        return frame.terminalConfigTheme
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.

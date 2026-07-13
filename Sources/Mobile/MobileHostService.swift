@@ -293,7 +293,7 @@ enum MobileHostPortApplyOutcome: Equatable {
 final class MobileHostService {
     static let shared = MobileHostService()
     nonisolated private static let maximumActiveConnectionCount = 10
-
+    nonisolated private static let terminalThemeRevisionEpoch = UUID().uuidString
     /// The single shape every public `mobile.host.status` reply uses (the
     /// public-status cache, the network status gate, and
     /// `TerminalController`'s no-private-metadata branch), so the fields
@@ -311,9 +311,8 @@ final class MobileHostService {
         // the built-in Monokai default.
         let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.load())
         return [
-            "routes": routesPayload,
-            "terminal_fidelity": "render_grid",
-            "capabilities": mobileHostCapabilities, "terminal_theme_revision_epoch": MobileTerminalThemeFrameRevision.producerEpoch,
+            "routes": routesPayload, "terminal_fidelity": "render_grid",
+            "capabilities": mobileHostCapabilities,
             "theme": theme.mobileHostJSONObject,
         ]
     }
@@ -325,6 +324,7 @@ final class MobileHostService {
     /// the connection, and which app instance owns its routes.
     nonisolated static func identityStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
         var payload = publicStatusPayload(routesPayload: routesPayload)
+        payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
         if let displayName = MobileHostIdentity.instanceDisplayName() {

@@ -101,35 +101,16 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     }
 
     private func runThemeParitySequence() async {
-        applyRenderGridTheme(Self.theme(background: "#101522", foreground: "#e6edf3"), stateSeq: 1)
+        store.applyTerminalTheme(themeParityTheme(background: "#101522", foreground: "#e6edf3"))
         themeStage = "dark"
         try? await ContinuousClock().sleep(for: .seconds(3))
         guard !Task.isCancelled else { return }
-        applyRenderGridTheme(Self.theme(background: "#f4f0df", foreground: "#17212b"), stateSeq: 2)
+        store.applyTerminalTheme(themeParityTheme(background: "#f4f0df", foreground: "#17212b"))
         themeStage = "light"
         try? await ContinuousClock().sleep(for: .seconds(3))
         guard !Task.isCancelled else { return }
-        applyRenderGridTheme(Self.theme(background: "#063f46", foreground: "#fff2a8"), stateSeq: 3)
+        store.applyTerminalTheme(themeParityTheme(background: "#063f46", foreground: "#fff2a8"))
         themeStage = "custom"
-    }
-
-    private func applyRenderGridTheme(_ theme: TerminalTheme, stateSeq: UInt64) {
-        guard let frame = try? MobileTerminalRenderGridFrame(
-            surfaceID: Self.terminalID.rawValue,
-            stateSeq: stateSeq,
-            columns: 48,
-            rows: 6,
-            rowSpans: [],
-            terminalTheme: theme
-        ) else { return }
-        store.debugRecordTerminalTheme(from: frame)
-    }
-
-    private static func theme(background: String, foreground: String) -> TerminalTheme {
-        var theme = TerminalTheme.monokai
-        theme.background = background
-        theme.foreground = foreground
-        return theme
     }
 
     private static var usesRefreshingTerminalMenu: Bool {
@@ -174,5 +155,14 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     private static func refreshingTerminalID(_ index: Int) -> MobileTerminalPreview.ID {
         index == 0 ? "terminal-build" : MobileTerminalPreview.ID(rawValue: "terminal-extra-\(index)")
     }
+
+}
+
+// lint:allow free-function — pure DEBUG fixture factory with no production dependencies.
+private func themeParityTheme(background: String, foreground: String) -> TerminalTheme {
+    var theme = TerminalTheme.monokai
+    theme.background = background
+    theme.foreground = foreground
+    return theme
 }
 #endif

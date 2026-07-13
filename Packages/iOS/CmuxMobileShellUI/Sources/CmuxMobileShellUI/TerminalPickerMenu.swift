@@ -25,7 +25,7 @@ struct TerminalPickerMenu: View, Equatable {
             )
             .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.chromeForeground(for: terminalTheme))
+        .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(value.selectedName ?? "")

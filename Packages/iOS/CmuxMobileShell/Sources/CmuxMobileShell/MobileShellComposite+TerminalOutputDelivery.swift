@@ -214,6 +214,12 @@ extension MobileShellComposite {
         bypassReplayBarrier: Bool = false
     ) -> Bool {
         recordTerminalTheme(frame)
+        guard hasCurrentTerminalThemeRevision(frame) else {
+            MobileDebugLog.anchormux(
+                "sync.render_grid_stale_theme surface=\(frame.surfaceID) revision=\(frame.terminalThemeRevision ?? 0)"
+            )
+            return false
+        }
         return deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,
@@ -295,7 +301,8 @@ extension MobileShellComposite {
                 MobileTerminalOutputChunk(
                     data: immediate.bytes,
                     streamToken: streamToken,
-                    viewportPolicy: immediate.viewportPolicy
+                    viewportPolicy: immediate.viewportPolicy,
+                    terminalConfigTheme: immediate.terminalConfigTheme
                 )
             )
         }
@@ -379,7 +386,8 @@ extension MobileShellComposite {
         continuation.yield(MobileTerminalOutputChunk(
             data: next.bytes,
             streamToken: streamToken,
-            viewportPolicy: next.viewportPolicy
+            viewportPolicy: next.viewportPolicy,
+            terminalConfigTheme: next.terminalConfigTheme
         ))
     }
 

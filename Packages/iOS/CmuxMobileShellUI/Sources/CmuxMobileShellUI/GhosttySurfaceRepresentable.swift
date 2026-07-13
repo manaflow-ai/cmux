@@ -40,9 +40,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var terminalTheme: TerminalTheme
     /// Raw Mac Ghostty defaults installed into the local mirror surface.
     var terminalConfigTheme: TerminalTheme
-    /// The store's terminal-theme generation. This drives a surface-local
+    /// The store's raw config generation. This drives a surface-local
     /// Ghostty config update without remounting or changing another scene.
-    var themeGeneration: UInt64 = 0
+    var configThemeGeneration: UInt64 = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -55,8 +55,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         } catch {
             let fallback = UILabel()
             fallback.numberOfLines = 0
-            fallback.textColor = GhosttyRuntime.foregroundUIColor(for: terminalTheme)
-            fallback.backgroundColor = GhosttyRuntime.backgroundUIColor(for: terminalTheme)
+            fallback.textColor = terminalTheme.terminalForegroundUIColor
+            fallback.backgroundColor = terminalTheme.terminalBackgroundUIColor
             fallback.text = L10n.string(
                 "mobile.terminal.rendererFailed",
                 defaultValue: "Terminal renderer failed to start."
@@ -88,7 +88,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // math reads this flag, so it must never depend on that ordering contract.
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
-        context.coordinator.themeApplicationScheduler.seed(generation: themeGeneration)
+        context.coordinator.themeApplicationScheduler.seed(generation: configThemeGeneration)
         return view
     }
 
@@ -107,9 +107,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.setComposerMounted(isComposerActive)
         // Live theme change: apply a config only to this surface so other mounted
         // terminals keep their own palettes.
-        context.coordinator.themeApplicationScheduler.schedule(generation: themeGeneration) { [weak surfaceView] in
+        let scheduledConfigTheme = terminalConfigTheme
+        context.coordinator.themeApplicationScheduler.schedule(generation: configThemeGeneration) { [weak surfaceView] in
             guard let surfaceView else { return }
-            GhosttyRuntime.applyTheme(terminalConfigTheme, to: surfaceView)
+            surfaceView.applyTerminalConfigTheme(scheduledConfigTheme)
         }
         // A width change (rotation) is not a text change, so the field-content trigger
         // misses it. Re-measure the open composer here so the band height tracks the new
@@ -235,8 +236,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     case nil:
                         break
                     }
-                    if !chunk.data.isEmpty {
-                        let applied = await surfaceView.processOutputAndWait(chunk.data)
+                    if let chunkConfigTheme = chunk.terminalConfigTheme,
+                       chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+                        store.terminalOutputDidReset(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                        continue
+                    }
+                    if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
+                        let applied = await surfaceView.processOutputAndWait(
+                            chunk.data,
+                            terminalConfigTheme: chunk.terminalConfigTheme
+                        )
                         guard applied else {
                             store.terminalOutputDidReset(
                                 surfaceID: surfaceID,
