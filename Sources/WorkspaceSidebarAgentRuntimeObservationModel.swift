@@ -22,6 +22,10 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     @ObservationIgnored
     private var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
+#if DEBUG
+    var debugChangeObserverCount: Int { changeObservers.count }
+#endif
+
     /// Emits whenever any runtime map changes.
     func changes() -> AsyncStream<Void> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
