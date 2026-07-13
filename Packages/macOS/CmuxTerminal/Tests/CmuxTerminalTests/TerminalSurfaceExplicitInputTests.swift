@@ -43,15 +43,15 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
-    @Test func bindingActionsAlwaysNotifyThePaneHost() {
+    @Test func explicitBindingActionNotifiesWithoutChangingInternalBindingActions() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
 
         #expect(!fixture.surface.performBindingAction("scroll_to_bottom"))
-        #expect(fixture.paneHost.explicitInputCount == 1)
+        #expect(fixture.paneHost.explicitInputCount == 0)
 
         #expect(!fixture.surface.performExplicitInputBindingAction("paste_from_clipboard"))
-        #expect(fixture.paneHost.explicitInputCount == 2)
+        #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
     @Test func emptyInputDoesNotNotifyThePaneHost() {
@@ -84,7 +84,7 @@ struct TerminalSurfaceExplicitInputTests {
 
     private func makeFixture(
         initialInput: String? = nil,
-        preparePaneHost: @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
+        preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         onAttach: (() -> Void)? = nil
     ) -> (surface: TerminalSurface, paneHost: FakeTerminalSurfacePaneHost) {
         let nativeView = FakeTerminalSurfaceNativeView(

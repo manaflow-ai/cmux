@@ -393,7 +393,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         manualIO: Bool = false,
         manualInputHandler: (@Sendable (Data) -> Void)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
-        preparePaneHost: @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
+        preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
         self.id = id

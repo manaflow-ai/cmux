@@ -8679,7 +8679,6 @@ final class GhosttySurfaceScrollView: NSView {
             }
             self.scheduleAutomaticFirstResponderApply(reason: "surfaceDidBecomeReady")
         })
-
         observers.append(NotificationCenter.default.addObserver(
             forName: .workspaceRemoteConnectionPresentationDidChange,
             object: nil,
@@ -8692,10 +8691,11 @@ final class GhosttySurfaceScrollView: NSView {
             object: surfaceView,
             queue: .main
         ) { [weak self] _ in
-            self?.pendingExplicitWheelScroll = true
-            self?.cancelPendingNotificationScrollRestoreForUserInput()
+            MainActor.assumeIsolated {
+                self?.pendingExplicitWheelScroll = true
+                self?.cancelPendingNotificationScrollRestoreForUserInput()
+            }
         })
-
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttySearchFocus,
             object: nil,
