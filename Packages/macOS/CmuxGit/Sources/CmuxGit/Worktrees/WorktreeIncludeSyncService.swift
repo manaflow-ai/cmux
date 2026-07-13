@@ -182,7 +182,9 @@ public struct WorktreeIncludeSyncService: Sendable {
                 ? String(relativePath.dropLast())
                 : relativePath
             if excludedRelativePaths.contains(where: {
-                normalizedPath == $0 || normalizedPath.hasPrefix($0 + "/")
+                normalizedPath == $0
+                    || normalizedPath.hasPrefix($0 + "/")
+                    || $0.hasPrefix(normalizedPath + "/")
             }) {
                 diagnostics.append("Skipped reserved .worktreeinclude path: \(relativePath)")
                 continue

@@ -49,35 +49,26 @@ import Testing
         #expect((result.stderr?.utf8.count ?? 0) <= maximumOutputBytes)
     }
 
-    @Test func outputLimitClosesSiblingReaderHeldByDescendant() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func outputLimitDoesNotWaitForSiblingReaderHeldByDescendant() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-command-output-descendant-\(UUID().uuidString)",
             isDirectory: true
         )
-        let resultFile = root.appendingPathComponent("result.txt")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let watcher = FileWatcher(path: resultFile.path)
         let result = await runner.run(
             directory: root.path,
             executable: "perl",
             arguments: [
                 "-e",
-                "my $fifo = shift; pipe(my $ready_r, my $ready_w) or die $!; my $pid = fork(); if ($pid == 0) { close $ready_r; close STDOUT; $SIG{TERM} = 'IGNORE'; $SIG{HUP} = 'IGNORE'; $SIG{PIPE} = 'IGNORE'; syswrite($ready_w, '1'); close $ready_w; while (defined syswrite(STDERR, 'x' x 65536)) {} open my $out, '>', $fifo or die $!; print $out 'closed'; exit 0; } close $ready_w; sysread($ready_r, my $ready, 1); close $ready_r; while (1) { print STDOUT 'output\\n'; }",
-                resultFile.path,
+                "pipe(my $ready_r, my $ready_w) or die $!; my $pid = fork(); if ($pid == 0) { close $ready_r; close STDOUT; $SIG{TERM} = 'IGNORE'; $SIG{HUP} = 'IGNORE'; $SIG{PIPE} = 'IGNORE'; syswrite($ready_w, '1'); close $ready_w; while (defined syswrite(STDERR, 'x' x 65536)) {} exit 0; } close $ready_w; sysread($ready_r, my $ready, 1); close $ready_r; while (1) { print STDOUT 'output\\n'; }",
             ],
             maximumOutputBytes: 1_024,
             timeout: 5
         )
-        for await _ in watcher.events {
-            let size = try? resultFile.resourceValues(forKeys: [.fileSizeKey]).fileSize
-            if (size ?? 0) > 0 { break }
-        }
-        await watcher.stop()
-        let observedPipeState = try String(contentsOf: resultFile, encoding: .utf8)
 
         #expect(result.outputLimitExceeded == true)
-        #expect(observedPipeState == "closed")
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -122,7 +113,7 @@ import Testing
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func commandRunnerUsesExplicitGroupFallbackAfterImmediateLeaderExit() async throws {
+    func commandRunnerReportsLostOwnershipAfterImmediateLeaderExit() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-command-orphan-cancellation-\(UUID().uuidString)",
             isDirectory: true
@@ -163,11 +154,24 @@ import Testing
         compiler.waitUntilExit()
         #expect(compiler.terminationStatus == 0)
 
+        let sentinel = Process()
+        sentinel.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sentinel.arguments = ["30"]
+        try sentinel.run()
+        let sentinelGroupID = getpgid(sentinel.processIdentifier)
+        #expect(sentinelGroupID == sentinel.processIdentifier)
+        defer {
+            if sentinel.isRunning {
+                _ = kill(sentinel.processIdentifier, SIGKILL)
+                sentinel.waitUntilExit()
+            }
+        }
+
         let runner = CommandRunner(
             standardInputWriterFactory: CommandStandardInputWriter.init,
             processGroupResolver: { process in
                 process.waitUntilExit()
-                return process.processIdentifier
+                return sentinelGroupID
             }
         )
         let command = Task {
@@ -197,8 +201,46 @@ import Testing
         command.cancel()
         let result = await command.value
 
-        #expect(result.executionError == "Command cancelled.")
-        #expect(kill(pid, 0) == -1)
-        #expect(errno == ESRCH)
+        #expect(result.executionError == "Command cancelled, but its process tree did not exit.")
+        #expect(kill(pid, 0) == 0)
+        #expect(kill(sentinel.processIdentifier, 0) == 0)
+    }
+
+    @Test func processTreeEscalationDoesNotDelayOrResignalGroup() async {
+        let signalRecorder = ProcessSignalRecorder()
+        let process = Process()
+
+        let processTreeExited = await withCheckedContinuation { continuation in
+            CommandProcessTreeTerminator.terminate(
+                process,
+                processGroupID: 42,
+                completionWaitSeconds: 1,
+                signalProcessGroup: signalRecorder.record,
+                ownsProcessGroup: { _, _ in true },
+                processGroupExists: { _ in false },
+                completion: { continuation.resume(returning: $0) }
+            )
+        }
+
+        #expect(processTreeExited)
+        #expect(signalRecorder.snapshot() == [SIGKILL])
+    }
+
+    @Test func processTreeExitPollingHasFiniteFailureResult() async {
+        let process = Process()
+
+        let processTreeExited = await withCheckedContinuation { continuation in
+            CommandProcessTreeTerminator.terminate(
+                process,
+                processGroupID: 42,
+                completionWaitSeconds: 0.02,
+                signalProcessGroup: { _, _ in },
+                ownsProcessGroup: { _, _ in true },
+                processGroupExists: { _ in true },
+                completion: { continuation.resume(returning: $0) }
+            )
+        }
+
+        #expect(!processTreeExited)
     }
 }

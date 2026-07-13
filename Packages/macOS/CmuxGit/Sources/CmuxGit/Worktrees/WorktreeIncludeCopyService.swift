@@ -3,13 +3,6 @@ import Foundation
 
 /// Copies selected worktree paths with aggregate item, byte, disk, and cancellation guards.
 struct WorktreeIncludeCopyService: Sendable {
-    private static let resourceKeys: Set<URLResourceKey> = [
-        .fileSizeKey,
-        .isDirectoryKey,
-        .isRegularFileKey,
-        .isSymbolicLinkKey,
-    ]
-
     // FileManager operations used here are documented thread-safe, and this
     // immutable injected instance has no delegate or mutable caller-owned state.
     private nonisolated(unsafe) let fileManager: FileManager
@@ -48,6 +41,14 @@ struct WorktreeIncludeCopyService: Sendable {
         var copiedItemCount = 0
         var copiedByteCount: Int64 = 0
         var createdItems: [WorktreeIncludeCreatedItem] = []
+        let sourceRoot: WorktreeIncludeSourceRoot
+        do {
+            sourceRoot = try WorktreeIncludeSourceRoot(rootURL: source)
+        } catch {
+            return [
+                "Skipped .worktreeinclude copy because the source root could not be opened safely: \(error.localizedDescription)"
+            ]
+        }
 
         for relativePath in relativePaths {
             if Task.isCancelled {
@@ -55,7 +56,13 @@ struct WorktreeIncludeCopyService: Sendable {
             }
             let sourceItem = source.appendingPathComponent(relativePath).standardizedFileURL
             do {
-                try preflight(sourceItem, itemCount: &itemCount, byteCount: &byteCount)
+                try sourceRoot.preflight(
+                    sourceItem,
+                    fileManager: fileManager,
+                    limits: limits,
+                    itemCount: &itemCount,
+                    byteCount: &byteCount
+                )
                 copyablePaths.append(relativePath)
             } catch is CancellationError {
                 diagnostics.append("Cancelled .worktreeinclude copy before it completed.")
@@ -70,7 +77,6 @@ struct WorktreeIncludeCopyService: Sendable {
                 return diagnostics
             }
         }
-
         guard let availableCapacity = availableCapacity(destination) else {
             diagnostics.append(
                 "Skipped .worktreeinclude copy because the destination volume's available capacity could not be determined."
@@ -90,13 +96,12 @@ struct WorktreeIncludeCopyService: Sendable {
             )
             return diagnostics
         }
-
         let destinationRoot: WorktreeIncludeDestinationRoot
         do {
             destinationRoot = try WorktreeIncludeDestinationRoot(rootURL: destination)
         } catch {
             diagnostics.append(
-                "Skipped .worktreeinclude copy because the destination root could not be opened safely: \(error.localizedDescription)"
+                "Skipped .worktreeinclude copy because a checkout root could not be opened safely: \(error.localizedDescription)"
             )
             return diagnostics
         }
@@ -125,6 +130,7 @@ struct WorktreeIncludeCopyService: Sendable {
                     itemCount: &copiedItemCount,
                     byteCount: &copiedByteCount,
                     availableByteBudget: availableByteBudget,
+                    sourceRoot: sourceRoot,
                     destinationRoot: destinationRoot,
                     createdItems: &createdItems
                 )
@@ -162,57 +168,25 @@ struct WorktreeIncludeCopyService: Sendable {
                 }
                 break
             }
-            guard let source = directory.directoryMetadataSource,
+            guard let sourceRelativePath = directory.directoryMetadataSourceRelativePath,
                   (try? destinationRoot.itemExists(at: directory.relativePath)) == true else { continue }
             do {
+                let sourceDescriptor = try sourceRoot.openDirectory(at: sourceRelativePath)
+                defer { Darwin.close(sourceDescriptor) }
                 try destinationRoot.applySecurityMetadata(
-                    from: source,
+                    sourceDescriptor: sourceDescriptor,
                     to: directory.relativePath,
                     expectedDevice: directory.device,
                     expectedInode: directory.inode
                 )
             } catch {
+                let sourceName = URL(fileURLWithPath: sourceRelativePath).lastPathComponent
                 diagnostics.append(
-                    "Could not preserve .worktreeinclude directory metadata for \(source.lastPathComponent): \(error.localizedDescription)"
+                    "Could not preserve .worktreeinclude directory metadata for \(sourceName): \(error.localizedDescription)"
                 )
             }
         }
         return diagnostics
-    }
-
-    private func preflight(
-        _ sourceItem: URL,
-        itemCount: inout Int,
-        byteCount: inout Int64
-    ) throws {
-        let rootValues = try sourceItem.resourceValues(forKeys: Self.resourceKeys)
-        account(rootValues, itemCount: &itemCount, byteCount: &byteCount)
-        guard rootValues.isDirectory == true, rootValues.isSymbolicLink != true else { return }
-        guard let enumerator = fileManager.enumerator(atPath: sourceItem.path) else {
-            throw CocoaError(.fileReadUnknown)
-        }
-        while let relativePath = enumerator.nextObject() as? String {
-            if Task.isCancelled { throw CancellationError() }
-            let child = sourceItem.appendingPathComponent(relativePath)
-            let values = try child.resourceValues(forKeys: Self.resourceKeys)
-            account(values, itemCount: &itemCount, byteCount: &byteCount)
-            if itemCount > limits.maximumItemCount || byteCount > limits.maximumByteCount {
-                return
-            }
-        }
-    }
-
-    private func account(
-        _ values: URLResourceValues,
-        itemCount: inout Int,
-        byteCount: inout Int64
-    ) {
-        itemCount += 1
-        if values.isRegularFile == true,
-           values.isSymbolicLink != true,
-           let size = values.fileSize {
-            byteCount += Int64(size)
-        }
     }
 
     private func copyItem(
@@ -222,15 +196,17 @@ struct WorktreeIncludeCopyService: Sendable {
         itemCount: inout Int,
         byteCount: inout Int64,
         availableByteBudget: Int64,
+        sourceRoot: WorktreeIncludeSourceRoot,
         destinationRoot: WorktreeIncludeDestinationRoot,
         createdItems: inout [WorktreeIncludeCreatedItem]
     ) throws {
-        let rootValues = try sourceItem.resourceValues(forKeys: Self.resourceKeys)
+        let rootValues = try sourceItem.resourceValues(forKeys: WorktreeIncludeSourceRoot.resourceKeys)
         sourceItemInspected(sourceItem)
         guard rootValues.isDirectory == true, rootValues.isSymbolicLink != true else {
             try createDirectoryIfNeeded(
                 destinationItem.deletingLastPathComponent(),
                 from: sourceItem.deletingLastPathComponent(),
+                sourceRoot: sourceRoot,
                 destinationRoot: destinationRoot,
                 itemCount: &itemCount,
                 byteCount: byteCount,
@@ -243,18 +219,20 @@ struct WorktreeIncludeCopyService: Sendable {
             )
             if rootValues.isRegularFile == true, rootValues.isSymbolicLink != true {
                 try copyRegularFile(
-                    sourceItem,
+                    sourceRelativePath: sourceRoot.relativePath(for: sourceItem),
                     to: destinationRelativePath,
                     itemCount: itemCount,
                     byteCount: &byteCount,
                     availableByteBudget: availableByteBudget,
+                    sourceRoot: sourceRoot,
                     destinationRoot: destinationRoot,
                     createdItems: &createdItems
                 )
             } else if rootValues.isSymbolicLink == true {
                 try copySymbolicLink(
-                    sourceItem,
+                    sourceRelativePath: sourceRoot.relativePath(for: sourceItem),
                     to: destinationRelativePath,
+                    sourceRoot: sourceRoot,
                     destinationRoot: destinationRoot,
                     createdItems: &createdItems
                 )
@@ -267,6 +245,7 @@ struct WorktreeIncludeCopyService: Sendable {
         try createDirectoryIfNeeded(
             destinationItem,
             from: sourceItem,
+            sourceRoot: sourceRoot,
             destinationRoot: destinationRoot,
             itemCount: &itemCount,
             byteCount: byteCount,
@@ -279,11 +258,12 @@ struct WorktreeIncludeCopyService: Sendable {
             if Task.isCancelled { throw CancellationError() }
             let child = sourceItem.appendingPathComponent(relativePath)
             let destinationChild = destinationItem.appendingPathComponent(relativePath)
-            let values = try child.resourceValues(forKeys: Self.resourceKeys)
+            let values = try child.resourceValues(forKeys: WorktreeIncludeSourceRoot.resourceKeys)
             if values.isDirectory == true, values.isSymbolicLink != true {
                 try createDirectoryIfNeeded(
                     destinationChild,
                     from: child,
+                    sourceRoot: sourceRoot,
                     destinationRoot: destinationRoot,
                     itemCount: &itemCount,
                     byteCount: byteCount,
@@ -293,6 +273,7 @@ struct WorktreeIncludeCopyService: Sendable {
                 try createDirectoryIfNeeded(
                     destinationChild.deletingLastPathComponent(),
                     from: child.deletingLastPathComponent(),
+                    sourceRoot: sourceRoot,
                     destinationRoot: destinationRoot,
                     itemCount: &itemCount,
                     byteCount: byteCount,
@@ -306,18 +287,20 @@ struct WorktreeIncludeCopyService: Sendable {
                 if values.isRegularFile == true, values.isSymbolicLink != true {
                     let destinationChildRelativePath = try destinationRoot.relativePath(for: destinationChild)
                     try copyRegularFile(
-                        child,
+                        sourceRelativePath: sourceRoot.relativePath(for: child),
                         to: destinationChildRelativePath,
                         itemCount: itemCount,
                         byteCount: &byteCount,
                         availableByteBudget: availableByteBudget,
+                        sourceRoot: sourceRoot,
                         destinationRoot: destinationRoot,
                         createdItems: &createdItems
                     )
                 } else if values.isSymbolicLink == true {
                     try copySymbolicLink(
-                        child,
+                        sourceRelativePath: sourceRoot.relativePath(for: child),
                         to: try destinationRoot.relativePath(for: destinationChild),
+                        sourceRoot: sourceRoot,
                         destinationRoot: destinationRoot,
                         createdItems: &createdItems
                     )
@@ -331,6 +314,7 @@ struct WorktreeIncludeCopyService: Sendable {
     private func createDirectoryIfNeeded(
         _ destinationDirectory: URL,
         from sourceDirectory: URL,
+        sourceRoot: WorktreeIncludeSourceRoot,
         destinationRoot: WorktreeIncludeDestinationRoot,
         itemCount: inout Int,
         byteCount: Int64,
@@ -343,6 +327,7 @@ struct WorktreeIncludeCopyService: Sendable {
         try createDirectoryIfNeeded(
             destinationDirectory.deletingLastPathComponent(),
             from: sourceDirectory.deletingLastPathComponent(),
+            sourceRoot: sourceRoot,
             destinationRoot: destinationRoot,
             itemCount: &itemCount,
             byteCount: byteCount,
@@ -359,7 +344,7 @@ struct WorktreeIncludeCopyService: Sendable {
             device: identity.device,
             inode: identity.inode,
             isDirectory: true,
-            directoryMetadataSource: sourceDirectory
+            directoryMetadataSourceRelativePath: try sourceRoot.relativePath(for: sourceDirectory)
         ))
     }
 
@@ -404,11 +389,12 @@ struct WorktreeIncludeCopyService: Sendable {
     }
 
     private func copyRegularFile(
-        _ sourceItem: URL,
+        sourceRelativePath: String,
         to destinationRelativePath: String,
         itemCount: Int,
         byteCount: inout Int64,
         availableByteBudget: Int64,
+        sourceRoot: WorktreeIncludeSourceRoot,
         destinationRoot: WorktreeIncludeDestinationRoot,
         createdItems: inout [WorktreeIncludeCreatedItem]
     ) throws {
@@ -416,14 +402,8 @@ struct WorktreeIncludeCopyService: Sendable {
             throw CocoaError(.fileWriteFileExists)
         }
 
-        let sourceDescriptor = Darwin.open(sourceItem.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        guard sourceDescriptor >= 0 else { throw posixError() }
+        let sourceDescriptor = try sourceRoot.openRegularFile(at: sourceRelativePath)
         defer { Darwin.close(sourceDescriptor) }
-        var sourceStatus = stat()
-        guard fstat(sourceDescriptor, &sourceStatus) == 0 else { throw posixError() }
-        guard sourceStatus.st_mode & S_IFMT == S_IFREG else {
-            throw CocoaError(.fileReadUnsupportedScheme)
-        }
 
         let destinationDescriptor = try destinationRoot.createRegularFile(
             at: destinationRelativePath,
@@ -439,7 +419,7 @@ struct WorktreeIncludeCopyService: Sendable {
             device: destinationStatus.st_dev,
             inode: destinationStatus.st_ino,
             isDirectory: false,
-            directoryMetadataSource: nil
+            directoryMetadataSourceRelativePath: nil
         ))
         destinationFileCreated(
             destinationRoot.rootURL.appendingPathComponent(destinationRelativePath)
@@ -457,21 +437,25 @@ struct WorktreeIncludeCopyService: Sendable {
     }
 
     private func copySymbolicLink(
-        _ sourceItem: URL,
+        sourceRelativePath: String,
         to destinationRelativePath: String,
+        sourceRoot: WorktreeIncludeSourceRoot,
         destinationRoot: WorktreeIncludeDestinationRoot,
         createdItems: inout [WorktreeIncludeCreatedItem]
     ) throws {
-        let identity = try destinationRoot.copySymbolicLink(
-            from: sourceItem,
-            to: destinationRelativePath
+        guard try !destinationRoot.itemExists(at: destinationRelativePath) else {
+            throw CocoaError(.fileWriteFileExists)
+        }
+        let identity = try destinationRoot.createSymbolicLink(
+            at: destinationRelativePath,
+            target: sourceRoot.symbolicLinkTarget(at: sourceRelativePath)
         )
         createdItems.append(WorktreeIncludeCreatedItem(
             relativePath: destinationRelativePath,
             device: identity.device,
             inode: identity.inode,
             isDirectory: false,
-            directoryMetadataSource: nil
+            directoryMetadataSourceRelativePath: nil
         ))
     }
 

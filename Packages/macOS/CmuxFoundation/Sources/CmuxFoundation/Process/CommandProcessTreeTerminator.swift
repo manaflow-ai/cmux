@@ -3,52 +3,62 @@ import Foundation
 
 /// Terminates a command's process group and optionally reports when every member is gone.
 enum CommandProcessTreeTerminator {
-    private static let sigkillGraceSeconds: Double = 0.2
+    private static let defaultCompletionWaitSeconds: Double = 2
     private static let exitPollInterval = DispatchTimeInterval.milliseconds(10)
     private static let queue = DispatchQueue(label: "com.cmuxterm.CmuxProcess.termination")
 
     static func terminate(
         _ process: Process,
         processGroupID: pid_t?,
-        completion: (@Sendable () -> Void)? = nil
+        completionWaitSeconds: Double = defaultCompletionWaitSeconds,
+        signalProcessGroup: @escaping @Sendable (pid_t, Int32) -> Void = { processGroupID, signal in
+            _ = kill(-processGroupID, signal)
+        },
+        ownsProcessGroup: @escaping @Sendable (Process, pid_t) -> Bool = { process, processGroupID in
+            process.isRunning && getpgid(process.processIdentifier) == processGroupID
+        },
+        processGroupExists: @escaping @Sendable (pid_t) -> Bool = { processGroupID in
+            if kill(-processGroupID, 0) == 0 { return true }
+            return errno == EPERM
+        },
+        completion: (@Sendable (Bool) -> Void)? = nil
     ) {
         if let processGroupID {
-            _ = kill(-processGroupID, SIGTERM)
+            guard ownsProcessGroup(process, processGroupID) else {
+                completion?(false)
+                return
+            }
+            // One immediate signal avoids re-probing a numeric PGID after its original
+            // ownership may have disappeared and been reused by an unrelated process.
+            signalProcessGroup(processGroupID, SIGKILL)
         } else if process.isRunning {
-            process.terminate()
+            let processID = process.processIdentifier
+            _ = kill(processID, SIGKILL)
+            completion?(false)
+            return
         } else {
-            completion?()
+            completion?(false)
             return
         }
 
-        let escalationTimer = DispatchSource.makeTimerSource(queue: queue)
-        escalationTimer.schedule(deadline: .now() + sigkillGraceSeconds)
-        escalationTimer.setEventHandler {
-            if let processGroupID {
-                if processGroupExists(processGroupID) {
-                    _ = kill(-processGroupID, SIGKILL)
-                }
-            } else if process.isRunning {
-                _ = kill(process.processIdentifier, SIGKILL)
-            }
-            escalationTimer.cancel()
-
-            if let completion {
-                completeWhenProcessTreeIsGone(
-                    process,
-                    processGroupID: processGroupID,
-                    completion: completion
-                )
-            }
-        }
-        escalationTimer.resume()
+        guard let completion else { return }
+        completeWhenProcessTreeIsGone(
+            process,
+            processGroupID: processGroupID,
+            completionWaitSeconds: completionWaitSeconds,
+            processGroupExists: processGroupExists,
+            completion: completion
+        )
     }
 
     private static func completeWhenProcessTreeIsGone(
         _ process: Process,
         processGroupID: pid_t?,
-        completion: @escaping @Sendable () -> Void
+        completionWaitSeconds: Double,
+        processGroupExists: @escaping @Sendable (pid_t) -> Bool,
+        completion: @escaping @Sendable (Bool) -> Void
     ) {
+        let deadline = DispatchTime.now() + completionWaitSeconds
         let exitTimer = DispatchSource.makeTimerSource(queue: queue)
         exitTimer.schedule(deadline: .now(), repeating: exitPollInterval)
         exitTimer.setEventHandler {
@@ -57,15 +67,14 @@ enum CommandProcessTreeTerminator {
             } else {
                 process.isRunning
             }
-            guard !isRunning else { return }
-            exitTimer.cancel()
-            completion()
+            if !isRunning {
+                exitTimer.cancel()
+                completion(true)
+            } else if DispatchTime.now().uptimeNanoseconds >= deadline.uptimeNanoseconds {
+                exitTimer.cancel()
+                completion(false)
+            }
         }
         exitTimer.resume()
-    }
-
-    private static func processGroupExists(_ processGroupID: pid_t) -> Bool {
-        if kill(-processGroupID, 0) == 0 { return true }
-        return errno == EPERM
     }
 }

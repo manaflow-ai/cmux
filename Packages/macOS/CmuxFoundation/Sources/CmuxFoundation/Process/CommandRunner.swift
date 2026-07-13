@@ -65,12 +65,10 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
         standardInputWriterFactory: @escaping @Sendable (FileHandle, Data) -> CommandStandardInputWriter?,
         processGroupResolver: @escaping @Sendable (Process) -> pid_t? = { process in
             let processGroupID = getpgid(process.processIdentifier)
-            if processGroupID > 1, processGroupID != getpgrp() {
+            if processGroupID > 1,
+               processGroupID == process.processIdentifier,
+               processGroupID != getpgrp() {
                 return processGroupID
-            }
-            if processGroupID == -1, errno == ESRCH {
-                // A reaped leader's descendants retain the leader PID as their group ID.
-                return process.processIdentifier
             }
             return nil
         }
@@ -129,6 +127,13 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
             exitStatus: nil,
             timedOut: false,
             executionError: "Command cancelled."
+        )
+        let cancellationCleanupFailedResult = CommandResult(
+            stdout: nil,
+            stderr: nil,
+            exitStatus: nil,
+            timedOut: false,
+            executionError: "Command cancelled, but its process tree did not exit."
         )
         guard !Task.isCancelled else { return cancelledResult }
 
@@ -265,10 +270,13 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
 
                 CommandProcessTreeTerminator.terminate(
                     process,
-                    processGroupID: processGroupID
-                ) {
-                    _ = claimImmediate(cancelledResult)
-                }
+                    processGroupID: processGroupID,
+                    completion: { processTreeExited in
+                        _ = claimImmediate(
+                            processTreeExited ? cancelledResult : cancellationCleanupFailedResult
+                        )
+                    }
+                )
             }
 
             @Sendable func terminateAfterClaim(_ result: CommandResult) {

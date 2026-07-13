@@ -158,33 +158,6 @@ final class WorktreeIncludeDestinationRoot {
         return (status.st_dev, status.st_ino)
     }
 
-    func copySymbolicLink(
-        from source: URL,
-        to relativePath: String
-    ) throws -> (device: dev_t, inode: ino_t) {
-        guard try !itemExists(at: relativePath) else {
-            throw CocoaError(.fileWriteFileExists)
-        }
-        var status = stat()
-        guard lstat(source.path, &status) == 0 else { throw posixError() }
-        guard status.st_mode & S_IFMT == S_IFLNK else {
-            throw CocoaError(.fileReadUnsupportedScheme)
-        }
-        let capacity = max(1, Int(status.st_size) + 1)
-        var bytes = [UInt8](repeating: 0, count: capacity)
-        let count = bytes.withUnsafeMutableBytes { buffer in
-            source.path.withCString { pathPointer in
-                readlink(pathPointer, buffer.baseAddress, buffer.count)
-            }
-        }
-        guard count >= 0 else { throw posixError() }
-        guard count < capacity else { throw posixError(EOVERFLOW) }
-        return try createSymbolicLink(
-            at: relativePath,
-            target: Array(bytes.prefix(count))
-        )
-    }
-
     func removeItemIfUnchanged(
         at relativePath: String,
         device: dev_t,
@@ -210,16 +183,11 @@ final class WorktreeIncludeDestinationRoot {
     }
 
     func applySecurityMetadata(
-        from source: URL,
+        sourceDescriptor: Int32,
         to relativePath: String,
         expectedDevice: dev_t,
         expectedInode: ino_t
     ) throws {
-        let sourceFlags = O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_DIRECTORY
-        let sourceDescriptor = Darwin.open(source.path, sourceFlags)
-        guard sourceDescriptor >= 0 else { throw posixError() }
-        defer { Darwin.close(sourceDescriptor) }
-
         let destinationDescriptor = try openItem(
             at: relativePath,
             flags: O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW

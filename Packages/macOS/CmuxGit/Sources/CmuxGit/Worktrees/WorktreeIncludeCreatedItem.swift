@@ -7,5 +7,5 @@ struct WorktreeIncludeCreatedItem {
     let device: dev_t
     let inode: ino_t
     let isDirectory: Bool
-    let directoryMetadataSource: URL?
+    let directoryMetadataSourceRelativePath: String?
 }
