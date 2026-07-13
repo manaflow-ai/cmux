@@ -243,7 +243,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var workspacesByMac: [String: MacWorkspaceState] = [:] {
         didSet { recomputeDerivedWorkspaceState() }
     }
-    private let workspaceAggregation = MobileWorkspaceAggregation()
+    let workspaceAggregation = MobileWorkspaceAggregation(); var stableMacColorSlots: [String: Int] = [:]  // see MobileShellComposite+MacSwitchState.swift
     /// The flat aggregated workspace list the UI renders. A materialized
     /// derivation of ``workspacesByMac``: only ``recomputeDerivedWorkspaceState``
     /// assigns it, so it is never independently mutated.
@@ -268,7 +268,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// workspace avatars use), so the Computers screen can color each Mac's row to
     /// match its workspaces. Keyed by `macDeviceID`.
     public var machineColorIndex: [String: Int] {
-        workspaceAggregation.machineColorIndex(statesByMac: workspacesByMac)
+        stableMacColorSlots
     }
 
     public var macConnectionStatuses: [String: MobileMacConnectionStatus] {
@@ -1188,7 +1188,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspaces: PreviewMobileHost.workspaces,
             groups: []
         )]
-        selectedWorkspaceID = workspaces.first?.id
+        resetStableMacColorSlotsForSignOut(); selectedWorkspaceID = workspaces.first?.id
         selectedTerminalID = workspaces.first?.terminals.first?.id
         // Selection resets above are done; allow draft saving again so a
         // subsequent sign-in restores drafts normally.
@@ -1218,7 +1218,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // on the next foreground / Computers `.task` / pull-to-refresh.
         teardownSecondaryMacSubscriptions()
         let foregroundKey = foregroundMacKey
-        workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }
+        workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }; pruneStableMacColorSlots(keepingForegroundKey: foregroundKey)
         // Restore memo: invalidate so the next read re-restores for the new
         // (account, team) scope, and a suspended old-team restore can't resume.
         // Invalidate the shared boundary synchronously first; actor cleanup is
@@ -3565,7 +3565,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// source of truth. Pure and cheap; the only place those two are assigned,
     /// called on any ``workspacesByMac`` or foreground change.
     private func recomputeDerivedWorkspaceState() {
-        let previousSelection = selectedWorkspaceID.flatMap { id in
+        updateStableMacColorSlots(); let previousSelection = selectedWorkspaceID.flatMap { id in
             workspaces.first { $0.id == id }
         }
         let foregroundKey: String?
@@ -3577,7 +3577,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             foregroundKey = nil
         }
         var derived = workspaceAggregation.derivedWorkspaces(
-            statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+            statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey, machineColorIndex: stableMacColorSlots)
         // Stamp per-Mac user color/icon overrides from pairedMacs so every
         // workspace avatar matches its computer's customization (same place the
         // aggregation already assigned the automatic color index).
