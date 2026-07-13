@@ -33,6 +33,34 @@ function samplePayloadWithCanonicalURL() {
   };
 }
 
+function sampleIrohPayloadWithCanonicalDevURL() {
+  const compactTicket = {
+    v: 1,
+    d: "mac-device-id",
+    r: [{ k: "iroh", e: { i: "0123456789abcdef" } }],
+  };
+  const canonicalURL = `cmux-ios-dev://attach?v=1&payload=${Buffer.from(
+    JSON.stringify(compactTicket),
+  ).toString("base64url")}`;
+  return {
+    ticket: {
+      version: 1,
+      workspaceID: "",
+      routes: [{
+        id: "iroh",
+        kind: "iroh",
+        endpoint: {
+          type: "peer",
+          identity: "0123456789abcdef",
+          pathHints: [{ type: "relay", url: "https://private.example" }],
+        },
+      }],
+      authToken: "must-not-be-reencoded",
+    },
+    attach_url: canonicalURL,
+  };
+}
+
 function decodePayload(url) {
   const params = new URL(url).searchParams;
   const b64 = params.get("payload");
@@ -104,8 +132,18 @@ test("prefers the canonical attach_url returned by the Mac RPC", () => {
   assert.equal(routes.length, 2);
 });
 
+test("preserves the redacted canonical dev URL for Iroh tickets", () => {
+  const payload = sampleIrohPayloadWithCanonicalDevURL();
+  const { attachURL } = buildAttachURL(payload, { routeKind: "iroh" });
+  assert.equal(attachURL, payload.attach_url);
+  assert.doesNotMatch(attachURL, /must-not-be-reencoded|private\.example/);
+});
+
 test("does not reuse canonical attach_url after local route filtering", () => {
-  const { attachURL, routes } = buildAttachURL(samplePayloadWithCanonicalURL(), { routeKind: "tailscale" });
+  const { attachURL, routes } = buildAttachURL(samplePayloadWithCanonicalURL(), {
+    routeKind: "tailscale",
+    scheme: RELEASE_URL_SCHEME,
+  });
   assert.match(attachURL, /^cmux-ios:\/\/attach\?v=1&payload=/);
   assert.equal(routes.length, 1);
   const decoded = decodePayload(attachURL);

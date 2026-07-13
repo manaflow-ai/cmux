@@ -44,7 +44,7 @@ if [[ -f "$CMUX_TEST_COUNTER" ]]; then
   read -r count < "$CMUX_TEST_COUNTER"
 fi
 count=$((count + 1))
-printf '%s' "$count" > "$CMUX_TEST_COUNTER"
+printf '%s\\n' "$count" > "$CMUX_TEST_COUNTER"
 
 if [[ "$request" == *'\"route_kind\":\"iroh\"'* ]]; then
   # Model the real startup race: Iroh is unavailable on the first probe and
