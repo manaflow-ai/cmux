@@ -32,9 +32,10 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// Delta frames keep only mode state needed to restore after replay-time
     /// coordinate normalization.
     public var modes: [ModeSetting]
-    /// Surface-effective default foreground/background colors, including OSC
-    /// overrides and reverse-video. Legacy producers omit configured defaults.
-    /// The cursor value remains an optional dynamic OSC 12 override.
+    /// Raw default foreground/background colors for OSC 10/11 replay. DEC
+    /// reverse-video remains represented separately in ``modes``. Legacy
+    /// producers omit configured defaults. The cursor value remains an optional
+    /// dynamic OSC 12 override.
     public var terminalForeground: String?
     public var terminalBackground: String?
     public var terminalCursorColor: String?
@@ -439,7 +440,6 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public struct ModeSetting: Codable, Equatable, Sendable {
         static let decOriginModeCode = 6
         static let decAutowrapModeCode = 7
-        static let decReverseColorsModeCode = 5
         static let decAlternateScreenCode = 47
         static let decAlternateScreenSaveCursorCode = 1047
         static let decSaveRestoreCursorCode = 1048
@@ -465,8 +465,6 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
 
         /// Whether this DEC private mode is origin mode (`CSI ? 6 h/l`).
         public var isDECOriginMode: Bool { !ansi && code == Self.decOriginModeCode }
-
-        var isDECReverseColorsMode: Bool { !ansi && code == Self.decReverseColorsModeCode }
 
         enum CodingKeys: String, CodingKey {
             case code

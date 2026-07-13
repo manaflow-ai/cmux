@@ -78,8 +78,15 @@ extension TerminalSurface {
         guard let ptr = exported.ptr, exported.len > 0 else { return nil }
 
         let data = Data(bytes: ptr, count: Int(exported.len))
-        guard let fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
+        guard var fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
+        }
+        if fullFrame.modes.contains(where: { !$0.ansi && $0.code == 5 && $0.on }) {
+            // Ghostty exports renderer-effective defaults. Keep the v1 outer
+            // fields raw because older iOS clients replay DEC reverse separately.
+            let foreground = fullFrame.terminalForeground
+            fullFrame.terminalForeground = fullFrame.terminalBackground
+            fullFrame.terminalBackground = foreground
         }
         let frame: MobileTerminalRenderGridFrame
         if full, changedRows == nil {

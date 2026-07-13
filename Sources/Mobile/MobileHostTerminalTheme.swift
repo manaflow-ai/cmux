@@ -110,6 +110,11 @@ extension TerminalTheme {
            TerminalTheme.rgbComponents(foreground) != nil {
             resolved.foreground = foreground
         }
+        if frame.modes.contains(where: { !$0.ansi && $0.code == 5 && $0.on }) {
+            let foreground = resolved.foreground
+            resolved.foreground = resolved.background
+            resolved.background = foreground
+        }
         if let cursor = frame.terminalCursorColor,
            TerminalTheme.rgbComponents(cursor) != nil {
             resolved.cursor = cursor

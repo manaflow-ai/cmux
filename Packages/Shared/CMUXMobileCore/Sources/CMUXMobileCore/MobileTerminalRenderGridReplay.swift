@@ -126,11 +126,8 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         // Dynamic default colors (OSC 10/11/12). Nil frame values reset the
         // previous override so a full snapshot behaves like the old RIS path.
         // Apply them before clearing so blank cells use the captured defaults.
-        let reverseColors = frame.modes.contains { $0.isDECReverseColorsMode && $0.on }
-        let replayForeground = reverseColors ? frame.terminalBackground : frame.terminalForeground
-        let replayBackground = reverseColors ? frame.terminalForeground : frame.terminalBackground
-        bytes.append(oscColorOrResetBytes(10, reset: 110, replayForeground))
-        bytes.append(oscColorOrResetBytes(11, reset: 111, replayBackground))
+        bytes.append(oscColorOrResetBytes(10, reset: 110, frame.terminalForeground))
+        bytes.append(oscColorOrResetBytes(11, reset: 111, frame.terminalBackground))
         bytes.append(oscColorOrResetBytes(12, reset: 112, frame.terminalCursorColor))
         bytes.append(sgrBytes(for: defaultStyle))
         // DECSC at home with the default pen resets each screen's saved
