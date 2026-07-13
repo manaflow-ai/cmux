@@ -129,6 +129,39 @@ import Testing
 }
 
 @MainActor
+@Test func olderThemeRevisionCannotEnqueueEqualSequenceFullFrame() async throws {
+    let surfaceID = "terminal-ordered-theme-delivery"
+    let store = MobileShellComposite.preview()
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    var oldTheme = TerminalTheme.monokai
+    oldTheme.background = "#111111"
+    var newTheme = TerminalTheme.monokai
+    newTheme.background = "#f4f0df"
+    let newer = try delayedFrame(
+        surfaceID: surfaceID,
+        theme: newTheme,
+        revision: 2,
+        stateSeq: 7
+    )
+    let delayedOlder = try delayedFrame(
+        surfaceID: surfaceID,
+        theme: oldTheme,
+        revision: 1,
+        stateSeq: 7
+    )
+    var revisionless = delayedOlder
+    revisionless.terminalThemeRevision = nil
+
+    #expect(store.deliverTerminalRenderGrid(newer, surfaceID: surfaceID))
+    let newerChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: newerChunk.streamToken)
+
+    #expect(!store.deliverTerminalRenderGrid(delayedOlder, surfaceID: surfaceID))
+    #expect(!store.deliverTerminalRenderGrid(revisionless, surfaceID: surfaceID))
+    #expect(store.terminalTheme(for: surfaceID) == newTheme)
+}
+
+@MainActor
 @Test func reconnectToSameMacKeepsThemeOrderingFence() throws {
     let surfaceID = "terminal-reconnect-theme"
     let store = MobileShellComposite.preview()
@@ -321,6 +354,31 @@ import Testing
 }
 
 @MainActor
+@Test func renderGridReplayChunkCarriesMatchingRawConfigTheme() async throws {
+    let surfaceID = "terminal-config-ordered-replay"
+    let store = MobileShellComposite.preview()
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    var rawConfig = TerminalTheme.monokai
+    rawConfig.cursorColorSemantic = .foreground
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: rawConfig,
+        terminalConfigTheme: rawConfig,
+        terminalThemeRevision: 1
+    )
+
+    #expect(store.deliverTerminalRenderGrid(frame, surfaceID: surfaceID))
+    let chunk = try #require(await iterator.next())
+
+    #expect(chunk.terminalConfigTheme == rawConfig)
+    #expect(!chunk.data.isEmpty)
+}
+
+@MainActor
 @available(macOS 15, *)
 @Test func inactiveSurfaceThemeCacheDoesNotInvalidateSelectedThemeObservation() throws {
     let store = MobileShellComposite.preview()
@@ -331,6 +389,7 @@ import Testing
         _ = store.activeTerminalTheme
         _ = store.activeTerminalConfigTheme
         _ = store.terminalThemeGeneration
+        _ = store.terminalConfigThemeGeneration
     } onChange: {
         invalidations.withLock { $0 += 1 }
     }
@@ -350,6 +409,33 @@ import Testing
     store.recordTerminalTheme(frame)
 
     #expect(invalidations.withLock { $0 } == 0)
+}
+
+@MainActor
+@Test func effectiveOnlyThemeChangeDoesNotScheduleRawConfigUpdate() throws {
+    let surfaceID = "terminal-osc-theme"
+    let store = MobileShellComposite.preview()
+    store.selectedTerminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+    let config = TerminalTheme.monokai
+    store.applyTerminalTheme(config)
+    let configGeneration = store.terminalConfigThemeGeneration
+    var effective = config
+    effective.palette[4] = "#123456"
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: effective,
+        terminalConfigTheme: config,
+        terminalThemeRevision: 1
+    )
+
+    store.recordTerminalTheme(frame)
+
+    #expect(store.activeTerminalTheme == effective)
+    #expect(store.terminalConfigThemeGeneration == configGeneration)
 }
 
 private func delayedFrame(

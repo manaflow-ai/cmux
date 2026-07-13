@@ -32,8 +32,8 @@ import UIKit
     let lightBackground = lightSurface.configBackgroundColor
 
     #expect(lightSurface.configBackgroundColor == lightBackground)
-    #expect(lightSurface.configBackgroundColor == GhosttyRuntime.backgroundUIColor(for: light))
-    #expect(customSurface.configBackgroundColor == GhosttyRuntime.backgroundUIColor(for: custom))
+    #expect(lightSurface.configBackgroundColor == light.terminalBackgroundUIColor)
+    #expect(customSurface.configBackgroundColor == custom.terminalBackgroundUIColor)
 }
 
 @MainActor
@@ -70,6 +70,11 @@ import UIKit
     var rawConfig = TerminalTheme.monokai
     rawConfig.background = "#eeeeee"
     rawConfig.foreground = "#111111"
+    rawConfig.palette += Array(
+        repeating: "#000000",
+        count: TerminalTheme.extendedPaletteCount - rawConfig.palette.count
+    )
+    rawConfig.palette[200] = "#010203"
     var effectiveChrome = rawConfig
     effectiveChrome.background = rawConfig.foreground
     effectiveChrome.foreground = rawConfig.background
@@ -83,6 +88,7 @@ import UIKit
     let resetWhileReversed = Data(
         ("\u{1B}]10;#123456\u{1B}\\" +
             "\u{1B}]11;#654321\u{1B}\\" +
+            "\u{1B}]4;200;rgb:ab/cd/ef\u{1B}\\" +
             "\u{1B}[?5h" +
             "\u{1B}]110\u{1B}\\" +
             "\u{1B}]111\u{1B}\\").utf8
@@ -93,13 +99,55 @@ import UIKit
 
     #expect(frame.terminalBackground?.lowercased() == rawConfig.foreground.lowercased())
     #expect(frame.terminalForeground?.lowercased() == rawConfig.background.lowercased())
-    #expect(view.configBackgroundColor == GhosttyRuntime.backgroundUIColor(for: effectiveChrome))
+    #expect(frame.terminalConfigTheme?.background.lowercased() == rawConfig.background.lowercased())
+    #expect(frame.terminalConfigTheme?.foreground.lowercased() == rawConfig.foreground.lowercased())
+    #expect(frame.terminalConfigTheme?.palette[200].lowercased() == rawConfig.palette[200].lowercased())
+    #expect(frame.terminalTheme?.palette[200].lowercased() == "#abcdef")
+    #expect(view.configBackgroundColor == effectiveChrome.terminalBackgroundUIColor)
+
+    let mirror = GhosttySurfaceView(
+        runtime: runtime,
+        delegate: delegate,
+        terminalTheme: try #require(frame.terminalTheme),
+        terminalConfigTheme: try #require(frame.terminalConfigTheme)
+    )
+    defer { mirror.prepareForDismantle() }
+
+    #expect(await mirror.processOutputAndWait(frame.vtPatchBytes()))
+    let mirroredFrame = try exportThemeFrame(from: mirror, surfaceID: "reverse-reset-mirror")
+    #expect(mirroredFrame.terminalTheme?.palette[200].lowercased() == "#abcdef")
+    #expect(mirroredFrame.terminalConfigTheme?.palette[200].lowercased() == rawConfig.palette[200].lowercased())
 }
 
 @MainActor
-private func exportThemeFrame(from view: GhosttySurfaceView) throws -> MobileTerminalRenderGridFrame {
+@Test func semanticCursorConfigAppliesBeforeReplayReset() async throws {
+    let runtime = try GhosttyRuntime.shared()
+    let delegate = ThemeTestSurfaceDelegate()
+    let view = GhosttySurfaceView(runtime: runtime, delegate: delegate)
+    defer { view.prepareForDismantle() }
+    var semanticConfig = TerminalTheme.monokai
+    semanticConfig.foreground = "#123456"
+    semanticConfig.cursorColorSemantic = .foreground
+    view.terminalConfigTheme = semanticConfig
+
+    #expect(
+        await view.processOutputAndWait(
+            Data("\u{1B}]112\u{1B}\\".utf8),
+            terminalConfigTheme: semanticConfig
+        )
+    )
+    let frame = try exportThemeFrame(from: view, surfaceID: "semantic-cursor-order")
+
+    #expect(frame.terminalConfigTheme?.cursorColorSemantic == .foreground)
+    #expect(frame.terminalTheme?.cursor.lowercased() == semanticConfig.foreground.lowercased())
+}
+
+@MainActor
+private func exportThemeFrame(
+    from view: GhosttySurfaceView,
+    surfaceID: String = "reverse-reset-test"
+) throws -> MobileTerminalRenderGridFrame {
     let surface = try #require(view.surface)
-    let surfaceID = "reverse-reset-test"
     let exported = surfaceID.withCString { pointer in
         ghostty_surface_render_grid_json(
             surface,

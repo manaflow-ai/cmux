@@ -10,6 +10,7 @@ import Testing
 @Suite struct MobileHostTerminalThemeTests {
     @Test func surfaceEffectiveColorsOverrideCachedConfigTheme() throws {
         var base = TerminalTheme.monokai
+        base.cursorColorSemantic = .background
         base.cursorText = "#abcdef"
         let frame = try MobileTerminalRenderGridFrame(
             surfaceID: "surface-theme",
@@ -27,6 +28,7 @@ import Testing
         #expect(resolved.background == "#f0ead6")
         #expect(resolved.foreground == "#112233")
         #expect(resolved.cursor == "#445566")
+        #expect(resolved.cursorColorSemantic == nil)
         #expect(resolved.cursorText == "#abcdef")
         #expect(resolved.palette == base.palette)
     }
@@ -134,6 +136,23 @@ import Testing
         #expect(ordinaryTick.shouldScheduleCandidate)
         #expect(invalidationBatch.theme == candidate)
         #expect(!invalidationBatch.shouldScheduleCandidate)
+    }
+
+    @Test func themeElidedSnapshotRetainsRawConfigTheme() {
+        var cached = TerminalTheme.monokai
+        cached.background = "#f4f0df"
+
+        let retained = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
+            candidate: nil,
+            cached: cached
+        )
+        let replaced = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
+            candidate: .monokai,
+            cached: cached
+        )
+
+        #expect(retained == cached)
+        #expect(replaced == .monokai)
     }
 }
 

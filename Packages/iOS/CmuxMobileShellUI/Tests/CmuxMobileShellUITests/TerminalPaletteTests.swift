@@ -8,10 +8,10 @@ import Testing
     var theme = TerminalTheme.monokai
     theme.background = "#999999"
 
-    #expect(TerminalPalette.chromeForeground(for: theme) == Color.black)
-    #expect(TerminalPalette.colorScheme(for: theme) == .light)
+    #expect(theme.terminalChromeForegroundColor == Color.black)
+    #expect(theme.terminalColorScheme == .light)
 
     theme.background = "#333333"
-    #expect(TerminalPalette.chromeForeground(for: theme) == Color.white)
-    #expect(TerminalPalette.colorScheme(for: theme) == .dark)
+    #expect(theme.terminalChromeForegroundColor == Color.white)
+    #expect(theme.terminalColorScheme == .dark)
 }

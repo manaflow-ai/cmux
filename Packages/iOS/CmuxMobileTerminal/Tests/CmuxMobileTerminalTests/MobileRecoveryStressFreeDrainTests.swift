@@ -23,6 +23,7 @@ struct MobileRecoveryStressFreeDrainTests {
         let window: UIWindow
         let view: GhosttySurfaceView
         let delegate: Delegate
+        let expectedTheme: TerminalTheme
 
         func tearDown() {
             GhosttySurfaceView.RecoveryStressObservers.set(nil, for: view)
@@ -43,7 +44,7 @@ struct MobileRecoveryStressFreeDrainTests {
         let drained = await waitForFreeDrain(afterForcingRecoveryOn: harness.view)
         #expect(drained, "the old surface free should drain after forced render-pipeline recovery")
         #expect(
-            harness.view.configBackgroundColor == GhosttyRuntime.backgroundUIColor(for: harness.view.terminalTheme),
+            harness.view.configBackgroundColor == harness.expectedTheme.terminalBackgroundUIColor,
             "the replacement surface should reapply its scoped theme"
         )
     }
@@ -61,7 +62,7 @@ struct MobileRecoveryStressFreeDrainTests {
         window.isHidden = false
         view.setNeedsLayout()
         view.layoutIfNeeded()
-        return Harness(window: window, view: view, delegate: delegate)
+        return Harness(window: window, view: view, delegate: delegate, expectedTheme: theme)
     }
 
     private func waitForMountedSurface(_ view: GhosttySurfaceView) async throws {

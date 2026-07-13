@@ -23,11 +23,13 @@ struct MobileHostIdentityTests {
 
         let payload = MobileHostService.identityStatusPayload(routesPayload: [])
         #expect(payload["mac_instance_tag"] as? String == "future-one")
+        #expect(!(payload["terminal_theme_revision_epoch"] as? String ?? "").isEmpty)
     }
 
     @Test func publicStatusOmitsInstanceTag() {
         let payload = MobileHostService.publicStatusPayload(routesPayload: [])
         #expect(payload["mac_instance_tag"] == nil)
+        #expect(payload["terminal_theme_revision_epoch"] == nil)
     }
 
     @Test func taggedDebugBuildSuffixesPairingDisplayName() throws {
