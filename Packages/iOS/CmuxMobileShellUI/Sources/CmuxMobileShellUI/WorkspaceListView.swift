@@ -97,7 +97,7 @@ struct WorkspaceListView: View {
     var isInitialConnectionLoading = false
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
-    @State private var searchText = ""
+    var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
     @State private var showingDeviceTree = false
@@ -288,16 +288,6 @@ struct WorkspaceListView: View {
             }
         }
         .listStyle(.plain)
-        #if os(iOS)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            WorkspaceSearchBar(text: $searchText)
-                .frame(height: 52)
-                .background(.bar)
-                .overlay(alignment: .top) {
-                    Divider()
-                }
-        }
-        #endif
         // Let the invisible footer use its 16pt boundary height. Real rows are taller.
         .environment(\.defaultMinListRowHeight, 16)
         .workspaceListRefreshable(refresh)

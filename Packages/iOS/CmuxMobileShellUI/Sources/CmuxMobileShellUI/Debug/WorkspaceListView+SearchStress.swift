@@ -3,7 +3,7 @@ import CmuxMobileShellModel
 import SwiftUI
 import UIKit
 
-extension WorkspaceListView {
+extension View {
     /// Exercises live workspace snapshot replacement only after the preview's
     /// authoritative search binding becomes active.
     func workspaceSearchStressScenario(
@@ -35,7 +35,6 @@ private struct WorkspaceSearchStressScenario: ViewModifier {
                     named: UITextField.textDidChangeNotification
                 ) {
                     guard let field = notification.object as? UISearchTextField,
-                          field.accessibilityIdentifier == "MobileWorkspaceSearchField",
                           let text = field.text,
                           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     else { continue }

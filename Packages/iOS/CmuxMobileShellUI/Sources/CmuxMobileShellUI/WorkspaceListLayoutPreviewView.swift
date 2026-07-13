@@ -58,8 +58,9 @@ public struct WorkspaceListLayoutPreviewView: View {
             WorkspaceDetailDelayedTerminalPreviewView()
         } else {
             NavigationStack {
-                WorkspaceListView(
-                    workspaces: workspaces,
+                WorkspaceListSearchHost { searchText in
+                    WorkspaceListView(
+                        workspaces: workspaces,
                     selectedWorkspaceID: selectedWorkspaceID,
                     host: "Visual Mock Mac",
                     connectionStatus: .connected,
@@ -71,8 +72,10 @@ public struct WorkspaceListLayoutPreviewView: View {
                     profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
                     selectWorkspace: { selectedWorkspaceID = $0 },
                     createWorkspace: {},
-                    macSelection: $macSelection
-                )
+                        macSelection: $macSelection,
+                        searchText: searchText
+                    )
+                }
                 .workspaceSearchStressScenario(workspaces: $workspaces)
             }
         }

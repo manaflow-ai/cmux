@@ -131,7 +131,7 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        let searchField = app.searchFields["MobileWorkspaceSearchField"]
+        let searchField = app.searchFields.firstMatch
         XCTAssertTrue(searchField.waitForExistence(timeout: 8))
         XCTAssertGreaterThan(
             searchField.frame.maxY,
