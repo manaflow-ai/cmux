@@ -9392,10 +9392,10 @@ struct CMUXCLI {
                 index += 1
             case "-p", "--port":
                 guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: "ssh: \(arg) requires a value")
+                    throw CLIError(message: "ssh: --port requires a value")
                 }
                 guard let parsed = Int(commandArgs[index + 1]), parsed > 0, parsed <= 65535 else {
-                    throw CLIError(message: "ssh: \(arg) must be 1-65535")
+                    throw CLIError(message: "ssh: --port must be 1-65535")
                 }
                 port = parsed
                 index += 2
