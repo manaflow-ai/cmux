@@ -1,22 +1,8 @@
 import CmuxMobileShell
 import CmuxMobileShellModel
-import CmuxMobileSupport
 import SwiftUI
 
 extension WorkspaceDetailView {
-    @ViewBuilder
-    var diffReviewMenuButton: some View {
-        if store.supportsDiffReview(for: workspace.id) {
-            Button(action: openDiffReviewFromMenu) {
-                Label(
-                    L10n.string("mobile.diff.reviewChanges", defaultValue: "Review Changes"),
-                    systemImage: "doc.text.magnifyingglass"
-                )
-            }
-            .accessibilityIdentifier("MobileReviewChangesMenuItem")
-        }
-    }
-
     func openDiffReviewFromMenu() {
         isDiffReviewPresented = true
     }
