@@ -44,7 +44,7 @@ final class TerminalNotificationPolicyInFlightStore {
     }
 
     func discardAll(through generation: UInt64? = nil) {
-        let ids = requests.compactMap { id, entry in
+        let ids: [UUID] = requests.compactMap { id, entry -> UUID? in
             if let generation, entry.generation > generation { return nil }
             return id
         }
