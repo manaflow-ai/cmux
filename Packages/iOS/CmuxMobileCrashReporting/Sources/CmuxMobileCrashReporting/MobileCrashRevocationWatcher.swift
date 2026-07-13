@@ -48,15 +48,15 @@ public final class MobileCrashRevocationWatcher: @unchecked Sendable {
             object: nil,
             queue: nil
         ) { _ in
-            let nextIsEnabled = consent.isTelemetryEnabled
             self.lifecycleQueue.async { [self] in
+                let nextIsEnabled = consent.isTelemetryEnabled
                 guard nextIsEnabled != isEnabled else { return }
                 isEnabled = nextIsEnabled
                 (nextIsEnabled ? self.onEnable : self.onRevoke)?.body()
             }
         }
-        let reconciledIsEnabled = consent.isTelemetryEnabled
         lifecycleQueue.async { [self] in
+            let reconciledIsEnabled = consent.isTelemetryEnabled
             guard reconciledIsEnabled != isEnabled else { return }
             isEnabled = reconciledIsEnabled
             (reconciledIsEnabled ? self.onEnable : self.onRevoke)?.body()
