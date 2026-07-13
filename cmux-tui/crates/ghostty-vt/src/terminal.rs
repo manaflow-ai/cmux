@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ghostty_vt_sys as sys;
 
-use crate::render::CursorShape;
+use crate::render::{Cell, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Result, check};
 
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
@@ -548,6 +548,51 @@ impl Terminal {
     /// Number of scrollback rows above the viewport.
     pub fn scrollback_rows(&self) -> usize {
         self.get::<usize>(sys::GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS).unwrap_or(0)
+    }
+
+    /// Number of retained history rows, saturated to the protocol's `u32`.
+    pub fn history_rows(&self) -> u32 {
+        u32::try_from(self.scrollback_rows()).unwrap_or(u32::MAX)
+    }
+
+    /// Read styled retained rows without moving the viewport or consuming
+    /// terminal/render damage.
+    ///
+    /// `start` is zero-based from the oldest retained row. Reads clamp at the
+    /// current history length, so an evicted or past-the-end start returns an
+    /// empty page. This uses Ghostty's read-only history-coordinate grid refs;
+    /// it never scrolls the shared viewport or updates a render state.
+    pub fn styled_history_rows(&self, start: u32, count: u16) -> Result<Vec<Vec<Cell>>> {
+        let total = self.history_rows();
+        if count == 0 || start >= total {
+            return Ok(Vec::new());
+        }
+
+        let palette = terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
+        let end = start.saturating_add(u32::from(count)).min(total);
+        let cols = self.cols();
+        let mut rows = Vec::with_capacity((end - start) as usize);
+        let mut grapheme_buf = Vec::new();
+
+        for y in start..end {
+            let mut row = Vec::with_capacity(cols as usize);
+            for x in 0..cols {
+                let point = sys::GhosttyPoint {
+                    tag: sys::GHOSTTY_POINT_TAG_HISTORY,
+                    value: sys::GhosttyPointValue {
+                        coordinate: sys::GhosttyPointCoordinate { x, y },
+                    },
+                };
+                let mut grid_ref = sys::GhosttyGridRef {
+                    size: size_of::<sys::GhosttyGridRef>(),
+                    ..Default::default()
+                };
+                check(unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut grid_ref) })?;
+                row.push(read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf)?);
+            }
+            rows.push(row);
+        }
+        Ok(rows)
     }
 
     /// Terminal title as set by OSC 0/2, if any.
