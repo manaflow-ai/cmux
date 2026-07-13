@@ -269,10 +269,15 @@ import Testing
             .object(["description": .string("hello")]),
             .object([:]),
         ])
+        let empty = SwiftValue.array([])
         let node = interp.evaluate("""
         VStack {
             Text(nil == nil ? "nil-equal" : "bad")
+            Text(empty.first == nil ? "empty-first" : "bad")
+            if unknownValue() == nil { Text("unsupported-treated-as-absent") }
             if let impossible = nil { Text("unexpected: \\(impossible)") }
+            let selected = workspaces.first { $0.selected }
+            if selected == nil { Text("no-selected") }
             ForEach(workspaces) { w in
                 Text(w.description != nil ? "present" : "absent")
                 if w.description == nil { Text("missing") }
@@ -284,9 +289,9 @@ import Testing
                 }
             }
         }
-        """, state: ["workspaces": workspaces])
+        """, state: ["workspaces": workspaces, "empty": empty])
         #expect(node?.children.map(\.text) == [
-            "nil-equal",
+            "nil-equal", "empty-first", "no-selected",
             "present", "value: hello", "bound: hello",
             "absent", "missing", "unbound",
         ])
