@@ -149,10 +149,36 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
-    /// Clear-scoped discard: canonical surface identity when surface-scoped.
-    nonisolated func discardPendingNotificationsForClear(tabId: UUID, surfaceId: UUID?) {
+    /// Clear-scoped discard: canonical surface identity when surface-scoped;
+    /// live destination workspace when workspace-scoped.
+    @MainActor
+    func discardPendingNotificationsForClear(tabId: UUID, surfaceId: UUID?) {
         if let surfaceId { discardPendingNotifications(forSurfaceId: surfaceId) }
-        else { discardPendingNotifications(forTabId: tabId, surfaceId: nil) }
+        else { discardPendingNotificationsResolvingLiveOwner(forTabId: tabId) }
+    }
+
+    /// Phase 1 of the live-owner workspace clear (see
+    /// `discardPendingNotificationsResolvingLiveOwner(forTabId:)`): the
+    /// pending notification addresses, identified by their exact sequence.
+    nonisolated func pendingNotificationAddressesSnapshot() -> [(sequence: UInt64, tabId: UUID, surfaceId: UUID?)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return pending.compactMap { entry in
+            guard case .deliverNotification(let notification) = entry.mutation else { return nil }
+            return (entry.sequence, notification.key.tabId, notification.key.surfaceId)
+        }
+    }
+
+    /// Phase 2: discard exactly the snapshotted entries; anything enqueued
+    /// after the snapshot keeps its place.
+    nonisolated func discardPendingNotifications(sequences: Set<UInt64>) {
+        guard !sequences.isEmpty else { return }
+        lock.lock()
+        pending.removeAll { entry in
+            guard case .deliverNotification = entry.mutation else { return false }
+            return sequences.contains(entry.sequence)
+        }
+        lock.unlock()
     }
 
     private func enqueueNotification(_ notification: QueuedTerminalNotification, coalesces: Bool) {
@@ -401,7 +427,13 @@ final class TerminalMutationBus: @unchecked Sendable {
                     "notification.queue.perform seq=\(entry.sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
                 )
 #endif
-                TerminalNotificationStore.shared.deliverQueuedNotification(notification)
+                TerminalNotificationStore.shared.deliverQueuedNotification(
+                    claimedTabId: notification.key.tabId,
+                    surfaceId: notification.key.surfaceId,
+                    title: notification.title,
+                    subtitle: notification.subtitle,
+                    body: notification.body
+                )
             case .clearAllNotifications:
                 TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false)
             case .clearNotificationsForTab(let tabId):
@@ -422,75 +454,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 }
 
-extension TerminalController {
-    func deliverNotificationSynchronously(
-        tabId: UUID,
-        surfaceId: UUID?,
-        title: String,
-        subtitle: String,
-        body: String
-    ) {
-        // Retarget to the surface's CURRENT workspace at delivery time so a
-        // stale caller-supplied workspace id (spawn-time env, moved pane —
-        // issues #7939/#5781) cannot misfile the notification. Undeliverable
-        // targets fall back to the claimed address, preserving prior behavior.
-        let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
-            claimedTabId: tabId,
-            surfaceId: surfaceId
-        ) ?? (tabId: tabId, surfaceId: surfaceId)
-        // Supersede pending notifications by canonical identity: stale-keyed
-        // entries for this surface would retarget to this same pane at drain.
-        if let liveSurfaceId = target.surfaceId {
-            TerminalMutationBus.shared.discardPendingNotifications(forSurfaceId: liveSurfaceId)
-        } else {
-            TerminalMutationBus.shared.discardPendingNotifications(forTabId: target.tabId, surfaceId: nil)
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "notification.sync.deliver workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") claimedWorkspace=\(tabId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
-        )
-#endif
-        TerminalNotificationStore.shared.addNotification(
-            tabId: target.tabId,
-            surfaceId: target.surfaceId,
-            title: title,
-            subtitle: subtitle,
-            body: body
-        )
-    }
-}
-
 extension TerminalNotificationStore {
-    fileprivate func deliverQueuedNotification(_ notification: QueuedTerminalNotification) {
-        // Resolve the LIVE target at delivery time: a surface-scoped
-        // notification follows its surface to the workspace that currently
-        // owns it (issues #7939/#5781) instead of being dropped on a stale
-        // workspace claim; only a gone target (closed surface/workspace) skips.
-        guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
-            claimedTabId: notification.key.tabId,
-            surfaceId: notification.key.surfaceId
-        ) else {
-#if DEBUG
-            cmuxDebugLog(
-                "notification.queue.deliver.skip workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") reason=targetMissing titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
-            )
-#endif
-            return
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "notification.queue.deliver workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") claimedWorkspace=\(notification.key.tabId.uuidString.prefix(8)) titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
-        )
-#endif
-        addNotification(
-            tabId: target.tabId,
-            surfaceId: target.surfaceId,
-            title: notification.title,
-            subtitle: notification.subtitle,
-            body: notification.body
-        )
-    }
-
     static func cachedDeliveryAuthorizationDecision(
         for state: NotificationAuthorizationState,
         isAppActive: Bool
