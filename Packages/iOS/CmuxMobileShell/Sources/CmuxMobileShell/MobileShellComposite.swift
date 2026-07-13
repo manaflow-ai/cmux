@@ -494,7 +494,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// a sign-out bumps the token, so stale continuations are dropped instead of
     /// writing the previous user's state under ids the next account may reuse. Not
     /// observed: it gates async hand-backs, not view state.
-    @ObservationIgnored private var signInGeneration = 0
+    @ObservationIgnored var signInGeneration = 0
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
@@ -734,9 +734,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var connectionGeneration: UUID
     var connectionAttemptGeneration: UUID
     @ObservationIgnored var macSwitchAttemptID: UUID?
-    @ObservationIgnored private var macSwitchAttemptSignInGeneration: Int?
-    @ObservationIgnored private var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
-    @ObservationIgnored private var macSwitchRestoreBaseline: MobilePairedMac?
+    @ObservationIgnored var macSwitchAttemptSignInGeneration: Int?
+    @ObservationIgnored var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
+    @ObservationIgnored var macSwitchRestoreBaseline: MobilePairedMac?
     @ObservationIgnored private var macSwitchCancelRestoreGeneration: UInt64 = 0
     private var chatEventSourceGeneration: UUID
     /// The per-Mac connection pool (P2 of the multi-Mac work), keyed by
@@ -2236,6 +2236,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let pairedMacStore else { return false }
         let switchAttemptID = beginMacSwitchAttempt()
         let liveForegroundRestoreBaseline = liveForegroundMacForSwitchRestore()
+        return await withTaskCancellationHandler {
+            guard !Task.isCancelled else {
+                await restoreMacSwitchBaselineIfCancelled(switchAttemptID)
+                return false
+            }
+            return await performMacSwitch(
+                macDeviceID: macDeviceID,
+                pairedMacStore: pairedMacStore,
+                switchAttemptID: switchAttemptID,
+                liveForegroundRestoreBaseline: liveForegroundRestoreBaseline
+            )
+        } onCancel: {
+            Task { @MainActor [weak self] in _ = self?.cancelMacSwitchAttempt(switchAttemptID) }
+        }
+    }
+
+    private func performMacSwitch(
+        macDeviceID: String,
+        pairedMacStore: any MobilePairedMacStoring,
+        switchAttemptID: UUID,
+        liveForegroundRestoreBaseline: MobilePairedMac?
+    ) async -> Bool {
         defer { finishMacSwitchAttempt(switchAttemptID) }
         // FAST PATH: if a live read-only connection to this Mac already exists,
         // promote it to the foreground (reuse the client) instead of re-dialing.
@@ -5313,21 +5335,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return attemptID
     }
 
-    func isCurrentMacSwitchAttempt(_ attemptID: UUID) -> Bool {
-        macSwitchAttemptID == attemptID
-            && macSwitchAttemptSignInGeneration == signInGeneration
-            && isSignedIn
-    }
-
-    private func finishMacSwitchAttempt(_ attemptID: UUID) {
-        if macSwitchAttemptID == attemptID {
-            macSwitchAttemptID = nil
-            macSwitchAttemptSignInGeneration = nil
-            macSwitchRestoreBaseline = nil
-        }
-        macSwitchRestorePreviousOnCancelAttemptIDs.remove(attemptID)
-    }
-
     private func clearMacSwitchAttemptState(invalidateUnderlyingConnectionAttempt: Bool = false) {
         macSwitchCancelRestoreGeneration &+= 1
         macSwitchAttemptID = nil
@@ -5345,6 +5352,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ attemptID: UUID,
         fallback: MobilePairedMac? = nil
     ) async -> Bool {
+        if Task.isCancelled {
+            _ = cancelMacSwitchAttempt(attemptID)
+        }
         guard consumeMacSwitchRestorePreviousOnCancel(attemptID) else { return false }
         let restoreGeneration = macSwitchCancelRestoreGeneration
         let restored = await restorePreviousMacIfNeeded(
