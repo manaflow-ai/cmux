@@ -719,6 +719,7 @@ jobs:
             -only-testing:cmuxTests/SharedLiveAgentIndexHookStoreInvalidationTests \
             -only-testing:cmuxTests/TerminationResumeIndexCoordinatorInvalidationTests \
             -only-testing:cmuxTests/ClosedItemHistoryAgentEnrichmentTests \
+            -only-testing:cmuxTests/ClosedItemHistoryPendingEnrichmentTests \
             -only-testing:cmuxTests/AgentHibernationPlannerSwiftTests \
             test
 

@@ -87,7 +87,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
     }
 
     @Test
-    func newestPendingRecordBlocksGenericReopenUntilReady() async throws {
+    func newestCoreRecordCanReopenWhileEnrichmentIsPending() async throws {
         let workspaceId = UUID()
         let panelId = UUID()
         let started = DispatchSemaphore(value: 0)
@@ -109,22 +109,20 @@ struct ClosedItemHistoryPendingEnrichmentTests {
             )
         ))
         #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: started))
-        var restoreCalls = 0
-        #expect(!store.canReopen)
-        #expect(!store.restoreFirstRestorable { _ in
-            restoreCalls += 1
-            return true
-        })
-        #expect(restoreCalls == 0)
-
-        release.signal()
-        await capture.value
+        var restoredPanelID: UUID?
         var restoredSessionID: String?
+        #expect(store.canReopen)
         #expect(store.restoreFirstRestorable { entry in
+            restoredPanelID = Self.panelID(from: entry)
             restoredSessionID = Self.sessionID(from: entry)
             return true
         })
-        #expect(restoredSessionID == "newest-session")
+        #expect(restoredPanelID == panelId)
+        #expect(restoredSessionID == nil)
+
+        release.signal()
+        await capture.value
+        #expect(store.menuSnapshot().totalItemCount == 1)
     }
 
     @Test
