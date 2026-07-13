@@ -711,36 +711,53 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
         }
     }
 
+    /// Resolves the built-in agent definition for a process.
+    ///
+    /// `prioritizeLaunchKind` (default `true`) decides precedence when the
+    /// `CMUX_AGENT_LAUNCH_KIND` env var and the process's own executable identity
+    /// disagree. The primary hook/restore path keeps launch-kind first: an agent
+    /// launched through a bare `node`/wrapper exposes no identifying basename and is
+    /// only knowable from the env var. The display-only process scanner passes `false` —
+    /// a user who runs `opencode`/`cursor-agent` inside a pane first launched as `claude`
+    /// leaves `CMUX_AGENT_LAUNCH_KIND=claude` inherited on the child, so the actual
+    /// executable, not the stale inherited kind, must win for the brand icon.
     static func matchingDefinition(
         processName: String,
         processPath: String?,
         arguments: [String],
-        environment: [String: String]
+        environment: [String: String],
+        prioritizeLaunchKind: Bool = true
     ) -> CmuxTaskManagerCodingAgentDefinition? {
         let definitions = builtIns
-        let launchKind = normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
-        if let launchKind,
-           let definition = definitions.first(where: { $0.launchKinds.contains(launchKind) }) {
-            return definition
+
+        func launchKindMatch() -> CmuxTaskManagerCodingAgentDefinition? {
+            guard let launchKind = normalized(environment["CMUX_AGENT_LAUNCH_KIND"]) else { return nil }
+            return definitions.first { $0.launchKinds.contains(launchKind) }
         }
 
-        let basenames = candidateBasenames(
-            processName: processName,
-            processPath: processPath,
-            arguments: arguments
-        )
-        if let definition = definitions.first(where: { definition in
-            basenames.contains { definition.directBasenames.contains($0) }
-        }) {
-            return definition
-        }
-
-        guard !arguments.isEmpty else { return nil }
-        return definitions.first { definition in
-            definition.argumentNeedles.contains { needle in
-                arguments.contains { argumentMatchesNeedle(argument: $0, needle: needle) }
+        func processIdentityMatch() -> CmuxTaskManagerCodingAgentDefinition? {
+            let basenames = candidateBasenames(
+                processName: processName,
+                processPath: processPath,
+                arguments: arguments
+            )
+            if let definition = definitions.first(where: { definition in
+                basenames.contains { definition.directBasenames.contains($0) }
+            }) {
+                return definition
+            }
+            guard !arguments.isEmpty else { return nil }
+            return definitions.first { definition in
+                definition.argumentNeedles.contains { needle in
+                    arguments.contains { argumentMatchesNeedle(argument: $0, needle: needle) }
+                }
             }
         }
+
+        if prioritizeLaunchKind {
+            return launchKindMatch() ?? processIdentityMatch()
+        }
+        return processIdentityMatch() ?? launchKindMatch()
     }
 
     private static let argumentHostBasenames: Set<String> = [

@@ -15,6 +15,11 @@ final class SharedLiveAgentIndex {
     /// session that could trigger a spurious resume. Refreshed in the same off-main loader;
     /// readers observe `.sharedLiveAgentIndexDidChange` (posted after a completed reload).
     private(set) var detectedBuiltInAgentIconsByPanelKey: [RestorableAgentSessionIndex.PanelKey: DetectedBuiltInAgent] = [:]
+    /// Panel-id-only fallback for `builtInAgentIcon`. The scanner keys by the process's
+    /// injected `CMUX_WORKSPACE_ID`, which is not guaranteed to equal the in-app
+    /// `Workspace.id` used at the render site; surface (panel) ids are globally unique, so
+    /// a panel-id lookup recovers the match. Mirrors `RestorableAgentSessionIndex.entriesByPanelId`.
+    private(set) var detectedBuiltInAgentIconsByPanelId: [UUID: DetectedBuiltInAgent] = [:]
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
@@ -129,6 +134,7 @@ final class SharedLiveAgentIndex {
         scheduleRefreshIfStale()
         let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
         return detectedBuiltInAgentIconsByPanelKey[key]
+            ?? detectedBuiltInAgentIconsByPanelId[panelId]
     }
 
     func scheduleRefreshIfStale(validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil) {
@@ -241,6 +247,10 @@ final class SharedLiveAgentIndex {
     ) {
         index = newIndex
         detectedBuiltInAgentIconsByPanelKey = detectedBuiltInAgentIcons
+        detectedBuiltInAgentIconsByPanelId = Dictionary(
+            detectedBuiltInAgentIcons.map { ($0.key.panelId, $0.value) },
+            uniquingKeysWith: { first, _ in first }
+        )
         self.loadedAt = loadedAt
         validatedForkPanels = forkValidatedPanels
         validatedForkPanelProbeCompletedAt = forkPanelProbeTimestamps(

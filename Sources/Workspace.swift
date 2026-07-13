@@ -3199,16 +3199,27 @@ final class Workspace: Identifiable, ObservableObject {
             // fall through to the display-only process-detected built-in map (covers
             // bare CLIs like `codex`/`cursor` that fire no hook).
             let index = SharedLiveAgentIndex.shared
+            let detected = index.builtInAgentIcon(workspaceId: workspaceId, panelId: panelId)
             let liveSnapshot = index
                 .snapshot(workspaceId: workspaceId, panelId: panelId)
                 .flatMap { snapshot in
                     index.index?.hasLiveProcess(workspaceId: workspaceId, panelId: panelId) == true ? snapshot : nil
                 }
-            let nextIconImageData = liveSnapshot?
-                .agentIconPNGData()
-                ?? index
-                    .builtInAgentIcon(workspaceId: workspaceId, panelId: panelId)?
-                    .agentIconPNGData()
+            // A live hook snapshot normally wins (it carries session identity), but its
+            // liveness is panel-scoped, not agent-identity-scoped: a pane first launched as
+            // `claude` keeps that claude snapshot marked "live" as long as ANY cmux-scoped
+            // process runs in the pane — including a different bare CLI (e.g. `cursor-agent`)
+            // the user later started there, whose PIDs inherit the same CMUX_SURFACE_ID.
+            // When process detection identifies a DIFFERENT built-in agent actually in the
+            // foreground, that executable is the truth for the brand icon, so detection
+            // overrides the stale snapshot.
+            let snapshotReflectsForeground: Bool = {
+                guard let liveSnapshot else { return false }
+                guard let detectedKind = detected?.restorableAgentKind else { return true }
+                return detectedKind.rawValue == liveSnapshot.kind.rawValue
+            }()
+            let nextIconImageData = (snapshotReflectsForeground ? liveSnapshot?.agentIconPNGData() : nil)
+                ?? detected?.agentIconPNGData()
             if let nextIconImageData {
                 guard existing.iconImageData != nextIconImageData else { continue }
                 bonsplitController.updateTab(tabId, iconImageData: .some(nextIconImageData))

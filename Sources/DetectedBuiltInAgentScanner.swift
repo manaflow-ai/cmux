@@ -55,11 +55,16 @@ extension RestorableAgentSessionIndex {
 
         func matchedAgent(for process: CmuxTopProcessInfo) -> DetectedBuiltInAgent? {
             let processArguments = processArgumentsProvider(process.pid)
+            // Prefer the process's own executable identity over the inherited
+            // CMUX_AGENT_LAUNCH_KIND: a pane launched as `claude` where the user then runs
+            // `opencode`/`cursor-agent` leaves the child carrying a stale claude launch kind,
+            // and the display icon must reflect the executable actually running.
             guard let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: process.name,
                 processPath: process.path,
                 arguments: processArguments?.arguments ?? [],
-                environment: processArguments?.environment ?? [:]
+                environment: processArguments?.environment ?? [:],
+                prioritizeLaunchKind: false
             ) else { return nil }
             return DetectedBuiltInAgent(agentId: definition.id)
         }
