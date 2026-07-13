@@ -108,6 +108,10 @@ import Testing
     let store = MobileShellComposite.preview()
     var theme = TerminalTheme.monokai
     theme.background = "#063f46"
+    store.prepareTerminalThemeRevisionAuthority(
+        macInstanceTag: "mac-theme-instance",
+        connectionID: "connection-before"
+    )
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
         stateSeq: 1,
@@ -119,7 +123,10 @@ import Testing
     )
     store.recordTerminalTheme(frame)
 
-    store.resetTerminalThemeRevisionsForReconnect()
+    store.prepareTerminalThemeRevisionAuthority(
+        macInstanceTag: "mac-theme-instance",
+        connectionID: "connection-after"
+    )
     store.recordTerminalTheme(try delayedFrame(
         surfaceID: surfaceID,
         theme: .monokai,
@@ -128,6 +135,38 @@ import Testing
 
     #expect(store.terminalTheme(for: surfaceID) == theme)
     #expect(store.terminalThemeState.revisionsBySurfaceID[surfaceID] == 10)
+}
+
+@MainActor
+@Test func newMacInstanceAcceptsItsFreshThemeRevision() throws {
+    let surfaceID = "terminal-new-mac-theme"
+    let store = MobileShellComposite.preview()
+    var previousTheme = TerminalTheme.monokai
+    previousTheme.background = "#063f46"
+    var restartedTheme = TerminalTheme.monokai
+    restartedTheme.background = "#f4f0df"
+    store.prepareTerminalThemeRevisionAuthority(
+        macInstanceTag: "mac-instance-before",
+        connectionID: "connection-before"
+    )
+    store.recordTerminalTheme(try delayedFrame(
+        surfaceID: surfaceID,
+        theme: previousTheme,
+        revision: 10
+    ))
+
+    store.prepareTerminalThemeRevisionAuthority(
+        macInstanceTag: "mac-instance-after",
+        connectionID: "connection-after"
+    )
+    store.recordTerminalTheme(try delayedFrame(
+        surfaceID: surfaceID,
+        theme: restartedTheme,
+        revision: 1
+    ))
+
+    #expect(store.terminalTheme(for: surfaceID) == restartedTheme)
+    #expect(store.terminalThemeState.revisionsBySurfaceID[surfaceID] == 1)
 }
 
 @MainActor

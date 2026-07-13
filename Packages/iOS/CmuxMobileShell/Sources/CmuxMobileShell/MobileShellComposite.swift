@@ -3602,6 +3602,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
         }
+        syncSelectedTerminalForWorkspace()
         workspaceGroups = workspaceAggregation.derivedGroups(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
     }
@@ -4837,6 +4838,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     guard isConnectCurrent() else { return nil }
                     replaceRemoteClient(with: client)
                     activeMacInstanceTag = resolvedInstanceTag
+                    prepareTerminalThemeRevisionAuthority(
+                        macInstanceTag: resolvedInstanceTag,
+                        connectionID: generation.uuidString
+                    )
                     // Reuse the authenticated status response that bound this
                     // route to its Mac instance. The event listener needs the
                     // same payload for capability negotiation, so asking again
@@ -5212,7 +5217,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
-        resetTerminalThemeRevisionsForReconnect()
         terminalOutputTransport = .rawBytes
         supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
@@ -6085,6 +6089,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // guards; returning the fallback here is inert.
             guard remoteClient === client else { return fallback }
             supportedHostCapabilities = Set(payload.capabilities)
+            prepareTerminalThemeRevisionAuthority(
+                macInstanceTag: payload.macInstanceTag,
+                connectionID: connectionGeneration.uuidString
+            )
             // Adopt the Mac's resolved terminal theme. Older Macs omit the
             // field (`payload.theme == nil`), which the store resolves to the
             // built-in Monokai default. This funnels through the same

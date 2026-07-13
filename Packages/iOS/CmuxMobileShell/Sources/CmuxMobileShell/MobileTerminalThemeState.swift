@@ -4,6 +4,7 @@ struct MobileTerminalThemeState {
     var hostTheme: TerminalTheme = .monokai
     var themesBySurfaceID: [String: TerminalTheme] = [:]
     var revisionsBySurfaceID: [String: UInt64] = [:]
+    var revisionAuthority: String?
     var activeTheme: TerminalTheme = .monokai
     var generation: UInt64 = 0
 

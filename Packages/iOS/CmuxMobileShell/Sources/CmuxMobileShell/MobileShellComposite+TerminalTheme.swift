@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 import CmuxMobileShellModel
+import Foundation
 
 extension MobileShellComposite {
     /// Applies the host-wide theme reported during connection negotiation.
@@ -42,7 +43,15 @@ extension MobileShellComposite {
         terminalThemeState = MobileTerminalThemeState()
     }
 
-    func resetTerminalThemeRevisionsForReconnect() {
+    func prepareTerminalThemeRevisionAuthority(
+        macInstanceTag: String?,
+        connectionID: String
+    ) {
+        let normalizedTag = macInstanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let authority = normalizedTag.flatMap { $0.isEmpty ? nil : "instance:\($0)" }
+            ?? "connection:\(connectionID)"
+        guard terminalThemeState.revisionAuthority != authority else { return }
+        terminalThemeState.revisionAuthority = authority
         terminalThemeState.revisionsBySurfaceID.removeAll(keepingCapacity: true)
     }
 
