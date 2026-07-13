@@ -99,7 +99,12 @@ struct StoredMacReconnectOperation {
                 guard ownsFence else {
                     return .failed(error: nil, hasKnownPairedMac: nil)
                 }
-                let result = await dial(mac: mac, route: route)
+                let result = await dial(
+                    mac: mac,
+                    knownMacs: visibleMacs,
+                    forgottenIDs: forgottenIDs,
+                    route: route
+                )
                 if let success = result.success {
                     return .connected(success)
                 }
@@ -119,7 +124,12 @@ struct StoredMacReconnectOperation {
                     guard ownsFence else {
                         return .failed(error: nil, hasKnownPairedMac: nil)
                     }
-                    let result = await dial(mac: mac, route: route)
+                    let result = await dial(
+                        mac: mac,
+                        knownMacs: visibleMacs,
+                        forgottenIDs: forgottenIDs,
+                        route: route
+                    )
                     if let success = result.success {
                         return .connected(success)
                     }
@@ -151,6 +161,8 @@ struct StoredMacReconnectOperation {
 
     private func dial(
         mac: MobilePairedMac,
+        knownMacs: [MobilePairedMac],
+        forgottenIDs: Set<String>,
         route candidate: RouteCandidate
     ) async -> DialResult {
         guard let runtime else { return (nil, nil) }
@@ -166,7 +178,17 @@ struct StoredMacReconnectOperation {
         } catch {
             return (nil, error as? MobileShellConnectionError)
         }
-        guard ownsFence else { return (nil, nil) }
+        let authority = StoredMacReconnectAuthority(
+            ticket: ticket,
+            sourceMac: mac,
+            knownMacs: knownMacs,
+            routeDisplayName: candidate.host
+        )
+        guard ownsFence,
+              !forgottenIDs.contains(authority.macDeviceID),
+              !progress.wasForgotten(authority.macDeviceID) else {
+            return (nil, nil)
+        }
         let client = MobileCoreRPCClient(
             runtime: runtime,
             route: route,
@@ -187,44 +209,41 @@ struct StoredMacReconnectOperation {
                 return (nil, nil)
             }
             let hostStatus = await requestHostStatus(on: client, runtime: runtime)
-            let authority = acceptedAuthority(for: mac, status: hostStatus)
-            guard ownsFence, authority.accepted else {
+            let resolvedAuthority = authority.resolve(status: hostStatus)
+            guard ownsFence, resolvedAuthority.accepted else {
                 await client.disconnect()
                 return (nil, nil)
             }
             if persistsPairedMac {
                 let accepted = await persist(
                     ticket: ticket,
-                    sourceMac: mac,
+                    storedAuthorityMac: authority.storedMac,
                     displayName: hostStatus?.macDisplayName,
                     reportedInstanceTag: hostStatus?.macInstanceTag,
-                    resolvedInstanceTag: authority.resolved
+                    resolvedInstanceTag: resolvedAuthority.instanceTag
                 )
                 guard accepted, ownsFence else {
                     await client.disconnect()
                     return (nil, nil)
                 }
             }
-            let foregroundMacDeviceID = ticket.foregroundMacID(hint: mac.macDeviceID)
-            var registryMac = mac
-            registryMac.macDeviceID = foregroundMacDeviceID
-            registryMac.displayName = hostStatus?.macDisplayName ?? mac.displayName
-            registryMac.routes = ticket.routes
-            registryMac.instanceTag = authority.resolved
-            registryMac.isActive = true
-            registryMac.stackUserID = scope.userID
-            registryMac.teamID = scope.teamID
+            let registryMac = authority.registryMac(
+                ticket: ticket,
+                status: hostStatus,
+                scope: scope,
+                resolvedInstanceTag: resolvedAuthority.instanceTag
+            )
             return (StoredMacReconnectSuccess(
                 client: client,
                 ticket: ticket,
                 route: route,
                 workspaceResponse: workspaceResponse,
                 hostStatus: hostStatus,
-                resolvedInstanceTag: authority.resolved,
-                foregroundMacDeviceID: foregroundMacDeviceID,
+                resolvedInstanceTag: resolvedAuthority.instanceTag,
+                foregroundMacDeviceID: authority.macDeviceID,
                 registryMac: registryMac,
                 scope: scope,
-                displayName: hostStatus?.macDisplayName ?? mac.displayName ?? candidate.host,
+                displayName: authority.displayName(status: hostStatus),
                 persistsPairedMac: persistsPairedMac
             ), nil)
         } catch {
@@ -309,33 +328,6 @@ struct StoredMacReconnectOperation {
         }
     }
 
-    private func acceptedAuthority(
-        for mac: MobilePairedMac,
-        status: MobileHostStatusResponse?
-    ) -> (accepted: Bool, resolved: String?) {
-        let reportedDeviceID = MobileMacInstanceTagAuthority.normalized(status?.macDeviceID)
-        if let reportedDeviceID,
-           !MobileMacInstanceTagAuthority.authenticatedDeviceMatches(
-            reportedDeviceID: reportedDeviceID,
-            expectedDeviceID: mac.macDeviceID
-           ) {
-            return (false, nil)
-        }
-        let expectation = MobileMacInstanceTagAuthority.expectation(
-            storedInstanceTag: mac.instanceTag
-        )
-        if case .preserve = expectation, reportedDeviceID == nil {
-            return (false, nil)
-        }
-        guard case .accept(let resolved) = MobileMacInstanceTagAuthority.resolve(
-            expectation: expectation,
-            reportedInstanceTag: status?.macInstanceTag
-        ) else {
-            return (false, nil)
-        }
-        return (true, resolved)
-    }
-
     private func freshRoutes(
         for mac: MobilePairedMac,
         triedRoutes: [RouteCandidate]
@@ -379,7 +371,7 @@ struct StoredMacReconnectOperation {
 
     private func persist(
         ticket: CmxAttachTicket,
-        sourceMac: MobilePairedMac,
+        storedAuthorityMac: MobilePairedMac?,
         displayName: String?,
         reportedInstanceTag: String?,
         resolvedInstanceTag: String?
@@ -415,7 +407,7 @@ struct StoredMacReconnectOperation {
             : ticket.routes
         do {
             let accepted: Bool
-            if reportedInstanceTag == nil, sourceMac.instanceTag == nil {
+            if reportedInstanceTag == nil, storedAuthorityMac?.instanceTag == nil {
                 accepted = try await store.upsertRoutesIfAuthorized(
                     macDeviceID: ticket.macDeviceID,
                     displayName: displayName ?? fallback?.displayName,

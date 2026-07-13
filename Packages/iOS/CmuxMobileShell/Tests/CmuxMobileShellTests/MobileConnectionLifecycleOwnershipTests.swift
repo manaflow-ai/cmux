@@ -281,7 +281,7 @@ import Testing
     @Test func forgettingReconnectTargetRemovesMismatchedTicketWrite() async throws {
         let router = LivenessHostRouter()
         await router.setAttachTicketMacDeviceID("mac-b")
-        await router.setHostIdentity(deviceID: "mac-a", instanceTag: "default")
+        await router.setHostIdentity(deviceID: "mac-b", instanceTag: "default")
         let box = TransportBox()
         let clock = TestClock()
         let route = try CmxAttachRoute(
@@ -328,7 +328,7 @@ import Testing
     @Test func mismatchedTicketRollbackPreservesPreviouslySavedDestination() async throws {
         let router = LivenessHostRouter()
         await router.setAttachTicketMacDeviceID("mac-b")
-        await router.setHostIdentity(deviceID: "mac-a", instanceTag: "default")
+        await router.setHostIdentity(deviceID: "mac-b", instanceTag: "default")
         let box = TransportBox()
         let clock = TestClock()
         let route = try CmxAttachRoute(

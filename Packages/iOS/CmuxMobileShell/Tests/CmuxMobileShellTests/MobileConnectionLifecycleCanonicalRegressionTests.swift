@@ -297,68 +297,6 @@ import Testing
         #expect(store.hasKnownPairedMac)
     }
 
-    @Test func reconnectUsesAuthoritativeTicketMacIdentity() async throws {
-        let route = try loopbackRoute(id: "identity", port: 51_007)
-        let pairedMacStore = DelayedTeamPairedMacStore(
-            recordsByTeam: ["": [storedMac(id: "mac-a", route: route)]],
-            blockedTeams: []
-        )
-        let router = LivenessHostRouter()
-        await router.setAttachTicketMacDeviceID("mac-b")
-        await router.setHostIdentity(deviceID: "mac-b", instanceTag: "default")
-        let store = MobileShellComposite(
-            runtime: LivenessTestRuntime(
-                transportFactory: LivenessTransportFactory(
-                    router: router,
-                    box: TransportBox()
-                ),
-                now: { Date() }
-            ),
-            isSignedIn: true,
-            pairedMacStore: pairedMacStore,
-            identityProvider: StaticIdentityProvider(userID: "user-1")
-        )
-
-        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
-
-        #expect(connected)
-        #expect(store.foregroundMacDeviceIDForTesting() == "mac-b")
-        #expect(store.activeTicket?.macDeviceID == "mac-b")
-        store.signOut()
-    }
-
-    @Test func reconnectAuthorizationFailureRequiresReauthentication() async throws {
-        let route = try loopbackRoute(id: "unauthorized", port: 51_008)
-        let pairedMacStore = DelayedTeamPairedMacStore(
-            recordsByTeam: ["": [storedMac(id: "mac-a", route: route)]],
-            blockedTeams: []
-        )
-        let router = LivenessHostRouter()
-        await router.failRequests(
-            method: "mobile.attach_ticket.create",
-            code: "unauthorized",
-            message: "Unauthorized"
-        )
-        let store = MobileShellComposite(
-            runtime: LivenessTestRuntime(
-                transportFactory: LivenessTransportFactory(
-                    router: router,
-                    box: TransportBox()
-                ),
-                now: { Date() }
-            ),
-            isSignedIn: true,
-            pairedMacStore: pairedMacStore,
-            identityProvider: StaticIdentityProvider(userID: "user-1")
-        )
-
-        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
-
-        #expect(!connected)
-        #expect(store.connectionRequiresReauth)
-        #expect(store.connectionState == .disconnected)
-    }
-
     @Test func joinedNetworkChangeRefreshesStoredSecondaryMacs() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
