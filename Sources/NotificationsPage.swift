@@ -253,6 +253,12 @@ struct ShortcutAnnotation: View {
 }
 
 struct NotificationRow: View, Equatable {
+    // Keep this bounded so one pathological notification cannot dominate the
+    // sidebar, while showing enough context for typical agent handoffs. The
+    // parent LazyVStack only lays out visible rows, and Equatable snapshots
+    // prevent unchanged rows from being recomputed when the store publishes.
+    private static let bodyLineLimit = 12
+
     // Closures and the focus binding are recreated by the parent on every render
     // and excluded from ==. Equality compares only the value snapshot the row
     // actually renders, so `.equatable()` can suppress body re-evaluation for
@@ -301,7 +307,7 @@ struct NotificationRow: View, Equatable {
                             Text(notification.body)
                                 .cmuxFont(.subheadline)
                                 .foregroundColor(.secondary)
-                                .lineLimit(3)
+                                .lineLimit(Self.bodyLineLimit)
                         }
 
                         if let tabTitle {
