@@ -6,6 +6,7 @@ export type DiffViewerPayload = {
   labels?: Record<string, string>;
   layout?: "split" | "unified";
   layoutSource?: "default" | "explicit";
+  mobileHost?: boolean;
   pendingReplacement?: boolean;
   statusMessage?: string;
   title?: string;

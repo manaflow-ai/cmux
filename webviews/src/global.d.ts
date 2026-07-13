@@ -25,5 +25,12 @@ declare global {
       streamMetrics?: unknown;
       workerPool?: unknown;
     };
+    cmuxMobileDiff?: {
+      nextFile(): void;
+      prevFile(): void;
+      scrollToFile(path: string): void;
+      setLayout(mode: "unified" | "split"): void;
+      setThemeMode(mode: "light" | "dark"): void;
+    };
   }
 }

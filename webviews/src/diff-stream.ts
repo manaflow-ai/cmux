@@ -201,7 +201,11 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
       patchMetadataIndex += 1;
     }
     const cacheKey = `cmux-diff-file-${model.fileIndex}`;
-    await enqueueFileDiff(options.processFile(fileText, { cacheKey, isGitDiff: true }), currentPatchPrefix);
+    const fileDiff = options.processFile(fileText, { cacheKey, isGitDiff: true });
+    if (fileDiff && isBinaryPatchText(fileText)) {
+      fileDiff.cmuxBinary = true;
+    }
+    await enqueueFileDiff(fileDiff, currentPatchPrefix);
   }
 
   const response = await fetch(options.patchURL, { cache: "no-store" });
@@ -617,7 +621,7 @@ function sameFileStats(previousStats: FileStats | undefined, stats: FileStats): 
   return previousStats?.added === stats.added && previousStats?.deleted === stats.deleted;
 }
 
-function gitStatusType(changeType: string | undefined): string {
+export function gitStatusType(changeType: string | undefined): string {
   switch (changeType) {
   case "new":
     return "added";
@@ -629,6 +633,10 @@ function gitStatusType(changeType: string | undefined): string {
   default:
     return "modified";
   }
+}
+
+function isBinaryPatchText(patchText: string): boolean {
+  return /^(?:Binary files .+ differ|GIT binary patch)$/m.test(patchText);
 }
 
 function yieldToNextFrame(): Promise<void> {

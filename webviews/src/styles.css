@@ -40,6 +40,18 @@
     --cmux-diff-surface-fill: var(--cmux-diff-surface-fill-dark);
   }
 }
+:root[data-theme-mode="light"] {
+  color-scheme: light;
+  --cmux-diff-bg: var(--cmux-diff-bg-light);
+  --cmux-diff-fg: var(--cmux-diff-fg-light);
+  --cmux-diff-surface-fill: var(--cmux-diff-surface-fill-light);
+}
+:root[data-theme-mode="dark"] {
+  color-scheme: dark;
+  --cmux-diff-bg: var(--cmux-diff-bg-dark);
+  --cmux-diff-fg: var(--cmux-diff-fg-dark);
+  --cmux-diff-surface-fill: var(--cmux-diff-surface-fill-dark);
+}
 * {
   box-sizing: border-box;
 }
@@ -81,6 +93,9 @@ body {
   contain: strict;
   background: transparent;
   color: inherit;
+}
+body[data-mobile-host="true"] #app {
+  grid-template-rows: minmax(0, 1fr);
 }
 .copy-fallback-textarea {
   position: fixed;
@@ -700,6 +715,11 @@ body {
   contain: strict;
   background: transparent;
 }
+body[data-mobile-host="true"] #content,
+body[data-mobile-host="true"][data-files-hidden="true"] #content {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "viewer";
+}
 body[data-files-hidden="true"] #content {
   grid-template-columns: minmax(0, 1fr) 0;
 }
@@ -927,6 +947,12 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   overscroll-behavior: contain;
   overflow-anchor: none;
   contain: strict;
+}
+body[data-mobile-host="true"] #viewer,
+body[data-mobile-host="true"] .code-view-root {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: auto;
+  touch-action: pan-x pan-y;
 }
 @media (max-width: 520px) {
   #content,

@@ -1,8 +1,10 @@
 import { RouterProvider } from "@tanstack/react-router";
+import { Component, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "../App";
 import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../appearance";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "../labels";
+import { mobileDiffErrorMessage, postMobileDiffMessage } from "../mobile-diff";
 import { createWebviewsRouter } from "../router";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "../status";
 import diffViewerStyles from "../styles.css?inline";
@@ -24,6 +26,11 @@ function readConfig(): DiffViewerConfig {
  */
 export function mountDiffSurface(rootElement: HTMLElement): void {
   const config = readConfig();
+  if (config.payload?.mobileHost === true) {
+    document.body.dataset.mobileHost = "true";
+  } else {
+    delete document.body.dataset.mobileHost;
+  }
   installWebviewStyles("diff", diffViewerStyles);
   applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance));
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
@@ -35,8 +42,33 @@ export function mountDiffSurface(rootElement: HTMLElement): void {
   const initialStatus = initialDiffViewerStatus(config, label);
   document.body.dataset.filesHidden = "false";
   applyDiffViewerStatusToDocument(initialStatus);
-  const router = createWebviewsRouter(() => (
-    <App config={config} initialStatus={initialStatus} />
-  ));
+  const app = <App config={config} initialStatus={initialStatus} />;
+  const router = createWebviewsRouter(() => config.payload?.mobileHost === true ? (
+    <MobileDiffRenderErrorBoundary fallbackMessage={label("renderFailed")}>
+      {app}
+    </MobileDiffRenderErrorBoundary>
+  ) : app);
   createRoot(rootElement).render(<RouterProvider router={router} />);
+}
+
+class MobileDiffRenderErrorBoundary extends Component<{
+  children: ReactNode;
+  fallbackMessage: string;
+}, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown): void {
+    postMobileDiffMessage({
+      type: "error",
+      message: mobileDiffErrorMessage(error, this.props.fallbackMessage),
+    });
+  }
+
+  render(): ReactNode {
+    return this.state.failed ? null : this.props.children;
+  }
 }

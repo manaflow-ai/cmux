@@ -83,6 +83,44 @@ test("App still starts diff rendering when statusMessage is an empty string", as
   expect(fetchCount).toBe(1);
 });
 
+test("mobile host exposes the native API and renders only the diff-content shell", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  const messages: unknown[] = [];
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxMobileDiff: {
+        postMessage: (message) => messages.push(message),
+      },
+    },
+  };
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          mobileHost: true,
+          statusMessage: "Rendered diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  await waitFor(() => Boolean(dom?.window.cmuxMobileDiff));
+  expect(dom.window.document.getElementById("toolbar")).toBeNull();
+  expect(dom.window.document.getElementById("files-sidebar")).toBeNull();
+  expect(dom.window.document.getElementById("viewer")).toBeTruthy();
+  expect(messages).toEqual([{ type: "ready" }]);
+
+  dom.window.cmuxMobileDiff?.setLayout("split");
+  dom.window.cmuxMobileDiff?.setThemeMode("dark");
+  await waitFor(() => dom?.window.document.documentElement.dataset.layout === "split");
+  await waitFor(() => dom?.window.document.documentElement.dataset.themeMode === "dark");
+});
+
 test("App reports copy failure without replacing the current status screen", async () => {
   dom = createDom();
   installDomGlobals(dom, () => {

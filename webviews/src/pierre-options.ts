@@ -16,6 +16,8 @@ export type DiffViewerOptions = {
 export function codeViewOptions(
   options: DiffViewerOptions,
   appearance: DiffViewerAppearance,
+  themeType: "system" | "light" | "dark" = "system",
+  mobileHost = false,
 ): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
@@ -30,9 +32,9 @@ export function codeViewOptions(
     enableGutterUtility: true,
     lineDiffType: options.wordDiffs ? "word" : "none",
     stickyHeaders: true,
-    unsafeCSS: codeViewUnsafeCSS(),
+    unsafeCSS: codeViewUnsafeCSS(mobileHost),
     theme: appearance.theme as any,
-    themeType: "system",
+    themeType,
   };
 }
 
@@ -52,8 +54,8 @@ export function workerHighlighterOptions(
   };
 }
 
-export function codeViewUnsafeCSS(): string {
-  return `
+export function codeViewUnsafeCSS(mobileHost = false): string {
+  const css = `
     :host {
       --diffs-light-bg: transparent;
       --diffs-dark-bg: transparent;
@@ -141,6 +143,14 @@ export function codeViewUnsafeCSS(): string {
     [data-unmodified-lines],
     [data-expand-button] {
       font-family: var(--diffs-header-font-family, var(--diffs-header-font-fallback));
+    }
+  `;
+  if (!mobileHost) {
+    return css;
+  }
+  return `${css}
+    [data-diffs-header] {
+      min-height: 40px;
     }
   `;
 }
