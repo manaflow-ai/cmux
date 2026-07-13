@@ -35347,12 +35347,6 @@ export default CMUXSessionRestore;
 
 }
 
-private enum CMUXCLIOutput {
-    static func writeStandardError(_ message: String) {
-        cliWriteStderr(message)
-    }
-}
-
 @main
 struct CMUXTermMain {
     static func main() async {
@@ -35366,7 +35360,7 @@ struct CMUXTermMain {
         do {
             try await cli.run()
         } catch {
-            CMUXCLIOutput.writeStandardError("Error: \(error)\n")
+            cliWriteStderr("Error: \(error)\n")
             let exitCode = (error as? CLIError)?.exitCode ?? 1
             exit(exitCode)
         }
