@@ -87,18 +87,20 @@ public struct MobileTaskCommandComposer: Sendable {
         }
 
         let interpolation = Self.interpolatingPromptEnvironment(in: command)
+        let explicitlyReferencesPrompt = Self.referencesPromptEnvironment(in: command)
         let initialCommand: String
         if interpolation.didReplacePrompt {
             initialCommand = interpolation.command
-        } else if Self.referencesPromptEnvironment(in: command) {
+        } else if explicitlyReferencesPrompt {
             initialCommand = command
         } else if !prompt.isEmpty {
-            initialCommand = command + " -- \"${CMUX_TASK_PROMPT}\""
+            let trailingWhitespaceCount = command.reversed().prefix(while: \.isWhitespace).count
+            initialCommand = String(command.dropLast(trailingWhitespaceCount)) + " -- \"${CMUX_TASK_PROMPT}\""
         } else {
             initialCommand = command
         }
 
-        let env = interpolation.didReplacePrompt || !prompt.isEmpty
+        let env = interpolation.didReplacePrompt || explicitlyReferencesPrompt || !prompt.isEmpty
             ? ["CMUX_TASK_PROMPT": prompt]
             : [:]
         return MobileTaskComposition(initialCommand: initialCommand, initialEnv: env, title: title)

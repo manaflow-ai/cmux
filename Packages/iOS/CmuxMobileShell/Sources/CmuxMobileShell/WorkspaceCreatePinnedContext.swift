@@ -2,6 +2,12 @@ internal import CmuxMobileRPC
 internal import Foundation
 
 extension MobileShellComposite {
+    enum WorkspaceCreatePostResponseDisposition: Equatable {
+        case apply
+        case preserveSuccess
+        case failClosed
+    }
+
     /// Exact remote target captured before a workspace-create request suspends.
     struct WorkspaceCreatePinnedContext {
         let macDeviceID: String?
@@ -19,6 +25,16 @@ extension MobileShellComposite {
             macDeviceID == currentMacDeviceID
                 && client === currentClient
                 && generation == currentGeneration
+        }
+
+        /// Settles a decoded host success without inviting an unsafe duplicate.
+        static func postResponseDisposition(
+            operationID: UUID?,
+            isCancelled: Bool,
+            isCurrent: Bool
+        ) -> WorkspaceCreatePostResponseDisposition {
+            guard isCancelled || !isCurrent else { return .apply }
+            return operationID == nil ? .preserveSuccess : .failClosed
         }
     }
 }

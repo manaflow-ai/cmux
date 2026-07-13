@@ -8,7 +8,7 @@ extension TerminalController {
             case external
         }
 
-        typealias Probe = @Sendable (_ path: String) async -> Bool
+        typealias Probe = @Sendable (_ path: String, _ lane: ProbeLane) async -> Bool
         typealias LaneClassifier = @Sendable (_ path: String) -> ProbeLane
         typealias DeadlineSleep = @Sendable (_ timeout: Duration) async -> Void
 
@@ -126,8 +126,8 @@ extension TerminalController {
                 let path = queued.path
                 guard waiterIDsByPath[path]?.isEmpty == false else { continue }
                 activeLanesByPath[path] = queued.lane
-                Task { [weak self, probe] in
-                    let isDirectory = await probe(path)
+                Task { [weak self, probe, lane = queued.lane] in
+                    let isDirectory = await probe(path, lane)
                     await self?.completeProbe(path: path, isDirectory: isDirectory)
                 }
             }

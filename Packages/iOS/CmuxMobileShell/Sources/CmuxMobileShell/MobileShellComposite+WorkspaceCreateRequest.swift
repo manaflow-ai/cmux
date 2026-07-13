@@ -97,16 +97,21 @@ extension MobileShellComposite {
                 MobileCoreRPCClient.requestData(method: "workspace.create", params: params)
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-            guard !Task.isCancelled else {
+            switch WorkspaceCreatePinnedContext.postResponseDisposition(
+                operationID: spec?.operationID,
+                isCancelled: Task.isCancelled,
+                isCurrent: isCurrentWorkspaceCreateContext(context)
+            ) {
+            case .preserveSuccess:
+                // Creates without an idempotency key cannot be retried safely
+                // after the host returns success. Preserve that decoded result
+                // across cancellation or connection replacement, but do not
+                // apply its now-stale workspace list to the current session.
+                return .success(())
+            case .failClosed:
                 return .failure(.notConnected(hostDisplayName: context.hostDisplayName))
-            }
-            guard isCurrentWorkspaceCreateContext(context) else {
-                // Legacy creates have no idempotency key. Once the host accepted
-                // one, reporting failure invites a duplicate retry. Composer
-                // creates carry a spec/operation ID and can safely fail closed.
-                return spec?.operationID == nil
-                    ? .success(())
-                    : .failure(.notConnected(hostDisplayName: context.hostDisplayName))
+            case .apply:
+                break
             }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
