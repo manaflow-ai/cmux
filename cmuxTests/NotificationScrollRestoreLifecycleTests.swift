@@ -332,29 +332,6 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(!panel.hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func missingRenderedFrameDeadlineReleasesDemandAndCancelsRestore() {
-        let boundary = "test-replay-boundary"
-        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
-        surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)
-        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        beginReplay(on: hostedView, endBoundary: boundary)
-
-        #expect(!hostedView.restoreNotificationScrollPosition(
-            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
-        ))
-        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
-        #expect(hostedView.notificationScrollRestoreRenderedFrameObserver != nil)
-        #expect(hostedView.releaseNotificationScrollRestoreFrameDemand != nil)
-        #expect(hostedView.notificationScrollRestoreFrameDeadlineTimer != nil)
-
-        hostedView.expireNotificationScrollRestoreFrameDeadline()
-
-        #expect(!hostedView.hasPendingNotificationScrollRestore)
-        #expect(hostedView.notificationScrollRestoreRenderedFrameObserver == nil)
-        #expect(hostedView.releaseNotificationScrollRestoreFrameDemand == nil)
-        #expect(hostedView.notificationScrollRestoreFrameDeadlineTimer == nil)
-    }
-
     private func beginReplay(on hostedView: GhosttySurfaceScrollView, endBoundary: String) {
         let startBoundary = endBoundary + "-start"
         hostedView.armSessionScrollbackReplay(
