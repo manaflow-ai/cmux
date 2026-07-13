@@ -1,108 +1,576 @@
 import Foundation
+
 @testable import CmuxAgentChat
 
 struct ArtifactDiscoveryAudit {
+    private struct ViolationExample {
+        let agent: String
+        let transcriptPath: String
+        let artifactPath: String
+        let channels: String
+    }
+
+    private struct TranscriptMeasurement {
+        let agent: String
+        let transcriptPath: String
+        let beforeViolations: Set<String>
+        let afterViolations: Set<String>
+        let beforeChannels: [String: Set<String>]
+        let afterChannels: [String: Set<String>]
+        let beforeExtraCount: Int
+        let afterExtraCount: Int
+        let excludedGalleryPaths: Set<String>
+        let nonAbsoluteGalleryPaths: Set<String>
+    }
+
     private let fileManager = FileManager.default
     private let limitPerAgent = 150
-    private let pathKeys: Set<String> = ["file_path", "notebook_path", "path"]
-    private let commandKeys: Set<String> = ["cmd", "command", "args"]
+    private let detector = TerminalArtifactPathDetector()
+    private let codexUserNoisePrefixes = [
+        "<user_instructions", "<environment_context", "<permissions",
+        "<collaboration_mode", "<turn_aborted", "# AGENTS.md instructions",
+    ]
+    private let claudeUserNoisePrefixes = [
+        "<command-name>", "<local-command", "<system-reminder",
+    ]
 
     func run() {
         let home = fileManager.homeDirectoryForCurrentUser
-        let claude = newestClaudeTranscripts(root: home.appendingPathComponent(".claude/projects"))
-        let codex = newestCodexTranscripts(root: home.appendingPathComponent(".codex/sessions"))
-        var categoryCounts: [String: Int] = [:]
-        var categoryExamples: [String: String] = [:]
-        var transcriptCount = 0
-        var suspiciousCount = 0
-
-        for (agent, urls) in [("claude", claude), ("codex", codex)] {
+        let sources = [
+            ("claude", newestClaudeTranscripts(root: home.appendingPathComponent(".claude/projects"))),
+            ("codex", newestCodexTranscripts(root: home.appendingPathComponent(".codex/sessions"))),
+        ]
+        var measurements: [TranscriptMeasurement] = []
+        for (agent, urls) in sources {
             for url in urls {
                 guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { continue }
                 let text = String(decoding: data, as: UTF8.self)
                 let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-                let messages: [ChatMessage]
-                if agent == "codex" {
-                    messages = CodexTranscriptParser().parse(lines: lines, startingSeq: 0).messages
-                } else {
-                    messages = ClaudeTranscriptParser().parse(lines: lines, startingSeq: 0).messages
-                }
-                let cwd = workingDirectory(messages: messages, lines: lines)
-                let artifacts = ChatArtifactIndexedReference.derive(
-                    from: messages,
+                let result = parse(lines: lines, agent: agent)
+                let cwd = workingDirectory(messages: result.messages, lines: lines)
+                let current = snapshot(
+                    lines: lines,
+                    agent: agent,
+                    workingDirectory: cwd,
+                    parseResult: result
+                )
+                let beforeDetected = detectedPaths(
+                    lines: lines,
+                    agent: agent,
+                    workingDirectory: cwd,
+                    usesLegacyDetector: true
+                )
+                let beforeGallery = legacyGalleryPaths(
+                    messages: result.messages,
                     workingDirectory: cwd
                 )
-                let raw = rawMetrics(lines: lines, agent: agent)
-                let parsedToolUses = messages.compactMap { message -> ChatToolUse? in
-                    guard case .toolUse(let toolUse) = message.kind else { return nil }
-                    return toolUse
-                }
-                let referencedPathCount = parsedToolUses.reduce(0) { partial, toolUse in
-                    partial + (toolUse.referencedPaths?.count ?? 0)
-                }
-                let createdCount = artifacts.filter { $0.provenance == .created }.count
-                let attachedCount = artifacts.filter { $0.provenance == .attached }.count
-                let unresolvedRelativeCount = artifacts.filter { !$0.path.hasPrefix("/") }.count
-                var categories: [String] = []
-                if raw.writeEditCount > 0 && createdCount == 0 {
-                    categories.append("edit-tools-without-created-items")
-                }
-                if raw.pathLikeToolUseCount > 5 && referencedPathCount == 0 {
-                    categories.append("path-like-inputs-without-referenced-paths")
-                }
-                if raw.relativePathCount > 0 {
-                    categories.append("relative-file-path-values")
-                }
-                if unresolvedRelativeCount > 0 {
-                    categories.append(cwd == nil ? "relative-paths-missing-session-cwd" : "relative-paths-not-resolved-at-index")
-                }
-                if raw.hasTmpAliasMixture {
-                    categories.append("tmp-private-tmp-mixtures")
-                }
-                if !raw.skippedPathToolNames.isEmpty {
-                    categories.append("unknown-tools-with-path-like-inputs")
-                }
-                if raw.applyPatchCount > 0 && createdCount == 0 {
-                    categories.append("apply-patch-without-created-items")
-                }
-                if raw.shellHeredocWriteCount > 0 {
-                    categories.append("shell-heredoc-writes-not-derived")
-                }
-                if raw.shellRedirectionWriteCount > 0 {
-                    categories.append("shell-redirection-writes-not-derived")
-                }
-                let suspicious = !categories.isEmpty
-                transcriptCount += 1
-                if suspicious { suspiciousCount += 1 }
-                for category in Set(categories) {
-                    categoryCounts[category, default: 0] += 1
-                    categoryExamples[category] = categoryExamples[category] ?? url.path
-                }
-                let skipped = raw.skippedPathToolNames.sorted().joined(separator: ",")
-                print(
-                    "ARTIFACT_AUDIT \(suspicious ? "SUSPICIOUS" : "OK") path=\(url.path) "
-                    + "messages=\(messages.count) tool_use=\(raw.toolUseCount) "
-                    + "path_like_inputs=\(raw.pathLikeToolUseCount) referenced_paths=\(referencedPathCount) "
-                    + "write_edit=\(raw.writeEditCount) created=\(createdCount) "
-                    + "attachment_tokens=\(raw.attachmentTokenCount) attached=\(attachedCount) "
-                    + "relative_file_path=\(raw.relativePathCount) unresolved_relative=\(unresolvedRelativeCount) "
-                    + "tmp_alias_mixture=\(raw.hasTmpAliasMixture ? 1 : 0) "
-                    + "skipped_tools=\(skipped.isEmpty ? "none" : skipped)"
+                let beforeDetectedPaths = Set(beforeDetected.keys)
+                measurements.append(
+                    TranscriptMeasurement(
+                        agent: agent,
+                        transcriptPath: url.path,
+                        beforeViolations: beforeDetectedPaths.subtracting(beforeGallery),
+                        afterViolations: current.violations,
+                        beforeChannels: beforeDetected,
+                        afterChannels: current.detectedChannelsByPath,
+                        beforeExtraCount: beforeGallery.subtracting(beforeDetectedPaths).count,
+                        afterExtraCount: current.galleryPaths
+                            .subtracting(Set(current.detectedChannelsByPath.keys)).count,
+                        excludedGalleryPaths: current.excludedGalleryPaths,
+                        nonAbsoluteGalleryPaths: current.nonAbsoluteGalleryPaths
+                    )
                 )
             }
         }
+        printReport(measurements)
+    }
 
-        print("ARTIFACT_AUDIT_AGGREGATE transcripts=\(transcriptCount) suspicious=\(suspiciousCount)")
-        let topCategories = categoryCounts.sorted { lhs, rhs in
-            lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value
-        }.prefix(5)
-        for (index, entry) in topCategories.enumerated() {
-            let category = entry.key
-            print(
-                "ARTIFACT_AUDIT_GAP rank=\(index + 1) category=\(category) "
-                + "count=\(entry.value) example=\(categoryExamples[category] ?? "none")"
+    func snapshot(
+        lines: [String],
+        agent: String,
+        workingDirectory: String?,
+        parseResult: ChatTranscriptParseResult? = nil
+    ) -> ArtifactParityAuditSnapshot {
+        // Audit criterion: S ⊇ D − E. TerminalArtifactPathDetector applies E
+        // symmetrically to terminal/In-view scanning and gallery free text: bare
+        // root or fewer-than-two-component tokens, quote/template/backslash/
+        // backtick syntax, and interior parentheses are non-artifacts. The
+        // residual E checks below cover URI and pseudo-filesystem namespaces.
+        let result = parseResult ?? parse(lines: lines, agent: agent)
+        let detected = detectedPaths(
+            lines: lines,
+            agent: agent,
+            workingDirectory: workingDirectory,
+            usesLegacyDetector: false
+        )
+        let artifacts = ChatArtifactIndexedReference.derive(
+            from: result.messages,
+            supplementalReferences: result.artifactReferences,
+            workingDirectory: workingDirectory
+        )
+        let galleryPaths = Set(artifacts.map(\.path))
+        return ArtifactParityAuditSnapshot(
+            detectedChannelsByPath: detected,
+            galleryPaths: galleryPaths,
+            violations: Set(detected.keys).subtracting(galleryPaths),
+            excludedGalleryPaths: galleryPaths.filter(Self.isExcludedPath),
+            nonAbsoluteGalleryPaths: galleryPaths.filter { !$0.hasPrefix("/") }
+        )
+    }
+
+    private func parse(lines: [String], agent: String) -> ChatTranscriptParseResult {
+        agent == "codex"
+            ? CodexTranscriptParser().parse(lines: lines, startingSeq: 0)
+            : ClaudeTranscriptParser().parse(lines: lines, startingSeq: 0)
+    }
+
+    private func detectedPaths(
+        lines: [String],
+        agent: String,
+        workingDirectory: String?,
+        usesLegacyDetector: Bool
+    ) -> [String: Set<String>] {
+        var result: [String: Set<String>] = [:]
+        let normalizer = ChatArtifactPathNormalizer(workingDirectory: workingDirectory)
+        for line in lines {
+            guard let root = TranscriptJSONValue(jsonLine: line) else { continue }
+            if agent == "codex" {
+                appendCodexTextChannels(
+                    root,
+                    normalizer: normalizer,
+                    usesLegacyDetector: usesLegacyDetector,
+                    into: &result
+                )
+            } else {
+                appendClaudeTextChannels(
+                    root,
+                    normalizer: normalizer,
+                    usesLegacyDetector: usesLegacyDetector,
+                    into: &result
+                )
+            }
+        }
+        return result
+    }
+
+    private func appendClaudeTextChannels(
+        _ root: TranscriptJSONValue,
+        normalizer: ChatArtifactPathNormalizer,
+        usesLegacyDetector: Bool,
+        into paths: inout [String: Set<String>]
+    ) {
+        guard let content = root["message"]?["content"] else { return }
+        let sidechain = root["isSidechain"]?.bool == true
+        switch root["type"]?.string {
+        case "user":
+            guard root["isMeta"]?.bool != true else { return }
+            if let text = content.string, !sidechain {
+                appendText(
+                    text,
+                    channel: "user",
+                    normalizer: normalizer,
+                    usesLegacyDetector: usesLegacyDetector,
+                    noisePrefixes: claudeUserNoisePrefixes,
+                    into: &paths
+                )
+            }
+            for block in content.array ?? [] {
+                switch block["type"]?.string {
+                case "text" where !sidechain:
+                    appendText(
+                        block["text"]?.string,
+                        channel: "user",
+                        normalizer: normalizer,
+                        usesLegacyDetector: usesLegacyDetector,
+                        noisePrefixes: claudeUserNoisePrefixes,
+                        into: &paths
+                    )
+                case "tool_result":
+                    appendText(
+                        claudeResultText(block["content"]),
+                        channel: sidechain ? "sidechain-output" : "output",
+                        normalizer: normalizer,
+                        usesLegacyDetector: usesLegacyDetector,
+                        into: &paths
+                    )
+                default:
+                    continue
+                }
+            }
+        case "assistant":
+            for block in content.array ?? [] {
+                switch block["type"]?.string {
+                case "text" where !sidechain:
+                    appendText(
+                        block["text"]?.string,
+                        channel: "prose",
+                        normalizer: normalizer,
+                        usesLegacyDetector: usesLegacyDetector,
+                        into: &paths
+                    )
+                case "thinking" where !sidechain:
+                    appendText(
+                        block["thinking"]?.string,
+                        channel: "thought",
+                        normalizer: normalizer,
+                        usesLegacyDetector: usesLegacyDetector,
+                        into: &paths
+                    )
+                case "tool_use":
+                    guard block["name"]?.string == "Bash" else { continue }
+                    appendText(
+                        block["input"]?["command"]?.string,
+                        channel: sidechain ? "sidechain-command" : "command",
+                        normalizer: normalizer,
+                        usesLegacyDetector: usesLegacyDetector,
+                        into: &paths
+                    )
+                default:
+                    continue
+                }
+            }
+        default:
+            return
+        }
+    }
+
+    private func appendCodexTextChannels(
+        _ root: TranscriptJSONValue,
+        normalizer: ChatArtifactPathNormalizer,
+        usesLegacyDetector: Bool,
+        into paths: inout [String: Set<String>]
+    ) {
+        let payload = root["payload"]
+        switch root["type"]?.string {
+        case "response_item":
+            switch payload?["type"]?.string {
+            case "message":
+                let role = payload?["role"]?.string
+                let channel = role == "user" ? "user" : "prose"
+                guard role == "user" || role == "assistant" else { return }
+                for block in payload?["content"]?.array ?? [] {
+                    appendText(
+                        block["text"]?.string,
+                        channel: channel,
+                        normalizer: normalizer,
+                        usesLegacyDetector: usesLegacyDetector,
+                        noisePrefixes: role == "user" ? codexUserNoisePrefixes : [],
+                        into: &paths
+                    )
+                }
+            case "reasoning":
+                for summary in payload?["summary"]?.array ?? [] {
+                    appendText(
+                        summary["text"]?.string,
+                        channel: "thought",
+                        normalizer: normalizer,
+                        usesLegacyDetector: usesLegacyDetector,
+                        into: &paths
+                    )
+                }
+            case "function_call":
+                guard let name = payload?["name"]?.string,
+                      Self.isCodexShellTool(name) else { return }
+                let arguments = payload?["arguments"]?.string
+                    .flatMap { TranscriptJSONValue(jsonLine: $0) }
+                appendText(
+                    codexShellCommand(arguments: arguments, payload: payload),
+                    channel: "command",
+                    normalizer: normalizer,
+                    usesLegacyDetector: usesLegacyDetector,
+                    into: &paths
+                )
+            case "function_call_output", "custom_tool_call_output":
+                appendText(
+                    codexOutputText(payload?["output"]),
+                    channel: "output",
+                    normalizer: normalizer,
+                    usesLegacyDetector: usesLegacyDetector,
+                    into: &paths
+                )
+            default:
+                return
+            }
+        case "event_msg":
+            switch payload?["type"]?.string {
+            case "agent_message":
+                appendText(
+                    payload?["message"]?.string,
+                    channel: "prose",
+                    normalizer: normalizer,
+                    usesLegacyDetector: usesLegacyDetector,
+                    into: &paths
+                )
+            case "exec_command_begin":
+                appendEventFields(
+                    payload,
+                    keys: ["command", "cmd"],
+                    channel: "command",
+                    normalizer: normalizer,
+                    usesLegacyDetector: usesLegacyDetector,
+                    into: &paths
+                )
+            case "exec_command_end", "exec_command_output_delta", "patch_apply_end":
+                appendEventFields(
+                    payload,
+                    keys: ["output", "stdout", "stderr", "aggregated_output", "formatted_output", "delta"],
+                    channel: "output",
+                    normalizer: normalizer,
+                    usesLegacyDetector: usesLegacyDetector,
+                    into: &paths
+                )
+            default:
+                return
+            }
+        default:
+            return
+        }
+    }
+
+    private func appendEventFields(
+        _ payload: TranscriptJSONValue?,
+        keys: [String],
+        channel: String,
+        normalizer: ChatArtifactPathNormalizer,
+        usesLegacyDetector: Bool,
+        into paths: inout [String: Set<String>]
+    ) {
+        for key in keys {
+            appendText(
+                codexOutputText(payload?[key]),
+                channel: channel,
+                normalizer: normalizer,
+                usesLegacyDetector: usesLegacyDetector,
+                into: &paths
             )
         }
+    }
+
+    private func appendText(
+        _ text: String?,
+        channel: String,
+        normalizer: ChatArtifactPathNormalizer,
+        usesLegacyDetector: Bool,
+        noisePrefixes: [String] = [],
+        into paths: inout [String: Set<String>]
+    ) {
+        guard let text else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !noisePrefixes.contains(where: { trimmed.hasPrefix($0) }) else { return }
+        let candidates = usesLegacyDetector ? legacyPaths(in: text) : detector.paths(in: text)
+        for candidate in candidates {
+            guard ChatArtifactPathNormalizer.isAbsoluteFreeTextCandidate(candidate),
+                  let path = normalizer.freeTextPath(candidate) else { continue }
+            paths[path, default: []].insert(channel)
+        }
+    }
+
+    private func legacyPaths(in text: String) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for raw in text.split(whereSeparator: \.isWhitespace) {
+            var candidate = String(raw)
+            let leading = CharacterSet(charactersIn: "\"'`([{<")
+            let trailing = CharacterSet(charactersIn: "\"'`)]}>,;:!?")
+            candidate = candidate.trimmingCharacters(in: leading)
+            while let scalar = candidate.unicodeScalars.last,
+                  trailing.contains(scalar) || (scalar.value == 46 && !candidate.hasSuffix("..")) {
+                candidate.removeLast()
+            }
+            if candidate.hasPrefix("file://"),
+               let url = URL(string: candidate), url.isFileURL {
+                candidate = url.path
+            }
+            guard !candidate.isEmpty,
+                  !candidate.hasPrefix("http://"),
+                  !candidate.hasPrefix("https://"),
+                  (candidate.hasPrefix("/") || candidate.hasPrefix("./")
+                    || candidate.hasPrefix("../")
+                    || (candidate.contains("/") && !candidate.contains("://"))),
+                  seen.insert(candidate).inserted else { continue }
+            result.append(candidate)
+        }
+        return result
+    }
+
+    private func claudeResultText(_ content: TranscriptJSONValue?) -> String? {
+        if let text = content?.string { return text }
+        let texts = (content?.array ?? []).compactMap { block -> String? in
+            guard block["type"]?.string == "text" else { return nil }
+            return block["text"]?.string
+        }
+        return texts.isEmpty ? nil : texts.joined(separator: "\n")
+    }
+
+    private func codexOutputText(_ value: TranscriptJSONValue?) -> String? {
+        guard let value else { return nil }
+        switch value {
+        case .string(let text):
+            if let nested = TranscriptJSONValue(jsonLine: text),
+               let inner = codexOutputText(nested["output"]) {
+                return inner
+            }
+            return text
+        case .array(let blocks):
+            let texts = blocks.compactMap { block -> String? in
+                block.string ?? block["text"]?.string
+            }
+            return texts.isEmpty ? nil : texts.joined(separator: "\n")
+        case .object:
+            return codexOutputText(value["output"])
+                ?? codexOutputText(value["content"])
+                ?? value["text"]?.string
+        case .number, .bool, .null:
+            return nil
+        }
+    }
+
+    private func codexShellCommand(
+        arguments: TranscriptJSONValue?,
+        payload: TranscriptJSONValue?
+    ) -> String? {
+        if let cmd = arguments?["cmd"]?.string { return cmd }
+        if let command = arguments?["command"]?.string { return command }
+        let parts = arguments?["command"]?.array ?? payload?["action"]?["command"]?.array
+        let strings = parts?.compactMap(\.string) ?? []
+        guard !strings.isEmpty else { return nil }
+        if strings.count >= 3,
+           let binary = strings[0].split(separator: "/").last,
+           ["bash", "sh", "zsh"].contains(String(binary)),
+           strings[1] == "-lc" || strings[1] == "-c" {
+            return strings[2...].joined(separator: " ")
+        }
+        return strings.joined(separator: " ")
+    }
+
+    private func legacyGalleryPaths(
+        messages: [ChatMessage],
+        workingDirectory: String?
+    ) -> Set<String> {
+        let normalizer = ChatArtifactPathNormalizer(workingDirectory: workingDirectory)
+        var paths: Set<String> = []
+        for message in messages {
+            let rawPaths: [String]
+            switch message.kind {
+            case .fileEdit(let edit):
+                rawPaths = [edit.filePath]
+            case .attachment(let attachment):
+                rawPaths = attachment.hostPath.map { [$0] } ?? []
+            case .toolUse(let toolUse):
+                rawPaths = toolUse.referencedPaths ?? []
+            default:
+                rawPaths = []
+            }
+            for rawPath in rawPaths {
+                if let path = normalizer.structuredPath(rawPath), path.hasPrefix("/") {
+                    paths.insert(path)
+                }
+            }
+        }
+        return paths
+    }
+
+    private func workingDirectory(messages: [ChatMessage], lines: [String]) -> String? {
+        for message in messages {
+            guard case .status(let status) = message.kind,
+                  status.event == .sessionStarted,
+                  let detail = status.detail,
+                  detail.hasPrefix("/") else { continue }
+            return detail
+        }
+        for line in lines {
+            guard let root = TranscriptJSONValue(jsonLine: line),
+                  let cwd = root["cwd"]?.string ?? root["payload"]?["cwd"]?.string,
+                  cwd.hasPrefix("/") else { continue }
+            return cwd
+        }
+        return nil
+    }
+
+    private func printReport(_ measurements: [TranscriptMeasurement]) {
+        for agent in ["claude", "codex"] {
+            let subset = measurements.filter { $0.agent == agent }
+            printAggregate(label: agent, measurements: subset)
+        }
+        printAggregate(label: "total", measurements: measurements)
+        printExamples(phase: "before", measurements: measurements, usesAfter: false)
+        printExamples(phase: "after", measurements: measurements, usesAfter: true)
+        let beforeExtras = measurements.map(\.beforeExtraCount)
+        let afterExtras = measurements.map(\.afterExtraCount)
+        let growth = zip(beforeExtras, afterExtras).map { before, after in
+            Double(after + 1) / Double(before + 1)
+        }
+        print(
+            "ARTIFACT_PARITY_GROWTH "
+                + "before_extra_median=\(percentile(beforeExtras, percentile: 0.50)) "
+                + "before_extra_p95=\(percentile(beforeExtras, percentile: 0.95)) "
+                + "after_extra_median=\(percentile(afterExtras, percentile: 0.50)) "
+                + "after_extra_p95=\(percentile(afterExtras, percentile: 0.95)) "
+                + "factor_median=\(String(format: "%.3f", percentile(growth, percentile: 0.50))) "
+                + "factor_p95=\(String(format: "%.3f", percentile(growth, percentile: 0.95)))"
+        )
+    }
+
+    private func printAggregate(label: String, measurements: [TranscriptMeasurement]) {
+        let beforeTranscripts = measurements.filter { !$0.beforeViolations.isEmpty }.count
+        let afterTranscripts = measurements.filter { !$0.afterViolations.isEmpty }.count
+        let beforePairs = measurements.reduce(0) { $0 + $1.beforeViolations.count }
+        let afterPairs = measurements.reduce(0) { $0 + $1.afterViolations.count }
+        let excluded = measurements.reduce(0) { $0 + $1.excludedGalleryPaths.count }
+        let nonAbsolute = measurements.reduce(0) { $0 + $1.nonAbsoluteGalleryPaths.count }
+        print(
+            "ARTIFACT_PARITY_AGGREGATE agent=\(label) transcripts=\(measurements.count) "
+                + "before_violation_transcripts=\(beforeTranscripts) before_pairs=\(beforePairs) "
+                + "after_violation_transcripts=\(afterTranscripts) after_pairs=\(afterPairs) "
+                + "excluded_gallery=\(excluded) non_absolute_gallery=\(nonAbsolute)"
+        )
+    }
+
+    private func printExamples(
+        phase: String,
+        measurements: [TranscriptMeasurement],
+        usesAfter: Bool
+    ) {
+        var examples: [ViolationExample] = []
+        for measurement in measurements {
+            let violations = usesAfter ? measurement.afterViolations : measurement.beforeViolations
+            let channels = usesAfter ? measurement.afterChannels : measurement.beforeChannels
+            for path in violations {
+                examples.append(
+                    ViolationExample(
+                        agent: measurement.agent,
+                        transcriptPath: measurement.transcriptPath,
+                        artifactPath: path,
+                        channels: (channels[path] ?? []).sorted().joined(separator: ",")
+                    )
+                )
+            }
+        }
+        examples.sort {
+            ($0.agent, $0.transcriptPath, $0.artifactPath)
+                < ($1.agent, $1.transcriptPath, $1.artifactPath)
+        }
+        for (index, example) in examples.prefix(10).enumerated() {
+            print(
+                "ARTIFACT_PARITY_EXAMPLE phase=\(phase) rank=\(index + 1) "
+                    + "agent=\(example.agent) channel=\(example.channels) "
+                    + "path=\(example.artifactPath) transcript=\(example.transcriptPath)"
+            )
+        }
+    }
+
+    private func percentile(_ values: [Int], percentile: Double) -> Int {
+        guard !values.isEmpty else { return 0 }
+        let sorted = values.sorted()
+        let index = min(sorted.count - 1, Int((Double(sorted.count - 1) * percentile).rounded(.up)))
+        return sorted[index]
+    }
+
+    private func percentile(_ values: [Double], percentile: Double) -> Double {
+        guard !values.isEmpty else { return 0 }
+        let sorted = values.sorted()
+        let index = min(sorted.count - 1, Int((Double(sorted.count - 1) * percentile).rounded(.up)))
+        return sorted[index]
     }
 
     private func newestClaudeTranscripts(root: URL) -> [URL] {
@@ -139,210 +607,23 @@ struct ArtifactDiscoveryAudit {
 
     private func newest(_ urls: [URL]) -> [URL] {
         urls.sorted { lhs, rhs in
-            let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
-                ?? Date.distantPast
-            let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
-                ?? Date.distantPast
+            let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate) ?? Date.distantPast
+            let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate) ?? Date.distantPast
             return left > right
         }.prefix(limitPerAgent).map { $0 }
     }
 
-    private func workingDirectory(messages: [ChatMessage], lines: [String]) -> String? {
-        for message in messages {
-            guard case .status(let status) = message.kind,
-                  status.event == .sessionStarted,
-                  let detail = status.detail,
-                  detail.hasPrefix("/") else { continue }
-            return detail
-        }
-        for line in lines {
-            guard let root = TranscriptJSONValue(jsonLine: line),
-                  let cwd = root["cwd"]?.string ?? root["payload"]?["cwd"]?.string,
-                  cwd.hasPrefix("/") else { continue }
-            return cwd
-        }
-        return nil
+    private static func isCodexShellTool(_ name: String) -> Bool {
+        ["shell", "exec_command", "local_shell_call", "container.exec"].contains(name)
     }
 
-    private func rawMetrics(
-        lines: [String],
-        agent: String
-    ) -> (
-        toolUseCount: Int,
-        pathLikeToolUseCount: Int,
-        writeEditCount: Int,
-        relativePathCount: Int,
-        attachmentTokenCount: Int,
-        applyPatchCount: Int,
-        shellHeredocWriteCount: Int,
-        shellRedirectionWriteCount: Int,
-        hasTmpAliasMixture: Bool,
-        skippedPathToolNames: Set<String>
-    ) {
-        var toolUseCount = 0
-        var pathLikeToolUseCount = 0
-        var writeEditCount = 0
-        var relativePathCount = 0
-        var attachmentTokenCount = 0
-        var applyPatchCount = 0
-        var shellHeredocWriteCount = 0
-        var shellRedirectionWriteCount = 0
-        var hasTmp = false
-        var hasPrivateTmp = false
-        var skippedPathToolNames: Set<String> = []
-
-        for line in lines {
-            attachmentTokenCount += line.components(separatedBy: "<cmux-attachment").count - 1
-            guard let root = TranscriptJSONValue(jsonLine: line) else { continue }
-            let tools = agent == "claude" ? claudeTools(root: root) : codexTools(root: root)
-            for tool in tools {
-                toolUseCount += 1
-                let keyedPaths = pathValues(in: tool.input, key: nil)
-                let broadPathValues = potentialPathValues(in: tool.input, key: nil)
-                var commandStrings = strings(in: tool.input, matchingKeys: commandKeys, key: nil)
-                if Self.isShellTool(tool.name), let directInput = tool.input?.string {
-                    commandStrings.append(directInput)
-                }
-                let commandAbsolutePathCount = commandStrings.reduce(0) { $0 + absolutePathCount(in: $1) }
-                let patchPaths = Self.isApplyPatchTool(tool.name)
-                    ? patchedPaths(in: tool.input?.string ?? "")
-                    : []
-                if !broadPathValues.isEmpty || commandAbsolutePathCount > 0 || !patchPaths.isEmpty {
-                    pathLikeToolUseCount += 1
-                    if broadPathValues.count > keyedPaths.count {
-                        skippedPathToolNames.insert(tool.name)
-                    }
-                }
-                relativePathCount += keyedPaths.filter { !$0.hasPrefix("/") && !$0.isEmpty }.count
-                if ["Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"].contains(tool.name) {
-                    writeEditCount += 1
-                }
-                if Self.isApplyPatchTool(tool.name) {
-                    applyPatchCount += 1
-                }
-                for value in broadPathValues + commandStrings + patchPaths {
-                    hasTmp = hasTmp || value.contains("/tmp/")
-                    hasPrivateTmp = hasPrivateTmp || value.contains("/private/tmp/")
-                }
-                for command in commandStrings {
-                    if command.contains("<<") && command.contains(">") {
-                        shellHeredocWriteCount += 1
-                    } else if command.range(of: #"(^|[[:space:]])[12]?>[>]?[[:space:]]*[^&]"#, options: .regularExpression) != nil {
-                        shellRedirectionWriteCount += 1
-                    }
-                }
+    private static func isExcludedPath(_ path: String) -> Bool {
+        !path.hasPrefix("/")
+            || path.contains("://")
+            || ["/dev", "/proc", "/sys"].contains { prefix in
+                path == prefix || path.hasPrefix(prefix + "/")
             }
-        }
-        return (
-            toolUseCount, pathLikeToolUseCount, writeEditCount, relativePathCount,
-            attachmentTokenCount, applyPatchCount, shellHeredocWriteCount,
-            shellRedirectionWriteCount, hasTmp && hasPrivateTmp, skippedPathToolNames
-        )
-    }
-
-    private func claudeTools(root: TranscriptJSONValue) -> [(name: String, input: TranscriptJSONValue?)] {
-        guard root["type"]?.string == "assistant" else { return [] }
-        return (root["message"]?["content"]?.array ?? []).compactMap { block in
-            guard block["type"]?.string == "tool_use", let name = block["name"]?.string else { return nil }
-            return (name, block["input"])
-        }
-    }
-
-    private func codexTools(root: TranscriptJSONValue) -> [(name: String, input: TranscriptJSONValue?)] {
-        guard root["type"]?.string == "response_item",
-              let payload = root["payload"],
-              let type = payload["type"]?.string,
-              type == "function_call" || type == "custom_tool_call",
-              let name = payload["name"]?.string else { return [] }
-        if type == "function_call", let arguments = payload["arguments"]?.string {
-            return [(name, TranscriptJSONValue(jsonLine: arguments))]
-        }
-        return [(name, payload["input"])]
-    }
-
-    private func pathValues(in value: TranscriptJSONValue?, key: String?) -> [String] {
-        guard let value else { return [] }
-        if let key, pathKeys.contains(key) {
-            return allStrings(in: value)
-        }
-        switch value {
-        case .object(let object):
-            return object.flatMap { pathValues(in: $0.value, key: $0.key) }
-        case .array(let array):
-            return array.flatMap { pathValues(in: $0, key: nil) }
-        case .string, .number, .bool, .null:
-            return []
-        }
-    }
-
-    private func potentialPathValues(in value: TranscriptJSONValue?, key: String?) -> [String] {
-        guard let value else { return [] }
-        if let key, Self.isPotentialPathKey(key) {
-            return allStrings(in: value)
-        }
-        switch value {
-        case .object(let object):
-            return object.flatMap { potentialPathValues(in: $0.value, key: $0.key) }
-        case .array(let array):
-            return array.flatMap { potentialPathValues(in: $0, key: nil) }
-        case .string, .number, .bool, .null:
-            return []
-        }
-    }
-
-    private func strings(
-        in value: TranscriptJSONValue?,
-        matchingKeys keys: Set<String>,
-        key: String?
-    ) -> [String] {
-        guard let value else { return [] }
-        if let key, keys.contains(key) {
-            return allStrings(in: value)
-        }
-        switch value {
-        case .object(let object):
-            return object.flatMap { strings(in: $0.value, matchingKeys: keys, key: $0.key) }
-        case .array(let array):
-            return array.flatMap { strings(in: $0, matchingKeys: keys, key: nil) }
-        case .string, .number, .bool, .null:
-            return []
-        }
-    }
-
-    private func allStrings(in value: TranscriptJSONValue) -> [String] {
-        switch value {
-        case .string(let string): return [string.trimmingCharacters(in: .whitespacesAndNewlines)]
-        case .array(let array): return array.flatMap(allStrings(in:))
-        case .object(let object): return object.values.flatMap(allStrings(in:))
-        case .number, .bool, .null: return []
-        }
-    }
-
-    private func absolutePathCount(in string: String) -> Int {
-        let range = NSRange(string.startIndex..<string.endIndex, in: string)
-        let regex = try? NSRegularExpression(pattern: #"(?<![A-Za-z0-9])/(?:[^\s'\";|<>]+)"#)
-        return regex?.numberOfMatches(in: string, range: range) ?? 0
-    }
-
-    private func patchedPaths(in patch: String) -> [String] {
-        patch.matches(of: /\*\*\* (?:Update|Add|Delete) File: ([^\r\n]+)/).map {
-            String($0.1).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
-
-    private static func isApplyPatchTool(_ name: String) -> Bool {
-        let normalized = name.split(separator: ".").last.map(String.init) ?? name
-        return normalized.lowercased() == "apply_patch"
-    }
-
-    private static func isShellTool(_ name: String) -> Bool {
-        let normalized = name.split(separator: ".").last.map(String.init) ?? name
-        return ["Bash", "exec", "exec_command", "local_shell_call", "shell"].contains(normalized)
-    }
-
-    private static func isPotentialPathKey(_ key: String) -> Bool {
-        let normalized = key.lowercased()
-        return normalized.contains("path")
-            || ["file", "files", "filename", "notebook", "target_file"].contains(normalized)
     }
 }

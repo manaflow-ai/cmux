@@ -224,4 +224,36 @@ struct ChatArtifactGalleryTests {
         #expect(ordering.search(items, query: "final.png").map(\.path) == [items[0].path])
         #expect(ordering.search(items, query: "REPORTS").map(\.path) == [items[0].path])
     }
+
+    @Test("mostly-referenced galleries page through three cursor round trips")
+    func referencedPagination() throws {
+        let ordering = ChatArtifactGalleryOrdering()
+        let items = (1...8).map { index in
+            ChatArtifactIndexedReference(
+                path: "/tmp/page-\(index).txt",
+                provenance: index == 8 ? .created : .referenced,
+                lastReferencedSeq: index
+            )
+        }
+        var remaining = ordering.items(items, strictlyAfter: nil)
+        var paths: [String] = []
+        var pages = 0
+        while !remaining.isEmpty {
+            let page = Array(remaining.prefix(3))
+            paths.append(contentsOf: page.map(\.path))
+            pages += 1
+            guard let last = page.last else { break }
+            let token = try ChatArtifactGalleryCursor(
+                generation: "fixture",
+                seq: last.lastReferencedSeq,
+                path: last.path
+            ).token()
+            remaining = ordering.items(
+                items,
+                strictlyAfter: ChatArtifactGalleryCursor(token: token)
+            )
+        }
+        #expect(pages == 3)
+        #expect(paths == (1...8).reversed().map { "/tmp/page-\($0).txt" })
+    }
 }

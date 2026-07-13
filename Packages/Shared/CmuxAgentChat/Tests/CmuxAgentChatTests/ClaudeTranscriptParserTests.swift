@@ -40,6 +40,15 @@ struct ClaudeTranscriptParserTests {
         ])
     }
 
+    private func sidechainAssistantLine(blocks: [[String: Any]]) -> String {
+        Self.json([
+            "parentUuid": "u-1", "isSidechain": true, "type": "assistant",
+            "message": ["role": "assistant", "content": blocks],
+            "uuid": "side-1", "timestamp": "2026-06-12T05:08:20.730Z",
+            "sessionId": "s-1",
+        ])
+    }
+
     private func toolResultLine(
         uuid: String = "r-1",
         toolUseID: String,
@@ -488,6 +497,42 @@ struct ClaudeTranscriptParserTests {
             return
         }
         #expect(prose.text == "the human's prompt")
+    }
+
+    @Test("sidechain mutation content with interior whitespace is not an artifact path")
+    func sidechainMutationMultilineContentIsNotArtifact() {
+        let line = sidechainAssistantLine(blocks: [
+            ["type": "tool_use", "id": "toolu_js", "name": "Write", "input": [
+                "file_path": "/tmp/app.js",
+                "content": "// generated file\n/usr/local/bin/tool --flag",
+            ]],
+            ["type": "tool_use", "id": "toolu_c", "name": "Write", "input": [
+                "file_path": "/tmp/app.c",
+                "content": "/usr/include/stdio.h\nint main(void) { return 0; }",
+            ]],
+        ])
+        let result = parser.parse(lines: [line], startingSeq: 7)
+
+        #expect(result.messages.isEmpty)
+        #expect(result.artifactReferences == [
+            ChatArtifactTranscriptReference(path: "/tmp/app.js", provenance: .created, seq: 7),
+            ChatArtifactTranscriptReference(path: "/tmp/app.c", provenance: .created, seq: 7),
+        ])
+    }
+
+    @Test("only a sidechain mutation target is created")
+    func sidechainMutationTargetProvenance() {
+        let line = sidechainAssistantLine(blocks: [[
+            "type": "tool_use", "id": "toolu_write", "name": "Write",
+            "input": ["file_path": "/tmp/a", "content": "/tmp/b"],
+        ]])
+        let result = parser.parse(lines: [line], startingSeq: 9)
+
+        #expect(result.messages.isEmpty)
+        #expect(result.artifactReferences == [
+            ChatArtifactTranscriptReference(path: "/tmp/a", provenance: .created, seq: 9),
+            ChatArtifactTranscriptReference(path: "/tmp/b", provenance: .referenced, seq: 9),
+        ])
     }
 
     @Test("malformed lines are skipped without affecting seq assignment")

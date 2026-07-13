@@ -33,6 +33,7 @@ public struct CodexTranscriptParser: Sendable {
     private let timestamps = TranscriptTimestampParser()
     private let attachmentTokens = ChatAttachmentTokenExtractor()
     private let referencedPaths = ChatToolReferencedPathExtractor()
+    private let artifactText = ChatArtifactTextReferenceExtractor()
 
     /// Creates a Codex transcript parser.
     public init() {}
@@ -129,7 +130,7 @@ public struct CodexTranscriptParser: Sendable {
         case "custom_tool_call":
             appendCustomToolCall(payload, seq: seq, timestamp: timestamp, into: &assembler)
         case "function_call_output", "custom_tool_call_output":
-            resolveOutput(payload, into: &assembler)
+            resolveOutput(payload, seq: seq, into: &assembler)
         case "web_search_call":
             appendWebSearch(payload, seq: seq, timestamp: timestamp, into: &assembler)
         default:
@@ -143,8 +144,21 @@ public struct CodexTranscriptParser: Sendable {
         timestamp: Date,
         into assembler: inout TranscriptBatchAssembler
     ) {
-        guard payload?["type"]?.string == "patch_apply_end" else { return }
-        appendPatchApplyEnd(payload, seq: seq, timestamp: timestamp, into: &assembler)
+        switch payload?["type"]?.string {
+        case "patch_apply_end":
+            appendEventTextArtifacts(payload, seq: seq, into: &assembler)
+            appendPatchApplyEnd(payload, seq: seq, timestamp: timestamp, into: &assembler)
+        case "agent_message":
+            if let text = payload?["message"]?.string {
+                assembler.appendArtifactReferences(paths: artifactText.paths(in: text), seq: seq)
+            }
+        case "exec_command_begin":
+            appendEventTextArtifacts(payload, seq: seq, into: &assembler)
+        case "exec_command_end", "exec_command_output_delta":
+            appendEventTextArtifacts(payload, seq: seq, into: &assembler)
+        default:
+            return
+        }
     }
 
     private func appendMessage(
@@ -175,6 +189,9 @@ public struct CodexTranscriptParser: Sendable {
             return text
         }
         guard !texts.isEmpty else { return }
+        for text in texts {
+            assembler.appendArtifactReferences(paths: artifactText.paths(in: text), seq: seq)
+        }
         if role == .user {
             appendUserTexts(texts, seq: seq, timestamp: timestamp, into: &assembler)
             return
@@ -239,6 +256,7 @@ public struct CodexTranscriptParser: Sendable {
         }
         let text = summaries.joined(separator: "\n\n")
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        assembler.appendArtifactReferences(paths: artifactText.paths(in: text), seq: seq)
         assembler.append(
             ChatMessage(
                 id: "line-\(seq)",
@@ -327,6 +345,7 @@ public struct CodexTranscriptParser: Sendable {
         let kind: ChatMessageKind
         if Self.shellToolNames.contains(name),
             let command = shellCommand(arguments: parsedArguments, payload: payload) {
+            assembler.appendArtifactReferences(paths: artifactText.paths(in: command), seq: seq)
             kind = .terminal(ChatTerminalCapture(command: command, isRunning: true))
         } else {
             kind = genericToolUseKind(
@@ -518,10 +537,15 @@ public struct CodexTranscriptParser: Sendable {
 
     private func resolveOutput(
         _ payload: TranscriptJSONValue,
+        seq: Int,
         into assembler: inout TranscriptBatchAssembler
     ) {
         guard let callID = payload["call_id"]?.string else { return }
-        assembler.resolve(key: callID, completion: completion(from: payload["output"]))
+        let completion = completion(from: payload["output"])
+        if let output = completion.output {
+            assembler.appendArtifactReferences(paths: artifactText.paths(in: output), seq: seq)
+        }
+        assembler.resolve(key: callID, completion: completion)
     }
 
     /// Builds a completion from an output payload, which is a plain string,
@@ -530,15 +554,12 @@ public struct CodexTranscriptParser: Sendable {
     /// as text headers (`Process exited with code N`, `Exit code: N`,
     /// `Wall time: S seconds`).
     private func completion(from value: TranscriptJSONValue?) -> TranscriptToolCompletion {
-        var text = value?.string
+        var text = outputText(from: value)
         var exitCode = value?["metadata"]?["exit_code"]?.int
         var duration = value?["metadata"]?["duration_seconds"]?.double
-        if text == nil, value?.object != nil {
-            text = value?["output"]?.string
-        }
         if let raw = text,
             let nested = TranscriptJSONValue(jsonLine: raw),
-            let inner = nested["output"]?.string {
+            let inner = outputText(from: nested["output"]) {
             text = inner
             exitCode = nested["metadata"]?["exit_code"]?.int ?? exitCode
             duration = nested["metadata"]?["duration_seconds"]?.double ?? duration
@@ -561,5 +582,43 @@ public struct CodexTranscriptParser: Sendable {
             exitCode: exitCode,
             durationSeconds: duration
         )
+    }
+
+    /// Extracts renderable output from strings, inline/nested output objects,
+    /// and text-block arrays used by newer custom tool call records.
+    private func outputText(from value: TranscriptJSONValue?) -> String? {
+        guard let value else { return nil }
+        switch value {
+        case .string(let text):
+            return text
+        case .array(let blocks):
+            let texts = blocks.compactMap { block -> String? in
+                guard let text = block["text"]?.string else { return nil }
+                return text
+            }
+            return texts.isEmpty ? nil : texts.joined(separator: "\n")
+        case .object:
+            return outputText(from: value["output"])
+                ?? outputText(from: value["content"])
+                ?? value["text"]?.string
+        case .number, .bool, .null:
+            return nil
+        }
+    }
+
+    /// Scans command/output fields emitted only through Codex event messages.
+    private func appendEventTextArtifacts(
+        _ payload: TranscriptJSONValue?,
+        seq: Int,
+        into assembler: inout TranscriptBatchAssembler
+    ) {
+        let keys = [
+            "command", "cmd", "output", "stdout", "stderr", "aggregated_output",
+            "formatted_output", "delta",
+        ]
+        for key in keys {
+            guard let text = outputText(from: payload?[key]) else { continue }
+            assembler.appendArtifactReferences(paths: artifactText.paths(in: text), seq: seq)
+        }
     }
 }

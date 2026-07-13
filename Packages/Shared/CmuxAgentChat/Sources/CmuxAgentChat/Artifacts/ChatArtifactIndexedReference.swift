@@ -28,78 +28,88 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
     ///
     /// - Parameters:
     ///   - messages: Parsed transcript messages to inspect.
+    ///   - supplementalReferences: Raw pre-budget and artifacts-only parser
+    ///     occurrences that are absent from the visible message stream.
     ///   - workingDirectory: Absolute session directory used for relative paths.
     /// - Returns: De-duplicated artifact references with normalized paths.
     public static func derive(
         from messages: [ChatMessage],
+        supplementalReferences: [ChatArtifactTranscriptReference] = [],
         workingDirectory: String? = nil
     ) -> [ChatArtifactIndexedReference] {
         var byPath: [String: ChatArtifactIndexedReference] = [:]
+        let detector = TerminalArtifactPathDetector()
+        let normalizer = ChatArtifactPathNormalizer(workingDirectory: workingDirectory)
         for message in messages {
-            let occurrences: [(String, ChatArtifactProvenance)]
+            var structuredOccurrences: [(String, ChatArtifactProvenance)] = []
+            var textOccurrences: [String] = []
             switch message.kind {
             case .fileEdit(let edit):
-                occurrences = [(edit.filePath, .created)]
+                structuredOccurrences = [(edit.filePath, .created)]
             case .attachment(let attachment):
-                occurrences = attachment.hostPath.map { [($0, .attached)] } ?? []
+                structuredOccurrences = attachment.hostPath.map { [($0, .attached)] } ?? []
             case .toolUse(let toolUse):
                 let provenance: ChatArtifactProvenance = Self.isFileMutationTool(toolUse.toolName)
                     ? .created
                     : .referenced
-                occurrences = (toolUse.referencedPaths ?? []).map { ($0, provenance) }
-            case .prose, .thought, .terminal, .permissionRequest, .question, .status, .unsupported:
-                occurrences = []
+                structuredOccurrences = (toolUse.referencedPaths ?? []).map { ($0, provenance) }
+                if let output = toolUse.output {
+                    textOccurrences = detector.paths(in: output)
+                }
+            case .prose(let prose):
+                textOccurrences = detector.paths(in: prose.text)
+            case .thought(let thought):
+                textOccurrences = detector.paths(in: thought.text)
+            case .terminal(let terminal):
+                textOccurrences = detector.paths(in: terminal.command)
+                if let output = terminal.output {
+                    textOccurrences.append(contentsOf: detector.paths(in: output))
+                }
+            case .permissionRequest, .question, .status, .unsupported:
+                break
             }
-            for (rawPath, provenance) in occurrences {
-                guard let path = Self.normalizedPath(rawPath, workingDirectory: workingDirectory) else {
+            for (rawPath, provenance) in structuredOccurrences {
+                guard let path = normalizer.structuredPath(rawPath) else {
                     continue
                 }
-                let previous = byPath[path]
-                byPath[path] = ChatArtifactIndexedReference(
-                    path: path,
-                    provenance: Self.higherPrecedence(previous?.provenance, provenance),
-                    lastReferencedSeq: max(previous?.lastReferencedSeq ?? Int.min, message.seq)
-                )
+                Self.merge(path: path, provenance: provenance, seq: message.seq, into: &byPath)
             }
+            for rawPath in textOccurrences where
+                ChatArtifactPathNormalizer.isAbsoluteFreeTextCandidate(rawPath) {
+                guard let path = normalizer.freeTextPath(rawPath) else { continue }
+                Self.merge(path: path, provenance: .referenced, seq: message.seq, into: &byPath)
+            }
+        }
+        for reference in supplementalReferences {
+            let path: String?
+            if ChatArtifactPathNormalizer.isAbsoluteFreeTextCandidate(reference.path) {
+                path = normalizer.freeTextPath(reference.path)
+            } else {
+                path = normalizer.structuredPath(reference.path)
+            }
+            guard let path else { continue }
+            Self.merge(
+                path: path,
+                provenance: reference.provenance,
+                seq: reference.seq,
+                into: &byPath
+            )
         }
         return Array(byPath.values)
     }
 
-    private static func normalizedPath(_ path: String, workingDirectory: String?) -> String? {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let absolute: String
-        if trimmed.hasPrefix("/") {
-            absolute = trimmed
-        } else if let workingDirectory {
-            let cwd = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard cwd.hasPrefix("/") else { return trimmed }
-            absolute = (cwd as NSString).appendingPathComponent(trimmed)
-        } else {
-            return trimmed
-        }
-        // Purely lexical normalization (drop ".", collapse ".."): unlike
-        // NSString.standardizingPath, this never consults the filesystem, so
-        // derivation stays deterministic for paths that no longer exist.
-        var components: [String] = []
-        for component in absolute.split(separator: "/") {
-            switch component {
-            case ".":
-                continue
-            case "..":
-                if !components.isEmpty { components.removeLast() }
-            default:
-                components.append(String(component))
-            }
-        }
-        let standardized = "/" + components.joined(separator: "/")
-        if standardized == "/tmp" {
-            return "/private/tmp"
-        }
-        if standardized.hasPrefix("/tmp/") {
-            return "/private" + standardized
-        }
-        return standardized
+    private static func merge(
+        path: String,
+        provenance: ChatArtifactProvenance,
+        seq: Int,
+        into byPath: inout [String: ChatArtifactIndexedReference]
+    ) {
+        let previous = byPath[path]
+        byPath[path] = ChatArtifactIndexedReference(
+            path: path,
+            provenance: Self.higherPrecedence(previous?.provenance, provenance),
+            lastReferencedSeq: max(previous?.lastReferencedSeq ?? Int.min, seq)
+        )
     }
 
     private static func isFileMutationTool(_ toolName: String) -> Bool {

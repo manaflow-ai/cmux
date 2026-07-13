@@ -117,6 +117,7 @@ actor AgentChatArtifactIndex {
         }
         let artifacts = ChatArtifactIndexedReference.derive(
             from: parseResult.messages,
+            supplementalReferences: parseResult.artifactReferences,
             workingDirectory: workingDirectory
         )
         let referencedPaths = Set(artifacts.map(\.path))

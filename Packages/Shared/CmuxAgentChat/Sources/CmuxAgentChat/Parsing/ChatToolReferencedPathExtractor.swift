@@ -29,7 +29,13 @@ struct ChatToolReferencedPathExtractor: Sendable {
             for item in array {
                 appendReferencedPaths(in: item, key: nil, into: &paths)
             }
-        case .string, .number, .bool, .null:
+        case .string(let string):
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if Self.isAbsolutePathValue(trimmed),
+               !trimmed.contains(where: \.isWhitespace) {
+                paths.append(trimmed)
+            }
+        case .number, .bool, .null:
             return
         }
     }
@@ -62,5 +68,9 @@ struct ChatToolReferencedPathExtractor: Sendable {
             result.append(path)
         }
         return result
+    }
+
+    private static func isAbsolutePathValue(_ value: String) -> Bool {
+        value.hasPrefix("/") || value == "~" || value.hasPrefix("~/") || value.hasPrefix("file://")
     }
 }
