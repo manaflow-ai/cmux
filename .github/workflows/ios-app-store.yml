@@ -40,6 +40,7 @@ jobs:
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
       ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+      ASC_TIMEOUT_SECONDS: "120"
       INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
       INPUT_COPY_METADATA_FROM: ${{ github.event.inputs.copy_metadata_from }}
       INPUT_SUBMIT_FOR_REVIEW: ${{ github.event.inputs.submit_for_review }}
@@ -262,6 +263,9 @@ jobs:
             --device-type IPAD_PRO_3GEN_129 \
             --replace
 
+      - name: Ensure App Store availability
+        run: python3 ios/scripts/asc_bootstrap_app_availability.py --app "$ASC_APP_ID"
+
       - name: Archive, export, and upload production build
         id: upload
         env:
@@ -287,6 +291,7 @@ jobs:
             --version "$VERSION" \
             --build-number "$FINAL_BUILD_NUMBER" \
             --wait-build \
+            --prepare-submission \
             --screenshot-device-type IPHONE_69 \
             --screenshot-device-type IPAD_PRO_3GEN_129 \
             --strict

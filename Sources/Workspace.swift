@@ -3159,6 +3159,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
+        PortScanner.shared.scheduleAgentWorkspaceUnregistration(workspaceId: id)
     }
 
     func refreshSplitButtonTooltips() {
@@ -4911,17 +4912,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
         syncRemotePortScanTTYs()
         recomputeListeningPorts()
-    }
-
-    func recomputeListeningPorts() {
-        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
-            .union(agentListeningPorts)
-            .union(remoteDetectedPorts)
-            .union(remoteForwardedPorts)
-        let next = unique.sorted()
-        if listeningPorts != next {
-            listeningPorts = next
-        }
     }
 
     func sidebarOrderedPanelIds() -> [UUID] {
@@ -8724,6 +8714,7 @@ final class Workspace: Identifiable, ObservableObject {
                 cleanupControllerSurfaceState: true
             )
         }
+        clearAllAgentPIDs(refreshPorts: false)
         pruneSurfaceMetadata(validSurfaceIds: [])
         syncRemotePortScanTTYs()
         recomputeListeningPorts()
