@@ -45,10 +45,10 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     private let clock: any RemoteProxyRetryClock
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.proxy-broker", qos: .utility)
     private var entries: [String: Entry] = [:]
-    private let ptyLifecycleOwnership = RemotePTYLifecycleOwnershipRegistry()
+    private var ptyLifecycleOwnership = RemotePTYLifecycleOwnershipRegistry()
 
     var currentPTYLifecycleByAttachment: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] {
-        ptyLifecycleOwnership.currentByAttachment
+        queue.sync { ptyLifecycleOwnership.currentByAttachment }
     }
     /// Creates a broker.
     ///
@@ -182,7 +182,9 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     @discardableResult
     public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool {
         let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
-        let ownership = ptyLifecycleOwnership.claimAfterWrapperEnd(lifecycleKey)
+        let ownership = queue.sync {
+            ptyLifecycleOwnership.claimAfterWrapperEnd(lifecycleKey)
+        }
         guard let ownership else { return false }
         queue.async { [weak self] in
             guard let self, let entry = self.entries[ownership.transportKey] else { return }
@@ -281,13 +283,14 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         configuration: WorkspaceRemoteConfiguration,
         _ body: (any RemoteProxyTunneling) throws -> T
     ) throws -> T {
-        try queue.sync {
+        let tunnel = try queue.sync {
             let key = Self.transportKey(for: configuration)
             guard let entry = entries[key], let tunnel = entry.tunnel else {
                 throw Self.ptyTunnelNotReadyError()
             }
-            return try body(tunnel)
+            return tunnel
         }
+        return try body(tunnel)
     }
 
     internal func release(key: String, subscriberID: UUID) {

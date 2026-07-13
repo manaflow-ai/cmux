@@ -188,7 +188,7 @@ struct SSHStartupManualReconnectTests {
     }
 
     @MainActor
-    @Test func completedRemoteCommandKeepsLogicalSurfaceAndScrollback() throws {
+    @Test func completedRemoteCommandKeepsLogicalSurfaceAndScrollback() async throws {
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true)
         let panel = try #require(workspace.focusedTerminalPanel)
@@ -197,11 +197,12 @@ struct SSHStartupManualReconnectTests {
         workspace.restoredTerminalScrollbackByPanelId[panel.id] = output
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
 
         let disconnectedPanel = try #require(workspace.terminalPanel(for: panel.id))
         #expect(disconnectedPanel.surface !== panel.surface)
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
-        let replayPath = try #require(disconnectedPanel.surface.startupEnvironmentValue(SessionScrollbackReplayStore.environmentKey))
+        let replayPath = try #require(disconnectedPanel.ownedSessionScrollbackReplayFileURL?.path)
         defer { try? FileManager.default.removeItem(atPath: replayPath) }
         #expect(try String(contentsOfFile: replayPath, encoding: .utf8) == output)
         let wrapperPath = try #require(disconnectedPanel.surface.initialCommand)

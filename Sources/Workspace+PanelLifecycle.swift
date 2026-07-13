@@ -390,6 +390,7 @@ extension Workspace {
         untrackRemoteTerminalSurface(panelId)
         discardRemoteDirectoryTrustState(panelId: panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         removeSurfaceMappings(forPanelId: panelId)
 
         panelDirectories.removeValue(forKey: panelId)

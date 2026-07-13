@@ -1448,7 +1448,8 @@ extension Workspace {
 #endif
             let shouldReplayLocalScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
             let restoredScrollback = shouldReplayLocalScrollback ? snapshot.terminal?.scrollback : nil
-            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: restoredScrollback)
+            let replayFileURL = SessionScrollbackReplayStore.replayFileURL(for: restoredScrollback)
+            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(forFileURL: replayFileURL)
             // Reuse the persisted surface id so the restored terminal keeps
             // the same identity (the panel/surface id IS the ghostty surface
             // id), which keeps agent-session terminal bindings valid across
@@ -1471,8 +1472,10 @@ extension Workspace {
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
                 restoredSurfaceId: reusableSurfaceId
             ) else {
+                if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
                 return nil
             }
+            terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             // Re-bind the resumed agent session from cmux's own authority, keyed
             // on the surface that was actually created. `terminalPanel.id` equals
             // `snapshot.id` on the normal path, but on a surface-id collision
@@ -2314,13 +2317,24 @@ final class Workspace: Identifiable, ObservableObject {
     private var suppressRemoteTerminalStartupForSessionRestoreScaffold = false
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
 
-    private struct PendingRemoteDisconnectReplacement {
+    struct PendingRemoteDisconnectReplacement {
+        enum Phase {
+            case awaitingChildExit
+            case preparing(
+                token: UUID,
+                runtimeSurface: TerminalSurface,
+                task: Task<Void, Never>?
+            )
+        }
+
         let target: String
         let reconnectCommand: String?
+        var phase: Phase = .awaitingChildExit
     }
 
     /// Remote disconnect metadata follows the surface whose process ended.
-    private var pendingRemoteDisconnectReplacementsBySurfaceId: [UUID: PendingRemoteDisconnectReplacement] = [:]
+    var pendingRemoteDisconnectReplacementsBySurfaceId: [UUID: PendingRemoteDisconnectReplacement] = [:]
+    let remoteDisconnectPreparationService = RemoteDisconnectPreparationService()
     var remoteDisconnectPlaceholderPanelIds: Set<UUID> = []
 
     private static let remoteErrorStatusKey = "remote.error"
@@ -6310,47 +6324,12 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    /// Returns `true` when the pending exit was handled, including fail-closed retention.
-    @discardableResult
-    func transitionRemoteTerminalToDisconnectedPlaceholder(
-        surfaceId: UUID,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> Bool {
-        guard pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId),
-              let pendingRemoteDisconnectReplacement = pendingRemoteDisconnectReplacementsBySurfaceId[surfaceId],
-              let panel = terminalPanel(for: surfaceId) else {
-            return false
-        }
-        let capturedScrollback = Self.boundedRemoteDisconnectScrollback(
-            terminalPanel: panel,
-            lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal,
-            byteLimit: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
-        )
-        let scrollback = if capturedScrollback?.contains(where: { !$0.isWhitespace }) == true {
-            capturedScrollback
-        } else {
-            Self.plainTextRemoteDisconnectFallbackScrollback(restoredTerminalScrollbackByPanelId[surfaceId])
-        }
-        guard let placeholderCommand = Self.remoteDisconnectPlaceholderScript(
-            target: pendingRemoteDisconnectReplacement.target,
-            reconnectCommand: pendingRemoteDisconnectReplacement.reconnectCommand,
-            temporaryDirectory: temporaryDirectory
-        ) else { return true }
-        guard respawnTerminalSurface(
-            panelId: surfaceId,
-            command: placeholderCommand,
-            workingDirectory: currentDirectory,
-            waitAfterCommand: true,
-            replayScrollback: scrollback
-        ) != nil else {
-            try? FileManager.default.removeItem(atPath: placeholderCommand)
-            return true
+    func cancelPendingRemoteDisconnectReplacement(surfaceId: UUID) {
+        if let replacement = pendingRemoteDisconnectReplacementsBySurfaceId[surfaceId],
+           case .preparing(_, _, let task) = replacement.phase {
+            task?.cancel()
         }
         pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: surfaceId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
-        remoteDisconnectPlaceholderPanelIds.insert(surfaceId)
-        restoredTerminalScrollbackByPanelId[surfaceId] = scrollback
-        return true
     }
 
     func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?, allowUntracked: Bool = false) {
@@ -7762,6 +7741,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         waitAfterCommand: Bool? = nil,
         replayScrollback: String? = nil,
+        replayFileURL: URL? = nil,
         allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanel? {
         guard let oldPanel = terminalPanel(for: panelId),
@@ -7805,7 +7785,8 @@ final class Workspace: Identifiable, ObservableObject {
         var additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
             oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
         )
-        for (key, value) in SessionScrollbackReplayStore.replayEnvironment(for: replayScrollback) {
+        let effectiveReplayFileURL = replayFileURL ?? SessionScrollbackReplayStore.replayFileURL(for: replayScrollback)
+        for (key, value) in SessionScrollbackReplayStore.replayEnvironment(forFileURL: effectiveReplayFileURL) {
             additionalEnvironment[key] = value
         }
 
@@ -7843,6 +7824,7 @@ final class Workspace: Identifiable, ObservableObject {
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement
         )
+        replacementPanel.adoptOwnedSessionScrollbackReplayArtifact(effectiveReplayFileURL)
         // Respawn replaces the panel object but keeps the logical tab identity.
         replacementPanel.adoptStableSurfaceId(oldPanel.stableSurfaceId)
         configureNewTerminalPanel(

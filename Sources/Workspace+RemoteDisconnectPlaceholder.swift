@@ -2,18 +2,163 @@ import CmuxTerminal
 import Foundation
 
 extension Workspace {
+    /// Starts one token-checked remote disconnect transaction per surface.
+    @discardableResult
+    func transitionRemoteTerminalToDisconnectedPlaceholder(
+        surfaceId: UUID,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> Bool {
+        guard pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId),
+              var replacement = pendingRemoteDisconnectReplacementsBySurfaceId[surfaceId],
+              let panel = terminalPanel(for: surfaceId) else {
+            return false
+        }
+        if case .preparing = replacement.phase { return true }
+
+        let token = UUID()
+        let runtimeSurface = panel.surface
+        let fallbackScrollback = restoredTerminalScrollbackByPanelId[surfaceId]
+        replacement.phase = .preparing(token: token, runtimeSurface: runtimeSurface, task: nil)
+        pendingRemoteDisconnectReplacementsBySurfaceId[surfaceId] = replacement
+
+        let task = Task { @MainActor [weak self, weak runtimeSurface] in
+            guard let self, let runtimeSurface else { return }
+            await self.prepareRemoteDisconnectPlaceholder(
+                surfaceId: surfaceId,
+                token: token,
+                runtimeSurface: runtimeSurface,
+                target: replacement.target,
+                reconnectCommand: replacement.reconnectCommand,
+                fallbackScrollback: fallbackScrollback,
+                temporaryDirectory: temporaryDirectory
+            )
+        }
+        replacement.phase = .preparing(token: token, runtimeSurface: runtimeSurface, task: task)
+        pendingRemoteDisconnectReplacementsBySurfaceId[surfaceId] = replacement
+        return true
+    }
+
+    func waitForRemoteDisconnectTransition(surfaceId: UUID) async {
+        guard let replacement = pendingRemoteDisconnectReplacementsBySurfaceId[surfaceId],
+              case .preparing(_, _, let task) = replacement.phase else {
+            return
+        }
+        await task?.value
+    }
+
+    private func prepareRemoteDisconnectPlaceholder(
+        surfaceId: UUID,
+        token: UUID,
+        runtimeSurface: TerminalSurface,
+        target: String,
+        reconnectCommand: String?,
+        fallbackScrollback: String?,
+        temporaryDirectory: URL
+    ) async {
+        let capturedScrollback = await runtimeSurface.boundedScreenTailVT(
+            maxRows: SessionPersistencePolicy.maxScrollbackLinesPerTerminal,
+            maxBytes: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        )
+        guard isCurrentRemoteDisconnectPreparation(
+            surfaceId: surfaceId,
+            token: token,
+            runtimeSurface: runtimeSurface
+        ) else { return }
+
+        let scrollback = if capturedScrollback?.contains(where: { !$0.isWhitespace }) == true {
+            capturedScrollback
+        } else {
+            Self.plainTextRemoteDisconnectFallbackScrollback(fallbackScrollback)
+        }
+        guard let prepared = await remoteDisconnectPreparationService.prepare(
+            target: target,
+            reconnectCommand: reconnectCommand,
+            scrollback: scrollback,
+            temporaryDirectory: temporaryDirectory
+        ) else {
+            resetRemoteDisconnectPreparationIfCurrent(
+                surfaceId: surfaceId,
+                token: token,
+                runtimeSurface: runtimeSurface
+            )
+            return
+        }
+        guard isCurrentRemoteDisconnectPreparation(
+            surfaceId: surfaceId,
+            token: token,
+            runtimeSurface: runtimeSurface
+        ) else {
+            await remoteDisconnectPreparationService.discard(
+                placeholderCommand: prepared.placeholderCommand,
+                replayFileURL: prepared.replayFileURL
+            )
+            return
+        }
+
+        guard respawnTerminalSurface(
+            panelId: surfaceId,
+            command: prepared.placeholderCommand,
+            workingDirectory: currentDirectory,
+            waitAfterCommand: true,
+            replayFileURL: prepared.replayFileURL
+        ) != nil else {
+            await remoteDisconnectPreparationService.discard(
+                placeholderCommand: prepared.placeholderCommand,
+                replayFileURL: prepared.replayFileURL
+            )
+            resetRemoteDisconnectPreparationIfCurrent(
+                surfaceId: surfaceId,
+                token: token,
+                runtimeSurface: runtimeSurface
+            )
+            return
+        }
+        pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: surfaceId)
+        pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
+        remoteDisconnectPlaceholderPanelIds.insert(surfaceId)
+        restoredTerminalScrollbackByPanelId[surfaceId] = scrollback
+    }
+
+    private func isCurrentRemoteDisconnectPreparation(
+        surfaceId: UUID,
+        token: UUID,
+        runtimeSurface: TerminalSurface
+    ) -> Bool {
+        guard terminalPanel(for: surfaceId)?.surface === runtimeSurface,
+              let replacement = pendingRemoteDisconnectReplacementsBySurfaceId[surfaceId],
+              case .preparing(let currentToken, let currentRuntimeSurface, _) = replacement.phase else {
+            return false
+        }
+        return currentToken == token && currentRuntimeSurface === runtimeSurface
+    }
+
+    private func resetRemoteDisconnectPreparationIfCurrent(
+        surfaceId: UUID,
+        token: UUID,
+        runtimeSurface: TerminalSurface
+    ) {
+        guard var replacement = pendingRemoteDisconnectReplacementsBySurfaceId[surfaceId],
+              case .preparing(let currentToken, let currentRuntimeSurface, _) = replacement.phase,
+              currentToken == token,
+              currentRuntimeSurface === runtimeSurface else {
+            return
+        }
+        replacement.phase = .awaitingChildExit
+        pendingRemoteDisconnectReplacementsBySurfaceId[surfaceId] = replacement
+    }
+
     /// Captures a byte-bounded VT reconstruction of Ghostty's actual history tail.
     @MainActor
     static func boundedRemoteDisconnectScrollback(
         terminalPanel: TerminalPanel,
         lineLimit: Int,
         byteLimit: Int
-    ) -> String? {
-        terminalPanel.surface.boundedScreenTailVT(maxRows: lineLimit, maxBytes: byteLimit)
+    ) async -> String? {
+        await terminalPanel.surface.boundedScreenTailVT(maxRows: lineLimit, maxBytes: byteLimit)
     }
 
     /// Replays persisted fallback only when truncation cannot leave terminal control state open.
-    static func plainTextRemoteDisconnectFallbackScrollback(_ scrollback: String?) -> String? {
+    nonisolated static func plainTextRemoteDisconnectFallbackScrollback(_ scrollback: String?) -> String? {
         guard let bounded = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
         let containsTerminalControl = bounded.unicodeScalars.contains { scalar in
             let value = scalar.value
@@ -25,7 +170,7 @@ extension Workspace {
 
     /// Writes a small shell wrapper that keeps a disconnected remote terminal visible.
     /// The returned path goes to `initialCommand`; failure returns `nil` without a shell fallback.
-    static func remoteDisconnectPlaceholderScript(
+    nonisolated static func remoteDisconnectPlaceholderScript(
         target: String,
         reconnectCommand: String?,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory

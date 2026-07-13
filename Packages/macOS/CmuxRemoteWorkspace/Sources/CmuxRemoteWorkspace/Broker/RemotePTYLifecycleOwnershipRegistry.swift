@@ -1,95 +1,63 @@
-internal import os
-
-/// Synchronous ownership index for exact PTY attachment generations.
-///
-/// `@unchecked Sendable` is safe because `state` guards every read and mutation.
-final class RemotePTYLifecycleOwnershipRegistry: @unchecked Sendable {
+/// Broker-queue-confined ownership index for exact PTY attachment generations.
+struct RemotePTYLifecycleOwnershipRegistry {
     typealias Claim = (transportKey: String, wasCurrent: Bool)
     private typealias Owner = (transportKey: String, attachmentKey: RemotePTYAttachmentKey)
-    private typealias State = (
-        owners: [RemotePTYLifecycleKey: Owner],
-        currentByAttachment: [RemotePTYAttachmentKey: RemotePTYLifecycleKey],
-        ended: RemotePTYEndedLifecycleRegistry
-    )
+    private var owners: [RemotePTYLifecycleKey: Owner] = [:]
+    private var currentByAttachmentStorage: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] = [:]
+    private var ended = RemotePTYEndedLifecycleRegistry()
 
-    // Lock carve-out: wrapper-end RPC handling needs an immediate exact-generation
-    // compare-and-set on the main actor. The broker queue also performs blocking PTY
-    // RPCs, while this lock guards only bounded in-memory index operations.
-    private let state = OSAllocatedUnfairLock(initialState: State(
-        owners: [:],
-        currentByAttachment: [:],
-        ended: RemotePTYEndedLifecycleRegistry()
-    ))
-
-    func register(
+    mutating func register(
         lifecycleKey: RemotePTYLifecycleKey,
         transportKey: String,
         attachmentKey: RemotePTYAttachmentKey
     ) {
-        state.withLock { state in
-            state.ended.remove(lifecycleKey)
-            state.ended.removeAll(forAttachmentKey: attachmentKey)
-            state.owners[lifecycleKey] = Owner(
-                transportKey: transportKey,
-                attachmentKey: attachmentKey
-            )
-            state.currentByAttachment[attachmentKey] = lifecycleKey
+        ended.remove(lifecycleKey)
+        ended.removeAll(forAttachmentKey: attachmentKey)
+        owners[lifecycleKey] = Owner(transportKey: transportKey, attachmentKey: attachmentKey)
+        currentByAttachmentStorage[attachmentKey] = lifecycleKey
+    }
+
+    mutating func acknowledge(_ lifecycleKey: RemotePTYLifecycleKey) {
+        ended.remove(lifecycleKey)
+        guard let owner = owners.removeValue(forKey: lifecycleKey) else { return }
+        if currentByAttachmentStorage[owner.attachmentKey] == lifecycleKey {
+            currentByAttachmentStorage.removeValue(forKey: owner.attachmentKey)
         }
     }
 
-    func acknowledge(_ lifecycleKey: RemotePTYLifecycleKey) {
-        state.withLock { state in
-            state.ended.remove(lifecycleKey)
-            guard let owner = state.owners.removeValue(forKey: lifecycleKey) else { return }
-            if state.currentByAttachment[owner.attachmentKey] == lifecycleKey {
-                state.currentByAttachment.removeValue(forKey: owner.attachmentKey)
-            }
-        }
-    }
-
-    func recordEnded(
+    mutating func recordEnded(
         lifecycleKey: RemotePTYLifecycleKey,
         transportKey: String,
         attachmentKey: RemotePTYAttachmentKey
     ) {
-        state.withLock { state in
-            guard state.owners[lifecycleKey]?.transportKey == transportKey else { return }
-            state.owners.removeValue(forKey: lifecycleKey)
-            guard state.currentByAttachment[attachmentKey] == lifecycleKey else { return }
-            state.currentByAttachment.removeValue(forKey: attachmentKey)
-            state.ended.record(
-                lifecycleKey,
-                transportKey: transportKey,
-                attachmentKey: attachmentKey
-            )
-        }
+        guard owners[lifecycleKey]?.transportKey == transportKey else { return }
+        owners.removeValue(forKey: lifecycleKey)
+        guard currentByAttachmentStorage[attachmentKey] == lifecycleKey else { return }
+        currentByAttachmentStorage.removeValue(forKey: attachmentKey)
+        ended.record(lifecycleKey, transportKey: transportKey, attachmentKey: attachmentKey)
     }
 
-    func claimAfterWrapperEnd(_ lifecycleKey: RemotePTYLifecycleKey) -> Claim? {
-        state.withLock { state in
-            if let owner = state.owners.removeValue(forKey: lifecycleKey) {
-                let wasCurrent = state.currentByAttachment[owner.attachmentKey] == lifecycleKey
-                if wasCurrent { state.currentByAttachment.removeValue(forKey: owner.attachmentKey) }
-                state.ended.remove(lifecycleKey)
-                return Claim(transportKey: owner.transportKey, wasCurrent: wasCurrent)
-            }
-            guard let ended = state.ended.take(lifecycleKey) else { return nil }
-            let wasCurrent = state.currentByAttachment[ended.attachmentKey] == nil
-            return Claim(transportKey: ended.transportKey, wasCurrent: wasCurrent)
+    mutating func claimAfterWrapperEnd(_ lifecycleKey: RemotePTYLifecycleKey) -> Claim? {
+        if let owner = owners.removeValue(forKey: lifecycleKey) {
+            let wasCurrent = currentByAttachmentStorage[owner.attachmentKey] == lifecycleKey
+            if wasCurrent { currentByAttachmentStorage.removeValue(forKey: owner.attachmentKey) }
+            ended.remove(lifecycleKey)
+            return Claim(transportKey: owner.transportKey, wasCurrent: wasCurrent)
         }
+        guard let endedEntry = ended.take(lifecycleKey) else { return nil }
+        let wasCurrent = currentByAttachmentStorage[endedEntry.attachmentKey] == nil
+        return Claim(transportKey: endedEntry.transportKey, wasCurrent: wasCurrent)
     }
 
-    func removeAll(forTransportKey transportKey: String) {
-        state.withLock { state in
-            state.owners = state.owners.filter { $0.value.transportKey != transportKey }
-            state.currentByAttachment = state.currentByAttachment.filter {
-                $0.key.transportKey != transportKey
-            }
-            state.ended.removeAll(forTransportKey: transportKey)
+    mutating func removeAll(forTransportKey transportKey: String) {
+        owners = owners.filter { $0.value.transportKey != transportKey }
+        currentByAttachmentStorage = currentByAttachmentStorage.filter {
+            $0.key.transportKey != transportKey
         }
+        ended.removeAll(forTransportKey: transportKey)
     }
 
     var currentByAttachment: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] {
-        state.withLock { $0.currentByAttachment }
+        currentByAttachmentStorage
     }
 }

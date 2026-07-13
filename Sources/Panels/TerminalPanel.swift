@@ -51,6 +51,7 @@ final class TerminalPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    private(set) var ownedSessionScrollbackReplayFileURL: URL? = nil
     /// The workspace-env key/value pairs this panel inherited from its workspace's
     /// `workspaceEnvironment` at creation. The same panel travels when a surface is
     /// moved between workspaces, so a respawn uses these to drop the (possibly
@@ -174,7 +175,6 @@ final class TerminalPanel: Panel, ObservableObject {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
-
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in

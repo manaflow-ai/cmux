@@ -270,7 +270,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
     }
 
-    func testChildExitOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
+    func testChildExitOnLastRemotePanelKeepsWorkspaceDisconnected() async throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId,
@@ -299,8 +299,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteTerminalSurface(remotePanelId))
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
-        drainMainQueue()
-        drainMainQueue()
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: remotePanelId)
 
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
@@ -653,7 +652,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
     }
 
-    func testFocusedRemoteChildExitWithMultipleTerminalsDisconnectsWorkspace() throws {
+    func testFocusedRemoteChildExitWithMultipleTerminalsDisconnectsWorkspace() async throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let initialPanelId = workspace.focusedPanelId,
@@ -690,8 +689,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteTerminalSurface(initialPanelId))
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: initialPanelId)
-        drainMainQueue()
-        drainMainQueue()
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: initialPanelId)
 
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
         XCTAssertNotNil(workspace.panels[splitPanel.id])
@@ -706,7 +704,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertFalse(workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(splitPanel.id))
     }
 
-    func testChildExitAfterRemoteSessionEndKeepsWorkspaceDisconnected() throws {
+    func testChildExitAfterRemoteSessionEndKeepsWorkspaceDisconnected() async throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId,
@@ -737,8 +735,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: remotePanelId)
-        drainMainQueue()
-        drainMainQueue()
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: remotePanelId)
 
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)

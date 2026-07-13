@@ -11,7 +11,7 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct RemoteDisconnectLifecycleTests {
-    @Test func twoPendingRemoteExitsKeepIndependentReplacementState() throws {
+    @Test func twoPendingRemoteExitsKeepIndependentReplacementState() async throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
         let first = try #require(workspace.focusedTerminalPanel)
@@ -38,13 +38,15 @@ struct RemoteDisconnectLifecycleTests {
         #expect(workspace.isRemoteTerminalSurface(third.id))
         #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: first.id))
         #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: second.id))
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: first.id)
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: second.id)
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(first.id))
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(second.id))
         #expect(workspace.pendingRemoteTerminalChildExitSurfaceIds.isEmpty)
         #expect(workspace.isRemoteTerminalSurface(third.id))
     }
 
-    @Test func sameConfigurationReconnectPreservesSiblingPlaceholderOwnership() throws {
+    @Test func sameConfigurationReconnectPreservesSiblingPlaceholderOwnership() async throws {
         let workspace = Workspace()
         let configuration = Self.remoteConfiguration()
         workspace.configureRemoteConnection(configuration, autoConnect: false)
@@ -60,6 +62,7 @@ struct RemoteDisconnectLifecycleTests {
             workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
             workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
             #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
+            await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
         }
         #expect(workspace.remoteDisconnectPlaceholderPanelIds == Set([first.id, second.id]))
 
@@ -80,7 +83,7 @@ struct RemoteDisconnectLifecycleTests {
         #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
     }
 
-    @Test func wrapperCreationFailurePreservesOriginalDeadSurface() throws {
+    @Test func wrapperCreationFailurePreservesOriginalDeadSurface() async throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
         let panel = try #require(workspace.focusedTerminalPanel)
@@ -95,6 +98,7 @@ struct RemoteDisconnectLifecycleTests {
             surfaceId: panel.id,
             temporaryDirectory: invalidDirectory
         )
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
 
         #expect(handled)
         #expect(workspace.terminalPanel(for: panel.id)?.surface === originalSurface)
@@ -102,12 +106,13 @@ struct RemoteDisconnectLifecycleTests {
         #expect(!workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
 
         #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
         defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [panel.id]) }
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
         #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
     }
 
-    @Test func restoredFallbackWithTerminalControlsIsNotReplayed() throws {
+    @Test func restoredFallbackWithTerminalControlsIsNotReplayed() async throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
         let panel = try #require(workspace.focusedTerminalPanel)
@@ -115,13 +120,14 @@ struct RemoteDisconnectLifecycleTests {
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
         #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
         defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [panel.id]) }
 
         let placeholder = try #require(workspace.terminalPanel(for: panel.id))
-        #expect(placeholder.surface.startupEnvironmentValue(SessionScrollbackReplayStore.environmentKey) == nil)
+        #expect(placeholder.ownedSessionScrollbackReplayFileURL == nil)
     }
 
-    @Test func disconnectedPlaceholderChildExitPreservesWorkspaceAndPanel() throws {
+    @Test func disconnectedPlaceholderChildExitPreservesWorkspaceAndPanel() async throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let panel = try #require(workspace.focusedTerminalPanel)
@@ -139,12 +145,11 @@ struct RemoteDisconnectLifecycleTests {
         workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
 
         let firstPlaceholder = try #require(workspace.terminalPanel(for: panel.id))
         let firstWrapperPath = firstPlaceholder.surface.initialCommand
-        let firstReplayPath = try #require(
-            firstPlaceholder.surface.startupEnvironmentValue(SessionScrollbackReplayStore.environmentKey)
-        )
+        let firstReplayPath = try #require(firstPlaceholder.ownedSessionScrollbackReplayFileURL?.path)
         defer {
             if let firstWrapperPath { try? FileManager.default.removeItem(atPath: firstWrapperPath) }
             try? FileManager.default.removeItem(atPath: firstReplayPath)
@@ -154,6 +159,7 @@ struct RemoteDisconnectLifecycleTests {
         #expect(replayedScrollback == "remote-output\n")
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
 
         let secondPlaceholder = try #require(workspace.terminalPanel(for: panel.id))
         #expect(manager.tabs.contains(where: { $0.id == workspace.id }))
@@ -164,7 +170,7 @@ struct RemoteDisconnectLifecycleTests {
         #expect(!FileManager.default.fileExists(atPath: firstReplayPath))
     }
 
-    @Test func closingDisconnectedPlaceholderRemovesReplayArtifact() throws {
+    @Test func closingDisconnectedPlaceholderRemovesReplayArtifact() async throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)
         let panel = try #require(workspace.focusedTerminalPanel)
@@ -172,10 +178,9 @@ struct RemoteDisconnectLifecycleTests {
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
         #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
         let placeholder = try #require(workspace.terminalPanel(for: panel.id))
-        let replayPath = try #require(
-            placeholder.surface.startupEnvironmentValue(SessionScrollbackReplayStore.environmentKey)
-        )
+        let replayPath = try #require(placeholder.ownedSessionScrollbackReplayFileURL?.path)
         defer {
             try? FileManager.default.removeItem(atPath: replayPath)
             Self.removeTransitionArtifacts(workspace: workspace, panelIds: [panel.id])
@@ -187,7 +192,7 @@ struct RemoteDisconnectLifecycleTests {
         #expect(!FileManager.default.fileExists(atPath: replayPath))
     }
 
-    @Test func staleChildExitCannotReplaceNewRuntimeWithSameSurfaceID() throws {
+    @Test func staleChildExitCannotReplaceNewRuntimeWithSameSurfaceID() async throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let panel = try #require(workspace.focusedTerminalPanel)
@@ -197,6 +202,7 @@ struct RemoteDisconnectLifecycleTests {
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panel.id, relayPort: 64007)
         #expect(workspace.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: panel.id))
+        await workspace.waitForRemoteDisconnectTransition(surfaceId: panel.id)
         let replacementRuntime = try #require(workspace.terminalPanel(for: panel.id)?.surface)
         defer { Self.removeTransitionArtifacts(workspace: workspace, panelIds: [panel.id]) }
 
@@ -248,10 +254,10 @@ struct RemoteDisconnectLifecycleTests {
 
     private static func removeTransitionArtifacts(workspace: Workspace, panelIds: [UUID]) {
         for panelId in panelIds {
-            guard let surface = workspace.terminalPanel(for: panelId)?.surface else { continue }
+            guard let panel = workspace.terminalPanel(for: panelId) else { continue }
             let paths = [
-                surface.initialCommand,
-                surface.startupEnvironmentValue(SessionScrollbackReplayStore.environmentKey),
+                panel.surface.initialCommand,
+                panel.ownedSessionScrollbackReplayFileURL?.path,
             ].compactMap { $0 }
             for path in paths { try? FileManager.default.removeItem(atPath: path) }
         }
