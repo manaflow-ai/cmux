@@ -3913,7 +3913,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func sessionAutosaveFingerprint(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex
     ) -> Int? {
         guard !includeScrollback else { return nil }
 

@@ -15,7 +15,9 @@ struct ProcessDetectedResumeIndexPersistenceFallbackTests {
         let plan = ProcessDetectedResumeIndexSavePlan.resolve(nil)
 
         #expect(plan.usesCoreSnapshotFallback)
-        #expect(plan.surfaceResumeBindingIndex == nil)
+        #expect(
+            plan.surfaceResumeBindingIndex.binding(workspaceId: UUID(), panelId: UUID()) == nil
+        )
         #expect(
             plan.restorableAgentIndex.snapshot(workspaceId: UUID(), panelId: UUID()) == nil,
             "The fallback must explicitly suppress a second process-index load."
@@ -24,25 +26,26 @@ struct ProcessDetectedResumeIndexPersistenceFallbackTests {
 
     @Test
     func coreFallbackFingerprintTracksStoredResumeBindings() throws {
+        let plan = ProcessDetectedResumeIndexSavePlan.resolve(nil)
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)
         let panelId = try #require(workspace.focusedPanelId)
         #expect(workspace.setSurfaceResumeBinding(
-            Self.resumeBinding(checkpointId: "first"),
+            Self.resumeBinding(checkpointId: "first", source: "cli"),
             panelId: panelId
         ))
         let firstFingerprint = manager.sessionAutosaveFingerprint(
-            surfaceResumeBindingIndex: nil
+            surfaceResumeBindingIndex: plan.surfaceResumeBindingIndex
         )
 
         #expect(workspace.setSurfaceResumeBinding(
-            Self.resumeBinding(checkpointId: "second"),
+            Self.resumeBinding(checkpointId: "second", source: "cli"),
             panelId: panelId
         ))
 
         #expect(
             firstFingerprint != manager.sessionAutosaveFingerprint(
-                surfaceResumeBindingIndex: nil
+                surfaceResumeBindingIndex: plan.surfaceResumeBindingIndex
             )
         )
     }

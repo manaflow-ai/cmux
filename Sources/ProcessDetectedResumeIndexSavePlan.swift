@@ -7,7 +7,7 @@ nonisolated enum TerminationResumeIndexAuthority: Sendable {
 
 nonisolated struct ProcessDetectedResumeIndexSavePlan {
     let restorableAgentIndex: RestorableAgentSessionIndex
-    let surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+    let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
     let usesCoreSnapshotFallback: Bool
 
     static func resolve(
@@ -24,7 +24,9 @@ nonisolated struct ProcessDetectedResumeIndexSavePlan {
             // An explicit empty process augmentation keeps the core snapshot
             // path from scheduling a second cold shared-index refresh.
             restorableAgentIndex: .empty,
-            surfaceResumeBindingIndex: nil,
+            // Reconcile against an authoritative empty scan so stale
+            // process-detected bindings are removed while durable bindings remain.
+            surfaceResumeBindingIndex: .empty,
             usesCoreSnapshotFallback: true
         )
     }
