@@ -183,6 +183,39 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Regression: a failed submission must stay visible in the persistent
+    /// action area while the prompt keyboard remains presented.
+    @MainActor
+    func testTaskComposerFailureRemainsVisibleAboveKeyboard() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_FAILURE": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 3))
+
+        tap(create, in: app)
+
+        let failure = app.staticTexts["MobileTaskComposerFailure"]
+        XCTAssertTrue(failure.waitForExistence(timeout: 3))
+        XCTAssertTrue(keyboard.exists, "Submission failure must not require dismissing the keyboard")
+        XCTAssertLessThanOrEqual(
+            failure.frame.maxY,
+            create.frame.minY,
+            "Failure guidance must remain in the persistent area immediately above Create"
+        )
+        XCTAssertLessThanOrEqual(
+            create.frame.maxY,
+            keyboard.frame.minY,
+            "The persistent failure and Create action must remain above the keyboard"
+        )
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not

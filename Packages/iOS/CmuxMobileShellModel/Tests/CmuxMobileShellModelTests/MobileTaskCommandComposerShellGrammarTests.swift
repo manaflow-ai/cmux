@@ -86,6 +86,45 @@ import Testing
         #expect(environmentResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
     }
 
+    @Test func compoundCommandsRequireExplicitPromptConsumer() {
+        let commands = [
+            "claude | tee /tmp/task.log",
+            "prepare && claude",
+            "prepare || recover",
+            "prepare; claude",
+            "prepare\nclaude",
+            "prepare & wait",
+        ]
+
+        for command in commands {
+            let template = MobileTaskTemplate(name: "Compound", icon: "terminal", command: command)
+            let result = composer.compose(template: template, prompt: "ship it")
+            #expect(result.initialCommand == command)
+            #expect(result.initialEnv.isEmpty)
+            #expect(result.title == "ship it")
+        }
+    }
+
+    @Test func compoundCommandsKeepExplicitPromptConsumers() {
+        let placeholder = MobileTaskTemplate(
+            name: "Pipeline",
+            icon: "terminal",
+            command: "claude {prompt} | tee /tmp/task.log"
+        )
+        let environment = MobileTaskTemplate(
+            name: "Pipeline",
+            icon: "terminal",
+            command: "claude \"$CMUX_TASK_PROMPT\" | tee /tmp/task.log"
+        )
+
+        let placeholderResult = composer.compose(template: placeholder, prompt: "ship it")
+        let environmentResult = composer.compose(template: environment, prompt: "ship it")
+        #expect(placeholderResult.initialCommand == "claude \"${CMUX_TASK_PROMPT}\" | tee /tmp/task.log")
+        #expect(environmentResult.initialCommand == environment.command)
+        #expect(placeholderResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+        #expect(environmentResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
     @Test func reservedWordsRemainArgumentsAfterARealCommandWord() {
         let command = "agent if then fi done esac"
         let template = MobileTaskTemplate(name: "Agent", icon: "terminal", command: command)

@@ -362,6 +362,24 @@ import Testing
         #expect(hostDisplayName == store.connectedHostName)
     }
 
+    @Test func hostDirectoryValidationOverloadMapsToBusyFailure() async throws {
+        let router = RoutingHostRouter()
+        await router.setWorkspaceCreateError(
+            code: "busy",
+            message: "working_directory validation is busy"
+        )
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let result = await store.createWorkspaceRequest(
+            spec: MobileWorkspaceCreateSpec(workingDirectory: "/queued")
+        )
+
+        guard case let .failure(.busy(hostDisplayName)) = result else {
+            return #expect(Bool(false), "directory validation overload should remain retryable")
+        }
+        #expect(hostDisplayName == store.connectedHostName)
+    }
+
     private static func pairedMac(macDeviceID: String) -> MobilePairedMac {
         MobilePairedMac(
             macDeviceID: macDeviceID,

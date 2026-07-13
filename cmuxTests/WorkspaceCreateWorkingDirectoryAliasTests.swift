@@ -167,6 +167,20 @@ import Testing
         #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
     }
 
+    @Test func mobileCreateRejectsBusyWorkingDirectoryValidationWithoutCreatingWorkspace() async {
+        let manager = TabManager()
+        let baselineIDs = Set(manager.tabs.map(\.id))
+
+        let result = await TerminalController.shared.v2MobileWorkspaceCreate(
+            params: ["working_directory": "/tmp/overloaded"],
+            workingDirectoryValidator: { _, _ in .busy },
+            tabManager: manager
+        )
+
+        #expect(Self.errorCode(from: result) == "busy")
+        #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
+    }
+
     @Test func mobileWorkingDirectoryTakesPrecedenceOverInvalidCwdAlias() async throws {
         let manager = TabManager()
         let baselineIDs = Set(manager.tabs.map(\.id))

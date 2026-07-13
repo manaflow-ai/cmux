@@ -24,6 +24,65 @@ import Testing
         #expect(await second.value == .valid("/tmp/shared"))
     }
 
+    @Test func pendingLimitRejectsNewPathsAndRecoversAfterAWaiterFinishes() async {
+        let probe = ControlledDirectoryProbe()
+        let deadlines = ControlledValidationDeadlines()
+        let service = TerminalController.WorkspaceCreateWorkingDirectoryValidationService(
+            timeout: .seconds(1),
+            localCapacity: 1,
+            externalCapacity: 1,
+            maximumPendingWaiters: 2,
+            laneClassifier: { _ in .local },
+            probe: { path, lane in await probe.run(path: path, lane: lane) },
+            sleepUntilDeadline: { _ in await deadlines.suspendUntilFired() }
+        )
+        let active = Task { await service.validate(rawValue: "/tmp/active", isProvided: true) }
+        await probe.waitForCount(1)
+        let queued = Task { await service.validate(rawValue: "/tmp/queued", isProvided: true) }
+        await deadlines.waitForCount(2)
+
+        #expect(await service.validate(rawValue: "/tmp/rejected", isProvided: true) == .busy)
+        #expect(await deadlines.count == 2)
+        #expect(await probe.count == 1)
+
+        await probe.complete(path: "/tmp/active", isDirectory: true)
+        #expect(await active.value == .valid("/tmp/active"))
+        await probe.waitForCount(2)
+        await probe.complete(path: "/tmp/queued", isDirectory: true)
+        #expect(await queued.value == .valid("/tmp/queued"))
+
+        let recovered = Task { await service.validate(rawValue: "/tmp/recovered", isProvided: true) }
+        await probe.waitForCount(3)
+        await probe.complete(path: "/tmp/recovered", isDirectory: true)
+        #expect(await recovered.value == .valid("/tmp/recovered"))
+    }
+
+    @Test func pendingLimitAlsoBoundsSamePathWaiters() async {
+        let probe = ControlledDirectoryProbe()
+        let deadlines = ControlledValidationDeadlines()
+        let service = TerminalController.WorkspaceCreateWorkingDirectoryValidationService(
+            timeout: .seconds(1),
+            localCapacity: 1,
+            externalCapacity: 1,
+            maximumPendingWaiters: 2,
+            laneClassifier: { _ in .local },
+            probe: { path, lane in await probe.run(path: path, lane: lane) },
+            sleepUntilDeadline: { _ in await deadlines.suspendUntilFired() }
+        )
+        let first = Task { await service.validate(rawValue: "/tmp/shared", isProvided: true) }
+        let second = Task { await service.validate(rawValue: "/tmp/shared", isProvided: true) }
+        await probe.waitForCount(1)
+        await deadlines.waitForCount(2)
+
+        #expect(await service.validate(rawValue: "/tmp/shared", isProvided: true) == .busy)
+        #expect(await deadlines.count == 2)
+        #expect(await probe.count == 1)
+
+        await probe.complete(path: "/tmp/shared", isDirectory: true)
+        #expect(await first.value == .valid("/tmp/shared"))
+        #expect(await second.value == .valid("/tmp/shared"))
+    }
+
     @Test func validationTimeoutCreatesNoWorkspaceAndMapsToRequestTimeout() async {
         let probe = ControlledDirectoryProbe()
         let deadlines = ControlledValidationDeadlines()
@@ -375,6 +434,8 @@ private actor ControlledValidationDeadlines {
     private var totalCount = 0
     private var suspended: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var countWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    var count: Int { totalCount }
 
     func suspendUntilFired() async {
         let id = UUID()
