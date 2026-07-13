@@ -17,6 +17,7 @@
 # Requires: the tagged DEBUG app running with remoteTmux enabled, an isolated
 # tmux server behind <ssh-host> (TMUX_TMPDIR wrapper), and the debug CLI.
 set -u
+umask 077
 
 HOST="${1:?usage: CMUX_TAG=<tag> $0 <ssh-host> [seed] [iters]}"
 SEED="${2:-1}"
@@ -29,9 +30,33 @@ esac
 DEFAULT_TMUX_TMPDIR="$HOME/Library/Caches/cmux/remote-tmux-fuzz/${FUZZ_HOST_NAME}-tmux"
 TMPDIR_REMOTE="${CMUX_FUZZ_TMUX_TMPDIR:-$DEFAULT_TMUX_TMPDIR}"
 DEBUG_LOG="${CMUX_FUZZ_DEBUG_LOG:-/tmp/cmux-debug-${CMUX_TAG}.log}"
-CLI="$(cd "$(dirname "$0")" && pwd)/cmux-debug-cli.sh"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+CLI="$HERE/cmux-debug-cli.sh"
+. "$HERE/remote-tmux-fuzz-lock.sh"
 SETTLE="${CMUX_FUZZ_SETTLE_SECS:-6}"
 SESSION=fuzz
+DRY="${CMUX_FUZZ_DRY:-0}"
+LOCAL_TMP_ROOT="${TMPDIR:-/tmp}"
+LOCAL_TMP_ROOT="${LOCAL_TMP_ROOT%/}"
+RUN_DIR=$(mktemp -d "$LOCAL_TMP_ROOT/cmux-remote-tmux-fuzz.XXXXXXXX") || {
+  echo "could not create private fuzz run directory" >&2
+  exit 2
+}
+RULER="$RUN_DIR/ruler.sh"
+WORKSPACE_REF=""
+CMUX_FUZZ_LOCK_OWNED=0
+
+cleanup() {
+  local status=$?
+  trap - EXIT
+  if [ "$DRY" != 1 ] && [ -n "$WORKSPACE_REF" ]; then
+    "$CLI" workspace close "$WORKSPACE_REF" >/dev/null 2>&1
+  fi
+  cmux_fuzz_lock_release
+  rm -rf -- "$RUN_DIR"
+  exit "$status"
+}
+trap cleanup EXIT
 
 # Deterministic RNG (LCG) so a seed reproduces the exact op sequence.
 # Returns via the global R: command substitution would fork a subshell and
@@ -44,21 +69,11 @@ rand() { state=$(( (state * 1103515245 + 12345) % 2147483648 )); R=$(( state % $
 # app and the same lab tmux server, and a second driver's per-seed
 # kill-server yanks layouts out from under the first, manufacturing
 # failures no code produced. The marathon holds the lock for its whole
-# run and passes CMUX_FUZZ_LOCK_HELD to its children.
-FUZZ_LOCK=/tmp/cmux-fuzz-marathon.pid
-if [ "${CMUX_FUZZ_LOCK_HELD:-0}" != 1 ] && [ "${CMUX_FUZZ_DRY:-0}" != 1 ]; then
-  HOLDER="$(cat "$FUZZ_LOCK" 2>/dev/null)"
-  # A live holder that is not our own parent is a competing driver. The
-  # parent check keeps marathon children legitimate even when the token
-  # env var is absent (a marathon started before the token existed).
-  if [ -n "$HOLDER" ] && [ "$HOLDER" != "$PPID" ] && kill -0 "$HOLDER" 2>/dev/null; then
-    echo "another fuzz driver (pid $HOLDER) is running — refusing to start"
-    exit 96
-  fi
-  if [ "$HOLDER" != "$PPID" ] || ! kill -0 "$HOLDER" 2>/dev/null; then
-    echo $$ > "$FUZZ_LOCK"
-    trap 'rm -f "$FUZZ_LOCK"' EXIT
-  fi
+# run and passes its private directory + token to each child.
+if [ "$DRY" != 1 ] && [ "${CMUX_FUZZ_LOCK_HELD:-0}" = 1 ]; then
+  cmux_fuzz_lock_validate_inherited || exit $?
+elif [ "$DRY" != 1 ]; then
+  cmux_fuzz_lock_acquire "$LOCAL_TMP_ROOT" || exit $?
 fi
 
 t() { TMUX_TMPDIR="$TMPDIR_REMOTE" tmux "$@"; }
@@ -210,7 +225,6 @@ check_screen_oracle() {
 # tty size every 2s (a wrapped ruler is visible in text comparison).
 t kill-server 2>/dev/null
 mkdir -p "$TMPDIR_REMOTE"
-RULER=/tmp/cmux-fuzz-ruler.sh
 cat > "$RULER" <<'EOF'
 #!/bin/sh
 unset COLUMNS LINES
@@ -229,24 +243,24 @@ while :; do
 done
 EOF
 chmod +x "$RULER"
+printf -v RULER_COMMAND 'sh %q' "$RULER"
 
 env -u COLUMNS -u LINES TMUX_TMPDIR="$TMPDIR_REMOTE" \
-  tmux new-session -d -s $SESSION -n w0 -x 200 -y 50 "sh $RULER"
+  tmux new-session -d -s $SESSION -n w0 -x 200 -y 50 "$RULER_COMMAND"
 for w in 0 1; do
-  [ "$w" = 1 ] && t new-window -t $SESSION -n w1 "sh $RULER"
+  [ "$w" = 1 ] && t new-window -t $SESSION -n w1 "$RULER_COMMAND"
   rand 5; panes=$(( 2 + R ))
   for _ in $(seq 2 "$panes"); do
     rand 2
     if [ "$R" = 0 ]; then
-      t split-window -h -t $SESSION:w$w "sh $RULER" 2>/dev/null
+      t split-window -h -t $SESSION:w$w "$RULER_COMMAND" 2>/dev/null
     else
-      t split-window -v -t $SESSION:w$w "sh $RULER" 2>/dev/null
+      t split-window -v -t $SESSION:w$w "$RULER_COMMAND" 2>/dev/null
     fi
     t select-layout -t $SESSION:w$w tiled
   done
 done
 
-DRY="${CMUX_FUZZ_DRY:-0}"
 if [ "$DRY" = 1 ]; then
   # Dry mode: run the exact op sequence against tmux alone and log the
   # layout after every step, so the op mix's coverage can be inspected
@@ -448,9 +462,9 @@ do_op() {
       if [ "$count" -gt 1 ] && { [ "$count" -gt 5 ] || [ "$R" = 0 ]; }; then
         random_pane "$w"; t kill-pane -t "$RP" 2>/dev/null
       elif rand 2; [ "$R" = 0 ]; then
-        t split-window -h -t "$w" "sh $RULER" 2>/dev/null
+        t split-window -h -t "$w" "$RULER_COMMAND" 2>/dev/null
       else
-        t split-window -v -t "$w" "sh $RULER" 2>/dev/null
+        t split-window -v -t "$w" "$RULER_COMMAND" 2>/dev/null
       fi ;;
     3) # app window resize
       app_resize ;;
@@ -469,7 +483,7 @@ do_op() {
       if [ "$wins" -gt 2 ] || { [ "$wins" -gt 1 ] && [ "$R" = 0 ]; }; then
         random_window; t kill-window -t "$RW" 2>/dev/null
       else
-        t new-window -t $SESSION "sh $RULER" 2>/dev/null
+        t new-window -t $SESSION "$RULER_COMMAND" 2>/dev/null
       fi ;;
     7) # container and assignment changing in the same instant
       local pane; random_pane "$w"; pane="$RP"
@@ -513,13 +527,8 @@ if [ "$DRY" != 1 ]; then
   # its reconnect churns forever. One seed = one workspace, opened and
   # closed, so the gate measures steady-state sizing under churn rather
   # than reconnection to a stranger's recycled session (a separate
-  # concern, tracked on its own). The FUZZ_LOCK trap already set above is
-  # preserved by chaining.
-  if [ "${CMUX_FUZZ_LOCK_HELD:-0}" = 1 ]; then
-    trap '"$CLI" workspace close "$WORKSPACE_REF" >/dev/null 2>&1' EXIT
-  else
-    trap 'rm -f "$FUZZ_LOCK"; "$CLI" workspace close "$WORKSPACE_REF" >/dev/null 2>&1' EXIT
-  fi
+  # concern, tracked on its own). The shared cleanup trap closes it before
+  # releasing a standalone lock and deleting this run's private ruler.
 fi
 # Inertness guard: a fuzzer that mutates nothing and reports green is worse
 # than none (this happened — a subshell bug froze the RNG). Fingerprint the

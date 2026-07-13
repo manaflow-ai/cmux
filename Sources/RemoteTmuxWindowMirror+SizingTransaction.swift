@@ -42,25 +42,31 @@ extension RemoteTmuxWindowMirror {
         // while the app window was a third of it, so the claim spiked to
         // the display ceiling and tmux — correctly sizing to the real
         // window — never matched it, wedging forever). Clamp to the hosting
-        // window's content width when a visible window holds the panes; a
-        // parked or not-yet-windowed mirror has no tighter truth than the
-        // largest display, so fall back to that.
+        // window's content width when a visible window holds the panes. A
+        // later detached measurement is retained pending a trustworthy bound;
+        // the first keeps the guarded display fallback required below.
         var pointSize = pointSize
         if let bound = visibleHostingContentSize() {
             pointSize.width = min(pointSize.width, bound.width)
             pointSize.height = min(pointSize.height, bound.height)
-        } else if containerSizePt != nil {
-            // Once a size is on record, defer to the next callback that has
-            // a visible host instead of recording an unvalidated reading.
-            return
-        } else {
+        } else if containerSizePt == nil {
+            // Preserve the one-time no-host fallback: every hidden tmux
+            // window must claim before selection or the first claim from a
+            // sibling drops it to 80x24. The next hosted pass revalidates it.
             let widths = NSScreen.screens.map(\.visibleFrame.width)
             let heights = NSScreen.screens.map(\.visibleFrame.height)
             if let maxW = widths.max(), let maxH = heights.max(), maxW > 1, maxH > 1 {
                 pointSize.width = min(pointSize.width, maxW)
                 pointSize.height = min(pointSize.height, maxH)
             }
+        } else {
+            pendingContainerSizePt = pointSize
+            pendingContainerScale = scale
+            setNeedsSizingPass()
+            return
         }
+        pendingContainerSizePt = nil
+        pendingContainerScale = nil
         #if DEBUG
         if pointSize.width > 3000 || pointSize.height > 3000 {
             let window = panelsByPaneId.values.first?.hostedView.window
@@ -159,12 +165,23 @@ extension RemoteTmuxWindowMirror {
     func performSizingPassNow() {
         sizingPassScheduled = false
         guard !isTornDown else { return }
-        // Re-clamp a prior value as soon as any pane is visibly hosted.
-        if let bound = visibleHostingContentSize(), var size = containerSizePt,
-           size.width > bound.width + 0.5 || size.height > bound.height + 0.5 {
-            size.width = min(size.width, bound.width)
-            size.height = min(size.height, bound.height)
-            containerSizePt = size
+        // Adopt a detached callback, or re-clamp a prior value, as soon as
+        // any pane is visibly hosted. This pass is also the recovery path
+        // when attachment itself does not emit another geometry callback.
+        if let bound = visibleHostingContentSize() {
+            if var size = pendingContainerSizePt {
+                size.width = min(size.width, bound.width)
+                size.height = min(size.height, bound.height)
+                containerSizePt = size
+                containerScale = pendingContainerScale
+                pendingContainerSizePt = nil
+                pendingContainerScale = nil
+            } else if var size = containerSizePt,
+                      size.width > bound.width + 0.5 || size.height > bound.height + 0.5 {
+                size.width = min(size.width, bound.width)
+                size.height = min(size.height, bound.height)
+                containerSizePt = size
+            }
         }
         let inputs = currentSizingInputs()
         if inputs == lastCompletedSizingInputs { return }

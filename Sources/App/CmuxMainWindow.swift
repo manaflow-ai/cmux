@@ -92,7 +92,8 @@ final class CmuxMainWindow: NSWindow {
         super.setFrame(frame, display: flag)
     }
 
-    /// Caps runaway content-derived dimensions to the display union. Frames
+    /// Caps runaway content-derived dimensions to the display union while
+    /// keeping a previously intersecting window's titlebar reachable. Frames
     /// that already fit are returned byte-for-byte so ordinary partial
     /// off-screen and multi-display placement remains user-owned.
     nonisolated static func frameByCappingOversizedDimensions(
@@ -106,7 +107,31 @@ final class CmuxMainWindow: NSWindow {
         var capped = proposedFrame
         capped.size.width = min(capped.width, displayUnion.width)
         capped.size.height = min(capped.height, displayUnion.height)
-        return capped.size == proposedFrame.size ? proposedFrame : capped
+        guard capped.size != proposedFrame.size else { return proposedFrame }
+
+        let target = displays.max { lhs, rhs in
+            let left = proposedFrame.intersection(lhs)
+            let right = proposedFrame.intersection(rhs)
+            return left.width * left.height < right.width * right.height
+        }
+        guard let target,
+              !proposedFrame.intersection(target).isNull,
+              !isTitlebarReachable(frame: capped, visibleFrame: target)
+        else { return capped }
+
+        let visibleWidth = min(60, capped.width)
+        capped.origin.x = min(
+            max(capped.minX, target.minX - capped.width + visibleWidth),
+            target.maxX - visibleWidth
+        )
+        let stripHeight = min(64, capped.height)
+        let visibleHeight = min(16, stripHeight)
+        let clampedMaxY = min(
+            max(capped.maxY, target.minY + visibleHeight),
+            target.maxY + stripHeight - visibleHeight
+        )
+        capped.origin.y = clampedMaxY - capped.height
+        return capped
     }
 
     static var minimumContentSize: NSSize {

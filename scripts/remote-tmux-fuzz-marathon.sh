@@ -7,8 +7,9 @@
 # Usage: CMUX_TAG=main scripts/remote-tmux-fuzz-marathon.sh <ssh-host> [seeds] [iters-per-seed]
 # Set CMUX_FUZZ_RELAUNCH_HOST only when the app must be opened through a
 # separate login host; by default the marathon relaunches it locally.
-# Output: /tmp/cmux-fuzz-marathon/<start-time>/
+# Output: a private /tmp/cmux-fuzz-marathon.XXXXXXXX/ directory printed at start.
 set -u
+umask 077
 
 HOST="${1:?usage: CMUX_TAG=<tag> $0 <ssh-host> [seeds] [iters]}"
 SEEDS="${2:-40}"
@@ -17,43 +18,79 @@ ITERS="${3:-25}"
 APP="${CMUX_FUZZ_APP:-$HOME/Library/Developer/Xcode/DerivedData/cmux-${CMUX_TAG}/Build/Products/Debug/cmux DEV ${CMUX_TAG}.app}"
 RELAUNCH_HOST="${CMUX_FUZZ_RELAUNCH_HOST:-}"
 DEBUG_LOG="/tmp/cmux-debug-${CMUX_TAG}.log"
+LOCAL_TMP_ROOT="${TMPDIR:-/tmp}"
+LOCAL_TMP_ROOT="${LOCAL_TMP_ROOT%/}"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/remote-tmux-fuzz-lock.sh"
 # Exactly one driver. Concurrent marathons share one app and one tmux lab,
 # and each seed's setup kills the lab server — yanking layouts out from
 # under the other run's iterations and manufacturing failures no code
-# produced. A stale pid file (dead owner) is taken over silently.
-LOCK=/tmp/cmux-fuzz-marathon.pid
-if [ -f "$LOCK" ] && kill -0 "$(cat "$LOCK" 2>/dev/null)" 2>/dev/null; then
-  echo "another marathon (pid $(cat "$LOCK")) is running — refusing to start a second"
-  exit 96
-fi
-echo $$ > "$LOCK"
+# produced. The shared helper owns the one atomic acquire/validate/release
+# path; its pid/token files live privately inside the lock directory.
+CMUX_FUZZ_LOCK_OWNED=0
 # Hold the lock for the whole run: the trap releases it on ANY exit
 # (including SIGTERM), so nobody ever needs to delete it by hand — and
 # deleting it by hand is exactly how two drivers once ran concurrently.
-trap 'rm -f "$LOCK"' EXIT
-# Children (live-fuzz) inherit this token instead of re-taking the lock.
-export CMUX_FUZZ_LOCK_HELD=1
-
-DIR="/tmp/cmux-fuzz-marathon/$(date +%Y%m%d-%H%M%S)"
-HERE="$(cd "$(dirname "$0")" && pwd)"
-mkdir -p "$DIR"
+cleanup() {
+  local status=$?
+  trap - EXIT
+  cmux_fuzz_lock_release
+  exit "$status"
+}
+trap cleanup EXIT
+cmux_fuzz_lock_acquire "$LOCAL_TMP_ROOT" || exit $?
+DIR=$(mktemp -d "$LOCAL_TMP_ROOT/cmux-fuzz-marathon.XXXXXXXX") || {
+  echo "could not create private marathon evidence directory" >&2
+  exit 2
+}
 echo "marathon: $SEEDS seeds x $ITERS iters -> $DIR"
 
-app_pid() { pgrep -f "cmux-${CMUX_TAG}/Build.*MacOS/cmux DEV" | head -1; }
+app_pid() {
+  local pattern="cmux-${CMUX_TAG}/Build.*MacOS/cmux DEV" command remote_command
+  if [ -n "$RELAUNCH_HOST" ]; then
+    printf -v command 'pgrep -f %q | head -1' "$pattern"
+    printf -v remote_command 'zsh -lc %q' "$command"
+    ssh "$RELAUNCH_HOST" "$remote_command" 2>/dev/null
+  else
+    pgrep -f "$pattern" | head -1
+  fi
+}
+
+app_process_alive() {
+  local pid=$1 command remote_command
+  if [ -n "$RELAUNCH_HOST" ]; then
+    printf -v command 'kill -0 %q' "$pid"
+    printf -v remote_command 'zsh -lc %q' "$command"
+    ssh "$RELAUNCH_HOST" "$remote_command" >/dev/null 2>&1
+  else
+    kill -0 "$pid" 2>/dev/null
+  fi
+}
+
+terminate_app() {
+  local pid=$1 command remote_command
+  if [ -n "$RELAUNCH_HOST" ]; then
+    printf -v command 'kill -9 %q' "$pid"
+    printf -v remote_command 'zsh -lc %q' "$command"
+    ssh "$RELAUNCH_HOST" "$remote_command" >/dev/null 2>&1
+  else
+    kill -9 "$pid" 2>/dev/null
+  fi
+}
 
 relaunch_app() {
   local pid launch_command remote_command
   pid=$(app_pid)
   if [ -n "$pid" ]; then
-    kill -9 "$pid" 2>/dev/null
+    terminate_app "$pid"
     # Wait for the process to actually exit rather than guessing with a
     # sleep: launching the replacement while the old instance still holds
     # the socket makes the new one look dead.
     local waited=0
-    while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 20 ]; do
+    while app_process_alive "$pid" && [ "$waited" -lt 20 ]; do
       sleep 1; waited=$((waited + 1))
     done
-    if kill -0 "$pid" 2>/dev/null; then
+    if app_process_alive "$pid"; then
       echo "ERROR: old app pid $pid did not exit after 20s" >&2
       return 1
     fi
@@ -75,12 +112,29 @@ capture_evidence() {
   local pid; pid=$(app_pid)
   local out="$DIR/seed-$seed-$kind"
   if [ -n "$pid" ] && [ "$kind" = hang ]; then
-    # `sample` needs the user session; route it through the default tmux.
-    tmux send-keys -t '1:0' "sample $pid 5 -file $out-sample.txt >/dev/null 2>&1" Enter 2>/dev/null
-    sleep 8
+    if [ -n "$RELAUNCH_HOST" ]; then
+      local sample_command remote_command
+      printf -v sample_command '/usr/bin/sample %q 5' "$pid"
+      printf -v remote_command 'zsh -lc %q' "$sample_command"
+      if ! ssh "$RELAUNCH_HOST" "$remote_command" > "$out-sample.txt" 2>&1; then
+        echo "remote sample failed via $RELAUNCH_HOST" >> "$out-sample.txt"
+      fi
+    elif ! /usr/bin/sample "$pid" 5 -file "$out-sample.txt" >/dev/null 2>&1; then
+      echo "local sample failed for pid $pid" > "$out-sample.txt"
+    fi
   fi
-  tail -400 "$DEBUG_LOG" > "$out-debuglog.txt" 2>/dev/null
-  ps -o pid,%cpu,state -p "${pid:-0}" > "$out-ps.txt" 2>/dev/null
+  if [ -n "$RELAUNCH_HOST" ]; then
+    local tail_command ps_command remote_tail remote_ps
+    printf -v tail_command 'tail -400 %q' "$DEBUG_LOG"
+    printf -v ps_command 'ps -o pid,%%cpu,state -p %q' "${pid:-0}"
+    printf -v remote_tail 'zsh -lc %q' "$tail_command"
+    printf -v remote_ps 'zsh -lc %q' "$ps_command"
+    ssh "$RELAUNCH_HOST" "$remote_tail" > "$out-debuglog.txt" 2>/dev/null
+    ssh "$RELAUNCH_HOST" "$remote_ps" > "$out-ps.txt" 2>/dev/null
+  else
+    tail -400 "$DEBUG_LOG" > "$out-debuglog.txt" 2>/dev/null
+    ps -o pid,%cpu,state -p "${pid:-0}" > "$out-ps.txt" 2>/dev/null
+  fi
 }
 
 # A freshly relaunched app needs a moment before it can host a mirror:

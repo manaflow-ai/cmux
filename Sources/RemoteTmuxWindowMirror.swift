@@ -127,6 +127,10 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored var containerSizePt: CGSize?
     /// The hosting window's backing scale, delivered with the container size.
     @ObservationIgnored var containerScale: CGFloat?
+    /// Latest post-claim geometry received before any pane has a visible host.
+    /// It is not sizing truth until a hosting window bounds it.
+    @ObservationIgnored var pendingContainerSizePt: CGSize?
+    @ObservationIgnored var pendingContainerScale: CGFloat?
     /// Monotone minimum of `surface_px − cols·cell_px` observed per axis: the
     /// ghostty padding estimate, KEYED BY BACKING SCALE. A single sample
     /// overestimates padding by the quantization remainder (< one cell),
@@ -415,6 +419,8 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         isVisibleForSizing = false
         sizingPassScheduled = false
         lastCompletedSizingInputs = nil
+        pendingContainerSizePt = nil
+        pendingContainerScale = nil
         let activeConnection = connection
         activeConnection?.removeWindowSizeClaim(windowId: windowId)
         workspaceBonsplitController = nil
