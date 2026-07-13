@@ -1,5 +1,4 @@
 import CMUXAgentLaunch
-import Darwin
 import Foundation
 
 extension SurfaceResumeBindingSnapshot {
@@ -123,12 +122,12 @@ extension SurfaceResumeCommandCanonicalizer {
               isPATHManagedAgentExecutablePath(executable, executableName: executableName) else {
             return command
         }
-        guard !isExecutableFile(atPath: executable) else {
-            return command
-        }
-
         if executableName == "claude" {
-            return replacingStaleWrapperRoutedExecutable(
+            // A live PATH-managed executable still must not be invoked directly.
+            // Surface restoration otherwise bypasses the per-surface wrapper shim,
+            // so the resumed root never emits SessionStart and disappears from the
+            // runtime-scoped agent tree. Custom absolute paths were rejected above.
+            return replacingWrapperRoutedExecutable(
                 in: command,
                 words: words,
                 executableIndex: executableIndex,
@@ -138,11 +137,10 @@ extension SurfaceResumeCommandCanonicalizer {
                 wrapInPortableShell: { AgentResumeArgv.portableClaudeResumeShellCommand(posixCommand: $0) }
             )
         } else if executableName == "codex" {
-            // Mirror claude: route a stale codex executable (a PATH-managed path
-            // whose file is gone) through the codex wrapper token instead of a
-            // bare `codex`, so the restored codex surface keeps cmux hooks.
+            // Mirror Claude: both live and stale managed Codex paths route through
+            // the wrapper token so restored surfaces keep cmux hooks.
             // https://github.com/manaflow-ai/cmux/issues/5639
-            return replacingStaleWrapperRoutedExecutable(
+            return replacingWrapperRoutedExecutable(
                 in: command,
                 words: words,
                 executableIndex: executableIndex,
@@ -236,11 +234,7 @@ extension SurfaceResumeCommandCanonicalizer {
         }
     }
 
-    private static func isExecutableFile(atPath path: String) -> Bool {
-        path.withCString { access($0, X_OK) == 0 }
-    }
-
-    private static func replacingStaleWrapperRoutedExecutable(
+    private static func replacingWrapperRoutedExecutable(
         in command: String,
         words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         executableIndex: Int,
@@ -260,7 +254,7 @@ extension SurfaceResumeCommandCanonicalizer {
             command: command,
             commandStartIndex: commandStartIndex
         ) else {
-            return replacingStaleExecutableWithWrapperShellCommand(
+            return replacingExecutableWithWrapperShellCommand(
                 in: command,
                 words: words,
                 commandStartIndex: commandStartIndex,
@@ -269,13 +263,13 @@ extension SurfaceResumeCommandCanonicalizer {
                 wrapInPortableShell: wrapInPortableShell
             )
         }
-        guard canRenderStaleCommandAsPortableArgv(
+        guard canRenderCommandAsPortableArgv(
             words: words,
             command: command,
             commandStartIndex: commandStartIndex,
             executableIndex: executableIndex
         ) else {
-            return replacingStaleExecutableWithWrapperShellCommand(
+            return replacingExecutableWithWrapperShellCommand(
                 in: command,
                 words: words,
                 commandStartIndex: commandStartIndex,
@@ -290,7 +284,7 @@ extension SurfaceResumeCommandCanonicalizer {
         return String(command[..<commandStart]) + renderedCommand
     }
 
-    private static func replacingStaleExecutableWithWrapperShellCommand(
+    private static func replacingExecutableWithWrapperShellCommand(
         in command: String,
         words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         commandStartIndex: Int,
@@ -336,7 +330,7 @@ extension SurfaceResumeCommandCanonicalizer {
         return "\(name)=\(shellQuoted(String(word.value[valueStart...])))"
     }
 
-    private static func canRenderStaleCommandAsPortableArgv(
+    private static func canRenderCommandAsPortableArgv(
         words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         command: String,
         commandStartIndex: Int,
