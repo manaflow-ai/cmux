@@ -98,6 +98,16 @@ struct AgentNotificationMoveRaceTests {
         )
     }
 
+    private func waitForNotification(in store: TerminalNotificationStore) async {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while store.notifications.isEmpty, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        if store.notifications.isEmpty {
+            Issue.record("Timed out waiting for policy-delayed notification")
+        }
+    }
+
     @Test("Moving a pane preserves its pending notification")
     func paneMovePreservesPendingNotification() throws {
         let fixture = try makeFixture()
@@ -149,7 +159,7 @@ struct AgentNotificationMoveRaceTests {
             // it until this MainActor job yields, so the move deterministically
             // occurs between initial routing and final apply.
             try movePanel(fixture)
-            while fixture.store.notifications.isEmpty { await Task.yield() }
+            await waitForNotification(in: fixture.store)
         }
 
         let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
@@ -186,12 +196,18 @@ struct AgentNotificationMoveRaceTests {
             }
 
             try movePanel(fixture)
-            while fixture.store.notifications.isEmpty { await Task.yield() }
+            await waitForNotification(in: fixture.store)
         }
 
         let recorded = fixture.store.notifications.filter { $0.title == "Relay" }
         #expect(recorded.map(\.tabId) == [fixture.source.id])
         #expect(!recorded.contains { $0.tabId == fixture.destination.id })
+
+        fixture.store.clearNotifications(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        )
+        #expect(fixture.store.notifications.isEmpty)
     }
 
     @Test("A surface clear follows a stored notification to its current workspace")

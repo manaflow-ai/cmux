@@ -157,22 +157,23 @@ enum ClaudeHookLiveDeliveryHarness {
         sessionId: String,
         workspaceId: String,
         surfaceId: String,
-        cwd: String
+        cwd: String,
+        pid: Int? = nil
     ) throws {
         let now = Date().timeIntervalSince1970
+        var record: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": workspaceId,
+            "surfaceId": surfaceId,
+            "cwd": cwd,
+            "isRestorable": true,
+            "startedAt": now,
+            "updatedAt": now,
+        ]
+        if let pid { record["pid"] = pid }
         let store: [String: Any] = [
             "version": 1,
-            "sessions": [
-                sessionId: [
-                    "sessionId": sessionId,
-                    "workspaceId": workspaceId,
-                    "surfaceId": surfaceId,
-                    "cwd": cwd,
-                    "isRestorable": true,
-                    "startedAt": now,
-                    "updatedAt": now,
-                ],
-            ],
+            "sessions": [sessionId: record],
         ]
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: storeURL)
