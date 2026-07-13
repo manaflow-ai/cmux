@@ -926,6 +926,58 @@ def test_validate_appstore_release_requires_numeric_app_id(tmp: Path, fakebin: P
     _check("must be numeric" in bad_result.stderr, "validation helper explains that --app must be numeric")
 
 
+def test_validate_appstore_release_uses_device_screenshot_directories(
+    tmp: Path, fakebin: Path
+) -> None:
+    screenshots = tmp / "screenshots"
+    iphone = screenshots / "en-US" / "iphone"
+    ipad = screenshots / "en-US" / "ipad"
+    iphone.mkdir(parents=True)
+    ipad.mkdir(parents=True)
+    (iphone / "01-workspaces.png").write_bytes(b"iphone")
+    (ipad / "01-workspaces.png").write_bytes(b"ipad")
+
+    env = _base_env(tmp, fakebin)
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "validate-app-store-release.sh"),
+            "--app",
+            ASC_APP_ID,
+            "--version",
+            APPSTORE_MARKETING_VERSION,
+            "--screenshots-dir",
+            str(screenshots),
+            "--screenshot-device-type",
+            "IPHONE_69",
+            "--screenshot-device-type",
+            "IPAD_PRO_3GEN_129",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+    _check(result.returncode == 0, "App Store validation accepts the canonical screenshot layout")
+
+    asc_calls = [
+        json.loads(line)
+        for line in (tmp / "asc.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    screenshot_calls = [call for call in asc_calls if call[:2] == ["screenshots", "validate"]]
+    paths_by_device = {
+        call[call.index("--device-type") + 1]: call[call.index("--path") + 1]
+        for call in screenshot_calls
+    }
+    _check(
+        paths_by_device.get("IPHONE_69") == str(iphone),
+        "iPhone validation targets the directory containing iPhone images",
+    )
+    _check(
+        paths_by_device.get("IPAD_PRO_3GEN_129") == str(ipad),
+        "iPad validation targets the directory containing iPad images",
+    )
+
+
 def test_validate_appstore_release_prepares_content_rights_and_build(
     tmp: Path, fakebin: Path
 ) -> None:
@@ -1222,6 +1274,9 @@ def main() -> None:
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
         test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)
         test_validate_appstore_release_requires_numeric_app_id(tmp / "validate-test", fakebin)
+        test_validate_appstore_release_uses_device_screenshot_directories(
+            tmp / "validate-screenshots-test", fakebin
+        )
         test_validate_appstore_release_prepares_content_rights_and_build(
             tmp / "prepare-submission-test", fakebin
         )
