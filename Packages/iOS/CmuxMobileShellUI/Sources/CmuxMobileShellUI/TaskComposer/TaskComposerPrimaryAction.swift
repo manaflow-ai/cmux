@@ -8,11 +8,21 @@ import SwiftUI
 struct TaskComposerPrimaryAction: View {
     let isSubmitting: Bool
     let isEnabled: Bool
+    let failureText: String?
     let action: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             Divider()
+            if let failureText {
+                Text(failureText)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
+                    .accessibilityIdentifier("MobileTaskComposerFailure")
+            }
             Button(action: action) {
                 Group {
                     if isSubmitting {

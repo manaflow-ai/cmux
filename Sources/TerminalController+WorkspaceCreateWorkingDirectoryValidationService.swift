@@ -26,6 +26,7 @@ extension TerminalController {
         private let timeout: Duration
         private let localCapacity: Int
         private let externalCapacity: Int
+        private let maximumPendingWaiters: Int
         private let laneClassifier: LaneClassifier
         private let probe: Probe
         private let sleepUntilDeadline: DeadlineSleep
@@ -38,14 +39,16 @@ extension TerminalController {
             timeout: Duration,
             localCapacity: Int,
             externalCapacity: Int,
+            maximumPendingWaiters: Int,
             laneClassifier: @escaping LaneClassifier,
             probe: @escaping Probe,
             sleepUntilDeadline: @escaping DeadlineSleep
         ) {
-            precondition(localCapacity > 0 && externalCapacity > 0)
+            precondition(localCapacity > 0 && externalCapacity > 0 && maximumPendingWaiters > 0)
             self.timeout = timeout
             self.localCapacity = localCapacity
             self.externalCapacity = externalCapacity
+            self.maximumPendingWaiters = maximumPendingWaiters
             self.laneClassifier = laneClassifier
             self.probe = probe
             self.sleepUntilDeadline = sleepUntilDeadline
@@ -78,6 +81,10 @@ extension TerminalController {
             path: String,
             continuation: CheckedContinuation<WorkspaceCreateWorkingDirectoryValidation, Never>
         ) {
+            guard waiters.count < maximumPendingWaiters else {
+                continuation.resume(returning: .busy)
+                return
+            }
             let deadlineTask = Task { [weak self, sleepUntilDeadline, timeout] in
                 await sleepUntilDeadline(timeout)
                 guard !Task.isCancelled else { return }

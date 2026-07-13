@@ -153,20 +153,12 @@ struct TaskComposerSheet: View {
                         .accessibilityLabel(L10n.string("mobile.taskComposer.directory", defaultValue: "Directory"))
                         .accessibilityIdentifier("MobileTaskComposerDirectory")
                 }
-
-                if let failureText {
-                    Section {
-                        Text(failureText)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .accessibilityIdentifier("MobileTaskComposerFailure")
-                    }
-                }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 TaskComposerPrimaryAction(
                     isSubmitting: isSubmitting,
                     isEnabled: selectedTemplate != nil && selectedMachine != nil,
+                    failureText: failureText,
                     action: startSubmission
                 )
             }

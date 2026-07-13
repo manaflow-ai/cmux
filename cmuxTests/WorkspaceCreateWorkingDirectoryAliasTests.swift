@@ -224,6 +224,7 @@ import Testing
             timeout: .seconds(1),
             localCapacity: 1,
             externalCapacity: 2,
+            maximumPendingWaiters: 64,
             laneClassifier: { TerminalController.v2WorkingDirectoryProbeLane($0) },
             probe: { path, lane in await probe.run(path: path, lane: lane) },
             sleepUntilDeadline: { _ in await deadlines.suspendUntilFired() }

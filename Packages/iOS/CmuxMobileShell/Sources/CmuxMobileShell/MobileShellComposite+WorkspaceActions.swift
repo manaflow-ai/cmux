@@ -429,6 +429,9 @@ extension MobileShellComposite {
             if normalizedCode == "request_timeout" {
                 return .requestTimedOut(hostDisplayName: hostDisplayName)
             }
+            if normalizedCode == "busy" {
+                return .busy(hostDisplayName: hostDisplayName)
+            }
             if normalizedCode == "invalid_working_directory" {
                 return .invalidWorkingDirectory(hostDisplayName: hostDisplayName)
             }

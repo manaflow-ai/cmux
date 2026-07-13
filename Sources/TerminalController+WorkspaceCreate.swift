@@ -382,6 +382,12 @@ extension TerminalController {
             workingDirectory = path
         case .invalid:
             return Self.v2InvalidWorkingDirectoryResult
+        case .busy:
+            return .err(
+                code: "busy",
+                message: "working_directory validation is busy",
+                data: ["field": "working_directory"]
+            )
         case .timedOut:
             return .err(
                 code: "request_timeout",

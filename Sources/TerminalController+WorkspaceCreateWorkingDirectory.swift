@@ -6,6 +6,7 @@ extension TerminalController {
         case notProvided
         case valid(String)
         case invalid
+        case busy
         case timedOut
         case cancelled
     }
@@ -20,6 +21,7 @@ extension TerminalController {
             timeout: .seconds(3),
             localCapacity: 1,
             externalCapacity: 2,
+            maximumPendingWaiters: 64,
             laneClassifier: { @Sendable path in
                 TerminalController.v2WorkingDirectoryProbeLane(path)
             },

@@ -211,6 +211,7 @@ import Testing
             timeout: .seconds(1),
             localCapacity: 1,
             externalCapacity: 2,
+            maximumPendingWaiters: 64,
             laneClassifier: { path in
                 path == externalPath
                     ? .external
@@ -254,6 +255,7 @@ import Testing
             timeout: .seconds(1),
             localCapacity: 1,
             externalCapacity: 2,
+            maximumPendingWaiters: 64,
             laneClassifier: { path in
                 let lane = TerminalController.v2WorkingDirectoryProbeLane(path)
                 _ = path.withCString { Darwin.rmdir($0) }
@@ -361,6 +363,7 @@ import Testing
             timeout: .seconds(1),
             localCapacity: 1,
             externalCapacity: 2,
+            maximumPendingWaiters: 64,
             laneClassifier: { path in path.hasPrefix("/external/") ? .external : .local },
             probe: { path, lane in await probe.run(path: path, lane: lane) },
             sleepUntilDeadline: { _ in await deadlines.suspendUntilFired() }

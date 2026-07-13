@@ -238,6 +238,9 @@ public struct MobileTaskCommandComposer: Sendable {
                unsupportedCommandWords.contains(unquotedText) {
                 result.supportsImplicitPrompt = false
             }
+            if !commandInSegment, result.containsCommand {
+                result.supportsImplicitPrompt = false
+            }
             commandInSegment = true
             result.containsCommand = true
             result.promptInsertionIndex = wordEnd
