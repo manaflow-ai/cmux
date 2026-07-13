@@ -18,18 +18,6 @@ public struct MobileTaskCommandComposer: Sendable {
             !inComment && !escaped && quote != .single
         }
 
-        func contributesToCommandToken(_ character: Character) -> Bool {
-            guard !inComment else { return false }
-            guard quote == .unquoted, !escaped else { return true }
-            guard !character.isWhitespace else { return false }
-            switch character {
-            case ";", "|", "&", "(", ")", "<", ">":
-                return false
-            default:
-                return true
-            }
-        }
-
         func startsComment(with character: Character) -> Bool {
             quote == .unquoted && !escaped && character == "#" && atWordBoundary
         }
@@ -81,8 +69,46 @@ public struct MobileTaskCommandComposer: Sendable {
         }
     }
 
+    private struct ShellWord {
+        var end: String.Index?
+        var assignmentName = ""
+        var isAssignment = false
+        var canBeAssignment = true
+        var isUnquotedDigits = true
+
+        mutating func consume(_ character: Character, isUnquotedLiteral: Bool, end: String.Index) {
+            self.end = end
+            guard isUnquotedLiteral else {
+                canBeAssignment = false
+                isUnquotedDigits = false
+                return
+            }
+            guard canBeAssignment else {
+                isUnquotedDigits = isUnquotedDigits && character.isNumber
+                return
+            }
+            if character == "=" {
+                isAssignment = MobileTaskCommandComposer.isShellAssignmentName(assignmentName)
+                canBeAssignment = false
+                isUnquotedDigits = false
+            } else {
+                assignmentName.append(character)
+                isUnquotedDigits = isUnquotedDigits && character.isNumber
+            }
+        }
+    }
+
+    private struct ShellCommandScan {
+        var containsCommand = false
+        var promptInsertionIndex: String.Index?
+    }
+
     /// Creates a command composer.
     public init() {}
+
+    static func containsExecutableCommand(in command: String) -> Bool {
+        scanShellCommand(command).containsCommand
+    }
 
     /// Composes workspace-create parameters for `template` and `prompt`.
     /// - Parameters:
@@ -166,33 +192,82 @@ public struct MobileTaskCommandComposer: Sendable {
     /// Inserts the fallback prompt argument after the final executable token,
     /// preserving any trailing shell whitespace and comments byte-for-byte.
     private static func appendingPromptArgument(to command: String) -> String {
-        var lexicalState = ShellLexicalState()
-        var index = command.startIndex
-        var lastTokenEnd: String.Index?
+        let insertionIndex = scanShellCommand(command).promptInsertionIndex ?? command.startIndex
+        return String(command[..<insertionIndex])
+            + " -- \"${CMUX_TASK_PROMPT}\""
+            + String(command[insertionIndex...])
+    }
 
+    /// Finds executable words without trying to interpret the full shell grammar.
+    /// Leading assignments and redirection operands are not commands; unquoted
+    /// control operators start a new simple command.
+    private static func scanShellCommand(_ command: String) -> ShellCommandScan {
+        var lexicalState = ShellLexicalState()
+        var word = ShellWord()
+        var commandInSegment = false
+        var expectsRedirectionOperand = false
+        var result = ShellCommandScan()
+
+        func finishWord(asFileDescriptor: Bool = false) {
+            guard let wordEnd = word.end else { return }
+            defer { word = ShellWord() }
+            if asFileDescriptor && word.isUnquotedDigits { return }
+            if expectsRedirectionOperand {
+                expectsRedirectionOperand = false
+                if commandInSegment { result.promptInsertionIndex = wordEnd }
+                return
+            }
+            if !commandInSegment && word.isAssignment { return }
+            commandInSegment = true
+            result.containsCommand = true
+            result.promptInsertionIndex = wordEnd
+        }
+
+        func resetSegment() {
+            commandInSegment = false
+            expectsRedirectionOperand = false
+        }
+
+        var index = command.startIndex
         while index < command.endIndex {
             let character = command[index]
+            let nextIndex = command.index(after: index)
             if lexicalState.inComment {
+                if character == "\n" { resetSegment() }
                 lexicalState.consume(character)
-                index = command.index(after: index)
+                index = nextIndex
                 continue
             }
             if lexicalState.startsComment(with: character) {
                 lexicalState.beginComment()
-                index = command.index(after: index)
+                index = nextIndex
                 continue
             }
-            if lexicalState.contributesToCommandToken(character) {
-                lastTokenEnd = command.index(after: index)
+
+            if lexicalState.quote == .unquoted, !lexicalState.escaped {
+                switch character {
+                case " ", "\t", "\r":
+                    finishWord()
+                case "\n":
+                    finishWord()
+                    resetSegment()
+                case ";", "|", "&", "(", ")":
+                    finishWord()
+                    resetSegment()
+                case "<", ">":
+                    finishWord(asFileDescriptor: word.end == index)
+                    expectsRedirectionOperand = true
+                default:
+                    word.consume(character, isUnquotedLiteral: true, end: nextIndex)
+                }
+            } else {
+                word.consume(character, isUnquotedLiteral: false, end: nextIndex)
             }
             lexicalState.consume(character)
-            index = command.index(after: index)
+            index = nextIndex
         }
-
-        let insertionIndex = lastTokenEnd ?? command.startIndex
-        return String(command[..<insertionIndex])
-            + " -- \"${CMUX_TASK_PROMPT}\""
-            + String(command[insertionIndex...])
+        finishWord()
+        return result
     }
 
     /// The documented environment-variable form is an explicit prompt consumer,
@@ -233,6 +308,11 @@ public struct MobileTaskCommandComposer: Sendable {
 
     private static func isShellIdentifierCharacter(_ character: Character) -> Bool {
         character == "_" || character.isLetter || character.isNumber
+    }
+
+    private static func isShellAssignmentName(_ name: String) -> Bool {
+        guard let first = name.first, first == "_" || first.isLetter else { return false }
+        return name.dropFirst().allSatisfy(isShellIdentifierCharacter)
     }
 
     /// The suggested workspace title for a task prompt: its first line, capped

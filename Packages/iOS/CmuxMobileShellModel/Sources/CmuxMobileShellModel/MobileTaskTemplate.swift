@@ -16,7 +16,7 @@ public struct MobileTaskTemplate: Codable, Equatable, Sendable, Identifiable {
 
     /// Whether the command contains no executable text and should open a plain shell.
     public var isPlainShell: Bool {
-        command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !MobileTaskCommandComposer.containsExecutableCommand(in: command)
     }
 
     /// Creates a mobile task template.
