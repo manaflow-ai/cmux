@@ -174,10 +174,7 @@ public struct WorktreeIncludeSyncService: Sendable {
             diagnostics.append(matchLimitDiagnostic)
             return diagnostics
         }
-        let protectedSourceSubtree = destinationContainer(
-            destination: destination,
-            inside: source
-        )
+        let protectedSourceSubtree = destinationContainer(destination: destination, inside: source)
 
         var safeCandidates: [String] = []
         for relativePath in candidates {
@@ -201,11 +198,7 @@ public struct WorktreeIncludeSyncService: Sendable {
             }
             safeCandidates.append(relativePath)
         }
-        return diagnostics + copyService.copy(
-            relativePaths: safeCandidates,
-            from: source,
-            to: destination
-        )
+        return diagnostics + copyService.copy(relativePaths: safeCandidates, from: source, to: destination)
     }
 
     private nonisolated func gitPaths(
