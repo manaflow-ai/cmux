@@ -1,5 +1,6 @@
 internal import CMUXMobileCore
 internal import CmuxMobileDiagnostics
+internal import CmuxMobileRPC
 
 extension MobileShellComposite {
     /// Whether the Mac supports workspace group sections and collapse/expand RPCs.
@@ -52,10 +53,25 @@ extension MobileShellComposite {
 
         macUpdateHint = hint
         macUpdateHintMacDeviceID = macDeviceID
-        // Keyed per Mac so two hosts sharing one gap signature each emit a
-        // shown event, while reconnects to the same host stay deduplicated.
+        // Keyed per Mac so two hosts sharing one gap signature each emit an
+        // event, while reconnects to the same host stay deduplicated. Named
+        // "eligible" deliberately: this fires when the model computes a
+        // visible hint, not when the toolbar indicator actually renders
+        // (chrome, navigation state, or backgrounding can defer that).
         guard macUpdateHintShownSignatures.insert("\(macDeviceID)|\(hint.dismissalSignature)").inserted else { return }
-        analytics.capture("ios_mac_update_hint_shown", analyticsProperties(for: hint))
+        analytics.capture("ios_mac_update_hint_eligible", analyticsProperties(for: hint))
+    }
+
+    /// Recovery-path refresh: when the fast transport probe times out,
+    /// `scheduleHostIdentityAdoptionIfNeeded` is the only path that sees a
+    /// full status payload, and skipping the hint there would leave it absent
+    /// (or a previous Mac's hint stale) until the next reconnect.
+    func refreshMacUpdateHintFromRecoveredStatus(_ payload: MobileHostStatusResponse) {
+        refreshMacUpdateHint(
+            capabilities: Set(payload.capabilities),
+            statusMacAppVersion: payload.macAppVersion,
+            macDeviceID: payload.macDeviceID ?? activeTicket?.macDeviceID
+        )
     }
 
     /// Permanently dismisses the currently visible gap for this Mac and version target.
@@ -78,6 +94,8 @@ extension MobileShellComposite {
     private func analyticsProperties(for hint: MobileMacUpdateHint) -> [String: AnalyticsValue] {
         [
             "mac_app_version": .string(hint.macAppVersion.description),
+            // Inferred lower bounds must not pollute version-segmented metrics.
+            "mac_app_version_inferred": .bool(hint.isVersionInferred),
             "minimum_mac_version": .string(hint.minimumMacVersion.description),
             "features": .string(hint.features.map(\.rawValue).joined(separator: ",")),
         ]

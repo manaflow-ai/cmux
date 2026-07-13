@@ -312,8 +312,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var supportedHostCapabilities: Set<String> = []
     /// A truthful released-Mac-update recommendation for the connected host.
     public internal(set) var macUpdateHint: MobileMacUpdateHint?
-    @ObservationIgnored var macUpdateHintMacDeviceID: String?
-    @ObservationIgnored var macUpdateHintShownSignatures: Set<String> = []
+    @ObservationIgnored var macUpdateHintMacDeviceID: String?, macUpdateHintShownSignatures: Set<String> = []
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.
@@ -2610,15 +2609,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // free in the common case and keeps the phone's colors in sync with
             // the Mac even when the probe could not.
             self.applyTerminalTheme(payload.theme)
-            // Same recovery reasoning for the update hint: when the fast probe
-            // timed out, this is the only path that sees a full status payload,
-            // and skipping it would leave the hint absent (or a previous Mac's
-            // hint stale) until the next reconnect.
-            self.refreshMacUpdateHint(
-                capabilities: Set(payload.capabilities),
-                statusMacAppVersion: payload.macAppVersion,
-                macDeviceID: payload.macDeviceID ?? self.activeTicket?.macDeviceID
-            )
+            self.refreshMacUpdateHintFromRecoveredStatus(payload)
             await self.applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,
