@@ -8,6 +8,9 @@ struct GitProcessRunner: Sendable {
     private static let nonLockingGitEnvironmentKey = "GIT_OPTIONAL_LOCKS"
     private static let nonLockingGitEnvironmentValue = "0"
     private static let fileSystemStatFormat = "%d|%i|%p|%z|%Fm|%Fc"
+    /// Leaves ample headroom below macOS `ARG_MAX` for the environment and
+    /// process-group wrapper arguments.
+    private static let fileSystemArgumentBytesPerBatch = 64 * 1024
 
     private let gitExecutableURL: URL
     private let fileSystemStatExecutableURL: URL
@@ -48,37 +51,100 @@ struct GitProcessRunner: Sendable {
         guard !paths.isEmpty else {
             return GitProcessResult(rawOutput: Data(), output: "", terminationStatus: 0)
         }
-        if allowMissing {
-            guard paths.count == 1 else {
+        let deadline = ProcessInfo.processInfo.systemUptime + processDeadlineSeconds
+        var accumulatedOutput = Data()
+        for batch in Self.fileSystemPathBatches(paths) {
+            guard !Task.isCancelled else {
+                return GitProcessResult(output: nil, failure: .cancelled)
+            }
+            let remainingSeconds = deadline - ProcessInfo.processInfo.systemUptime
+            guard remainingSeconds > 0 else {
+                return GitProcessResult(output: nil, failure: .timedOut)
+            }
+            let result = runFileSystemStatBatch(
+                paths: batch,
+                allowMissing: allowMissing,
+                maxOutputBytes: max(1, maxOutputBytes - accumulatedOutput.count),
+                deadlineSeconds: remainingSeconds
+            )
+            if result.failure != nil { return result }
+            guard let output = result.rawOutput else {
                 return GitProcessResult(output: nil, failure: .launchFailed)
             }
+            accumulatedOutput.append(output)
+            if result.capped {
+                return GitProcessResult(
+                    rawOutput: accumulatedOutput,
+                    output: Self.decodeUTF8Lossy(
+                        accumulatedOutput,
+                        maxOutputBytes: maxOutputBytes
+                    ),
+                    capped: true,
+                    terminationStatus: result.terminationStatus
+                )
+            }
+        }
+        return GitProcessResult(
+            rawOutput: accumulatedOutput,
+            output: Self.decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: nil),
+            terminationStatus: 0
+        )
+    }
+
+    private func runFileSystemStatBatch(
+        paths: [String],
+        allowMissing: Bool,
+        maxOutputBytes: Int,
+        deadlineSeconds: Double
+    ) -> GitProcessResult {
+        if allowMissing {
             return runExecutable(
                 executableURL: URL(fileURLWithPath: "/bin/sh"),
                 arguments: [
                     "-c",
-                    "if [ ! -e \"$2\" ] && [ ! -L \"$2\" ]; then printf 'missing\\n'; exit 0; fi; exec \"$1\" -f \"$3\" -- \"$2\"",
+                    "stat=$1; format=$2; shift 2; for path do if [ ! -e \"$path\" ] && [ ! -L \"$path\" ]; then printf 'missing\\n'; else \"$stat\" -f \"$format\" -- \"$path\" || exit $?; fi; done",
                     "cmux-stat",
                     fileSystemStatExecutableURL.path,
-                    paths[0],
                     Self.fileSystemStatFormat,
-                ],
+                ] + paths,
                 acceptedTerminationStatuses: [0],
-                maxOutputBytes: maxOutputBytes
+                maxOutputBytes: maxOutputBytes,
+                deadlineSeconds: deadlineSeconds
             )
         }
         return runExecutable(
             executableURL: fileSystemStatExecutableURL,
             arguments: ["-f", Self.fileSystemStatFormat, "--"] + paths,
             acceptedTerminationStatuses: [0],
-            maxOutputBytes: maxOutputBytes
+            maxOutputBytes: maxOutputBytes,
+            deadlineSeconds: deadlineSeconds
         )
+    }
+
+    private static func fileSystemPathBatches(_ paths: [String]) -> [[String]] {
+        var batches: [[String]] = []
+        var batch: [String] = []
+        var batchBytes = 0
+        for path in paths {
+            let pathBytes = path.utf8.count + 1
+            if !batch.isEmpty, batchBytes + pathBytes > fileSystemArgumentBytesPerBatch {
+                batches.append(batch)
+                batch = []
+                batchBytes = 0
+            }
+            batch.append(path)
+            batchBytes += pathBytes
+        }
+        if !batch.isEmpty { batches.append(batch) }
+        return batches
     }
 
     private func runExecutable(
         executableURL: URL,
         arguments: [String],
         acceptedTerminationStatuses: Set<Int32>,
-        maxOutputBytes: Int?
+        maxOutputBytes: Int?,
+        deadlineSeconds: Double? = nil
     ) -> GitProcessResult {
         // A cancelled surrounding task (e.g. a timed-out mobile RPC whose
         // cancellation is forwarded into the detached git work) must not
@@ -123,7 +189,7 @@ struct GitProcessRunner: Sendable {
                 outputHandle: pipe.fileHandleForReading
             )
             let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-            timer.schedule(deadline: .now() + processDeadlineSeconds)
+            timer.schedule(deadline: .now() + (deadlineSeconds ?? processDeadlineSeconds))
             timer.setEventHandler { watchdog.fire() }
             timer.activate()
             defer { timer.cancel() }
@@ -260,7 +326,7 @@ struct GitProcessRunner: Sendable {
     }
 }
 
-struct GitProcessResult {
+struct GitProcessResult: Sendable {
     /// Exact stdout bytes for protocols where byte identity matters, such as
     /// NUL-delimited Git paths. Human-readable diff content uses `output`.
     let rawOutput: Data?

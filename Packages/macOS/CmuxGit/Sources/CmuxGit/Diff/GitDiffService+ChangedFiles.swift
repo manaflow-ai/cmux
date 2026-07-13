@@ -54,36 +54,22 @@ extension GitDiffService {
         case .timedOut:
             return .timedOut
         }
-        let numstat = runGit(
-            in: repoRoot,
-            arguments: [
-                "diff", baseline, "-O/dev/null", "--numstat", "-z", "--no-color", "--find-renames",
-                "--no-ext-diff", "--no-textconv",
-            ],
+        let initialListing: GitChangedFilesListing
+        switch changedFilesListingResult(
+            repoRoot: repoRoot,
+            baseline: baseline,
             maxOutputBytes: maxOutputBytes
-        )
-        if let failure: GitDiffQueryResult<GitChangedFiles> = queryFailure(from: numstat) {
-            return failure
+        ) {
+        case .success(let listing):
+            initialListing = listing
+        case .notFound, .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
         }
-        let nameStatus = runGit(
-            in: repoRoot,
-            arguments: [
-                "diff", baseline, "-O/dev/null", "--name-status", "-z", "--no-color", "--find-renames",
-                "--no-ext-diff", "--no-textconv",
-            ],
-            maxOutputBytes: maxOutputBytes
-        )
-        if let failure: GitDiffQueryResult<GitChangedFiles> = queryFailure(from: nameStatus) {
-            return failure
-        }
-        let untracked = runGit(
-            in: repoRoot,
-            arguments: ["ls-files", "--others", "--exclude-standard", "-z"],
-            maxOutputBytes: maxOutputBytes
-        )
-        if let failure: GitDiffQueryResult<GitChangedFiles> = queryFailure(from: untracked) {
-            return failure
-        }
+        let numstat = initialListing.numstat
+        let nameStatus = initialListing.nameStatus
+        let untracked = initialListing.untracked
         guard let numstatData = completeRecordData(numstat),
               let nameStatusData = completeRecordData(nameStatus),
               let untrackedData = completeRecordData(untracked) else { return .failed }
@@ -107,6 +93,29 @@ extension GitDiffService {
         let boundedFiles = Array(verifiedFiles.prefix(maxFiles))
         let reachedFileLimit = boundedFiles.count < verifiedFiles.count
         guard !Task.isCancelled else { return .failed }
+        let initialFileIdentities: [FileSystemIdentity]
+        switch snapshotFileIdentitiesResult(repoRoot: repoRoot, summaries: boundedFiles) {
+        case .success(let values):
+            initialFileIdentities = values
+        case .notFound, .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
+        let finalListing: GitChangedFilesListing
+        switch changedFilesListingResult(
+            repoRoot: repoRoot,
+            baseline: baseline,
+            maxOutputBytes: maxOutputBytes
+        ) {
+        case .success(let listing):
+            finalListing = listing
+        case .notFound, .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
+        guard initialListing.hasSameOutput(as: finalListing) else { return .failed }
         let finalContext: SnapshotContext
         switch snapshotContextResult(repoRoot: repoRoot, baselineObjectID: baseline) {
         case .success(let value):
@@ -117,20 +126,21 @@ extension GitDiffService {
             return .timedOut
         }
         guard finalContext == initialContext else { return .failed }
-        let snapshotTokens: [String]
-        switch snapshotTokensResult(
-            repoRoot: repoRoot,
-            context: finalContext,
-            summaries: boundedFiles
-        ) {
+        let finalFileIdentities: [FileSystemIdentity]
+        switch snapshotFileIdentitiesResult(repoRoot: repoRoot, summaries: boundedFiles) {
         case .success(let values):
-            guard values.count == boundedFiles.count else { return .failed }
-            snapshotTokens = values
+            finalFileIdentities = values
         case .notFound, .failed:
             return .failed
         case .timedOut:
             return .timedOut
         }
+        guard finalFileIdentities == initialFileIdentities,
+              let snapshotTokens = Self.snapshotTokens(
+            context: finalContext,
+            summaries: boundedFiles,
+            identities: finalFileIdentities
+        ) else { return .failed }
         var snapshotFiles: [GitDiffSummary] = []
         snapshotFiles.reserveCapacity(boundedFiles.count)
         for (summary, token) in zip(boundedFiles, snapshotTokens) {

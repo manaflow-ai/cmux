@@ -63,11 +63,37 @@ extension GitDiffService {
         context: SnapshotContext,
         summaries: [GitDiffSummary]
     ) -> GitDiffQueryResult<[String]> {
+        let identities: [FileSystemIdentity]
+        switch snapshotFileIdentitiesResult(repoRoot: repoRoot, summaries: summaries) {
+        case .success(let values):
+            identities = values
+        case .notFound, .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
+        guard let tokens = Self.snapshotTokens(
+            context: context,
+            summaries: summaries,
+            identities: identities
+        ) else { return .failed }
+        return .success(tokens)
+    }
+
+    func snapshotFileIdentitiesResult(
+        repoRoot: String,
+        summaries: [GitDiffSummary]
+    ) -> GitDiffQueryResult<[FileSystemIdentity]> {
         let rootURL = URL(fileURLWithPath: repoRoot, isDirectory: true)
         let existingPaths = summaries.compactMap { summary in
             summary.status == .deleted
                 ? nil
                 : rootURL.appendingPathComponent(summary.path).path
+        }
+        let deletedPaths = summaries.compactMap { summary in
+            summary.status == .deleted
+                ? rootURL.appendingPathComponent(summary.path).path
+                : nil
         }
         let existingIdentities: [FileSystemIdentity]
         switch fileSystemIdentitiesResult(paths: existingPaths, allowMissing: false) {
@@ -78,28 +104,43 @@ extension GitDiffService {
         case .timedOut:
             return .timedOut
         }
+        let deletedIdentities: [FileSystemIdentity]
+        switch fileSystemIdentitiesResult(paths: deletedPaths, allowMissing: true) {
+        case .success(let identities):
+            deletedIdentities = identities
+        case .notFound, .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
         var identityIterator = existingIdentities.makeIterator()
-        var tokens: [String] = []
-        tokens.reserveCapacity(summaries.count)
+        var deletedIdentityIterator = deletedIdentities.makeIterator()
+        var identities: [FileSystemIdentity] = []
+        identities.reserveCapacity(summaries.count)
         for summary in summaries {
             guard !Task.isCancelled else { return .failed }
-            let currentIdentity: FileSystemIdentity
             if summary.status == .deleted {
-                currentIdentity = Self.missingFileSystemIdentity
+                guard let identity = deletedIdentityIterator.next() else { return .failed }
+                identities.append(identity)
             } else {
                 guard let identity = identityIterator.next() else { return .failed }
-                currentIdentity = identity
+                identities.append(identity)
             }
-            tokens.append(
-                Self.snapshotToken(
-                    context: context,
-                    summary: summary,
-                    currentIdentity: currentIdentity
-                )
-            )
         }
-        guard identityIterator.next() == nil else { return .failed }
-        return .success(tokens)
+        guard identityIterator.next() == nil,
+              deletedIdentityIterator.next() == nil else { return .failed }
+        return .success(identities)
+    }
+
+    static func snapshotTokens(
+        context: SnapshotContext,
+        summaries: [GitDiffSummary],
+        identities: [FileSystemIdentity]
+    ) -> [String]? {
+        guard summaries.count == identities.count else { return nil }
+        return zip(summaries, identities).map { summary, identity in
+            snapshotToken(context: context, summary: summary, currentIdentity: identity)
+        }
     }
 
     private static func snapshotToken(

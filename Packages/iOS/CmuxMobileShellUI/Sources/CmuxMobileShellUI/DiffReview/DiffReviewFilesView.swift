@@ -14,6 +14,7 @@ struct DiffReviewFilesView: View {
     @State private var isListTruncated = false
     @State private var statusLoadGeneration = 0
     @State private var repoRoot = ""
+    @State private var repositoryRetryBudget = DiffReviewRepositoryRetryBudget()
 
     var body: some View {
         List {
@@ -60,9 +61,10 @@ struct DiffReviewFilesView: View {
         .navigationDestination(isPresented: $isFilePresented) {
             DiffReviewFileView(
                 session: session,
-                fetchFile: { file in
+                fetchFile: { file, manualAttempt in
                     try await fetchFileWithRepositoryRecovery(
-                        file: file
+                        file: file,
+                        manualAttempt: manualAttempt
                     )
                 }
             )
@@ -101,9 +103,19 @@ struct DiffReviewFilesView: View {
     }
 
     private func fetchFileWithRepositoryRecovery(
-        file: DiffFileSummary
+        file: DiffFileSummary,
+        manualAttempt: Int
     ) async throws -> DiffFilePatch {
-        let retry = DiffReviewRepositoryRetry(reloadStatus: reload)
+        let retry = DiffReviewRepositoryRetry(
+            request: DiffReviewRepositoryRetryRequest(
+                path: file.path,
+                oldPath: file.oldPath,
+                status: file.status,
+                manualAttempt: manualAttempt
+            ),
+            budget: repositoryRetryBudget,
+            reloadStatus: reload
+        )
         return try await retry.run { attempt in
             switch attempt {
             case .initial:

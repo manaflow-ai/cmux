@@ -4,7 +4,7 @@ import SwiftUI
 
 struct DiffReviewFileView: View {
     @Bindable var session: DiffReviewSession
-    let fetchFile: (DiffFileSummary) async throws -> DiffFilePatch
+    let fetchFile: (DiffFileSummary, Int) async throws -> DiffFilePatch
     private let parser = DiffReviewParser()
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -328,7 +328,7 @@ struct DiffReviewFileView: View {
         activeRequest = request
         loadState = .loading(path: path)
         do {
-            let response = try await fetchFile(file)
+            let response = try await fetchFile(file, request.attempt)
             guard activeRequest == request, !Task.isCancelled else { return }
             let result = await parser.parse(response)
             guard activeRequest == request, !Task.isCancelled else { return }
