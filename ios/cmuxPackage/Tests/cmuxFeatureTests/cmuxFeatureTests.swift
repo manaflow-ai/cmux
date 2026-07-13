@@ -4155,6 +4155,31 @@ private struct InertPushRegistration: PushRegistering {
     #expect(releasedBrowserStore == nil)
 }
 
+@Test @MainActor func foregroundTerminalNotificationPresentsWhileBrowserCoversTerminal() throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = CMUXMobileShellStore.preview()
+    let workspace = try #require(store.workspaces.first(where: { $0.id == "workspace-main" }))
+    let terminal = try #require(workspace.terminals.first)
+    store.selectedWorkspaceID = workspace.id
+    store.selectedTerminalID = terminal.id
+    let browserStore = BrowserSurfaceStore()
+    _ = browserStore.openBrowser(for: workspace.browserSurfaceIdentity)
+    coordinator.bind(store: store, browserStore: browserStore)
+
+    #expect(coordinator.shouldPresentInForeground(
+        workspaceId: workspace.rpcWorkspaceID.rawValue,
+        surfaceId: terminal.id.rawValue,
+        macDeviceId: workspace.macDeviceID
+    ))
+
+    browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
+    #expect(!coordinator.shouldPresentInForeground(
+        workspaceId: workspace.rpcWorkspaceID.rawValue,
+        surfaceId: terminal.id.rawValue,
+        macDeviceId: workspace.macDeviceID
+    ))
+}
+
 /// Cold launch from a notification tap: `didReceive` fires before the root
 /// view has mounted, so no store is bound yet. The tap must survive until the
 /// store binds and its workspace list loads, then navigate. Pre-fix the tap
