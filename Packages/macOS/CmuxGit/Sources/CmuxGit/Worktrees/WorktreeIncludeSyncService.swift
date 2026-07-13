@@ -218,14 +218,17 @@ public struct WorktreeIncludeSyncService: Sendable {
               result.exitStatus == 0 else {
             return ([], "Could not evaluate .worktreeinclude: \(gitFailureDetail(result))", true)
         }
-        guard let paths = parseNulPaths(result.stdout) else {
+        guard let stdout = result.stdout else {
+            return ([], "Could not evaluate .worktreeinclude: git output was not valid UTF-8.", true)
+        }
+        guard let paths = parseNulPaths(stdout) else {
             return ([], matchLimitDiagnostic, true)
         }
         return (paths, nil, false)
     }
 
-    private nonisolated func parseNulPaths(_ output: String?) -> [String]? {
-        let records = (output ?? "").split(
+    private nonisolated func parseNulPaths(_ output: String) -> [String]? {
+        let records = output.split(
             separator: "\0",
             maxSplits: Self.maximumMatchedPathCount,
             omittingEmptySubsequences: true
@@ -330,7 +333,11 @@ public struct WorktreeIncludeSyncService: Sendable {
                 diagnostics.append("Could not evaluate .worktreeinclude: \(gitFailureDetail(result))")
                 return ([], diagnostics, true)
             }
-            guard let matched = parseNulPaths(result.stdout) else {
+            guard let stdout = result.stdout else {
+                diagnostics.append("Could not evaluate .worktreeinclude: git output was not valid UTF-8.")
+                return ([], diagnostics, true)
+            }
+            guard let matched = parseNulPaths(stdout) else {
                 diagnostics.append(matchLimitDiagnostic)
                 return ([], diagnostics, true)
             }

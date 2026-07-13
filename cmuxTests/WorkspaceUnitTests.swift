@@ -7418,18 +7418,6 @@ final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
 }
 
 final class ExtensionWorktreePrototypeTests: XCTestCase {
-    func testPipeOutputCollectorDrainsBufferedOutputOnFinish() async throws {
-        let pipe = Pipe()
-        let collector = CmuxExtensionPipeOutputCollector(fileHandle: pipe.fileHandleForReading)
-
-        pipe.fileHandleForWriting.write(Data("exclude-path\n".utf8))
-        try pipe.fileHandleForWriting.close()
-
-        let output = await collector.finish()
-
-        XCTAssertEqual(String(data: output, encoding: .utf8), "exclude-path\n")
-    }
-
     func testCreateWorktreeKeepsCmuxDirectoryLocallyIgnored() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-worktree-prototype-\(UUID().uuidString)", isDirectory: true)

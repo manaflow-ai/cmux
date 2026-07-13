@@ -59,8 +59,10 @@ struct WorktreeIncludeCopyService: Sendable {
             }
         }
 
-        if let available = availableCapacity(destination),
-           byteCount > max(0, available - limits.freeSpaceReserve) {
+        let availableByteBudget = availableCapacity(destination).map {
+            max(0, $0 - limits.freeSpaceReserve)
+        }
+        if let availableByteBudget, byteCount > availableByteBudget {
             diagnostics.append(
                 "Skipped .worktreeinclude copy because the destination volume lacks sufficient free space."
             )
@@ -79,7 +81,8 @@ struct WorktreeIncludeCopyService: Sendable {
                     source.appendingPathComponent(relativePath).standardizedFileURL,
                     to: destinationItem,
                     itemCount: &copiedItemCount,
-                    byteCount: &copiedByteCount
+                    byteCount: &copiedByteCount,
+                    availableByteBudget: availableByteBudget
                 )
             } catch is CancellationError {
                 if !destinationExisted { try? fileManager.removeItem(at: destinationItem) }
@@ -138,7 +141,8 @@ struct WorktreeIncludeCopyService: Sendable {
         _ sourceItem: URL,
         to destinationItem: URL,
         itemCount: inout Int,
-        byteCount: inout Int64
+        byteCount: inout Int64,
+        availableByteBudget: Int64?
     ) throws {
         let rootValues = try sourceItem.resourceValues(forKeys: Self.resourceKeys)
         guard rootValues.isDirectory == true, rootValues.isSymbolicLink != true else {
@@ -152,7 +156,8 @@ struct WorktreeIncludeCopyService: Sendable {
                     sourceItem,
                     to: destinationItem,
                     itemCount: itemCount,
-                    byteCount: &byteCount
+                    byteCount: &byteCount,
+                    availableByteBudget: availableByteBudget
                 )
             } else {
                 try fileManager.copyItem(at: sourceItem, to: destinationItem)
@@ -184,7 +189,8 @@ struct WorktreeIncludeCopyService: Sendable {
                         child,
                         to: destinationChild,
                         itemCount: itemCount,
-                        byteCount: &byteCount
+                        byteCount: &byteCount,
+                        availableByteBudget: availableByteBudget
                     )
                 } else {
                     try fileManager.copyItem(at: child, to: destinationChild)
@@ -199,7 +205,11 @@ struct WorktreeIncludeCopyService: Sendable {
     ) throws {
         itemCount += 1
         guard itemCount <= limits.maximumItemCount else {
-            throw WorktreeIncludeCopyLimitError(itemCount: itemCount, byteCount: byteCount)
+            throw WorktreeIncludeCopyLimitError(
+                itemCount: itemCount,
+                byteCount: byteCount,
+                reason: .resourceLimit
+            )
         }
     }
 
@@ -207,7 +217,8 @@ struct WorktreeIncludeCopyService: Sendable {
         _ sourceItem: URL,
         to destinationItem: URL,
         itemCount: Int,
-        byteCount: inout Int64
+        byteCount: inout Int64,
+        availableByteBudget: Int64?
     ) throws {
         guard !fileManager.fileExists(atPath: destinationItem.path) else {
             throw CocoaError(.fileWriteFileExists)
@@ -231,7 +242,15 @@ struct WorktreeIncludeCopyService: Sendable {
                 guard nextByteCount <= limits.maximumByteCount else {
                     throw WorktreeIncludeCopyLimitError(
                         itemCount: itemCount,
-                        byteCount: nextByteCount
+                        byteCount: nextByteCount,
+                        reason: .resourceLimit
+                    )
+                }
+                if let availableByteBudget, nextByteCount > availableByteBudget {
+                    throw WorktreeIncludeCopyLimitError(
+                        itemCount: itemCount,
+                        byteCount: nextByteCount,
+                        reason: .capacity
                     )
                 }
                 try destinationHandle.write(contentsOf: data)

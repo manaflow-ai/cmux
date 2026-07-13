@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -77,5 +78,45 @@ import Testing
 
         #expect(result.outputLimitExceeded == true)
         #expect(observedPipeState == "closed")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancellationTerminatesProcessBeforeReturning() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-command-cancellation-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let pidFile = root.appendingPathComponent("pid.txt")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let watcher = FileWatcher(path: pidFile.path)
+        let command = Task {
+            await runner.run(
+                directory: root.path,
+                executable: "sh",
+                arguments: ["-c", "trap '' TERM; echo $$ > \"$1\"; while :; do sleep 1; done", "sh", pidFile.path],
+                timeout: nil
+            )
+        }
+        for await _ in watcher.events {
+            let size = try? pidFile.resourceValues(forKeys: [.fileSizeKey]).fileSize
+            if (size ?? 0) > 0 { break }
+        }
+        await watcher.stop()
+
+        let cancellationStarted = ContinuousClock.now
+        command.cancel()
+        let result = await command.value
+        let cancellationDuration = cancellationStarted.duration(to: .now)
+        let pid = try #require(Int32(
+            String(contentsOf: pidFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+
+        #expect(result.executionError == "Command cancelled.")
+        #expect(cancellationDuration < .seconds(5))
+        #expect(kill(pid, 0) == -1)
+        #expect(errno == ESRCH)
     }
 }

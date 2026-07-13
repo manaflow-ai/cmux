@@ -128,9 +128,6 @@ struct WorktreeIncludeIntegrationTests {
         }
         let cancellationDuration = cancellationStarted.duration(to: .now)
         fallbackRelease.cancel()
-        let releaseHandle = try FileHandle(forWritingTo: releasePipe)
-        try releaseHandle.write(contentsOf: Data("continue\n".utf8))
-        try releaseHandle.close()
 
         let worktreeList = try runGit(["worktree", "list", "--porcelain"], in: projectRoot)
         let branches = try runGit(["branch", "--list", "cmux-sidebar-*"], in: projectRoot)

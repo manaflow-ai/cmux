@@ -95,7 +95,17 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
         maximumOutputBytes: Int?,
         timeout: TimeInterval?
     ) async -> CommandResult {
+        let cancelledResult = CommandResult(
+            stdout: nil,
+            stderr: nil,
+            exitStatus: nil,
+            timedOut: false,
+            executionError: "Command cancelled."
+        )
+        guard !Task.isCancelled else { return cancelledResult }
+
         let process = Process()
+        let cancellation = CommandCancellationRegistration()
         let stdinPipe = standardInput.map { _ in Pipe() }
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -115,7 +125,8 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        return await withCheckedContinuation { (continuation: CheckedContinuation<CommandResult, Never>) in
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<CommandResult, Never>) in
             // The two stdout/stderr readers, the termination handler, the deadline timer,
             // and the spawn-failure path race to resume this continuation exactly once.
             // They run on synchronous, non-async callbacks, so a lock guards the small
@@ -161,7 +172,10 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
                     }
                 timerToCancel?.cancel()
                 writerToCancel?.cancel()
-                if let completed { continuation.resume(returning: completed) }
+                if let completed {
+                    cancellation.finish()
+                    continuation.resume(returning: completed)
+                }
             }
 
             // Resume immediately with a terminal result (timeout or spawn failure),
@@ -188,8 +202,45 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
                 timerToCancel?.cancel()
                 writerToCancel?.cancel()
                 readersToCancel.forEach { $0.cancel() }
-                if won { continuation.resume(returning: result) }
+                if won {
+                    cancellation.finish()
+                    continuation.resume(returning: result)
+                }
                 return won
+            }
+
+            @Sendable func beginCancellation() {
+                let (shouldCancel, didTerminate, timer, writer, readers): (
+                    Bool,
+                    Bool,
+                    (any DispatchSourceTimer)?,
+                    CommandStandardInputWriter?,
+                    [CommandOutputReader]
+                ) = state.withLock { state in
+                    guard !state.resumed, !state.cancellationRequested else {
+                        return (false, state.didTerminate, nil, nil, [])
+                    }
+                    state.cancellationRequested = true
+                    let timer = state.deadlineTimer
+                    state.deadlineTimer = nil
+                    let writer = state.standardInputWriter
+                    state.standardInputWriter = nil
+                    let readers = [state.standardOutputReader, state.standardErrorReader].compactMap { $0 }
+                    state.standardOutputReader = nil
+                    state.standardErrorReader = nil
+                    return (true, state.didTerminate, timer, writer, readers)
+                }
+                guard shouldCancel else { return }
+                timer?.cancel()
+                writer?.cancel()
+                readers.forEach { $0.cancel() }
+
+                if didTerminate || !process.isRunning {
+                    _ = claimImmediate(cancelledResult)
+                } else {
+                    process.terminate()
+                    Self.scheduleSigkill(process)
+                }
             }
 
             @Sendable func terminateAfterClaim(_ result: CommandResult) {
@@ -201,13 +252,24 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
 
             process.terminationHandler = { finished in
                 let status = finished.terminationStatus
-                let readers = state.withLock {
-                    [$0.standardOutputReader, $0.standardErrorReader].compactMap { $0 }
+                let (readers, wasCancelled) = state.withLock {
+                    (
+                        [$0.standardOutputReader, $0.standardErrorReader].compactMap { $0 },
+                        $0.cancellationRequested
+                    )
                 }
                 readers.forEach { $0.processDidExit() }
-                recordAndCompleteIfReady {
-                    $0.didTerminate = true
-                    $0.exitStatus = status
+                if wasCancelled {
+                    state.withLock {
+                        $0.didTerminate = true
+                        $0.exitStatus = status
+                    }
+                    _ = claimImmediate(cancelledResult)
+                } else {
+                    recordAndCompleteIfReady {
+                        $0.didTerminate = true
+                        $0.exitStatus = status
+                    }
                 }
             }
 
@@ -357,6 +419,12 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
                     timer.resume()
                 }
             }
+            cancellation.install {
+                beginCancellation()
+            }
+            }
+        } onCancel: {
+            cancellation.cancel()
         }
     }
 
@@ -368,6 +436,7 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
         var didTerminate = false
         var exitStatus: Int32?
         var resumed = false
+        var cancellationRequested = false
         // The command deadline timer, cancelled when the continuation resumes (any path).
         var deadlineTimer: (any DispatchSourceTimer)?
         var standardInputWriter: CommandStandardInputWriter?
