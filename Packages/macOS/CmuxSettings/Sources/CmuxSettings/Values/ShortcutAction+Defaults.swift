@@ -49,6 +49,7 @@ extension ShortcutAction {
         case .openFolder: return ShortcutStroke(key: "o", command: true)
         case .reopenPreviousSession: return ShortcutStroke(key: "o", command: true, shift: true)
         case .goToWorkspace: return ShortcutStroke(key: "p", command: true)
+        case .searchTabs: return ShortcutStroke(key: "p", command: true, option: true)
         case .commandPalette: return ShortcutStroke(key: "p", command: true, shift: true)
         case .commandPaletteNext: return ShortcutStroke(key: "n", control: true)
         case .commandPalettePrevious: return ShortcutStroke(key: "p", control: true)

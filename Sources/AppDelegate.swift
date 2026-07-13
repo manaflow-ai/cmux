@@ -13183,6 +13183,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        if matchConfiguredShortcut(event: event, action: .searchTabs) {
+            // Scope the focus request to a single window; the sidebar field
+            // filters by this object so ⌥⌘P never focuses every window's field.
+            if let targetWindow = event.window ?? shortcutRoutingActiveWindow {
+                NotificationCenter.default.post(
+                    name: .cmuxSidebarTabSearchFocusRequested,
+                    object: targetWindow
+                )
+            }
+            return true
+        }
+
         if shouldConsumeShortcutWhileCommandPaletteVisible(
             isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
             normalizedFlags: normalizedFlags,
