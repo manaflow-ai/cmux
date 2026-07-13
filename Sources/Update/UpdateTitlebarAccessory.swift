@@ -709,6 +709,7 @@ struct TitlebarControlButton<Content: View>: View {
     let accessibilityLabel: String
     let action: () -> Void
     var isEnabled = true
+    var isSelected = false
     var rightClickAction: ((NSView, NSEvent) -> Void)? = nil
     @ViewBuilder let content: () -> Content
 
@@ -717,7 +718,13 @@ struct TitlebarControlButton<Content: View>: View {
             content()
         }
         .disabled(!isEnabled)
-        .buttonStyle(TitlebarControlButtonStyle(config: config, foregroundColor: foregroundColor))
+        .buttonStyle(
+            TitlebarControlButtonStyle(
+                config: config,
+                foregroundColor: foregroundColor,
+                isSelected: isSelected
+            )
+        )
         .frame(width: config.buttonSize, height: config.buttonSize)
         .background(TitlebarChromeGeometryReporter(keyPrefix: accessibilityIdentifier.replacingOccurrences(of: ".", with: "_")))
         .contentShape(Rectangle())
@@ -757,82 +764,14 @@ func focusHistoryNavigationAvailability(preferredWindow: NSWindow?) -> FocusHist
 private struct TitlebarControlButtonStyle: ButtonStyle {
     let config: TitlebarControlsStyleConfig
     let foregroundColor: Color
+    let isSelected: Bool
 
     func makeBody(configuration: Configuration) -> some View {
         TitlebarControlButtonStyleBody(
             configuration: configuration,
             config: config,
-            foregroundColor: foregroundColor
-        )
-    }
-}
-
-private struct TitlebarControlButtonStyleBody: View {
-    let configuration: ButtonStyle.Configuration
-    let config: TitlebarControlsStyleConfig
-    let foregroundColor: Color
-    @State private var isHovering = false
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        configuration.label
-            .frame(width: config.buttonSize, height: config.buttonSize)
-            .foregroundStyle(foregroundColor.opacity(foregroundOpacity))
-            .background {
-                if backgroundOpacity > 0 {
-                    RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                        .fill(foregroundColor.opacity(backgroundOpacity))
-                } else if config.buttonBackground {
-                    RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
-                }
-            }
-            .overlay {
-                if borderOpacity > 0 {
-                    RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                        .stroke(foregroundColor.opacity(borderOpacity), lineWidth: 0.5)
-                }
-            }
-            .scaleEffect(titlebarControlPressedScale(isPressed: configuration.isPressed))
-            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
-            .animation(.easeInOut(duration: 0.12), value: isHovering)
-            .contentShape(Rectangle())
-            .onHover { hovering in
-                if titlebarControlsShouldTrackButtonHover(config: config) {
-                    isHovering = hovering
-                }
-            }
-    }
-
-    private var foregroundOpacity: Double {
-        titlebarControlForegroundOpacity(
-            isHovering: isHovering,
-            isPressed: configuration.isPressed,
-            isEnabled: isEnabled
-        )
-    }
-
-    private var backgroundOpacity: Double {
-        let baseOpacity = titlebarControlBackgroundOpacity(
-            config: config,
-            isHovering: isHovering,
-            isPressed: configuration.isPressed,
-            isEnabled: isEnabled
-        )
-        let activeHoverOpacity = titlebarControlActiveHoverBackgroundOpacity(
-            isHovering: isHovering,
-            isPressed: configuration.isPressed,
-            isEnabled: isEnabled
-        )
-        return max(baseOpacity, activeHoverOpacity)
-    }
-
-    private var borderOpacity: Double {
-        titlebarControlBorderOpacity(
-            config: config,
-            isHovering: isHovering,
-            isPressed: configuration.isPressed,
-            isEnabled: isEnabled
+            foregroundColor: foregroundColor,
+            isSelected: isSelected
         )
     }
 }
@@ -2492,7 +2431,7 @@ final class UpdateTitlebarAccessoryController {
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
-    private let mobileConnectIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarMobileConnect")
+    private let trailingControlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarTrailingControls")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
@@ -2544,6 +2483,16 @@ final class UpdateTitlebarAccessoryController {
             Task { @MainActor [weak self, weak window] in
                 guard let window else { return }
                 self?.attachIfNeeded(to: window)
+            }
+        })
+
+        observers.append(center.addObserver(
+            forName: .mainWindowContextsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.attachToExistingWindows()
             }
         })
 
@@ -2637,8 +2586,8 @@ final class UpdateTitlebarAccessoryController {
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
         guard canAccessTitlebarAccessories(on: window) else { return }
 
-        // Don't re-attach controls if already attached.
-        guard !attachedWindows.contains(window) else {
+        if attachedWindows.contains(window) {
+            attachTrailingControlsIfNeeded(to: window)
             applyAccessoryVisibility(for: window)
             return
         }
@@ -2654,11 +2603,7 @@ final class UpdateTitlebarAccessoryController {
             controlsControllers.add(controls)
         }
 
-        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == mobileConnectIdentifier }) {
-            let mobileConnect = MobileConnectTitlebarAccessoryViewController()
-            mobileConnect.view.identifier = mobileConnectIdentifier
-            window.addTitlebarAccessoryViewController(mobileConnect)
-        }
+        attachTrailingControlsIfNeeded(to: window)
 
         attachedWindows.add(window)
         applyAccessoryVisibility(for: window)
@@ -2672,6 +2617,41 @@ final class UpdateTitlebarAccessoryController {
 #endif
     }
 
+    private func attachTrailingControlsIfNeeded(to window: NSWindow) {
+        let existingIndex = window.titlebarAccessoryViewControllers.firstIndex {
+            $0.view.identifier == trailingControlsIdentifier
+        }
+        guard let state = AppDelegate.shared?
+            .preferredRegisteredMainWindowContext(preferredWindow: window)?
+            .fileExplorerState else {
+            if let existingIndex {
+                window.removeTitlebarAccessoryViewController(at: existingIndex)
+            }
+            return
+        }
+
+        if let existingIndex,
+           let existing = window.titlebarAccessoryViewControllers[existingIndex]
+            as? TitlebarTrailingAccessoryViewController,
+           existing.fileExplorerState === state {
+            return
+        }
+        if let existingIndex {
+            window.removeTitlebarAccessoryViewController(at: existingIndex)
+        }
+
+        let trailingControls = TitlebarTrailingAccessoryViewController(
+            fileExplorerState: state,
+            onToggleRightSidebar: { [weak window] in
+                _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
+                    preferredWindow: window
+                )
+            }
+        )
+        trailingControls.view.identifier = trailingControlsIdentifier
+        window.addTitlebarAccessoryViewController(trailingControls)
+    }
+
     private func applyAccessoryVisibility(for window: NSWindow) {
         guard canAccessTitlebarAccessories(on: window) else {
             attachedWindows.remove(window)
@@ -2682,7 +2662,7 @@ final class UpdateTitlebarAccessoryController {
             || window.styleMask.contains(.fullScreen)
         for accessory in window.titlebarAccessoryViewControllers
             where accessory.view.identifier == controlsIdentifier
-                || accessory.view.identifier == mobileConnectIdentifier {
+                || accessory.view.identifier == trailingControlsIdentifier {
             accessory.isHidden = shouldHide
             accessory.view.isHidden = shouldHide
             accessory.view.alphaValue = shouldHide ? 0 : 1
@@ -2697,7 +2677,7 @@ final class UpdateTitlebarAccessoryController {
         }
         let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
             let id = window.titlebarAccessoryViewControllers[index].view.identifier
-            return id == controlsIdentifier || id == mobileConnectIdentifier
+            return id == controlsIdentifier || id == trailingControlsIdentifier
         }
         guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
 

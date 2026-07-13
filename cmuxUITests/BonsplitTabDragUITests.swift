@@ -206,6 +206,7 @@ final class BonsplitTabDragUITests: XCTestCase {
             waitForCondition(timeout: 3.0) { titlebarToggle.isHittable },
             "Expected the trailing titlebar toggle to be hittable. button=\(titlebarToggle.debugDescription)"
         )
+        XCTAssertTrue(titlebarToggle.isSelected, "Expected the toggle to reflect the visible sidebar state.")
         let openAsPaneButton = app.buttons["RightSidebar.openAsPaneButton"]
         XCTAssertTrue(openAsPaneButton.waitForExistence(timeout: 5.0), "Expected open-as-pane button inside the right sidebar chrome.")
         XCTAssertTrue(
@@ -221,7 +222,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         titlebarToggle.click()
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
-                titlebarToggle.exists && titlebarToggle.isHittable && !openAsPaneButton.isHittable
+                titlebarToggle.exists && titlebarToggle.isHittable
+                    && !titlebarToggle.isSelected && !openAsPaneButton.isHittable
             },
             "Expected the titlebar toggle to stay available after hiding the right sidebar."
         )
@@ -233,7 +235,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         app.typeKey("b", modifierFlags: [.command, .option])
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
-                titlebarToggle.exists && titlebarToggle.isHittable && openAsPaneButton.isHittable
+                titlebarToggle.exists && titlebarToggle.isHittable
+                    && titlebarToggle.isSelected && openAsPaneButton.isHittable
             },
             "Expected Cmd+Option+B to reopen the right sidebar."
         )
@@ -241,7 +244,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         titlebarToggle.click()
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
-                titlebarToggle.exists && titlebarToggle.isHittable && !openAsPaneButton.isHittable
+                titlebarToggle.exists && titlebarToggle.isHittable
+                    && !titlebarToggle.isSelected && !openAsPaneButton.isHittable
             },
             "Expected the titlebar toggle to hide the reopened right sidebar."
         )

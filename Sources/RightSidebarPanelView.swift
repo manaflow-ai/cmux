@@ -116,19 +116,15 @@ struct RightSidebarPanelView: View {
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
-    let onClose: () -> Void
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
         return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
     }
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
-    @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var hasMountedRightSidebarContent = false
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
-    private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
-    private let closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
     private let focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
     private let focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
@@ -163,13 +159,11 @@ struct RightSidebarPanelView: View {
         }
         modeShortcutHintMonitor.start()
         focusShortcutHintMonitor.start()
-        closeShortcutHintMonitor.start()
     }
 
     private func stopShortcutHintMonitors() {
         modeShortcutHintMonitor.stop()
         focusShortcutHintMonitor.stop()
-        closeShortcutHintMonitor.stop()
     }
 
     var body: some View {
@@ -190,7 +184,6 @@ struct RightSidebarPanelView: View {
                 let hintWindow = showModifierHoldHints ? window : nil
                 modeShortcutHintMonitor.setHostWindow(hintWindow)
                 focusShortcutHintMonitor.setHostWindow(hintWindow)
-                closeShortcutHintMonitor.setHostWindow(hintWindow)
             }
             .frame(width: 0, height: 0)
         )
@@ -249,7 +242,7 @@ struct RightSidebarPanelView: View {
                 if fileExplorerState.mode.canOpenAsPane {
                     openAsPaneButton(mode: fileExplorerState.mode)
                 }
-                closeButton
+                trailingTitlebarControlReservation
             }
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
@@ -292,57 +285,14 @@ struct RightSidebarPanelView: View {
         .titlebarInteractiveControl()
     }
 
-    private var closeButton: some View {
-        let _ = keyboardShortcutSettingsObserver.revision
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleRightSidebar)
-        let showsShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
-            shortcut: shortcut,
-            alwaysShowShortcutHints: alwaysShowShortcutHints,
-            modifierPressed: closeShortcutHintMonitor.isModifierPressed,
-            modifierHoldHintsEnabled: showModifierHoldHints
-        )
-        return ZStack {
-            Button(action: onClose) {
-                HeaderChromeIconStyle.symbol("xmark")
-            }
-            .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderCloseIcon"))
-            .frame(
-                width: RightSidebarChromeMetrics.headerControlSize,
-                height: RightSidebarChromeMetrics.headerControlSize
-            )
-            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
-                keyPrefix: "rightSidebarHeaderClose",
-                isVisible: true
-            )
-            .safeHelp(
-                KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(
-                    String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar")
-                )
-            )
-            .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
-            .accessibilityIdentifier("RightSidebar.closeButton")
-        }
+    private var trailingTitlebarControlReservation: some View {
+        Color.clear
         .frame(
             width: RightSidebarChromeMetrics.headerControlSize,
             height: RightSidebarChromeMetrics.headerControlSize
         )
-        .overlay(alignment: .top) {
-            if showsShortcutHint {
-                ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .offset(
-                        x: CGFloat(ShortcutHintDebugSettings.clamped(closeShortcutHintXOffset)),
-                        y: CGFloat(ShortcutHintDebugSettings.clamped(closeShortcutHintYOffset))
-                    )
-                    .shortcutHintTransition()
-                    .accessibilityIdentifier("rightSidebarCloseShortcutHint")
-                    .allowsHitTesting(false)
-                    .zIndex(10)
-            }
-        }
         .rightSidebarHeaderControlAlignment()
-        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-        .titlebarInteractiveControl()
+        .accessibilityHidden(true)
     }
 
     @ViewBuilder

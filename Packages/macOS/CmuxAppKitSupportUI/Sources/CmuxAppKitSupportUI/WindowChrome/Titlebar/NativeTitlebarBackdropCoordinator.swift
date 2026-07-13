@@ -78,11 +78,16 @@ public final class NativeTitlebarBackdropCoordinator {
         in window: NSWindow,
         isMinimalMode: Bool
     ) {
-        let controlsId = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+        let controlsIds: Set<NSUserInterfaceItemIdentifier> = [
+            NSUserInterfaceItemIdentifier("cmux.titlebarControls"),
+            NSUserInterfaceItemIdentifier("cmux.titlebarTrailingControls"),
+        ]
         let shouldHide = hidden || isMinimalMode
         for accessory in window.titlebarAccessoryViewControllers {
-            if accessory.view.identifier == controlsId {
+            if let identifier = accessory.view.identifier,
+               controlsIds.contains(identifier) {
                 accessory.isHidden = shouldHide
+                accessory.view.isHidden = shouldHide
                 accessory.view.alphaValue = shouldHide ? 0 : 1
             }
         }
