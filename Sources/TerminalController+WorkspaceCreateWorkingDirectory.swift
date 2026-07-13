@@ -133,21 +133,30 @@ extension TerminalController {
     }
 
     nonisolated private static func v2WorkingDirectoryMountEntries() -> [WorkspaceCreateMountEntry] {
-        var mounts: UnsafeMutablePointer<statfs>?
-        let mountCount = getmntinfo(&mounts, MNT_NOWAIT)
-        guard mountCount > 0, let mounts else { return [] }
-        return (0..<Int(mountCount)).map { index in
-            let fileSystem = mounts[index]
+        var mountBuffer: UnsafeMutablePointer<statfs>?
+        let mountCount = getmntinfo_r_np(&mountBuffer, MNT_NOWAIT)
+        defer {
+            if let mountBuffer {
+                free(UnsafeMutableRawPointer(mountBuffer))
+            }
+        }
+        guard mountCount > 0, let mountBuffer else { return [] }
+
+        var entries: [WorkspaceCreateMountEntry] = []
+        entries.reserveCapacity(Int(mountCount))
+        for index in 0..<Int(mountCount) {
+            let fileSystem = mountBuffer[index]
             let path = withUnsafePointer(to: fileSystem.f_mntonname) { pointer in
                 pointer.withMemoryRebound(to: CChar.self, capacity: 1) {
                     String(cString: $0)
                 }
             }
-            return WorkspaceCreateMountEntry(
+            entries.append(WorkspaceCreateMountEntry(
                 path: URL(fileURLWithPath: path).standardized.path,
                 isLocal: (fileSystem.f_flags & UInt32(MNT_LOCAL)) != 0
-            )
+            ))
         }
+        return entries
     }
 
     nonisolated private static func v2WorkingDirectoryMountIsLocal(
