@@ -278,17 +278,21 @@ import Testing
         }
     }
 
-    @Test func commentOnlyTemplatesWithPromptOpenPlainShell() {
+    @Test func noCommandTemplatesWithPromptRemainUnchanged() {
         let commands = [
             "# setup note",
             " \t# setup note\n",
             "# first note\n  # second note  ",
+            "FOO=bar # setup note",
+            "FOO='bar baz'\n# setup note",
+            "> /tmp/cmux-task-output # setup note",
+            "2>>/tmp/cmux-task-log\n# setup note",
         ]
 
         for command in commands {
             let template = MobileTaskTemplate(name: "Notes", icon: "terminal", command: command)
             let result = composer.compose(template: template, prompt: "ship it")
-            #expect(result.initialCommand == nil)
+            #expect(result.initialCommand == command)
             #expect(result.initialEnv.isEmpty)
             #expect(result.title == "ship it")
         }
