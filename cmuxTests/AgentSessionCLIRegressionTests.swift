@@ -154,9 +154,9 @@ extension CMUXCLIErrorOutputRegressionTests {
         let counts = try #require(activity["counts"] as? [String: Any])
         #expect(counts["monitor"] as? Int == 1)
         let subtree = try #require(rootNode["subtree_activity"] as? [String: Any])
-        #expect(subtree["total_descendants"] as? Int == 1)
+        #expect(subtree["total_descendants"] as? Int == 2)
         #expect(subtree["busy_descendants"] as? Int == 0)
-        #expect(subtree["restore_owners"] as? Int == 0)
+        #expect(subtree["restore_owners"] as? Int == 1)
         #expect(nodes.first { $0["run_id"] as? String == "child-run" }?["restore_authority"] as? Bool == false)
         #expect(edges.contains {
             $0["from_run_id"] as? String == "root-run"
@@ -168,6 +168,15 @@ extension CMUXCLIErrorOutputRegressionTests {
                 && $0["to_run_id"] as? String == "fork-run"
                 && $0["relationship"] as? String == "forked"
         })
+
+        let textTree = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree", "--all"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(textTree.status == 0, Comment(rawValue: textTree.stdout))
+        #expect(textTree.stdout.contains("└── codex fork-session"))
 
         let monitoring = runProcess(
             executablePath: cliPath,

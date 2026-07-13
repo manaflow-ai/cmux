@@ -8,6 +8,61 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func liveHookMovesSurvivingRunIntoConnectedCmuxRuntime() throws {
+        let oldRuntime = AgentCmuxRuntimeIdentity(
+            id: "old-runtime", socketPath: "/tmp/old.sock", bundleIdentifier: "com.cmuxterm.old"
+        )
+        let currentRuntime = AgentCmuxRuntimeIdentity(
+            id: "current-runtime", socketPath: "/tmp/current.sock", bundleIdentifier: "com.cmuxterm.current"
+        )
+        let stored = AgentSessionRunRecord(
+            runId: "surviving-run", pid: 123, processStartedAt: 100, cmuxRuntime: oldRuntime,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true, startedAt: 100, updatedAt: 110, endedAt: nil
+        )
+        let liveHook = AgentHookSessionLineage(
+            runId: "surviving-run", pid: 123, processStartedAt: 100, cmuxRuntime: currentRuntime,
+            parentRunId: nil, parentSessionId: nil, relationship: nil, restoreAuthority: true
+        )
+
+        let updated = AgentSessionRunReconciler(maximumRecords: 128).reconciling(
+            [stored], activeRunId: stored.runId, lineage: liveHook, now: 120
+        )
+
+        #expect(try #require(updated.first).cmuxRuntime == currentRuntime)
+    }
+
+    @Test func completedGenerationRejectsNotificationResolution() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rejected-approval-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "sessions": ["completed-session": [
+                "sessionId": "completed-session", "workspaceId": "workspace", "surfaceId": "surface",
+                "completedAt": 200.0, "sessionState": "ended", "startedAt": 100.0, "updatedAt": 200.0,
+                "runs": [[
+                    "runId": "completed-run", "restoreAuthority": false,
+                    "startedAt": 100.0, "updatedAt": 200.0, "endedAt": 200.0,
+                ]],
+            ]],
+        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
+        let store = ClaudeHookSessionStore(
+            processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path], agentName: "codex"
+        )
+
+        let accepted = try store.markNotificationResolved(
+            sessionId: "completed-session", workspaceId: "workspace", surfaceId: "surface", cwd: root.path
+        )
+
+        #expect(!accepted)
+        let saved = try #require(store.lookup(sessionId: "completed-session"))
+        #expect(saved.completedAt == 200)
+        #expect(saved.sessionState == .ended)
+    }
+
     @Test func codexTeamsThreadIdentityDoesNotLeakAcrossProviders() {
         let inheritedEnvironment = [
             "CMUX_CODEX_TEAMS_THREAD_ID": "codex-thread",

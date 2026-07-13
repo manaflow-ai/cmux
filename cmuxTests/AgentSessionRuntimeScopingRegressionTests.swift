@@ -121,6 +121,15 @@ extension CMUXCLIErrorOutputRegressionTests {
                 "runId": runId,
                 "activeRunId": runId,
                 "restoreAuthority": true,
+                "foregroundState": "completed",
+                "workloads": [[
+                    "id": "monitor-\(runtimeId)",
+                    "kind": "monitor",
+                    "phase": "watching",
+                    "keepsSessionBusy": true,
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                ]],
                 "cmuxRuntime": [
                     "id": runtimeId,
                     "socketPath": "/tmp/cmux-debug-\(runtimeId).sock",
@@ -182,19 +191,25 @@ extension CMUXCLIErrorOutputRegressionTests {
         let scopedNodes = try #require(scopedOutput["nodes"] as? [[String: Any]])
         #expect(scopedNodes.map { $0["session_id"] as? String } == ["current-session"])
 
-        let filteredList = runProcess(
-            executablePath: cliPath,
-            arguments: ["agents", "list", "--state", "unknown", "--json"],
-            environment: environment,
-            timeout: 5
-        )
-        #expect(!filteredList.timedOut, Comment(rawValue: filteredList.stdout))
-        #expect(filteredList.status == 0, Comment(rawValue: filteredList.stdout))
-        let filteredOutput = try #require(
-            JSONSerialization.jsonObject(with: Data(filteredList.stdout.utf8)) as? [String: Any]
-        )
-        let filteredSessions = try #require(filteredOutput["sessions"] as? [[String: Any]])
-        #expect(filteredSessions.map { $0["session_id"] as? String } == ["current-session"])
+        for filter in [
+            ["--state", "monitoring"],
+            ["--activity", "busy"],
+            ["--work-kind", "monitor"],
+        ] {
+            let filteredList = runProcess(
+                executablePath: cliPath,
+                arguments: ["agents", "list"] + filter + ["--json"],
+                environment: environment,
+                timeout: 5
+            )
+            #expect(!filteredList.timedOut, Comment(rawValue: filteredList.stdout))
+            #expect(filteredList.status == 0, Comment(rawValue: filteredList.stdout))
+            let filteredOutput = try #require(
+                JSONSerialization.jsonObject(with: Data(filteredList.stdout.utf8)) as? [String: Any]
+            )
+            let filteredSessions = try #require(filteredOutput["sessions"] as? [[String: Any]])
+            #expect(filteredSessions.map { $0["session_id"] as? String } == ["current-session"])
+        }
 
         let history = runProcess(
             executablePath: cliPath,
@@ -210,4 +225,5 @@ extension CMUXCLIErrorOutputRegressionTests {
         let historyNodes = try #require(historyOutput["nodes"] as? [[String: Any]])
         #expect(Set(historyNodes.compactMap { $0["session_id"] as? String }) == ["current-session", "other-session"])
     }
+
 }
