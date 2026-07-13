@@ -1271,6 +1271,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */; };
 		F0ACC0DF0000000000000001 /* SharedLiveAgentIndexAgentLivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */; };
 		D7332D030000000000000001 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332D030000000000000002 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift */; };
+		D7332D060000000000000001 /* SharedLiveAgentIndexGenerationAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332D060000000000000002 /* SharedLiveAgentIndexGenerationAuthorityTests.swift */; };
 		D7332D050000000000000001 /* SharedLiveAgentIndexHookStoreInvalidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332D050000000000000002 /* SharedLiveAgentIndexHookStoreInvalidationTests.swift */; };
 		D7332B000000000000000002 /* SharedLiveAgentIndexLoadCoalescingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332B000000000000000001 /* SharedLiveAgentIndexLoadCoalescingTests.swift */; };
 		F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */; };
@@ -3042,6 +3043,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndex.swift; sourceTree = "<group>"; };
 		F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexAgentLivenessTests.swift; sourceTree = "<group>"; };
 		D7332D030000000000000002 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexFingerprintInvalidationTests.swift; sourceTree = "<group>"; };
+		D7332D060000000000000002 /* SharedLiveAgentIndexGenerationAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexGenerationAuthorityTests.swift; sourceTree = "<group>"; };
 		D7332D050000000000000002 /* SharedLiveAgentIndexHookStoreInvalidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexHookStoreInvalidationTests.swift; sourceTree = "<group>"; };
 		D7332B000000000000000001 /* SharedLiveAgentIndexLoadCoalescingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexLoadCoalescingTests.swift; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexLoader.swift; sourceTree = "<group>"; };
@@ -5149,6 +5151,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7332B000000000000000001 /* SharedLiveAgentIndexLoadCoalescingTests.swift */,
 				F73320000000000000000005 /* SharedLiveAgentIndexStallRecoveryTests.swift */,
 				D7332D030000000000000002 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift */,
+				D7332D060000000000000002 /* SharedLiveAgentIndexGenerationAuthorityTests.swift */,
 				D7332D050000000000000002 /* SharedLiveAgentIndexHookStoreInvalidationTests.swift */,
 				F73320000000000000000007 /* ClosedItemHistoryAgentEnrichmentTests.swift */,
 				F7332000000000000000000F /* ClosedItemHistoryPendingEnrichmentTests.swift */,
@@ -7431,6 +7434,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */,
 				F0ACC0DF0000000000000001 /* SharedLiveAgentIndexAgentLivenessTests.swift in Sources */,
 				D7332D030000000000000001 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift in Sources */,
+				D7332D060000000000000001 /* SharedLiveAgentIndexGenerationAuthorityTests.swift in Sources */,
 				D7332D050000000000000001 /* SharedLiveAgentIndexHookStoreInvalidationTests.swift in Sources */,
 				D7332B000000000000000002 /* SharedLiveAgentIndexLoadCoalescingTests.swift in Sources */,
 				D7332C030000000000000001 /* SharedLiveAgentIndexScopedRefreshTests.swift in Sources */,

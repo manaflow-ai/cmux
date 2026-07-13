@@ -1,0 +1,127 @@
+import Dispatch
+import Foundation
+import os
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite("Shared live-agent generation authority", .serialized)
+struct SharedLiveAgentIndexGenerationAuthorityTests {
+    @Test
+    func timedOutValidatorCannotInvalidateCompletedSuccessor() async throws {
+        let timeoutWaiter = ManualGenerationTimeoutWaiter()
+        let fingerprintStarted = DispatchSemaphore(value: 0)
+        let releaseFingerprint = DispatchSemaphore(value: 0)
+        let successorLoadStarted = DispatchSemaphore(value: 0)
+        let lateReloadStarted = DispatchSemaphore(value: 0)
+        let releaseLateReload = DispatchSemaphore(value: 0)
+        let lateReloadCompleted = DispatchSemaphore(value: 0)
+        defer {
+            releaseFingerprint.signal()
+            releaseLateReload.signal()
+        }
+        // Synchronous loader callbacks can overlap; the lock protects only this test counter.
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let now = Date()
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-generation-authority-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let staleResult: SharedLiveAgentIndex.LoadResult = (
+            index: SharedLiveAgentIndexLoadCoalescingTests.index(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                sessionId: "stale-session"
+            ),
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: ["scope-a"],
+            forkValidatedPanels: []
+        )
+        let successorResult: SharedLiveAgentIndex.LoadResult = (
+            index: SharedLiveAgentIndexLoadCoalescingTests.index(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                sessionId: "successor-session"
+            ),
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: ["scope-b"],
+            forkValidatedPanels: []
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                if invocation == 1 {
+                    successorLoadStarted.signal()
+                } else {
+                    lateReloadStarted.signal()
+                    releaseLateReload.wait()
+                    lateReloadCompleted.signal()
+                }
+                return successorResult
+            },
+            processScopeFingerprintProvider: {
+                fingerprintStarted.signal()
+                releaseFingerprint.wait()
+                return ["scope-b"]
+            },
+            generationTimeoutWaiter: { await timeoutWaiter.wait() },
+            hookStoreDirectoryProvider: { hookDirectory.path },
+            dateProvider: { now }
+        )
+        sharedIndex.applyReloadedResult(
+            staleResult,
+            validationPanelsByPanelID: [:],
+            generationID: UUID()
+        )
+        sharedIndex.latestCompletedLoadResult = staleResult
+        sharedIndex.latestCompletedAt = now
+
+        let staleRead = Task { @MainActor in
+            await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: 60)
+        }
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: fingerprintStarted))
+        await timeoutWaiter.waitUntilPendingCount(1)
+        await timeoutWaiter.fireNext()
+        #expect(await staleRead.value == nil)
+
+        let successor = Task { @MainActor in
+            await sharedIndex.resumeIndexesCapturedAfterRequest()
+        }
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: successorLoadStarted))
+        let successorValue = await successor.value
+        _ = try #require(successorValue)
+        #expect(Self.sessionId(in: sharedIndex.cachedResumeIndexes(), workspaceId: workspaceId, panelId: panelId)
+            == "successor-session")
+
+        releaseFingerprint.signal()
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: lateReloadStarted))
+        #expect(
+            Self.sessionId(in: sharedIndex.cachedResumeIndexes(), workspaceId: workspaceId, panelId: panelId)
+                == "successor-session",
+            "A timed-out validator must not revoke a newer generation's authority."
+        )
+
+        releaseLateReload.signal()
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: lateReloadCompleted))
+        await timeoutWaiter.cancelAll()
+    }
+
+    private static func sessionId(
+        in indexes: ProcessDetectedResumeIndexes?,
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> String? {
+        indexes?.restorableAgentIndex.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId
+    }
+}
