@@ -351,10 +351,25 @@ extension TerminalController {
         guard !Task.isCancelled else {
             return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
         }
+        let rawWorkingDirectory: String?
+        let isWorkingDirectoryProvided: Bool
+        if v2HasNonNullParam(createParams, "working_directory") {
+            rawWorkingDirectory = v2RawString(createParams, "working_directory")
+            isWorkingDirectoryProvided = true
+        } else if v2HasNonNullParam(createParams, "cwd") {
+            guard let cwd = v2RawString(createParams, "cwd") else {
+                return .err(code: "invalid_params", message: "cwd must be a string", data: nil)
+            }
+            rawWorkingDirectory = cwd
+            isWorkingDirectoryProvided = true
+        } else {
+            rawWorkingDirectory = nil
+            isWorkingDirectoryProvided = false
+        }
         let validator = workingDirectoryValidator ?? Self.v2ValidateMobileWorkingDirectory
         let validation = await validator(
-            v2RawString(createParams, "working_directory"),
-            v2HasNonNullParam(createParams, "working_directory")
+            rawWorkingDirectory,
+            isWorkingDirectoryProvided
         )
         guard !Task.isCancelled, validation != .cancelled else {
             return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
