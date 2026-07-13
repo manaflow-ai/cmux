@@ -7,21 +7,6 @@ const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
-const redirect = mock((href: unknown) => {
-  throw Object.assign(new Error("redirect"), { href });
-});
-
-// bun's mock.module replaces these modules process-wide, so each mock must
-// carry every export another test in the suite might import.
-mock.module("next/navigation", () => ({
-  redirect,
-  usePathname: () => "/",
-  notFound: () => {
-    throw new Error("notFound");
-  },
-  permanentRedirect: redirect,
-}));
-
 mock.module("next/headers", () => ({
   headers: async () =>
     new Headers({
@@ -71,7 +56,6 @@ const { default: AppPricingPage } = await import("../app/app-pricing/page");
 
 describe("app pricing page", () => {
   beforeEach(() => {
-    redirect.mockClear();
     process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = "cmux-dev-test";
     stackConfigured = false;
     currentUser = null;
@@ -82,7 +66,9 @@ describe("app pricing page", () => {
   test("redirects to public pricing outside the cmux app", async () => {
     await expect(
       AppPricingPage({ searchParams: Promise.resolve({}) }),
-    ).rejects.toMatchObject({ href: "/pricing" });
+    ).rejects.toMatchObject({
+      digest: expect.stringContaining(";/pricing;"),
+    });
   });
 
   test("renders embedded pricing with checkout links carrying the validated scheme", async () => {
