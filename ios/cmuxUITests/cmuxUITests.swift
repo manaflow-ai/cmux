@@ -183,6 +183,34 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Regression: the template form's default-directory field must identify
+    /// itself as Directory instead of exposing only its "~" placeholder.
+    @MainActor
+    func testTaskTemplateDirectoryHasMeaningfulAccessibilityLabel() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+        dismissKeyboard(in: app)
+        let templateScroll = app.scrollViews.containing(.button, identifier: "Claude").firstMatch
+        XCTAssertTrue(templateScroll.waitForExistence(timeout: 3))
+        templateScroll.swipeLeft()
+        let edit = app.buttons["Edit"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 3))
+        tap(edit, in: app)
+
+        let add = app.buttons["Add Template"]
+        XCTAssertTrue(add.waitForExistence(timeout: 3))
+        tap(add, in: app)
+
+        XCTAssertTrue(
+            app.textFields["Directory"].waitForExistence(timeout: 3),
+            "The template directory field must expose the localized Directory label"
+        )
+    }
+
     /// Regression: a failed submission must stay visible in the persistent
     /// action area while the prompt keyboard remains presented.
     @MainActor

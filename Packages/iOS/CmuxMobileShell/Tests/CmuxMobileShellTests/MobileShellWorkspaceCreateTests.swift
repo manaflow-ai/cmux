@@ -128,6 +128,25 @@ import Testing
         #expect(disposition == .preserveSuccess)
     }
 
+    @Test func specLessCreateCancellationAfterSendDoesNotInviteDuplicateRetry() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest()
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+        store.cancelRemoteOperationTasks()
+        await router.releaseFirstWorkspaceCreate()
+        let result = await create.value
+
+        guard case .success = result else {
+            return #expect(Bool(false), "ambiguous legacy create must not invite a duplicate retry")
+        }
+        #expect(await router.recordedWorkspaceCreateCount() == 1)
+    }
+
     @Test func differentGroupCreateWorkspaceRequestDoesNotJoinInFlightResult() async throws {
         let router = RoutingHostRouter()
         await router.setHoldFirstWorkspaceCreate(true)

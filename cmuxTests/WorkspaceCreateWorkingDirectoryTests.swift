@@ -49,6 +49,28 @@ import Testing
         #expect(Self.workspaceID(from: retry) == created.id)
     }
 
+    @Test func initialEnvironmentRejectsCStringTruncationAndPreservesEmptyPrompt() throws {
+        let manager = TabManager()
+        let initialWorkspaceIDs = Set(manager.tabs.map(\.id))
+
+        _ = TerminalController.shared.v2WorkspaceCreate(params: [
+            "initial_env": [
+                "CMUX_SOCKET_PATH\u{0}x": "spoofed",
+                "BAD=KEY": "value",
+                "NUL_VALUE": "a\u{0}b",
+                "CMUX_TASK_PROMPT": "",
+                "GOOD": "value",
+            ],
+        ], tabManager: manager)
+
+        let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
+        let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
+        #expect(panel.surface.respawnInitialEnvironmentOverrides == [
+            "CMUX_TASK_PROMPT": "",
+            "GOOD": "value",
+        ])
+    }
+
     @Test func taskCreateOperationIDSurvivesSnapshotRestoreWithFreshRuntimeWorkspaceID() throws {
         let operationID = UUID()
         let original = Workspace()

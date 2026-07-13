@@ -311,6 +311,7 @@ import Testing
 
     @Test func bracedPromptParameterOperationsDoNotReceiveDuplicateArgument() {
         let commands = [
+            "agent \"${#CMUX_TASK_PROMPT}\"",
             "agent \"${CMUX_TASK_PROMPT:-fallback}\"",
             "agent \"${CMUX_TASK_PROMPT:?required}\"",
             "agent \"${CMUX_TASK_PROMPT%pattern}\"",
