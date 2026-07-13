@@ -3742,15 +3742,14 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didCommit = { [weak self] webView in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                (webView as? CmuxWebView)?.diffViewerNavigationDidCommit()
                 self.isMainFrameProvisionalNavigationActive = false
-                // An about:blank commit is WebKit's placeholder document, not
-                // content; leaving the flag false keeps the restore-stall
-                // detector armed so a restore that dead-ends there retries.
+                // An about:blank placeholder leaves the restore-stall detector armed.
                 if !Self.isAboutBlankURL(webView.url) {
                     self.hasCommittedDocumentSinceWebViewReplacement = true
                 }
-                // Reset playback tracking only once the new top-level document has
-                // actually replaced the old one. Resetting earlier (on provisional
+                // Reset playback tracking only once the new top-level document has replaced
+                // the old one. Resetting earlier (on provisional
                 // start) would drop a still-playing page's frames if the
                 // navigation then fails or is canceled, letting a playing pane be
                 // discarded. didCommit does not fire for same-document (pushState)
@@ -3809,6 +3808,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView, cancelledNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                (webView as? CmuxWebView)?.diffViewerNavigationDidCancel()
                 let isRestoreBookkeepingNavigation = self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation)
                 self.isMainFrameProvisionalNavigationActive = false
                 if isRestoreBookkeepingNavigation {

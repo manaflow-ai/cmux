@@ -294,9 +294,7 @@ final class CmuxWebView: WKWebView {
     private var pointerFocusAllowanceDepth: Int = 0
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
-    private var diffViewerDocumentConfirmed = false
-    private var diffViewerFocusStateConfirmed = false
-    private var diffViewerEditableElementFocused = false
+    private let diffViewerDocumentState = DiffViewerNavigationDocumentState()
     private let diffViewerNavigationKeyRouter = ViewerNavigationKeyRouter(actions: [
         .diffViewerScrollDown, .diffViewerScrollUp,
         .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
@@ -376,26 +374,28 @@ final class CmuxWebView: WKWebView {
     }
 
     func diffViewerFocusStateDidChange(viewer: Bool, editable: Bool) {
-        diffViewerDocumentConfirmed = viewer
-        diffViewerFocusStateConfirmed = true
-        diffViewerEditableElementFocused = editable
+        diffViewerDocumentState.update(viewer: viewer, editable: editable)
         if !viewer || editable {
             diffViewerNavigationKeyRouter.reset()
         }
     }
 
     func diffViewerNavigationDidStart() {
-        diffViewerDocumentConfirmed = false
-        diffViewerFocusStateConfirmed = false
-        diffViewerEditableElementFocused = false
+        diffViewerDocumentState.navigationDidStart()
         diffViewerNavigationKeyRouter.reset()
+    }
+
+    func diffViewerNavigationDidCommit() {
+        diffViewerDocumentState.navigationDidCommit()
+    }
+
+    func diffViewerNavigationDidCancel() {
+        diffViewerDocumentState.navigationDidCancel()
     }
 
     private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
         guard cmuxOwnsKeyEvent(event),
-              diffViewerDocumentConfirmed,
-              diffViewerFocusStateConfirmed,
-              !diffViewerEditableElementFocused else {
+              diffViewerDocumentState.canHandleNavigation else {
             diffViewerNavigationKeyRouter.reset()
             return false
         }
@@ -751,8 +751,8 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
-        if event.keyCode == 48, diffViewerDocumentConfirmed {
-            diffViewerFocusStateConfirmed = false
+        if event.keyCode == 48, diffViewerDocumentState.documentConfirmed {
+            diffViewerDocumentState.invalidateFocusConfirmation()
         }
         if handleDiffViewerNavigationKey(event) {
 #if DEBUG
@@ -829,8 +829,8 @@ final class CmuxWebView: WKWebView {
     // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
     // bonsplit focus tracks which pane the user clicked in.
     override func mouseDown(with event: NSEvent) {
-        if diffViewerDocumentConfirmed {
-            diffViewerFocusStateConfirmed = false
+        if diffViewerDocumentState.documentConfirmed {
+            diffViewerDocumentState.invalidateFocusConfirmation()
         }
 #if DEBUG
         let windowNumber = window?.windowNumber ?? -1
