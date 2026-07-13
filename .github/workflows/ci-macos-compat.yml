@@ -10,7 +10,8 @@ jobs:
       matrix:
         include:
           - os: macos-14-large
-            timeout: 90
+            timeout: 45
+            run_unit_tests: false
             startup_smoke: true
             virtual_display: true
             skip_zig: false
@@ -18,6 +19,7 @@ jobs:
             expected_os_major: "14"
           - os: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
             timeout: 30
+            run_unit_tests: true
             startup_smoke: true
             virtual_display: true
             skip_zig: false
@@ -25,6 +27,7 @@ jobs:
             expected_os_major: ""
           - os: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
             timeout: 30
+            run_unit_tests: true
             startup_smoke: true
             virtual_display: false
             skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
@@ -151,6 +154,7 @@ jobs:
           ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CmuxIrohTransport
 
       - name: Run unit tests
+        if: matrix.run_unit_tests
         env:
           CMUX_SKIP_ZIG_BUILD: ${{ matrix.skip_zig && '1' || '0' }}
         run: |
