@@ -156,19 +156,24 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(sed -nE 's/^[[:space:]]*CMUX_IOS_APPSTORE_MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | tail -n 1)"
-          VERSION_METADATA_DIR="ios/AppStoreReview/metadata/version/$VERSION"
-          VERSION_METADATA_FILES=()
-          shopt -s nullglob
-          for metadata_file in "$VERSION_METADATA_DIR"/*.json; do
-            if [ "${metadata_file##*/}" != "default.json" ]; then
-              VERSION_METADATA_FILES+=("$metadata_file")
+          require_locale_metadata() {
+            local metadata_dir="$1"
+            local metadata_file
+            local locale_file_count=0
+            shopt -s nullglob
+            for metadata_file in "$metadata_dir"/*.json; do
+              if [ "${metadata_file##*/}" != "default.json" ]; then
+                locale_file_count=$((locale_file_count + 1))
+              fi
+            done
+            shopt -u nullglob
+            if [ "$locale_file_count" -eq 0 ]; then
+              echo "No locale-specific App Store metadata found in $metadata_dir" >&2
+              exit 1
             fi
-          done
-          shopt -u nullglob
-          if [ "${#VERSION_METADATA_FILES[@]}" -eq 0 ]; then
-            echo "No canonical App Store metadata found in $VERSION_METADATA_DIR" >&2
-            exit 1
-          fi
+          }
+          require_locale_metadata "ios/AppStoreReview/metadata/version/$VERSION"
+          require_locale_metadata "ios/AppStoreReview/metadata/app-info"
           VERSION_ID="$(
             asc versions list --app "$ASC_APP_ID" --version "$VERSION" --platform IOS --output json |
               python3 -c 'import json,sys; body=json.load(sys.stdin); data=body.get("data") if isinstance(body,dict) else body; data=data if isinstance(data,list) else ([data] if isinstance(data,dict) else []); print(data[0].get("id", "") if data else "")'
