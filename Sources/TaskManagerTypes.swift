@@ -542,7 +542,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             displayName: "Claude Code",
             assetName: "AgentIcons/Claude",
             launchKinds: ["claude", "claudeteams", "claude-teams", "omc"],
-            directBasenames: ["claude", "claude-code", "claude_code", "claude-teams", "omc"],
+            directBasenames: ["claude", "claude.exe", "claude-code", "claude_code", "claude-teams", "omc"],
             argumentNeedles: [
                 "claude-code",
                 "claude_code",
@@ -580,6 +580,22 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             argumentNeedles: ["opencode", "opencode-ai", "open-code", "oh-my-openagent"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
+            id: "omp",
+            displayName: "OMP",
+            assetName: "AgentIcons/Pi",
+            launchKinds: ["omp"],
+            directBasenames: ["omp"],
+            argumentNeedles: ["@oh-my-pi/pi-coding-agent"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "campfire",
+            displayName: "Campfire",
+            assetName: nil,
+            launchKinds: ["campfire"],
+            directBasenames: ["campfire"],
+            argumentNeedles: ["packages/session/bin/campfire.ts", "packages/session/dist/campfire"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
             id: "pi",
             displayName: "Pi",
             assetName: "AgentIcons/Pi",
@@ -610,6 +626,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             launchKinds: ["gemini"],
             directBasenames: ["gemini"],
             argumentNeedles: ["gemini"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "kiro",
+            displayName: "Kiro",
+            assetName: nil,
+            launchKinds: ["kiro"],
+            directBasenames: ["kiro", "kiro-cli"],
+            argumentNeedles: ["kiro", "kiro-cli"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
             id: "antigravity",
@@ -720,7 +744,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
     }
 
     private static let argumentHostBasenames: Set<String> = [
-        "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx"
+        "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx", "ts-node"
     ]
 
     private static let ambiguousDirectBasenames: Set<String> = [

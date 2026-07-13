@@ -14,6 +14,8 @@ echo "==> Checking Zig version..."
 
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
 
+"$SCRIPT_DIR/install-git-hooks.sh"
+
 echo "==> Setup complete!"
 echo ""
 echo "You can now build and run the app:"

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 extension CMUXCLI {
     func availableThemeNames() -> [String] {
@@ -30,7 +31,7 @@ extension CMUXCLI {
         return themes.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
-    private func themeDirectoryURLs() -> [URL] {
+    func themeDirectoryURLs() -> [URL] {
         let fileManager = FileManager.default
         let processEnv = ProcessInfo.processInfo.environment
         var urls: [URL] = []
@@ -91,15 +92,15 @@ extension CMUXCLI {
         if let xdgDataDirs = processEnv["XDG_DATA_DIRS"] {
             for dataDir in xdgDataDirs.split(separator: ":").map(String.init).filter({ !$0.isEmpty }) {
                 appendIfExisting(
-                    URL(fileURLWithPath: NSString(string: dataDir).expandingTildeInPath, isDirectory: true)
+                    homeExpandedURL(dataDir, isDirectory: true)
                         .appendingPathComponent("ghostty/themes", isDirectory: true)
                 )
             }
         }
 
         appendIfExisting(URL(fileURLWithPath: "/Applications/Ghostty.app/Contents/Resources/ghostty/themes", isDirectory: true))
-        appendIfExisting(URL(fileURLWithPath: NSString(string: "~/.config/ghostty/themes").expandingTildeInPath, isDirectory: true))
-        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(environment: processEnv) {
+        appendIfExisting(homeExpandedURL("~/.config/ghostty/themes", isDirectory: true))
+        for appSupportDirectory in CmuxApplicationSupportDirectories(environment: processEnv).userDirectories {
             appendIfExisting(
                 appSupportDirectory
                     .appendingPathComponent(Self.cmuxThemeOverrideBundleIdentifier, isDirectory: true)
@@ -107,12 +108,7 @@ extension CMUXCLI {
             )
         }
         appendIfExisting(
-            URL(
-                fileURLWithPath: NSString(
-                    string: "~/Library/Application Support/com.mitchellh.ghostty/themes"
-                ).expandingTildeInPath,
-                isDirectory: true
-            )
+            homeExpandedURL("~/Library/Application Support/com.mitchellh.ghostty/themes", isDirectory: true)
         )
 
         return urls
@@ -147,9 +143,9 @@ extension CMUXCLI {
             }
         }
 
-        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(
+        for appSupportDirectory in CmuxApplicationSupportDirectories(
             environment: ProcessInfo.processInfo.environment
-        ) {
+        ).userDirectories {
             let ghosttyDirectory = appSupportDirectory.appendingPathComponent(
                 "com.mitchellh.ghostty",
                 isDirectory: true
@@ -166,7 +162,7 @@ extension CMUXCLI {
                 append(legacyGhosttyConfigURL)
             }
 
-            for url in CmuxGhosttyConfigPathResolver.loadConfigURLs(
+            for url in CmuxGhosttyConfigPathResolver().loadConfigURLs(
                 currentBundleIdentifier: targetBundleIdentifier,
                 appSupportDirectory: appSupportDirectory,
                 fileManager: fileManager
@@ -179,7 +175,18 @@ extension CMUXCLI {
     }
 
     private func configURL(_ rawPath: String) -> URL {
-        URL(fileURLWithPath: NSString(string: rawPath).expandingTildeInPath, isDirectory: false)
+        homeExpandedURL(rawPath, isDirectory: false)
+    }
+
+    private func homeExpandedURL(_ rawPath: String, isDirectory: Bool) -> URL {
+        if rawPath.hasPrefix("~/"),
+           let home = ProcessInfo.processInfo.environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !home.isEmpty {
+            let relativePath = String(rawPath.dropFirst(2))
+            return URL(fileURLWithPath: home, isDirectory: true)
+                .appendingPathComponent(relativePath, isDirectory: isDirectory)
+        }
+        return URL(fileURLWithPath: NSString(string: rawPath).expandingTildeInPath, isDirectory: isDirectory)
     }
 
     private func shouldLoadLegacyGhosttyConfig(
@@ -226,9 +233,9 @@ extension CMUXCLI {
 
     func cmuxThemeOverrideConfigURL(targetBundleIdentifier: String) throws -> URL {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw CLIError(message: "Unable to resolve Application Support directory")
+            throw CLIError(message: "Failed to locate the Application Support directory")
         }
-        return CmuxGhosttyConfigPathResolver.editableConfigURL(
+        return CmuxGhosttyConfigPathResolver().editableConfigURL(
             currentBundleIdentifier: targetBundleIdentifier,
             appSupportDirectory: appSupport
         )
@@ -421,5 +428,23 @@ extension CMUXCLI {
         }
 
         return nil
+    }
+
+    func isRightSidebarCLIMode(_ value: String) -> Bool {
+        switch value.lowercased() {
+        case "files", "find", "vault", "sessions", "feed", "dock":
+            return true
+        default:
+            return false
+        }
+    }
+
+    func normalizedRightSidebarCLIArgument(_ value: String) -> String {
+        switch value.lowercased() {
+        case "files", "find", "vault", "sessions", "feed", "dock":
+            return value.lowercased()
+        default:
+            return value
+        }
     }
 }

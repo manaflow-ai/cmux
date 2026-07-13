@@ -2,13 +2,13 @@ import Foundation
 import Bonsplit
 
 extension TerminalController {
-    func v2String(_ params: [String: Any], _ key: String) -> String? {
+    nonisolated func v2String(_ params: [String: Any], _ key: String) -> String? {
         guard let raw = params[key] as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    func v2StringArray(_ params: [String: Any], _ key: String) -> [String]? {
+    nonisolated func v2StringArray(_ params: [String: Any], _ key: String) -> [String]? {
         if let raw = params[key] as? [String] {
             let normalized = raw
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -28,7 +28,7 @@ extension TerminalController {
         return nil
     }
 
-    func v2StringMap(_ params: [String: Any], _ key: String) -> [String: String]? {
+    nonisolated func v2StringMap(_ params: [String: Any], _ key: String) -> [String: String]? {
         guard let raw = params[key] else { return nil }
         if let dict = raw as? [String: String] {
             return dict
@@ -44,7 +44,7 @@ extension TerminalController {
         return nil
     }
 
-    func v2TrimmedStringMap(_ params: [String: Any], keys: [String]) -> [String: String] {
+    nonisolated func v2TrimmedStringMap(_ params: [String: Any], keys: [String]) -> [String: String] {
         for key in keys {
             guard let raw = v2StringMap(params, key) else { continue }
             return raw.reduce(into: [String: String]()) { result, pair in
@@ -56,7 +56,7 @@ extension TerminalController {
         return [:]
     }
 
-    func v2ActionKey(_ params: [String: Any], _ key: String = "action") -> String? {
+    nonisolated func v2ActionKey(_ params: [String: Any], _ key: String = "action") -> String? {
         guard let action = v2String(params, key) else { return nil }
         return action.lowercased().replacingOccurrences(of: "-", with: "_")
     }
@@ -65,12 +65,12 @@ extension TerminalController {
         params[key] as? String
     }
 
-    func v2OptionalTrimmedRawString(_ params: [String: Any], _ key: String) -> String? {
+    nonisolated func v2OptionalTrimmedRawString(_ params: [String: Any], _ key: String) -> String? {
         let trimmed = v2RawString(params, key)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (trimmed?.isEmpty == false) ? trimmed : nil
     }
 
-    func v2InitialDividerPosition(_ params: [String: Any]) -> (value: Double?, error: V2CallResult?) {
+    nonisolated func v2InitialDividerPosition(_ params: [String: Any]) -> (value: Double?, error: V2CallResult?) {
         guard v2HasNonNullParam(params, "initial_divider_position") else {
             return (nil, nil)
         }
@@ -84,12 +84,12 @@ extension TerminalController {
         return (min(max(rawPosition, 0.1), 0.9), nil)
     }
 
-    func v2UUID(_ params: [String: Any], _ key: String) -> UUID? {
+    nonisolated func v2UUID(_ params: [String: Any], _ key: String) -> UUID? {
         guard let s = v2String(params, key) else { return nil }
         if let uuid = UUID(uuidString: s) {
             return uuid
         }
-        return v2ResolveHandleRef(s)
+        return v2MainSync { v2ResolveHandleRef(s) }
     }
 
     func v2UUIDAny(_ raw: Any?) -> UUID? {
@@ -132,14 +132,14 @@ extension TerminalController {
         return nil
     }
 
-    func v2Int(_ params: [String: Any], _ key: String) -> Int? {
+    nonisolated func v2Int(_ params: [String: Any], _ key: String) -> Int? {
         if let i = params[key] as? Int { return i }
         if let n = params[key] as? NSNumber { return n.intValue }
         if let s = params[key] as? String { return Int(s) }
         return nil
     }
 
-    func v2Double(_ params: [String: Any], _ key: String) -> Double? {
+    nonisolated func v2Double(_ params: [String: Any], _ key: String) -> Double? {
         if let d = params[key] as? Double { return d }
         if let f = params[key] as? Float { return Double(f) }
         if let n = params[key] as? NSNumber { return n.doubleValue }
@@ -181,11 +181,30 @@ extension TerminalController {
         return nil
     }
 
-    func v2PanelType(_ params: [String: Any], _ key: String) -> PanelType? {
+    nonisolated func v2PanelType(_ params: [String: Any], _ key: String) -> PanelType? {
         guard let s = v2String(params, key) else { return nil }
-        let normalized = s.replacingOccurrences(of: "-", with: "")
+        switch v2NormalizedToken(s) {
+        case "terminal":
+            return .terminal
+        case "browser":
+            return .browser
+        case "markdown":
+            return .markdown
+        case "filepreview":
+            return .filePreview
+        case "rightsidebartool":
+            return .rightSidebarTool
+        case "agentsession":
+            return .agentSession
+        default:
+            return nil
+        }
+    }
+
+    nonisolated func v2NormalizedToken(_ raw: String) -> String {
+        raw.replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
             .lowercased()
-        return PanelType(rawValue: normalized)
     }
 }

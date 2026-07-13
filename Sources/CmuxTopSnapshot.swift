@@ -117,7 +117,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     }
 }
 
-nonisolated struct CmuxTopProcessScope: Sendable {
+nonisolated struct CmuxTopProcessScope: Sendable, Equatable {
     let workspaceID: UUID?
     let surfaceID: UUID?
     let attributionReason: String
@@ -132,27 +132,37 @@ nonisolated struct CmuxTopProcessScope: Sendable {
 nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let sampledAt: Date
     private let includesProcessDetails: Bool
+    private let includesCMUXScope: Bool
     let processesByPID: [Int: CmuxTopProcessInfo]
     private let childrenByParentPID: [Int: [Int]]
     private let pidsByTTYDevice: [Int64: [Int]]
     private let pidsByCMUXSurfaceID: [UUID: [Int]]
     private let residentMemorySources: [CmuxTopProcessMemorySource]
 
-    static func capture(includeProcessDetails: Bool = false) -> CmuxTopProcessSnapshot {
+    static func capture(
+        includeProcessDetails: Bool = false,
+        includeCMUXScope: Bool = true
+    ) -> CmuxTopProcessSnapshot {
         CmuxTopProcessSnapshot(
-            processes: allProcesses(includeProcessDetails: includeProcessDetails),
+            processes: allProcesses(
+                includeProcessDetails: includeProcessDetails,
+                includeCMUXScope: includeCMUXScope
+            ),
             sampledAt: Date(),
-            includesProcessDetails: includeProcessDetails
+            includesProcessDetails: includeProcessDetails,
+            includesCMUXScope: includeCMUXScope
         )
     }
 
     init(
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,
-        includesProcessDetails: Bool
+        includesProcessDetails: Bool,
+        includesCMUXScope: Bool = true
     ) {
         self.sampledAt = sampledAt
         self.includesProcessDetails = includesProcessDetails
+        self.includesCMUXScope = includesCMUXScope
         var processMap: [Int: CmuxTopProcessInfo] = [:]
         processMap.reserveCapacity(processes.count)
         for process in processes {
@@ -193,8 +203,13 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "resident_memory_source": Self.summaryMemorySource(residentMemorySources).rawValue,
             "resident_memory_sources": residentMemorySourceNames,
             "resident_memory_fallback_source": CmuxTopProcessMemorySource.rusageResidentSize.rawValue,
-            "process_details": includesProcessDetails
+            "process_details": includesProcessDetails,
+            "cmux_scope": includesCMUXScope
         ]
+    }
+
+    var hasCMUXScope: Bool {
+        includesCMUXScope
     }
 
     private static func sortedMemorySources(

@@ -1,7 +1,10 @@
 import AppKit
-import CMUXWorkstream
+import Bonsplit
+import CMUXAgentLaunch
 import Foundation
 @preconcurrency import UserNotifications
+import CmuxSettings
+import CmuxSidebar
 
 /// App-level coordinator that owns the shared `WorkstreamStore` and
 /// mediates between the socket thread (which processes `feed.*` V2
@@ -36,6 +39,14 @@ final class FeedCoordinator: @unchecked Sendable {
     private let pidWatcherQueue = DispatchQueue(
         label: "cmux.feed.pidWatcher", qos: .utility
     )
+
+    /// In-flight blocking decisions whose needs-input overlay is currently lit,
+    /// keyed by ``AttentionTarget``. Each state keeps the workspace object that
+    /// was mutated when surfacing attention, so cleanup does not depend on
+    /// resolving a live window route after the decision has already ended.
+    /// Main-actor isolated: read/written only from the `@MainActor` attention
+    /// methods.
+    @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
 
     private init() {}
 
@@ -111,12 +122,35 @@ final class FeedCoordinator: @unchecked Sendable {
         // caps the pending lifetime to the agent process lifetime
         // — no polling, no leaked cards when the agent is killed.
         let itemIdSlot = UnsafeItemIdSlot()
+        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
+            ? Self.resolveAttentionTarget(event: event)
+            : nil
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store.ingest(event)
                 itemIdSlot.value = FeedCoordinator.shared.store.items.last?.id
                 if let ppid = event.ppid, ppid > 0 {
                     FeedCoordinator.shared.armPidWatcher(ppid: ppid)
+                }
+                // Surface in-app attention (needs-input status + bell +
+                // workspace elevation) for the blocking decision. This fires
+                // regardless of app focus, unlike the desktop banner below,
+                // so the pending decision is visible in the sidebar even
+                // while the user is in another workspace of the same window.
+                // The target is resolved before entering this main-thread
+                // section so hook-session disk I/O never extends the UI
+                // critical section.
+                // The target is recorded on the waiter here — inside the
+                // ingest `main.sync`, before the card can render and a reply
+                // can fire — so the overlay is cleared exactly once when the
+                // decision concludes (no race with `deliverReply`).
+                if let target = FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                    event: event,
+                    resolved: resolvedAttentionTarget
+                ) {
+                    FeedCoordinator.shared.waiterLock.lock()
+                    FeedCoordinator.shared.waiters[requestId]?.attentionTarget = target
+                    FeedCoordinator.shared.waiterLock.unlock()
                 }
                 #if DEBUG
                 FeedCoordinatorTestHooks.afterBlockingEventIngested?(event, requestId)
@@ -139,15 +173,34 @@ final class FeedCoordinator: @unchecked Sendable {
         switch waitResult {
         case .success:
             if let decision = w?.decision {
+                // `deliverReply` concludes the attention overlay on resolve.
                 return .resolved(itemId: itemIdSlot.value, decision: decision)
             }
             cancelNotification(requestId: requestId)
+            concludeAttentionOnMain(w?.attentionTarget)
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
         case .timedOut:
             cancelNotification(requestId: requestId)
+            concludeAttentionOnMain(w?.attentionTarget)
             expireTimedOutItem(itemIdSlot.value)
             return .timedOut(itemId: itemIdSlot.value)
+        }
+    }
+
+    /// Concludes an attention overlay (if any) on the main actor, hopping if
+    /// called from the socket worker thread.
+    private func concludeAttentionOnMain(_ target: AttentionTarget?) {
+        guard let target else { return }
+        let conclude: @Sendable () -> Void = { [target] in
+            MainActor.assumeIsolated {
+                FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+            }
+        }
+        if Thread.isMainThread {
+            conclude()
+        } else {
+            DispatchQueue.main.async(execute: conclude)
         }
     }
 
@@ -155,11 +208,17 @@ final class FeedCoordinator: @unchecked Sendable {
     /// item resolved on the main-actor store and wakes any waiter.
     func deliverReply(requestId: String, decision: WorkstreamDecision) {
         waiterLock.lock()
+        let attentionTarget = waiters[requestId]?.attentionTarget
         if let waiter = waiters[requestId] {
             waiter.decision = decision
             waiter.semaphore.signal()
         }
         waiterLock.unlock()
+
+        // The user decided: conclude the needs-input overlay so the agent's
+        // running/idle state shows through (refcounted so an overlapping
+        // decision on the same panel keeps it lit until it too concludes).
+        concludeAttentionOnMain(attentionTarget)
 
         let resolve: @Sendable () -> Void = { [requestId, decision] in
             MainActor.assumeIsolated {
@@ -226,9 +285,242 @@ final class FeedCoordinator: @unchecked Sendable {
     }
 }
 
+// MARK: - In-app attention surfacing
+
+extension FeedCoordinator {
+    /// The blocking-decision hook events that warrant pulling the user's
+    /// attention to the owning workspace: a tool permission, a plan
+    /// approval, or a question. Keeping this as one predicate (rather than
+    /// branching per event at each call site) is what makes the attention
+    /// surface uniform across every event type and agent routed through
+    /// `feed.push` — a new blocking event type only has to be added here.
+    static func isBlockingDecisionEvent(_ hookEventName: WorkstreamEvent.HookEventName) -> Bool {
+        switch hookEventName {
+        case .permissionRequest, .exitPlanMode, .askUserQuestion:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Maps a feed `source` (agent id) to the agent-lifecycle status key the
+    /// sidebar reads. Claude reports under `claude_code`; every other agent
+    /// keys its status by its own source name. Returning the agent's own key
+    /// is what lets the existing per-agent resume hooks (e.g. Claude's
+    /// `pre-tool-use`) clear the needs-input badge once the agent continues.
+    private static let lifecycleStatusKeyOverrides = [
+        "claude": "claude_code",
+    ]
+
+    static func lifecycleStatusKey(forSource source: String) -> String {
+        lifecycleStatusKeyOverrides[source] ?? source
+    }
+
+    /// Identifies the sidebar slot an attention overlay lights up. Overlays
+    /// are refcounted by this key so overlapping blocking decisions on the
+    /// same agent/panel don't clear each other's needs-input badge.
+    struct AttentionTarget: Hashable, Sendable {
+        let workspaceId: UUID
+        let panelId: UUID?
+        let statusKey: String
+    }
+
+    /// The localized "Needs input" sidebar status the overlay sets. Exposed so
+    /// ``concludeBlockingDecisionAttention(_:)`` can confirm it's still the
+    /// value we wrote before clearing it (rather than one an agent hook
+    /// replaced in the meantime).
+    static var needsInputStatusValue: String {
+        String(localized: "feed.status.needsInput", defaultValue: "Needs input")
+    }
+
+    /// Surfaces in-app attention for a blocking feed decision: flips the
+    /// owning workspace's agent lifecycle to `.needsInput`, sets the
+    /// "Needs input" sidebar status, elevates the workspace when
+    /// *Reorder on Notification* is enabled, and rings the bell.
+    ///
+    /// This is the convergence point the PreToolUse→PermissionRequest
+    /// migration left behind: the `feed.push` bridge ingested the card and
+    /// (when inactive) posted a banner, but never drove the same in-app
+    /// attention path the `cmux hooks <agent> notification` hook uses. Doing
+    /// it here — once, for every blocking decision — keeps a new event type
+    /// from silently swallowing.
+    ///
+    /// The overlay is cleared by ``concludeBlockingDecisionAttention(_:)``
+    /// when the decision resolves or times out. Clearing is refcounted per
+    /// ``AttentionTarget`` so overlapping decisions on the same panel keep the
+    /// badge lit until the last one concludes.
+    ///
+    /// - Parameter resolved: the target resolved off the main actor before UI
+    ///   mutation, since hook-session lookup may read from disk.
+    /// - Returns: the target to conclude once the decision ends, or `nil` if
+    ///   nothing was surfaced (no resolvable workspace).
+    @MainActor
+    func surfaceBlockingDecisionAttention(
+        event: WorkstreamEvent,
+        resolved: (workspaceId: UUID, surfaceId: UUID?)?
+    ) -> AttentionTarget? {
+        guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
+
+        #if DEBUG
+        if let observer = FeedCoordinatorTestHooks.attentionSurfaceObserver {
+            observer(event)
+            return nil
+        }
+        #endif
+
+        guard let resolved else {
+            #if DEBUG
+            cmuxDebugLog(
+                "feed.attention.skip reason=unresolved-target session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) workspace=\(event.workspaceId ?? "nil") receivedAt=\(event.receivedAt.timeIntervalSince1970)"
+            )
+            #endif
+            return nil
+        }
+
+        guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: resolved.workspaceId),
+              let tab = tabManager.tabs.first(where: { $0.id == resolved.workspaceId })
+        else {
+            #if DEBUG
+            cmuxDebugLog(
+                "feed.attention.skip reason=missing-workspace session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) workspace=\(resolved.workspaceId.uuidString) receivedAt=\(event.receivedAt.timeIntervalSince1970)"
+            )
+            #endif
+            return nil
+        }
+
+        let panelId = Self.resolvePanelId(surfaceId: resolved.surfaceId, tab: tab) ?? tab.focusedPanelId
+        let statusKey = Self.lifecycleStatusKey(forSource: event.source)
+        let target = AttentionTarget(
+            workspaceId: resolved.workspaceId,
+            panelId: panelId,
+            statusKey: statusKey
+        )
+        let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(workspace: tab)
+        attentionState.workspace = tab
+        attentionState.count += 1
+        pendingAttentionStates[target] = attentionState
+
+        // Needs-input lifecycle drives the sidebar badge + hibernation state.
+        tab.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
+        tab.statusEntries[statusKey] = SidebarStatusEntry(
+            key: statusKey,
+            value: Self.needsInputStatusValue,
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            timestamp: Date()
+        )
+
+        // Elevate the workspace so it floats to the top of the sidebar,
+        // honoring the user's Reorder on Notification preference.
+        if UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
+            tabManager.moveTabToTopForNotification(resolved.workspaceId)
+        }
+
+        // Ring the bell (dock bounce while the app is in the background).
+        NSApp.requestUserAttention(.informationalRequest)
+
+        return target
+    }
+
+    /// Concludes a blocking decision's attention overlay. Decrements the
+    /// per-target refcount and, when it reaches zero, clears the needs-input
+    /// overlay — but only the parts the feed still owns: the lifecycle is set
+    /// to `.running` only if it's still `.needsInput`, and the status entry is
+    /// removed only if it still holds our "Needs input" value. Anything an
+    /// agent hook replaced in the meantime is left untouched, so a real
+    /// running/idle/needs-input update from the agent always wins.
+    @MainActor
+    func concludeBlockingDecisionAttention(_ target: AttentionTarget) {
+        guard let attentionState = pendingAttentionStates[target] else { return }
+        if attentionState.count > 1 {
+            attentionState.count -= 1
+            return
+        }
+        pendingAttentionStates.removeValue(forKey: target)
+        let tab = attentionState.workspace
+
+        // Lifecycle is per-panel, so clearing this panel's needs-input is
+        // safe even if another panel still needs input.
+        if let panelId = target.panelId,
+           tab.agentLifecycleStatesByPanelId[panelId]?[target.statusKey] == .needsInput {
+            tab.setAgentLifecycle(key: target.statusKey, panelId: panelId, lifecycle: .running)
+        }
+
+        // The status entry is workspace-level (keyed only by statusKey), so it
+        // is shared across panels running the same agent. Only remove it once
+        // no other panel in this workspace still has a pending decision under
+        // the same key — otherwise concluding one panel would wipe another
+        // panel's active "Needs input" badge.
+        let anotherPanelStillPending = pendingAttentionStates.keys.contains {
+            $0.workspaceId == target.workspaceId && $0.statusKey == target.statusKey
+        }
+        if !anotherPanelStillPending,
+           tab.statusEntries[target.statusKey]?.value == Self.needsInputStatusValue {
+            tab.statusEntries.removeValue(forKey: target.statusKey)
+        }
+    }
+
+    /// Resolves the `(workspace, surface)` an attention overlay should target.
+    /// The workspace prefers the event's live `workspace_id` (the running
+    /// terminal's CMUX_WORKSPACE_ID, a raw UUID) so a stale hook-session map
+    /// can't redirect attention to the wrong workspace; it falls back to the
+    /// session store when the event omits a parseable id. The surface comes
+    /// from the session store only when its workspace matches the resolved
+    /// workspace, so a stale entry can't point the panel elsewhere.
+    private static func resolveAttentionTarget(
+        event: WorkstreamEvent
+    ) -> (workspaceId: UUID, surfaceId: UUID?)? {
+        let sessionMatch: (workspaceId: UUID, surfaceId: UUID?)? = {
+            guard let parsed = FeedJumpResolver.parse(event.sessionId),
+                  let resolved = FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId),
+                  let workspaceId = UUID(uuidString: resolved.workspaceId)
+            else { return nil }
+            return (workspaceId, UUID(uuidString: resolved.surfaceId))
+        }()
+
+        let eventWorkspaceId = event.workspaceId.flatMap {
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+
+        guard let workspaceId = eventWorkspaceId ?? sessionMatch?.workspaceId else {
+            return nil
+        }
+        // Only trust the session store's surface if it belongs to the
+        // workspace we're actually targeting.
+        let surfaceId = (sessionMatch?.workspaceId == workspaceId) ? sessionMatch?.surfaceId : nil
+        return (workspaceId, surfaceId)
+    }
+
+    /// Maps a surface id from the hook-session store to its owning panel id,
+    /// tolerating stores that already record the panel id directly.
+    @MainActor
+    private static func resolvePanelId(surfaceId: UUID?, tab: Workspace) -> UUID? {
+        guard let surfaceId else { return nil }
+        if tab.panels[surfaceId] != nil { return surfaceId }
+        return tab.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+    }
+}
+
+@MainActor
+private final class AttentionOverlayState {
+    var count: Int
+    var workspace: Workspace
+
+    init(workspace: Workspace) {
+        self.count = 0
+        self.workspace = workspace
+    }
+}
+
 private final class PendingWaiter: @unchecked Sendable {
     let semaphore: DispatchSemaphore
     var decision: WorkstreamDecision?
+    /// The attention overlay target for this decision, if one was surfaced.
+    /// Set inside the ingest `main.sync` (before the card can render and a
+    /// reply can fire) and read when the decision concludes, so the
+    /// needs-input overlay is cleared exactly once. Guarded by
+    /// `FeedCoordinator.waiterLock`.
+    var attentionTarget: FeedCoordinator.AttentionTarget?
 
     init(semaphore: DispatchSemaphore) {
         self.semaphore = semaphore
@@ -251,6 +543,11 @@ enum FeedCoordinatorTestHooks {
     static var afterBlockingEventIngested: (@Sendable (WorkstreamEvent, String) -> Void)?
     static var isAppActiveOverride: (@Sendable () -> Bool)?
     static var notificationPostObserver: (@Sendable (WorkstreamEvent, String) -> Void)?
+    /// Fires when a blocking decision event requests in-app attention
+    /// surfacing (needs-input status + bell + elevation). When set, the
+    /// production surfacing is short-circuited so tests can assert the
+    /// request without a live `TabManager`.
+    static var attentionSurfaceObserver: (@Sendable (WorkstreamEvent) -> Void)?
 }
 #endif
 
@@ -442,7 +739,7 @@ private extension FeedCoordinator {
             let body: String
             switch event.hookEventName {
             case .permissionRequest:
-                categoryId = "CMUXFeedPermission"
+                categoryId = Self.permissionNotificationCategoryId(for: event)
                 title = String(
                     localized: "feed.notification.permission.title",
                     defaultValue: "\(event.source.capitalized) permission"
@@ -536,6 +833,27 @@ private extension FeedCoordinator {
         }
     }
 
+    private static func permissionNotificationCategoryId(for event: WorkstreamEvent) -> String {
+        let source = WorkstreamSource(wireName: event.source) ?? .claude
+        let supportsOnce = FeedPermissionActionPolicy.supportsOncePermissionMode(
+            source: source,
+            toolInputJSON: event.toolInputJSON
+        )
+        let supportsAlways = FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+            source: source,
+            toolInputJSON: event.toolInputJSON
+        )
+        let supportsAll = FeedPermissionActionPolicy.supportsAllPermissionMode(
+            source: source,
+            toolInputJSON: event.toolInputJSON
+        )
+        var suffix = ""
+        if supportsOnce { suffix += "Once" }
+        if supportsAlways { suffix += "Always" }
+        if supportsAll { suffix += "All" }
+        return suffix.isEmpty ? "CMUXFeedPermissionDeny" : "CMUXFeedPermission\(suffix)"
+    }
+
     @MainActor
     func deliverFeedNotificationIfStillAwaiting(
         requestId: String,
@@ -556,7 +874,8 @@ private extension FeedCoordinator {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                effects: effects
+                effects: effects,
+                runCommand: true
             )
             return
         }
@@ -591,9 +910,13 @@ private extension FeedCoordinator {
                         effects: effects
                     )
                 case .notDetermined:
-                    let granted = (
-                        try? await center.requestAuthorization(options: [.alert, .sound])
-                    ) ?? false
+                    var granted = false
+                    var requestFailed = false
+                    do {
+                        granted = try await center.requestAuthorization(options: [.alert, .sound])
+                    } catch {
+                        requestFailed = true
+                    }
                     guard self.isAwaitingDecision(requestId: requestId) else { return }
                     if granted {
                         self.addNotificationIfStillAwaiting(
@@ -603,12 +926,20 @@ private extension FeedCoordinator {
                             effects: effects
                         )
                     } else {
+                        // A non-grant without an error is the user declining
+                        // the prompt just now: honor the fresh denial on this
+                        // very notification. A request error is not a user
+                        // decision, so the fallback stays audible (fail-open).
                         self.runFallbackEffectsIfStillAwaiting(
                             requestId: requestId,
                             title: title,
                             subtitle: subtitle,
                             body: body,
-                            effects: effects
+                            effects: TerminalNotificationStore.fallbackEffects(
+                                effects,
+                                authorizationState: requestFailed ? .unknown : .denied
+                            ),
+                            runCommand: false
                         )
                     }
                 default:
@@ -617,7 +948,13 @@ private extension FeedCoordinator {
                         title: title,
                         subtitle: subtitle,
                         body: body,
-                        effects: effects
+                        effects: TerminalNotificationStore.fallbackEffects(
+                            effects,
+                            authorizationState: TerminalNotificationStore.authorizationState(
+                                from: settings.authorizationStatus
+                            )
+                        ),
+                        runCommand: false
                     )
                 }
             }
@@ -649,7 +986,8 @@ private extension FeedCoordinator {
                         title: title,
                         subtitle: subtitle,
                         body: body,
-                        effects: effects
+                        effects: effects,
+                        runCommand: false
                     )
                     return
                 }
@@ -670,19 +1008,16 @@ private extension FeedCoordinator {
         title: String,
         subtitle: String,
         body: String,
-        effects: TerminalNotificationPolicyEffects
+        effects: TerminalNotificationPolicyEffects,
+        runCommand: Bool
     ) {
         guard isAwaitingDecision(requestId: requestId) else { return }
-        if effects.sound {
-            NotificationSoundSettings.playSelectedSound()
-        }
-        if effects.command {
-            NotificationSoundSettings.runCustomCommand(
-                title: title,
-                subtitle: subtitle,
-                body: body
-            )
-        }
+        NativeNotificationDeliveryHooks.runLocalFeedback(
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            effects: effects, runCommand: runCommand
+        )
     }
 
     func cancelNotification(requestId: String) {
@@ -743,7 +1078,7 @@ private func makeFeedNotificationPolicyContext(
             ),
             effects: effects
         ),
-        hooks: context?.cmuxConfigStore?.notificationHooks(startingFrom: cwd) ?? [],
+        hooks: context?.cmuxConfigStore?.notificationHooks(startingFrom: workspace?.isRemoteWorkspace == true ? nil : (normalizedFeedNotificationCWD(event.cwd) ?? workspace?.surfaceTabBarDirectory)) ?? [],
         globalConfigPath: context?.cmuxConfigStore?.globalConfigPath
     )
 }
@@ -864,6 +1199,12 @@ enum FeedSocketEncoding {
         case .permissionRequest(let requestId, let toolName, let toolInputJSON, let pattern):
             dict["request_id"] = requestId
             dict["tool_name"] = toolName
+            if let capabilityJSON = FeedPermissionActionPolicy.codexCapabilityToolInputJSON(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ) {
+                dict["tool_input_capabilities"] = capabilityJSON
+            }
             assignLimitedText(toolInputJSON, key: "tool_input", to: &dict)
             if let pattern { dict["pattern"] = pattern }
         case .exitPlan(let requestId, let plan, let defaultMode):
