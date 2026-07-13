@@ -133,17 +133,14 @@ extension AgentHibernationController {
                               case .snapshot(let snapshot) = snapshotOutcome else {
                             continue
                         }
-                        if armPostTeardownRestoreMonitor(
-                            snapshot: snapshot,
-                            processIDs: request.record.processIDs
-                        ) {
-                            restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
-                        } else {
-                            AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
-                                snapshot,
-                                sessionId: request.record.agent.sessionId
-                            )
-                        }
+                        // The previous monitor is quiesced and the fresh process
+                        // capture failed, so its PID set is unknown. Reusing the
+                        // pre-quiescence record could wait on a recycled PID and
+                        // later restore into an unrelated live session.
+                        AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
+                            snapshot,
+                            sessionId: request.record.agent.sessionId
+                        )
                     }
                     return
                 }

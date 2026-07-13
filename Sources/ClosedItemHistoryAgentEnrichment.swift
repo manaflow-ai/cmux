@@ -27,6 +27,10 @@ extension ClosedItemHistoryStore {
         return Task { @MainActor [weak self] in
             guard let self else { return }
             guard let index = await refreshTask.value else {
+                // Bonsplit has already committed this explicit user close and
+                // Workspace has removed the panel. Preserve its core history,
+                // then let the deferrer release the retained runtime rather than
+                // leaking a terminal that can no longer be reached from the UI.
                 self.resolvePendingEnrichment(recordID: record.id) { $0 }
                 return
             }
@@ -243,7 +247,12 @@ private extension SessionPanelSnapshot {
            resumeBinding.isAgentHookBinding || resumeBinding.isProcessDetected {
             return true
         }
-        return index?.hasLiveProcess(workspaceId: workspaceId, panelId: id) == true
+        guard let index else {
+            // A cold cache is unknown, not authoritative evidence that this is
+            // an ordinary terminal. Capture once before allowing the bypass.
+            return true
+        }
+        return index.hasLiveProcess(workspaceId: workspaceId, panelId: id)
     }
 
     func mergingAgentMetadata(from captured: SessionPanelSnapshot) -> SessionPanelSnapshot {

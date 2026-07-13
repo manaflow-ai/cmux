@@ -18,13 +18,7 @@ struct SharedLiveAgentIndexGenerationAuthorityTests {
         let fingerprintStarted = DispatchSemaphore(value: 0)
         let releaseFingerprint = DispatchSemaphore(value: 0)
         let successorLoadStarted = DispatchSemaphore(value: 0)
-        let lateReloadStarted = DispatchSemaphore(value: 0)
-        let releaseLateReload = DispatchSemaphore(value: 0)
-        let lateReloadCompleted = DispatchSemaphore(value: 0)
-        defer {
-            releaseFingerprint.signal()
-            releaseLateReload.signal()
-        }
+        defer { releaseFingerprint.signal() }
         // Synchronous loader callbacks can overlap; the lock protects only this test counter.
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let workspaceId = UUID()
@@ -57,17 +51,8 @@ struct SharedLiveAgentIndexGenerationAuthorityTests {
         )
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
-                let invocation = loadCount.withLock { count in
-                    count += 1
-                    return count
-                }
-                if invocation == 1 {
-                    successorLoadStarted.signal()
-                } else {
-                    lateReloadStarted.signal()
-                    releaseLateReload.wait()
-                    lateReloadCompleted.signal()
-                }
+                loadCount.withLock { $0 += 1 }
+                successorLoadStarted.signal()
                 return successorResult
             },
             processScopeFingerprintProvider: {
@@ -92,6 +77,10 @@ struct SharedLiveAgentIndexGenerationAuthorityTests {
         }
         #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: fingerprintStarted))
         await timeoutWaiter.waitUntilPendingCount(1)
+        let timedOutGenerationID = try #require(sharedIndex.refreshTailID)
+        let timedOutWorkTask = try #require(
+            sharedIndex.refreshWorkTasksByID[timedOutGenerationID]
+        )
         await timeoutWaiter.fireNext()
         #expect(await staleRead.value == nil)
 
@@ -105,15 +94,13 @@ struct SharedLiveAgentIndexGenerationAuthorityTests {
             == "successor-session")
 
         releaseFingerprint.signal()
-        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: lateReloadStarted))
+        await timedOutWorkTask.value
+        #expect(loadCount.withLock { $0 } == 1)
         #expect(
             Self.sessionId(in: sharedIndex.cachedResumeIndexes(), workspaceId: workspaceId, panelId: panelId)
                 == "successor-session",
             "A timed-out validator must not revoke a newer generation's authority."
         )
-
-        releaseLateReload.signal()
-        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: lateReloadCompleted))
         await timeoutWaiter.cancelAll()
     }
 

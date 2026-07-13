@@ -75,10 +75,13 @@ extension SharedLiveAgentIndex {
 
             let cachedResult = generation.cachedResultToValidate
             let cachedResultMatches = await self.cachedResultMatchesCurrentProcessScope(cachedResult)
-            let currentGeneration = self.refreshGenerationsByID[generationID]
-            let ownsCachedAuthority = currentGeneration?.phase == .capturing
-                && currentGeneration?.cachedResultToValidate != nil
-                && currentGeneration?.cachedResultRevision == self.resumeAuthorityRevision
+            guard let currentGeneration = self.refreshGenerationsByID[generationID] else { return }
+            guard currentGeneration.phase == .capturing else {
+                self.finishTimedOutRefreshWork(generationID: generationID)
+                return
+            }
+            let ownsCachedAuthority = currentGeneration.cachedResultToValidate != nil
+                && currentGeneration.cachedResultRevision == self.resumeAuthorityRevision
                 && generation.ordinal >= self.latestCompletedOrdinal
             let reusesCachedResult = cachedResultMatches && ownsCachedAuthority
             if cachedResult != nil,
@@ -100,6 +103,27 @@ extension SharedLiveAgentIndex {
         }
         refreshWorkTasksByID[generationID] = workTask
         return task
+    }
+
+    private func finishTimedOutRefreshWork(generationID: UUID) {
+        guard let generation = refreshGenerationsByID[generationID],
+              generation.phase == .timedOut else {
+            return
+        }
+        refreshGenerationsByID.removeValue(forKey: generationID)
+        refreshTimeoutTasksByID.removeValue(forKey: generationID)?.cancel()
+        refreshWorkTasksByID.removeValue(forKey: generationID)
+        capturingGenerationIDs.remove(generationID)
+        resolvedRefreshOutcomeGenerationIDs.remove(generationID)
+        refreshTasksByID.removeValue(forKey: generationID)
+        if refreshTailID == generationID {
+            refreshTailID = nil
+        }
+        clearPendingForkValidations(
+            validationPanelsByPanelID: generation.validationPanelsByPanelID,
+            generationID: generationID
+        )
+        drainPendingHookStoreChangeIfPossible()
     }
 
     private func consumeRefreshOutcome(generationID: UUID) async -> LoadResult? {
