@@ -42,11 +42,42 @@ final class PortalDividerDragController {
         }
     }
 
-    private var axes: [AxisDrag] = []
-    private var isAborted = false
-    private(set) var cursorKind: PortalDividerCursorKind?
+    @MainActor
+    private final class DragSession {
+        var axes: [AxisDrag]
+        let cursorKind: PortalDividerCursorKind
+        weak var window: NSWindow?
+        var isAborted = false
+        var cursorEventMonitor: Any?
 
-    var isActive: Bool { !axes.isEmpty }
+        init(axes: [AxisDrag], cursorKind: PortalDividerCursorKind, window: NSWindow) {
+            self.axes = axes
+            self.cursorKind = cursorKind
+            self.window = window
+        }
+    }
+
+    private enum Phase {
+        case idle
+        case dragging(DragSession)
+    }
+
+    private var phase: Phase = .idle
+
+    private var activeSession: DragSession? {
+        guard case .dragging(let session) = phase else { return nil }
+        return session
+    }
+
+    var cursorKind: PortalDividerCursorKind? { activeSession?.cursorKind }
+
+    var isActive: Bool { activeSession != nil }
+
+#if DEBUG
+    var hasCursorEventMonitorForTesting: Bool {
+        activeSession?.cursorEventMonitor != nil
+    }
+#endif
 
     func begin(atWindowPoint windowPoint: NSPoint, regions: [PortalSplitDividerRegion]) -> Bool {
         guard !isActive,
@@ -54,41 +85,46 @@ final class PortalDividerDragController {
             return false
         }
         var nextAxes: [AxisDrag] = []
+        var dragWindow: NSWindow?
         for region in drag.regions {
             guard let splitView = region.splitView,
+                  let window = splitView.window,
                   let dividerRect = PortalSplitDividerRegion.dividerRect(
                       in: splitView,
                       dividerIndex: region.dividerIndex
                   ) else {
                 return false
             }
+            if let dragWindow, dragWindow !== window { return false }
+            dragWindow = window
             let pointer = splitView.convert(windowPoint, from: nil)
             nextAxes.append(AxisDrag(
                 splitView: splitView,
-                window: splitView.window,
+                window: window,
                 dividerIndex: region.dividerIndex,
                 initialPosition: region.isVertical ? dividerRect.origin.x : dividerRect.origin.y,
                 initialPointer: region.isVertical ? pointer.x : pointer.y,
                 isVertical: region.isVertical
             ))
         }
-        axes = nextAxes
-        cursorKind = drag.kind
+        guard let dragWindow else { return false }
+        let session = DragSession(axes: nextAxes, cursorKind: drag.kind, window: dragWindow)
+        phase = .dragging(session)
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
-        drag.kind.cursor.set()
+        installCursorEventMonitor(for: session)
+        session.cursorKind.cursor.set()
         return true
     }
 
     func update(windowPoint: NSPoint) {
-        guard isActive, !isAborted else { return }
-        cursorKind?.cursor.set()
-        for axis in axes {
+        guard let session = activeSession, !session.isAborted else { return }
+        for axis in session.axes {
             // Resizing the first axis can synchronously reconfigure the tree,
             // so revalidate each axis immediately before applying it.
             guard let splitView = axis.resolvedSplitView else {
                 // Keep the gesture claimed and stop moving anything until
                 // the real mouse-up so the stale click cannot leak anywhere.
-                isAborted = true
+                session.isAborted = true
                 return
             }
             let pointer = splitView.convert(windowPoint, from: nil)
@@ -104,20 +140,69 @@ final class PortalDividerDragController {
                 let extent = axis.isVertical ? splitView.bounds.width : splitView.bounds.height
                 let available = max(extent - splitView.dividerThickness, 1)
                 controller.setDividerPosition(clamped / available, forSplit: splitId)
-                cursorKind?.cursor.set()
             }
             splitView.setPosition(clamped, ofDividerAt: axis.dividerIndex)
-            cursorKind?.cursor.set()
         }
-        cursorKind?.cursor.set()
     }
 
     func end() {
-        guard isActive else { return }
-        axes = []
-        isAborted = false
-        cursorKind = nil
+        guard let session = activeSession else { return }
+        if let monitor = session.cursorEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            session.cursorEventMonitor = nil
+        }
+        phase = .idle
         TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+    }
+
+    /// The claimed drag session is the sole cursor owner from mouse-down
+    /// through mouse-up. Consuming cursor-only events prevents terminal,
+    /// browser, tab-bar, and native split tracking areas from replacing the
+    /// latched resize cursor while the button remains down.
+    private func installCursorEventMonitor(for session: DragSession) {
+        session.cursorEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [
+                .mouseMoved,
+                .mouseEntered,
+                .mouseExited,
+                .cursorUpdate,
+                .appKitDefined,
+                .systemDefined,
+                .leftMouseDragged,
+                .leftMouseUp,
+            ]
+        ) { [weak self, weak session] event in
+            MainActor.assumeIsolated {
+                guard let self,
+                      let session,
+                      self.activeSession === session else {
+                    return event
+                }
+
+                if let eventWindow = event.window,
+                   let dragWindow = session.window,
+                   eventWindow !== dragWindow {
+                    return event
+                }
+
+                session.cursorKind.cursor.set()
+                switch event.type {
+                case .mouseMoved, .mouseEntered, .mouseExited, .cursorUpdate, .appKitDefined, .systemDefined:
+                    return nil
+                case .leftMouseUp:
+                    // AppKit normally sends mouse-up back to the view that
+                    // received mouse-down. End on the next MainActor turn as
+                    // a lifecycle fallback if that view disappears mid-drag.
+                    Task { @MainActor [weak self, weak session] in
+                        guard let self, let session, self.activeSession === session else { return }
+                        self.end()
+                    }
+                    return event
+                default:
+                    return event
+                }
+            }
+        }
     }
 
     /// Resolves the exact divider identities captured by a mouse-down. A real
