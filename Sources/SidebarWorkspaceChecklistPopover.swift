@@ -132,21 +132,16 @@ struct SidebarWorkspaceChecklistPopover: View {
         }
         .frame(width: 320, alignment: .leading)
         .coordinateSpace(name: Self.pointerSpaceName)
-        // One container-level hover feeding the derived `hoveredItemId` (see
-        // its doc comment). `.onContinuousHover` still needs a mouse-moved
-        // event after content recreation; the `PopoverPointerSeed` background
-        // covers that gap by reading the pointer position once per window
-        // attach.
-        .onContinuousHover(coordinateSpace: .named(Self.pointerSpaceName)) { phase in
-            switch phase {
-            case .active(let location):
-                pointerLocation = location
-            case .ended:
-                pointerLocation = nil
-            }
-        }
-        .background(PopoverPointerSeed { seeded in
-            pointerLocation = seeded
+        // AppKit-owned pointer tracking feeding the derived `hoveredItemId`
+        // (see its doc comment). NOT SwiftUI `.onContinuousHover`: SwiftUI
+        // hover modifiers rebuild their NSTrackingArea whenever the content
+        // updates, and the first mouse event after a rebuild can arrive as a
+        // spurious "ended" from the torn-down area — observed live as the
+        // delete x vanishing on a 1px pointer move right after a checklist
+        // mutation. The tracker's backing NSView persists across SwiftUI
+        // updates, so its tracking area never churns with content changes.
+        .background(PopoverPointerTracker { location in
+            pointerLocation = location
         })
         .onPreferenceChange(ChecklistPopoverRowFramesKey.self) { frames in
             itemRowFrames = frames
@@ -506,39 +501,89 @@ private struct ChecklistPopoverRowFramesKey: PreferenceKey {
     }
 }
 
-/// Seeds the popover's pointer location once per window attach, from
-/// `NSEvent.mouseLocation`. `.onContinuousHover` only reports after the next
-/// real mouse-moved event, so a popover that (re)presents underneath an
-/// already-resting pointer would otherwise show no hover affordances until
-/// the user physically moves the mouse — the residual "delete x missing"
-/// mode after the churn-loop fix.
-private struct PopoverPointerSeed: NSViewRepresentable {
-    let onSeed: @MainActor (CGPoint?) -> Void
+/// AppKit-owned pointer tracking for the checklist popover: one
+/// NSTrackingArea on a background NSView that fills the popover content,
+/// reporting the pointer's location in that view's (flipped, top-left
+/// origin) coordinates — directly comparable to the row frames collected in
+/// the popover's named coordinate space. `nil` means the pointer left the
+/// popover.
+///
+/// Why not SwiftUI `.onContinuousHover`/`.onHover`: their tracking areas are
+/// torn down and recreated whenever the owning view updates, so the first
+/// mouse event after a checklist mutation can be a spurious `.ended` from
+/// the stale area with no follow-up `.active` until the NEXT event — the
+/// pointer-resting delete-x dropout. This view's backing NSView persists
+/// across SwiftUI content updates, so its tracking area only changes with
+/// geometry (`updateTrackingAreas`), never with content.
+///
+/// Also seeds the location from `NSEvent.mouseLocation` at window attach, so
+/// a popover that (re)presents underneath an already-resting pointer knows
+/// where it is before any mouse-moved arrives.
+private struct PopoverPointerTracker: NSViewRepresentable {
+    let onPointerChange: @MainActor (CGPoint?) -> Void
 
-    final class SeedView: NSView {
-        var onSeed: (@MainActor (CGPoint?) -> Void)?
+    final class TrackerView: NSView {
+        var onPointerChange: (@MainActor (CGPoint?) -> Void)?
 
         // SwiftUI's named coordinate space is top-left origin; matching that
-        // here keeps `convert(_:from:)` results directly comparable to the
-        // row frames collected via preference.
+        // here keeps reported points directly comparable to the row frames
+        // collected via preference.
         override var isFlipped: Bool { true }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(NSTrackingArea(
+                rect: .zero,
+                // `.activeAlways` so hover keeps working when the terminal
+                // pane steals key/main status back from the popover window.
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            ))
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            updateTrackingAreas()
+            reportCurrentPointerLocation()
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            report(event)
+        }
+
+        override func mouseMoved(with event: NSEvent) {
+            report(event)
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            onPointerChange?(nil)
+        }
+
+        private func report(_ event: NSEvent) {
+            let local = convert(event.locationInWindow, from: nil)
+            onPointerChange?(local)
+        }
+
+        /// Reads the pointer position directly (no event needed) — used to
+        /// seed hover state when the popover attaches under a resting pointer.
+        private func reportCurrentPointerLocation() {
             guard let window else { return }
             let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
             let local = convert(windowPoint, from: nil)
-            onSeed?(bounds.contains(local) ? local : nil)
+            onPointerChange?(bounds.contains(local) ? local : nil)
         }
     }
 
     func makeNSView(context: Context) -> NSView {
-        let view = SeedView()
-        view.onSeed = onSeed
+        let view = TrackerView()
+        view.onPointerChange = onPointerChange
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        (nsView as? SeedView)?.onSeed = onSeed
+        (nsView as? TrackerView)?.onPointerChange = onPointerChange
     }
 }
