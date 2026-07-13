@@ -723,13 +723,18 @@ function isCompletePostHogPersonDeletion(summary: unknown): boolean {
   const deletionErrors = result.deletion_errors;
   const hasNoDeletionErrors = deletionErrors === undefined ||
     (Array.isArray(deletionErrors) && deletionErrors.length === 0);
-  return Number.isSafeInteger(personsFound) &&
-    Number.isSafeInteger(personsDeleted) &&
-    (personsFound as number) >= 0 &&
-    personsFound === personsDeleted &&
-    eventsQueuedForDeletion === true &&
-    recordingsQueuedForDeletion === true &&
-    hasNoDeletionErrors;
+  if (
+    !Number.isSafeInteger(personsFound) ||
+    !Number.isSafeInteger(personsDeleted) ||
+    (personsFound as number) < 0 ||
+    personsFound !== personsDeleted ||
+    !hasNoDeletionErrors
+  ) return false;
+
+  // No matching person is already the requested deletion state. PostHog has
+  // nothing to enqueue in that case, so both queue flags are legitimately false.
+  return personsFound === 0 ||
+    (eventsQueuedForDeletion === true && recordingsQueuedForDeletion === true);
 }
 
 function postHogPersonDeletionConfig(): PostHogPersonDeletionConfig | null {
