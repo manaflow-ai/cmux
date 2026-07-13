@@ -65,6 +65,27 @@ import Testing
         #expect(connection.maximumWindowClaimRows == 20)
     }
 
+    @Test func clientEnvelopeTracksLiveClaimMaximaDownward() {
+        let connection = makeConnection()
+        connection.setWindowSize(windowId: 1, columns: 120, rows: 30)
+        connection.setWindowSize(windowId: 2, columns: 90, rows: 44)
+        #expect(connection.lastRequestedClientSize?.columns == 120)
+        #expect(connection.lastRequestedClientSize?.rows == 44)
+
+        connection.setWindowSize(windowId: 1, columns: 80, rows: 20)
+        #expect(connection.lastRequestedClientSize?.columns == 90)
+        #expect(connection.lastRequestedClientSize?.rows == 44)
+
+        connection.removeWindowSizeClaim(windowId: 2)
+        #expect(connection.lastRequestedClientSize?.columns == 80)
+        #expect(connection.lastRequestedClientSize?.rows == 20)
+
+        connection.setWindowSize(windowId: 3, columns: 140, rows: 50)
+        connection.retainWindowSizeClaims(for: [1])
+        #expect(connection.lastRequestedClientSize?.columns == 80)
+        #expect(connection.lastRequestedClientSize?.rows == 20)
+    }
+
     @Test func returningToSentSizeCancelsDifferentPendingClaim() {
         let connection = makeConnection()
         connection.handleMessageForTesting(.enter)

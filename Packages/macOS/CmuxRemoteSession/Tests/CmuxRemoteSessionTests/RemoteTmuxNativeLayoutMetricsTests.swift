@@ -109,4 +109,43 @@ import Testing
             dividerPosition: 1
         ) == 10)
     }
+
+    @Test func plannerDoesNotSpendAssignedCellsOnPlacementSlack() throws {
+        let metrics = RemoteTmuxNativeLayoutMetrics(
+            cellSize: CGSize(width: 10, height: 10),
+            surfacePadding: .zero,
+            tabBarHeight: 0,
+            dividerThickness: 1
+        )
+        let first = RemoteTmuxLayoutNode(
+            width: 90, height: 24, x: 0, y: 0, content: .pane(1)
+        )
+        let second = RemoteTmuxLayoutNode(
+            width: 10, height: 24, x: 91, y: 0, content: .pane(2)
+        )
+        let layout = RemoteTmuxLayoutNode(
+            width: 101,
+            height: 24,
+            x: 0,
+            y: 0,
+            content: .horizontal([first, second])
+        )
+        let container = CGSize(width: 1_001, height: 240)
+        let claim = try #require(metrics.clientGrid(layout: layout, contentSize: container))
+        #expect(claim.columns == 101)
+
+        let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
+        let plan = planner.plan(
+            tree: RemoteTmuxNativeMeasuredSplitTree(
+                tree: RemoteTmuxNativeSplitTree(layout: layout), metrics: metrics
+            ),
+            parentSize: container
+        )
+        let outerSizes = planner.outerSizes(of: plan)
+        let firstOuter = try #require(outerSizes[1])
+        let secondOuter = try #require(outerSizes[2])
+
+        #expect(Int(floor(firstOuter.width / metrics.cellSize.width)) >= first.width)
+        #expect(Int(floor(secondOuter.width / metrics.cellSize.width)) >= second.width)
+    }
 }
