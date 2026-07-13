@@ -107,6 +107,24 @@ test("direct viewer actions reset their smooth target after manual input", () =>
   dispose();
 });
 
+test("programmatic jumps can reset a pending smooth target", () => {
+  dom = new JSDOM("<!doctype html><html><body><div id='viewer'></div></body></html>");
+  const viewer = dom.window.document.getElementById("viewer") as HTMLElement;
+  Object.defineProperties(viewer, {
+    clientHeight: { value: 600 },
+    scrollHeight: { value: 2_400 },
+  });
+  const tops: number[] = [];
+  viewer.scrollTo = ((options: ScrollToOptions) => { tops.push(Number(options.top)); }) as typeof viewer.scrollTo;
+
+  CmuxViewerNavigation.performAction("diffViewerScrollDown", viewer);
+  viewer.scrollTop = 1_000;
+  CmuxViewerNavigation.resetSmoothTarget(viewer);
+  CmuxViewerNavigation.performAction("diffViewerScrollDown", viewer);
+
+  expect(tops).toEqual([72, 1_072]);
+});
+
 function shortcut(key: string, modifiers: Record<string, boolean> = {}) {
   return { first: { key, command: false, control: false, option: false, shift: false, ...modifiers } };
 }

@@ -12,6 +12,7 @@ declare global {
       getScroller: () => HTMLElement;
     }): () => void;
     performAction(action: string, scroller: HTMLElement): boolean;
+    resetSmoothTarget(scroller: HTMLElement): void;
   };
 
   interface Window {

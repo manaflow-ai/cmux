@@ -68,6 +68,10 @@
     return true;
   }
 
+  function resetSmoothTarget(scroller) {
+    if (scroller) { smoothTargets.delete(scroller); }
+  }
+
   function runMotion(scroller, kind, direction) {
     if (!scroller) { return; }
     var maxScroll = Math.max(0, (Number(scroller.scrollHeight) || 0) - viewportHeight(scroller));
@@ -97,8 +101,7 @@
     }
 
     function clearSmoothTarget() {
-      var scroller = getScroller();
-      if (scroller) { smoothTargets.delete(scroller); }
+      resetSmoothTarget(getScroller());
     }
 
     function clearForNativeScrollKey(event) {
@@ -181,6 +184,7 @@
   global.CmuxViewerNavigation = {
     install: install,
     installManualInputReset: installManualInputReset,
-    performAction: performAction
+    performAction: performAction,
+    resetSmoothTarget: resetSmoothTarget
   };
 })(globalThis);

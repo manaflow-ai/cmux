@@ -1503,9 +1503,11 @@ function useNativeViewerNavigation(
           dispatch({ type: "set-file-search-open", open: true });
           break;
         case "diffViewerNextFile":
+          if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
           onJumpAdjacentFile(1);
           break;
         case "diffViewerPreviousFile":
+          if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
           onJumpAdjacentFile(-1);
           break;
       }
