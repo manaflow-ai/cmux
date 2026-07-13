@@ -53,7 +53,7 @@ struct TerminalArtifactGalleryItemView: View {
             preview
                 .frame(width: 44, height: 44)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(artifact.displayName)
                     .font(.body)
                     .foregroundStyle(.primary)
@@ -93,20 +93,28 @@ struct TerminalArtifactGalleryItemView: View {
                     }
                 }
 
-            Text(artifact.displayName)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, minHeight: gridNameMinHeight, alignment: .top)
+            // Name + metadata share one top-aligned reserve so the subtitle hugs
+            // the title instead of sitting below the name's empty two-line
+            // reserve, while cells keep a uniform height.
+            VStack(alignment: .center, spacing: 2) {
+                Text(artifact.displayName)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
 
-            Text(metadata ?? "")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .opacity(metadata == nil ? 0 : 1)
-                .frame(maxWidth: .infinity, minHeight: gridMetadataMinHeight, alignment: .top)
+                Text(metadata ?? "")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .opacity(metadata == nil ? 0 : 1)
+            }
+            .frame(
+                maxWidth: .infinity,
+                minHeight: gridNameMinHeight + gridMetadataMinHeight,
+                alignment: .top
+            )
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .contentShape(Rectangle())
