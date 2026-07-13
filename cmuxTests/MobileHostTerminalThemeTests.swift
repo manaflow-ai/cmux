@@ -51,6 +51,24 @@ import Testing
         #expect(resolved == effective)
     }
 
+    @Test func reverseModeMakesRawV1DefaultsEffectiveForChrome() throws {
+        let frame = try MobileTerminalRenderGridFrame(
+            surfaceID: "surface-reverse-theme",
+            stateSeq: 1,
+            columns: 2,
+            rows: 1,
+            rowSpans: [],
+            modes: [.init(code: 5, ansi: false, on: true)],
+            terminalForeground: "#111111",
+            terminalBackground: "#eeeeee"
+        )
+
+        let resolved = TerminalTheme.monokai.applyingSurfaceColors(from: frame)
+
+        #expect(resolved.background == "#111111")
+        #expect(resolved.foreground == "#eeeeee")
+    }
+
     @MainActor
     @Test func producerThemeInvalidationsCoalesceToLatestSurfaceBatch() {
         let first = UUID()

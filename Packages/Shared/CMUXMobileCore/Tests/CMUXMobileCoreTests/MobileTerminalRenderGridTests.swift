@@ -428,7 +428,7 @@ import Testing
     #expect(vt.contains("\u{1B}]12;rgb:ff/ee/dd\u{1B}\\"))
 }
 
-@Test func renderGridFullSnapshotDoesNotDoubleReverseEffectiveDefaults() throws {
+@Test func renderGridFullSnapshotPreservesV1RawDefaultsWithReverseMode() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
         stateSeq: 1,
@@ -436,8 +436,8 @@ import Testing
         rows: 1,
         rowSpans: [],
         modes: [.init(code: 5, ansi: false, on: true)],
-        terminalForeground: "#EEEEEE",
-        terminalBackground: "#111111"
+        terminalForeground: "#111111",
+        terminalBackground: "#EEEEEE"
     )
 
     let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
