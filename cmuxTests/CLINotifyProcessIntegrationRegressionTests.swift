@@ -3278,18 +3278,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
-        XCTAssertTrue(
-            context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
-            "Managed subagent Stop should remain Feed telemetry, saw \(context.state.commands)"
-        )
-        XCTAssertFalse(
-            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
-            "Managed subagent Stop should not publish a child resume binding, saw \(context.state.commands)"
-        )
-        XCTAssertFalse(
-            context.state.commands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
-            "Managed subagent Stop should not notify or clobber visible status, saw \(context.state.commands)"
-        )
+        XCTAssertTrue(context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) }, "Managed subagent Stop should remain Feed telemetry, saw \(context.state.commands)")
+        XCTAssertFalse(context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" }, "Managed subagent Stop should not publish a child resume binding, saw \(context.state.commands)")
+        XCTAssertFalse(context.state.commands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") }, "Managed subagent Stop should not notify or clobber visible status, saw \(context.state.commands)")
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        let child = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual([child["runId"] as? String, child["parentRunId"] as? String, child["relationship"] as? String], ["child-thread", "root-thread", "spawned"])
+        XCTAssertEqual(child["restoreAuthority"] as? Bool, false)
+        XCTAssertEqual(child["foregroundState"] as? String, "completed")
     }
 
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
