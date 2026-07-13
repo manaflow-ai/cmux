@@ -2,6 +2,48 @@ import CMUXAgentLaunch
 import Darwin
 import Foundation
 
+struct AgentHookSessionAuthority: Sendable, Equatable {
+    var relationship: AgentSessionRelationship?
+    var restoreAuthority: Bool
+}
+
+/// Classifies restore ownership from explicit markers and bounded ancestry.
+/// Missing PID metadata retains legacy root behavior, while a failed ancestry
+/// walk after resolving the process itself fails closed as a child.
+struct AgentHookSessionAuthorityPolicy: Sendable {
+    func classify(
+        managedChild: Bool,
+        explicitRelationship: AgentSessionRelationship?,
+        processIdentityAvailable: Bool,
+        hasAgentAncestor: Bool,
+        ancestryProvenAbsent: Bool
+    ) -> AgentHookSessionAuthority {
+        let isForkRoot = explicitRelationship == .forked
+            && !managedChild
+            && processIdentityAvailable
+            && ancestryProvenAbsent
+        let ancestryAmbiguous = processIdentityAvailable
+            && !hasAgentAncestor
+            && !ancestryProvenAbsent
+        let isSpawnedChild = managedChild
+            || hasAgentAncestor
+            || ancestryAmbiguous
+            || explicitRelationship == .spawned
+            || (explicitRelationship == .forked && !isForkRoot)
+        let relationship: AgentSessionRelationship? = if isForkRoot {
+            .forked
+        } else if isSpawnedChild {
+            .spawned
+        } else {
+            explicitRelationship
+        }
+        return AgentHookSessionAuthority(
+            relationship: relationship,
+            restoreAuthority: !isSpawnedChild
+        )
+    }
+}
+
 /// Resolves an agent hook's run identity and nearest agent-process ancestor.
 ///
 /// The resolver walks at most ``maximumAncestorDepth`` parents and reads only
@@ -33,24 +75,13 @@ struct AgentHookSessionLineageResolver: Sendable {
             ?? cmuxRuntime.map { "runtime:\($0.id):session:\(agentName):\(sessionId)" }
             ?? "session:\(agentName):\(sessionId)"
         let parentRunId = explicitParentRunId ?? ancestor.map(Self.runId)
-        // Fork metadata is inherited like every other environment variable. It
-        // only describes the fork root while that process has no agent ancestor.
-        // Descendants must remain children even when they inherit `forked`.
-        let isForkRoot = explicitRelationship == .forked
-            && !managedChild
-            && identity != nil
-            && ancestorResolution.provesNoAgentAncestor
-        let isSpawnedChild = managedChild
-            || ancestor != nil
-            || explicitRelationship == .spawned
-            || (explicitRelationship == .forked && !isForkRoot)
-        let relationship: AgentSessionRelationship? = if isForkRoot {
-            .forked
-        } else if isSpawnedChild {
-            .spawned
-        } else {
-            explicitRelationship
-        }
+        let authority = AgentHookSessionAuthorityPolicy().classify(
+            managedChild: managedChild,
+            explicitRelationship: explicitRelationship,
+            processIdentityAvailable: identity != nil,
+            hasAgentAncestor: ancestor != nil,
+            ancestryProvenAbsent: ancestorResolution.provesNoAgentAncestor
+        )
 
         return AgentHookSessionLineage(
             runId: runId,
@@ -59,11 +90,8 @@ struct AgentHookSessionLineageResolver: Sendable {
             cmuxRuntime: cmuxRuntime,
             parentRunId: parentRunId,
             parentSessionId: parentSessionId,
-            relationship: relationship,
-            // A semantic fork on a separate TTY is an independent root. Process
-            // ancestry, a managed-child marker, or an explicit spawned marker
-            // removes restore authority.
-            restoreAuthority: !isSpawnedChild
+            relationship: authority.relationship,
+            restoreAuthority: authority.restoreAuthority
         )
     }
 

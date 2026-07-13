@@ -19,13 +19,14 @@ extension Workspace {
 
     func recordAgentRootExit(
         panelId: UUID,
-        binding: SurfaceResumeBindingSnapshot?
+        binding: SurfaceResumeBindingSnapshot?,
+        isPromptIdle: Bool
     ) {
-        guard let binding else { return }
-        markAgentRootExitLocally(panelId: panelId, binding: binding)
-        AgentHookSessionStateWriter.recordRootExitIfNeeded(binding: binding) {
-            clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
+        if let binding {
+            markAgentRootExitLocally(panelId: panelId, binding: binding)
+            AgentHookSessionStateWriter.recordRootExitIfNeeded(binding: binding)
         }
+        if isPromptIdle { clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
     }
 
     func allowsAgentContinuation(forPanelId panelId: UUID) -> Bool {

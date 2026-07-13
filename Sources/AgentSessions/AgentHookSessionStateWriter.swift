@@ -32,13 +32,11 @@ struct AgentHookSessionStateWriter: Sendable {
     }
 
     static func recordRootExitIfNeeded(
-        binding: SurfaceResumeBindingSnapshot?,
-        clearAgent: () -> Bool
+        binding: SurfaceResumeBindingSnapshot?
     ) {
         guard let kindValue = binding?.kind,
               let kind = RestorableAgentKind(rawValue: kindValue),
               let sessionId = binding?.checkpointId else { return }
-        _ = clearAgent()
         AgentHookSessionStateWriter().schedule(kind: kind, sessionId: sessionId)
     }
 

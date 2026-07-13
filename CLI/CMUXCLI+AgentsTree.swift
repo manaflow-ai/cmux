@@ -206,7 +206,7 @@ extension CMUXCLI {
         guard !snapshot.nodes.isEmpty else {
             return String(localized: "cli.agents.tree.output.noMatches", defaultValue: "No saved agent runs matched.")
         }
-        let nodeByRunId = Dictionary(uniqueKeysWithValues: snapshot.nodes.map { ($0.runId, $0) })
+        let nodeByRunId = AgentSessionGraphNodeIndex.nodes(snapshot.nodes)
         let childrenByRunId = Dictionary(grouping: snapshot.edges.compactMap { edge -> (String, AgentSessionGraphEdge)? in
             guard let parent = edge.fromRunId, nodeByRunId[parent] != nil else { return nil }
             return (parent, edge)

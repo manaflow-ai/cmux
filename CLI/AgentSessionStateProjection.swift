@@ -22,6 +22,7 @@ struct AgentSessionStateProjection: Sendable, Equatable {
         attention = record.attentionState ?? Self.attention(from: record.runtimeStatus)
         activity = Self.activity(foreground: foreground, workloads: record.workloads ?? [])
         effective = Self.effective(
+            process: process,
             session: session,
             foreground: foreground,
             attention: attention,
@@ -80,11 +81,13 @@ struct AgentSessionStateProjection: Sendable, Equatable {
     }
 
     private static func effective(
+        process: AgentProcessState,
         session: AgentSessionLifecycleState,
         foreground: AgentForegroundState,
         attention: AgentAttentionState,
         activity: AgentActivitySnapshot
     ) -> AgentEffectiveState {
+        if process == .exited { return .ended }
         switch session {
         case .ended: return .ended
         case .hibernated: return .hibernated

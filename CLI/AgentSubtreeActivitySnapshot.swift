@@ -81,7 +81,8 @@ extension AgentActivitySnapshot.Counts {
 /// are ignored instead of recursing or blocking the CLI on corrupt history.
 struct AgentSubtreeActivityProjector: Sendable {
     func project(nodes: inout [AgentSessionGraphNode], edges: [AgentSessionGraphEdge]) {
-        let indexByRun = Dictionary(uniqueKeysWithValues: nodes.indices.map { (nodes[$0].runId, $0) })
+        nodes = AgentSessionGraphNodeIndex.canonicalNodes(nodes)
+        let indexByRun = AgentSessionGraphNodeIndex.indices(nodes)
         var parentsByChild: [Int: [Int]] = [:]
         var remainingChildren = Array(repeating: 0, count: nodes.count)
         var seenEdges: Set<String> = []
