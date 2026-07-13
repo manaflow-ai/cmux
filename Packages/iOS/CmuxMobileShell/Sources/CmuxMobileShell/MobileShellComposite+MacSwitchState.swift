@@ -72,4 +72,44 @@ extension MobileShellComposite {
     /// instead of `MobileShellComposite.swift` to respect that file's length
     /// budget.
     public var isMacSwitchInFlight: Bool { macSwitchAttemptID != nil }
+
+    /// Assign any newly seen real Mac a stable in-memory color slot.
+    ///
+    /// Called from `recomputeDerivedWorkspaceState()` before deriving
+    /// previews so a Mac switch's transient single-key `workspacesByMac`
+    /// state (old foreground dropped synchronously, new foreground's
+    /// siblings re-added asynchronously) never recomputes another Mac's
+    /// existing slot. Lives here (with `stableMacColorSlots` and
+    /// `workspaceAggregation` made internal) instead of
+    /// `MobileShellComposite.swift` to respect that file's length budget.
+    func updateStableMacColorSlots() {
+        let updated = workspaceAggregation.machineColorIndex(
+            existingAssignments: stableMacColorSlots,
+            adding: Array(workspacesByMac.keys.filter { !$0.isEmpty && $0 != Self.foregroundAnonymousKey })
+        )
+        if updated != stableMacColorSlots {
+            stableMacColorSlots = updated
+        }
+    }
+
+    /// Reset all stable color slots on sign-out. Slots are additive-only (see
+    /// `updateStableMacColorSlots` above), so the anonymous-placeholder reset
+    /// in `signOut()` never prunes the previous account's real Mac→color
+    /// assignments on its own. Call this last, after every didSet-triggering
+    /// assignment in `signOut()` has had its chance to recompute from the
+    /// (still-stale) previous `workspacesByMac`, so the next account starts
+    /// with a clean slate. Lives here instead of `MobileShellComposite.swift`
+    /// to respect that file's length budget.
+    func resetStableMacColorSlotsForSignOut() {
+        stableMacColorSlots = [:]
+    }
+
+    /// Prune stable color slots to only the foreground Mac on a team switch.
+    /// Slots are additive-only, so the old team's Macs would otherwise linger
+    /// in the slot map forever across repeated team switches; the new team's
+    /// Macs get reassigned lazily as they're re-aggregated. Lives here instead
+    /// of `MobileShellComposite.swift` to respect that file's length budget.
+    func pruneStableMacColorSlots(keepingForegroundKey foregroundKey: String) {
+        stableMacColorSlots = stableMacColorSlots.filter { $0.key == foregroundKey }
+    }
 }
