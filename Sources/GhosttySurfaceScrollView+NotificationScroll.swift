@@ -280,7 +280,9 @@ extension GhosttySurfaceScrollView {
         // The rendered frame is the authority signal. This deadline only prevents
         // a hidden or torn-down renderer from retaining process-wide frame demand.
         let timer = Timer(timeInterval: 10, repeats: false) { [weak self] _ in
-            self?.expireNotificationScrollRestoreFrameDeadline()
+            MainActor.assumeIsolated {
+                self?.expireNotificationScrollRestoreFrameDeadline()
+            }
         }
         notificationScrollRestoreFrameDeadlineTimer = timer
         RunLoop.main.add(timer, forMode: .common)
