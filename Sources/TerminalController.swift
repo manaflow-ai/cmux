@@ -115,7 +115,7 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
-
+    let mobileWorkingTreeDiffCoordinator = MobileWorkingTreeDiffCoordinator()
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     var tabManager: TabManager?
@@ -13999,8 +13999,8 @@ class TerminalController {
             result = request.method == "workspace.group.create" ? v2MobileWorkspaceGroupCreate(params: request.params) : v2MobileWorkspaceGroupAction(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(method: method, params: request.params)
-        case "workspace.close":
-            result = v2MobileWorkspaceClose(params: request.params)
+        case "mobile.diff.load": result = await v2MobileDiffLoad(params: request.params)
+        case "workspace.close": result = v2MobileWorkspaceClose(params: request.params)
         case "workspace.group.collapse":
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
         case "workspace.group.expand":

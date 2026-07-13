@@ -10,5 +10,8 @@ declare global {
       streamMetrics?: unknown;
       workerPool?: unknown;
     };
+    __cmuxMobileDiff?: {
+      selectFile(itemId: string): void;
+    };
   }
 }

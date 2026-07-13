@@ -32,6 +32,7 @@ extension MobileHostService {
             "workspace.group_create.v1",
             "workspace.create_in_group.v1",
             "dogfood.v1",
+            "mobile.diff.v1",
             // The workspace list carries group sections (group_id per workspace +
             // a top-level groups array) and the host accepts
             // workspace.group.collapse/expand from mobile. iOS feature-detects

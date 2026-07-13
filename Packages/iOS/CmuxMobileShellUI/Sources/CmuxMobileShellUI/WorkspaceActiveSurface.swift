@@ -4,15 +4,27 @@ enum WorkspaceActiveSurface: Equatable {
     case terminal
     case chat
     case browser
+    case diff
 
-    static func derive(isChatMode: Bool, hasChosenChatSession: Bool, hasActiveBrowser: Bool) -> Self {
+    init(
+        isChatMode: Bool,
+        hasChosenChatSession: Bool,
+        hasActiveBrowser: Bool,
+        hasActiveDiff: Bool = false
+    ) {
         if isChatMode, hasChosenChatSession {
-            return .chat
+            self = .chat
+            return
+        }
+        if hasActiveDiff {
+            self = .diff
+            return
         }
         if hasActiveBrowser {
-            return .browser
+            self = .browser
+            return
         }
-        return .terminal
+        self = .terminal
     }
 
     /// The terminal to refocus when chrome (chat/browser) returns to the

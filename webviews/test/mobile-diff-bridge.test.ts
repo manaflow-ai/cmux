@@ -1,0 +1,52 @@
+import { expect, test } from "bun:test";
+import {
+  mobileDiffCompletionMessages,
+  mobileDiffFiles,
+  mobileDiffMessage,
+  mobileDiffRenderFailed,
+  mobileDiffSelectionMessage,
+} from "../src/mobile-diff-bridge";
+
+test("mobile diff bridge preserves file order and stats", () => {
+  const source = {
+    paths: ["Sources/App.swift", "README.md"],
+    pathToItemId: new Map([
+      ["Sources/App.swift", "app"],
+      ["README.md", "readme"],
+    ]),
+    statsByPath: new Map([
+      ["Sources/App.swift", { added: 12, deleted: 3 }],
+      ["README.md", { added: 2, deleted: 0 }],
+    ]),
+  } as any;
+
+  expect(mobileDiffFiles(source)).toEqual([
+    { id: "app", path: "Sources/App.swift", added: 12, deleted: 3 },
+    { id: "readme", path: "README.md", added: 2, deleted: 0 },
+  ]);
+});
+
+test("empty diffs are ready states, not render failures", () => {
+  expect(mobileDiffRenderFailed({ error: true, message: "No changes" }, "No changes")).toBe(false);
+  expect(mobileDiffRenderFailed({ error: true, message: "Render failed" }, "No changes")).toBe(true);
+});
+
+test("completion publishes the renderer selection with the file index", () => {
+  expect(mobileDiffCompletionMessages(null, "item-2", 7)).toEqual([
+    { type: "files", files: [], generation: 7, selectedItemId: "item-2" },
+    { type: "ready", generation: 7 },
+  ]);
+});
+
+test("mobile diff messages carry the renderer generation", () => {
+  expect(mobileDiffMessage(null, 7)).toEqual({
+    type: "files",
+    files: [],
+    generation: 7,
+  });
+  expect(mobileDiffSelectionMessage("item-2", 7)).toEqual({
+    type: "selection",
+    generation: 7,
+    selectedItemId: "item-2",
+  });
+});

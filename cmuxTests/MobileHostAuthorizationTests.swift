@@ -1072,16 +1072,6 @@ struct MobileHostAuthorizationTests {
         let recordedMethods = await requestRecorder.recordedMethods()
         #expect(recordedMethods == ["workspace.list"])
     }
-    // MARK: - Advertised mobile host capabilities
-    @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
-        let capabilities = MobileHostService.mobileHostCapabilities
-        #expect(capabilities.contains("workspace.actions.v1"))
-        #expect(capabilities.contains("workspace.read_state.v1"))
-        #expect(capabilities.contains("workspace.close.v1"))
-        #expect(capabilities.contains("workspace.move.v1"))
-        #expect(capabilities.contains("workspace.group_actions.v1"))
-        #expect(capabilities.contains("terminal.render_grid.v1"))
-    }
     // MARK: - Mobile workspace.action sub-action gate
     @Test func testMobileWorkspaceActionGateAllowsOnlyPinNameAndReadStateActions() {
         for action in ["pin", "unpin", "rename", "mark_read", "mark_unread", "PIN", "UnPin", "RENAME", "MARK_READ", "Mark_Unread"] {

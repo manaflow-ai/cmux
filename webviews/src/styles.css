@@ -115,6 +115,16 @@ body {
   color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
   z-index: 50;
 }
+body[data-mobile-native-chrome="true"] #toolbar,
+body[data-mobile-native-chrome="true"] #files-sidebar {
+  display: none;
+}
+body[data-mobile-native-chrome="true"] #app {
+  grid-template-rows: minmax(0, 1fr);
+}
+body[data-mobile-native-chrome="true"] #content {
+  grid-template-columns: minmax(0, 1fr);
+}
 /* Sidebar visible (and wide enough that it is not media-auto-hidden at <=520px):
    the JumpSelect duplicates the sidebar, so collapse the centered middle track
    and hide it, letting toolbar-left (source/repo/base) reclaim the space. Below

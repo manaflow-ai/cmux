@@ -15,17 +15,16 @@ let package = Package(
         ),
     ],
     dependencies: [
-        // Localized-string helpers (`L10n`). `CmuxMobileSupport` is a leaf with
-        // no dependencies, so the browser package stays low in the DAG.
+        .package(path: "../CmuxMobileShellModel"),
+        // Shared shell DTOs for the mobile diff document and localized strings.
         .package(path: "../CmuxMobileSupport"),
     ],
     targets: [
-        // A self-contained, phone-local browser surface. P1 browser state never
-        // touches the Mac, so this package sits low in the DAG: it depends only
-        // on the leaf `CmuxMobileSupport` and links Foundation/WebKit/SwiftUI.
+        // Phone-local WebKit surfaces and their native chrome.
         .target(
             name: "CmuxMobileBrowser",
             dependencies: [
+                "CmuxMobileShellModel",
                 "CmuxMobileSupport",
             ],
             swiftSettings: [

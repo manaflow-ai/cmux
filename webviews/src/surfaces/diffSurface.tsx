@@ -34,6 +34,7 @@ export function mountDiffSurface(rootElement: HTMLElement): void {
   });
   const initialStatus = initialDiffViewerStatus(config, label);
   document.body.dataset.filesHidden = "false";
+  document.body.dataset.mobileNativeChrome = config.payload?.mobileNativeChrome === true ? "true" : "false";
   applyDiffViewerStatusToDocument(initialStatus);
   const router = createWebviewsRouter(() => (
     <App config={config} initialStatus={initialStatus} />

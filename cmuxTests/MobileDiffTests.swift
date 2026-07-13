@@ -1,0 +1,345 @@
+import CMUXMobileCore
+import Darwin
+import Foundation
+import os
+import Testing
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite(.serialized)
+@MainActor
+struct MobileDiffTests {
+    @Test func hostAdvertisesDiffCapability() {
+        #expect(MobileHostService.mobileHostCapabilities.contains("mobile.diff.v1"))
+    }
+
+    @Test func scopedAttachTicketAllowsDiffOnlyForItsWorkspace() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace")
+        let allowed = MobileHostRPCRequest(
+            id: "mobile-diff",
+            method: "mobile.diff.load",
+            params: ["workspace_id": "workspace"],
+            auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
+        )
+        let rejected = MobileHostRPCRequest(
+            id: "mobile-diff-other",
+            method: "mobile.diff.load",
+            params: ["workspace_id": "other-workspace"],
+            auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
+        )
+
+        #expect(MobileHostService.ticketAuthorizationError(ticket: ticket, request: allowed) == nil)
+        #expect(MobileHostService.ticketAuthorizationError(ticket: ticket, request: rejected)?.code == "forbidden")
+    }
+
+    @Test func loaderIncludesTrackedAndUntrackedChanges() async throws {
+        let repository = try makeRepository(named: "working-tree")
+        defer { try? FileManager.default.removeItem(at: repository) }
+
+        try Data("before\n".utf8).write(to: repository.appendingPathComponent("tracked.txt"))
+        try runGit(["add", "tracked.txt"], at: repository)
+        try runGit([
+            "-c", "user.name=cmux Tests",
+            "-c", "user.email=cmux-tests@example.com",
+            "commit", "--quiet", "-m", "fixture",
+        ], at: repository)
+        try Data("after\n".utf8).write(to: repository.appendingPathComponent("tracked.txt"))
+        try Data("new\n".utf8).write(to: repository.appendingPathComponent("untracked.txt"))
+
+        let document = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+        let patch = try #require(document["patch"] as? String)
+        #expect(document["repository_root"] as? String == repository.path)
+        #expect(document["title"] as? String == "Fixture")
+        #expect(patch.contains("diff --git a/tracked.txt b/tracked.txt"))
+        #expect(patch.contains("diff --git a/untracked.txt b/untracked.txt"))
+        #expect(patch.contains("+after"))
+        #expect(patch.contains("+new"))
+    }
+
+    @Test func coordinatorCoalescesConcurrentLoadsForOneWorkspace() async throws {
+        let callCount = OSAllocatedUnfairLock(initialState: 0)
+        let coordinator = MobileWorkingTreeDiffCoordinator(maximumConcurrentLoads: 2) { directory, title in
+            callCount.withLock { $0 += 1 }
+            try await ContinuousClock().sleep(for: .milliseconds(25))
+            return MobileWorkingTreeDiffPayload(patch: "patch", repositoryRoot: directory, title: title)
+        }
+
+        async let first = coordinator.load(key: "workspace", directory: "/tmp/repository", title: "First")
+        async let second = coordinator.load(key: "workspace", directory: "/tmp/repository", title: "Second")
+        let (firstResult, secondResult) = try await (first, second)
+
+        #expect(callCount.withLock { $0 } == 1)
+        #expect(firstResult.patch == secondResult.patch)
+    }
+
+    @Test func loaderIgnoresInheritedRepositorySelectionEnvironment() async throws {
+        let selectedRepository = try makeRepository(named: "selected-environment")
+        let redirectedRepository = try makeRepository(named: "redirected-environment")
+        defer {
+            try? FileManager.default.removeItem(at: selectedRepository)
+            try? FileManager.default.removeItem(at: redirectedRepository)
+        }
+        try Data("selected\n".utf8).write(to: selectedRepository.appendingPathComponent("selected.txt"))
+        try Data("redirected\n".utf8).write(to: redirectedRepository.appendingPathComponent("redirected.txt"))
+        let nestedWorkspace = selectedRepository.appendingPathComponent("nested/workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedWorkspace, withIntermediateDirectories: true)
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_DIR"] = redirectedRepository.appendingPathComponent(".git").path
+        environment["GIT_WORK_TREE"] = redirectedRepository.path
+        environment["GIT_CEILING_DIRECTORIES"] = selectedRepository.appendingPathComponent("nested").path
+
+        let document = try await MobileWorkingTreeDiffLoader(environment: environment)
+            .load(directory: nestedWorkspace.path, title: "Fixture")
+        let patch = try #require(document["patch"] as? String)
+
+        #expect(document["repository_root"] as? String == selectedRepository.path)
+        #expect(patch.contains("selected.txt"))
+        #expect(!patch.contains("redirected.txt"))
+    }
+
+    @Test func loaderIncludesStagedFilesBeforeFirstCommit() async throws {
+        let repository = try makeRepository(named: "unborn")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        let objectFilesBefore = try gitObjectFiles(in: repository)
+
+        try Data("staged\n".utf8).write(to: repository.appendingPathComponent("staged.txt"))
+        try runGit(["add", "staged.txt"], at: repository)
+        try Data("edited after staging\n".utf8).write(to: repository.appendingPathComponent("staged.txt"))
+
+        let document = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+        let patch = try #require(document["patch"] as? String)
+        #expect(patch.contains("diff --git a/staged.txt b/staged.txt"))
+        #expect(patch.components(separatedBy: "diff --git a/staged.txt b/staged.txt").count == 2)
+        #expect(patch.contains("+edited after staging"))
+        #expect(!patch.contains("+staged"))
+        #expect(try gitObjectFiles(in: repository) == objectFilesBefore)
+    }
+
+    @Test func loaderIncludesFilesInUnbornSHA256Repository() async throws {
+        let repository = try makeRepository(named: "unborn-sha256", objectFormat: "sha256")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        try Data("sha256\n".utf8).write(to: repository.appendingPathComponent("new.txt"))
+        try runGit(["add", "new.txt"], at: repository)
+
+        let document = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+        let patch = try #require(document["patch"] as? String)
+        #expect(patch.contains("diff --git a/new.txt b/new.txt"))
+        #expect(patch.contains("+sha256"))
+    }
+
+    @Test func loaderRejectsTruncatedUntrackedFileLists() async throws {
+        let repository = try makeRepository(named: "many-files")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        for index in 0...200 {
+            try Data().write(to: repository.appendingPathComponent("untracked-\(index).txt"))
+        }
+
+        do {
+            _ = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+            Issue.record("Expected too many untracked files to fail")
+        } catch let error as MobileWorkingTreeDiffLoadError {
+            #expect(error.code == "too_many_files")
+        }
+    }
+
+    @Test func loaderRejectsTooManyTrackedChanges() async throws {
+        let repository = try makeRepository(named: "many-tracked-files")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        for index in 0...200 {
+            try Data("before\n".utf8).write(to: repository.appendingPathComponent("tracked-\(index).txt"))
+        }
+        try runGit(["add", "."], at: repository)
+        try runGit([
+            "-c", "user.name=cmux Tests",
+            "-c", "user.email=cmux-tests@example.com",
+            "commit", "--quiet", "-m", "fixture",
+        ], at: repository)
+        for index in 0...200 {
+            try Data("after\n".utf8).write(to: repository.appendingPathComponent("tracked-\(index).txt"))
+        }
+
+        do {
+            _ = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+            Issue.record("Expected too many tracked files to fail")
+        } catch let error as MobileWorkingTreeDiffLoadError {
+            #expect(error.code == "too_many_files")
+        }
+    }
+
+    @Test func loaderStopsOversizedPatchCapture() async throws {
+        let repository = try makeRepository(named: "oversized")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        try Data(repeating: 65, count: 7 * 1024 * 1024)
+            .write(to: repository.appendingPathComponent("oversized.txt"))
+
+        do {
+            _ = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+            Issue.record("Expected oversized patch to fail")
+        } catch let error as MobileWorkingTreeDiffLoadError {
+            #expect(error.code == "too_large")
+        }
+    }
+
+    @Test func loaderRejectsPatchWhoseJSONExpansionExceedsFrameLimit() async throws {
+        let repository = try makeRepository(named: "json-expanded")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        try Data(repeating: 92, count: 4_200_000)
+            .write(to: repository.appendingPathComponent("backslashes.txt"))
+
+        do {
+            _ = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+            Issue.record("Expected JSON-expanded patch to fail")
+        } catch let error as MobileWorkingTreeDiffLoadError {
+            #expect(error.code == "too_large")
+        }
+    }
+
+    @Test func loaderSkipsUntrackedFIFOs() async throws {
+        let repository = try makeRepository(named: "fifo")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        let fifoPath = repository.appendingPathComponent("blocking-pipe").path
+        #expect(mkfifo(fifoPath, S_IRUSR | S_IWUSR) == 0)
+
+        let document = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+        let patch = try #require(document["patch"] as? String)
+        #expect(!patch.contains("blocking-pipe"))
+    }
+
+    @Test func loaderSkipsSymlinksToUntrackedFIFOs() async throws {
+        let repository = try makeRepository(named: "fifo-symlink")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        let fifoPath = repository.appendingPathComponent("blocking-pipe").path
+        #expect(mkfifo(fifoPath, S_IRUSR | S_IWUSR) == 0)
+        try FileManager.default.createSymbolicLink(
+            atPath: repository.appendingPathComponent("blocking-link").path,
+            withDestinationPath: "blocking-pipe"
+        )
+
+        let document = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+        let patch = try #require(document["patch"] as? String)
+        #expect(!patch.contains("blocking-link"))
+    }
+
+    @Test func loaderIncludesSafeUntrackedSymlinks() async throws {
+        let repository = try makeRepository(named: "safe-symlinks")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        try FileManager.default.createDirectory(at: repository.appendingPathComponent("folder"), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            atPath: repository.appendingPathComponent("folder-link").path,
+            withDestinationPath: "folder"
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: repository.appendingPathComponent("dangling-link").path,
+            withDestinationPath: "missing"
+        )
+
+        let document = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+        let patch = try #require(document["patch"] as? String)
+        #expect(patch.contains("diff --git a/folder-link b/folder-link"))
+        #expect(patch.contains("+folder"))
+        #expect(patch.contains("diff --git a/dangling-link b/dangling-link"))
+        #expect(patch.contains("+missing"))
+        #expect(patch.components(separatedBy: "new file mode 120000").count == 3)
+    }
+
+    @Test func loaderRejectsNonUTF8UntrackedPaths() async throws {
+        let repository = try makeRepository(named: "non-utf8-path")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        var filePath = Array(repository.path.utf8).map(CChar.init)
+        filePath.append(CChar(UInt8(ascii: "/")))
+        filePath.append(contentsOf: Array("invalid-".utf8).map(CChar.init))
+        filePath.append(CChar(bitPattern: 0xFF))
+        filePath.append(0)
+        let fileFD = filePath.withUnsafeBufferPointer { pointer in
+            creat(pointer.baseAddress, S_IRUSR | S_IWUSR)
+        }
+        #expect(fileFD >= 0)
+        if fileFD >= 0 { close(fileFD) }
+
+        do {
+            _ = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+            Issue.record("Expected a non-UTF-8 path to fail")
+        } catch let error as MobileWorkingTreeDiffLoadError {
+            #expect(error.code == "invalid_data")
+        }
+    }
+
+    @Test func loaderDoesNotRunExternalDiffHelpersForUntrackedFiles() async throws {
+        let repository = try makeRepository(named: "external-diff")
+        defer { try? FileManager.default.removeItem(at: repository) }
+        let marker = repository.appendingPathComponent("external-helper-ran")
+        let helper = repository.appendingPathComponent("external-helper.sh")
+        try Data("#!/bin/sh\ntouch \"\(marker.path)\"\nexit 0\n".utf8).write(to: helper)
+        #expect(chmod(helper.path, S_IRUSR | S_IWUSR | S_IXUSR) == 0)
+        try runGit(["config", "diff.external", helper.path], at: repository)
+        try Data("new\n".utf8).write(to: repository.appendingPathComponent("untracked.txt"))
+
+        _ = try await MobileWorkingTreeDiffLoader().load(directory: repository.path, title: "Fixture")
+
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test func processCancellationLatchesBeforeLaunch() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        let cancellation = MobileDiffProcessCancellation(process: process)
+
+        cancellation.cancel()
+
+        #expect(!cancellation.beginLaunch())
+    }
+
+    private func makeRepository(named name: String, objectFormat: String? = nil) throws -> URL {
+        let repository = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mobile-diff-\(name)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
+        var arguments = ["init", "--quiet"]
+        if let objectFormat { arguments.append("--object-format=\(objectFormat)") }
+        try runGit(arguments, at: repository)
+        return repository
+    }
+
+    private func scopedAttachTicket(workspaceID: String) throws -> CmxAttachTicket {
+        let route = try CmxAttachRoute(
+            id: "debug",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 58465)
+        )
+        return try CmxAttachTicket(
+            workspaceID: workspaceID,
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3600),
+            authToken: "ticket-secret"
+        )
+    }
+
+    private func gitObjectFiles(in repository: URL) throws -> Set<String> {
+        let root = repository.appendingPathComponent(".git/objects", isDirectory: true)
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else {
+            return []
+        }
+        var files: Set<String> = []
+        for case let url as URL in enumerator
+        where try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+            files.insert(String(url.path.dropFirst(root.path.count + 1)))
+        }
+        return files
+    }
+
+    private func runGit(_ arguments: [String], at directory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-C", directory.path] + arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+    }
+}

@@ -64,6 +64,8 @@ struct WorkspaceDetailView: View {
     @State var ignoredChatSessionRefreshKey: String?
     @State var ignoredChatSessionRefreshID: UUID?
     @State var ignoredChatSessionRefreshTask: Task<[ChatSessionDescriptor]?, Never>?
+    @State var mobileDiffState: MobileDiffState?
+    @State var mobileDiffLoadTask: Task<Void, Never>?
     /// Per-session chat stores kept warm while the workspace detail is visible.
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
@@ -77,10 +79,11 @@ struct WorkspaceDetailView: View {
     }
     #if os(iOS)
     var activeSurface: WorkspaceActiveSurface {
-        WorkspaceActiveSurface.derive(
+        WorkspaceActiveSurface(
             isChatMode: isChatMode,
             hasChosenChatSession: chosenChatSession != nil,
-            hasActiveBrowser: activeBrowser != nil
+            hasActiveBrowser: activeBrowser != nil,
+            hasActiveDiff: mobileDiffState != nil
         )
     }
     #endif
@@ -98,6 +101,9 @@ struct WorkspaceDetailView: View {
             .onChange(of: selectedTerminalID) { _, _ in
                 refreshCachedChatToggleAnchor()
                 syncTerminalPickerRows(includeTitleChanges: true)
+            }
+            .onChange(of: workspace.id) { _, _ in
+                closeMobileDiff()
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
@@ -178,6 +184,11 @@ struct WorkspaceDetailView: View {
                 subtitle: tabName(for: session),
                 style: .toolbarCompact
             )
+        } else if mobileDiffState != nil {
+            Text(L10n.string("mobile.diff.title", defaultValue: "Diff Viewer"))
+                .font(.headline)
+                .lineLimit(1)
+                .foregroundStyle(TerminalPalette.foreground)
         } else if let browser = activeBrowser {
             Text(browser.title ?? workspace.name)
                 .font(.headline)
@@ -383,7 +394,7 @@ struct WorkspaceDetailView: View {
                 } label: {
                     Label(
                         terminal.name,
-                        systemImage: terminal.id == selectedID && activeBrowser == nil
+                        systemImage: terminal.id == selectedID && activeBrowser == nil && mobileDiffState == nil && !isChatMode
                             ? "checkmark.circle.fill"
                             : "terminal"
                     )
@@ -411,13 +422,23 @@ struct WorkspaceDetailView: View {
                 )
             }
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
+
+            if store.supportsMobileDiff {
+                Button(action: openMobileDiffFromToolbar) {
+                    Label(
+                        L10n.string("mobile.diff.open", defaultValue: "View Changes"),
+                        systemImage: mobileDiffState == nil ? "doc.text.magnifyingglass" : "checkmark.circle.fill"
+                    )
+                }
+                .accessibilityIdentifier("MobileOpenDiffMenuItem")
+            }
         }
 
         #if canImport(UIKit)
         Section {
             // Only while the terminal pane is showing: browser and chat modes
             // do not mount a terminal surface for text capture.
-            if activeBrowser == nil && !isChatMode {
+            if activeBrowser == nil && mobileDiffState == nil && !isChatMode {
                 Button(action: openTextSheetFromMenu) {
                     Label(
                         L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),
@@ -652,6 +673,7 @@ struct WorkspaceDetailView: View {
         // browser pane is up, close it so `body` leaves the browser branch and
         // shows the new terminal instead of staying on the browser.
         browserStore.closeBrowser(for: workspace.id.rawValue)
+        closeMobileDiff()
         createTerminal()
     }
 
@@ -661,6 +683,7 @@ struct WorkspaceDetailView: View {
         // detail view flips to the browser because `activeBrowser` becomes
         // non-nil; the picker shows a check next to "New Browser" while it is up.
         browserStore.openBrowser(for: workspace.id.rawValue)
+        closeMobileDiff()
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
@@ -668,6 +691,7 @@ struct WorkspaceDetailView: View {
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)
+        closeMobileDiff()
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is
