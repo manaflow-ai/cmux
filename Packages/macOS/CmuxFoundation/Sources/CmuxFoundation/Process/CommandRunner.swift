@@ -33,6 +33,7 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
     // dictionary so the struct stays Sendable.
     let commandPathResolver: CommandPathResolver
     private let standardInputWriterFactory: @Sendable (FileHandle, Data) -> CommandStandardInputWriter?
+    private let processGroupResolver: @Sendable (Process) -> pid_t?
 
     /// Creates a command runner.
     /// - Parameters:
@@ -61,7 +62,18 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
         bundledBinPath: String? = Bundle.main.resourceURL?.appendingPathComponent("bin").path,
         fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories,
         fileManager: FileManager = .default,
-        standardInputWriterFactory: @escaping @Sendable (FileHandle, Data) -> CommandStandardInputWriter?
+        standardInputWriterFactory: @escaping @Sendable (FileHandle, Data) -> CommandStandardInputWriter?,
+        processGroupResolver: @escaping @Sendable (Process) -> pid_t? = { process in
+            let processGroupID = getpgid(process.processIdentifier)
+            if processGroupID > 1, processGroupID != getpgrp() {
+                return processGroupID
+            }
+            if processGroupID == -1, errno == ESRCH {
+                // A reaped leader's descendants retain the leader PID as their group ID.
+                return process.processIdentifier
+            }
+            return nil
+        }
     ) {
         commandPathResolver = CommandPathResolver(
             environment: environment,
@@ -70,6 +82,7 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
             fileManager: fileManager
         )
         self.standardInputWriterFactory = standardInputWriterFactory
+        self.processGroupResolver = processGroupResolver
     }
 
     /// Runs `executable` with optional stdin data and an optional per-stream output limit.
@@ -289,13 +302,8 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
 
             do {
                 try process.run()
-                let childProcessGroup = getpgid(process.processIdentifier)
-                if childProcessGroup > 1, childProcessGroup != getpgrp() {
+                if let childProcessGroup = processGroupResolver(process) {
                     state.withLock { $0.processGroupID = childProcessGroup }
-                } else if childProcessGroup == -1, errno == ESRCH {
-                    // Foundation may reap a fast-exiting group leader before this lookup,
-                    // while its descendants still retain the leader PID as their group ID.
-                    state.withLock { $0.processGroupID = process.processIdentifier }
                 }
             } catch {
                 let message = String(describing: error)

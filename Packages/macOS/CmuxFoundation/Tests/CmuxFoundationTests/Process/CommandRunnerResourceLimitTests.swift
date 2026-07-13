@@ -122,7 +122,7 @@ import Testing
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func processTreeTerminationUsesLeaderPIDAfterImmediateExit() async throws {
+    func commandRunnerUsesExplicitGroupFallbackAfterImmediateLeaderExit() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-command-orphan-cancellation-\(UUID().uuidString)",
             isDirectory: true
@@ -163,14 +163,21 @@ import Testing
         compiler.waitUntilExit()
         #expect(compiler.terminationStatus == 0)
 
-        let process = Process()
-        process.executableURL = helperExecutable
-        process.arguments = [pidFile.path]
-        process.currentDirectoryURL = root
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        try process.run()
-        process.waitUntilExit()
+        let runner = CommandRunner(
+            standardInputWriterFactory: CommandStandardInputWriter.init,
+            processGroupResolver: { process in
+                process.waitUntilExit()
+                return process.processIdentifier
+            }
+        )
+        let command = Task {
+            await runner.run(
+                directory: root.path,
+                executable: helperExecutable.path,
+                arguments: [pidFile.path],
+                timeout: nil
+            )
+        }
         for _ in 0..<500 {
             if (try? pidFile.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) ?? 0 > 0 {
                 break
@@ -187,14 +194,10 @@ import Testing
             }
         }
 
-        await withCheckedContinuation { continuation in
-            CommandProcessTreeTerminator.terminate(
-                process,
-                processGroupID: nil,
-                completion: { continuation.resume() }
-            )
-        }
+        command.cancel()
+        let result = await command.value
 
+        #expect(result.executionError == "Command cancelled.")
         #expect(kill(pid, 0) == -1)
         #expect(errno == ESRCH)
     }
