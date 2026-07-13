@@ -2919,7 +2919,7 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_SCROLLBAR_REVISION:
-            let revision = action.action.scrollbar_revision
+            let revision = action.action.scrollbar_revision.value
             performOnMain {
                 surfaceView.terminalSurface?.hostedView.updateScrollbackRowSpaceRevision(revision)
             }
