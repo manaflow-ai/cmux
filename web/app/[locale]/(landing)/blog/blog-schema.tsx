@@ -4,6 +4,10 @@ import {
   articleSchema,
   breadcrumbList,
 } from "@/app/[locale]/components/json-ld";
+import {
+  type AuditedBlogPostKey,
+  blogPostSeoCopy,
+} from "@/i18n/audited-seo";
 
 /**
  * Article + BreadcrumbList JSON-LD for a blog post. Defaults to the post's
@@ -16,21 +20,28 @@ export function BlogSchema({
   datePublished,
   headline: headlineOverride,
   description: descriptionOverride,
+  seoKey,
 }: {
   postKey: string;
   path: string;
   datePublished: string;
   headline?: string;
   description?: string;
+  seoKey?: AuditedBlogPostKey;
 }) {
   const tp = useTranslations(`blog.posts.${postKey}`);
   const tm = useTranslations(`blog.${postKey}`);
   const tl = useTranslations("landing.links");
   const tn = useTranslations("nav");
+  const siteMeta = useTranslations("meta");
   const locale = useLocale();
 
-  const headline = headlineOverride ?? tp("title");
-  const description = descriptionOverride ?? tm("metaDescription");
+  const auditedCopy = seoKey
+    ? blogPostSeoCopy(locale, seoKey, tm, tp, siteMeta)
+    : undefined;
+  const headline = headlineOverride ?? auditedCopy?.title ?? tp("title");
+  const description =
+    descriptionOverride ?? auditedCopy?.description ?? tm("metaDescription");
 
   return (
     <>
