@@ -86,6 +86,7 @@
 		0A1107110000000000000010 /* AgentNotificationDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000011 /* AgentNotificationDelivery.swift */; };
 		A5D41234A1B2C3D4E5F60718 /* AgentNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */; };
 		A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */; };
+		A79700020000000000000001 /* AgentNotificationOwnershipRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79700020000000000000002 /* AgentNotificationOwnershipRegressionTests.swift */; };
 		C3744E030000000000000001 /* AgentPIDProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */; };
 		A78670010000000000000001 /* AgentProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670010000000000000002 /* AgentProcessIdentity.swift */; };
 		A78670650000000000000001 /* AgentProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670010000000000000002 /* AgentProcessIdentity.swift */; };
@@ -106,6 +107,7 @@
 		A9F200000000000000000004 /* AgentSessionLaunchPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000004 /* AgentSessionLaunchPlan.swift */; };
 		A78670300000000000000001 /* AgentSessionLifecycleAuthorityRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670300000000000000002 /* AgentSessionLifecycleAuthorityRegressionTests.swift */; };
 		A78670270000000000000001 /* AgentSessionLifecycleFlowDocumentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670270000000000000002 /* AgentSessionLifecycleFlowDocumentation.swift */; };
+		A79700030000000000000001 /* AgentSessionLifecycleRaceRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79700030000000000000002 /* AgentSessionLifecycleRaceRegressionTests.swift */; };
 		A9F20000000000000000000E /* AgentSessionOutputLineBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000000E /* AgentSessionOutputLineBuffer.swift */; };
 		A9E020000000000000000002 /* AgentSessionPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000002 /* AgentSessionPanel.swift */; };
 		A9E020000000000000000004 /* AgentSessionPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000004 /* AgentSessionPanelView.swift */; };
@@ -462,6 +464,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */; };
 		6D9C51AB30A64B1ABC819146 /* CMUXCLI+AgentHookPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */; };
 		C6711A050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift */; };
+		A79700010000000000000001 /* CMUXCLI+AgentNotificationOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79700010000000000000002 /* CMUXCLI+AgentNotificationOwnership.swift */; };
 		A78670250000000000000001 /* CMUXCLI+Agents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670250000000000000002 /* CMUXCLI+Agents.swift */; };
 		B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */; };
 		0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */; };
@@ -1942,6 +1945,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		0A1107110000000000000011 /* AgentNotificationDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationDelivery.swift; sourceTree = "<group>"; };
 		A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGate.swift; sourceTree = "<group>"; };
 		A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationGateTests.swift; sourceTree = "<group>"; };
+		A79700020000000000000002 /* AgentNotificationOwnershipRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotificationOwnershipRegressionTests.swift; sourceTree = "<group>"; };
 		C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPIDProcessIdentity.swift; sourceTree = "<group>"; };
 		A78670010000000000000002 /* AgentProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessIdentity.swift; sourceTree = "<group>"; };
 		0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelaunchCommandBuilder.swift; sourceTree = "<group>"; };
@@ -1961,6 +1965,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9F100000000000000000004 /* AgentSessionLaunchPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionLaunchPlan.swift; sourceTree = "<group>"; };
 		A78670300000000000000002 /* AgentSessionLifecycleAuthorityRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionLifecycleAuthorityRegressionTests.swift; sourceTree = "<group>"; };
 		A78670270000000000000002 /* AgentSessionLifecycleFlowDocumentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionLifecycleFlowDocumentation.swift; sourceTree = "<group>"; };
+		A79700030000000000000002 /* AgentSessionLifecycleRaceRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionLifecycleRaceRegressionTests.swift; sourceTree = "<group>"; };
 		A9F10000000000000000000E /* AgentSessionOutputLineBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionOutputLineBuffer.swift; sourceTree = "<group>"; };
 		A9E010000000000000000002 /* AgentSessionPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionPanel.swift; sourceTree = "<group>"; };
 		A9E010000000000000000004 /* AgentSessionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionPanelView.swift; sourceTree = "<group>"; };
@@ -2291,6 +2296,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B9000062A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookDefinitions.swift"; sourceTree = "<group>"; };
 		5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookPayload.swift"; sourceTree = "<group>"; };
 		C6711B050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentHookRestoreEvidence.swift"; sourceTree = "<group>"; };
+		A79700010000000000000002 /* CMUXCLI+AgentNotificationOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentNotificationOwnership.swift"; sourceTree = "<group>"; };
 		A78670250000000000000002 /* CMUXCLI+Agents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Agents.swift"; sourceTree = "<group>"; };
 		A78670090000000000000002 /* CMUXCLI+AgentsTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AgentsTree.swift"; sourceTree = "<group>"; };
 		B9000069A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+AmpExtension.swift"; sourceTree = "<group>"; };
@@ -4943,6 +4949,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DF43B7BD28A755A6280428D6 /* CMUXCLI+RovoDevHooks.swift */,
 				5257257034CA4729B1211170 /* CMUXCLI+AgentHookPayload.swift */,
 				4CF59318F1D5B2195AC77C28 /* CMUXCLI+ClaudePushNotificationHook.swift */,
+				A79700010000000000000002 /* CMUXCLI+AgentNotificationOwnership.swift */,
 				C6711B050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift */,
 				A78670010000000000000002 /* AgentProcessIdentity.swift */,
 				A78670020000000000000002 /* AgentSessionRelationship.swift */,
@@ -5252,6 +5259,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE64950000000000000006 /* CMUXCLISessionsListTests.swift */,
 				A78670220000000000000002 /* AgentSessionCLIRegressionTests.swift */,
 				A78670300000000000000002 /* AgentSessionLifecycleAuthorityRegressionTests.swift */,
+				A79700030000000000000002 /* AgentSessionLifecycleRaceRegressionTests.swift */,
+				A79700020000000000000002 /* AgentNotificationOwnershipRegressionTests.swift */,
 				A78670310000000000000002 /* AgentSessionRuntimeScopingRegressionTests.swift */,
 				C0DE6495000000000000000A /* CMUXCLISessionsListForkDiagnosticsTests.swift */,
 					C0DE64970000000000000002 /* CMUXCLISessionsListOpenCodeTrustTests.swift */,
@@ -7011,6 +7020,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000063A1B2C3D4E5F60719 /* CMUXCLI+AgentHookDefinitions.swift in Sources */,
 				6D9C51AB30A64B1ABC819146 /* CMUXCLI+AgentHookPayload.swift in Sources */,
 				C6711A050000000000000001 /* CMUXCLI+AgentHookRestoreEvidence.swift in Sources */,
+				A79700010000000000000001 /* CMUXCLI+AgentNotificationOwnership.swift in Sources */,
 				A78670250000000000000001 /* CMUXCLI+Agents.swift in Sources */,
 				A78670090000000000000001 /* CMUXCLI+AgentsTree.swift in Sources */,
 				B9000068A1B2C3D4E5F60719 /* CMUXCLI+AmpExtension.swift in Sources */,
@@ -7172,12 +7182,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A78670630000000000000001 /* AgentHookSessionLineageResolver.swift in Sources */,
 				A78670640000000000000001 /* AgentHookSessionStoreModels.swift in Sources */,
 				A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */,
+				A79700020000000000000001 /* AgentNotificationOwnershipRegressionTests.swift in Sources */,
 				A78670650000000000000001 /* AgentProcessIdentity.swift in Sources */,
 				D3610B010000000000000001 /* AgentSessionAutoResumeSettingsTests.swift in Sources */,
 				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
 					A78670220000000000000001 /* AgentSessionCLIRegressionTests.swift in Sources */,
 				A78670230000000000000001 /* AgentSessionHibernationLifecycleTests.swift in Sources */,
 				A78670300000000000000001 /* AgentSessionLifecycleAuthorityRegressionTests.swift in Sources */,
+				A79700030000000000000001 /* AgentSessionLifecycleRaceRegressionTests.swift in Sources */,
 				A78670660000000000000001 /* AgentSessionRelationship.swift in Sources */,
 				A78670670000000000000001 /* AgentSessionRunRecord.swift in Sources */,
 				A78670310000000000000001 /* AgentSessionRuntimeScopingRegressionTests.swift in Sources */,
