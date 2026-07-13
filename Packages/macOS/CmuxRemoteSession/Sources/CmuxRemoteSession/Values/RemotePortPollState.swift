@@ -45,6 +45,7 @@ struct RemotePortPollState {
             return true
 
         case .ttyScoped:
+            guard completeness == .complete else { return false }
             reset()
             return true
         }

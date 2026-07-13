@@ -60,4 +60,26 @@ struct RemotePortPollStateTests {
         #expect(state.baselinePorts == nil)
         #expect(state.publishedPorts.isEmpty)
     }
+
+    @Test("Incomplete TTY mode transitions preserve fallback state")
+    func incompleteTTYTransitionPreservesState() {
+        var state = RemotePortPollState()
+        state.apply(observedPorts: [4200], mode: .hostWide, completeness: .complete)
+
+        let didApplyIncomplete = state.apply(
+            observedPorts: [],
+            mode: .ttyScoped,
+            completeness: .incomplete
+        )
+        #expect(didApplyIncomplete == false)
+        #expect(state.publishedPorts == [4200])
+
+        let didApplyComplete = state.apply(
+            observedPorts: [],
+            mode: .ttyScoped,
+            completeness: .complete
+        )
+        #expect(didApplyComplete)
+        #expect(state.publishedPorts.isEmpty)
+    }
 }
