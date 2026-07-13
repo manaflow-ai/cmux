@@ -666,7 +666,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Identity token that changes when the paired Mac chat event source is rebuilt.
     public var agentChatEventSourceIdentity: String { chatEventSourceGeneration.uuidString }
     var terminalEventListenerTask: Task<Void, Never>?
-    private var terminalEventListenerID: UUID?
+    var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
     /// without one (the minimal v2 pairing QR). Owned separately from the
     /// short capability probe; see ``scheduleHostIdentityAdoptionIfNeeded(client:)``.
@@ -719,8 +719,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var pullToRefreshTask: Task<Void, Never>?
     var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
-    var connectionGeneration: UUID
-    private var connectionAttemptGeneration: UUID
+    var connectionGeneration: UUID; private var connectionAttemptGeneration: UUID; var connectionPairedMacPersistenceSuppressedGeneration: UUID?
     @ObservationIgnored var macSwitchAttemptID: UUID?
     @ObservationIgnored private var macSwitchAttemptSignInGeneration: Int?
     @ObservationIgnored private var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
@@ -1420,7 +1419,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var connectionLifecycleTask: Task<Void, Never>?
     var connectionLifecycleRetiredTask: Task<Void, Never>?
     var connectionLifecycleRetiredTaskGeneration: UInt64 = 0
-    var connectionLifecycleReconnectPendingAfterRetirement = false
+    var connectionLifecycleStreamRepairListenerID: UUID?; var connectionLifecycleScopeReconnectPendingAfterRetirement = false
     var connectionLifecycleDeadlineTask: Task<Void, Never>?
     var connectionLifecycleRequestWaiters: [UInt64: CheckedContinuation<Void, Never>] = [:]
 
@@ -1533,11 +1532,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             recordsPairingAttempt: true
         )
     }
-    private func connectStoredMacHost(
+    func connectStoredMacHost(
         name: String,
         host: String,
         port: Int,
-        pairedMacDeviceID: String,
+        pairedMacDeviceID: String, persistsPairedMac: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         await connectManualHost(
@@ -1546,11 +1545,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             port: port,
             pairedMacDeviceID: pairedMacDeviceID,
             recordsPairingAttempt: false,
-            clearsForgottenMac: false,
+            clearsForgottenMac: false, persistsPairedMac: persistsPairedMac,
             ifStillCurrent: ifStillCurrent
         )
     }
-
     /// - Parameter pairedMacDeviceID: the REAL paired-Mac device id when the caller
     ///   knows it (switch/reconnect/device-row paths). A manual host whose Mac lacks
     ///   `mobile.attach_ticket.create` connects via a synthetic `manual-…` ticket;
@@ -1562,7 +1560,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         port: Int,
         pairedMacDeviceID: String? = nil,
         recordsPairingAttempt: Bool,
-        clearsForgottenMac: Bool = true,
+        clearsForgottenMac: Bool = true, persistsPairedMac: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1614,7 +1612,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ticket: ticket,
                 allowsStackAuthFallback: true,
                 pairedMacDeviceID: pairedMacDeviceID,
-                clearsForgottenMac: clearsForgottenMac,
+                clearsForgottenMac: clearsForgottenMac, persistsPairedMac: persistsPairedMac,
                 ifStillCurrent: ifStillCurrent
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
@@ -2926,6 +2924,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // reflects the Mac-side pairing-name setting, including renames), so
         // it always wins over the device-id placeholder or a stale name.
         connectedHostName = name
+        guard connectionPairedMacPersistenceSuppressedGeneration != connectionGeneration else { return }
         guard let pairedMacStore,
               !ticket.macDeviceID.isEmpty,
               ticket.macDeviceID != "manual-ticket-request",
@@ -4811,7 +4810,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool? = nil,
         pairedMacDeviceID: String? = nil,
-        clearsForgottenMac: Bool = true,
+        clearsForgottenMac: Bool = true, persistsPairedMac: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async throws -> MobilePairingFailureCategory? {
         let generation = UUID()
@@ -4820,6 +4819,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         connectionAttemptGeneration = generation
         connectionGeneration = generation
+        connectionPairedMacPersistenceSuppressedGeneration = persistsPairedMac ? nil : generation
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
@@ -4893,12 +4893,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
                     guard isConnectCurrent() else { return nil }
-                    await persistPairedMacFromTicket(
-                        ticket,
-                        clearsForgottenMac: clearsForgottenMac,
-                        reconnectSourceMacDeviceID: pairedMacDeviceID,
-                        ifStillCurrent: isConnectCurrent
-                    )
+                    if persistsPairedMac { await persistPairedMacFromTicket(
+                            ticket,
+                            clearsForgottenMac: clearsForgottenMac,
+                            reconnectSourceMacDeviceID: pairedMacDeviceID,
+                            ifStillCurrent: isConnectCurrent
+                        ) }
                     guard isConnectCurrent() else { return nil }
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
@@ -4958,7 +4958,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     // Aggregate the user's other Macs' workspaces in the background.
                     // Best-effort; never blocks the foreground connect.
-                    if multiMacAggregationEnabled {
+                    if multiMacAggregationEnabled, persistsPairedMac {
                         self.scheduleSecondaryAggregation()
                     }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
@@ -5530,7 +5530,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && isSignedIn
     }
 
-    func markMacConnectionHealthy() {
+    func markMacConnectionHealthy(listenerID: UUID? = nil) {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
@@ -5538,7 +5538,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .connected
         connectionLifecycle.markHealthy()
         connectionRequiresReauth = false
-        completeStreamRepairLifecycleEpisodeIfNeeded()
+        completeStreamRepairLifecycleEpisodeIfReplacementIsHealthy(listenerID: listenerID)
     }
 
     func reconcileMacConnectionStatusAfterLifecycleReset(
@@ -6212,7 +6212,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // Any yielded envelope proves the transport is still pushing, so
                 // it resets the liveness window (not just render_grid events).
                 self.recordTerminalEventStreamLiveness()
-                self.markMacConnectionHealthy()
+                self.markMacConnectionHealthy(listenerID: listenerID)
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 } else if event.topic == "terminal.render_grid" {
@@ -6267,7 +6267,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.markMacConnectionUnavailable()
                 return
             }
-            self.markMacConnectionHealthy()
+            self.markMacConnectionHealthy(listenerID: listenerID)
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
             self.scheduleNotificationReconcile(client: client)
         }
@@ -6451,7 +6451,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // connection itself; recover the visible status if a prior
                 // transient RPC failure marked it unavailable, since an idle
                 // terminal may never emit another event to flip it back.
-                self.markMacConnectionHealthy()
+                self.markMacConnectionHealthy(listenerID: listenerID)
                 if alreadySubscribed == false {
                     // The registration had been LOST host-side (the probe just
                     // reinstalled it), so render-grid deltas emitted during the

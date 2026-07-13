@@ -103,10 +103,14 @@ extension MobileShellComposite {
                     teamID: scope?.teamID
                 )) ?? []
                 let matches = knownMacs.filter { $0.macDeviceID == ticket.macDeviceID }
-                previousPersistedMac = matches.first { $0.stackUserID == stackUserID }
+                previousPersistedMac = matches.first {
+                    $0.stackUserID == stackUserID && $0.teamID == scope?.teamID
+                }
+                let displayFallbackMac = previousPersistedMac
+                    ?? matches.first { $0.stackUserID == stackUserID }
                     ?? matches.first
-                displayName = previousPersistedMac?.displayName
-                storedRoutes = previousPersistedMac?.routes ?? []
+                displayName = displayFallbackMac?.displayName
+                storedRoutes = displayFallbackMac?.routes ?? []
             } else {
                 let scopedMacs = (try? await pairedMacStore.loadAll(
                     stackUserID: stackUserID,

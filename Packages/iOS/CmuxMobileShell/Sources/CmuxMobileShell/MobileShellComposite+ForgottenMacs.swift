@@ -73,7 +73,12 @@ extension MobileShellComposite {
     }
 
     func rememberForgottenMacDeviceID(_ macDeviceID: String, scopeKey key: String) async {
-        var ids = await storedForgottenMacDeviceIDs(scopeKey: key)
+        var ids = forgottenMacDeviceIDsByScope[key] ?? []
+        ids.insert(macDeviceID)
+        forgottenMacDeviceIDsByScope[key] = ids
+        let persisted = await forgottenMacStore.load(scope: key)
+        ids = forgottenMacDeviceIDsByScope[key] ?? []
+        ids.formUnion(persisted)
         ids.insert(macDeviceID)
         forgottenMacDeviceIDsByScope[key] = ids
         await forgottenMacStore.save(ids, scope: key)

@@ -360,7 +360,6 @@ import Testing
         })
         #expect(await pairedMacStore.currentLoadStartCount(teamID: "team-b") == 0)
         #expect(await pairedMacStore.currentLoadStartCount(teamID: "team-c") == 0)
-        #expect(!store.connectionLifecycleReconnectPendingAfterRetirement)
         #expect(store.connectionLifecycle.activeEpisode == nil)
     }
 

@@ -65,7 +65,7 @@ import Testing
         #expect(store.didFinishStoredMacReconnectAttempt)
     }
 
-    @Test func retriesDoNotStartMoreReconnectsWhileCanceledWorkIsStillBlocked() async throws {
+    @Test func retriesDoNotStartMoreStoreReadsWhileCanceledWorkIsStillBlocked() async throws {
         let pairedMacStore = DelayedTeamPairedMacStore(
             recordsByTeam: [:],
             blockedTeams: [""]
@@ -92,14 +92,10 @@ import Testing
         #expect(!startedDuplicate)
         await pairedMacStore.release(teamID: nil)
         _ = await reconnect.value
-        #expect(try await pollUntil {
-            await pairedMacStore.currentLoadStartCount(teamID: nil) == 2
-        })
-        let startedThird = try await pollUntil(attempts: 50) {
-            await pairedMacStore.currentLoadStartCount(teamID: nil) > 2
+        let replayedStoreRead = try await pollUntil(attempts: 50) {
+            await pairedMacStore.currentLoadStartCount(teamID: nil) > 1
         }
-        #expect(!startedThird)
-        await pairedMacStore.release(teamID: nil)
+        #expect(!replayedStoreRead)
         #expect(try await pollUntil {
             store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0
                 && store.connectionLifecycle.activeEpisode == nil
@@ -239,7 +235,7 @@ import Testing
         #expect(await reconnect.value == false)
     }
 
-    @Test func retryReplaysOnceAfterRetiredReconnectDrains() async throws {
+    @Test func retryWithoutCachedMacCompletesWithoutReplayAfterRetirement() async throws {
         let pairedMacStore = DelayedTeamPairedMacStore(
             recordsByTeam: [:],
             blockedTeams: [""]
@@ -257,13 +253,10 @@ import Testing
         store.retryMobileConnection()
         await pairedMacStore.release(teamID: nil)
 
-        let replayed = try await pollUntil {
-            await pairedMacStore.currentLoadStartCount(teamID: nil) == 2
+        let replayed = try await pollUntil(attempts: 50) {
+            await pairedMacStore.currentLoadStartCount(teamID: nil) > 1
         }
-        #expect(replayed)
-        if replayed {
-            await pairedMacStore.release(teamID: nil)
-        }
+        #expect(!replayed)
         #expect(await reconnect.value == false)
         #expect(try await pollUntil {
             store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 0

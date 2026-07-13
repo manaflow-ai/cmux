@@ -6,7 +6,7 @@ import Foundation
 extension MobileShellComposite {
     var hasStoredMacReconnectDemand: Bool {
         connectionLifecycle.hasStoredMacReconnectDemand
-            || connectionLifecycleReconnectPendingAfterRetirement
+            || connectionLifecycleScopeReconnectPendingAfterRetirement
     }
 
     /// Yield automatic recovery ownership before the user enters manual pairing.
@@ -14,7 +14,7 @@ extension MobileShellComposite {
         if connectionLifecycle.isRecovering || connectionLifecycle.hasStoredMacReconnectDemand {
             resetConnectionLifecycle()
         }
-        connectionLifecycleReconnectPendingAfterRetirement = false
+        connectionLifecycleScopeReconnectPendingAfterRetirement = false
         invalidatePairingAttempt()
         clearPairingError()
     }
@@ -109,7 +109,8 @@ extension MobileShellComposite {
         let canceledOperation = connectionLifecycleTask
         connectionLifecycle.reset()
         resumeCompletedConnectionLifecycleRequests()
-        connectionLifecycleReconnectPendingAfterRetirement = false
+        connectionLifecycleStreamRepairListenerID = nil
+        connectionLifecycleScopeReconnectPendingAfterRetirement = false
         invalidateStoredMacReconnectAttempt()
         connectionLifecycleTask = nil
         if canceledKind == .reconnect {
@@ -129,7 +130,7 @@ extension MobileShellComposite {
               connectionState != .connected,
               pairedMacStore != nil else { return }
         guard connectionLifecycleRetiredTask == nil else {
-            connectionLifecycleReconnectPendingAfterRetirement = true
+            connectionLifecycleScopeReconnectPendingAfterRetirement = true
             return
         }
         let request = connectionLifecycle.requestStoredMacReconnect(
@@ -141,6 +142,14 @@ extension MobileShellComposite {
 
     func completeStreamRepairLifecycleEpisodeIfNeeded() {
         guard let episode = connectionLifecycle.activeEpisode,
+              episode.kind == .streamRepair else { return }
+        finishConnectionLifecycleEpisode(id: episode.id)
+    }
+
+    func completeStreamRepairLifecycleEpisodeIfReplacementIsHealthy(listenerID: UUID?) {
+        guard let listenerID,
+              listenerID == connectionLifecycleStreamRepairListenerID,
+              let episode = connectionLifecycle.activeEpisode,
               episode.kind == .streamRepair else { return }
         finishConnectionLifecycleEpisode(id: episode.id)
     }
@@ -165,15 +174,13 @@ extension MobileShellComposite {
         _ effect: MobileConnectionLifecycleEffect?
     ) {
         guard case .start(let episode) = effect else { return }
-        if episode.kind == .reconnect, connectionLifecycleRetiredTask != nil {
-            // A cancellation-insensitive reconnect still owns the underlying
-            // dependency. Coalesce explicit Retry demand for replay after the
-            // retired slot drains instead of stacking another task behind the
-            // same wedged store or transport.
-            if episode.triggers.contains(.manualRetry) {
-                connectionLifecycleReconnectPendingAfterRetirement = true
-            }
-            finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
+        let usesCachedReconnect = episode.kind == .reconnect
+            && connectionLifecycleRetiredTask != nil
+            && episode.triggers.contains(.manualRetry)
+        if episode.kind == .reconnect,
+           connectionLifecycleRetiredTask != nil,
+           !usesCachedReconnect {
+            finishConnectionLifecycleEpisode(id: episode.id)
             return
         }
         connectionLifecycleTask?.cancel()
@@ -192,6 +199,7 @@ extension MobileShellComposite {
                     reason: "lifecycle.\(episode.id)",
                     restartEventStream: true
                 )
+                self.connectionLifecycleStreamRepairListenerID = self.terminalEventListenerID
                 if self.multiMacAggregationEnabled {
                     self.scheduleSecondaryAggregation()
                 }
@@ -202,12 +210,15 @@ extension MobileShellComposite {
                         // Replay-only runtimes intentionally have no listener.
                         // Scheduling the replay is their complete repair path.
                         self.markMacConnectionHealthy()
+                        self.finishConnectionLifecycleEpisode(id: episode.id)
                     }
                 }
             case .reconnect:
-                let outcome = await self.performStoredMacReconnect(
-                    stackUserID: episode.reconnectStackUserID
-                )
+                let outcome = usesCachedReconnect
+                    ? await self.performCachedStoredMacReconnect()
+                    : await self.performStoredMacReconnect(
+                        stackUserID: episode.reconnectStackUserID
+                    )
                 guard !Task.isCancelled,
                       self.connectionLifecycle.ownsEpisode(episode.id) else { return }
                 self.finishConnectionLifecycleEpisode(
@@ -219,7 +230,7 @@ extension MobileShellComposite {
                 self.connectionLifecycleTask = nil
             }
         }
-        if episode.kind == .reconnect {
+        if episode.kind == .reconnect, !usesCachedReconnect {
             let deadline = storedMacReconnectDeadline
             connectionLifecycleDeadlineTask = Task { @MainActor [weak self] in
                 await deadline()
@@ -246,9 +257,7 @@ extension MobileShellComposite {
         finishConnectionLifecycleEpisode(id: id, succeeded: false)
     }
 
-    /// Retains at most one cancellation-insensitive reconnect until it actually
-    /// exits. Replacement lifecycle episodes fail while this slot is occupied,
-    /// which bounds suspended store/transport work across repeated Retry taps.
+    /// Retains at most one cancellation-insensitive reconnect until it exits.
     private func retireConnectionLifecycleTask(_ operation: Task<Void, Never>?) {
         guard let operation else { return }
         operation.cancel()
@@ -260,16 +269,19 @@ extension MobileShellComposite {
             guard let self,
                   self.connectionLifecycleRetiredTaskGeneration == generation else { return }
             self.connectionLifecycleRetiredTask = nil
-            let shouldReconnect = self.connectionLifecycleReconnectPendingAfterRetirement
-            self.connectionLifecycleReconnectPendingAfterRetirement = false
-            if shouldReconnect {
+            let reconnectLatestScope = self.connectionLifecycleScopeReconnectPendingAfterRetirement
+            self.connectionLifecycleScopeReconnectPendingAfterRetirement = false
+            if reconnectLatestScope {
                 self.restartStoredMacReconnectAfterScopeChange()
+            } else if self.connectionState == .connected, self.multiMacAggregationEnabled {
+                self.scheduleSecondaryAggregation()
             }
         }
     }
 
     func finishConnectionLifecycleEpisode(id: UInt64, succeeded: Bool = true) {
         guard connectionLifecycle.ownsEpisode(id) else { return }
+        connectionLifecycleStreamRepairListenerID = nil
         connectionLifecycleDeadlineTask?.cancel()
         connectionLifecycleDeadlineTask = nil
         let recoveryWasFailed = connectionLifecycle.recoveryFailed
@@ -297,6 +309,59 @@ extension MobileShellComposite {
         for requestID in connectionLifecycle.drainCompletedRequestIDs() {
             connectionLifecycleRequestWaiters.removeValue(forKey: requestID)?.resume()
         }
+    }
+
+    /// Retry lane used while one cancellation-insensitive store read is retired.
+    /// It dials only the current in-memory paired-Mac snapshot and performs no
+    /// paired-Mac reads or writes, so a wedged store cannot make Retry inert or
+    /// accumulate another suspended store operation.
+    private func performCachedStoredMacReconnect() async -> StoredMacReconnectOutcome {
+        startObservingNetworkPathChanges()
+        storedMacReconnectGeneration &+= 1
+        let generation = storedMacReconnectGeneration
+        storedMacReconnectTargetDeviceID = nil
+        defer {
+            if generation == storedMacReconnectGeneration {
+                storedMacReconnectTargetDeviceID = nil
+            }
+        }
+        guard isSignedIn else { return .failed }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        func reachableRoutes(_ mac: MobilePairedMac) -> [(host: String, port: Int, routeID: String)] {
+            Self.reconnectHostPortRoutes(
+                mac.routes,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            )
+        }
+        let cachedMacs = pairedMacsForIdentityMatching
+        let activeMac = cachedMacs.first { $0.isActive && !reachableRoutes($0).isEmpty }
+        var candidates = activeMac.map { [$0] } ?? []
+        candidates.append(contentsOf: cachedMacs.filter {
+            $0.macDeviceID != activeMac?.macDeviceID && !reachableRoutes($0).isEmpty
+        })
+        guard !candidates.isEmpty else { return .unavailable }
+        setHasKnownPairedMac(true, generation: generation)
+        for mac in candidates {
+            guard generation == storedMacReconnectGeneration else { return .failed }
+            storedMacReconnectTargetDeviceID = mac.macDeviceID
+            for route in reachableRoutes(mac) {
+                guard generation == storedMacReconnectGeneration else { return .failed }
+                await connectStoredMacHost(
+                    name: mac.displayName ?? route.host,
+                    host: route.host,
+                    port: route.port,
+                    pairedMacDeviceID: mac.macDeviceID,
+                    persistsPairedMac: false,
+                    ifStillCurrent: { [weak self] in
+                        self?.storedMacReconnectGeneration == generation
+                            && self?.storedMacReconnectTargetDeviceID == mac.macDeviceID
+                    }
+                )
+                if connectionState == .connected { return .connected }
+            }
+        }
+        return .failed
     }
 
     func freshReconnectRoutesAfterLocalFailure(
