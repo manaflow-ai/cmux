@@ -207,7 +207,7 @@ test("adjacent diff file navigation moves in order and stops at the edges", () =
   expect(adjacentItemId("missing", [], 1)).toBe("");
 });
 
-test("diff file chord survives an unrelated render between strokes", async () => {
+test("native viewer navigation remains installed after an unrelated render", async () => {
   dom = createDom();
   installDomGlobals(dom, () => {
     throw new Error("unexpected fetch");
@@ -215,28 +215,19 @@ test("diff file chord survives an unrelated render between strokes", async () =>
   renderApp(
     <App
       config={{
-        payload: {
-          shortcuts: {
-            diffViewerNextFile: {
-              first: { key: "]", command: false, control: false, option: false, shift: false },
-              second: { key: "f", command: false, control: false, option: false, shift: false },
-            },
-          },
-          statusMessage: "Rendered diff",
-        },
+        payload: { statusMessage: "Rendered diff" },
       }}
       initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
     />,
   );
 
-  const prefix = new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "]" });
-  dom.window.document.dispatchEvent(prefix);
-  expect(prefix.defaultPrevented).toBe(true);
+  const action = dom.window.__cmuxPerformDiffViewerNavigationAction;
+  expect(action).toBeFunction();
   dom.window.document.getElementById("layout-toggle")?.click();
   await waitFor(() => dom?.window.document.documentElement.dataset.layout === "split");
-  const suffix = new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "f" });
-  dom.window.document.dispatchEvent(suffix);
-  expect(suffix.defaultPrevented).toBe(true);
+  expect(dom.window.__cmuxPerformDiffViewerNavigationAction).toBe(action);
+  action?.("diffViewerOpenFileSearch");
+  await waitFor(() => dom?.window.document.getElementById("file-search-toggle")?.getAttribute("aria-pressed") === "true");
 });
 
 function createDom(): JSDOM {

@@ -57,6 +57,23 @@ enum BrowserFocusModeKeyDecision: Equatable {
     case consume
 }
 
+@MainActor
+private final class DiffViewerEditableFocusMessageHandler: NSObject, WKScriptMessageHandler {
+    static let name = "cmuxDiffViewerEditableFocus"
+    static let shared = DiffViewerEditableFocusMessageHandler()
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard DiffCommentsBridge.isTrustedDiffViewerFrame(message.frameInfo),
+              let webView = message.webView as? CmuxWebView,
+              let body = message.body as? [String: Any],
+              let editable = body["editable"] as? Bool else { return }
+        webView.diffViewerEditableFocusDidChange(editable)
+    }
+}
+
 enum BrowserImageCopyPasteboardBuilder {
     private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
     private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
@@ -150,6 +167,7 @@ final class CmuxWebView: WKWebView {
     private static let browserFocusModeContextMenuItemIdentifier =
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
     private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
+    private static var diffViewerEditableFocusHandlerInstalledKey: UInt8 = 0
     private static let pasteAsPlainTextSharedHelpersScriptSource = """
     const __cmuxPasteAsPlainTextHelpers = (() => {
       const existing = window.__cmuxPasteAsPlainTextHelpers;
@@ -419,6 +437,14 @@ final class CmuxWebView: WKWebView {
     private var pointerFocusAllowanceDepth: Int = 0
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
+    private var diffViewerEditableElementFocused = false
+    private let diffViewerNavigationKeyRouter = ViewerNavigationKeyRouter(actions: [
+        .diffViewerScrollDown, .diffViewerScrollUp,
+        .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
+        .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs,
+        .diffViewerScrollToBottom, .diffViewerScrollToTop,
+        .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile,
+    ])
     var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
     }
@@ -429,12 +455,71 @@ final class CmuxWebView: WKWebView {
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
         installContextMenuLinkCapture()
+        installDiffViewerEditableFocusTracking()
     }
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
         installContextMenuLinkCapture()
+        installDiffViewerEditableFocusTracking()
+    }
+
+    private func installDiffViewerEditableFocusTracking() {
+        let controller = configuration.userContentController
+        guard objc_getAssociatedObject(
+            controller,
+            &Self.diffViewerEditableFocusHandlerInstalledKey
+        ) == nil else { return }
+        controller.add(DiffViewerEditableFocusMessageHandler.shared, name: DiffViewerEditableFocusMessageHandler.name)
+        let name = DiffViewerEditableFocusMessageHandler.name
+        controller.addUserScript(WKUserScript(
+            source: """
+            (() => {
+              const handler = window.webkit?.messageHandlers?.['\(name)'];
+              if (!handler) return;
+              const publish = () => {
+                const element = document.activeElement;
+                const editable = !!element?.closest?.("input, textarea, select, [contenteditable='true']");
+                handler.postMessage({ editable });
+              };
+              document.addEventListener('focusin', publish, true);
+              document.addEventListener('focusout', () => queueMicrotask(publish), true);
+              publish();
+            })();
+            """,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
+        objc_setAssociatedObject(
+            controller,
+            &Self.diffViewerEditableFocusHandlerInstalledKey,
+            NSNumber(value: true),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    fileprivate func diffViewerEditableFocusDidChange(_ editable: Bool) {
+        diffViewerEditableElementFocused = editable
+        if editable {
+            diffViewerNavigationKeyRouter.reset()
+        }
+    }
+
+    private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
+        guard let token = DiffCommentsBridge.diffViewerToken(from: url),
+              CmuxDiffViewerURLSchemeHandler.shared.hasActiveSession(token: token),
+              !diffViewerEditableElementFocused else {
+            diffViewerNavigationKeyRouter.reset()
+            return false
+        }
+        return diffViewerNavigationKeyRouter.handle(event, isAllowed: { action, event in
+            AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
+        }, perform: { [weak self] action in
+            guard let self else { return }
+            let rawAction = action.rawValue.replacingOccurrences(of: "'", with: "\\'")
+            evaluateJavaScript("window.__cmuxPerformDiffViewerNavigationAction?.('\(rawAction)')")
+        })
     }
 
     private func installPasteAsPlainTextFocusTracking() {
@@ -777,6 +862,12 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
+        if handleDiffViewerNavigationKey(event) {
+#if DEBUG
+            route = "diffViewerNavigation"
+#endif
+            return
+        }
         if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
             event,
             webView: self,

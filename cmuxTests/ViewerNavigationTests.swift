@@ -12,6 +12,22 @@ import WebKit
 @Suite(.serialized)
 struct ViewerNavigationTests {
     @Test
+    func nativeViewerRouterAppliesClausesAndPreservesChords() {
+        let router = ViewerNavigationKeyRouter(actions: [
+            .diffViewerScrollDown,
+            .diffViewerScrollToTop,
+        ])
+        var performed: [KeyboardShortcutSettings.Action] = []
+        let denied = router.handle(Self.keyEvent("j"), isAllowed: { _, _ in false }, perform: { performed.append($0) })
+        #expect(!denied)
+        #expect(performed.isEmpty)
+
+        #expect(router.handle(Self.keyEvent("g", timestamp: 10), isAllowed: { _, _ in true }, perform: { performed.append($0) }))
+        #expect(router.handle(Self.keyEvent("g", timestamp: 10.1), isAllowed: { _, _ in true }, perform: { performed.append($0) }))
+        #expect(performed == [.diffViewerScrollToTop])
+    }
+
+    @Test
     func viewerEmacsBindingsDoNotConflictWithCommandPaletteNavigation() {
         let next = KeyboardShortcutSettings.Action.commandPaletteNext.defaultShortcut
         let previous = KeyboardShortcutSettings.Action.commandPalettePrevious.defaultShortcut
@@ -28,6 +44,52 @@ struct ViewerNavigationTests {
             proposedAction: .commandPalettePrevious,
             configuredShortcut: KeyboardShortcutSettings.Action.diffViewerScrollUpEmacs.defaultShortcut
         ))
+    }
+
+    @Test
+    func commandPaletteNavigationHonorsConfiguredWhenClause() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        let originalCache = appDelegate.shortcutEventFocusContextCache
+        let settingsURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-palette-navigation-\(UUID().uuidString).json")
+        try """
+        {
+          "shortcuts": {
+            "when": {
+              "commandPaletteNext": "commandPaletteVisible && paneCount > 1"
+            }
+          }
+        }
+        """.write(to: settingsURL, atomically: true, encoding: .utf8)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        defer {
+            appDelegate.shortcutEventFocusContextCache = originalCache
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            try? FileManager.default.removeItem(at: settingsURL)
+        }
+
+        let event = Self.keyEvent("n", modifiers: .control)
+        var shortcutContext = ShortcutContext()
+        shortcutContext.setBool("commandPaletteVisible", true)
+        shortcutContext.setInt("paneCount", 1)
+        appDelegate.shortcutEventFocusContextCache = ShortcutEventFocusContextCache(
+            event: event,
+            context: ShortcutEventFocusContext(
+                browserPanel: nil,
+                markdownPanel: nil,
+                filePreviewTextEditorFocused: false,
+                rightSidebarFocused: false,
+                shortcutContext: shortcutContext
+            )
+        )
+
+        #expect(contextAwareCommandPaletteSelectionDelta(for: event) == nil)
     }
 
     @Test

@@ -3,6 +3,61 @@ import CmuxFoundation
 import WebKit
 
 @MainActor
+final class ViewerNavigationKeyRouter {
+    private let actions: [KeyboardShortcutSettings.Action]
+    private var pendingChord: (prefix: ShortcutStroke, expiresAt: TimeInterval)?
+    private static let chordTimeout: TimeInterval = 0.7
+
+    init(actions: [KeyboardShortcutSettings.Action]) {
+        self.actions = actions
+    }
+
+    func reset() {
+        pendingChord = nil
+    }
+
+    func handle(
+        _ event: NSEvent,
+        isAllowed: (KeyboardShortcutSettings.Action, NSEvent) -> Bool,
+        perform: (KeyboardShortcutSettings.Action) -> Void
+    ) -> Bool {
+        let candidates = actions.map { action in
+            (action, KeyboardShortcutSettings.shortcut(for: action))
+        }
+        if let pendingChord {
+            self.pendingChord = nil
+            if event.timestamp <= pendingChord.expiresAt {
+                for (action, shortcut) in candidates {
+                    guard shortcut.firstStroke == pendingChord.prefix,
+                          let secondStroke = shortcut.secondStroke,
+                          secondStroke.matches(event: event),
+                          isAllowed(action, event) else { continue }
+                    perform(action)
+                    return true
+                }
+            }
+        }
+
+        for (action, shortcut) in candidates where !shortcut.isUnbound {
+            guard isAllowed(action, event) else { continue }
+            if shortcut.secondStroke != nil {
+                if shortcut.firstStroke.matches(event: event) {
+                    pendingChord = (
+                        prefix: shortcut.firstStroke,
+                        expiresAt: event.timestamp + Self.chordTimeout
+                    )
+                    return true
+                }
+            } else if shortcut.matches(event: event) {
+                perform(action)
+                return true
+            }
+        }
+        return false
+    }
+}
+
+@MainActor
 final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
     weak var target: WKScriptMessageHandler?
 
@@ -32,19 +87,12 @@ final class MarkdownWebView: WKWebView {
     var onReenterWindow: (() -> Void)?
 
     private var needsRenderingReattach = false
-    private var pendingViewerNavigationChord: (prefix: ShortcutStroke, expiresAt: TimeInterval)?
-    private static let viewerNavigationChordTimeout: TimeInterval = 0.7
-
-    private static let viewerNavigationActions: [KeyboardShortcutSettings.Action] = [
-        .diffViewerScrollDown,
-        .diffViewerScrollUp,
-        .diffViewerScrollHalfPageDown,
-        .diffViewerScrollHalfPageUp,
-        .diffViewerScrollDownEmacs,
-        .diffViewerScrollUpEmacs,
-        .diffViewerScrollToBottom,
-        .diffViewerScrollToTop,
-    ]
+    private let viewerNavigationKeyRouter = ViewerNavigationKeyRouter(actions: [
+        .diffViewerScrollDown, .diffViewerScrollUp,
+        .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
+        .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs,
+        .diffViewerScrollToBottom, .diffViewerScrollToTop,
+    ])
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
@@ -63,47 +111,11 @@ final class MarkdownWebView: WKWebView {
     }
 
     func handleViewerNavigationKey(_ event: NSEvent) -> Bool {
-        let candidates = Self.viewerNavigationActions.map { action in
-            (action, KeyboardShortcutSettings.shortcut(for: action))
-        }
-        if let pendingChord = pendingViewerNavigationChord {
-            pendingViewerNavigationChord = nil
-            if event.timestamp <= pendingChord.expiresAt {
-                for (action, shortcut) in candidates {
-                    guard shortcut.firstStroke == pendingChord.prefix,
-                          let secondStroke = shortcut.secondStroke,
-                          secondStroke.matches(event: event),
-                          viewerNavigationActionIsAllowed(action, event: event) else { continue }
-                    performViewerNavigationAction(action)
-                    return true
-                }
-            }
-        }
-
-        for (action, shortcut) in candidates where !shortcut.isUnbound {
-            if shortcut.secondStroke != nil {
-                if shortcut.firstStroke.matches(event: event),
-                   viewerNavigationActionIsAllowed(action, event: event) {
-                    pendingViewerNavigationChord = (
-                        prefix: shortcut.firstStroke,
-                        expiresAt: event.timestamp + Self.viewerNavigationChordTimeout
-                    )
-                    return true
-                }
-            } else if shortcut.matches(event: event),
-                      viewerNavigationActionIsAllowed(action, event: event) {
-                performViewerNavigationAction(action)
-                return true
-            }
-        }
-        return false
-    }
-
-    private func viewerNavigationActionIsAllowed(
-        _ action: KeyboardShortcutSettings.Action,
-        event: NSEvent
-    ) -> Bool {
-        AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
+        viewerNavigationKeyRouter.handle(event, isAllowed: { action, event in
+            AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
+        }, perform: { [weak self] action in
+            self?.performViewerNavigationAction(action)
+        })
     }
 
     private func performViewerNavigationAction(_ action: KeyboardShortcutSettings.Action) {

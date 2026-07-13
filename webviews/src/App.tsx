@@ -265,7 +265,6 @@ export function App({ config, initialStatus }: ConfigProps) {
   usePendingReplacement(payload, label, dispatch);
   useRenderDiff(config, label, dispatch, latestState);
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
-  useViewerNavigation(payload.shortcuts ?? {}, viewerContainerRef);
   useOptionsDismiss(state.optionsOpen, dispatch);
 
   const renderCommentAnnotation = (annotation: CommentAnnotation, item: DiffItem) => {
@@ -335,7 +334,7 @@ export function App({ config, initialStatus }: ConfigProps) {
       scrollToItem(target);
     }
   }, [latestState, scrollToItem]);
-  useKeyboardShortcuts(payload.shortcuts ?? {}, dispatch, jumpAdjacentFile);
+  useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
@@ -1478,79 +1477,38 @@ function usePageDataAttributes(state: AppState) {
   }, [state]);
 }
 
-function useKeyboardShortcuts(
-  shortcuts: any,
+function useNativeViewerNavigation(
+  viewerRef: React.MutableRefObject<HTMLDivElement | null>,
   dispatch: React.Dispatch<AppAction>,
   onJumpAdjacentFile: (direction: -1 | 1) => void,
 ) {
   useEffect(() => {
-    const bindings = [
-      {
-        shortcut: normalizeShortcut(shortcuts.diffViewerOpenFileSearch),
-        run: () => dispatch({ type: "set-file-search-open", open: true }),
-      },
-      {
-        shortcut: normalizeShortcut(shortcuts.diffViewerNextFile),
-        run: () => onJumpAdjacentFile(1),
-      },
-      {
-        shortcut: normalizeShortcut(shortcuts.diffViewerPreviousFile),
-        run: () => onJumpAdjacentFile(-1),
-      },
-    ].filter((binding): binding is { shortcut: ShortcutBinding; run: () => void } => binding.shortcut != null);
-    let pending: { shortcut: ShortcutBinding; run: () => void } | null = null;
-    let pendingTimer = 0;
-    const clearPending = () => {
-      pending = null;
-      if (pendingTimer) {
-        window.clearTimeout(pendingTimer);
-        pendingTimer = 0;
-      }
-    };
-    const listener = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isTypingShortcutTarget(event.target)) {
+    window.__cmuxPerformDiffViewerNavigationAction = (action: string) => {
+      const viewer = viewerRef.current;
+      if (viewer && CmuxViewerNavigation.performAction(action, viewer)) {
         return;
       }
-      if (pending) {
-        if (shortcutStrokeMatchesEvent(pending.shortcut.second, event)) {
-          event.preventDefault();
-          pending.run();
-          clearPending();
-          return;
-        }
-        clearPending();
-      }
-      for (const binding of bindings) {
-        if (!shortcutStrokeMatchesEvent(binding.shortcut.first, event)) {
-          continue;
-        }
-        event.preventDefault();
-        if (binding.shortcut.second) {
-          pending = binding;
-          pendingTimer = window.setTimeout(clearPending, 700);
-        } else {
-          binding.run();
-        }
-        return;
+      switch (action) {
+        case "diffViewerOpenFileSearch":
+          dispatch({ type: "set-file-search-open", open: true });
+          break;
+        case "diffViewerNextFile":
+          onJumpAdjacentFile(1);
+          break;
+        case "diffViewerPreviousFile":
+          onJumpAdjacentFile(-1);
+          break;
       }
     };
-    document.addEventListener("keydown", listener);
+    const disposeManualInputReset = CmuxViewerNavigation.installManualInputReset({
+      target: document,
+      getScroller: () => viewerRef.current!,
+    });
     return () => {
-      clearPending();
-      document.removeEventListener("keydown", listener);
+      delete window.__cmuxPerformDiffViewerNavigationAction;
+      disposeManualInputReset();
     };
-  }, [dispatch, onJumpAdjacentFile, shortcuts]);
-}
-
-function useViewerNavigation(
-  shortcuts: Record<string, unknown>,
-  viewerRef: React.MutableRefObject<HTMLDivElement | null>,
-) {
-  useEffect(() => CmuxViewerNavigation.install({
-    target: document,
-    getScroller: () => viewerRef.current!,
-    shortcuts,
-  }), [shortcuts, viewerRef]);
+  }, [dispatch, onJumpAdjacentFile, viewerRef]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {
@@ -1576,64 +1534,6 @@ function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAct
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [dispatch, optionsOpen]);
-}
-
-type ShortcutStroke = {
-  command: boolean;
-  control: boolean;
-  key: string;
-  option: boolean;
-  shift: boolean;
-};
-
-type ShortcutBinding = {
-  first: ShortcutStroke;
-  second: ShortcutStroke | null;
-};
-
-function normalizeShortcut(rawShortcut: any): ShortcutBinding | null {
-  if (!rawShortcut || rawShortcut.unbound === true || !rawShortcut.first) {
-    return null;
-  }
-  return {
-    first: normalizeShortcutStroke(rawShortcut.first),
-    second: rawShortcut.second ? normalizeShortcutStroke(rawShortcut.second) : null,
-  };
-}
-
-function normalizeShortcutStroke(rawStroke: any): ShortcutStroke {
-  return {
-    key: String(rawStroke?.key ?? "").toLowerCase(),
-    command: rawStroke?.command === true,
-    shift: rawStroke?.shift === true,
-    option: rawStroke?.option === true,
-    control: rawStroke?.control === true,
-  };
-}
-
-function shortcutStrokeMatchesEvent(stroke: ShortcutStroke | null, event: KeyboardEvent): boolean {
-  if (!stroke || event.metaKey !== stroke.command || event.ctrlKey !== stroke.control || event.altKey !== stroke.option) {
-    return false;
-  }
-  if (event.shiftKey !== stroke.shift) {
-    return false;
-  }
-  return normalizedShortcutEventKey(event) === stroke.key;
-}
-
-function normalizedShortcutEventKey(event: KeyboardEvent): string {
-  if (event.code === "Space") {
-    return "space";
-  }
-  if (typeof event.key !== "string" || event.key.length === 0) {
-    return "";
-  }
-  return event.key.length === 1 ? event.key.toLowerCase() : event.key.toLowerCase();
-}
-
-function isTypingShortcutTarget(target: EventTarget | null): boolean {
-  const element = target instanceof Element ? target : null;
-  return Boolean(element?.closest("input, textarea, select, [contenteditable='true']"));
 }
 
 function scrollTargetForItem(itemId: string, items: DiffItem[]): string {

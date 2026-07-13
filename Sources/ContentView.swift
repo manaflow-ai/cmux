@@ -3822,7 +3822,9 @@ struct ContentView: View {
             }
 
             func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-                if let delta = commandPaletteSelectionDeltaForFieldEditorCommand(commandSelector, event: NSApp.currentEvent) {
+                let event = NSApp.currentEvent
+                if let delta = commandPaletteSelectionDeltaForFieldEditorCommand(commandSelector, event: event),
+                   event.map({ contextAwareCommandPaletteSelectionDelta(for: $0) == delta }) ?? true {
                     parent.onMoveSelection(delta); return true
                 }
 
@@ -3845,13 +3847,7 @@ struct ContentView: View {
             func handleKeyEvent(_ event: NSEvent, editor: NSTextView?) -> Bool {
                 guard !(editor?.hasMarkedText() ?? false) else { return false }
 
-                if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
-                    flags: event.modifierFlags,
-                    chars: event.characters ?? event.charactersIgnoringModifiers ?? "",
-                    keyCode: event.keyCode,
-                    nextShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext),
-                    previousShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious)
-                ) {
+                if let delta = contextAwareCommandPaletteSelectionDelta(for: event) {
                     parent.onMoveSelection(delta)
                     return true
                 }

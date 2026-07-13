@@ -15,6 +15,7 @@ declare global {
   };
 
   interface Window {
+    __cmuxPerformDiffViewerNavigationAction?: (action: string) => void;
     __cmuxDiffViewer?: {
       codeView?: unknown;
       codeViewItems?: unknown[];
