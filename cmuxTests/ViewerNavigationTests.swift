@@ -35,7 +35,7 @@ struct ViewerNavigationTests {
         let secondNavigationObject = NSObject()
         let firstNavigation = ObjectIdentifier(firstNavigationObject)
         let secondNavigation = ObjectIdentifier(secondNavigationObject)
-        state.update(viewer: true, editable: false)
+        state.update(viewer: true, editable: false, rendererReady: true)
         #expect(state.canHandleNavigation)
 
         state.navigationDidStart(id: firstNavigation)

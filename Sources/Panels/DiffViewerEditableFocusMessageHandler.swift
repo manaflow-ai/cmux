@@ -14,7 +14,12 @@ final class DiffViewerEditableFocusMessageHandler: NSObject, WKScriptMessageHand
               let webView = message.webView as? CmuxWebView,
               let body = message.body as? [String: Any],
               let viewer = body["viewer"] as? Bool,
-              let editable = body["editable"] as? Bool else { return }
-        webView.diffViewerFocusStateDidChange(viewer: viewer, editable: editable)
+              let editable = body["editable"] as? Bool,
+              let rendererReady = body["rendererReady"] as? Bool else { return }
+        webView.diffViewerFocusStateDidChange(
+            viewer: viewer,
+            editable: editable,
+            rendererReady: rendererReady
+        )
     }
 }

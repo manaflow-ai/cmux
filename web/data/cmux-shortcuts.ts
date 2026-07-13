@@ -481,7 +481,7 @@ export const shortcutCategories: ShortcutCategory[] = [
         combos: [["[", "F"]],
         description: { en: "Jump to previous diff file", ja: "前の差分ファイルへ移動" },
         note: { en: "focused diff viewer", ja: "フォーカス中の差分ビューア" },
-        configValue: '["[", "f"]',
+        configValue: '["[", "f"]]',
       },
     ],
   },

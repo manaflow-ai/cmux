@@ -352,12 +352,15 @@ final class CmuxWebView: WKWebView {
                 const editable = viewer && !!element?.closest?.(
                   "input, textarea, select, [contenteditable]:not([contenteditable='false'])"
                 );
-                handler.postMessage({ viewer, editable });
+                const rendererReady = viewer &&
+                  document.documentElement.dataset.cmuxViewerNavigationReady === 'true';
+                handler.postMessage({ viewer, editable, rendererReady });
               };
               document.addEventListener('DOMContentLoaded', publish, { once: true });
               document.addEventListener('focusin', publish, true);
               document.addEventListener('focusout', () => queueMicrotask(publish), true);
               document.addEventListener('pointerdown', () => requestAnimationFrame(publish), true);
+              document.addEventListener('cmux-diff-viewer-navigation-readiness-change', publish, true);
               publish();
             })();
             """,
@@ -373,8 +376,8 @@ final class CmuxWebView: WKWebView {
         )
     }
 
-    func diffViewerFocusStateDidChange(viewer: Bool, editable: Bool) {
-        diffViewerDocumentState.update(viewer: viewer, editable: editable)
+    func diffViewerFocusStateDidChange(viewer: Bool, editable: Bool, rendererReady: Bool) {
+        diffViewerDocumentState.update(viewer: viewer, editable: editable, rendererReady: rendererReady)
         if !viewer || editable {
             diffViewerNavigationKeyRouter.reset()
         }
@@ -407,13 +410,13 @@ final class CmuxWebView: WKWebView {
             let script = "window.__cmuxPerformDiffViewerNavigationAction?.('\(rawAction)') === true"
             if action == .diffViewerOpenFileSearch {
                 diffViewerDocumentState.beginEditableFocusTransition()
-                evaluateJavaScript(script) { [weak self] result, error in
-                    if error != nil || result as? Bool != true {
-                        self?.diffViewerDocumentState.editableFocusTransitionDidFail()
-                    }
+            }
+            evaluateJavaScript(script) { [weak self] result, error in
+                guard error != nil || result as? Bool != true else { return }
+                if action == .diffViewerOpenFileSearch {
+                    self?.diffViewerDocumentState.editableFocusTransitionDidFail()
                 }
-            } else {
-                evaluateJavaScript(script)
+                self?.diffViewerDocumentState.rendererDidBecomeUnavailable()
             }
         })
     }

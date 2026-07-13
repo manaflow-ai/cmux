@@ -214,6 +214,14 @@ test("visible diff file follows the scroll position", () => {
   expect(visibleItemId(items, 0, (id) => tops[id])).toBe("one");
   expect(visibleItemId(items, 650, (id) => tops[id])).toBe("two");
   expect(visibleItemId(items, 1000, (id) => tops[id])).toBe("three");
+
+  const manyItems = Array.from({ length: 4096 }, (_, index) => ({ id: `item-${index}` })) as any;
+  let lookups = 0;
+  expect(visibleItemId(manyItems, 3000, (id) => {
+    lookups += 1;
+    return Number(id.slice("item-".length)) * 10;
+  })).toBe("item-300");
+  expect(lookups).toBeLessThanOrEqual(13);
 });
 
 test("native viewer navigation remains installed after an unrelated render", async () => {

@@ -4,22 +4,25 @@ final class DiffViewerNavigationDocumentState {
         let documentConfirmed: Bool
         let focusConfirmed: Bool
         let editableFocused: Bool
+        let rendererReady: Bool
     }
 
     private(set) var documentConfirmed = false
     private var focusConfirmed = false
     private var editableFocused = false
+    private var rendererReady = false
     private var provisionalNavigation: (id: ObjectIdentifier?, snapshot: Snapshot)?
     private var focusConfirmationBeforeEditableTransition: Bool?
 
     var canHandleNavigation: Bool {
-        documentConfirmed && focusConfirmed && !editableFocused
+        documentConfirmed && focusConfirmed && !editableFocused && rendererReady
     }
 
-    func update(viewer: Bool, editable: Bool) {
+    func update(viewer: Bool, editable: Bool, rendererReady: Bool) {
         documentConfirmed = viewer
         focusConfirmed = true
         editableFocused = editable
+        self.rendererReady = rendererReady
         focusConfirmationBeforeEditableTransition = nil
     }
 
@@ -44,12 +47,14 @@ final class DiffViewerNavigationDocumentState {
         let snapshot = provisionalNavigation?.snapshot ?? Snapshot(
                 documentConfirmed: documentConfirmed,
                 focusConfirmed: focusConfirmed,
-                editableFocused: editableFocused
+                editableFocused: editableFocused,
+                rendererReady: rendererReady
             )
         provisionalNavigation = (id, snapshot)
         documentConfirmed = false
         focusConfirmed = false
         editableFocused = false
+        rendererReady = false
         focusConfirmationBeforeEditableTransition = nil
     }
 
@@ -64,6 +69,11 @@ final class DiffViewerNavigationDocumentState {
         documentConfirmed = snapshot.documentConfirmed
         focusConfirmed = snapshot.focusConfirmed
         editableFocused = snapshot.editableFocused
+        rendererReady = snapshot.rendererReady
         provisionalNavigation = nil
+    }
+
+    func rendererDidBecomeUnavailable() {
+        rendererReady = false
     }
 }

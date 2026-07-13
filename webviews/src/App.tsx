@@ -1531,12 +1531,16 @@ function useNativeViewerNavigation(
       }
       return false;
     };
+    document.documentElement.dataset.cmuxViewerNavigationReady = "true";
+    document.dispatchEvent(new window.Event("cmux-diff-viewer-navigation-readiness-change"));
     const disposeManualInputReset = CmuxViewerNavigation.installManualInputReset({
       target: document,
       getScroller: () => viewerRef.current!,
     });
     return () => {
       delete window.__cmuxPerformDiffViewerNavigationAction;
+      delete document.documentElement.dataset.cmuxViewerNavigationReady;
+      document.dispatchEvent(new window.Event("cmux-diff-viewer-navigation-readiness-change"));
       disposeManualInputReset();
     };
   }, [dispatch, onJumpAdjacentFile, viewerRef]);
@@ -1591,15 +1595,20 @@ export function visibleItemId(
   scrollTop: number,
   getTopForItem: (itemId: string) => number | undefined,
 ): string {
-  let visible = items[0]?.id ?? "";
-  for (const item of items) {
-    const top = getTopForItem(item.id);
-    if (top == null || top > scrollTop + 1) {
-      break;
+  let low = 0;
+  let high = items.length - 1;
+  let visibleIndex = items.length > 0 ? 0 : -1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const top = getTopForItem(items[middle].id);
+    if (top != null && top <= scrollTop + 1) {
+      visibleIndex = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
     }
-    visible = item.id;
   }
-  return visible;
+  return visibleIndex >= 0 ? items[visibleIndex].id : "";
 }
 
 function getInitialFileTreeRowCount(): number {
