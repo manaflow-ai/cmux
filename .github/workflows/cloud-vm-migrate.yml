@@ -57,6 +57,7 @@ jobs:
       CMUX_DB_SSL_REJECT_UNAUTHORIZED: ${{ vars.CMUX_DB_SSL_REJECT_UNAUTHORIZED || 'true' }}
       PGDATABASE: ${{ vars.PGDATABASE }}
       PGHOST: ${{ vars.PGHOST }}
+      PGOPTIONS: -c lock_timeout=5000 -c statement_timeout=300000
       PGPORT: ${{ vars.PGPORT || '5432' }}
       PGUSER: ${{ vars.PGUSER }}
     steps:
