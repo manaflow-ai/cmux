@@ -57,6 +57,7 @@ public final class MobilePushCoordinator {
         let workspaceId: String?
         let surfaceId: String?
         let macDeviceId: String?
+        let retargetsToLiveSurfaceOwner: Bool
         let createdAt: Date
     }
 
@@ -216,16 +217,34 @@ public final class MobilePushCoordinator {
     /// immediately in those states is what stranded users on the workspaces
     /// home screen.
     public func handleTap(workspaceId: String?, surfaceId: String?) {
-        handleTap(workspaceId: workspaceId, surfaceId: surfaceId, macDeviceId: nil)
+        handleTap(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            macDeviceId: nil,
+            retargetsToLiveSurfaceOwner: true
+        )
     }
 
     /// Deep-link to the workspace/terminal a tapped notification refers to,
     /// using the sending Mac id to disambiguate duplicate Mac-local ids.
-    public func handleTap(workspaceId: String?, surfaceId: String?, macDeviceId: String?) {
+    /// - Parameters:
+    ///   - workspaceId: The Mac-local workspace claim carried by the push.
+    ///   - surfaceId: The exact terminal claim carried by the push.
+    ///   - macDeviceId: The Mac that owns the claimed ids.
+    ///   - retargetsToLiveSurfaceOwner: Whether a moved terminal may resolve in
+    ///     a workspace other than the explicit claim. Defaults to `true` for
+    ///     pushes from older Mac clients that predate confinement provenance.
+    public func handleTap(
+        workspaceId: String?,
+        surfaceId: String?,
+        macDeviceId: String?,
+        retargetsToLiveSurfaceOwner: Bool = true
+    ) {
         pendingDeeplink = PendingDeeplink(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             macDeviceId: macDeviceId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             createdAt: now()
         )
         applyPendingDeeplinkIfReady()
@@ -276,6 +295,7 @@ public final class MobilePushCoordinator {
                 workspaceId: nil,
                 surfaceId: surfaceId,
                 macDeviceId: pending.macDeviceId,
+                retargetsToLiveSurfaceOwner: pending.retargetsToLiveSurfaceOwner,
                 createdAt: pending.createdAt
             )
             return
