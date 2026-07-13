@@ -38,16 +38,23 @@ final class SidebarWorkspaceRowHoverReconcilerView: NSView {
         reportPointerHovering(false)
     }
 
-    func reconcileCurrentPointerLocation() {
+    func reconcileCurrentPointerLocation(repairing trackedPointerHovering: Bool? = nil) {
         guard let window else {
-            reportPointerHovering(false)
+            reportPointerHovering(false, force: trackedPointerHovering == true)
             return
         }
-        reconcilePointerLocation(pointInView: convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        reconcilePointerLocation(
+            pointInView: convert(window.mouseLocationOutsideOfEventStream, from: nil),
+            repairing: trackedPointerHovering
+        )
     }
 
-    func reconcilePointerLocation(pointInView: NSPoint) {
-        reportPointerHovering(bounds.contains(pointInView), force: true)
+    func reconcilePointerLocation(pointInView: NSPoint, repairing trackedPointerHovering: Bool? = nil) {
+        let pointerHovering = bounds.contains(pointInView)
+        reportPointerHovering(
+            pointerHovering,
+            force: trackedPointerHovering.map { $0 != pointerHovering } ?? false
+        )
     }
 
     private func reportPointerHovering(_ hovering: Bool, force: Bool = false) {
