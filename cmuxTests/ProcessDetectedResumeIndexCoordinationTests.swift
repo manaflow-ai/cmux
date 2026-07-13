@@ -356,6 +356,37 @@ struct ProcessDetectedResumeIndexCoordinationTests {
     }
 
     @Test
+    func confirmedTerminationCaptureBeginsTeardownWithoutASecondSnapshotPass() async {
+        let events = OSAllocatedUnfairLock(initialState: [String]())
+        let watchdog = TerminationWatchdog(
+            onFire: {},
+            scheduleDeadline: { _, _ in events.withLock { $0.append("watchdog") } }
+        )
+        let capture = ConfirmedTerminationSessionCapture(watchdog: watchdog)
+
+        capture.prepare {
+            events.withLock { $0.append("coreSnapshot") }
+        }
+        await capture.captureBeforeTeardown(
+            using: {
+                events.withLock { $0.append("processIndexCapture") }
+                return ProcessDetectedResumeIndexes(
+                    restorableAgentIndex: .empty,
+                    surfaceResumeBindingIndex: .empty
+                )
+            },
+            beginTeardown: {
+                events.withLock { $0.append("beginTeardown") }
+            }
+        )
+
+        #expect(
+            events.withLock { $0 }
+                == ["coreSnapshot", "watchdog", "processIndexCapture", "beginTeardown"]
+        )
+    }
+
+    @Test
     func blockedTerminationCaptureCannotDelayCorePersistenceOrWatchdog() async {
         let captureStarted = DispatchSemaphore(value: 0)
         let releaseCapture = DispatchSemaphore(value: 0)

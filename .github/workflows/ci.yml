@@ -717,6 +717,7 @@ jobs:
             -only-testing:cmuxTests/SharedLiveAgentIndexFingerprintInvalidationTests \
             -only-testing:cmuxTests/SharedLiveAgentIndexGenerationAuthorityTests \
             -only-testing:cmuxTests/SharedLiveAgentIndexHookStoreInvalidationTests \
+            -only-testing:cmuxTests/ProcessDetectedResumeIndexCoordinationTests \
             -only-testing:cmuxTests/TerminationResumeIndexCoordinatorInvalidationTests \
             -only-testing:cmuxTests/ClosedItemHistoryAgentEnrichmentTests \
             -only-testing:cmuxTests/AgentHibernationPlannerSwiftTests \
