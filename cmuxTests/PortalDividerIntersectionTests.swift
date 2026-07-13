@@ -277,22 +277,37 @@ import Testing
         #expect(cursor.image.size.height > 0)
     }
 
-    @Test func activeResizeKeepsItsStartingCursorUntilMouseUp() {
-        #expect(PortalDividerCursorKind.resolvedDuringDrag(
-            hovered: .horizontal,
-            active: .vertical,
-            isDragActive: true
-        ) == .vertical)
-        #expect(PortalDividerCursorKind.resolvedDuringDrag(
-            hovered: .vertical,
-            active: .both,
-            isDragActive: true
-        ) == .both)
-        #expect(PortalDividerCursorKind.resolvedDuringDrag(
-            hovered: .horizontal,
-            active: .vertical,
-            isDragActive: false
-        ) == .horizontal)
+    @Test func singleAxisDragIsClaimedAndKeepsItsOrientation() {
+        let window = NSWindow(
+            contentRect: Self.contentBounds,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let (_, inner) = makeNestedSplits()
+        inner.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300)))
+        inner.addArrangedSubview(NSView(frame: NSRect(x: 401, y: 0, width: 399, height: 300)))
+        window.contentView?.addSubview(inner)
+        let vertical = region(inner, rect: verticalDividerRect, isVertical: true)
+        let start = NSPoint(x: 400, y: 150)
+        let controller = PortalDividerDragController()
+
+        #expect(PortalDividerDragController.drag(
+            atWindowPoint: start,
+            regions: [vertical]
+        )?.kind == .vertical)
+        #expect(controller.begin(atWindowPoint: start, regions: [vertical]))
+        #expect(controller.cursorKind == .vertical)
+
+        // Moving diagonally across where another divider could be must still
+        // resize only the captured vertical axis and retain its cursor kind.
+        controller.update(windowPoint: NSPoint(x: 450, y: 280))
+        #expect(controller.cursorKind == .vertical)
+        #expect(abs(inner.arrangedSubviews[0].frame.width - 450) < 1)
+
+        controller.end()
+        #expect(controller.cursorKind == nil)
     }
 
     @Test func updateEndsDragWhenDividerIdentityGoesStale() {
@@ -310,7 +325,7 @@ import Testing
 
         let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
         let vertical = region(inner, rect: verticalDividerRect, isVertical: true)
-        let controller = PortalDividerIntersectionDragController()
+        let controller = PortalDividerDragController()
         #expect(controller.begin(atWindowPoint: cornerPoint, regions: [horizontal, vertical]))
 
         // A pane close between drag samples invalidates the captured divider
@@ -374,9 +389,9 @@ import Testing
         splitView.delegate = delegate
         defer { splitView.delegate = nil }
 
-        #expect(PortalDividerIntersectionDragController.clampedPosition(-50, in: splitView, dividerIndex: 0) == 100)
-        #expect(PortalDividerIntersectionDragController.clampedPosition(750, in: splitView, dividerIndex: 0) == 700)
-        #expect(PortalDividerIntersectionDragController.clampedPosition(400, in: splitView, dividerIndex: 0) == 400)
+        #expect(PortalDividerDragController.clampedPosition(-50, in: splitView, dividerIndex: 0) == 100)
+        #expect(PortalDividerDragController.clampedPosition(750, in: splitView, dividerIndex: 0) == 700)
+        #expect(PortalDividerDragController.clampedPosition(400, in: splitView, dividerIndex: 0) == 400)
     }
 }
 

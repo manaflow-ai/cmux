@@ -233,8 +233,8 @@ final class WindowBrowserHostView: NSView {
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
-    // See BrowserWindowPortal+IntersectionDrag.swift.
-    let intersectionDrag = PortalDividerIntersectionDragController()
+    // See BrowserWindowPortal+IntersectionDrag.swift for shared pane-divider dragging.
+    let dividerDrag = PortalDividerDragController()
 
     deinit {
         if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
@@ -289,7 +289,7 @@ final class WindowBrowserHostView: NSView {
         super.viewDidMoveToWindow()
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
-            intersectionDrag.end()
+            dividerDrag.end()
         }
         updateSplitDividerResizeObserver()
         invalidateSplitDividerRegionCache()
@@ -380,7 +380,7 @@ final class WindowBrowserHostView: NSView {
 
     override func mouseExited(with event: NSEvent) {
         // Keep cursor ownership through a claimed drag or mouse-up cannot restore the arrow.
-        guard !intersectionDrag.isActive else { return }
+        guard !dividerDrag.isActive else { return }
         clearActiveDividerCursor(restoreArrow: true)
     }
 
@@ -455,6 +455,14 @@ final class WindowBrowserHostView: NSView {
             return nil
         }
         if splitPassThrough {
+            if eventType == .leftMouseDown,
+               PortalDividerDragController.drag(
+                   atWindowPoint: convert(point, to: nil),
+                   regions: splitDividerRegions()
+               ) != nil {
+                return self
+            }
+            if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
 #if DEBUG
             debugLogPointerRouting(
                 stage: "hitTest.splitPass",
@@ -523,7 +531,7 @@ final class WindowBrowserHostView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
-        if beginIntersectionDrag(with: event) { return }
+        if beginDividerDrag(with: event) { return }
         let point = convert(event.locationInWindow, from: nil)
         guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) else {
             super.mouseDown(with: event)
@@ -553,7 +561,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        if updateIntersectionDragIfActive(with: event) { return }
+        if updateDividerDragIfActive(with: event) { return }
         guard let dragState = hostedInspectorDividerDrag else {
             super.mouseDragged(with: event)
             return
@@ -621,7 +629,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if endIntersectionDragIfActive(with: event) { return }
+        if endDividerDragIfActive(with: event) { return }
         if let dragState = hostedInspectorDividerDrag {
             dragState.slotView.isHostedInspectorDividerDragActive = false
 #if DEBUG
@@ -760,14 +768,14 @@ final class WindowBrowserHostView: NSView {
         dividerHit: DividerHit? = nil,
         hostedInspectorHit: HostedInspectorDividerHit? = nil
     ) {
-        if let latched = PortalDividerCursorKind.resolvedDuringDrag(
-            hovered: nil,
-            active: activeDividerCursorKind,
-            isDragActive: intersectionDrag.isActive
-                || hostedInspectorDividerDrag != nil
-                || window?.browserPortalHasInteractiveSplitDividerDrag == true
-        ) {
+        if dividerDrag.isActive, let latched = dividerDrag.cursorKind {
+            activeDividerCursorKind = latched
             latched.cursor.set()
+            return
+        }
+        if hostedInspectorDividerDrag != nil {
+            activeDividerCursorKind = .vertical
+            PortalDividerCursorKind.vertical.cursor.set()
             return
         }
 

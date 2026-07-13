@@ -1,10 +1,10 @@
 import AppKit
 
-/// Two-axis divider intersection drag support for the browser portal host.
+/// Pane-divider drag support for the browser portal host.
 ///
 /// Intersection drags resize two split views at once, which `NSSplitView`
 /// cannot do natively, so a host view must claim the mouseDown and drive
-/// `PortalDividerIntersectionDragController`. Terminal portals are installed
+/// `PortalDividerDragController`. Terminal portals are installed
 /// lazily by terminal binding, so a browser-only window would otherwise show
 /// the four-way cursor and then hand the click to a native `NSSplitView`
 /// that resizes a single axis.
@@ -44,26 +44,26 @@ extension WindowBrowserHostView {
         ) != nil
     }
 
-    /// Starts a two-axis drag when the mouseDown lands on a live intersection.
-    func beginIntersectionDrag(with event: NSEvent) -> Bool {
-        intersectionDrag.begin(atWindowPoint: event.locationInWindow, regions: splitDividerRegions())
+    /// Starts a one-axis divider drag or two-axis corner drag.
+    func beginDividerDrag(with event: NSEvent) -> Bool {
+        dividerDrag.begin(atWindowPoint: event.locationInWindow, regions: splitDividerRegions())
     }
 
     /// Forwards a drag sample to the active two-axis drag, if any. An
     /// aborted drag stays claimed until mouse-up; `mouseUp` runs the release
     /// handshake and re-resolves the cursor.
-    func updateIntersectionDragIfActive(with event: NSEvent) -> Bool {
-        guard intersectionDrag.isActive else { return false }
-        intersectionDrag.update(windowPoint: event.locationInWindow)
+    func updateDividerDragIfActive(with event: NSEvent) -> Bool {
+        guard dividerDrag.isActive else { return false }
+        dividerDrag.update(windowPoint: event.locationInWindow)
         return true
     }
 
     /// Ends the active two-axis drag and re-resolves the cursor from the drop
     /// point so the forced four-way cursor does not stick when the pointer
     /// ends away from any divider.
-    func endIntersectionDragIfActive(with event: NSEvent) -> Bool {
-        guard intersectionDrag.isActive else { return false }
-        intersectionDrag.end()
+    func endDividerDragIfActive(with event: NSEvent) -> Bool {
+        guard dividerDrag.isActive else { return false }
+        dividerDrag.end()
         updateDividerCursor(at: convert(event.locationInWindow, from: nil))
         return true
     }

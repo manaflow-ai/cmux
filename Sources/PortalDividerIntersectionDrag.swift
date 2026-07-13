@@ -1,9 +1,9 @@
 import AppKit
 import Bonsplit
 
-/// Drives a two-axis divider drag started at the intersection of a vertical
-/// and a horizontal divider band. The portal host view claims the mouseDown
-/// at the corner zone and forwards pointer deltas here; each update writes
+/// Drives every pane-divider drag claimed by a portal host. A single-axis
+/// band captures one split view; a nested corner captures its vertical and
+/// horizontal split views together. Each update writes
 /// the divider position through the owning `BonsplitController`'s model
 /// first (`setDividerPosition(_:forSplit:)` via `BonsplitManagedSplitView`)
 /// and then moves the view with `setPosition`. Bonsplit's coordinators
@@ -13,7 +13,7 @@ import Bonsplit
 /// our value; writing the model first guarantees that instead of fighting
 /// the latch.
 @MainActor
-final class PortalDividerIntersectionDragController {
+final class PortalDividerDragController {
     // Nested types do not inherit the enclosing class's @MainActor, and
     // `resolvedSplitView` reads MainActor-isolated NSView state.
     @MainActor
@@ -44,16 +44,17 @@ final class PortalDividerIntersectionDragController {
 
     private var axes: [AxisDrag] = []
     private var isAborted = false
+    private(set) var cursorKind: PortalDividerCursorKind?
 
     var isActive: Bool { !axes.isEmpty }
 
     func begin(atWindowPoint windowPoint: NSPoint, regions: [PortalSplitDividerRegion]) -> Bool {
         guard !isActive,
-              let intersection = PortalSplitDividerRegion.dividerIntersection(at: windowPoint, in: regions) else {
+              let drag = Self.drag(atWindowPoint: windowPoint, regions: regions) else {
             return false
         }
         var nextAxes: [AxisDrag] = []
-        for region in [intersection.vertical, intersection.horizontal] {
+        for region in drag.regions {
             guard let splitView = region.splitView,
                   let dividerRect = PortalSplitDividerRegion.dividerRect(
                       in: splitView,
@@ -72,8 +73,9 @@ final class PortalDividerIntersectionDragController {
             ))
         }
         axes = nextAxes
+        cursorKind = drag.kind
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
-        PortalDividerCursorKind.both.cursor.set()
+        drag.kind.cursor.set()
         return true
     }
 
@@ -104,14 +106,32 @@ final class PortalDividerIntersectionDragController {
             }
             splitView.setPosition(clamped, ofDividerAt: axis.dividerIndex)
         }
-        PortalDividerCursorKind.both.cursor.set()
+        cursorKind?.cursor.set()
     }
 
     func end() {
         guard isActive else { return }
         axes = []
         isAborted = false
+        cursorKind = nil
         TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+    }
+
+    /// Resolves the exact divider identities captured by a mouse-down. A real
+    /// nested corner owns both axes; every other point inside a divider's
+    /// single-axis band owns only the topmost divider. Portal hosts use this
+    /// same result for hit claiming and drag start, so a cursor is never
+    /// advertised by one owner and dragged by another.
+    static func drag(
+        atWindowPoint windowPoint: NSPoint,
+        regions: [PortalSplitDividerRegion]
+    ) -> (kind: PortalDividerCursorKind, regions: [PortalSplitDividerRegion])? {
+        let hits = PortalSplitDividerRegion.dividerHits(at: windowPoint, in: regions)
+        if let intersection = hits.intersection {
+            return (.both, [intersection.vertical, intersection.horizontal])
+        }
+        guard let region = hits.first else { return nil }
+        return (region.isVertical ? .vertical : .horizontal, [region])
     }
 
     /// `setPosition` does not consult the delegate's constrain methods, so

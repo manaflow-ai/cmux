@@ -26,7 +26,7 @@ final class WindowTerminalHostView: NSView {
     private var activeDividerCursorKind: DividerCursorKind?
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     let paneDropRoutingSession = PaneDropRoutingSession()
-    private let intersectionDrag = PortalDividerIntersectionDragController()
+    private let dividerDrag = PortalDividerDragController()
 #if DEBUG
     var lastDragRouteSignature: String?
 #endif
@@ -43,7 +43,7 @@ final class WindowTerminalHostView: NSView {
         super.viewDidMoveToWindow()
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
-            intersectionDrag.end()
+            dividerDrag.end()
         }
         updateSplitDividerResizeObserver()
         invalidateSplitDividerRegionCache()
@@ -119,10 +119,10 @@ final class WindowTerminalHostView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
-        // Tracking areas fire mouseExited while a claimed intersection drag
+        // Tracking areas fire mouseExited while a claimed divider drag
         // is in flight; clearing then would drop cursor ownership so the
         // mouse-up restore becomes a no-op and the four-way cursor sticks.
-        guard !intersectionDrag.isActive else { return }
+        guard !dividerDrag.isActive else { return }
         clearActiveDividerCursor(restoreArrow: true)
     }
 
@@ -131,20 +131,20 @@ final class WindowTerminalHostView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
-        if intersectionDrag.begin(atWindowPoint: event.locationInWindow, regions: splitDividerRegions()) { return }
+        if dividerDrag.begin(atWindowPoint: event.locationInWindow, regions: splitDividerRegions()) { return }
         super.mouseDown(with: event)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard intersectionDrag.isActive else { return super.mouseDragged(with: event) }
+        guard dividerDrag.isActive else { return super.mouseDragged(with: event) }
         // An aborted drag stays claimed until mouse-up; `mouseUp` runs the
         // release handshake and re-resolves the cursor.
-        intersectionDrag.update(windowPoint: event.locationInWindow)
+        dividerDrag.update(windowPoint: event.locationInWindow)
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard intersectionDrag.isActive else { return super.mouseUp(with: event) }
-        intersectionDrag.end()
+        guard dividerDrag.isActive else { return super.mouseUp(with: event) }
+        dividerDrag.end()
         // The drag forced the four-way cursor on every update; re-resolve from
         // the drop point so it does not stick when the pointer ends away from
         // any divider (AppKit sends no cursorUpdate until the next move).
@@ -201,6 +201,15 @@ final class WindowTerminalHostView: NSView {
 
             if let kind = splitDividerCursorKind(at: point) {
                 assertDividerCursor(kind)
+                let eventType = currentEvent?.type
+                if eventType == .leftMouseDown,
+                   PortalDividerDragController.drag(
+                       atWindowPoint: convert(point, to: nil),
+                       regions: splitDividerRegions()
+                   ) != nil {
+                    return self
+                }
+                if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
                 TerminalWindowPortalRegistry.noteSplitDividerInteraction(in: window, event: currentEvent)
                 return nil
             }
@@ -370,11 +379,8 @@ final class WindowTerminalHostView: NSView {
     }
 
     private func updateDividerCursor(at point: NSPoint) {
-        if let latched = PortalDividerCursorKind.resolvedDuringDrag(
-            hovered: nil,
-            active: activeDividerCursorKind,
-            isDragActive: intersectionDrag.isActive || TerminalWindowPortalRegistry.isSplitDividerDragActive(in: window)
-        ) {
+        if dividerDrag.isActive, let latched = dividerDrag.cursorKind {
+            activeDividerCursorKind = latched
             latched.cursor.set()
             return
         }
