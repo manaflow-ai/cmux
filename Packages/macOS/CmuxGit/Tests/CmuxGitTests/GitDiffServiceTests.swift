@@ -247,7 +247,7 @@ import Testing
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
         let stalledGit = repo.appendingPathComponent("term-ignoring-git.sh")
-        try Data("#!/bin/sh\ntrap '' TERM\nsleep 3 &\nwait\n".utf8).write(to: stalledGit)
+        try Data("#!/bin/sh\ntrap '' TERM\nsleep 30 &\nwait\n".utf8).write(to: stalledGit)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755], ofItemAtPath: stalledGit.path
         )
@@ -262,7 +262,9 @@ import Testing
             finished.signal()
         }
 
-        #expect(finished.wait(timeout: .now() + 1) == .success)
+        // Leave enough scheduling headroom for a loaded CI runner while
+        // keeping the failure bound far below the fake child's 30-second life.
+        #expect(finished.wait(timeout: .now() + 5) == .success)
     }
 
     @Test func cancelledTaskSpawnsNoGitWork() async throws {
