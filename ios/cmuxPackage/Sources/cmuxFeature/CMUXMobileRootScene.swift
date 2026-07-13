@@ -22,7 +22,8 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 ///
 /// Renders the live cmux mobile UI: a ``CMUXMobileAppView`` backed by a fresh
 /// ``CMUXMobileShellStore`` and the injected ``AuthCoordinator``. In DEBUG
-/// builds, `CMUX_DESIGN_GALLERY=1` mounts ``DesignGalleryScreen`` and
+/// builds, `CMUX_DESIGN_GALLERY` mounts the design gallery (`1` for the root
+/// list, or a deep route like `phosphor:specimen:dark`) and
 /// `CMUX_ZOOM_STRESS=1` mounts the terminal zoom-stress repro harness
 /// (`MobileZoomStressView`); `CMUX_BOTTOM_SCROLL_STRESS=1` mounts the terminal
 /// bottom-scroll repro harness (`MobileBottomScrollStressView`).
@@ -247,8 +248,9 @@ public struct CMUXMobileRootScene: View {
             WorkspaceListLayoutPreviewView()
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {
             MobileRecoveryStressView(configuration: recoveryStress)
-        } else if ProcessInfo.processInfo.environment["CMUX_DESIGN_GALLERY"] == "1" {
-            DesignGalleryScreen()
+        } else if let galleryValue = ProcessInfo.processInfo.environment["CMUX_DESIGN_GALLERY"],
+                  !galleryValue.isEmpty, galleryValue != "0" {
+            DesignGalleryEntryView(environmentValue: galleryValue)
         } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {

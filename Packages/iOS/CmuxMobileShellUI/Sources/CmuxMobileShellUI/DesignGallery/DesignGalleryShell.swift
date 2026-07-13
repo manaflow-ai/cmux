@@ -9,9 +9,22 @@ struct DesignGalleryShell: View {
     @State private var page: DesignGalleryPage = .hub
     @State private var colorSchemeOverride: ColorScheme
 
-    init(system: DesignGallerySystem) {
+    /// Creates the browser for one candidate.
+    /// - Parameters:
+    ///   - system: The candidate design system to browse.
+    ///   - initialPage: The page shown first; defaults to the hub.
+    ///   - initialScheme: A forced starting color scheme, or `nil` for the
+    ///     candidate's default (dark for Phosphor, light otherwise).
+    init(
+        system: DesignGallerySystem,
+        initialPage: DesignGalleryPage = .hub,
+        initialScheme: ColorScheme? = nil
+    ) {
         self.system = system
-        _colorSchemeOverride = State(initialValue: system == .phosphor ? .dark : .light)
+        _page = State(initialValue: initialPage)
+        _colorSchemeOverride = State(
+            initialValue: initialScheme ?? (system == .phosphor ? .dark : .light)
+        )
     }
 
     var body: some View {
