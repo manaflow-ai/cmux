@@ -939,6 +939,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },
         "fileExplorer": {
