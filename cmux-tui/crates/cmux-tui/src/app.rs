@@ -1893,7 +1893,7 @@ impl App {
                 }
             }
             MenuAction::NewTab(id) => {
-                self.session.new_tab(Some(id), self.terminal_tab_size_hint(Some(id)))?
+                self.session.new_tab(Some(id), self.terminal_tab_size_hint(Some(id)))?;
             }
             MenuAction::NewBrowserTab(id) => self.create_browser_tab_for_edit(Some(id))?,
             MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
