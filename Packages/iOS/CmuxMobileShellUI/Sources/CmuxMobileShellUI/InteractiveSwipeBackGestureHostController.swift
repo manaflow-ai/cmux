@@ -43,7 +43,13 @@ final class InteractiveSwipeBackGestureHostController: UIViewController, UIGestu
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        policy.shouldBegin(navigationController: navigationController)
+        if previousGestureDelegate?.gestureRecognizerShouldBegin?(gestureRecognizer) == false {
+            return false
+        }
+        return policy.shouldBegin(
+            navigationController: navigationController,
+            isTransitionInProgress: navigationController?.transitionCoordinator != nil
+        )
     }
 
     func gestureRecognizer(

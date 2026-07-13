@@ -84,6 +84,7 @@ public struct MobileBrowserView: UIViewRepresentable {
     @MainActor
     public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let state: BrowserSurfaceState
+        private let pageMetadataCoalescer: BrowserPageMetadataEventCoalescer
         private weak var webView: WKWebView?
         private var observations: [NSKeyValueObservation] = []
 
@@ -91,6 +92,9 @@ public struct MobileBrowserView: UIViewRepresentable {
         /// - Parameter state: The surface state to mirror web-view changes into.
         public init(state: BrowserSurfaceState) {
             self.state = state
+            self.pageMetadataCoalescer = BrowserPageMetadataEventCoalescer { [weak state] update in
+                state?.applyPageMetadataUpdate(update)
+            }
             super.init()
         }
 
@@ -184,7 +188,14 @@ public struct MobileBrowserView: UIViewRepresentable {
         /// dismantle so the surface leaves no dangling KVO registrations.
         func detach() {
             if let webView {
+                pageMetadataCoalescer.receiveTitle(webView.title)
+                if !webView.isLoading, let url = webView.url {
+                    pageMetadataCoalescer.receiveURL(url)
+                }
+                pageMetadataCoalescer.flush()
                 captureInteractionState(from: webView)
+            } else {
+                pageMetadataCoalescer.flush()
             }
             observations.forEach { $0.invalidate() }
             observations.removeAll()
@@ -207,7 +218,7 @@ public struct MobileBrowserView: UIViewRepresentable {
                 webView.observe(\.title) { [weak self, state] webView, _ in
                     MainActor.assumeIsolated {
                         guard self?.acceptsCallbacks(from: webView) == true else { return }
-                        state.pageTitleDidChange(webView.title)
+                        self?.pageMetadataCoalescer.receiveTitle(webView.title)
                     }
                 },
                 webView.observe(\.url) { [weak self, state] webView, _ in
@@ -217,7 +228,7 @@ public struct MobileBrowserView: UIViewRepresentable {
                         if !webView.isLoading {
                             // History API and same-document navigation update
                             // `url` without a matching `didFinish` callback.
-                            state.navigationURLDidChange(url)
+                            self?.pageMetadataCoalescer.receiveURL(url)
                         } else if !state.isAddressEditing {
                             // Mirror provisional destinations into the address
                             // bar without persisting them as committed pages.
@@ -283,6 +294,7 @@ public struct MobileBrowserView: UIViewRepresentable {
         /// Commits the final URL, title, and interaction state after a successful navigation.
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             guard acceptsCallbacks(from: webView) else { return }
+            pageMetadataCoalescer.discardPending()
             state.navigationDidFinish(url: webView.url, title: webView.title)
             captureInteractionState(from: webView)
         }

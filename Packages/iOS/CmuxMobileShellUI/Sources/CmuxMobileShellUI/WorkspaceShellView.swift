@@ -26,7 +26,8 @@ struct WorkspaceShellView: View {
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State var compactLocalBrowserWorkspaceID: MobileWorkspacePreview.ID?
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
-    @State var isOpeningTerminalFromSurfaceGrid = false
+    @State var surfaceGridTerminalOpenTask: Task<Void, Never>?
+    @State var surfaceGridTerminalOpenRequestID: UUID?
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var showingCompactSettings = false
@@ -321,25 +322,10 @@ struct WorkspaceShellView: View {
         selectWorkspace(id)
     }
 
-    private func openTerminalFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID, terminalID: MobileTerminalPreview.ID) {
-        guard !isOpeningTerminalFromSurfaceGrid else { return }
-        pendingCompactCreateNavigationWorkspaceIDs = nil
-        isOpeningTerminalFromSurfaceGrid = true
-        Task { @MainActor in
-            defer { isOpeningTerminalFromSurfaceGrid = false }
-            guard let resolvedWorkspaceID = await WorkspaceTerminalSurfaceSelection(
-                store: store,
-                browserStore: browserStore
-            ).selectFromSurfaceGrid(
-                workspaceID: workspaceID,
-                terminalID: terminalID
-            ) else { return }
-            compactLocalBrowserWorkspaceID = nil
-            compactNavigationPath = [resolvedWorkspaceID]
-        }
-    }
-
     private func openBrowserFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
+        surfaceGridTerminalOpenTask?.cancel()
+        surfaceGridTerminalOpenTask = nil
+        surfaceGridTerminalOpenRequestID = nil
         pendingCompactCreateNavigationWorkspaceIDs = nil
         compactLocalBrowserWorkspaceID = workspaceID
         store.selectedWorkspaceID = workspaceID

@@ -293,12 +293,12 @@ public final class BrowserSurfaceState: Identifiable {
     ///
     /// - Parameter url: The page identity currently visible in WebKit.
     func navigationURLDidChange(_ url: URL) {
-        guard currentURL != url else { return }
-        currentURL = url
-        if !isAddressEditing {
-            addressText = url.absoluteString
-        }
-        persistDurableState?(false)
+        applyPageMetadataUpdate(.init(
+            url: url,
+            title: nil,
+            includesURL: true,
+            includesTitle: false
+        ))
     }
 
     /// Save a non-empty page title reported outside the navigation lifecycle.
@@ -307,13 +307,36 @@ public final class BrowserSurfaceState: Identifiable {
     /// changes must persist independently of completed navigations.
     /// - Parameter title: The latest page title reported by WebKit.
     func pageTitleDidChange(_ title: String?) {
-        let normalizedTitle = title.flatMap { $0.isEmpty ? nil : $0 }
-        // WebKit clears `title` while a new page is provisional. Keep the
-        // committed title until success so a provisional failure restores it.
-        guard normalizedTitle != nil || !isLoading,
-              self.title != normalizedTitle else { return }
-        self.title = normalizedTitle
-        persistDurableState?(false)
+        applyPageMetadataUpdate(.init(
+            url: nil,
+            title: title,
+            includesURL: false,
+            includesTitle: true
+        ))
+    }
+
+    /// Applies one coalesced WebKit metadata event with one durable callback.
+    func applyPageMetadataUpdate(_ update: BrowserPageMetadataUpdate) {
+        var didChange = false
+        if update.includesURL, let url = update.url, currentURL != url {
+            currentURL = url
+            if !isAddressEditing {
+                addressText = url.absoluteString
+            }
+            didChange = true
+        }
+        if update.includesTitle {
+            let normalizedTitle = update.title.flatMap { $0.isEmpty ? nil : $0 }
+            // WebKit clears `title` while a new page is provisional. Keep the
+            // committed title until success so a provisional failure restores it.
+            if (normalizedTitle != nil || !isLoading), title != normalizedTitle {
+                title = normalizedTitle
+                didChange = true
+            }
+        }
+        if didChange {
+            persistDurableState?(false)
+        }
     }
 
     /// Mark a successful navigation finish and save its committed identity.
