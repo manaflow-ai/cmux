@@ -3,6 +3,7 @@ import Foundation
 /// Settings under the dotted-id prefix `sidebar.*` — workspace-row
 /// metadata visibility and layout.
 public struct SidebarCatalogSection: SettingCatalogSection {
+    /// Valid notification-preview line limits for settings UI and configuration parsing.
     public static let notificationMessageLineLimitRange = 1...50
 
     public let hideAllDetails = DefaultsKey<Bool>(
@@ -52,6 +53,7 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowNotificationMessage"
     )
 
+    /// Maximum notification-preview lines shown per workspace, defaulting to 12.
     public let notificationMessageLineLimit = DefaultsKey<Int>(
         id: "sidebar.notificationMessageLineLimit",
         defaultValue: 12,
