@@ -149,7 +149,7 @@ if [[ "$PREPARE_SUBMISSION" -eq 1 ]]; then
   note "declaring App Store content rights"
   asc apps update \
     --id "$APP" \
-    --content-rights DOES_NOT_USE_THIRD_PARTY_CONTENT
+    --content-rights USES_THIRD_PARTY_CONTENT
 
   VERSION_ID="$(
     asc versions list --app "$APP" --version "$VERSION" --platform IOS --output json |

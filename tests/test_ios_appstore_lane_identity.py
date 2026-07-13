@@ -965,9 +965,9 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
             "--id",
             ASC_APP_ID,
             "--content-rights",
-            "DOES_NOT_USE_THIRD_PARTY_CONTENT",
+            "USES_THIRD_PARTY_CONTENT",
         ],
-        "submission preparation declares that cmux does not use third-party content",
+        "submission preparation declares that cmux accesses user-controlled third-party content",
     )
     _check(
         attach_build_call == [
