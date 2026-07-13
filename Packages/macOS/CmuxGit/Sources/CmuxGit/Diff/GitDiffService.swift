@@ -326,12 +326,23 @@ public struct GitDiffService: Sendable {
         guard case .success(let context) = snapshotContextResult(
             repoRoot: repoRoot,
             baselineObjectID: baseline
-        ), case .success(let currentTokens) = snapshotTokensResult(
+        ), case .success(true) = currentSummaryMatchesResult(
             repoRoot: repoRoot,
-            context: context,
+            baseline: baseline,
+            expected: summary
+        ), case .success(let identities) = snapshotFileIdentitiesResult(
+            repoRoot: repoRoot,
             summaries: [summary]
-        ), currentTokens.count == 1,
-        let currentToken = currentTokens.first else { return false }
+        ), case .success(let semanticIdentity) = rawDiffIdentityResult(
+            repoRoot: repoRoot,
+            baseline: baseline,
+            summary: summary
+        ), let currentTokens = snapshotTokens(
+            context: context,
+            summaries: [summary],
+            identities: identities,
+            semanticIdentities: [semanticIdentity]
+        ), let currentToken = currentTokens.first else { return false }
         return currentToken == expectedToken
     }
 
@@ -363,7 +374,16 @@ public struct GitDiffService: Sendable {
     /// inert for ordinary files, but prevents a baseline directory replaced by
     /// an indexed file from widening the response to deleted children.
     func descendantExclusionPathspec(_ path: String) -> String {
-        ":(top,literal,exclude)\(path)/"
+        var escapedPath = ""
+        escapedPath.reserveCapacity(path.utf8.count)
+        for character in path {
+            if character == "\\" || character == "*" || character == "?"
+                || character == "[" || character == "]" {
+                escapedPath.append("\\")
+            }
+            escapedPath.append(character)
+        }
+        return ":(top,glob,exclude)\(escapedPath)/**"
     }
 
     /// Whether `path` is an untracked file. The `:(literal)` pathspec keeps a

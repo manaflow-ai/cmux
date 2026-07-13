@@ -53,7 +53,7 @@ struct GitProcessRunner: Sendable {
         }
         let deadline = ProcessInfo.processInfo.systemUptime + processDeadlineSeconds
         var accumulatedOutput = Data()
-        for batch in fileSystemPathBatches(paths) {
+        for batch in argumentBatches(paths) {
             guard !Task.isCancelled else {
                 return GitProcessResult(output: nil, failure: .cancelled)
             }
@@ -121,7 +121,59 @@ struct GitProcessRunner: Sendable {
         )
     }
 
-    private func fileSystemPathBatches(_ paths: [String]) -> [[String]] {
+    func runGitWorkingTreeHeads(
+        repoRoot: String,
+        paths: [String],
+        maxOutputBytes: Int
+    ) -> GitProcessResult {
+        guard !paths.isEmpty else {
+            return GitProcessResult(rawOutput: Data(), output: "", terminationStatus: 0)
+        }
+        let deadline = ProcessInfo.processInfo.systemUptime + processDeadlineSeconds
+        var accumulatedOutput = Data()
+        for batch in argumentBatches(paths) {
+            guard !Task.isCancelled else {
+                return GitProcessResult(output: nil, failure: .cancelled)
+            }
+            let remainingSeconds = deadline - ProcessInfo.processInfo.systemUptime
+            guard remainingSeconds > 0 else {
+                return GitProcessResult(output: nil, failure: .timedOut)
+            }
+            let result = runExecutable(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: [
+                    "-c",
+                    "git=$1; root=$2; shift 2; root_gitdir=$(\"$git\" -C \"$root\" rev-parse --absolute-git-dir 2>/dev/null) || exit $?; for path do location=$root/$path; gitdir=$(\"$git\" -C \"$location\" rev-parse --absolute-git-dir 2>/dev/null) || gitdir=; if [ -n \"$gitdir\" ] && [ \"$gitdir\" != \"$root_gitdir\" ]; then head=$(\"$git\" -C \"$location\" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) || head=; else head=; fi; printf '%s\\000%s\\000' \"$path\" \"$head\"; done",
+                    "cmux-git-heads",
+                    gitExecutableURL.path,
+                    repoRoot,
+                ] + batch,
+                acceptedTerminationStatuses: [0],
+                maxOutputBytes: max(1, maxOutputBytes - accumulatedOutput.count),
+                deadlineSeconds: remainingSeconds
+            )
+            if result.failure != nil { return result }
+            guard let output = result.rawOutput else {
+                return GitProcessResult(output: nil, failure: .launchFailed)
+            }
+            accumulatedOutput.append(output)
+            if result.capped {
+                return GitProcessResult(
+                    rawOutput: accumulatedOutput,
+                    output: decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: maxOutputBytes),
+                    capped: true,
+                    terminationStatus: result.terminationStatus
+                )
+            }
+        }
+        return GitProcessResult(
+            rawOutput: accumulatedOutput,
+            output: decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: nil),
+            terminationStatus: 0
+        )
+    }
+
+    private func argumentBatches(_ paths: [String]) -> [[String]] {
         var batches: [[String]] = []
         var batch: [String] = []
         var batchBytes = 0

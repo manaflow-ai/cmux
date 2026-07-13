@@ -49,28 +49,6 @@ extension GitDiffService {
         )
     }
 
-    func snapshotTokensResult(
-        repoRoot: String,
-        context: SnapshotContext,
-        summaries: [GitDiffSummary]
-    ) -> GitDiffQueryResult<[String]> {
-        let identities: [FileSystemIdentity]
-        switch snapshotFileIdentitiesResult(repoRoot: repoRoot, summaries: summaries) {
-        case .success(let values):
-            identities = values
-        case .notFound, .failed:
-            return .failed
-        case .timedOut:
-            return .timedOut
-        }
-        guard let tokens = snapshotTokens(
-            context: context,
-            summaries: summaries,
-            identities: identities
-        ) else { return .failed }
-        return .success(tokens)
-    }
-
     func snapshotFileIdentitiesResult(
         repoRoot: String,
         summaries: [GitDiffSummary]
@@ -126,18 +104,26 @@ extension GitDiffService {
     func snapshotTokens(
         context: SnapshotContext,
         summaries: [GitDiffSummary],
-        identities: [FileSystemIdentity]
+        identities: [FileSystemIdentity],
+        semanticIdentities: [Data?]
     ) -> [String]? {
-        guard summaries.count == identities.count else { return nil }
-        return zip(summaries, identities).map { summary, identity in
-            snapshotToken(context: context, summary: summary, currentIdentity: identity)
+        guard summaries.count == identities.count,
+              summaries.count == semanticIdentities.count else { return nil }
+        return zip(zip(summaries, identities), semanticIdentities).map { pair, semanticIdentity in
+            snapshotToken(
+                context: context,
+                summary: pair.0,
+                currentIdentity: pair.1,
+                semanticIdentity: semanticIdentity
+            )
         }
     }
 
     private func snapshotToken(
         context: SnapshotContext,
         summary: GitDiffSummary,
-        currentIdentity: FileSystemIdentity
+        currentIdentity: FileSystemIdentity,
+        semanticIdentity: Data?
     ) -> String {
         var payload = Data()
         append(context.baselineObjectID, to: &payload)
@@ -148,6 +134,7 @@ extension GitDiffService {
         append(summary.additions, to: &payload)
         append(summary.deletions, to: &payload)
         append(currentIdentity, to: &payload)
+        append(semanticIdentity, to: &payload)
         return hexEncoded(SHA256.hash(data: payload))
     }
 
@@ -225,6 +212,16 @@ extension GitDiffService {
         }
         data.append(1)
         append(UInt64(bitPattern: Int64(value)), to: &data)
+    }
+
+    private func append(_ value: Data?, to data: inout Data) {
+        guard let value else {
+            data.append(0)
+            return
+        }
+        data.append(1)
+        append(UInt64(value.count), to: &data)
+        data.append(value)
     }
 
     private func append(_ value: FileSystemIdentity, to data: inout Data) {

@@ -9,6 +9,6 @@ enum BaselineEntryKind: Equatable {
     }
 
     var excludesDescendants: Bool {
-        self == .file || self == .directory
+        self == .file || self == .gitlink || self == .directory
     }
 }

@@ -116,6 +116,22 @@ extension GitDiffService {
             return .timedOut
         }
         guard initialListing.hasSameOutput(as: finalListing) else { return .failed }
+        guard let rawIdentityData = finalListing.raw.rawOutput,
+              !finalListing.raw.capped,
+              let rawIdentities = rawDiffIdentities(rawIdentityData) else { return .failed }
+        let semanticIdentities: [Data?]
+        switch semanticIdentitiesResult(
+            repoRoot: repoRoot,
+            summaries: boundedFiles,
+            rawIdentities: rawIdentities
+        ) {
+        case .success(let values):
+            semanticIdentities = values
+        case .notFound, .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
         let finalContext: SnapshotContext
         switch snapshotContextResult(repoRoot: repoRoot, baselineObjectID: baseline) {
         case .success(let value):
@@ -139,7 +155,8 @@ extension GitDiffService {
               let snapshotTokens = snapshotTokens(
             context: finalContext,
             summaries: boundedFiles,
-            identities: finalFileIdentities
+            identities: finalFileIdentities,
+            semanticIdentities: semanticIdentities
         ) else { return .failed }
         var snapshotFiles: [GitDiffSummary] = []
         snapshotFiles.reserveCapacity(boundedFiles.count)
