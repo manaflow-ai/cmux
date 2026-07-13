@@ -221,6 +221,32 @@ import Testing
         #expect(node?.children.map(\.text) == ["alpha", "▸ beta"])
     }
 
+    // Regression for #7943: comparing an optional field against `nil` must
+    // evaluate to a Bool — `true` when the field is present, `false` when it
+    // is absent — across interpolation, ternaries, and `if` guards. Before the
+    // fix it evaluated to "nothing", so interpolation rendered empty, ternaries
+    // always took the else branch, and `if x != nil` guards were never taken.
+    @Test func nilComparisonEvaluatesToBoolForPresentAndAbsentFields() {
+        let workspaces = SwiftValue.array([
+            .object(["title": .string("has"), "note": .string("hello")]),
+            .object(["title": .string("missing")]),  // no `note` field
+        ])
+        let node = interp.evaluate("""
+        VStack {
+            ForEach(workspaces) { w in
+                Text("present: \\(w.note != nil)")
+                Text(w.note != nil ? "ternary: THEN" : "ternary: ELSE")
+                if w.note != nil { Text("guard: TAKEN") } else { Text("guard: NOT TAKEN") }
+                Text("absent: \\(w.note == nil)")
+            }
+        }
+        """, state: ["workspaces": workspaces])
+        #expect(node?.children.map(\.text) == [
+            "present: true", "ternary: THEN", "guard: TAKEN", "absent: false",
+            "present: false", "ternary: ELSE", "guard: NOT TAKEN", "absent: true",
+        ])
+    }
+
     @Test func labelFormButtonCapturesActionAndLabel() {
         let node = interp.evaluate("""
         VStack {
