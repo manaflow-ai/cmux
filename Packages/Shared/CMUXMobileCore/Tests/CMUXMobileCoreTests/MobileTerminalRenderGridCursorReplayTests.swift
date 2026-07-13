@@ -43,6 +43,7 @@ import Testing
 
     let cursor = ReplayCursorProbe.finalCursor(after: bytes, rows: frame.rows)
 
+    #expect(frame.cursor?.location == .viewport)
     #expect(cursor.row == 0)
 }
 
@@ -71,6 +72,7 @@ import Testing
 
     let cursor = ReplayCursorProbe.finalCursor(after: bytes, rows: frame.rows)
 
+    #expect(frame.cursor?.location == .belowViewport)
     #expect(cursor.row == frame.rows - 1)
 }
 
@@ -86,6 +88,7 @@ import Testing
 
     let cursor = ReplayCursorProbe.finalCursor(after: bytes, rows: frame.rows)
 
+    #expect(frame.cursor?.location == .aboveViewport)
     #expect(cursor.row == frame.rows - 1)
 }
 
@@ -114,6 +117,7 @@ import Testing
 
     let cursor = ReplayCursorProbe.finalCursor(after: bytes, rows: frame.rows)
 
+    #expect(frame.cursor?.location == nil)
     #expect(cursor.row == frame.rows - 1)
 }
 

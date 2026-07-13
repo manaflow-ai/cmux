@@ -423,6 +423,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         public var row: Int
         public var column: Int
         public var visible: Bool
+        /// The cursor's position relative to the captured viewport. Older
+        /// render-grid producers omit this field.
+        public var location: Location?
         public var style: Style
         public var blinking: Bool
 
@@ -430,12 +433,14 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             row: Int,
             column: Int,
             visible: Bool = true,
+            location: Location? = nil,
             style: Style = .block,
             blinking: Bool = false
         ) {
             self.row = row
             self.column = column
             self.visible = visible
+            self.location = location
             self.style = style
             self.blinking = blinking
         }
@@ -445,8 +450,15 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             self.row = try container.decode(Int.self, forKey: .row)
             self.column = try container.decode(Int.self, forKey: .column)
             self.visible = try container.decodeIfPresent(Bool.self, forKey: .visible) ?? true
+            self.location = try container.decodeIfPresent(Location.self, forKey: .location)
             self.style = try container.decodeIfPresent(Style.self, forKey: .style) ?? .block
             self.blinking = try container.decodeIfPresent(Bool.self, forKey: .blinking) ?? false
+        }
+
+        public enum Location: String, Codable, Equatable, Sendable {
+            case viewport
+            case aboveViewport = "above_viewport"
+            case belowViewport = "below_viewport"
         }
 
         public enum Style: String, Codable, Equatable, Sendable {

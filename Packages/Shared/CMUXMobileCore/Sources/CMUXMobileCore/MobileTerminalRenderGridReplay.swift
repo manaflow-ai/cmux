@@ -429,8 +429,19 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             return
         }
         bytes.append(cursorStyleBytes(for: cursor))
-        let preservesReconstructedActiveRow = !cursor.visible
-            && frame.activeScreen == .primary && frame.scrollForwardRows > 0
+        let preservesReconstructedActiveRow: Bool
+        switch cursor.location {
+        case .aboveViewport, .belowViewport:
+            preservesReconstructedActiveRow = true
+        case .viewport:
+            preservesReconstructedActiveRow = false
+        case nil:
+            // Older producers conflated an outside-viewport cursor with a
+            // hidden cursor. Retain their behavior until both sides carry the
+            // explicit location metadata.
+            preservesReconstructedActiveRow = !cursor.visible
+                && frame.activeScreen == .primary && frame.scrollForwardRows > 0
+        }
         let position = preservesReconstructedActiveRow
             ? "\u{1B}[\(cursor.column + 1)G" : "\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H"
         bytes.append(Data("\u{1B}[?\(cursor.visible ? "25h" : "25l")\(position)".utf8))
