@@ -78,8 +78,11 @@ struct AgentHookSessionLineageResolver: Sendable {
         let explicitRelationship = environment["CMUX_AGENT_RELATIONSHIP"]
             .flatMap(Self.relationship)
         let parentSessionId = Self.normalized(environment["CMUX_AGENT_PARENT_SESSION_ID"])
-        let explicitRunId = Self.normalized(environment["CMUX_CODEX_TEAMS_THREAD_ID"])
-        let explicitParentRunId = Self.normalized(environment["CMUX_CODEX_TEAMS_PARENT_THREAD_ID"])
+        let isCodex = Self.normalized(agentName)?.lowercased() == "codex"
+        let explicitRunId = isCodex ? Self.normalized(environment["CMUX_CODEX_TEAMS_THREAD_ID"]) : nil
+        let explicitParentRunId = isCodex
+            ? Self.normalized(environment["CMUX_CODEX_TEAMS_PARENT_THREAD_ID"])
+            : nil
 
         let identity = pid.flatMap(processIdentity)
         let cmuxRuntime = AgentCmuxRuntimeIdentity(environment: environment)
