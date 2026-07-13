@@ -3,6 +3,13 @@ import CmuxSettings
 import Foundation
 
 extension TerminalController {
+    private nonisolated static var socketClientPreauthorizationLimits: ControlClientLineReadLimits {
+        ControlClientLineReadLimits(
+            maximumPendingBytes: 4 * 1024 * 1024,
+            timeoutMilliseconds: 2_000
+        )
+    }
+
     nonisolated static func makeSocketClientCapabilityAuthority(
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> SocketClientCapabilityAuthority {
@@ -24,6 +31,16 @@ extension TerminalController {
             SocketClientCapabilityEnvelope.environmentKey:
                 socketClientCapabilityAuthority.issueCapability()
         ]
+    }
+
+    nonisolated func socketClientInitialReadLimits(
+        peerProcessID: pid_t?
+    ) -> ControlClientLineReadLimits? {
+        guard socketServer.accessMode == .cmuxOnly,
+              !(peerProcessID.map(isDescendant) ?? false) else {
+            return nil
+        }
+        return Self.socketClientPreauthorizationLimits
     }
 
     nonisolated func authorizedSocketCommand(

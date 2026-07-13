@@ -1,4 +1,5 @@
 internal import Darwin
+internal import Dispatch
 internal import Foundation
 
 /// Blocking newline-framed reader for one accepted control-socket client,
@@ -25,15 +26,37 @@ public final class ControlClientLineReader {
     private let socket: Int32
     private var buffer: [UInt8]
     private var pending = ""
+    private var pendingUTF8ByteCount = 0
+    private var limits: ControlClientLineReadLimits?
+    private var deadlineUptimeNanoseconds: UInt64?
 
     /// Creates a reader for `socket`.
     /// - Parameters:
     ///   - socket: The connection's descriptor; not closed by the reader.
     ///   - bufferSize: Read buffer size; the legacy loop read at most
     ///     `bufferSize - 1` bytes per call.
-    public init(socket: Int32, bufferSize: Int = 4096) {
+    ///   - initialLimits: Optional resource bounds removed after authorization.
+    public init(
+        socket: Int32,
+        bufferSize: Int = 4096,
+        initialLimits: ControlClientLineReadLimits? = nil
+    ) {
         self.socket = socket
         self.buffer = [UInt8](repeating: 0, count: bufferSize)
+        limits = initialLimits
+        if let initialLimits {
+            let milliseconds = UInt64(clamping: max(0, initialLimits.timeoutMilliseconds))
+            let (duration, overflowed) = milliseconds.multipliedReportingOverflow(by: 1_000_000)
+            let now = DispatchTime.now().uptimeNanoseconds
+            let (deadline, additionOverflowed) = now.addingReportingOverflow(duration)
+            deadlineUptimeNanoseconds = overflowed || additionOverflowed ? .max : deadline
+        }
+    }
+
+    /// Removes preauthorization limits after the peer proves authorization.
+    public func clearLimits() {
+        limits = nil
+        deadlineUptimeNanoseconds = nil
     }
 
     /// Returns the next newline-terminated line (without the newline), or
@@ -46,15 +69,46 @@ public final class ControlClientLineReader {
             if let newlineIndex = pending.firstIndex(of: "\n") {
                 let line = String(pending[..<newlineIndex])
                 pending = String(pending[pending.index(after: newlineIndex)...])
+                pendingUTF8ByteCount = pending.utf8.count
+                if let limits, line.utf8.count > limits.maximumPendingBytes {
+                    return nil
+                }
                 return line
             }
 
+            if let limits, pendingUTF8ByteCount > limits.maximumPendingBytes {
+                return nil
+            }
+
             guard shouldContinueReading() else { return nil }
+            guard waitForReadReadinessBeforeDeadline() else { return nil }
             let bytesRead = read(socket, &buffer, buffer.count - 1)
             guard bytesRead > 0 else { return nil }
 
             let chunk = String(bytes: buffer[0..<bytesRead], encoding: .utf8) ?? ""
             pending.append(chunk)
+            pendingUTF8ByteCount += chunk.utf8.count
+        }
+    }
+
+    private func waitForReadReadinessBeforeDeadline() -> Bool {
+        guard let deadlineUptimeNanoseconds else { return true }
+        while true {
+            let now = DispatchTime.now().uptimeNanoseconds
+            guard now < deadlineUptimeNanoseconds else { return false }
+            let remaining = deadlineUptimeNanoseconds - now
+            let milliseconds = remaining / 1_000_000 + (remaining % 1_000_000 == 0 ? 0 : 1)
+            var descriptor = pollfd(fd: socket, events: Int16(POLLIN), revents: 0)
+            let result = poll(
+                &descriptor,
+                1,
+                Int32(min(milliseconds, UInt64(Int32.max)))
+            )
+            if result > 0 {
+                return descriptor.revents & Int16(POLLIN | POLLHUP) != 0
+            }
+            if result == 0 { return false }
+            guard errno == EINTR else { return false }
         }
     }
 }

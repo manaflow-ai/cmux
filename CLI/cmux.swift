@@ -2736,7 +2736,7 @@ final class SocketClient {
         }
 
         try writeAll(
-            Data((requestLine + "\n").utf8),
+            Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
             timeoutMessage: "Stream request timed out",
             failureMessage: "Failed to write stream request"
         )
