@@ -10,6 +10,10 @@ internal import CmuxMobileRPC
 final class MacUpdateHintSessionState {
     var macDeviceID: String?
     var shownSignatures: Set<String> = []
+    /// The persisted dismissal store, carried here so both the lookup and the
+    /// dismissal path share one instance and tests/previews can swap in a
+    /// suite-scoped store instead of touching the user's real defaults.
+    var dismissalStore = MobileMacUpdateHintDismissalStore()
 }
 
 extension MobileShellComposite {
@@ -53,7 +57,7 @@ extension MobileShellComposite {
             return
         }
 
-        guard !MobileMacUpdateHintDismissalStore().isDismissed(
+        guard !macUpdateHintSessionState.dismissalStore.isDismissed(
             macDeviceID: macDeviceID,
             signature: hint.dismissalSignature
         ) else {
@@ -87,7 +91,7 @@ extension MobileShellComposite {
     /// Permanently dismisses the currently visible gap for this Mac and version target.
     public func dismissMacUpdateHint() {
         guard let hint = macUpdateHint, let macDeviceID = macUpdateHintSessionState.macDeviceID else { return }
-        MobileMacUpdateHintDismissalStore().dismiss(
+        macUpdateHintSessionState.dismissalStore.dismiss(
             macDeviceID: macDeviceID,
             signature: hint.dismissalSignature
         )
