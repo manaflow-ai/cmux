@@ -1,8 +1,10 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxCore
 import Darwin
 import Foundation
 import Testing
+import CmuxSettings
 import CmuxTerminal
 import struct CmuxSettings.IntegrationsCatalogSection
 #if canImport(cmux_DEV)
@@ -111,6 +113,32 @@ private func XCTFail(
     sourceLocation: SourceLocation = #_sourceLocation
 ) {
     Issue.record(Comment(rawValue: message()), sourceLocation: sourceLocation)
+}
+
+private final class ClaudeHookRelayRequestCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private let feedSeen = DispatchSemaphore(value: 0)
+    private var requests: [[String: Any]] = []
+
+    func append(_ request: [String: Any]) {
+        lock.lock()
+        requests.append(request)
+        lock.unlock()
+    }
+
+    func signalFeedSeen() {
+        feedSeen.signal()
+    }
+
+    func waitForFeed(timeout: TimeInterval) -> DispatchTimeoutResult {
+        feedSeen.wait(timeout: .now() + timeout)
+    }
+
+    func lastRequest(method: String) -> [String: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return requests.last { $0["method"] as? String == method }
+    }
 }
 
 @MainActor
@@ -233,6 +261,42 @@ final class TerminalControllerSocketSecurityTests {
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("csec-\(name.prefix(4))-\(shortID).sock")
             .path
+    }
+
+    private nonisolated func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw posixError("socket(AF_UNIX)")
+        }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
+        let utf8 = Array(path.utf8)
+        guard utf8.count < maxPathLength else {
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENAMETOOLONG))
+        }
+        withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
+            let pathBuffer = UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: CChar.self)
+            pathBuffer.initialize(repeating: 0, count: maxPathLength)
+            for index in 0..<utf8.count {
+                pathBuffer[index] = CChar(bitPattern: utf8[index])
+            }
+        }
+
+        let bindResult = withUnsafePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0, Darwin.listen(fd, 8) == 0 else {
+            let error = posixError("bind/listen(\(path))")
+            Darwin.close(fd)
+            throw error
+        }
+        return fd
     }
 
     private func addTeardownBlock(_ block: @escaping () -> Void) {
@@ -1353,6 +1417,73 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(portsKickData["surface_id"] as? String, unknownSurfaceId.uuidString)
     }
 
+    @Test func testClaudeHookSocketDispatchAuthenticatesSelfConnectionAndReturnsHookStdout() async throws {
+        let socketPath = makeSocketPath("claude-hook-relay")
+        let password = "relay-password-\(UUID().uuidString)"
+        let passwordFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-relay-password-\(UUID().uuidString)")
+        try password.write(to: passwordFile, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: passwordFile)
+        }
+        let controller = TerminalController.makeForTesting(
+            passwordStore: SocketControlPasswordStore(environment: [:], fileURL: passwordFile)
+        )
+        let manager = TabManager()
+        FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10))
+        controller.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .password
+        )
+        defer {
+            controller.stop()
+        }
+        try waitForSocket(at: socketPath)
+
+        let unauthenticated = try await sendV2RequestAsync(
+            method: "claude.hook",
+            params: [
+                "event": "cron-create-guard",
+                "payload": #"{"hook_event_name":"PreToolUse","session_id":"remote-session","tool_name":"CronCreate","tool_input":{"durable":true}}"#
+            ],
+            to: socketPath
+        )
+        XCTAssertEqual(unauthenticated["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(unauthenticated)")
+        let authError = try XCTUnwrap(unauthenticated["error"] as? [String: Any])
+        XCTAssertEqual(authError["code"] as? String, "auth_required")
+
+        let authenticated = try await sendV2RequestsAsync(
+            [
+                ("auth.login", ["password": password]),
+                (
+                    "claude.hook",
+                    [
+                        "event": "cron-create-guard",
+                        "payload": #"{"hook_event_name":"PreToolUse","session_id":"remote-session","tool_name":"CronCreate","tool_input":{"durable":true}}"#
+                    ]
+                ),
+            ],
+            to: socketPath
+        )
+        XCTAssertEqual(authenticated.count, 2)
+        XCTAssertEqual(authenticated[0]["ok"] as? Bool, true, "Unexpected auth response: \(authenticated[0])")
+        XCTAssertEqual(authenticated[1]["ok"] as? Bool, true, "Unexpected hook response: \(authenticated[1])")
+        let result = try XCTUnwrap(authenticated[1]["result"] as? [String: Any])
+        let stdout = try XCTUnwrap(result["stdout"] as? String)
+        let stdoutData = try XCTUnwrap(stdout.data(using: .utf8))
+        let hookOutput = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: stdoutData) as? [String: Any],
+            "Expected hook stdout JSON, got \(stdout)"
+        )
+        let hookSpecificOutput = try XCTUnwrap(hookOutput["hookSpecificOutput"] as? [String: Any])
+        XCTAssertEqual(hookSpecificOutput["hookEventName"] as? String, "PreToolUse")
+        XCTAssertEqual(hookSpecificOutput["permissionDecision"] as? String, "deny")
+        XCTAssertTrue(
+            (hookSpecificOutput["permissionDecisionReason"] as? String)?.contains("durable Claude Code cron jobs") == true
+        )
+    }
+
     @Test func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
         let socketPath = makeSocketPath("close-pinned")
         let manager = TabManager()
@@ -1559,6 +1690,89 @@ final class TerminalControllerSocketSecurityTests {
         return responses
     }
 
+    private nonisolated func startDetachedJSONSocketServer(
+        listenerFD: Int32,
+        connectionCount: Int,
+        handler: @escaping @Sendable ([String: Any]) -> String
+    ) {
+        for _ in 0..<max(1, connectionCount) {
+            DispatchQueue.global(qos: .userInitiated).async {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                guard clientFD >= 0 else { return }
+                defer { Darwin.close(clientFD) }
+
+                while true {
+                    guard let line = try? Self.readLineFromSocket(clientFD),
+                          !line.isEmpty else {
+                        return
+                    }
+                    guard let data = line.data(using: .utf8),
+                          let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        try? Self.writeLineToSocket(#"{"ok":false,"error":{"code":"invalid_json"}}"#, to: clientFD)
+                        continue
+                    }
+                    try? Self.writeLineToSocket(handler(request), to: clientFD)
+                }
+            }
+        }
+    }
+
+    private nonisolated static func writeLineToSocket(_ line: String, to fd: Int32) throws {
+        let payload = Array((line + "\n").utf8)
+        var offset = 0
+        while offset < payload.count {
+            let wrote = payload.withUnsafeBytes { raw in
+                Darwin.write(fd, raw.baseAddress!.advanced(by: offset), payload.count - offset)
+            }
+            guard wrote >= 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            offset += wrote
+        }
+    }
+
+    private nonisolated static func readLineFromSocket(_ fd: Int32) throws -> String {
+        var buffer = [UInt8](repeating: 0, count: 1)
+        var data = Data()
+
+        while true {
+            let count = Darwin.read(fd, &buffer, 1)
+            guard count >= 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            if count == 0 { break }
+            if buffer[0] == 0x0A { break }
+            data.append(buffer[0])
+        }
+
+        guard let line = String(data: data, encoding: .utf8) else {
+            throw NSError(domain: NSCocoaErrorDomain, code: 0)
+        }
+        return line
+    }
+
+    private nonisolated static func v2Response(
+        id: String,
+        ok: Bool,
+        result: [String: Any]? = nil,
+        error: [String: Any]? = nil
+    ) -> String {
+        var object: [String: Any] = [
+            "id": id,
+            "ok": ok,
+        ]
+        if let result { object["result"] = result }
+        if let error { object["error"] = error }
+        let data = try? JSONSerialization.data(withJSONObject: object)
+        return data.flatMap { String(data: $0, encoding: .utf8) } ?? #"{"ok":false}"#
+    }
+
     private func makeV2RequestLine(method: String, params: [String: Any]) throws -> String {
         let payload: [String: Any] = [
             "jsonrpc": "2.0",
@@ -1672,6 +1886,40 @@ final class TerminalControllerSocketSecurityTests {
         )
     }
 
+    private nonisolated func sendV2Requests(
+        _ requests: [(method: String, params: [String: Any])],
+        to socketPath: String
+    ) throws -> [[String: Any]] {
+        let fd = try connect(to: socketPath)
+        defer { Darwin.close(fd) }
+
+        var responses: [[String: Any]] = []
+        for (index, request) in requests.enumerated() {
+            let payload: [String: Any] = [
+                "jsonrpc": "2.0",
+                "id": index + 1,
+                "method": request.method,
+                "params": request.params
+            ]
+            let data = try JSONSerialization.data(withJSONObject: payload)
+            guard let line = String(data: data, encoding: .utf8) else {
+                throw NSError(domain: NSCocoaErrorDomain, code: 0, userInfo: [
+                    NSLocalizedDescriptionKey: "Failed to encode JSON-RPC request"
+                ])
+            }
+            try writeLine(line, to: fd)
+
+            let responseLine = try readLine(from: fd)
+            let responseData = Data(responseLine.utf8)
+            let response = try XCTUnwrap(
+                try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+                "Expected JSON-RPC response object"
+            )
+            responses.append(response)
+        }
+        return responses
+    }
+
     private func sendV2RequestAsync(
         method: String,
         params: [String: Any],
@@ -1686,6 +1934,21 @@ final class TerminalControllerSocketSecurityTests {
                         to: socketPath
                     )
                     continuation.resume(returning: response)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func sendV2RequestsAsync(
+        _ requests: [(method: String, params: [String: Any])],
+        to socketPath: String
+    ) async throws -> [[String: Any]] {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: try self.sendV2Requests(requests, to: socketPath))
                 } catch {
                     continuation.resume(throwing: error)
                 }

@@ -43,6 +43,76 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(output)
 }
 
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+	os.Stderr = writer
+	defer func() {
+		os.Stderr = original
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stderr reader: %v", err)
+	}
+	return string(output)
+}
+
+func withStdin(t *testing.T, input string, fn func()) {
+	t.Helper()
+	original := os.Stdin
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdin: %v", err)
+	}
+	os.Stdin = reader
+	defer func() {
+		os.Stdin = original
+		_ = reader.Close()
+	}()
+	if _, err := writer.WriteString(input); err != nil {
+		t.Fatalf("write stdin: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdin writer: %v", err)
+	}
+	fn()
+}
+
+func withStdinFile(t *testing.T, input string, fn func()) {
+	t.Helper()
+	file, err := os.CreateTemp(t.TempDir(), "stdin-*")
+	if err != nil {
+		t.Fatalf("create stdin file: %v", err)
+	}
+	if _, err := file.WriteString(input); err != nil {
+		t.Fatalf("write stdin file: %v", err)
+	}
+	if _, err := file.Seek(0, 0); err != nil {
+		t.Fatalf("seek stdin file: %v", err)
+	}
+	original := os.Stdin
+	os.Stdin = file
+	defer func() {
+		os.Stdin = original
+		_ = file.Close()
+	}()
+
+	fn()
+}
+
 func makeShortUnixSocketPath(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "cmuxd-")
@@ -440,6 +510,89 @@ func TestCLIPingOverAuthenticatedTCPWithRelayFile(t *testing.T) {
 	}
 }
 
+func TestCLIHooksClaudeForwardsRelayPayloadWithCallerContext(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_WORKSPACE_ID", "workspace-123")
+	t.Setenv("CMUX_SURFACE_ID", "surface-456")
+
+	output := captureStdout(t, func() {
+		withStdin(t, `{"hook_event_name":"Stop","session_id":"s1"}`, func() {
+			code := runCLI([]string{"--socket", sockPath, "hooks", "claude", "stop"})
+			if code != 0 {
+				t.Fatalf("hooks claude should return 0, got %d", code)
+			}
+		})
+	})
+	if !strings.Contains(output, `"method": "claude.hook"`) {
+		t.Fatalf("expected relay output to include claude.hook echo, got %q", output)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "claude.hook" {
+			t.Fatalf("expected claude.hook, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["event"]; got != "stop" {
+			t.Fatalf("expected event stop, got %v", got)
+		}
+		if got := params["workspace_id"]; got != "workspace-123" {
+			t.Fatalf("expected workspace context, got %v", got)
+		}
+		if got := params["surface_id"]; got != "surface-456" {
+			t.Fatalf("expected surface context, got %v", got)
+		}
+		if got := params["payload"]; got != `{"hook_event_name":"Stop","session_id":"s1"}` {
+			t.Fatalf("expected raw hook payload, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for hooks relay request")
+	}
+}
+
+func TestCLIHooksClaudePrintsHookStdoutFromRelayResult(t *testing.T) {
+	response, _ := json.Marshal(map[string]any{
+		"id": "hook-stdout",
+		"ok": true,
+		"result": map[string]any{
+			"stdout": "{\"hookSpecificOutput\":{\"permissionDecision\":\"deny\"}}\n",
+		},
+	})
+	sockPath := startMockSocket(t, string(response))
+
+	output := captureStdout(t, func() {
+		withStdin(t, `{"hook_event_name":"PreToolUse"}`, func() {
+			code := runCLI([]string{"--socket", sockPath, "hooks", "claude", "cron-create-guard"})
+			if code != 0 {
+				t.Fatalf("hooks claude should return 0, got %d", code)
+			}
+		})
+	})
+	if got := strings.TrimSpace(output); got != `{"hookSpecificOutput":{"permissionDecision":"deny"}}` {
+		t.Fatalf("expected hook stdout to be printed, got %q", output)
+	}
+}
+
+func TestCLIHooksClaudeRejectsOversizedPayload(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	output := captureStderr(t, func() {
+		withStdinFile(t, strings.Repeat("x", int(hooksRelayMaxPayloadBytes)+1), func() {
+			code := runCLI([]string{"--socket", sockPath, "hooks", "claude", "stop"})
+			if code != 1 {
+				t.Fatalf("oversized hooks claude payload should return 1, got %d", code)
+			}
+		})
+	})
+	if !strings.Contains(output, "hook payload exceeds") {
+		t.Fatalf("expected oversized payload error, got %q", output)
+	}
+	select {
+	case req := <-requests:
+		t.Fatalf("oversized payload should not send socket request, got %v", req)
+	default:
+	}
+}
+
 func TestDialSocketDetection(t *testing.T) {
 	// Unix socket paths should attempt Unix dial
 	for _, path := range []string{"/tmp/cmux-nonexistent-test-99999.sock", "/var/run/cmux-nonexistent.sock"} {
@@ -581,6 +734,7 @@ func TestCLIUnknownCommand(t *testing.T) {
 
 func TestCLINoSocket(t *testing.T) {
 	// Without CMUX_SOCKET_PATH set, should fail
+	t.Setenv("HOME", t.TempDir())
 	os.Unsetenv("CMUX_SOCKET_PATH")
 	code := runCLI([]string{"ping"})
 	if code != 1 {

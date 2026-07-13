@@ -212,7 +212,15 @@ find_real_claude() {
 # Return 0 only when CMUX_SOCKET_PATH points to a live cmux socket.
 cmux_socket_available() {
     local socket="${CMUX_SOCKET_PATH:-}"
-    [[ -n "$socket" && -S "$socket" ]] || return 1
+    [[ -n "$socket" ]] || return 1
+
+    if [[ -S "$socket" ]]; then
+        :
+    elif [[ "$socket" != /* && "$socket" == *:* ]]; then
+        :
+    else
+        return 1
+    fi
 
     local self_dir cmux_bin
     self_dir="$(cd "$(dirname "$0")" && pwd)"

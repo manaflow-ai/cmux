@@ -31,7 +31,7 @@ struct ControlCommandExecutionPolicyTests {
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "feed.push", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
-            "sidebar.custom.open",
+            "sidebar.custom.open", "claude.hook",
             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
             // JavaScript-evaluating browser methods block on page JS and must

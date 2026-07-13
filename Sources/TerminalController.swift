@@ -398,6 +398,25 @@ class TerminalController {
             }
         }
     }
+
+#if DEBUG
+    static func makeForTesting(
+        passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
+        transport: SocketTransport = SocketTransport(),
+        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
+        remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
+            tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
+        )
+    ) -> TerminalController {
+        TerminalController(
+            passwordStore: passwordStore,
+            transport: transport,
+            listenerPolicy: listenerPolicy,
+            remoteProxyBroker: remoteProxyBroker
+        )
+    }
+#endif
+
     nonisolated func currentSocketPathForRemoteRestore() -> String? {
         socketServer.currentSocketPathForRemoteRestore()
     }
@@ -839,6 +858,10 @@ class TerminalController {
             accessMode: accessMode,
             preserveAcceptFailureStreak: preserveAcceptFailureStreak
         )
+    }
+
+    nonisolated func configuredSocketPasswordForSelfConnection() -> String? {
+        passwordStore.configuredPassword(allowLazyKeychainFallback: true)
     }
 
     /// Invoked synchronously inside the server's `start()` on the main
@@ -1297,6 +1320,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "claude.hook":
+            return v2Result(id: request.id, v2ClaudeHook(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
@@ -2426,6 +2451,7 @@ class TerminalController {
             "feed.permission.reply",
             "feed.question.reply",
             "feed.exit_plan.reply",
+            "claude.hook",
             "feed.jump",
             "feed.list",
             "surface.list",
