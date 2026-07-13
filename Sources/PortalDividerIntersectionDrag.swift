@@ -190,14 +190,11 @@ final class PortalDividerDragController {
                 case .mouseMoved, .mouseEntered, .mouseExited, .cursorUpdate, .appKitDefined, .systemDefined:
                     return nil
                 case .leftMouseUp:
-                    // AppKit normally sends mouse-up back to the view that
-                    // received mouse-down. End on the next MainActor turn as
-                    // a lifecycle fallback if that view disappears mid-drag.
-                    Task { @MainActor [weak self, weak session] in
-                        guard let self, let session, self.activeSession === session else { return }
-                        self.end()
-                    }
-                    return event
+                    // The session that claimed mouse-down also owns mouse-up.
+                    // Consuming it prevents an underlying pane tap gesture from
+                    // changing focus after the resize has completed.
+                    self.end()
+                    return nil
                 default:
                     return event
                 }
