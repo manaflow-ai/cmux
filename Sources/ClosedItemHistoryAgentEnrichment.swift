@@ -16,9 +16,7 @@ extension ClosedItemHistoryStore {
         coordinatedBy sharedIndex: SharedLiveAgentIndex
     ) -> Task<Void, Never>? {
         let record = ClosedItemHistoryRecord(entry: entry)
-        guard entry.requiresAgentMetadataEnrichment(
-            using: sharedIndex.cachedIndex()
-        ) else {
+        guard entry.requiresFreshAgentMetadataCapture() else {
             push(record)
             return nil
         }
@@ -74,31 +72,18 @@ final class AgentMetadataCloseDeferrer {
 }
 
 extension ClosedItemHistoryEntry {
-    func requiresAgentMetadataEnrichment(
-        using index: RestorableAgentSessionIndex?
-    ) -> Bool {
+    func requiresFreshAgentMetadataCapture() -> Bool {
         switch self {
         case .panel(let entry):
-            return entry.snapshot.requiresAgentMetadataEnrichment(
-                workspaceId: entry.workspaceId,
-                using: index
-            )
+            return entry.snapshot.requiresFreshAgentMetadataCapture()
         case .workspace(let entry):
-            let workspaceId = entry.snapshot.workspaceId ?? entry.workspaceId
             return entry.snapshot.panels.contains {
-                $0.requiresAgentMetadataEnrichment(
-                    workspaceId: workspaceId,
-                    using: index
-                )
+                $0.requiresFreshAgentMetadataCapture()
             }
         case .window(let entry):
             return entry.snapshot.tabManager.workspaces.contains { workspace in
-                guard let workspaceId = workspace.workspaceId else { return false }
                 return workspace.panels.contains {
-                    $0.requiresAgentMetadataEnrichment(
-                        workspaceId: workspaceId,
-                        using: index
-                    )
+                    $0.requiresFreshAgentMetadataCapture()
                 }
             }
         }
@@ -236,23 +221,9 @@ extension ClosedItemHistoryEntry {
 }
 
 private extension SessionPanelSnapshot {
-    func requiresAgentMetadataEnrichment(
-        workspaceId: UUID,
-        using index: RestorableAgentSessionIndex?
-    ) -> Bool {
-        guard let terminal, terminal.agent == nil else {
-            return false
-        }
-        if let resumeBinding = terminal.resumeBinding,
-           resumeBinding.isAgentHookBinding || resumeBinding.isProcessDetected {
-            return true
-        }
-        guard let index else {
-            // A cold cache is unknown, not authoritative evidence that this is
-            // an ordinary terminal. Capture once before allowing the bypass.
-            return true
-        }
-        return index.hasLiveProcess(workspaceId: workspaceId, panelId: id)
+    func requiresFreshAgentMetadataCapture() -> Bool {
+        guard let terminal else { return false }
+        return terminal.agent == nil
     }
 
     func mergingAgentMetadata(from captured: SessionPanelSnapshot) -> SessionPanelSnapshot {
