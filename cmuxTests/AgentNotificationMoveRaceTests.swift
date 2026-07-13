@@ -125,13 +125,25 @@ struct AgentNotificationMoveRaceTests {
 
         try await confirmation("policy-delayed notification delivered") { delivered in
             fixture.store.configureNotificationDeliveryHandlerForTesting { _, _ in delivered() }
-            TerminalController.shared.deliverNotificationSynchronously(
-                tabId: fixture.source.id,
-                surfaceId: fixture.panelId,
+            let routing = ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: fixture.source.id,
+                surfaceID: nil,
+                paneID: nil
+            )
+            let result = TerminalController.shared.controlNotificationCreateForSurface(
+                routing: routing,
+                surfaceID: fixture.panelId,
                 title: "Claude Code",
                 subtitle: "Completed",
                 body: "Policy delayed"
             )
+            guard case .delivered = result else {
+                Issue.record("Expected local surface delivery, got \(result)")
+                return
+            }
 
             // `addNotification` has scheduled policy evaluation but cannot run
             // it until this MainActor job yields, so the move deterministically
@@ -143,6 +155,43 @@ struct AgentNotificationMoveRaceTests {
         let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
         #expect(recorded.map(\.tabId) == [fixture.destination.id])
         #expect(recorded.first?.surfaceId == fixture.panelId)
+    }
+
+    @Test("Policy-delayed relay delivery stays in its authorized workspace")
+    func policyDelayedRelayDeliveryDoesNotCrossWorkspaceBoundary() async throws {
+        let fixture = try makeFixture(policyHook: true)
+        defer { fixture.restore() }
+
+        try await confirmation("policy-delayed relay notification delivered") { delivered in
+            fixture.store.configureNotificationDeliveryHandlerForTesting { _, _ in delivered() }
+            let routing = ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: fixture.source.id,
+                surfaceID: nil,
+                paneID: nil
+            )
+            let result = TerminalController.shared.controlNotificationCreateForTarget(
+                routing: routing,
+                workspaceID: fixture.source.id,
+                surfaceID: fixture.panelId,
+                title: "Relay",
+                subtitle: "Completed",
+                body: "Policy delayed"
+            )
+            guard case .delivered = result else {
+                Issue.record("Expected relay-target delivery, got \(result)")
+                return
+            }
+
+            try movePanel(fixture)
+            while fixture.store.notifications.isEmpty { await Task.yield() }
+        }
+
+        let recorded = fixture.store.notifications.filter { $0.title == "Relay" }
+        #expect(recorded.map(\.tabId) == [fixture.source.id])
+        #expect(!recorded.contains { $0.tabId == fixture.destination.id })
     }
 
     @Test("A surface clear follows a stored notification to its current workspace")

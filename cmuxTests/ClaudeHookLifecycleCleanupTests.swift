@@ -83,6 +83,14 @@ struct ClaudeHookLifecycleCleanupTests {
             !commands.contains { $0.hasPrefix("clear_agent_pid claude_code ") && $0.contains("--panel=\(Self.otherSurfaceId)") },
             "SessionEnd must not clear the foreign pane the polluted record named; saw \(commands)"
         )
+        #expect(
+            commands.contains("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)"),
+            "A same-workspace live retarget must clear only the real pane; saw \(commands)"
+        )
+        #expect(
+            !commands.contains("clear_notifications --tab=\(Self.liveWorkspaceId)"),
+            "A polluted record must not make SessionEnd clear sibling panes; saw \(commands)"
+        )
     }
 
     /// SessionEnd is the only hook after a pane move (Ctrl-C exit): its
