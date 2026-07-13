@@ -70,7 +70,7 @@ import Testing
         connection.handleMessageForTesting(.enter)
         connection.sentWindowSizes[4] = (100, 30)
         connection.recordWindowSizeClaim(windowId: 4, columns: 120, rows: 30)
-        connection.windowSizeDebounceTasks[4] = Task { try? await Task.sleep(for: .seconds(60)) }
+        connection.windowSizeDebounceTasks[4] = Task {}
 
         connection.setWindowSize(windowId: 4, columns: 100, rows: 30)
 
