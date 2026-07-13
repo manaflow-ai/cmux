@@ -1660,8 +1660,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> StoredMacReconnectOutcome {
         guard generation == storedMacReconnectGeneration else { return .failed }
         switch outcome {
-        case .unavailable:
-            setHasKnownPairedMac(false, generation: generation)
+        case .unavailable(let hasKnownPairedMac):
+            if let hasKnownPairedMac {
+                setHasKnownPairedMac(hasKnownPairedMac, generation: generation)
+            }
             return .unavailable
         case .failed(let hasKnownPairedMac):
             if let hasKnownPairedMac {

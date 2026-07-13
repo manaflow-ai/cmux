@@ -1,5 +1,5 @@
 enum StoredMacReconnectOperationOutcome: Sendable {
     case connected(StoredMacReconnectSuccess)
-    case unavailable
+    case unavailable(hasKnownPairedMac: Bool?)
     case failed(hasKnownPairedMac: Bool?)
 }

@@ -76,9 +76,13 @@ struct StoredMacReconnectOperation {
             mac.macDeviceID != activeMac?.macDeviceID && !routes(for: mac).isEmpty
         })
         guard !candidates.isEmpty else {
-            guard loadsStoreSnapshot else { return .unavailable }
+            guard loadsStoreSnapshot else {
+                return .unavailable(
+                    hasKnownPairedMac: visibleMacs.isEmpty ? nil : true
+                )
+            }
             return visibleMacs.isEmpty
-                ? .unavailable
+                ? .unavailable(hasKnownPairedMac: false)
                 : .failed(hasKnownPairedMac: true)
         }
 

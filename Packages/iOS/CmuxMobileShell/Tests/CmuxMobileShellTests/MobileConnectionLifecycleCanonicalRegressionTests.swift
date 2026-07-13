@@ -251,7 +251,7 @@ import Testing
         let operation = try #require(reconnectOperation)
         let outcome = await operation.run()
 
-        if case .unavailable = outcome {
+        if case .unavailable(hasKnownPairedMac: _) = outcome {
             // Expected: pending forget intent removes the only cached candidate.
         } else {
             Issue.record("Expected cached reconnect to be unavailable")
