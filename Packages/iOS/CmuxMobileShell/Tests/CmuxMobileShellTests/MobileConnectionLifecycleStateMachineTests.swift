@@ -227,7 +227,12 @@ import Testing
             return
         }
 
-        #expect(reducer.request(.eventStreamLost, health: .healthy) == nil)
+        let effect = reducer.request(.eventStreamLost, health: .healthy)
+        guard case .restartStreamRepair(let restartedEpisode) = effect else {
+            Issue.record("stream loss must restart an absorbed stream repair")
+            return
+        }
+        #expect(restartedEpisode.id == episode.id)
         #expect(reducer.activeEpisode?.id == episode.id)
         #expect(reducer.activeEpisode?.triggers == [.networkPathChanged, .eventStreamLost])
     }

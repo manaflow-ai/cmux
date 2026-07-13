@@ -119,11 +119,16 @@ struct MobileConnectionLifecycleStateMachine {
                 kind: requestedKind,
                 reconnectStackUserID: request.reconnectStackUserID
             ) {
+                let restartsStreamRepair = activeEpisode.kind == .streamRepair
+                    && request.trigger == .eventStreamLost
                 activeEpisode.triggers.insert(request.trigger)
                 if let requestID = request.id {
                     activeEpisode.requestIDs.insert(requestID)
                 }
                 self.activeEpisode = activeEpisode
+                if restartsStreamRepair {
+                    return .restartStreamRepair(activeEpisode)
+                }
             } else {
                 appendPending(request)
             }

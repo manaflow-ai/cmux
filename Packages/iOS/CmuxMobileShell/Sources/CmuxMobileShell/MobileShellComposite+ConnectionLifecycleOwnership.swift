@@ -185,6 +185,12 @@ extension MobileShellComposite {
     func applyConnectionLifecycleEffect(
         _ effect: MobileConnectionLifecycleEffect?
     ) {
+        guard let effect else { return }
+        if case .restartStreamRepair(let episode) = effect {
+            guard connectionLifecycle.ownsEpisode(episode.id) else { return }
+            performConnectionLifecycleStreamRepair(episode)
+            return
+        }
         guard case .start(let episode) = effect else { return }
         let usesCachedReconnect = episode.kind == .reconnect
             && connectionLifecycleTaskOwnership.primaryRetiredTask != nil
@@ -216,31 +222,7 @@ extension MobileShellComposite {
             switch episode.kind {
             case .streamRepair:
                 guard let self else { return }
-                guard self.connectionState == .connected,
-                      self.remoteClient != nil else {
-                    self.finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
-                    return
-                }
-                self.markMacConnectionReconnecting()
-                self.resyncTerminalOutput(
-                    reason: "lifecycle.\(episode.id)",
-                    restartEventStream: true
-                )
-                self.connectionLifecycleStreamRepairListenerID = self.terminalEventListenerID
-                let refreshesSecondaries = episode.triggers.contains(.networkPathChanged)
-                    || episode.triggers.contains(.presenceRoutesChanged)
-                    || episode.triggers.contains(.manualRetry)
-                if self.multiMacAggregationEnabled, refreshesSecondaries {
-                    self.scheduleSecondaryAggregation()
-                }
-                if self.terminalEventListenerTask == nil {
-                    if self.runtime?.supportsServerPushEvents ?? true {
-                        self.finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
-                    } else {
-                        self.markMacConnectionHealthy()
-                        self.finishConnectionLifecycleEpisode(id: episode.id)
-                    }
-                }
+                self.performConnectionLifecycleStreamRepair(episode)
             case .reconnect:
                 guard let operation = await self?.makeStoredMacReconnectOperation(
                     stackUserID: episode.reconnectStackUserID,
@@ -283,6 +265,37 @@ extension MobileShellComposite {
             }
         } else {
             connectionLifecycleDeadlineTask = nil
+        }
+    }
+
+    private func performConnectionLifecycleStreamRepair(
+        _ episode: MobileConnectionLifecycleEpisode
+    ) {
+        guard connectionLifecycle.ownsEpisode(episode.id) else { return }
+        guard connectionState == .connected,
+              remoteClient != nil else {
+            finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
+            return
+        }
+        markMacConnectionReconnecting()
+        resyncTerminalOutput(
+            reason: "lifecycle.\(episode.id)",
+            restartEventStream: true
+        )
+        connectionLifecycleStreamRepairListenerID = terminalEventListenerID
+        let refreshesSecondaries = episode.triggers.contains(.networkPathChanged)
+            || episode.triggers.contains(.presenceRoutesChanged)
+            || episode.triggers.contains(.manualRetry)
+        if multiMacAggregationEnabled, refreshesSecondaries {
+            scheduleSecondaryAggregation()
+        }
+        if terminalEventListenerTask == nil {
+            if runtime?.supportsServerPushEvents ?? true {
+                finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
+            } else {
+                markMacConnectionHealthy()
+                finishConnectionLifecycleEpisode(id: episode.id)
+            }
         }
     }
 
