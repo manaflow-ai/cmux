@@ -16,7 +16,9 @@ extension ClosedItemHistoryStore {
         coordinatedBy sharedIndex: SharedLiveAgentIndex
     ) -> Task<Void, Never>? {
         let record = ClosedItemHistoryRecord(entry: entry)
-        guard entry.requiresAgentMetadataEnrichment else {
+        guard entry.requiresAgentMetadataEnrichment(
+            using: sharedIndex.cachedIndex()
+        ) else {
             push(record)
             return nil
         }
@@ -25,7 +27,7 @@ extension ClosedItemHistoryStore {
         return Task { @MainActor [weak self] in
             guard let self else { return }
             guard let index = await refreshTask.value else {
-                self.resolvePendingEnrichment(recordID: record.id) { _ in nil }
+                self.resolvePendingEnrichment(recordID: record.id) { $0 }
                 return
             }
             let capturedEntry = record.entry.enrichingAgentMetadata(from: index)
@@ -68,16 +70,32 @@ final class AgentMetadataCloseDeferrer {
 }
 
 extension ClosedItemHistoryEntry {
-    var requiresAgentMetadataEnrichment: Bool {
+    func requiresAgentMetadataEnrichment(
+        using index: RestorableAgentSessionIndex?
+    ) -> Bool {
         switch self {
         case .panel(let entry):
-            entry.snapshot.requiresAgentMetadataEnrichment
+            return entry.snapshot.requiresAgentMetadataEnrichment(
+                workspaceId: entry.workspaceId,
+                using: index
+            )
         case .workspace(let entry):
-            entry.snapshot.panels.contains(where: \.requiresAgentMetadataEnrichment)
+            let workspaceId = entry.snapshot.workspaceId ?? entry.workspaceId
+            return entry.snapshot.panels.contains {
+                $0.requiresAgentMetadataEnrichment(
+                    workspaceId: workspaceId,
+                    using: index
+                )
+            }
         case .window(let entry):
-            entry.snapshot.tabManager.workspaces.contains { workspace in
-                workspace.workspaceId != nil &&
-                    workspace.panels.contains(where: \.requiresAgentMetadataEnrichment)
+            return entry.snapshot.tabManager.workspaces.contains { workspace in
+                guard let workspaceId = workspace.workspaceId else { return false }
+                return workspace.panels.contains {
+                    $0.requiresAgentMetadataEnrichment(
+                        workspaceId: workspaceId,
+                        using: index
+                    )
+                }
             }
         }
     }
@@ -214,13 +232,18 @@ extension ClosedItemHistoryEntry {
 }
 
 private extension SessionPanelSnapshot {
-    var requiresAgentMetadataEnrichment: Bool {
-        guard let terminal,
-              terminal.agent == nil,
-              let resumeBinding = terminal.resumeBinding else {
+    func requiresAgentMetadataEnrichment(
+        workspaceId: UUID,
+        using index: RestorableAgentSessionIndex?
+    ) -> Bool {
+        guard let terminal, terminal.agent == nil else {
             return false
         }
-        return resumeBinding.isAgentHookBinding || resumeBinding.isProcessDetected
+        if let resumeBinding = terminal.resumeBinding,
+           resumeBinding.isAgentHookBinding || resumeBinding.isProcessDetected {
+            return true
+        }
+        return index?.hasLiveProcess(workspaceId: workspaceId, panelId: id) == true
     }
 
     func mergingAgentMetadata(from captured: SessionPanelSnapshot) -> SessionPanelSnapshot {
