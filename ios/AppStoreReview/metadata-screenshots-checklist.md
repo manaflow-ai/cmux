@@ -34,7 +34,7 @@ complete in App Store Connect or in the submitted binary.
 - [ ] Screenshots show the actual app in use, not only splash, login, title art, or marketing copy.
 - [ ] Include signed-in workspace list, pairing/computers, terminal detail, input bar, and notification opt-in surfaces.
 - [ ] Use fictional workspace names, terminal text, email addresses, device names, and account data.
-- [ ] Include required iPhone screenshots, at minimum `IPHONE_65`.
+- [ ] Include required iPhone screenshots, at minimum `IPHONE_69`.
 - [ ] Include required iPad screenshots if the binary remains universal (`TARGETED_DEVICE_FAMILY = 1,2`), at minimum `IPAD_PRO_3GEN_129`.
 - [ ] Local screenshot assets pass `asc screenshots validate` before upload.
 
@@ -79,6 +79,6 @@ asc metadata validate --dir ios/AppStoreReview/metadata --output table
 ```
 
 ```bash
-asc screenshots validate --path ios/AppStoreReview/screenshots --device-type IPHONE_65 --output table
+asc screenshots validate --path ios/AppStoreReview/screenshots --device-type IPHONE_69 --output table
 asc screenshots validate --path ios/AppStoreReview/screenshots --device-type IPAD_PRO_3GEN_129 --output table
 ```

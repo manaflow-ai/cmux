@@ -146,6 +146,54 @@ jobs:
           APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 }}
         run: ./.github/scripts/install-app-store-provisioning-profile.sh
 
+      - name: Prepare App Store version and metadata
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -nE 's/^[[:space:]]*CMUX_IOS_APPSTORE_MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | tail -n 1)"
+          VERSION_ID="$(
+            asc versions list --app "$ASC_APP_ID" --version "$VERSION" --platform IOS --output json |
+              python3 -c 'import json,sys; body=json.load(sys.stdin); data=body.get("data") if isinstance(body,dict) else body; data=data if isinstance(data,list) else ([data] if isinstance(data,dict) else []); print(data[0].get("id", "") if data else "")'
+          )"
+          if [ -z "$VERSION_ID" ]; then
+            asc versions create \
+              --app "$ASC_APP_ID" \
+              --version "$VERSION" \
+              --platform IOS \
+              --copyright "2026 Manaflow, Inc." \
+              --release-type MANUAL
+          else
+            asc versions update \
+              --version-id "$VERSION_ID" \
+              --copyright "2026 Manaflow, Inc." \
+              --release-type MANUAL
+          fi
+          asc metadata validate --dir ios/AppStoreReview/metadata
+          asc metadata apply \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --dir ios/AppStoreReview/metadata
+          asc screenshots validate \
+            --path ios/AppStoreReview/screenshots/en-US/iphone \
+            --device-type IPHONE_69
+          asc screenshots upload \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --path ios/AppStoreReview/screenshots \
+            --device-type IPHONE_69 \
+            --replace
+          asc screenshots validate \
+            --path ios/AppStoreReview/screenshots/en-US/ipad \
+            --device-type IPAD_PRO_3GEN_129
+          asc screenshots upload \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --path ios/AppStoreReview/screenshots \
+            --device-type IPAD_PRO_3GEN_129 \
+            --replace
+
       - name: Archive, export, and upload production build
         id: upload
         env:
