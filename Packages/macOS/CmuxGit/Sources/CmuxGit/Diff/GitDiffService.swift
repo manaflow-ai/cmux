@@ -8,6 +8,7 @@ public struct GitDiffService: Sendable {
     ///
     /// - Parameters:
     ///   - gitExecutableURL: Git executable URL.
+    ///   - fileSystemStatExecutableURL: Filesystem metadata executable URL.
     ///   - environment: Base process environment.
     ///   - processDeadlineSeconds: Wall-clock bound on each git subprocess.
     ///     The mobile RPC timeout cancels only the awaiting task, never the
@@ -16,11 +17,13 @@ public struct GitDiffService: Sendable {
     ///     phone retries.
     public init(
         gitExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/git"),
+        fileSystemStatExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/stat"),
         environment: [String: String] = ProcessInfo.processInfo.environment,
         processDeadlineSeconds: Double = 20
     ) {
         self.processRunner = GitProcessRunner(
             gitExecutableURL: gitExecutableURL,
+            fileSystemStatExecutableURL: fileSystemStatExecutableURL,
             environment: environment,
             processDeadlineSeconds: processDeadlineSeconds
         )
@@ -323,11 +326,12 @@ public struct GitDiffService: Sendable {
         guard case .success(let context) = snapshotContextResult(
             repoRoot: repoRoot,
             baselineObjectID: baseline
-        ), case .success(let currentToken) = snapshotTokenResult(
+        ), case .success(let currentTokens) = snapshotTokensResult(
             repoRoot: repoRoot,
             context: context,
-            summary: summary
-        ) else { return false }
+            summaries: [summary]
+        ), currentTokens.count == 1,
+        let currentToken = currentTokens.first else { return false }
         return currentToken == expectedToken
     }
 

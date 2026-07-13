@@ -2,6 +2,11 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import SwiftUI
 
+struct DiffReviewWorkspaceIdentity: Hashable {
+    /// Workspace selection owns the complete review session and navigation state.
+    let workspaceID: MobileWorkspacePreview.ID
+}
+
 extension WorkspaceDetailView {
     func openDiffReviewFromMenu() {
         isDiffReviewPresented = true
@@ -28,6 +33,7 @@ extension View {
                     )
                 }
             )
+            .id(DiffReviewWorkspaceIdentity(workspaceID: workspace.id))
         }
     }
 }

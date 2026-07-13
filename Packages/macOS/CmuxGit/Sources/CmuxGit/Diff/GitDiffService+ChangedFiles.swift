@@ -117,19 +117,24 @@ extension GitDiffService {
             return .timedOut
         }
         guard finalContext == initialContext else { return .failed }
+        let snapshotTokens: [String]
+        switch snapshotTokensResult(
+            repoRoot: repoRoot,
+            context: finalContext,
+            summaries: boundedFiles
+        ) {
+        case .success(let values):
+            guard values.count == boundedFiles.count else { return .failed }
+            snapshotTokens = values
+        case .notFound, .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
+        }
         var snapshotFiles: [GitDiffSummary] = []
         snapshotFiles.reserveCapacity(boundedFiles.count)
-        for summary in boundedFiles {
+        for (summary, token) in zip(boundedFiles, snapshotTokens) {
             guard !Task.isCancelled else { return .failed }
-            let token: String
-            switch snapshotTokenResult(repoRoot: repoRoot, context: finalContext, summary: summary) {
-            case .success(let value):
-                token = value
-            case .notFound, .failed:
-                return .failed
-            case .timedOut:
-                return .timedOut
-            }
             snapshotFiles.append(
                 GitDiffSummary(
                     path: summary.path,

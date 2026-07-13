@@ -2,28 +2,80 @@ import CmuxFoundation
 import Darwin
 import Foundation
 
-/// Runs one bounded git subprocess while containing its descendant process
-/// group and sanitizing ambient repository-selection environment variables.
+/// Runs one bounded Git or filesystem-helper subprocess while containing its
+/// descendant process group and sanitizing ambient repository-selection state.
 struct GitProcessRunner: Sendable {
     private static let nonLockingGitEnvironmentKey = "GIT_OPTIONAL_LOCKS"
     private static let nonLockingGitEnvironmentValue = "0"
+    private static let fileSystemStatFormat = "%d|%i|%p|%z|%Fm|%Fc"
 
     private let gitExecutableURL: URL
+    private let fileSystemStatExecutableURL: URL
     private let environment: [String: String]
     private let processDeadlineSeconds: Double
 
     init(
         gitExecutableURL: URL,
+        fileSystemStatExecutableURL: URL,
         environment: [String: String],
         processDeadlineSeconds: Double
     ) {
         self.gitExecutableURL = gitExecutableURL
+        self.fileSystemStatExecutableURL = fileSystemStatExecutableURL
         self.environment = environment
         self.processDeadlineSeconds = processDeadlineSeconds
     }
 
     func run(
         in directory: String,
+        arguments: [String],
+        acceptedTerminationStatuses: Set<Int32>,
+        maxOutputBytes: Int?
+    ) -> GitProcessResult {
+        runExecutable(
+            executableURL: gitExecutableURL,
+            arguments: ["-C", directory] + arguments,
+            acceptedTerminationStatuses: acceptedTerminationStatuses,
+            maxOutputBytes: maxOutputBytes
+        )
+    }
+
+    func runFileSystemStat(
+        paths: [String],
+        allowMissing: Bool,
+        maxOutputBytes: Int
+    ) -> GitProcessResult {
+        guard !paths.isEmpty else {
+            return GitProcessResult(rawOutput: Data(), output: "", terminationStatus: 0)
+        }
+        if allowMissing {
+            guard paths.count == 1 else {
+                return GitProcessResult(output: nil, failure: .launchFailed)
+            }
+            return runExecutable(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: [
+                    "-c",
+                    "if [ ! -e \"$2\" ] && [ ! -L \"$2\" ]; then printf 'missing\\n'; exit 0; fi; exec \"$1\" -f \"$3\" -- \"$2\"",
+                    "cmux-stat",
+                    fileSystemStatExecutableURL.path,
+                    paths[0],
+                    Self.fileSystemStatFormat,
+                ],
+                acceptedTerminationStatuses: [0],
+                maxOutputBytes: maxOutputBytes
+            )
+        }
+        return runExecutable(
+            executableURL: fileSystemStatExecutableURL,
+            arguments: ["-f", Self.fileSystemStatFormat, "--"] + paths,
+            acceptedTerminationStatuses: [0],
+            maxOutputBytes: maxOutputBytes
+        )
+    }
+
+    private func runExecutable(
+        executableURL: URL,
         arguments: [String],
         acceptedTerminationStatuses: Set<Int32>,
         maxOutputBytes: Int?
@@ -40,11 +92,11 @@ struct GitProcessRunner: Sendable {
             "-c",
             "set -m; /usr/bin/env -u SHELLOPTS -u BASHOPTS \"$@\" 2>/dev/null & child=$!; printf '%s\\n' \"$child\" >&2; exec 2>&-; wait \"$child\"; exit $?",
             "cmux-git",
-            gitExecutableURL.path,
-        ] + ["-C", directory] + arguments
-        // Launch only from a local, stable directory. Git performs the
-        // repository chdir after entering the supervised process group, so a
-        // stalled network filesystem is covered by the subprocess deadline.
+            executableURL.path,
+        ] + arguments
+        // Launch only from a local, stable directory. Git receives `-C` and
+        // filesystem helpers receive absolute paths after entering the
+        // supervised process group, so remote filesystem access is watched.
         process.currentDirectoryURL = URL(fileURLWithPath: "/", isDirectory: true)
         process.environment = nonLockingGitEnvironment()
         let pipe = Pipe()
@@ -60,7 +112,7 @@ struct GitProcessRunner: Sendable {
                 process.waitUntilExit()
                 return GitProcessResult(output: nil, failure: .launchFailed)
             }
-            // Wall-clock watchdog: terminate git at the deadline so a stalled
+            // Wall-clock watchdog: terminate the helper at the deadline so a stalled
             // subprocess never outlives the request that spawned it. The
             // cancellable timer source is the sanctioned bounded-delay shape
             // here (no async context exists for a Clock sleep, and the read
@@ -83,8 +135,8 @@ struct GitProcessRunner: Sendable {
             process.waitUntilExit()
             watchdog.cancelEscalation()
             if read.capped {
-                // We terminated git after reaching the output bound; its
-                // exit status reflects our signal, not a git failure. Return
+                // We terminated the helper after reaching the output bound;
+                // its exit status reflects our signal. Return
                 // the bounded partial output and mark it cut off.
                 return GitProcessResult(
                     rawOutput: read.data,
@@ -117,10 +169,10 @@ struct GitProcessRunner: Sendable {
         }
     }
 
-    /// The wrapper shell starts git as a monitored background job, which gives
-    /// git a dedicated process group, then reports that group leader here over
+    /// The wrapper shell starts the helper as a monitored background job, which
+    /// gives it a dedicated process group, then reports that leader here over
     /// its otherwise-discarded stderr. Keeping the wrapper outside the group
-    /// lets it reap git after the watchdog signals the full descendant group.
+    /// lets it reap the helper after the watchdog signals its descendant group.
     private static func readProcessGroupIdentifier(_ handle: FileHandle) -> pid_t? {
         guard let data = try? handle.read(upToCount: 64),
               let text = String(data: data, encoding: .utf8),

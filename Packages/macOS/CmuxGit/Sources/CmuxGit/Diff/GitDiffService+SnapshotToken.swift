@@ -1,5 +1,4 @@
 internal import CryptoKit
-internal import Darwin
 internal import Foundation
 
 extension GitDiffService {
@@ -13,10 +12,8 @@ extension GitDiffService {
         let inode: UInt64
         let mode: UInt32
         let size: Int64
-        let modificationSeconds: Int64
-        let modificationNanoseconds: Int64
-        let changeSeconds: Int64
-        let changeNanoseconds: Int64
+        let modificationTime: String
+        let changeTime: String
     }
 
     func snapshotContextResult(
@@ -43,15 +40,15 @@ extension GitDiffService {
                 .appendingPathComponent(rawPath)
                 .standardizedFileURL.path
         }
-        guard let indexIdentity = Self.fileSystemIdentity(atPath: indexPath) else {
-            // An absent index is valid for a repository with no staged files.
-            guard errno == ENOENT || errno == ENOTDIR else { return .failed }
-            return .success(
-                SnapshotContext(
-                    baselineObjectID: baselineObjectID,
-                    indexIdentity: Self.missingFileSystemIdentity
-                )
-            )
+        let indexIdentity: FileSystemIdentity
+        switch fileSystemIdentitiesResult(paths: [indexPath], allowMissing: true) {
+        case .success(let identities):
+            guard let identity = identities.first else { return .failed }
+            indexIdentity = identity
+        case .notFound, .failed:
+            return .failed
+        case .timedOut:
+            return .timedOut
         }
         return .success(
             SnapshotContext(
@@ -61,32 +58,55 @@ extension GitDiffService {
         )
     }
 
-    func snapshotTokenResult(
+    func snapshotTokensResult(
         repoRoot: String,
         context: SnapshotContext,
-        summary: GitDiffSummary
-    ) -> GitDiffQueryResult<String> {
+        summaries: [GitDiffSummary]
+    ) -> GitDiffQueryResult<[String]> {
         let rootURL = URL(fileURLWithPath: repoRoot, isDirectory: true)
-        let currentIdentity = Self.fileSystemIdentityOrMissing(
-            atPath: rootURL.appendingPathComponent(summary.path).path
-        )
-        guard case .success(let currentIdentity) = currentIdentity else {
+        let existingPaths = summaries.compactMap { summary in
+            summary.status == .deleted
+                ? nil
+                : rootURL.appendingPathComponent(summary.path).path
+        }
+        let existingIdentities: [FileSystemIdentity]
+        switch fileSystemIdentitiesResult(paths: existingPaths, allowMissing: false) {
+        case .success(let identities):
+            existingIdentities = identities
+        case .notFound, .failed:
             return .failed
+        case .timedOut:
+            return .timedOut
         }
-        let oldIdentity: FileSystemIdentity
-        if let oldPath = summary.oldPath {
-            switch Self.fileSystemIdentityOrMissing(
-                atPath: rootURL.appendingPathComponent(oldPath).path
-            ) {
-            case .success(let identity):
-                oldIdentity = identity
-            case .notFound, .failed, .timedOut:
-                return .failed
+        var identityIterator = existingIdentities.makeIterator()
+        var tokens: [String] = []
+        tokens.reserveCapacity(summaries.count)
+        for summary in summaries {
+            guard !Task.isCancelled else { return .failed }
+            let currentIdentity: FileSystemIdentity
+            if summary.status == .deleted {
+                currentIdentity = Self.missingFileSystemIdentity
+            } else {
+                guard let identity = identityIterator.next() else { return .failed }
+                currentIdentity = identity
             }
-        } else {
-            oldIdentity = Self.missingFileSystemIdentity
+            tokens.append(
+                Self.snapshotToken(
+                    context: context,
+                    summary: summary,
+                    currentIdentity: currentIdentity
+                )
+            )
         }
+        guard identityIterator.next() == nil else { return .failed }
+        return .success(tokens)
+    }
 
+    private static func snapshotToken(
+        context: SnapshotContext,
+        summary: GitDiffSummary,
+        currentIdentity: FileSystemIdentity
+    ) -> String {
         var payload = Data()
         Self.append(context.baselineObjectID, to: &payload)
         Self.append(context.indexIdentity, to: &payload)
@@ -96,8 +116,7 @@ extension GitDiffService {
         Self.append(summary.additions, to: &payload)
         Self.append(summary.deletions, to: &payload)
         Self.append(currentIdentity, to: &payload)
-        Self.append(oldIdentity, to: &payload)
-        return .success(Self.hexEncoded(SHA256.hash(data: payload)))
+        return Self.hexEncoded(SHA256.hash(data: payload))
     }
 
     private static let missingFileSystemIdentity = FileSystemIdentity(
@@ -105,35 +124,55 @@ extension GitDiffService {
         inode: 0,
         mode: 0,
         size: 0,
-        modificationSeconds: 0,
-        modificationNanoseconds: 0,
-        changeSeconds: 0,
-        changeNanoseconds: 0
+        modificationTime: "",
+        changeTime: ""
     )
 
-    private static func fileSystemIdentityOrMissing(
-        atPath path: String
-    ) -> GitDiffQueryResult<FileSystemIdentity> {
-        if let identity = fileSystemIdentity(atPath: path) {
-            return .success(identity)
+    private func fileSystemIdentitiesResult(
+        paths: [String],
+        allowMissing: Bool
+    ) -> GitDiffQueryResult<[FileSystemIdentity]> {
+        guard !paths.isEmpty else { return .success([]) }
+        let maxOutputBytes = paths.count * 160 + 1024
+        let result = processRunner.runFileSystemStat(
+            paths: paths,
+            allowMissing: allowMissing,
+            maxOutputBytes: maxOutputBytes
+        )
+        if let failure: GitDiffQueryResult<[FileSystemIdentity]> = queryFailure(from: result) {
+            return failure
         }
-        return errno == ENOENT || errno == ENOTDIR
-            ? .success(missingFileSystemIdentity)
-            : .failed
+        guard let output = result.successOutput, !result.capped else { return .failed }
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
+        guard lines.count == paths.count else { return .failed }
+        var identities: [FileSystemIdentity] = []
+        identities.reserveCapacity(lines.count)
+        for line in lines {
+            if line == "missing" {
+                guard allowMissing else { return .failed }
+                identities.append(Self.missingFileSystemIdentity)
+                continue
+            }
+            guard let identity = Self.parseFileSystemIdentity(line) else { return .failed }
+            identities.append(identity)
+        }
+        return .success(identities)
     }
 
-    private static func fileSystemIdentity(atPath path: String) -> FileSystemIdentity? {
-        var value = stat()
-        guard lstat(path, &value) == 0 else { return nil }
+    private static func parseFileSystemIdentity(_ line: Substring) -> FileSystemIdentity? {
+        let fields = line.split(separator: "|", omittingEmptySubsequences: false)
+        guard fields.count == 6,
+              let device = UInt64(fields[0]),
+              let inode = UInt64(fields[1]),
+              let mode = UInt32(fields[2], radix: 8),
+              let size = Int64(fields[3]) else { return nil }
         return FileSystemIdentity(
-            device: UInt64(value.st_dev),
-            inode: UInt64(value.st_ino),
-            mode: UInt32(value.st_mode),
-            size: Int64(value.st_size),
-            modificationSeconds: Int64(value.st_mtimespec.tv_sec),
-            modificationNanoseconds: Int64(value.st_mtimespec.tv_nsec),
-            changeSeconds: Int64(value.st_ctimespec.tv_sec),
-            changeNanoseconds: Int64(value.st_ctimespec.tv_nsec)
+            device: device,
+            inode: inode,
+            mode: mode,
+            size: size,
+            modificationTime: String(fields[4]),
+            changeTime: String(fields[5])
         )
     }
 
@@ -161,10 +200,8 @@ extension GitDiffService {
         append(value.inode, to: &data)
         append(UInt64(value.mode), to: &data)
         append(UInt64(bitPattern: value.size), to: &data)
-        append(UInt64(bitPattern: value.modificationSeconds), to: &data)
-        append(UInt64(bitPattern: value.modificationNanoseconds), to: &data)
-        append(UInt64(bitPattern: value.changeSeconds), to: &data)
-        append(UInt64(bitPattern: value.changeNanoseconds), to: &data)
+        append(value.modificationTime, to: &data)
+        append(value.changeTime, to: &data)
     }
 
     private static func append(_ value: UInt64, to data: inout Data) {
