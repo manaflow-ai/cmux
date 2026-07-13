@@ -72,7 +72,7 @@ struct PortalDividerHits {
     var intersection: PortalDividerIntersection? {
         for vertical in verticalCandidates where !vertical.region.isInHostedContent {
             for horizontal in horizontalCandidates where !horizontal.region.isInHostedContent {
-                if PortalSplitDividerRegion.areNested(vertical.region, horizontal.region) {
+                if PortalSplitDividerRegion.formVisibleCorner(vertical.region, horizontal.region) {
                     return PortalDividerIntersection(vertical: vertical.region, horizontal: horizontal.region)
                 }
             }
@@ -89,12 +89,14 @@ struct PortalDividerHits {
         let tolerance = PortalSplitDividerRegion.alignedIntersectionTolerance
         let vertical = verticalCandidates.map(\.region).filter { candidate in
             !candidate.isInHostedContent &&
-                PortalSplitDividerRegion.areNested(candidate, anchor.horizontal) &&
+                (candidate === anchor.vertical || candidate.splitView !== anchor.vertical.splitView) &&
+                PortalSplitDividerRegion.formVisibleCorner(candidate, anchor.horizontal) &&
                 abs(candidate.rectInWindow.midX - anchor.vertical.rectInWindow.midX) <= tolerance
         }
         let horizontal = horizontalCandidates.map(\.region).filter { candidate in
             !candidate.isInHostedContent &&
-                PortalSplitDividerRegion.areNested(candidate, anchor.vertical) &&
+                (candidate === anchor.horizontal || candidate.splitView !== anchor.horizontal.splitView) &&
+                PortalSplitDividerRegion.formVisibleCorner(anchor.vertical, candidate) &&
                 abs(candidate.rectInWindow.midY - anchor.horizontal.rectInWindow.midY) <= tolerance
         }
         return (
@@ -287,7 +289,7 @@ final class PortalSplitDividerRegion {
         let verticals = interactableRegions.filter { $0.isVertical && !$0.isInHostedContent }
         let horizontals = interactableRegions.filter { !$0.isVertical && !$0.isInHostedContent }
         for vertical in verticals {
-            for horizontal in horizontals where areNested(vertical, horizontal) {
+            for horizontal in horizontals where formVisibleCorner(vertical, horizontal) {
                 let corner = vertical.intersectionHitRectInWindow
                     .intersection(horizontal.intersectionHitRectInWindow)
                 if !corner.isNull, corner.width > 0, corner.height > 0 {
@@ -342,6 +344,29 @@ final class PortalSplitDividerRegion {
     static func areNested(_ first: PortalSplitDividerRegion, _ second: PortalSplitDividerRegion) -> Bool {
         guard let firstSplit = first.splitView, let secondSplit = second.splitView else { return false }
         return firstSplit.isDescendant(of: secondSplit) || secondSplit.isDescendant(of: firstSplit)
+    }
+
+    /// Proves that the actual divider segments reach the same visible
+    /// junction. The wider intersection rectangles only enlarge the pointer
+    /// target; they must not make an inset descendant look like it meets an
+    /// ancestor divider that its segment stops short of.
+    static func formVisibleCorner(
+        _ vertical: PortalSplitDividerRegion,
+        _ horizontal: PortalSplitDividerRegion
+    ) -> Bool {
+        guard vertical.isVertical,
+              !horizontal.isVertical,
+              areNested(vertical, horizontal) else {
+            return false
+        }
+        let x = vertical.rectInWindow.midX
+        let y = horizontal.rectInWindow.midY
+        let xSlack = max(CGFloat(1), vertical.rectInWindow.width / 2)
+        let ySlack = max(CGFloat(1), horizontal.rectInWindow.height / 2)
+        return x >= horizontal.rectInWindow.minX - xSlack &&
+            x <= horizontal.rectInWindow.maxX + xSlack &&
+            y >= vertical.rectInWindow.minY - ySlack &&
+            y <= vertical.rectInWindow.maxY + ySlack
     }
 
     fileprivate static func uniqueRegions(_ regions: [PortalSplitDividerRegion]) -> [PortalSplitDividerRegion] {

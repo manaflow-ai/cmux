@@ -410,6 +410,20 @@ final class WindowBrowserHostView: NSView {
         )
         let splitPassThrough = dividerHit.map { !$0.isInHostedContent } ?? false
 
+        if titlebarPassThrough {
+#if DEBUG
+            debugLogPointerRouting(
+                stage: "hitTest.titlebarPass",
+                point: point,
+                titlebarPassThrough: true,
+                sidebarPassThrough: sidebarPassThrough,
+                dividerHit: dividerHit,
+                hitView: nil
+            )
+#endif
+            return nil
+        }
+
         // An app divider owns its full centered band, including the half that
         // overlaps the adjacent pane's tab strip. Hosted WebKit dividers keep
         // their native routing.
@@ -422,18 +436,6 @@ final class WindowBrowserHostView: NSView {
                 return self
             }
             if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
-            return nil
-        } else if titlebarPassThrough {
-#if DEBUG
-            debugLogPointerRouting(
-                stage: "hitTest.titlebarPass",
-                point: point,
-                titlebarPassThrough: true,
-                sidebarPassThrough: sidebarPassThrough,
-                dividerHit: dividerHit,
-                hitView: nil
-            )
-#endif
             return nil
         }
         if tabStripPassThrough {
@@ -768,14 +770,22 @@ final class WindowBrowserHostView: NSView {
 
         let resolvedDividerHit = dividerHit ?? splitDividerHit(at: point)
         let resolvedHostedInspectorHit = resolvedDividerHit == nil ? (hostedInspectorHit ?? hostedInspectorDividerHit(at: point)) : nil
-        // The corner zone outranks chrome (see hit testing).
-        if resolvedDividerHit?.kind == .both {
+        if shouldPassThroughToTitlebar(at: point) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
+        // App dividers outrank pane tab bars, but never window titlebar space.
+        if let resolvedDividerHit, !resolvedDividerHit.isInHostedContent {
             guard dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
                 clearActiveDividerCursor(restoreArrow: false)
                 return
             }
-            activeDividerCursorKind = .both
-            PortalDividerCursorKind.both.cursor.set()
+            activeDividerCursorKind = resolvedDividerHit.kind
+            resolvedDividerHit.kind.cursor.set()
+            return
+        }
+        if shouldPassThroughToPaneTabBar(at: point, eventType: NSApp.currentEvent?.type) {
+            clearActiveDividerCursor(restoreArrow: false)
             return
         }
         if shouldPassThroughToSidebarResizer(

@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -29,11 +30,12 @@ import Testing
         _ splitView: NSSplitView,
         rect: NSRect,
         isVertical: Bool,
-        isInHostedContent: Bool = false
+        isInHostedContent: Bool = false,
+        dividerIndex: Int = 0
     ) -> PortalSplitDividerRegion {
         PortalSplitDividerRegion(
             splitView: splitView,
-            dividerIndex: 0,
+            dividerIndex: dividerIndex,
             rectInWindow: rect,
             boundsInWindow: Self.contentBounds,
             isVertical: isVertical,
@@ -205,6 +207,28 @@ import Testing
         #expect(intersection == nil)
     }
 
+    @Test func insetNestedDividerWideZonesOverlapButDoNotPair() {
+        let (outer, inner) = makeNestedSplits()
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+        let insetVertical = region(
+            inner,
+            rect: NSRect(x: 400, y: 0, width: 1, height: 280),
+            isVertical: true
+        )
+        let overlapPoint = NSPoint(x: 400, y: 290)
+
+        let hits = PortalSplitDividerRegion.dividerHits(
+            at: overlapPoint,
+            in: [horizontal, insetVertical],
+            checkLiveness: false
+        )
+        let plan = PortalSplitDividerRegion.cursorRectPlan(for: [horizontal, insetVertical])
+
+        #expect(hits.intersection == nil)
+        #expect(hits.first === insetVertical)
+        #expect(plan.corners.isEmpty)
+    }
+
     @Test func cursorRectPlanCutsCornersOutOfBands() {
         let (outer, inner) = makeNestedSplits()
         let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
@@ -282,6 +306,32 @@ import Testing
         #expect(drag?.regions.contains { $0 === column } == true)
         #expect(drag?.regions.contains { $0 === leftRow } == true)
         #expect(drag?.regions.contains { $0 === rightRow } == true)
+    }
+
+    @Test func alignedExpansionExcludesAdjacentDividerInSameSplit() {
+        let (outer, inner) = makeNestedSplits()
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+        let anchor = region(
+            inner,
+            rect: NSRect(x: 400, y: 0, width: 1, height: 300),
+            isVertical: true
+        )
+        let adjacent = region(
+            inner,
+            rect: NSRect(x: 410, y: 0, width: 1, height: 300),
+            isVertical: true,
+            dividerIndex: 1
+        )
+
+        let hits = PortalSplitDividerRegion.dividerHits(
+            at: NSPoint(x: 403, y: 300),
+            in: [horizontal, anchor, adjacent],
+            checkLiveness: false
+        )
+
+        #expect(hits.intersection?.vertical === anchor)
+        #expect(hits.alignedIntersectionRegions?.vertical.count == 1)
+        #expect(hits.alignedIntersectionRegions?.vertical.first === anchor)
     }
 
     @Test func hostedContentRegionsDoNotPair() {
@@ -398,21 +448,53 @@ import Testing
         let controller = PortalDividerDragController()
         #expect(controller.begin(atWindowPoint: cornerPoint, regions: [horizontal, vertical]))
 
-        // A pane close between drag samples invalidates the captured divider
-        // index; updates must stop moving anything instead of calling
-        // setPosition with a stale index (AppKit range exception). The
-        // gesture stays claimed until the release handshake in end(), so the
-        // owning coordinator's drag latch is cleared with the button up.
-        let removed = inner.arrangedSubviews[1]
-        inner.removeArrangedSubview(removed)
+        // Stale the second axis while leaving the first axis live. Updates
+        // must prevalidate every captured divider before moving the first,
+        // rather than partially resizing and only then discovering the stale
+        // outer split.
+        let initialInnerPosition = inner.arrangedSubviews[0].frame.width
+        let removed = outer.arrangedSubviews[1]
+        outer.removeArrangedSubview(removed)
         removed.removeFromSuperview()
         controller.update(windowPoint: NSPoint(x: 420, y: 280))
         #expect(controller.isActive)
+        #expect(abs(inner.arrangedSubviews[0].frame.width - initialInnerPosition) < 1)
         controller.update(windowPoint: NSPoint(x: 520, y: 240))
         #expect(controller.isActive)
 
         controller.end()
         #expect(!controller.isActive)
+    }
+
+    @Test func managedSplitRejectsStaleModelIdentityBeforeViewMoves() {
+        let window = NSWindow(
+            contentRect: Self.contentBounds,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let splitView = StubManagedSplitView(frame: Self.contentBounds)
+        splitView.isVertical = true
+        splitView.bonsplitController = BonsplitController()
+        splitView.bonsplitSplitId = UUID()
+        splitView.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600)))
+        splitView.addArrangedSubview(NSView(frame: NSRect(x: 401, y: 0, width: 399, height: 600)))
+        window.contentView?.addSubview(splitView)
+        let vertical = region(
+            splitView,
+            rect: NSRect(x: 400, y: 0, width: 1, height: 600),
+            isVertical: true
+        )
+        let controller = PortalDividerDragController()
+        let initialPosition = splitView.arrangedSubviews[0].frame.width
+
+        #expect(controller.begin(atWindowPoint: NSPoint(x: 400, y: 300), regions: [vertical]))
+        controller.update(windowPoint: NSPoint(x: 450, y: 300))
+
+        #expect(controller.isActive)
+        #expect(abs(splitView.arrangedSubviews[0].frame.width - initialPosition) < 1)
+        controller.end()
     }
 
     @Test func zeroAlphaAncestorsAreNotInteractableForIntersection() {
@@ -477,4 +559,9 @@ private final class StubSplitViewDelegate: NSObject, NSSplitViewDelegate {
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
         min(proposedMaximumPosition, 700)
     }
+}
+
+private final class StubManagedSplitView: NSSplitView, BonsplitManagedSplitView {
+    var bonsplitController: BonsplitController?
+    var bonsplitSplitId: UUID?
 }

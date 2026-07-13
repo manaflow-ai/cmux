@@ -134,9 +134,17 @@ final class PortalDividerDragController {
 
     func update(windowPoint: NSPoint) {
         guard let session = activeSession, !session.isAborted else { return }
+        var updates: [(
+            axis: AxisDrag,
+            splitView: NSSplitView,
+            dividerIndex: Int,
+            clamped: CGFloat,
+            model: (controller: BonsplitController, splitId: UUID, fraction: CGFloat)?
+        )] = []
+
+        // Resolve every captured divider before changing either the model or
+        // the view. A stale second axis must not leave the first axis moved.
         for axis in session.axes {
-            // Resizing the first axis can synchronously reconfigure the tree,
-            // so revalidate each axis immediately before applying it.
             guard let splitView = axis.resolvedSplitView else {
                 // Keep the gesture claimed and stop moving anything until
                 // the real mouse-up so the stale click cannot leak anywhere.
@@ -147,17 +155,41 @@ final class PortalDividerDragController {
             let delta = (axis.isVertical ? pointer.x : pointer.y) - axis.initialPointer
             let proposed = axis.initialPosition + delta
             let clamped = Self.clampedPosition(proposed, in: splitView, dividerIndex: axis.dividerIndex)
-            // Model first: a coordinator that classifies the view resize as
-            // programmatic synchronously reasserts the model position, so
-            // the model must already hold the dragged value.
-            if let managed = splitView as? BonsplitManagedSplitView,
-               let controller = managed.bonsplitController,
-               let splitId = managed.bonsplitSplitId {
+            var modelUpdate: (controller: BonsplitController, splitId: UUID, fraction: CGFloat)?
+            if let managed = splitView as? BonsplitManagedSplitView {
+                guard let controller = managed.bonsplitController,
+                      let splitId = managed.bonsplitSplitId,
+                      controller.findSplit(splitId) else {
+                    session.isAborted = true
+                    return
+                }
                 let extent = axis.isVertical ? splitView.bounds.width : splitView.bounds.height
                 let available = max(extent - splitView.dividerThickness, 1)
-                controller.setDividerPosition(clamped / available, forSplit: splitId)
+                modelUpdate = (controller, splitId, clamped / available)
             }
-            splitView.setPosition(clamped, ofDividerAt: axis.dividerIndex)
+            updates.append((axis, splitView, axis.dividerIndex, clamped, modelUpdate))
+        }
+
+        // Model first: a coordinator that classifies the view resize as
+        // programmatic synchronously reasserts the model position, so every
+        // authoritative split must accept the update before views move.
+        for update in updates {
+            guard update.axis.resolvedSplitView === update.splitView else {
+                session.isAborted = true
+                return
+            }
+            if let model = update.model,
+               !model.controller.setDividerPosition(model.fraction, forSplit: model.splitId) {
+                session.isAborted = true
+                return
+            }
+        }
+        guard updates.allSatisfy({ $0.axis.resolvedSplitView === $0.splitView }) else {
+            session.isAborted = true
+            return
+        }
+        for update in updates {
+            update.splitView.setPosition(update.clamped, ofDividerAt: update.dividerIndex)
         }
     }
 

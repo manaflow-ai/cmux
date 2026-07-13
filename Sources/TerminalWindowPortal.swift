@@ -186,6 +186,11 @@ final class WindowTerminalHostView: NSView {
         if routingContext.allowsPortalPointerHitTesting {
             let resolveHostedTerminalHitView = hostedTerminalHitViewResolver(at: point)
 
+            if shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return nil
+            }
+
             // A divider owns its full centered band, including the half that
             // overlaps the adjacent pane's tab bar. Letting pane chrome win
             // there made horizontal resize reachable only from one side.
@@ -202,11 +207,6 @@ final class WindowTerminalHostView: NSView {
                 }
                 if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
                 TerminalWindowPortalRegistry.noteSplitDividerInteraction(in: window, event: currentEvent)
-                return nil
-            }
-
-            if shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView) {
-                clearActiveDividerCursor(restoreArrow: false)
                 return nil
             }
 
@@ -300,13 +300,6 @@ final class WindowTerminalHostView: NSView {
         return hostedTerminalHitView() == nil
     }
 
-    private func shouldPassThroughToChrome(at point: NSPoint, eventType: NSEvent.EventType?) -> Bool {
-        let resolveHostedTerminalHitView = hostedTerminalHitViewResolver(at: point)
-
-        return shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView)
-            || shouldPassThroughToPaneTabBar(at: point, eventType: eventType, hostedTerminalHitView: resolveHostedTerminalHitView)
-    }
-
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
         // The sidebar resizer handle is implemented in SwiftUI. When terminals
         // are portal-hosted, this AppKit host can otherwise sit above the handle
@@ -380,14 +373,24 @@ final class WindowTerminalHostView: NSView {
             return
         }
 
-        // The corner zone outranks chrome (see performHitTest).
-        let kind = splitDividerCursorKind(at: point)
-        if kind == .both {
-            assertDividerCursor(.both)
+        let resolveHostedTerminalHitView = hostedTerminalHitViewResolver(at: point)
+        if shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView) {
+            clearActiveDividerCursor(restoreArrow: false)
             return
         }
 
-        if shouldPassThroughToChrome(at: point, eventType: NSApp.currentEvent?.type) {
+        // Pane dividers outrank pane tab bars, but never window titlebar space.
+        let kind = splitDividerCursorKind(at: point)
+        if let kind {
+            assertDividerCursor(kind)
+            return
+        }
+
+        if shouldPassThroughToPaneTabBar(
+            at: point,
+            eventType: NSApp.currentEvent?.type,
+            hostedTerminalHitView: resolveHostedTerminalHitView
+        ) {
             clearActiveDividerCursor(restoreArrow: false)
             return
         }
@@ -397,11 +400,7 @@ final class WindowTerminalHostView: NSView {
             return
         }
 
-        guard let nextKind = kind else {
-            clearActiveDividerCursor(restoreArrow: true)
-            return
-        }
-        assertDividerCursor(nextKind)
+        clearActiveDividerCursor(restoreArrow: true)
     }
 
     // A registry-latched divider drag owned by this window bypasses occlusion; a pressed button alone is not ownership.
