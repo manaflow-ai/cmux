@@ -194,7 +194,7 @@ struct TaskComposerSheet: View {
                     Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
                         submitTask?.cancel()
                         shouldPersistDraftOnDisappear = false
-                        store.taskTemplateStore?.setComposerDraft(nil)
+                        store.clearTaskComposerDraft(ifSessionGeneration: sessionGeneration)
                         dismiss()
                     }
                     // Keep the sheet up until the sent RPC finishes.
@@ -397,7 +397,7 @@ struct TaskComposerSheet: View {
                 macDeviceID: snapshot.macDeviceID
             )
             shouldPersistDraftOnDisappear = false
-            store.taskTemplateStore?.setComposerDraft(nil)
+            store.clearTaskComposerDraft(ifSessionGeneration: sessionGeneration)
             dismiss()
         case .failure(let failure):
             restoreSubmittedDraft(snapshot)

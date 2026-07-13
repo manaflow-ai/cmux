@@ -24,6 +24,24 @@ extension MobileShellComposite {
         return taskTemplateStore != nil
     }
 
+    /// Clears the composer draft only for the signed-in session that created
+    /// the sheet. A stale cancel or async success must not erase a newer
+    /// account's draft.
+    /// - Parameter capturedGeneration: ``currentSessionGeneration`` captured
+    ///   when the composer sheet was created.
+    /// - Returns: `true` when the active session's draft store was cleared.
+    @discardableResult
+    public func clearTaskComposerDraft(
+        ifSessionGeneration capturedGeneration: Int
+    ) -> Bool {
+        guard isSignedIn, capturedGeneration == currentSessionGeneration,
+              let taskTemplateStore else {
+            return false
+        }
+        taskTemplateStore.setComposerDraft(nil)
+        return true
+    }
+
     /// Submit a task-composer workspace create request to the selected Mac.
     /// - Parameters:
     ///   - macDeviceID: Target Mac device id.
