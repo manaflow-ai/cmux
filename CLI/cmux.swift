@@ -23902,18 +23902,6 @@ struct CMUXCLI {
         }
     }
 
-    /// Success acknowledgement for Claude Code hook invocations. Claude Code
-    /// renders plain-text hook stdout as a visible "hook success" block in the
-    /// conversation transcript (for prompt-submit, on every prompt), while a
-    /// bare JSON object is consumed as structured hook output with nothing
-    /// rendered — the same contract the `echo '{}'` no-op fallback in
-    /// AgentHookDefinitions relies on. Success is signaled by the exit code;
-    /// stdout stays machine-consumable.
-    /// https://github.com/manaflow-ai/cmux/issues/7962
-    func printClaudeHookAck() {
-        print("{}")
-    }
-
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,

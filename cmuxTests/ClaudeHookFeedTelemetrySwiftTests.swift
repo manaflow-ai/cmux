@@ -6,17 +6,8 @@ import Testing
 @Suite(.serialized)
 struct ClaudeHookFeedTelemetrySwiftTests {
     @Test func sessionStartFeedTelemetryUsesResolvedTTYSurface() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-claude-feed-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let socketPath = makeSocketPath("feed")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = FeedTelemetryMockState()
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-            try? FileManager.default.removeItem(at: root)
-        }
+        let context = try FeedTelemetryTestContext(name: "feed")
+        defer { _ = context }
 
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let leakedSurfaceID = "22222222-2222-2222-2222-222222222222"
@@ -24,8 +15,8 @@ struct ClaudeHookFeedTelemetrySwiftTests {
         let ttyName = "ttys-claude-feed-surface"
         let feedSeen = DispatchSemaphore(value: 0)
         startServer(
-            listenerFD: listenerFD,
-            state: state,
+            listenerFD: context.listenerFD,
+            state: context.state,
             workspaceID: workspaceID,
             focusedSurfaceID: leakedSurfaceID,
             ttyName: ttyName,
@@ -33,37 +24,26 @@ struct ClaudeHookFeedTelemetrySwiftTests {
             feedSeen: feedSeen
         )
 
-        let environment = [
-            "HOME": root.path,
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            "CMUX_SOCKET_PATH": socketPath,
-            "CMUX_WORKSPACE_ID": workspaceID,
-            "CMUX_SURFACE_ID": leakedSurfaceID,
-            "CMUX_CLI_TTY_NAME": ttyName,
-            "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
-            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
-            "CMUX_AGENT_LAUNCH_KIND": "claude",
-            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
-            "CMUX_AGENT_LAUNCH_CWD": root.path,
-            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
-        ]
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "claude", "session-start"],
-            environment: environment,
-            standardInput: #"{"session_id":"claude-feed-session","source":"clear","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            environment: context.environment(
+                workspaceID: workspaceID,
+                surfaceID: leakedSurfaceID,
+                ttyName: ttyName
+            ),
+            standardInput: #"{"session_id":"claude-feed-session","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             timeout: 5
         )
 
         #expect(result.timedOut == false, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
-        #expect(feedSeen.wait(timeout: .now() + 5) == .success, "Expected feed.push, saw \(state.commandsSnapshot())")
+        #expect(feedSeen.wait(timeout: .now() + 5) == .success, "Expected feed.push, saw \(context.state.commandsSnapshot())")
         let event = try #require(
-            state.feedEventsSnapshot().last { $0["hook_event_name"] as? String == "SessionStart" },
-            "Expected SessionStart feed telemetry, saw \(state.commandsSnapshot())"
+            context.state.feedEventsSnapshot().last { $0["hook_event_name"] as? String == "SessionStart" },
+            "Expected SessionStart feed telemetry, saw \(context.state.commandsSnapshot())"
         )
         #expect(
             event["surface_id"] as? String == resolvedSurfaceID,
@@ -79,25 +59,16 @@ struct ClaudeHookFeedTelemetrySwiftTests {
     // AgentHookDefinitions already relies on — and success is signaled by the
     // exit code, so hook stdout must stay machine-consumable.
     @Test func sessionStartStdoutIsSilentJSONAck() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-claude-silent-ack-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let socketPath = makeSocketPath("silent-ack")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = FeedTelemetryMockState()
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-            try? FileManager.default.removeItem(at: root)
-        }
+        let context = try FeedTelemetryTestContext(name: "silent-ack")
+        defer { _ = context }
 
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let surfaceID = "22222222-2222-2222-2222-222222222222"
         let ttyName = "ttys-claude-silent-ack"
         let feedSeen = DispatchSemaphore(value: 0)
         startServer(
-            listenerFD: listenerFD,
-            state: state,
+            listenerFD: context.listenerFD,
+            state: context.state,
             workspaceID: workspaceID,
             focusedSurfaceID: surfaceID,
             ttyName: ttyName,
@@ -105,7 +76,56 @@ struct ClaudeHookFeedTelemetrySwiftTests {
             feedSeen: feedSeen
         )
 
-        let environment = [
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: context.environment(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                ttyName: ttyName
+            ),
+            standardInput: #"{"session_id":"claude-silent-ack-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        #expect(result.timedOut == false, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+    }
+}
+
+private final class FeedTelemetryTestContext {
+    let root: URL
+    let socketPath: String
+    let listenerFD: Int32
+    let state: FeedTelemetryMockState
+
+    init(name: String) throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-\(name)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let socketPath = makeSocketPath(name)
+        do {
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            self.root = root
+            self.socketPath = socketPath
+            self.listenerFD = listenerFD
+            self.state = FeedTelemetryMockState()
+        } catch {
+            try? FileManager.default.removeItem(at: root)
+            throw error
+        }
+    }
+
+    deinit {
+        Darwin.close(listenerFD)
+        unlink(socketPath)
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func environment(workspaceID: String, surfaceID: String, ttyName: String) -> [String: String] {
+        [
             "HOME": root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_SOCKET_PATH": socketPath,
@@ -120,18 +140,6 @@ struct ClaudeHookFeedTelemetrySwiftTests {
             "CMUX_AGENT_LAUNCH_CWD": root.path,
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
         ]
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["hooks", "claude", "session-start"],
-            environment: environment,
-            standardInput: #"{"session_id":"claude-silent-ack-session","source":"startup","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
-        )
-
-        #expect(result.timedOut == false, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout == "{}\n")
     }
 }
 
