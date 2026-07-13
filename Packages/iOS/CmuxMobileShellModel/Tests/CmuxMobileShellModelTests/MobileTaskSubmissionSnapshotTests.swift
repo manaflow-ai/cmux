@@ -50,6 +50,22 @@ import Testing
         expectIdentityRotated(from: before, to: after)
     }
 
+    @Test func commandSurroundingWhitespaceTrimmedByWireKeepsIdentity() {
+        let before = snapshot(template: MobileTaskTemplate(
+            name: "Codex",
+            icon: "agent:codex",
+            command: "codex"
+        ))
+        let after = snapshot(template: MobileTaskTemplate(
+            name: "Codex",
+            icon: "agent:codex",
+            command: "  codex  "
+        ))
+
+        #expect(before.isRequestEquivalent(to: after))
+        expectIdentityPreserved(from: before, to: after)
+    }
+
     @Test func selectedTemplateDefaultDirectoryEditChangesEffectiveRequest() {
         let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
         let before = snapshot(template: template, directory: "~/cmux")
