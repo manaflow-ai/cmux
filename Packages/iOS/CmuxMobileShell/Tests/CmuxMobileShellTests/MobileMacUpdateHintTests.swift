@@ -2,7 +2,7 @@ import CmuxMobileShell
 import Testing
 
 @Suite
-struct MobileMacUpdateAdvisorTests {
+struct MobileMacUpdateHintTests {
     private let requirements: [MobileMacUpdateCapabilityRequirement] = [
         .init(capability: "released.early", feature: .workspaceActions, firstReleasedMacVersion: .init(parsing: "2.0")),
         .init(capability: "released.late", feature: .workspaceGroups, firstReleasedMacVersion: .init(parsing: "3.0")),
@@ -11,7 +11,7 @@ struct MobileMacUpdateAdvisorTests {
 
     @Test
     func olderVersionAndMissingReleasedCapabilityProducesHint() throws {
-        let hint = try #require(MobileMacUpdateAdvisor.hint(
+        let hint = try #require(MobileMacUpdateHint(
             hostCapabilities: ["released.late", "unreleased"],
             macAppVersion: "1.5",
             requirements: requirements
@@ -24,7 +24,7 @@ struct MobileMacUpdateAdvisorTests {
 
     @Test(arguments: ["2.0", "2.1"])
     func currentOrNewerVersionDoesNotProduceHint(version: String) {
-        let hint = MobileMacUpdateAdvisor.hint(
+        let hint = MobileMacUpdateHint(
             hostCapabilities: ["released.late", "unreleased"],
             macAppVersion: version,
             requirements: requirements
@@ -34,7 +34,7 @@ struct MobileMacUpdateAdvisorTests {
 
     @Test(arguments: [nil, "unknown", "2.0-nightly"] as [String?])
     func absentOrUnparseableVersionDoesNotProduceHint(version: String?) {
-        #expect(MobileMacUpdateAdvisor.hint(
+        #expect(MobileMacUpdateHint(
             hostCapabilities: [],
             macAppVersion: version,
             requirements: requirements
@@ -43,7 +43,7 @@ struct MobileMacUpdateAdvisorTests {
 
     @Test
     func absentVersionInfersFromAdvertisedRegisteredCapabilities() throws {
-        let hint = try #require(MobileMacUpdateAdvisor.hint(
+        let hint = try #require(MobileMacUpdateHint(
             hostCapabilities: ["released.early"],
             macAppVersion: nil,
             requirements: requirements
@@ -57,7 +57,7 @@ struct MobileMacUpdateAdvisorTests {
 
     @Test
     func absentVersionWithoutRegisteredCapabilitiesStaysSilent() {
-        #expect(MobileMacUpdateAdvisor.hint(
+        #expect(MobileMacUpdateHint(
             hostCapabilities: ["unreleased", "unregistered.cap"],
             macAppVersion: nil,
             requirements: requirements
@@ -66,7 +66,7 @@ struct MobileMacUpdateAdvisorTests {
 
     @Test
     func explicitVersionIsNotInferredAndWinsOverCapabilityInference() throws {
-        let hint = try #require(MobileMacUpdateAdvisor.hint(
+        let hint = try #require(MobileMacUpdateHint(
             hostCapabilities: ["released.early"],
             macAppVersion: "2.5",
             requirements: requirements
@@ -78,7 +78,7 @@ struct MobileMacUpdateAdvisorTests {
 
     @Test
     func unparseableVersionSuppressesCapabilityInference() {
-        #expect(MobileMacUpdateAdvisor.hint(
+        #expect(MobileMacUpdateHint(
             hostCapabilities: ["released.early"],
             macAppVersion: "2.0-nightly",
             requirements: requirements
@@ -90,7 +90,7 @@ struct MobileMacUpdateAdvisorTests {
         // The production case the registry targets: a released 0.64.15 Mac
         // predates both version fields, so it reports no version at all but
         // does advertise workspace.actions.v1.
-        let hint = try #require(MobileMacUpdateAdvisor.hint(
+        let hint = try #require(MobileMacUpdateHint(
             hostCapabilities: ["workspace.actions.v1", "terminal.bytes.v1"],
             macAppVersion: nil
         ))
@@ -102,7 +102,7 @@ struct MobileMacUpdateAdvisorTests {
 
     @Test
     func missingUnreleasedCapabilityDoesNotProduceHint() {
-        #expect(MobileMacUpdateAdvisor.hint(
+        #expect(MobileMacUpdateHint(
             hostCapabilities: ["released.early", "released.late"],
             macAppVersion: "1.0",
             requirements: requirements
@@ -111,7 +111,7 @@ struct MobileMacUpdateAdvisorTests {
 
     @Test
     func mixedReleasedAndUnreleasedGapsIncludesOnlyReleasedFeaturesAtMaximumVersion() throws {
-        let hint = try #require(MobileMacUpdateAdvisor.hint(
+        let hint = try #require(MobileMacUpdateHint(
             hostCapabilities: [],
             macAppVersion: "1.0",
             requirements: requirements
@@ -123,7 +123,7 @@ struct MobileMacUpdateAdvisorTests {
 
     @Test
     func allCapabilitiesPresentDoesNotProduceHint() {
-        #expect(MobileMacUpdateAdvisor.hint(
+        #expect(MobileMacUpdateHint(
             hostCapabilities: ["released.early", "released.late", "unreleased"],
             macAppVersion: "1.0",
             requirements: requirements
@@ -132,7 +132,7 @@ struct MobileMacUpdateAdvisorTests {
 
     @Test
     func emptyCapabilitySetAndOldVersionIncludesAllReleasedFeatures() throws {
-        let hint = try #require(MobileMacUpdateAdvisor.hint(
+        let hint = try #require(MobileMacUpdateHint(
             hostCapabilities: [],
             macAppVersion: "1.0",
             requirements: requirements
@@ -145,7 +145,7 @@ struct MobileMacUpdateAdvisorTests {
         let duplicateRequirements = requirements + [
             .init(capability: "released.duplicate", feature: .workspaceActions, firstReleasedMacVersion: .init(parsing: "2.5")),
         ]
-        let hint = try #require(MobileMacUpdateAdvisor.hint(
+        let hint = try #require(MobileMacUpdateHint(
             hostCapabilities: [],
             macAppVersion: "1.0",
             requirements: duplicateRequirements
@@ -156,17 +156,17 @@ struct MobileMacUpdateAdvisorTests {
     @Test
     func dismissalSignatureIsStableAndChangesWithGapOrMinimumVersion() throws {
         let reordered = [requirements[1], requirements[0], requirements[2]]
-        let first = try #require(MobileMacUpdateAdvisor.hint(
+        let first = try #require(MobileMacUpdateHint(
             hostCapabilities: [],
             macAppVersion: "1.0",
             requirements: requirements
         ))
-        let second = try #require(MobileMacUpdateAdvisor.hint(
+        let second = try #require(MobileMacUpdateHint(
             hostCapabilities: [],
             macAppVersion: "1.0",
             requirements: reordered
         ))
-        let changedGap = try #require(MobileMacUpdateAdvisor.hint(
+        let changedGap = try #require(MobileMacUpdateHint(
             hostCapabilities: ["released.early"],
             macAppVersion: "1.0",
             requirements: requirements
@@ -176,7 +176,7 @@ struct MobileMacUpdateAdvisorTests {
                 ? .init(capability: requirement.capability, feature: requirement.feature, firstReleasedMacVersion: .init(parsing: "4.0"))
                 : requirement
         }
-        let changedMinimum = try #require(MobileMacUpdateAdvisor.hint(
+        let changedMinimum = try #require(MobileMacUpdateHint(
             hostCapabilities: [],
             macAppVersion: "1.0",
             requirements: changedMinimumRequirements
@@ -191,7 +191,7 @@ struct MobileMacUpdateAdvisorTests {
     func standardRegistryReportsOnlyMissingGroupsCapability() throws {
         let capabilities = Set(MobileMacUpdateCapabilityRequirement.standard.map(\.capability))
             .subtracting(["workspace.groups.v1"])
-        let hint = try #require(MobileMacUpdateAdvisor.hint(
+        let hint = try #require(MobileMacUpdateHint(
             hostCapabilities: capabilities,
             macAppVersion: "0.64.15"
         ))

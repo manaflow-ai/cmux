@@ -2,9 +2,10 @@ import CmuxMobileShell
 import CmuxMobileSupport
 import Foundation
 
-struct MobileMacUpdateFeatureDisplay {
-    static func name(for feature: MobileMacUpdateFeature) -> String {
-        switch feature {
+extension MobileMacUpdateFeature {
+    /// The localized user-facing name shown in the Mac-update hint popover.
+    var displayName: String {
+        switch self {
         case .workspaceActions:
             L10n.string("mobile.macUpdateHint.feature.workspaceActions", defaultValue: "Rename and pin workspaces")
         case .workspaceReadState:
@@ -24,7 +25,12 @@ struct MobileMacUpdateFeatureDisplay {
         }
     }
 
-    static func bodyText(hint: MobileMacUpdateHint, macName: String?) -> String {
+}
+
+extension MobileMacUpdateHint {
+    /// The localized popover body: the Mac, its version (only when reported,
+    /// never when inferred), the minimum update version, and the feature list.
+    func bodyText(macName: String?) -> String {
         let displayName = macName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedName: String
         if let displayName, !displayName.isEmpty {
@@ -33,12 +39,12 @@ struct MobileMacUpdateFeatureDisplay {
             resolvedName = L10n.string("mobile.macUpdateHint.genericMacName", defaultValue: "Your Mac")
         }
         let featureList = ListFormatter.localizedString(
-            byJoining: hint.features.map(MobileMacUpdateFeatureDisplay.name(for:))
+            byJoining: features.map(\.displayName)
         )
         // An inferred version proves the Mac is old enough to lack the
         // features, but stating it as the Mac's current version could be
         // wrong, so that variant only names the target version.
-        if hint.isVersionInferred {
+        if isVersionInferred {
             let format = L10n.string(
                 "mobile.macUpdateHint.bodyFormatUnknownVersion",
                 defaultValue: "Updating %1$@ to cmux %2$@ or later adds: %3$@."
@@ -46,7 +52,7 @@ struct MobileMacUpdateFeatureDisplay {
             return String(
                 format: format,
                 resolvedName,
-                hint.minimumMacVersion.description,
+                minimumMacVersion.description,
                 featureList
             )
         }
@@ -57,8 +63,8 @@ struct MobileMacUpdateFeatureDisplay {
         return String(
             format: format,
             resolvedName,
-            hint.macAppVersion.description,
-            hint.minimumMacVersion.description,
+            macAppVersion.description,
+            minimumMacVersion.description,
             featureList
         )
     }

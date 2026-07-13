@@ -3,10 +3,10 @@ import Testing
 @testable import CmuxMobileShellUI
 
 @MainActor
-@Suite struct MobileMacUpdateFeatureDisplayTests {
+@Suite struct MobileMacUpdateHintDisplayTests {
     @Test func everyFeatureHasADisplayName() {
         for feature in MobileMacUpdateFeature.allCases {
-            #expect(!MobileMacUpdateFeatureDisplay.name(for: feature).isEmpty)
+            #expect(!feature.displayName.isEmpty)
         }
     }
 
@@ -18,19 +18,19 @@ import Testing
                 firstReleasedMacVersion: MobileMacAppVersion(parsing: "0.64.16")
             )
         }
-        let hint = try #require(MobileMacUpdateAdvisor.hint(
+        let hint = try #require(MobileMacUpdateHint(
             hostCapabilities: [],
             macAppVersion: "0.64.15",
             requirements: requirements
         ))
 
-        let body = MobileMacUpdateFeatureDisplay.bodyText(hint: hint, macName: "Studio Mac")
+        let body = hint.bodyText(macName: "Studio Mac")
 
         #expect(body.contains("Studio Mac"))
         #expect(body.contains("0.64.15"))
         #expect(body.contains("0.64.16"))
         for feature in MobileMacUpdateFeature.allCases {
-            #expect(body.contains(MobileMacUpdateFeatureDisplay.name(for: feature)))
+            #expect(body.contains(feature.displayName))
         }
     }
 
@@ -47,14 +47,14 @@ import Testing
                 firstReleasedMacVersion: MobileMacAppVersion(parsing: "0.64.16")
             ),
         ]
-        let hint = try #require(MobileMacUpdateAdvisor.hint(
+        let hint = try #require(MobileMacUpdateHint(
             hostCapabilities: ["test.present"],
             macAppVersion: nil,
             requirements: requirements
         ))
         #expect(hint.isVersionInferred)
 
-        let body = MobileMacUpdateFeatureDisplay.bodyText(hint: hint, macName: "Studio Mac")
+        let body = hint.bodyText(macName: "Studio Mac")
 
         #expect(body.contains("Studio Mac"))
         #expect(body.contains("0.64.16"))

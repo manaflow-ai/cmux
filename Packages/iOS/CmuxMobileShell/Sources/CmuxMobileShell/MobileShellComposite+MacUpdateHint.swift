@@ -41,7 +41,7 @@ extension MobileShellComposite {
             clearMacUpdateHint()
             return
         }
-        let hint = MobileMacUpdateAdvisor.hint(
+        let hint = MobileMacUpdateHint(
             hostCapabilities: capabilities,
             macAppVersion: version
         )

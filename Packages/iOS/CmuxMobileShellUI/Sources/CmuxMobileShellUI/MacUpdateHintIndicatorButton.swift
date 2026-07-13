@@ -51,7 +51,7 @@ struct MacUpdateHintIndicatorButton: View {
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.teal)
 
-            Text(MobileMacUpdateFeatureDisplay.bodyText(hint: hint, macName: macDisplayName))
+            Text(hint.bodyText(macName: macDisplayName))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -46,33 +46,29 @@ public struct MobileMacUpdateHint: Equatable, Sendable {
     public var dismissalSignature: String {
         "\(Set(missingCapabilities).sorted().joined(separator: ","))>=\(minimumMacVersion)"
     }
-}
 
-/// Decides whether a connected Mac has a released update that unlocks known mobile features.
-// lint:allow namespace-enum, namespace-type — the Part A specification requires this stateless static API shape.
-public enum MobileMacUpdateAdvisor {
     /// Builds a truthful update hint for missing capabilities available in a newer released Mac version.
     ///
     /// The Mac's version comes from `mobile.host.status` or the attach ticket
-    /// when present. Both fields postdate the releases this registry targets
-    /// (status gained `mac_app_version` in 0.64.16, tickets in 0.64.17), so
-    /// when neither is available the version is inferred as the newest
-    /// `firstReleasedMacVersion` among registry capabilities the host DOES
-    /// advertise: a released Mac advertising a capability that first shipped
-    /// in X is at least X, and a released Mac at X missing a capability that
-    /// shipped in Y > X is older than Y. A host advertising no registered
-    /// capability yields no inference and no hint.
+    /// when present. Both fields postdate the releases the standard registry
+    /// targets (status gained `mac_app_version` in 0.64.16, tickets in
+    /// 0.64.17), so when neither is available the version is inferred as the
+    /// newest `firstReleasedMacVersion` among registry capabilities the host
+    /// DOES advertise: a released Mac advertising a capability that first
+    /// shipped in X is at least X, and a released Mac at X missing a
+    /// capability that shipped in Y > X is older than Y. A host advertising
+    /// no registered capability yields no inference and no hint.
     ///
     /// - Parameters:
     ///   - hostCapabilities: Capabilities from a successfully decoded `mobile.host.status` response.
     ///   - versionString: The connected Mac's reported marketing version, when available.
     ///   - requirements: The capability release registry known to the iOS build.
     /// - Returns: A hint when at least one missing capability shipped after the Mac version, otherwise `nil`.
-    public static func hint(
+    public init?(
         hostCapabilities: Set<String>,
         macAppVersion versionString: String?,
         requirements: [MobileMacUpdateCapabilityRequirement] = MobileMacUpdateCapabilityRequirement.standard
-    ) -> MobileMacUpdateHint? {
+    ) {
         let explicitVersion = versionString.flatMap { MobileMacAppVersion(parsing: $0) }
         // An unparseable non-empty version (nightly/prerelease marker) stays
         // conservative: it is an explicit report we cannot compare, so no
@@ -104,11 +100,10 @@ public enum MobileMacUpdateAdvisor {
         }
 
         var seenFeatures: Set<MobileMacUpdateFeature> = []
-        let features = contributors.compactMap { requirement in
-            seenFeatures.insert(requirement.feature).inserted ? requirement.feature : nil
-        }
-        return MobileMacUpdateHint(
-            features: features,
+        self.init(
+            features: contributors.compactMap { requirement in
+                seenFeatures.insert(requirement.feature).inserted ? requirement.feature : nil
+            },
             minimumMacVersion: minimumMacVersion,
             macAppVersion: macAppVersion,
             isVersionInferred: explicitVersion == nil,
