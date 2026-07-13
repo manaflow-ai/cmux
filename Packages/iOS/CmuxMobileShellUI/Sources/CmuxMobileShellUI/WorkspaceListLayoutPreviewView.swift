@@ -13,10 +13,11 @@ import SwiftUI
 public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
+    @State private var workspaces = Self.initialWorkspaces
 
     public init() {}
 
-    private let workspaces: [MobileWorkspacePreview] = [
+    private static let initialWorkspaces: [MobileWorkspacePreview] = [
         MobileWorkspacePreview(
             id: "workspace-main",
             macDeviceID: "preview-macbook-pro",
@@ -57,8 +58,9 @@ public struct WorkspaceListLayoutPreviewView: View {
             WorkspaceDetailDelayedTerminalPreviewView()
         } else {
             NavigationStack {
-                WorkspaceListView(
-                    workspaces: workspaces,
+                WorkspaceListSearchHost { searchText in
+                    WorkspaceListView(
+                        workspaces: workspaces,
                     selectedWorkspaceID: selectedWorkspaceID,
                     host: "Visual Mock Mac",
                     connectionStatus: .connected,
@@ -70,8 +72,11 @@ public struct WorkspaceListLayoutPreviewView: View {
                     profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
                     selectWorkspace: { selectedWorkspaceID = $0 },
                     createWorkspace: {},
-                    macSelection: $macSelection
-                )
+                        macSelection: $macSelection,
+                        searchText: searchText
+                    )
+                }
+                .workspaceSearchStressScenario(workspaces: $workspaces)
             }
         }
     }

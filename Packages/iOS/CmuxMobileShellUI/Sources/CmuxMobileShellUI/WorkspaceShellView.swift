@@ -105,8 +105,9 @@ struct WorkspaceShellView: View {
 
     private var stackLayout: some View {
         NavigationStack(path: $compactNavigationPath) {
-            WorkspaceListView(
-                workspaces: store.workspaces,
+            WorkspaceListSearchHost { searchText in
+                WorkspaceListView(
+                    workspaces: store.workspaces,
                 groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
@@ -149,8 +150,10 @@ struct WorkspaceShellView: View {
                 toggleGroupCollapsed: toggleGroupCollapsedClosure,
                 isInitialConnectionLoading: isInitialConnectionLoading,
                 initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection
-            )
+                    retryInitialConnection: retryInitialConnection,
+                    searchText: searchText
+                )
+            }
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
@@ -213,8 +216,9 @@ struct WorkspaceShellView: View {
 
     private var splitLayout: some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
-            WorkspaceListView(
-                workspaces: store.workspaces,
+            WorkspaceListSearchHost { searchText in
+                WorkspaceListView(
+                    workspaces: store.workspaces,
                 groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
@@ -256,8 +260,10 @@ struct WorkspaceShellView: View {
                 toggleGroupCollapsed: toggleGroupCollapsedClosure,
                 isInitialConnectionLoading: isInitialConnectionLoading,
                 initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection
-            )
+                    retryInitialConnection: retryInitialConnection,
+                    searchText: searchText
+                )
+            }
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
             workspaceDestination(

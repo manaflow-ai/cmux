@@ -121,6 +121,37 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    /// Regression for Sentry CMUXTERM-MACOS-21FY: the system search environment
+    /// was rebuilt while live workspace snapshots changed, leaving AttributeGraph
+    /// on the main thread until the iOS watchdog terminated the app.
+    @MainActor
+    func testWorkspaceSearchSurvivesLiveSnapshotUpdates() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 8))
+        XCTAssertGreaterThan(
+            searchField.frame.maxY,
+            app.frame.maxY - 100,
+            "Workspace search must keep its original bottom-screen placement"
+        )
+        searchField.tap()
+        searchField.typeText("Docs")
+
+        XCTAssertTrue(app.staticTexts["Docs"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["cmux"].exists)
+        XCTAssertTrue(app.staticTexts["MobileWorkspaceSearchStressComplete"].waitForExistence(timeout: 8))
+        XCTAssertEqual(
+            app.state,
+            .runningForeground,
+            "Workspace snapshot churn must not hang or terminate the app while search is active"
+        )
+        XCTAssertEqual(searchField.value as? String, "Docs")
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not
