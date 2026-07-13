@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Testing
 import WebKit
 
