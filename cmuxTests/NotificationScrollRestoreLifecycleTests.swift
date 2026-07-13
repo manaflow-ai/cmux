@@ -150,6 +150,39 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
+    @Test func unreachablePostReplayGeometryStopsRetryingAfterABoundedNumberOfUpdates() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
+
+        for _ in 0 ..< 64 {
+            postScrollbar(scrollbar(total: 100, offset: 56, len: 44), to: surfaceView)
+        }
+
+        #expect(surfaceView.performedBindingActions.isEmpty)
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
+    @Test func unreachableActiveSurfaceGeometryDoesNotRemainPending() {
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 100, offset: 56, len: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+
+        #expect(surfaceView.performedBindingActions.isEmpty)
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
     @Test func anchorlessActivationClearsPendingRestoreWhilePanelIsHibernated() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }

@@ -5,11 +5,17 @@ import AppKit
 final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
     private let surfaceView: FakeTerminalSurfaceNativeView
     private let attachesThroughSurfaceModel: Bool
+    private let onAttach: (() -> Void)?
     private(set) var explicitInputCount = 0
 
-    init(surfaceView: FakeTerminalSurfaceNativeView, attachesThroughSurfaceModel: Bool = false) {
+    init(
+        surfaceView: FakeTerminalSurfaceNativeView,
+        attachesThroughSurfaceModel: Bool = false,
+        onAttach: (() -> Void)? = nil
+    ) {
         self.surfaceView = surfaceView
         self.attachesThroughSurfaceModel = attachesThroughSurfaceModel
+        self.onAttach = onAttach
         super.init(frame: surfaceView.frame)
         addSubview(surfaceView)
     }
@@ -20,6 +26,7 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
     }
 
     func attachSurface(_ surface: TerminalSurface) {
+        onAttach?()
         surfaceView.attachedController = surface
         if attachesThroughSurfaceModel {
             surface.attachToView(surfaceView)

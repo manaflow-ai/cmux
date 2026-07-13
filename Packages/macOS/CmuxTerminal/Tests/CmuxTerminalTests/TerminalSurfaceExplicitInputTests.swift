@@ -66,15 +66,37 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 0)
     }
 
-    private func makeFixture() -> (surface: TerminalSurface, paneHost: FakeTerminalSurfacePaneHost) {
+    @Test func paneHostPreparationRunsBeforeStartupWorkCanAttachTheRuntime() {
+        var events: [String] = []
+        let fixture = makeFixture(
+            initialInput: "echo ready",
+            preparePaneHost: { _ in events.append("prepare") },
+            onAttach: { events.append("attach") }
+        )
+        defer {
+            fixture.surface.closeHeadlessStartupWindowIfNeeded()
+            fixture.surface.releaseSurfaceForTesting()
+        }
+
+        #expect(events.first == "prepare")
+        #expect(events.dropFirst().contains("attach"))
+    }
+
+    private func makeFixture(
+        initialInput: String? = nil,
+        preparePaneHost: @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
+        onAttach: (() -> Void)? = nil
+    ) -> (surface: TerminalSurface, paneHost: FakeTerminalSurfacePaneHost) {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
         )
-        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView, onAttach: onAttach)
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
+            initialInput: initialInput,
+            preparePaneHost: preparePaneHost,
             dependencies: TerminalSurfaceRuntimeDependencies(
                 registry: FakeSurfaceRegistry(),
                 engine: FakeTerminalEngine(),
