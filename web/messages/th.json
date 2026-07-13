@@ -940,6 +940,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "จำนวนบรรทัดสูงสุดที่แสดงสำหรับการแจ้งเตือนล่าสุดใต้ชื่อของแต่ละพื้นที่ทำงาน",
           "rightMaxWidth": "ความกว้างสูงสุดเป็นพอยต์สำหรับแถบด้านขวา หากเว้นไว้ จะใช้ขีดจำกัดแบบไดนามิกในตัว"
         },
         "fileExplorer": {
