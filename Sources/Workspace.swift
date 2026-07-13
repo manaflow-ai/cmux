@@ -3160,6 +3160,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
+        PortScanner.shared.unregisterAgentWorkspace(workspaceId: id)
     }
 
     func refreshSplitButtonTooltips() {
@@ -8725,6 +8726,7 @@ final class Workspace: Identifiable, ObservableObject {
                 cleanupControllerSurfaceState: true
             )
         }
+        PortScanner.shared.unregisterAgentWorkspace(workspaceId: id)
         pruneSurfaceMetadata(validSurfaceIds: [])
         syncRemotePortScanTTYs()
         recomputeListeningPorts()

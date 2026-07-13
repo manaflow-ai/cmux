@@ -55,6 +55,27 @@ struct PortScanPublicationStateTests {
         #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID) == false)
         #expect(state.isCurrentAgentRevision(restartedRevision, workspaceId: workspaceID))
     }
+
+    @Test("Explicit workspace invalidation rejects every queued lifecycle value")
+    func workspaceInvalidationRejectsQueuedPublication() {
+        let state = PortScanPublicationState()
+        let workspaceID = UUID()
+        let revision = state.nextAgentRevision(for: workspaceID)
+        let publication = AgentPortScanPublication(
+            workspaceId: workspaceID,
+            ports: [4200],
+            revision: revision,
+            requestID: 1,
+            removesLifecycle: false
+        )
+
+        let invalidatingRevision = state.invalidateAgentLifecycle(for: workspaceID)
+        let accepted = state.acceptCurrentAgentPublications([publication])
+
+        #expect(invalidatingRevision > revision)
+        #expect(accepted.isEmpty)
+        #expect(state.isCurrentAgentRevision(revision, workspaceId: workspaceID) == false)
+    }
 }
 
 @Suite("Agent port snapshot replacement")
@@ -232,6 +253,31 @@ struct PortScanPublicationBufferTests {
         #expect(nextBatch.agentPublicationsByWorkspace[workspaceID] == newerWhileClaimed)
         _ = buffer.completeAgentDelivery([newerWhileClaimed])
         let emptyBatch = buffer.takePendingBatch()
+        #expect(emptyBatch == nil)
+        #expect(buffer.isDrainScheduled == false)
+    }
+
+    @Test("Workspace removal discards claimed and pending publications")
+    func workspaceRemovalInvalidatesBufferedValues() throws {
+        var buffer = PortScanPublicationBuffer()
+        let workspaceID = UUID()
+        let publication = AgentPortScanPublication(
+            workspaceId: workspaceID,
+            ports: [4200],
+            revision: 1,
+            requestID: 1,
+            removesLifecycle: false
+        )
+        let didSchedule = buffer.enqueue(agentPublications: [publication])
+        let pendingBatch = buffer.takePendingBatch()
+        _ = try #require(pendingBatch)
+
+        buffer.removeAgentWorkspace(workspaceID)
+        let completed = buffer.completeAgentDelivery([publication])
+        let emptyBatch = buffer.takePendingBatch()
+
+        #expect(didSchedule)
+        #expect(completed.isEmpty)
         #expect(emptyBatch == nil)
         #expect(buffer.isDrainScheduled == false)
     }

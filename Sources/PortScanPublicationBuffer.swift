@@ -65,6 +65,11 @@ struct PortScanPublicationBuffer {
         return pending.isNewer(than: publication)
     }
 
+    mutating func removeAgentWorkspace(_ workspaceId: UUID) {
+        pending.agentPublicationsByWorkspace.removeValue(forKey: workspaceId)
+        claimedAgentPublicationsByWorkspace.removeValue(forKey: workspaceId)
+    }
+
     private mutating func scheduleDrainIfNeeded() -> Bool {
         guard !isDrainScheduled else { return false }
         isDrainScheduled = true

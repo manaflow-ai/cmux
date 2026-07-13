@@ -31,17 +31,17 @@ final class PortScanner: @unchecked Sendable {
 
     private var ttyNames: [PanelKey: String] = [:]
 
-    private var agentRevisionByWorkspace: [UUID: UInt64] = [:]
+    var agentRevisionByWorkspace: [UUID: UInt64] = [:]
     private var agentTrackingState = AgentPortTrackingState()
-    private var scanCoordination = PortScanCoordination()
+    var scanCoordination = PortScanCoordination()
 
-    private var trackedAgentWorkspaces: Set<UUID> = []
-    private var agentPublicationHistory = AgentPortPublicationHistory()
+    var trackedAgentWorkspaces: Set<UUID> = []
+    var agentPublicationHistory = AgentPortPublicationHistory()
     /// Stable publication state shared by every best-effort local scan path.
     private var panelPortSnapshot = PortScanSnapshotReconciler<PanelKey>()
-    private var agentPortSnapshot = PortScanSnapshotReconciler<UUID>()
-    private var agentSnapshotReplacementState = AgentPortSnapshotReplacementState()
-    private var forceAgentResultWorkspaces: Set<UUID> = []
+    var agentPortSnapshot = PortScanSnapshotReconciler<UUID>()
+    var agentSnapshotReplacementState = AgentPortSnapshotReplacementState()
+    var forceAgentResultWorkspaces: Set<UUID> = []
     private var trackedAgentScanningPaused = false
     let publicationState = PortScanPublicationState()
     var publicationBuffer = PortScanPublicationBuffer()
@@ -115,6 +115,23 @@ final class PortScanner: @unchecked Sendable {
         let agentRevision = publicationState.nextAgentRevision(for: workspaceId)
         queue.async { [self] in
             refreshAgentPortsLocked(workspaceId: workspaceId, agentRoots: agentRoots, revision: agentRevision)
+        }
+    }
+
+    @MainActor
+    func unregisterAgentWorkspace(workspaceId: UUID) {
+        _ = publicationState.invalidateAgentLifecycle(for: workspaceId)
+        queue.async { [self] in
+            agentRevisionByWorkspace.removeValue(forKey: workspaceId)
+            _ = agentTrackingState.replaceRoots([], workspaceId: workspaceId)
+            trackedAgentWorkspaces.remove(workspaceId)
+            agentPortSnapshot.remove(keys: [workspaceId])
+            agentSnapshotReplacementState.cancel(workspaceId: workspaceId)
+            forceAgentResultWorkspaces.remove(workspaceId)
+            agentPublicationHistory.remove(workspaceId: workspaceId)
+            scanCoordination.removeAgentWorkspaces([workspaceId])
+            publicationBuffer.removeAgentWorkspace(workspaceId)
+            updateAgentScanTimerLocked()
         }
     }
 
@@ -226,13 +243,14 @@ final class PortScanner: @unchecked Sendable {
             agentProcessScan.values,
             rootsByWorkspace: agentRootsByWorkspace
         )
-        let agentPidToWorkspaces = revalidatedAgentProcessScan.values
-        let agentTreeCompleteness = Self.combinedCompleteness(
-            agentProcessScan.completeness,
-            revalidatedAgentProcessScan.completeness
+        let agentOwnershipByPID = revalidatedAgentProcessScan.values
+        let agentTreeCompletenessByWorkspace = combineAgentCompleteness(
+            agentProcessScan.completenessByWorkspace,
+            revalidatedAgentProcessScan.completenessByWorkspace,
+            workspaceIds: workspaceIds
         )
 
-        let allPids = Set(pidToTTY.keys).union(agentPidToWorkspaces.keys)
+        let allPids = Set(pidToTTY.keys).union(agentOwnershipByPID.keys)
         guard !allPids.isEmpty else {
             let panelResults = panelSnapshot.map { ($0.key, [Int]()) }
             queue.async { [weak self] in
@@ -243,7 +261,7 @@ final class PortScanner: @unchecked Sendable {
                     agentPortsByWorkspace: [:],
                     agentRevisions: agentRevisions,
                     panelCompleteness: psScan.completeness,
-                    agentCompleteness: agentTreeCompleteness,
+                    agentCompletenessByWorkspace: agentTreeCompletenessByWorkspace,
                     requestID: requestID
                 )
             }
@@ -264,8 +282,8 @@ final class PortScanner: @unchecked Sendable {
 
         var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
         for (pid, ports) in pidToPorts {
-            guard let workspaceIdsForPid = agentPidToWorkspaces[pid] else { continue }
-            for workspaceId in workspaceIdsForPid {
+            guard let ownership = agentOwnershipByPID[pid] else { continue }
+            for workspaceId in ownership.keys {
                 agentPortsByWorkspace[workspaceId, default: []].formUnion(ports)
             }
         }
@@ -278,6 +296,16 @@ final class PortScanner: @unchecked Sendable {
         }
         let panelResults = results
         let agentPortsSnapshot = agentPortsByWorkspace
+        let lsofAgentCompleteness = agentLsofCompleteness(
+            ownershipByPID: agentOwnershipByPID,
+            lsofScan: lsofScan,
+            workspaceIds: workspaceIds
+        )
+        let agentCompletenessByWorkspace = combineAgentCompleteness(
+            agentTreeCompletenessByWorkspace,
+            lsofAgentCompleteness,
+            workspaceIds: workspaceIds
+        )
 
         queue.async { [weak self] in
             self?.completePanelScan(
@@ -286,8 +314,11 @@ final class PortScanner: @unchecked Sendable {
                 workspaceIds: workspaceIds,
                 agentPortsByWorkspace: agentPortsSnapshot,
                 agentRevisions: agentRevisions,
-                panelCompleteness: Self.combinedCompleteness(psScan.completeness, lsofScan.completeness),
-                agentCompleteness: Self.combinedCompleteness(agentTreeCompleteness, lsofScan.completeness),
+                panelCompleteness: Self.combinedCompleteness(
+                    psScan.completeness,
+                    lsofScan.completeness(for: Set(pidToTTY.keys))
+                ),
+                agentCompletenessByWorkspace: agentCompletenessByWorkspace,
                 requestID: requestID
             )
         }
@@ -300,7 +331,7 @@ final class PortScanner: @unchecked Sendable {
         agentPortsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64],
         panelCompleteness: PortScanCompleteness,
-        agentCompleteness: PortScanCompleteness,
+        agentCompletenessByWorkspace: [UUID: PortScanCompleteness],
         requestID: UInt64
     ) {
         let hasPendingScan = scanCoordination.finishPanelScan()
@@ -311,7 +342,7 @@ final class PortScanner: @unchecked Sendable {
             agentPortsByWorkspace: agentPortsByWorkspace,
             agentRevisions: agentRevisions,
             panelCompleteness: panelCompleteness,
-            agentCompleteness: agentCompleteness,
+            agentCompletenessByWorkspace: agentCompletenessByWorkspace,
             requestID: requestID
         )
         if hasPendingScan {
@@ -420,42 +451,50 @@ final class PortScanner: @unchecked Sendable {
                 agentProcessScan.values,
                 rootsByWorkspace: agentRootsByWorkspace
             )
-            let agentPidToWorkspaces = revalidatedAgentProcessScan.values
-            let agentTreeCompleteness = Self.combinedCompleteness(
-                agentProcessScan.completeness,
-                revalidatedAgentProcessScan.completeness
+            let agentOwnershipByPID = revalidatedAgentProcessScan.values
+            let agentTreeCompletenessByWorkspace = self.combineAgentCompleteness(
+                agentProcessScan.completenessByWorkspace,
+                revalidatedAgentProcessScan.completenessByWorkspace,
+                workspaceIds: request.workspaceIds
             )
-            guard !agentPidToWorkspaces.isEmpty else {
+            guard !agentOwnershipByPID.isEmpty else {
                 self.queue.async { [weak self] in
                     self?.completeAgentScan(
                         request,
                         agentPortsByWorkspace: [:],
-                        completeness: agentTreeCompleteness
+                        completenessByWorkspace: agentTreeCompletenessByWorkspace
                     )
                 }
                 return
             }
 
-            let pidsCsv = agentPidToWorkspaces.keys.sorted().map(String.init).joined(separator: ",")
+            let pidsCsv = agentOwnershipByPID.keys.sorted().map(String.init).joined(separator: ",")
             let lsofScan = await self.runLsof(pidsCsv: pidsCsv)
             let pidToPorts = lsofScan.values
             var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
             for (pid, ports) in pidToPorts {
-                guard let workspaceIdsForPid = agentPidToWorkspaces[pid] else { continue }
-                for targetWorkspaceId in workspaceIdsForPid {
+                guard let ownership = agentOwnershipByPID[pid] else { continue }
+                for targetWorkspaceId in ownership.keys {
                     agentPortsByWorkspace[targetWorkspaceId, default: []].formUnion(ports)
                 }
             }
             let agentPortsSnapshot = agentPortsByWorkspace
+            let lsofCompletenessByWorkspace = self.agentLsofCompleteness(
+                ownershipByPID: agentOwnershipByPID,
+                lsofScan: lsofScan,
+                workspaceIds: request.workspaceIds
+            )
+            let completenessByWorkspace = self.combineAgentCompleteness(
+                agentTreeCompletenessByWorkspace,
+                lsofCompletenessByWorkspace,
+                workspaceIds: request.workspaceIds
+            )
 
             self.queue.async { [weak self] in
                 self?.completeAgentScan(
                     request,
                     agentPortsByWorkspace: agentPortsSnapshot,
-                    completeness: Self.combinedCompleteness(
-                        agentTreeCompleteness,
-                        lsofScan.completeness
-                    )
+                    completenessByWorkspace: completenessByWorkspace
                 )
             }
         }
@@ -464,14 +503,14 @@ final class PortScanner: @unchecked Sendable {
     private func completeAgentScan(
         _ request: AgentPortScanRequest,
         agentPortsByWorkspace: [UUID: Set<Int>],
-        completeness: PortScanCompleteness
+        completenessByWorkspace: [UUID: PortScanCompleteness]
     ) {
         let pendingRequest = scanCoordination.finishAgentScan()
         deliverAgentResults(
             workspaceIds: request.workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
             agentRevisions: request.agentRevisions,
-            completeness: completeness,
+            completenessByWorkspace: completenessByWorkspace,
             requestID: request.requestID
         )
         if let pendingRequest {
@@ -486,7 +525,7 @@ final class PortScanner: @unchecked Sendable {
         agentPortsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64],
         panelCompleteness: PortScanCompleteness,
-        agentCompleteness: PortScanCompleteness,
+        agentCompletenessByWorkspace: [UUID: PortScanCompleteness],
         requestID: UInt64
     ) {
         if scanCoordination.shouldApplyPanelResult(requestID: requestID) {
@@ -511,139 +550,9 @@ final class PortScanner: @unchecked Sendable {
             workspaceIds: workspaceIds,
             agentPortsByWorkspace: agentPortsByWorkspace,
             agentRevisions: agentRevisions,
-            completeness: agentCompleteness,
+            completenessByWorkspace: agentCompletenessByWorkspace,
             requestID: requestID
         )
-    }
-
-    private func deliverAgentResults(
-        workspaceIds: Set<UUID>,
-        agentPortsByWorkspace: [UUID: Set<Int>],
-        agentRevisions: [UUID: UInt64],
-        completeness: PortScanCompleteness,
-        requestID: UInt64
-    ) {
-        guard onAgentPortsUpdated != nil else { return }
-        let validatedResults = validatedAgentResults(
-            workspaceIds: workspaceIds,
-            agentPortsByWorkspace: agentPortsByWorkspace,
-            agentRevisions: agentRevisions,
-            completeness: completeness,
-            requestID: requestID
-        )
-        guard !validatedResults.isEmpty else { return }
-        enqueueAgentPublication(validatedResults)
-    }
-
-    func acknowledgeAgentResults(
-        _ results: [AgentPortScanPublication],
-        appliedWorkspaceIds: Set<UUID>
-    ) async -> [AgentPortScanPublication] {
-        guard !results.isEmpty else { return [] }
-        return await withCheckedContinuation { continuation in
-            queue.async { [self] in
-                var completedLifecycles: [AgentPortScanPublication] = []
-                let deliveredResults = publicationBuffer.completeAgentDelivery(results)
-                for result in deliveredResults {
-                    let workspaceId = result.workspaceId
-                    guard agentRevisionByWorkspace[workspaceId, default: 0] == result.revision else {
-                        agentPublicationHistory.reject(
-                            workspaceId: workspaceId,
-                            requestID: result.requestID
-                        )
-                        continue
-                    }
-                    let hasNewerPublication = publicationBuffer.hasPendingAgentPublication(
-                        newerThan: result
-                    )
-                    guard appliedWorkspaceIds.contains(workspaceId) else {
-                        agentPublicationHistory.reject(
-                            workspaceId: workspaceId,
-                            requestID: result.requestID
-                        )
-                        if !trackedAgentWorkspaces.contains(workspaceId), !hasNewerPublication {
-                            forceAgentResultWorkspaces.remove(workspaceId)
-                            agentPublicationHistory.remove(workspaceId: workspaceId)
-                            scanCoordination.removeAgentWorkspaces([workspaceId])
-                        }
-                        if result.removesLifecycle, !hasNewerPublication {
-                            completedLifecycles.append(result)
-                        }
-                        continue
-                    }
-                    if !hasNewerPublication {
-                        forceAgentResultWorkspaces.remove(workspaceId)
-                    }
-                    if result.ports.isEmpty,
-                       !trackedAgentWorkspaces.contains(workspaceId),
-                       !hasNewerPublication {
-                        agentPublicationHistory.remove(workspaceId: workspaceId)
-                        scanCoordination.removeAgentWorkspaces([workspaceId])
-                    } else {
-                        agentPublicationHistory.acknowledge(
-                            workspaceId: workspaceId,
-                            ports: result.ports,
-                            requestID: result.requestID
-                        )
-                    }
-                    if result.removesLifecycle, !hasNewerPublication {
-                        completedLifecycles.append(result)
-                    }
-                }
-                continuation.resume(returning: completedLifecycles)
-            }
-        }
-    }
-
-    private func validatedAgentResults(
-        workspaceIds: Set<UUID>,
-        agentPortsByWorkspace: [UUID: Set<Int>],
-        agentRevisions: [UUID: UInt64],
-        completeness: PortScanCompleteness,
-        requestID: UInt64
-    ) -> [AgentPortScanPublication] {
-        var results: [AgentPortScanPublication] = []
-        let revisionMatchedWorkspaceIds = Set(workspaceIds.filter { workspaceId in
-            agentRevisionByWorkspace[workspaceId, default: 0] == agentRevisions[workspaceId, default: 0]
-        })
-        let validWorkspaceIds = scanCoordination.newAgentWorkspaces(
-            revisionMatchedWorkspaceIds,
-            eligibleWorkspaceIds: trackedAgentWorkspaces.union(forceAgentResultWorkspaces),
-            requestID: requestID
-        )
-        let scannedPorts = agentPortsByWorkspace
-            .filter { validWorkspaceIds.contains($0.key) }
-            .mapValues { Array($0) }
-        let replacementWorkspaces = agentSnapshotReplacementState.workspacesToReplace(
-            from: validWorkspaceIds,
-            completeness: completeness
-        )
-        agentPortSnapshot.remove(keys: replacementWorkspaces)
-        let stableSnapshot = agentPortSnapshot.reconcile(
-            scannedPorts: scannedPorts,
-            scannedKeys: validWorkspaceIds,
-            trackedKeys: trackedAgentWorkspaces,
-            completeness: completeness
-        )
-        for workspaceId in validWorkspaceIds {
-            let expectedRevision = agentRevisions[workspaceId, default: 0]
-            let ports = stableSnapshot[workspaceId] ?? []
-            let shouldPublish = agentPublicationHistory.shouldPublish(
-                workspaceId: workspaceId,
-                ports: ports,
-                requestID: requestID,
-                forced: forceAgentResultWorkspaces.contains(workspaceId)
-            )
-            guard shouldPublish else { continue }
-            results.append(AgentPortScanPublication(
-                workspaceId: workspaceId,
-                ports: ports,
-                revision: expectedRevision,
-                requestID: requestID,
-                removesLifecycle: !trackedAgentWorkspaces.contains(workspaceId)
-            ))
-        }
-        return results
     }
 
     private func agentRevisionSnapshot(for workspaceIds: Set<UUID>) -> [UUID: UInt64] {

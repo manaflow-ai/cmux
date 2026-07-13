@@ -14,6 +14,12 @@ final class PortScanPublicationState {
         return lastIssuedAgentRevision
     }
 
+    func invalidateAgentLifecycle(for workspaceId: UUID) -> UInt64 {
+        lastIssuedAgentRevision &+= 1
+        activeAgentRevisionByWorkspace.removeValue(forKey: workspaceId)
+        return lastIssuedAgentRevision
+    }
+
     func isCurrentAgentRevision(_ revision: UInt64, workspaceId: UUID) -> Bool {
         activeAgentRevisionByWorkspace[workspaceId] == revision
     }

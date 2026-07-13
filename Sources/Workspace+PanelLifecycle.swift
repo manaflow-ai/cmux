@@ -183,12 +183,15 @@ extension Workspace {
     }
 
     func clearAllAgentPIDs(refreshPorts: Bool = true) {
-        let hadAgentPIDs = !agentPIDs.isEmpty
         agentPIDs.removeAll()
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
-        if hadAgentPIDs, refreshPorts { refreshTrackedAgentPorts() }
+        if refreshPorts {
+            refreshTrackedAgentPorts()
+        } else {
+            PortScanner.shared.unregisterAgentWorkspace(workspaceId: id)
+        }
     }
 
     private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
