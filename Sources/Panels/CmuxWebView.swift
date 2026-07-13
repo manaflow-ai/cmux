@@ -57,23 +57,6 @@ enum BrowserFocusModeKeyDecision: Equatable {
     case consume
 }
 
-@MainActor
-private final class DiffViewerEditableFocusMessageHandler: NSObject, WKScriptMessageHandler {
-    static let name = "cmuxDiffViewerEditableFocus"
-    static let shared = DiffViewerEditableFocusMessageHandler()
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        guard DiffCommentsBridge.isTrustedDiffViewerFrame(message.frameInfo),
-              let webView = message.webView as? CmuxWebView,
-              let body = message.body as? [String: Any],
-              let editable = body["editable"] as? Bool else { return }
-        webView.diffViewerEditableFocusDidChange(editable)
-    }
-}
-
 enum BrowserImageCopyPasteboardBuilder {
     private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
     private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
@@ -501,7 +484,7 @@ final class CmuxWebView: WKWebView {
         )
     }
 
-    fileprivate func diffViewerEditableFocusDidChange(_ editable: Bool) {
+    func diffViewerEditableFocusDidChange(_ editable: Bool) {
         diffViewerEditableElementFocused = editable
         if editable {
             diffViewerNavigationKeyRouter.reset()
