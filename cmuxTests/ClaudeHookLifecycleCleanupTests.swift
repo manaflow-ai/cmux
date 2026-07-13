@@ -219,6 +219,55 @@ struct ClaudeHookLifecycleCleanupTests {
         #expect(record?["surfaceId"] as? String == Self.liveSurfaceId)
     }
 
+    /// Older apps do not implement the live delivery-target resolver. A
+    /// high-frequency PreToolUse hook must retain the legacy validated
+    /// session/workspace/surface chain instead of treating the missing method
+    /// as an identity rejection and silently dropping the lifecycle update.
+    @Test func preToolUseWithoutResolverMethodKeepsLegacyRouting() throws {
+        let context = try Harness.makeContext(name: "pre-tool-use-legacy-fallback")
+        defer { context.cleanup() }
+        let sessionId = "pre-tool-use-legacy-fallback-session"
+
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: nil,
+            resolverMethodAvailable: false
+        )
+
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLAUDE_PID"] = "43304"
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "pre-tool-use"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"\#(context.root.path)"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let commands = context.state.snapshot()
+        #expect(
+            commands.contains {
+                $0.hasPrefix("set_status claude_code Running ")
+                    && $0.contains("--tab=\(Self.liveWorkspaceId)")
+                    && $0.contains("--panel=\(Self.liveSurfaceId)")
+            },
+            "PreToolUse must keep legacy routing when the resolver method is unavailable; saw \(commands)"
+        )
+    }
+
     /// The persisted session surface is stale/closed but the resolver
     /// recovers an authoritative live target from the spawn-time env surface:
     /// the blocking needs-input branch (AskUserQuestion) must use the
