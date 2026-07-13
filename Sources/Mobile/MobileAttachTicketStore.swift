@@ -190,30 +190,40 @@ final class MobileAttachTicketStore {
     private func attachURL(
         for ticket: CmxAttachTicket,
         target: MobileAttachTarget,
-        routeDisclosureMode: CmxPairingRouteDisclosureMode
+        routeDisclosureMode _: CmxPairingRouteDisclosureMode
     ) throws -> URL {
         switch target {
         case .ticketOnly:
             throw MobileAttachTicketStoreError.invalidAttachURL
         case .simulatorInjection:
-            let data = try CmxAttachTicketCompactCoder().encode(
-                ticket,
-                routeDisclosureMode: routeDisclosureMode
-            )
-            let payload = Self.base64URLEncode(data)
-            guard let url = URL(
-                string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)"
-            ) else {
+            if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
+                return try compactAttachURL(
+                    for: ticket,
+                    routeDisclosureMode: .irohIdentityOnly
+                )
+            }
+            guard ticket.routes.allSatisfy({
+                $0.kind == .debugLoopback && CmxLoopbackHost().matches($0)
+            }) else {
                 throw MobileAttachTicketStoreError.invalidAttachURL
             }
-            return url
+            return try compactAttachURL(
+                for: ticket,
+                routeDisclosureMode: .legacyPrivateNetworkCompatibility
+            )
         case .physicalDevice:
+            if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
+                return try compactAttachURL(
+                    for: ticket,
+                    routeDisclosureMode: .irohIdentityOnly
+                )
+            }
             guard ticket.routes.allSatisfy({
                 $0.kind == .tailscale && !CmxLoopbackHost().matches($0)
             }),
             let pairingURL = CmxPairingQRCode().encode(
                 ticket,
-                routeDisclosureMode: routeDisclosureMode
+                routeDisclosureMode: .legacyPrivateNetworkCompatibility
             ),
             let url = URL(string: pairingURL),
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -222,6 +232,37 @@ final class MobileAttachTicketStore {
                 throw MobileAttachTicketStoreError.invalidAttachURL
             }
             return url
+        }
+    }
+
+    private func compactAttachURL(
+        for ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) throws -> URL {
+        let coder = CmxAttachTicketCompactCoder()
+        let data = try coder.encode(
+            ticket,
+            routeDisclosureMode: routeDisclosureMode
+        )
+        let payload = Self.base64URLEncode(data)
+        guard let url = URL(
+            string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)"
+        ),
+        let decoded = try? coder.decode(data),
+        decoded.routes == ticket.routes,
+        decoded.authToken == nil else {
+            throw MobileAttachTicketStoreError.invalidAttachURL
+        }
+        return url
+    }
+
+    private static func hasOnlyIdentityOnlyIrohRoutes(_ routes: [CmxAttachRoute]) -> Bool {
+        !routes.isEmpty && routes.allSatisfy { route in
+            guard route.kind == .iroh,
+                  case let .peer(_, pathHints) = route.endpoint else {
+                return false
+            }
+            return pathHints.isEmpty
         }
     }
 

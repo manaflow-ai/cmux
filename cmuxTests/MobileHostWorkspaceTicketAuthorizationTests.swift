@@ -110,10 +110,11 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
             let payload = try store.payload(for: ticket, target: target)
             let attachURL = try #require(payload["attach_url"] as? String)
             let decoded = try compactTicket(from: attachURL)
+            let authToken = try #require(ticket.authToken)
             #expect(decoded.routes == selectedRoutes)
             #expect(decoded.authToken == nil)
             #expect(!attachURL.contains("relay.should-not-leak.example"))
-            #expect(!attachURL.contains(try #require(ticket.authToken)))
+            #expect(!attachURL.contains(authToken))
             guard case let .peer(identity, pathHints) = decoded.routes.first?.endpoint else {
                 Issue.record("Expected an EndpointID-only Iroh attach route")
                 continue
@@ -129,7 +130,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
-    @Test func simulatorInjectionPayloadIsLosslessV1WithLoopbackToken() throws {
+    @Test func simulatorInjectionPayloadIsLosslessV1WithoutBearerToken() throws {
         let store = MobileAttachTicketStore()
         let ticket = try store.createTicket(
             workspaceID: "",
@@ -143,7 +144,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(attachURL.contains("?v=1&payload="))
         let decoded = try compactTicket(from: attachURL)
         #expect(decoded.routes == ticket.routes)
-        #expect(decoded.authToken == ticket.authToken)
+        #expect(decoded.authToken == nil)
     }
 
     @Test func physicalDevicePayloadIsV2WithExactTailscaleRoutes() throws {

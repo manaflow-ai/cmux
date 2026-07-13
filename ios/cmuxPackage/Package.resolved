@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/manaflow-ai/iroh-ffi.git",
       "state" : {
-        "revision" : "6a4ac0d75e82bffc833c2d9912c2e305ca3ee0d5",
-        "version" : "1.0.0-cmux.3"
+        "revision" : "42ed4ceb19922af9eb736253142b831f73029d9f",
+        "version" : "1.0.2-cmux.1"
       }
     },
     {
