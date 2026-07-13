@@ -15,7 +15,7 @@ struct NotificationScrollRestoreTests {
         private(set) var bindingActions: [String] = []
         var frameSourceGeneration: UInt64?
 
-        override func performBindingAction(_ action: String) -> Bool {
+        override func performBindingAction(_ action: String, recordsExplicitInput: Bool) -> Bool {
             bindingActions.append(action)
             return true
         }
