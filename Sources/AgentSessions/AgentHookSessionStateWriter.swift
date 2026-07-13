@@ -37,7 +37,11 @@ struct AgentHookSessionStateWriter: Sendable {
         guard let kindValue = binding?.kind,
               let kind = RestorableAgentKind(rawValue: kindValue),
               let sessionId = binding?.checkpointId else { return }
-        AgentHookSessionStateWriter().schedule(kind: kind, sessionId: sessionId)
+        AgentHookSessionStateWriter().schedule(
+            kind: kind,
+            sessionId: sessionId,
+            expectedRecordUpdatedAt: binding?.updatedAt
+        )
     }
 
     static func recordLifecycle(
@@ -52,7 +56,12 @@ struct AgentHookSessionStateWriter: Sendable {
         )
     }
 
-    func schedule(kind: RestorableAgentKind, sessionId: String, now: TimeInterval = Date().timeIntervalSince1970) {
+    func schedule(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        expectedRecordUpdatedAt: TimeInterval? = nil,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) {
         let normalized = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return }
         let stateURL = kind.hookStoreFileURL(
@@ -60,11 +69,21 @@ struct AgentHookSessionStateWriter: Sendable {
             environment: environment
         )
         Self.queue.async {
-            complete(stateURL: stateURL, sessionId: normalized, now: now)
+            complete(
+                stateURL: stateURL,
+                sessionId: normalized,
+                expectedRecordUpdatedAt: expectedRecordUpdatedAt,
+                now: now
+            )
         }
     }
 
-    func completeSynchronously(kind: RestorableAgentKind, sessionId: String, now: TimeInterval) {
+    func completeSynchronously(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        expectedRecordUpdatedAt: TimeInterval? = nil,
+        now: TimeInterval
+    ) {
         let normalized = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return }
         complete(
@@ -73,6 +92,7 @@ struct AgentHookSessionStateWriter: Sendable {
                 environment: environment
             ),
             sessionId: normalized,
+            expectedRecordUpdatedAt: expectedRecordUpdatedAt,
             now: now
         )
     }
@@ -113,7 +133,12 @@ struct AgentHookSessionStateWriter: Sendable {
         )
     }
 
-    private func complete(stateURL: URL, sessionId: String, now: TimeInterval) {
+    private func complete(
+        stateURL: URL,
+        sessionId: String,
+        expectedRecordUpdatedAt: TimeInterval?,
+        now: TimeInterval
+    ) {
         let lockPath = stateURL.path + ".lock"
         let descriptor = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         guard descriptor >= 0 else { return }
@@ -126,6 +151,13 @@ struct AgentHookSessionStateWriter: Sendable {
               var sessions = root["sessions"] as? [String: Any],
               var record = sessions[sessionId] as? [String: Any] else {
             return
+        }
+        // The binding timestamp is a lock-free generation fence captured when
+        // the terminal observed the root TUI exit. A newer hook/store write
+        // means this queued completion belongs to the replaced process.
+        if let expectedRecordUpdatedAt {
+            guard let actualUpdatedAt = record["updatedAt"] as? TimeInterval,
+                  actualUpdatedAt <= expectedRecordUpdatedAt else { return }
         }
 
         record["completedAt"] = now

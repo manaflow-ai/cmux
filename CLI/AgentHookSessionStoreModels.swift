@@ -150,3 +150,9 @@ struct AgentHookSessionActivationPolicy: Sendable {
         }
     }
 }
+
+struct AgentSessionSemanticUpdatePolicy: Sendable {
+    func canUpdate(record: ClaudeHookSessionRecord) -> Bool {
+        record.completedAt == nil && record.sessionState != .ended
+    }
+}

@@ -25,16 +25,23 @@ struct AgentSessionRunReconciler: Sendable {
         now: TimeInterval
     ) -> [AgentSessionRunRecord] {
         var runs = existing
+        var effectiveLineage = lineage
         if let activeRunId,
            activeRunId != lineage.runId,
            let index = runs.firstIndex(where: { $0.runId == activeRunId && $0.endedAt == nil }) {
             runs[index].endedAt = now
             runs[index].updatedAt = now
+            if effectiveLineage.parentRunId == nil {
+                effectiveLineage.parentRunId = activeRunId
+                if effectiveLineage.relationship == nil {
+                    effectiveLineage.relationship = .resumed
+                }
+            }
         }
-        if let index = runs.firstIndex(where: { $0.runId == lineage.runId }) {
-            reconcileExisting(&runs[index], lineage: lineage, now: now)
+        if let index = runs.firstIndex(where: { $0.runId == effectiveLineage.runId }) {
+            reconcileExisting(&runs[index], lineage: effectiveLineage, now: now)
         } else {
-            runs.append(Self.newRun(lineage: lineage, now: now))
+            runs.append(Self.newRun(lineage: effectiveLineage, now: now))
         }
         guard runs.count > maximumRecords else { return runs }
         let active = runs.filter { $0.endedAt == nil }.sorted { $0.updatedAt > $1.updatedAt }
@@ -61,8 +68,13 @@ struct AgentSessionRunReconciler: Sendable {
             run.parentSessionId = lineage.parentSessionId ?? previous.parentSessionId
             if previous.relationship == .spawned {
                 run.relationship = .spawned
+                run.restoreAuthority = false
+            } else {
+                // Root authority is generation-scoped. Completion demotes the
+                // exited generation, but a verified replacement root starts
+                // with the new lineage's authority.
+                run.restoreAuthority = lineage.restoreAuthority
             }
-            run.restoreAuthority = previous.restoreAuthority && lineage.restoreAuthority
             return
         }
         run.pid = lineage.pid ?? run.pid

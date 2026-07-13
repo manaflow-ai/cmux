@@ -133,7 +133,8 @@ final class ClaudeHookSessionStore {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return }
+            guard var record = state.sessions[normalized],
+                  AgentSessionSemanticUpdatePolicy().canUpdate(record: record) else { return }
             if let foregroundState { record.foregroundState = foregroundState }
             if let attentionState { record.attentionState = attentionState }
             if let workloads {

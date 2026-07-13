@@ -72,8 +72,15 @@ struct AgentSessionStateProjection: Sendable, Equatable {
         if counts.scheduled > 0 { modes.append(.scheduled) }
         if counts.subagent > 0 { modes.append(.subagents) }
         if counts.tool > 0 { modes.append(.tools) }
+        let state: AgentActivityState = if counts.total > 0 {
+            .busy
+        } else if foreground != .unknown || !workloads.isEmpty {
+            .idle
+        } else {
+            .unknown
+        }
         return AgentActivitySnapshot(
-            state: counts.total > 0 ? .busy : .idle,
+            state: state,
             busy: counts.total > 0,
             modes: modes,
             counts: counts

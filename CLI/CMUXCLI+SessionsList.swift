@@ -171,7 +171,7 @@ extension CMUXCLI {
                     .first(where: { $0.runId == rawRecord.activeRunId })?
                     .cmuxRuntime
                     ?? rawRecord.runs?.max(by: { $0.updatedAt < $1.updatedAt })?.cmuxRuntime
-                guard hasRecordFilter || queryScope.includes(
+                guard queryScope.includes(
                     recordRuntime: rawRecord.cmuxRuntime,
                     runRuntime: rawRunRuntime,
                     legacyVisible: true
@@ -226,7 +226,7 @@ extension CMUXCLI {
                         updatedAt: record.updatedAt,
                         endedAt: record.completedAt
                     )
-                guard hasRecordFilter || queryScope.includes(
+                guard queryScope.includes(
                     recordRuntime: record.cmuxRuntime,
                     runRuntime: projectedRun.cmuxRuntime,
                     legacyVisible: true
