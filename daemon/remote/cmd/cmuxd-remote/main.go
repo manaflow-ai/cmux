@@ -148,7 +148,7 @@ func shouldRunCLIForInvocation(argv0 string, args []string) bool {
 
 func isDaemonEntryCommand(arg string) bool {
 	switch arg {
-	case "version", "serve", "cli":
+	case "version", "serve", "cli", "daemon-status":
 		return true
 	default:
 		return false
@@ -173,6 +173,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		persistent := fs.Bool("persistent", false, "proxy stdio to a persistent per-slot daemon")
 		persistentServer := fs.Bool("persistent-server", false, "run the persistent per-slot daemon")
 		persistentSlot := fs.String("slot", "", "persistent daemon slot")
+		idleTimeout := fs.Int("idle-timeout", -1, "persistent server idle exit timeout in seconds (0 disables idle exit, -1 uses default)")
 		listen := fs.String("listen", "127.0.0.1:7777", "address for --ws")
 		authLeaseFile := fs.String("auth-lease-file", "", "required lease JSON path for --ws")
 		rpcAuthLeaseFile := fs.String("rpc-auth-lease-file", "", "optional daemon RPC lease JSON path for --ws /rpc")
@@ -191,11 +192,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				_, _ = fmt.Fprintln(stderr, "serve --persistent-server requires --slot")
 				return 2
 			}
-			if err := runPersistentDaemonServer(strings.TrimSpace(*persistentSlot), stderr); err != nil {
+			if err := runPersistentDaemonServer(
+				strings.TrimSpace(*persistentSlot),
+				resolvePersistentDaemonIdleTimeout(*idleTimeout),
+				stderr,
+			); err != nil {
 				_, _ = fmt.Fprintf(stderr, "serve --persistent-server failed: %v\n", err)
 				return 1
 			}
 			return 0
+		}
+		if *idleTimeout >= 0 {
+			_, _ = fmt.Fprintln(stderr, "serve --idle-timeout requires --persistent-server")
+			return 2
 		}
 		if *stdio == *ws {
 			_, _ = fmt.Fprintln(stderr, "serve requires exactly one of --stdio or --ws")
@@ -248,6 +257,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	case "cli":
 		return runCLI(args[1:])
+	case "daemon-status":
+		return runDaemonStatusCommand(args[1:], stdout, stderr)
 	default:
 		usage(stderr)
 		return 2
@@ -259,7 +270,9 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote version")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio --persistent --slot <slot>")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --persistent-server --slot <slot> [--idle-timeout <seconds>]")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote daemon-status --slot <slot> [--json]")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
 }
 
@@ -365,24 +378,35 @@ func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error)
 	if err != nil {
 		return persistentDaemonPaths{}, err
 	}
+	rootBase, err := persistentDaemonRootBase()
+	if err != nil {
+		return persistentDaemonPaths{}, err
+	}
+	root := filepath.Join(rootBase, persistentDaemonVersionComponent(), slot)
+	return persistentDaemonPathsForRoot(root, slot), nil
+}
+
+func persistentDaemonRootBase() (string, error) {
 	rootBase := strings.TrimSpace(os.Getenv("CMUX_REMOTE_DAEMON_ROOT"))
 	if rootBase == "" {
 		home, homeErr := os.UserHomeDir()
 		if homeErr != nil || strings.TrimSpace(home) == "" {
-			return persistentDaemonPaths{}, errors.New("cannot resolve remote home directory")
+			return "", errors.New("cannot resolve remote home directory")
 		}
 		rootBase = filepath.Join(home, ".cmux", "daemon")
 	}
-	root := filepath.Join(rootBase, persistentDaemonVersionComponent(), slot)
-	socketPath := persistentDaemonSocketPath(root, slot)
+	return rootBase, nil
+}
+
+func persistentDaemonPathsForRoot(root string, slot string) persistentDaemonPaths {
 	return persistentDaemonPaths{
 		slot:      slot,
 		root:      root,
-		socket:    socketPath,
+		socket:    persistentDaemonSocketPath(root, slot),
 		tokenFile: filepath.Join(root, "auth.token"),
 		logFile:   filepath.Join(root, "daemon.log"),
 		lockFile:  filepath.Join(root, "daemon.lock"),
-	}, nil
+	}
 }
 
 func persistentDaemonVersionComponent() string {
@@ -826,7 +850,14 @@ func waitPersistentDaemonReady(reader *os.File, logFile string) error {
 	}
 }
 
-func runPersistentDaemonServer(slot string, stderr io.Writer) error {
+func resolvePersistentDaemonIdleTimeout(seconds int) time.Duration {
+	if seconds < 0 {
+		return persistentDaemonEmptyIdleTimeout
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func runPersistentDaemonServer(slot string, emptyIdleTimeout time.Duration, stderr io.Writer) error {
 	paths, err := persistentDaemonPathsForSlot(slot)
 	if err != nil {
 		return err
@@ -863,7 +894,7 @@ func runPersistentDaemonServer(slot string, stderr io.Writer) error {
 		listener,
 		persistentDaemonFileTokenVerifier(token, paths.tokenFile),
 		stderr,
-		persistentDaemonServerConfig{emptyIdleTimeout: persistentDaemonEmptyIdleTimeout},
+		persistentDaemonServerConfig{emptyIdleTimeout: emptyIdleTimeout},
 	)
 }
 
@@ -1325,6 +1356,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"pty.resize.notification",
 					"pty.input.seq_ack",
 					"cli.bridge",
+					"daemon.status",
 				},
 			},
 		}
@@ -1368,6 +1400,8 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handlePTYClose(req)
 	case "pty.list":
 		return s.handlePTYList(req)
+	case "daemon.status":
+		return s.handleDaemonStatus(req)
 	case "cli.response":
 		return s.handleCLIResponse(req)
 	default:
