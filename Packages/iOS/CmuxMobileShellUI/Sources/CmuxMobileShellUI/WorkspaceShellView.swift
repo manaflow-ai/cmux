@@ -35,7 +35,7 @@ struct WorkspaceShellView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     #endif
 
-    private var usesCompactStack: Bool {
+    var usesCompactStack: Bool {
         #if os(iOS)
         MobileWorkspaceShellLayoutPolicy.usesCompactStack(
             horizontalSizeClass: horizontalSizeClass,
@@ -292,29 +292,6 @@ struct WorkspaceShellView: View {
     }
 
     #if os(iOS)
-    private var submitTaskComposerFromShell: @MainActor (
-        String,
-        MobileWorkspaceCreateSpec
-    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
-        let store = store
-        return { macDeviceID, spec in
-            let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
-            pendingCompactCreateNavigationWorkspaceIDs = usesCompactStack
-                ? existingWorkspaceIDs
-                : nil
-            let result = await store.submitTaskComposer(macDeviceID: macDeviceID, spec: spec)
-            if usesCompactStack {
-                settlePendingCompactCreateNavigation(
-                    result: result,
-                    existingWorkspaceIDs: existingWorkspaceIDs
-                )
-            } else {
-                pendingCompactCreateNavigationWorkspaceIDs = nil
-            }
-            return result
-        }
-    }
-
     private var taskComposerButtonOverlay: some View {
         TaskComposerButton {
             isTaskComposerPresented = true
@@ -480,8 +457,15 @@ struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
             (navigationController?.viewControllers.count ?? 0) > 1
         }
 
-        // Keep swipe-back simultaneous with terminal and browser scrolling after
-        // replacing UIKit's built-in pop gesture delegate (issue #6634).
+        // The pushed workspace detail hosts surfaces with their own pan/scroll
+        // gesture recognizers: the terminal's full-bounds scroll-mechanics
+        // `UIScrollView` and the browser's `WKWebView` scroll view. Taking over
+        // the navigation controller's `interactivePopGestureRecognizer` delegate
+        // (above, so the custom back button can re-enable the swipe) drops
+        // UIKit's built-in rule that lets the edge swipe-back coexist with scroll
+        // views, so the swipe stopped popping back to the workspace list over a
+        // terminal or browser (issue #6634). Allow the pop gesture to recognize
+        // simultaneously with those surface gestures to restore it.
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer

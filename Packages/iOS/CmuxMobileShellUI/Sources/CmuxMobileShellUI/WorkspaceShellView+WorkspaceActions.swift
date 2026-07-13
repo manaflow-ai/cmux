@@ -3,6 +3,31 @@ import CmuxMobileShellModel
 import Foundation
 
 extension WorkspaceShellView {
+    #if os(iOS)
+    var submitTaskComposerFromShell: @MainActor (
+        String,
+        MobileWorkspaceCreateSpec
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        let store = store
+        return { macDeviceID, spec in
+            let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
+            pendingCompactCreateNavigationWorkspaceIDs = usesCompactStack
+                ? existingWorkspaceIDs
+                : nil
+            let result = await store.submitTaskComposer(macDeviceID: macDeviceID, spec: spec)
+            if usesCompactStack {
+                settlePendingCompactCreateNavigation(
+                    result: result,
+                    existingWorkspaceIDs: existingWorkspaceIDs
+                )
+            } else {
+                pendingCompactCreateNavigationWorkspaceIDs = nil
+            }
+            return result
+        }
+    }
+    #endif
+
     /// Workspace action closures, always present for the real store. Row and
     /// detail affordances gate themselves on each workspace's owning-Mac
     /// capability snapshot, so a secondary Mac is not hidden behind the
