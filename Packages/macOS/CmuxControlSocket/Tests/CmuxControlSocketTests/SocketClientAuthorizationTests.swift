@@ -118,4 +118,65 @@ struct SocketClientAuthorizationTests {
         ) == "system.capabilities")
         #expect(ancestryEvaluationCount == 1)
     }
+
+    @Test func exhaustedPreauthorizationCachesDescendantForLaterCommands() {
+        var authorization = authorization
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test"
+        )
+        var ancestryEvaluationCount = 0
+        let isDescendant: (pid_t) -> Bool = { pid in
+            ancestryEvaluationCount += 1
+            return pid == 123
+        }
+
+        let admitted = authorization.cacheAncestryAuthorization(
+            peerProcessID: 123,
+            isDescendant: isDescendant
+        )
+        #expect(admitted)
+        #expect(authorization.authorizedCommand(
+            "ping",
+            peerProcessID: 123,
+            peerHasSameUID: true,
+            capabilityAuthority: authority,
+            isDescendant: isDescendant
+        ) == "ping")
+        #expect(authorization.authorizedCommand(
+            "system.capabilities",
+            peerProcessID: 123,
+            peerHasSameUID: true,
+            capabilityAuthority: authority,
+            isDescendant: isDescendant
+        ) == "system.capabilities")
+        #expect(ancestryEvaluationCount == 1)
+    }
+
+    @Test func exhaustedPreauthorizationRejectsAndCachesNonDescendant() {
+        var authorization = authorization
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test"
+        )
+        var ancestryEvaluationCount = 0
+        let isDescendant: (pid_t) -> Bool = { _ in
+            ancestryEvaluationCount += 1
+            return false
+        }
+
+        let admitted = authorization.cacheAncestryAuthorization(
+            peerProcessID: 123,
+            isDescendant: isDescendant
+        )
+        #expect(!admitted)
+        #expect(authorization.authorizedCommand(
+            "ping",
+            peerProcessID: 123,
+            peerHasSameUID: true,
+            capabilityAuthority: authority,
+            isDescendant: isDescendant
+        ) == nil)
+        #expect(ancestryEvaluationCount == 1)
+    }
 }

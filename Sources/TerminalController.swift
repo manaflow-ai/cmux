@@ -1434,26 +1434,40 @@ class TerminalController {
     }
 
     private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) async {
-        let initialReadLimits = socketClientInitialReadLimits()
+        var initialReadLimits = socketClientInitialReadLimits()
+        var clientAuthorization = SocketClientAuthorization()
+        let preauthorizationLimiter = socketClientPreauthorizationLimiter
         let claimedPreauthorizationSlot = if initialReadLimits != nil {
-            await socketClientPreauthorizationLimiter.claim()
+            await preauthorizationLimiter.claim()
         } else {
             false
         }
-        guard initialReadLimits == nil || claimedPreauthorizationSlot else {
-            close(clientSocket)
-            return
+        if initialReadLimits != nil, !claimedPreauthorizationSlot {
+            guard clientAuthorization.cacheAncestryAuthorization(
+                peerProcessID: peerPid,
+                isDescendant: { isDescendant($0) }
+            ) else {
+                close(clientSocket)
+                return
+            }
+            initialReadLimits = nil
         }
+        let acceptedReadLimits = initialReadLimits
+        let acceptedAuthorization = clientAuthorization
         Thread.detachNewThread { [weak self] in
             guard let self else {
                 close(clientSocket)
+                if claimedPreauthorizationSlot {
+                    Task { await preauthorizationLimiter.release() }
+                }
                 return
             }
             self.handleClient(
                 clientSocket,
                 peerPid: peerPid,
-                initialReadLimits: initialReadLimits,
-                holdsPreauthorizationSlot: claimedPreauthorizationSlot
+                initialReadLimits: acceptedReadLimits,
+                holdsPreauthorizationSlot: claimedPreauthorizationSlot,
+                authorization: acceptedAuthorization
             )
         }
     }
@@ -1462,7 +1476,8 @@ class TerminalController {
         _ socket: Int32,
         peerPid: pid_t? = nil,
         initialReadLimits: ControlClientLineReadLimits? = nil,
-        holdsPreauthorizationSlot initialSlotHeld: Bool = false
+        holdsPreauthorizationSlot initialSlotHeld: Bool = false,
+        authorization initialAuthorization: SocketClientAuthorization = .init()
     ) {
         defer { close(socket) }
         let pid = peerPid ?? transport.peerProcessID(of: socket)
@@ -1475,7 +1490,7 @@ class TerminalController {
             }
         }
         var authenticated = false
-        var clientAuthorization = SocketClientAuthorization()
+        var clientAuthorization = initialAuthorization
         let lineReader = ControlClientLineReader(socket: socket, initialLimits: initialReadLimits)
 
         while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
