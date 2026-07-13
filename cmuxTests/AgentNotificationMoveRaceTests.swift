@@ -114,14 +114,6 @@ struct AgentNotificationRegressionTests {
         }
     }
 
-    func waitForMarker(at url: URL, timeout: Duration = .seconds(5)) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return FileManager.default.fileExists(atPath: url.path)
-    }
-
     private func waitForFile(at url: URL) async -> Bool {
         let deadline = ContinuousClock.now + .seconds(5)
         while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
