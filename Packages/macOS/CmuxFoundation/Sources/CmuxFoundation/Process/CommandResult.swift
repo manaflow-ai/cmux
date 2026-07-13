@@ -23,6 +23,10 @@ public struct CommandResult: Sendable, Equatable {
     public let timedOut: Bool
     /// Whether stdout or stderr exceeded the caller's capture limit.
     public let outputLimitExceeded: Bool
+    /// Whether cancellation confirmed that the spawned process tree exited.
+    ///
+    /// `nil` means the command did not complete through the cancellation path.
+    public let cancellationCleanupSucceeded: Bool?
     /// A description of the launch failure when the process never started, else `nil`.
     public let executionError: String?
 
@@ -33,6 +37,7 @@ public struct CommandResult: Sendable, Equatable {
     ///   - exitStatus: The process exit status, or `nil` if it did not exit normally.
     ///   - timedOut: Whether the process was killed for exceeding its deadline.
     ///   - outputLimitExceeded: Whether a captured stream exceeded its byte limit.
+    ///   - cancellationCleanupSucceeded: Whether cancellation confirmed process-tree exit, or `nil` otherwise.
     ///   - executionError: A launch-failure description, or `nil`.
     public init(
         stdout: String?,
@@ -40,6 +45,7 @@ public struct CommandResult: Sendable, Equatable {
         exitStatus: Int32?,
         timedOut: Bool,
         outputLimitExceeded: Bool = false,
+        cancellationCleanupSucceeded: Bool? = nil,
         executionError: String?
     ) {
         self.stdout = stdout
@@ -47,6 +53,7 @@ public struct CommandResult: Sendable, Equatable {
         self.exitStatus = exitStatus
         self.timedOut = timedOut
         self.outputLimitExceeded = outputLimitExceeded
+        self.cancellationCleanupSucceeded = cancellationCleanupSucceeded
         self.executionError = executionError
     }
 }

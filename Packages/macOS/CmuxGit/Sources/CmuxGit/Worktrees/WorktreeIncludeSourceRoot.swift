@@ -46,7 +46,12 @@ final class WorktreeIncludeSourceRoot {
         byteCount: inout Int64
     ) throws {
         let rootValues = try sourceItem.resourceValues(forKeys: Self.resourceKeys)
-        account(rootValues, itemCount: &itemCount, byteCount: &byteCount)
+        try account(
+            sourceItem,
+            rootValues,
+            itemCount: &itemCount,
+            byteCount: &byteCount
+        )
         guard rootValues.isDirectory == true, rootValues.isSymbolicLink != true else { return }
         guard let enumerator = fileManager.enumerator(atPath: sourceItem.path) else {
             throw CocoaError(.fileReadUnknown)
@@ -55,7 +60,7 @@ final class WorktreeIncludeSourceRoot {
             if Task.isCancelled { throw CancellationError() }
             let child = sourceItem.appendingPathComponent(relativePath)
             let values = try child.resourceValues(forKeys: Self.resourceKeys)
-            account(values, itemCount: &itemCount, byteCount: &byteCount)
+            try account(child, values, itemCount: &itemCount, byteCount: &byteCount)
             if itemCount > limits.maximumItemCount || byteCount > limits.maximumByteCount { return }
         }
     }
@@ -81,6 +86,35 @@ final class WorktreeIncludeSourceRoot {
 
     func openDirectory(at relativePath: String) throws -> Int32 {
         try openDirectoryComponents(try components(for: relativePath))
+    }
+
+    func openSymbolicLink(at relativePath: String) throws -> Int32 {
+        let (parent, name) = try openParent(of: relativePath)
+        defer { Darwin.close(parent) }
+        let descriptor = name.withCString {
+            openat(parent, $0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_SYMLINK)
+        }
+        guard descriptor >= 0 else { throw posixError() }
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+              status.st_mode & S_IFMT == S_IFLNK else {
+            Darwin.close(descriptor)
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+        return descriptor
+    }
+
+    func openItem(at relativePath: String, values: URLResourceValues) throws -> Int32 {
+        if values.isSymbolicLink == true {
+            return try openSymbolicLink(at: relativePath)
+        }
+        if values.isDirectory == true {
+            return try openDirectory(at: relativePath)
+        }
+        if values.isRegularFile == true {
+            return try openRegularFile(at: relativePath)
+        }
+        throw CocoaError(.fileReadUnsupportedScheme)
     }
 
     func symbolicLinkTarget(at relativePath: String) throws -> [UInt8] {
@@ -147,16 +181,25 @@ final class WorktreeIncludeSourceRoot {
     }
 
     private func account(
+        _ source: URL,
         _ values: URLResourceValues,
         itemCount: inout Int,
         byteCount: inout Int64
-    ) {
+    ) throws {
         itemCount += 1
         if values.isRegularFile == true,
            values.isSymbolicLink != true,
            let size = values.fileSize {
             byteCount += Int64(size)
         }
+        let descriptor = try openItem(
+            at: relativePath(for: source),
+            values: values
+        )
+        defer { Darwin.close(descriptor) }
+        byteCount += try WorktreeIncludeExtendedAttributes(
+            sourceDescriptor: descriptor
+        ).byteCount
     }
 
     private func posixError(_ code: Int32 = errno) -> NSError {

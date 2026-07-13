@@ -126,6 +126,7 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
             stderr: nil,
             exitStatus: nil,
             timedOut: false,
+            cancellationCleanupSucceeded: true,
             executionError: "Command cancelled."
         )
         let cancellationCleanupFailedResult = CommandResult(
@@ -133,6 +134,7 @@ public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
             stderr: nil,
             exitStatus: nil,
             timedOut: false,
+            cancellationCleanupSucceeded: false,
             executionError: "Command cancelled, but its process tree did not exit."
         )
         guard !Task.isCancelled else { return cancelledResult }

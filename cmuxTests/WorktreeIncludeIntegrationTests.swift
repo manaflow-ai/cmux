@@ -212,6 +212,7 @@ struct WorktreeIncludeIntegrationTests {
         let projectRoot = root.appendingPathComponent("Project", isDirectory: true)
         let marker = root.appendingPathComponent("leader-exited")
         let childPIDFile = root.appendingPathComponent("pipe-holder-pid")
+        let releasePipe = root.appendingPathComponent("pipe-holder-release")
         var childPID: pid_t?
         defer {
             if let childPID, Darwin.kill(childPID, 0) == 0 {
@@ -234,6 +235,13 @@ struct WorktreeIncludeIntegrationTests {
             "commit", "-m", "initial",
         ], in: projectRoot)
 
+        let makePipe = Process()
+        makePipe.executableURL = URL(fileURLWithPath: "/usr/bin/mkfifo")
+        makePipe.arguments = [releasePipe.path]
+        try makePipe.run()
+        makePipe.waitUntilExit()
+        #expect(makePipe.terminationStatus == 0)
+
         let hook = projectRoot.appendingPathComponent(".git/hooks/post-checkout")
         let hookScript = """
         #!/bin/sh
@@ -243,7 +251,7 @@ struct WorktreeIncludeIntegrationTests {
           while kill -0 "$git_pid" 2>/dev/null; do :; done
           echo $$ > \(shellEscaped(childPIDFile.path))
           touch \(shellEscaped(marker.path))
-          while :; do :; done
+          IFS= read -r _ < \(shellEscaped(releasePipe.path))
         ) &
         exit 0
         """

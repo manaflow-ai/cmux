@@ -16,10 +16,10 @@ import Testing
             fileManager: .default,
             limits: WorktreeIncludeCopyLimits(
                 maximumItemCount: 10,
-                maximumByteCount: 1,
+                maximumByteCount: 1_024,
                 freeSpaceReserve: 0
             ),
-            availableCapacity: { _ in 1_024 },
+            availableCapacity: { _ in 4_096 },
             destinationFileCreated: { createdFile in
                 try? FileManager.default.moveItem(at: createdFile, to: displacedCopy)
                 try? Data("concurrent\n".utf8).write(to: createdFile)
@@ -27,7 +27,7 @@ import Testing
             sourceItemInspected: { inspectedItem in
                 guard inspectedItem == sourceFile,
                       let handle = try? FileHandle(forWritingTo: inspectedItem) else { return }
-                try? handle.truncate(atOffset: 2)
+                try? handle.truncate(atOffset: 2_048)
                 try? handle.close()
             }
         ).copy(relativePaths: ["payload"], from: source, to: destination)

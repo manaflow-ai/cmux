@@ -99,7 +99,8 @@ enum CmuxExtensionWorktreePrototype {
                 worktreeCreationStarted = false
                 return result
             } catch {
-                if worktreeCreationStarted {
+                let rollbackSafe = (error as? CmuxExtensionWorktreeCommandFailure)?.rollbackSafe ?? true
+                if worktreeCreationStarted, rollbackSafe {
                     await Task.detached(priority: .utility) {
                         await rollbackWorktree(
                             projectRoot: projectRoot,
@@ -269,18 +270,25 @@ enum CmuxExtensionWorktreePrototype {
             arguments: arguments,
             timeout: nil
         )
-        if Task.isCancelled { throw CancellationError() }
+        if Task.isCancelled, result.cancellationCleanupSucceeded != false {
+            throw CancellationError()
+        }
         guard result.executionError == nil,
               !result.timedOut,
               result.exitStatus == 0 else {
             let details = result.stderr ?? result.stdout ?? result.executionError ?? "command failed"
-            throw NSError(
+            let underlyingError = NSError(
                 domain: "CmuxExtensionWorktreePrototype",
                 code: Int(result.exitStatus ?? -1),
                 userInfo: [
                     NSLocalizedDescriptionKey: "Could not create worktree.",
                     "CmuxExtensionWorktreePrototypeDetails": details
                 ]
+            )
+            throw CmuxExtensionWorktreeCommandFailure(
+                result: result,
+                underlyingError: underlyingError,
+                rollbackSafe: result.cancellationCleanupSucceeded != false
             )
         }
         return result.stdout ?? ""

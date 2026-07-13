@@ -107,6 +107,7 @@ import Testing
         ))
 
         #expect(result.executionError == "Command cancelled.")
+        #expect(result.cancellationCleanupSucceeded == true)
         #expect(cancellationDuration < .seconds(5))
         #expect(kill(pid, 0) == -1)
         #expect(errno == ESRCH)
@@ -202,6 +203,7 @@ import Testing
         let result = await command.value
 
         #expect(result.executionError == "Command cancelled, but its process tree did not exit.")
+        #expect(result.cancellationCleanupSucceeded == false)
         #expect(kill(pid, 0) == 0)
         #expect(kill(sentinel.processIdentifier, 0) == 0)
     }
