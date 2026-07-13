@@ -147,10 +147,7 @@ extension BrowserWebExtensionSupport {
         guard let action = record.context.action(for: tabAdapter) else { return nil }
         return BrowserWebExtensionActionSnapshot(
             id: record.entryID,
-            displayName: action.label ?? record.context.webExtension.displayName ?? String(
-                localized: "browser.webExtension.action.help",
-                defaultValue: "Extension"
-            ),
+            displayName: action.label,
             icon: action.icon(for: CGSize(width: 32, height: 32))
                 ?? record.context.webExtension.icon(for: CGSize(width: 32, height: 32)),
             isEnabled: action.isEnabled,
