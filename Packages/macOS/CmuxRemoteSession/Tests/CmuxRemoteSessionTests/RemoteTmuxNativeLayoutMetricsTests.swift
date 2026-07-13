@@ -31,7 +31,7 @@ import Testing
         #expect(metrics.residual(of: pane()) == CGSize(width: 1, height: 31))
     }
 
-    @Test func clientGridFoldsChromeAlongSplitAxesAndCountsEveryTitleRow() throws {
+    @Test func clientGridLeavesServerOwnedTitleRowsInTheClaim() throws {
         let metrics = RemoteTmuxNativeLayoutMetrics(
             cellSize: CGSize(width: 10, height: 10),
             surfacePadding: CGSize(width: 2, height: 4),
@@ -66,9 +66,9 @@ import Testing
         ))
 
         #expect(horizontalGrid.columns == 30)
-        #expect(horizontalGrid.rows == 26)
+        #expect(horizontalGrid.rows == 27)
         #expect(verticalGrid.columns == 30)
-        #expect(verticalGrid.rows == 26)
+        #expect(verticalGrid.rows == 28)
     }
 
     @Test func dragConversionsSubtractChromeButNotPlacementSlack() {
