@@ -90,7 +90,13 @@ extension CMUXCLI {
                 break
             }
         }
-        if !routing.allowsPidProbe, rehomeAllowed, !client.isRelayBacked {
+        // Surface UUIDs are valid across a relay (unlike pids, which stay
+        // host-local — that restriction lives in liveAgentPidDeliveryTarget),
+        // so the surface-only re-home probe runs for relay-backed hooks too.
+        // Over the restricted cloud CLI bridge the resolver method is denied
+        // (`remote_cli_method_denied`), which surfaces here as `.failed` and
+        // stays fail-closed exactly as before.
+        if !routing.allowsPidProbe, rehomeAllowed {
             let invocationSurfaceId = nonEmptyClaudeHookIdentifier(routing.surfaceArg)
             let recordedSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId)
             guard let invocationSurfaceId else { return nil }
