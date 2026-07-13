@@ -86,9 +86,6 @@ struct NotificationScrollRestoreLifecycleTests {
         postScrollbar(scrollbar(total: 100, offset: 56, len: 44), to: hostedView.surfaceView)
 
         #expect(hostedView.hasPendingNotificationScrollRestore)
-        postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: hostedView.surfaceView)
-
-        #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
     @Test func mismatchedInBandBoundaryDoesNotCompleteReplay() {
@@ -151,6 +148,28 @@ struct NotificationScrollRestoreLifecycleTests {
 
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
+    @Test func anchorlessActivationClearsPendingRestoreWhilePanelIsHibernated() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.releaseSurfaceForTesting() }
+        panel.hostedView.notificationScrollRestoreState = .replaying(
+            expectedBoundary: "expected-end",
+            pendingPosition: TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        )
+        panel.enterAgentHibernation(
+            agent: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "hibernated-scroll-test",
+                workingDirectory: nil,
+                launchCommand: nil
+            ),
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        )
+
+        #expect(panel.isAgentHibernated)
+        #expect(!panel.restoreNotificationScrollPosition(nil))
+        #expect(!panel.hostedView.hasPendingNotificationScrollRestore)
     }
 
     private func beginReplay(on hostedView: GhosttySurfaceScrollView, endBoundary: String) {
