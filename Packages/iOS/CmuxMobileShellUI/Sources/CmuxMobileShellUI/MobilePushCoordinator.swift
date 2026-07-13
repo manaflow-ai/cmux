@@ -272,7 +272,7 @@ public final class MobilePushCoordinator {
         // surface-only tap the workspace that owns the terminal. Unresolvable
         // means "not loaded yet": stay parked for the next topology change so
         // the tap is never spent on a selection that cannot navigate.
-        let workspaceTarget: MobileWorkspacePreview.ID
+        var workspaceTarget: MobileWorkspacePreview.ID
         if let workspaceId = pending.workspaceId {
             guard let resolved = store.workspaceID(
                 matchingRemoteWorkspaceID: workspaceId,
@@ -288,6 +288,14 @@ public final class MobilePushCoordinator {
         } else {
             pendingDeeplink = nil
             return
+        }
+        if pending.retargetsToLiveSurfaceOwner,
+           let surfaceId = pending.surfaceId,
+           let liveOwner = store.workspaceID(
+               containingSurfaceID: surfaceId,
+               macDeviceID: pending.macDeviceId
+           ) {
+            workspaceTarget = liveOwner
         }
 
         if let surfaceId = pending.surfaceId,

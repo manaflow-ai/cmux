@@ -79,6 +79,28 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("Local PID routing excludes remote TTY device namespaces")
+    func localTTYBindingsExcludeRemoteDeviceNamespaces() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.surfaceTTYNames[panelId] = "/dev/null"
+        #expect(workspace.localAgentDeliveryTTYDevices.map(\.surfaceId) == [panelId])
+
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "example.invalid",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        #expect(workspace.localAgentDeliveryTTYDevices.isEmpty)
+    }
+
     @Test("A stale source clear preserves a destination-confined stored notification")
     func staleSourceClearPreservesDestinationConfinedStoredNotification() throws {
         let fixture = try makeFixture()

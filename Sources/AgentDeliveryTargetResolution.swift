@@ -88,6 +88,17 @@ extension Workspace {
 
     /// Cached TTY character-device ids, updated with ``surfaceTTYNames``.
     var surfaceTTYDevices: [UUID: Int64] { surfaceRegistry.surfaceTTYDevices }
+
+    /// Host-local TTY bindings eligible to identify a process running on this
+    /// Mac. Remote workspaces and remote terminal surfaces use a different
+    /// `/dev` namespace and must never participate in local device matching.
+    var localAgentDeliveryTTYDevices: [(surfaceId: UUID, ttyDevice: Int64)] {
+        guard !isRemoteWorkspace, !isRemoteTmuxMirror else { return [] }
+        return surfaceTTYDevices.compactMap { panelId, device in
+            guard panels[panelId] != nil, !isRemoteTerminalSurface(panelId) else { return nil }
+            return (panelId, device)
+        }
+    }
 }
 
 @MainActor
@@ -109,20 +120,24 @@ extension AppDelegate {
             var bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = []
             for manager in agentDeliveryTabManagers() {
                 for workspace in manager.tabs {
-                    for (panelId, device) in workspace.surfaceTTYDevices where workspace.panels[panelId] != nil {
-                        bindings.append((workspace.id, panelId, device))
+                    for binding in workspace.localAgentDeliveryTTYDevices {
+                        bindings.append((workspace.id, binding.surfaceId, binding.ttyDevice))
                     }
                 }
             }
             ttyTarget = agentDeliveryTargetMatchingTTYDevice(ttyDevice, surfaceTTYDevices: bindings)
         }
 
+        let processScope: CmuxTopProcessScope?
+        switch CmuxTopProcessSnapshot.cmuxScopeProbe(
+            for: Int(pid),
+            expectedCacheKey: identity.scopeCacheKey
+        ) {
+        case .resolved(let scope): processScope = scope
+        case .unavailable: processScope = nil
+        }
         var envTarget: AgentDeliveryTargetCandidate?
-        if let envSurfaceId = CmuxTopProcessSnapshot.cachedCMUXScope(
-               for: Int(pid),
-               cacheKey: identity.scopeCacheKey,
-               nowNanoseconds: DispatchTime.now().uptimeNanoseconds
-           )?.surfaceID,
+        if let envSurfaceId = processScope?.surfaceID,
            let owner = workspaceContainingPanel(panelId: envSurfaceId) {
             envTarget = AgentDeliveryTargetCandidate(workspaceId: owner.workspace.id, surfaceId: envSurfaceId)
         }

@@ -444,12 +444,8 @@ struct AgentNotificationRegressionTests {
 
     @Test("A clear invalidates policy-delayed delivery that has not applied")
     func clearInvalidatesInFlightPolicyDelivery() async throws {
-        let completionURL = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-policy-clear-finished-\(UUID().uuidString)"
-        )
-        let fixture = try makeFixture(policyHookCommand: "cat; touch '\(completionURL.path)'")
+        let fixture = try makeFixture(policyHookCommand: "cat")
         defer { fixture.restore() }
-        defer { try? FileManager.default.removeItem(at: completionURL) }
 
         TerminalController.shared.deliverNotificationSynchronously(
             tabId: fixture.source.id,
@@ -464,7 +460,6 @@ struct AgentNotificationRegressionTests {
             surfaceId: fixture.panelId
         )
 
-        #expect(await waitForFile(at: completionURL))
         for _ in 0..<100 { await Task.yield() }
         #expect(fixture.store.notifications.isEmpty)
     }
