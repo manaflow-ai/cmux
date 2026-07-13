@@ -6,24 +6,26 @@ public struct MobileSignOutHook: Sendable {
         _ refreshToken: String?
     ) async -> Void
 
-    private let prepareClosure: @Sendable () async -> ServerTeardown
+    private let beginClosure: @MainActor @Sendable () -> ServerTeardown
 
     /// Creates a sign-out hook.
     ///
-    /// - Parameter prepare: Performs local resource and cache teardown, then
-    ///   returns the bounded best-effort server teardown for captured tokens.
+    /// - Parameter begin: Fences local resources synchronously, then returns
+    ///   the bounded best-effort teardown for auth's captured tokens.
     public init(
-        prepare: @escaping @Sendable () async -> ServerTeardown = {
+        begin: @escaping @MainActor @Sendable () -> ServerTeardown = {
             { _, _ in }
         }
     ) {
-        prepareClosure = prepare
+        beginClosure = begin
     }
 
-    /// Completes local preparation before auth destroys its token store.
+    /// Fences local teardown before auth destroys its token store.
     ///
-    /// - Returns: The remote teardown auth runs with captured credentials.
-    public func prepare() async -> ServerTeardown {
-        await prepareClosure()
+    /// The returned work may await local cleanup, but auth clears its local
+    /// session before running it and bounds it with the remote teardown timer.
+    @MainActor
+    public func begin() -> ServerTeardown {
+        beginClosure()
     }
 }

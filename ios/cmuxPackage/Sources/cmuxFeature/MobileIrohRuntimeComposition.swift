@@ -315,23 +315,27 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         }
     }
 
-    /// Stops networking before auth clears its tokens.
+    /// Synchronously fences lifecycle work and starts local sign-out cleanup.
     ///
     /// Local identity state is wiped only after the binding revocation is
     /// durably queued. A storage failure keeps that exact account and binding
     /// quarantined for the captured-token hook or a later same-account sign-in.
     ///
-    /// - Returns: The prior binding needed by the captured-token remote hook.
-    public func prepareSignOut() async -> CmxIrohClientSignOutPreparation {
+    /// - Returns: The shared preparation operation for this sign-out attempt.
+    public func beginSignOutPreparation()
+        -> Task<CmxIrohClientSignOutPreparation, Never>
+    {
         switch signOutPhase {
         case let .preparing(operation):
-            return await operation.value
+            return operation
         case let .awaitingRemote(preparation),
              let .quarantined(preparation):
-            return preparation
+            return Task { preparation }
         case let .recovering(preparation, operation):
-            _ = await waitForRecovery(operation)
-            return preparation
+            return Task { @MainActor [weak self] in
+                _ = await self?.waitForRecovery(operation)
+                return preparation
+            }
         case .idle:
             break
         }
@@ -348,7 +352,31 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             return await self.performSignOutPreparation()
         }
         signOutPhase = .preparing(operation)
-        return await operation.value
+        return operation
+    }
+
+    /// Waits for the shared local preparation operation.
+    public func prepareSignOut() async -> CmxIrohClientSignOutPreparation {
+        await beginSignOutPreparation().value
+    }
+
+    /// Completes remote revocation after auth has already cleared local tokens.
+    ///
+    /// Cancellation stops waiting immediately while the credential-free local
+    /// preparation continues and durably queues any pending revocation.
+    public func completeSignOutAfterAuthClear(
+        _ operation: Task<CmxIrohClientSignOutPreparation, Never>,
+        accessToken: String?,
+        refreshToken: String?
+    ) async {
+        guard let preparation = await cancellationAwareValue(of: operation) else {
+            return
+        }
+        await revokeAfterSignOut(
+            preparation,
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
     }
 
     private func performSignOutPreparation() async -> CmxIrohClientSignOutPreparation {
@@ -448,6 +476,29 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                 "Iroh binding revoke failed: \(String(describing: error), privacy: .private)"
             )
         }
+    }
+
+    private func cancellationAwareValue(
+        of operation: Task<CmxIrohClientSignOutPreparation, Never>
+    ) async -> CmxIrohClientSignOutPreparation? {
+        let stream = AsyncStream<CmxIrohClientSignOutPreparation> { continuation in
+            let waiter = Task { @MainActor in
+                let value = await operation.value
+                guard !Task.isCancelled else {
+                    continuation.finish()
+                    return
+                }
+                continuation.yield(value)
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in
+                waiter.cancel()
+            }
+        }
+        for await value in stream {
+            return value
+        }
+        return nil
     }
 
     private func applyAuthState(_ state: MobileIrohAuthState) async {

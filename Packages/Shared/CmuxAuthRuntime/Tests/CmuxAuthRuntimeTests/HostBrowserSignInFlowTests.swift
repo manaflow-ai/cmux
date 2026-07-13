@@ -8,18 +8,18 @@ import Testing
 /// the sign-out-vs-callback race guards, deadlines, and attempt cancellation.
 @MainActor
 @Suite(.serialized) struct HostBrowserSignInFlowTests {
-    @Test func concurrentSignOutWaitsForOnePreparationBeforeLocalClearAndTeardown() async {
-        let preparationStarted = TestPhaseSignal()
-        let preparationBlocker = TestContinuationBlocker()
+    @Test func concurrentSignOutBeginsOnceAndClearsLocalAuthBeforeTeardownCompletes() async {
+        let teardownStarted = TestPhaseSignal()
+        let teardownBlocker = TestContinuationBlocker()
         let recorder = HostBrowserSignOutOrderingRecorder()
         let harness = HostBrowserSignInFlowHarness(
-            prepareForSignOut: {
-                await recorder.record(.prepare)
-                await preparationStarted.markStarted()
-                await preparationBlocker.wait()
+            beginSignOut: {
+                recorder.record(.prepare)
             },
             onSignedOut: { _, _ in
                 await recorder.record(.signedOut)
+                await teardownStarted.markStarted()
+                await teardownBlocker.wait()
             }
         )
         await harness.tokenStore.setTokens(
@@ -28,19 +28,18 @@ import Testing
         )
 
         let firstSignOut = Task { await harness.flow.signOut() }
-        await preparationStarted.waitUntilStarted()
+        await teardownStarted.waitUntilStarted()
         let racedSignOut = Task { await harness.flow.signOut() }
 
-        // Both callers must remain behind the same durable-preparation gate.
-        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
-        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
-        #expect(await recorder.values() == [.prepare])
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(recorder.values() == [.prepare, .signedOut])
 
-        await preparationBlocker.release()
+        await teardownBlocker.release()
         await firstSignOut.value
         await racedSignOut.value
 
-        #expect(await recorder.values() == [.prepare, .signedOut])
+        #expect(recorder.values() == [.prepare, .signedOut])
         #expect(await harness.tokenStore.getStoredAccessToken() == nil)
         #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
     }

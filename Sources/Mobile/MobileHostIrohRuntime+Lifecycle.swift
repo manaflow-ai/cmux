@@ -17,8 +17,7 @@ extension MobileHostIrohRuntime {
                 self.observedAccountID = state.accountID
                 if self.signOutIntentActive {
                     if state.accountID == nil {
-                        self.signOutIntentActive = false
-                        self.signOutPreparationTask = nil
+                        self.releaseSignOutIntentAfterPreparation()
                     }
                     continue
                 }
@@ -38,6 +37,22 @@ extension MobileHostIrohRuntime {
                         || self.preparedSignOut?.wasPersisted == false
                 )
             }
+        }
+    }
+
+    private func releaseSignOutIntentAfterPreparation() {
+        guard let signOutPreparationTask else {
+            signOutIntentActive = false
+            return
+        }
+        let revision = signOutPreparationRevision
+        Task { @MainActor [weak self] in
+            await signOutPreparationTask.value
+            guard let self,
+                  self.signOutPreparationRevision == revision,
+                  self.observedAccountID == nil else { return }
+            self.signOutIntentActive = false
+            self.signOutPreparationTask = nil
         }
     }
 

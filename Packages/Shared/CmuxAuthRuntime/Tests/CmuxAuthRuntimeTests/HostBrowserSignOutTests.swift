@@ -54,7 +54,8 @@ actor HostBrowserSignOutHookRecorder {
     }
 }
 
-actor HostBrowserSignOutOrderingRecorder {
+@MainActor
+final class HostBrowserSignOutOrderingRecorder {
     enum Event: Equatable, Sendable {
         case prepare
         case signedOut

@@ -83,7 +83,7 @@ final class AppCompositionRoot {
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
-            let preparation = await iroh.prepareSignOut()
+            let preparation = iroh.beginSignOutPreparation()
             return { accessToken, refreshToken in
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
@@ -93,7 +93,7 @@ final class AppCompositionRoot {
                         )
                     }
                     group.addTask {
-                        await iroh.revokeAfterSignOut(
+                        await iroh.completeSignOutAfterAuthClear(
                             preparation,
                             accessToken: accessToken,
                             refreshToken: refreshToken

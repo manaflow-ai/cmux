@@ -44,6 +44,58 @@ struct CmxIrohEndpointServerTests {
 
         #expect(observed.identity == remoteIdentity)
         #expect(observed.generation == snapshot.runtimeGeneration)
+        #expect(
+            await server.isCurrent(runtimeGeneration: snapshot.runtimeGeneration)
+        )
+        await server.stop()
+        await supervisor.deactivate()
+    }
+
+    @Test
+    func oneFailedAcceptDoesNotKillTheActiveGeneration() async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "1", count: 64)
+        )
+        let remoteIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "2", count: 64)
+        )
+        let endpoint = TestAcceptingIrohEndpoint(identity: localIdentity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try CmxIrohEndpointConfiguration(
+                secretKey: CmxIrohSecretKey(bytes: Data(repeating: 4, count: 32)),
+                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                managedRelayURLs: [],
+                relays: []
+            )
+        )
+        let snapshot = try await supervisor.activate()
+        let clock = EndpointServerManualClock()
+        let recorder = EndpointServerRecorder()
+        let server = CmxIrohEndpointServer(
+            supervisor: supervisor,
+            clock: clock
+        ) { connection, generation in
+            await recorder.record(
+                identity: await connection.remoteIdentity(),
+                generation: generation
+            )
+        }
+
+        await server.start()
+        await endpoint.enqueueAcceptFailure()
+        await clock.waitUntilSleeping()
+        await clock.fire()
+        await endpoint.enqueue(
+            TestIrohConnection(
+                remoteIdentity: remoteIdentity,
+                bidirectionalStreams: []
+            )
+        )
+
+        let observed = await recorder.next()
+        #expect(observed.identity == remoteIdentity)
+        #expect(observed.generation == snapshot.runtimeGeneration)
         #expect(await server.isCurrent(runtimeGeneration: snapshot.runtimeGeneration))
         await server.stop()
         await supervisor.deactivate()
@@ -250,10 +302,16 @@ private actor EndpointServerRecorder {
 }
 
 private actor TestAcceptingIrohEndpoint: CmxIrohEndpoint {
+    private enum AcceptEvent: Sendable {
+        case connection(any CmxIrohConnection)
+        case failure
+        case closed
+    }
+
     private let peerIdentity: CmxIrohPeerIdentity
-    private var connections: [any CmxIrohConnection] = []
+    private var acceptEvents: [AcceptEvent] = []
     private var waiters: [
-        UUID: CheckedContinuation<(any CmxIrohConnection)?, Never>
+        UUID: CheckedContinuation<AcceptEvent, Never>
     ] = [:]
     private let health: AsyncStream<CmxIrohEndpointHealthEvent>
     private let healthContinuation: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
@@ -281,16 +339,18 @@ private actor TestAcceptingIrohEndpoint: CmxIrohEndpoint {
 
     func accept() async throws -> (any CmxIrohConnection)? {
         try Task.checkCancellation()
-        if !connections.isEmpty { return connections.removeFirst() }
+        if !acceptEvents.isEmpty {
+            return try Self.resolve(acceptEvents.removeFirst())
+        }
         guard !closed else { return nil }
         let id = UUID()
-        let result = await withTaskCancellationHandler {
+        let event = await withTaskCancellationHandler {
             await withCheckedContinuation { waiters[id] = $0 }
         } onCancel: {
             Task { await self.cancelAccept(id) }
         }
         try Task.checkCancellation()
-        return result
+        return try Self.resolve(event)
     }
 
     func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
@@ -301,19 +361,37 @@ private actor TestAcceptingIrohEndpoint: CmxIrohEndpoint {
         closed = true
         let pending = waiters.values
         waiters.removeAll()
-        for continuation in pending { continuation.resume(returning: nil) }
+        for continuation in pending { continuation.resume(returning: .closed) }
         healthContinuation.finish()
     }
 
     func enqueue(_ connection: any CmxIrohConnection) {
+        enqueue(.connection(connection))
+    }
+
+    func enqueueAcceptFailure() {
+        enqueue(.failure)
+    }
+
+    private func enqueue(_ event: AcceptEvent) {
         if let id = waiters.keys.first, let continuation = waiters.removeValue(forKey: id) {
-            continuation.resume(returning: connection)
+            continuation.resume(returning: event)
         } else {
-            connections.append(connection)
+            acceptEvents.append(event)
         }
     }
 
     private func cancelAccept(_ id: UUID) {
-        waiters.removeValue(forKey: id)?.resume(returning: nil)
+        waiters.removeValue(forKey: id)?.resume(returning: .closed)
+    }
+
+    nonisolated private static func resolve(
+        _ event: AcceptEvent
+    ) throws -> (any CmxIrohConnection)? {
+        switch event {
+        case let .connection(connection): connection
+        case .failure: throw TestIrohTransportError.unsupported
+        case .closed: nil
+        }
     }
 }

@@ -43,6 +43,7 @@ final class MobileHostIrohRuntime {
     var preparedSignOut: CmxIrohHostSignOutPreparation?
     var signOutIntentActive = false
     var signOutPreparationTask: Task<Void, Never>?
+    var signOutPreparationRevision: UInt64 = 0
     var lifecycleRevision: UInt64 = 0
 
     private init() {
@@ -91,15 +92,18 @@ final class MobileHostIrohRuntime {
         lanPublisher = CmxIrohLANHostPublisher()
     }
 
-    func prepareSignOut() async {
-        if let signOutPreparationTask {
-            await signOutPreparationTask.value
-            return
-        }
+    /// Fences lifecycle work before auth begins its first asynchronous token read.
+    func beginSignOutPreparation() {
+        guard signOutPreparationTask == nil else { return }
         signOutIntentActive = true
+        signOutPreparationRevision &+= 1
         let task = scheduleReconcile(eraseAccountState: true)
         signOutPreparationTask = task
-        await task.value
+    }
+
+    func prepareSignOut() async {
+        beginSignOutPreparation()
+        await signOutPreparationTask?.value
     }
 
     /// Uses auth's captured tokens to revoke the exact preparation made before clear.
@@ -109,9 +113,16 @@ final class MobileHostIrohRuntime {
     ) async {
         observedAccountID = nil
         if let signOutPreparationTask {
-            await signOutPreparationTask.value
+            guard await cancellationAwareWait(for: signOutPreparationTask) else {
+                return
+            }
         } else if preparedSignOut == nil {
-            await prepareSignOut()
+            beginSignOutPreparation()
+            if let signOutPreparationTask {
+                guard await cancellationAwareWait(for: signOutPreparationTask) else {
+                    return
+                }
+            }
         }
         defer {
             signOutIntentActive = false
@@ -158,6 +169,29 @@ final class MobileHostIrohRuntime {
                 "Iroh binding revoke failed: \(String(describing: error), privacy: .private)"
             )
         }
+    }
+
+    private func cancellationAwareWait(
+        for operation: Task<Void, Never>
+    ) async -> Bool {
+        let stream = AsyncStream<Void> { continuation in
+            let waiter = Task { @MainActor in
+                await operation.value
+                guard !Task.isCancelled else {
+                    continuation.finish()
+                    return
+                }
+                continuation.yield()
+                continuation.finish()
+            }
+            continuation.onTermination = { @Sendable _ in
+                waiter.cancel()
+            }
+        }
+        for await _ in stream {
+            return true
+        }
+        return false
     }
 
     @discardableResult

@@ -4,20 +4,20 @@ import Testing
 @Suite
 struct MobileSignOutHookTests {
     @Test
-    func localPreparationCompletesBeforeCapturedTokenTeardown() async {
+    @MainActor
+    func beginReturnsCapturedTokenTeardownSynchronously() async {
         let recorder = MobileSignOutHookRecorder()
         let hook = MobileSignOutHook {
-            await recorder.record("local")
             return { accessToken, refreshToken in
                 await recorder.record("remote:\(accessToken ?? "nil"):\(refreshToken ?? "nil")")
             }
         }
 
-        let teardown = await hook.prepare()
-        #expect(await recorder.values() == ["local"])
+        let teardown = hook.begin()
+        #expect(await recorder.values().isEmpty)
 
         await teardown("access", "refresh")
-        #expect(await recorder.values() == ["local", "remote:access:refresh"])
+        #expect(await recorder.values() == ["remote:access:refresh"])
     }
 }
 

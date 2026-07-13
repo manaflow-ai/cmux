@@ -476,7 +476,7 @@ struct CMUXMobileRootView: View {
             // (push-token DELETE, Stack session revocation).
             didAuthenticateWithAttachTicket = false
             store.signOut()
-            let serverTeardown = await signOutHook.prepare()
+            let serverTeardown = signOutHook.begin()
             await authManager.signOut(onSignedOut: serverTeardown)
         }
     }

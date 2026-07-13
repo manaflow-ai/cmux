@@ -2,16 +2,16 @@ import Foundation
 
 @MainActor
 final class HostBrowserSignOutCoordinator {
-    private let prepareForSignOut: @Sendable () async -> Void
+    private let beginSignOut: @MainActor @Sendable () -> Void
     private let signOut: @Sendable () async -> Void
     private var nextOperationID: UInt64 = 0
     private var activeOperation: (id: UInt64, task: Task<Void, Never>)?
 
     init(
-        prepareForSignOut: @escaping @Sendable () async -> Void,
+        beginSignOut: @escaping @MainActor @Sendable () -> Void,
         signOut: @escaping @Sendable () async -> Void
     ) {
-        self.prepareForSignOut = prepareForSignOut
+        self.beginSignOut = beginSignOut
         self.signOut = signOut
     }
 
@@ -28,8 +28,8 @@ final class HostBrowserSignOutCoordinator {
         }
         nextOperationID &+= 1
         let operationID = nextOperationID
-        let task = Task { @MainActor [prepareForSignOut, signOut] in
-            await prepareForSignOut()
+        let task = Task { @MainActor [beginSignOut, signOut] in
+            beginSignOut()
             await signOut()
         }
         activeOperation = (operationID, task)
