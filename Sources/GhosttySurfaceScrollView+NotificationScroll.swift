@@ -49,18 +49,19 @@ extension GhosttySurfaceScrollView {
             notificationScrollRestorePhase = .idle
             return false
         }
+        let restoreScrollbar = scrollbarForNotificationScrollRestore(
+            position,
+            liveScrollbar: authoritativeSnapshot?.scrollbar ?? surfaceView.scrollbar
+        )
         switch notificationScrollRestoreDecision(
             position,
-            scrollbar: scrollbarForNotificationScrollRestore(
-                position,
-                liveScrollbar: authoritativeSnapshot?.scrollbar ?? surfaceView.scrollbar
-            )
+            scrollbar: restoreScrollbar
         ) {
         case .waitForViewport:
             return true
         case .perform(let target):
             notificationScrollRestorePhase = .idle
-            guard performNotificationScrollRestore(target) else {
+            guard performNotificationScrollRestore(target, scrollbar: restoreScrollbar) else {
                 notificationScrollRestorePhase = .pending(
                     position,
                     sessionScrollbackReplayCompletionMarker: nil
@@ -214,7 +215,10 @@ extension GhosttySurfaceScrollView {
         return surfaceView.flushPendingScrollbarIfAvailable()
     }
 
-    private func performNotificationScrollRestore(_ target: TerminalNotificationScrollRestoreTarget) -> Bool {
+    func performNotificationScrollRestore(
+        _ target: TerminalNotificationScrollRestoreTarget,
+        scrollbar: GhosttyScrollbar?
+    ) -> Bool {
         allowExplicitScrollbarSync = true
         let didRestore: Bool
         switch target {
@@ -224,8 +228,12 @@ extension GhosttySurfaceScrollView {
                 userScrolledAwayFromBottom = false
             }
         case .absoluteRow(let targetTopRow):
-            let currentTotalRows = Int(clamping: surfaceView.scrollbar?.total ?? 0)
-            let currentVisibleRows = min(currentTotalRows, Int(clamping: surfaceView.scrollbar?.len ?? 0))
+            guard let scrollbar else {
+                allowExplicitScrollbarSync = false
+                return false
+            }
+            let currentTotalRows = Int(clamping: scrollbar.total)
+            let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
             let currentLastTopRow = currentTotalRows - currentVisibleRows
             didRestore = surfaceView.performBindingAction("scroll_to_row:\(targetTopRow)", recordsExplicitInput: false)
             if didRestore {
