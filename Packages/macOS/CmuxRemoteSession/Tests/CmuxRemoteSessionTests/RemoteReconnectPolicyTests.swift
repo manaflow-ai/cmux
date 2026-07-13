@@ -1,3 +1,6 @@
+import CmuxCore
+import CmuxRemoteDaemon
+import CmuxRemoteWorkspace
 import Foundation
 import Testing
 @testable import CmuxRemoteSession
@@ -99,6 +102,80 @@ struct RemoteReconnectPolicyTests {
         #expect(
             third.decision == .suspend,
             "Once the streak reaches the threshold again the loop must suspend."
+        )
+    }
+
+    @Test("System wake re-arms a suspended coordinator with fresh backoff")
+    func systemWakeRearmsSuspendedCoordinator() {
+        let provider = IntentionalCleanupTestTunnelProvider()
+        let coordinator = makeCoordinator(
+            broker: RemoteProxyBroker(tunnelProvider: provider)
+        )
+        defer {
+            coordinator.stop()
+            coordinator.queue.sync {}
+            provider.tunnel.stop()
+        }
+        coordinator.queue.sync {
+            coordinator.isSystemSleeping = true
+            coordinator.reconnectRetryCount = 8
+            coordinator.consecutiveUnreachableProbeCount = policy.maxConsecutiveUnreachableProbes
+            coordinator.reconnectSuspended = true
+        }
+
+        coordinator.resetReconnectPolicyAndReconnect(reason: "test wake")
+        coordinator.queue.sync {}
+
+        let state = coordinator.queue.sync {
+            (
+                coordinator.isSystemSleeping,
+                coordinator.reconnectRetryCount,
+                coordinator.consecutiveUnreachableProbeCount,
+                coordinator.reconnectSuspended,
+                coordinator.reconnectToken
+            )
+        }
+        #expect(!state.0)
+        #expect(state.1 == 1)
+        #expect(state.2 == 0)
+        #expect(!state.3)
+        #expect(state.4 != nil)
+    }
+
+    private func makeCoordinator(broker: RemoteProxyBroker) -> RemoteSessionCoordinator {
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "user@example.test",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-test"
+        )
+        return RemoteSessionCoordinator(
+            host: IntentionalCleanupTestHost(),
+            configuration: configuration,
+            proxyBroker: broker,
+            manifestRepository: RemoteDaemonManifestRepository(
+                homeDirectory: FileManager.default.temporaryDirectory
+            ),
+            processRunner: IntentionalCleanupUnusedProcessRunner(),
+            reachabilityProbe: IntentionalCleanupNoopReachabilityProbe(),
+            relayCommandRewriter: IntentionalCleanupRelayCommandRewriter(),
+            buildInfo: IntentionalCleanupBuildInfo(),
+            daemonStrings: RemoteDaemonStrings(
+                missingPersistentPTYCapability: "",
+                missingRequiredFunctionality: ""
+            ),
+            strings: RemoteSessionStrings(
+                connectedVMNoProxyFormat: "%@",
+                suspendedDetailFormat: "%@"
+            )
         )
     }
 }

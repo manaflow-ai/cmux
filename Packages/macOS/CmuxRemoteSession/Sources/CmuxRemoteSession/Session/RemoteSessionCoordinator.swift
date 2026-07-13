@@ -116,6 +116,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var reconnectToken: UUID?
     var consecutiveUnreachableProbeCount = 0
     var reconnectSuspended = false
+    var isSystemSleeping = false
     var reachabilityProbeGeneration: UInt64 = 0
     var heartbeatCount: Int = 0
     var connectionAttemptStartedAt: Date?
