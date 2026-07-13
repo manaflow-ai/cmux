@@ -1268,6 +1268,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7332C080000000000000001 /* SharedLiveAgentIndex+RefreshGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C080000000000000002 /* SharedLiveAgentIndex+RefreshGeneration.swift */; };
 		F73320000000000000000016 /* SharedLiveAgentIndex+RefreshOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000015 /* SharedLiveAgentIndex+RefreshOutcome.swift */; };
 		D7332C070000000000000001 /* SharedLiveAgentIndex+RefreshPublication.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C070000000000000002 /* SharedLiveAgentIndex+RefreshPublication.swift */; };
+		D7332C0E0000000000000001 /* SharedLiveAgentIndex+ResumeAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C0E0000000000000002 /* SharedLiveAgentIndex+ResumeAuthority.swift */; };
 		F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */; };
 		F0ACC0DF0000000000000001 /* SharedLiveAgentIndexAgentLivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */; };
 		D7332D030000000000000001 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332D030000000000000002 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift */; };
@@ -3040,6 +3041,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7332C080000000000000002 /* SharedLiveAgentIndex+RefreshGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+RefreshGeneration.swift"; sourceTree = "<group>"; };
 		F73320000000000000000015 /* SharedLiveAgentIndex+RefreshOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+RefreshOutcome.swift"; sourceTree = "<group>"; };
 		D7332C070000000000000002 /* SharedLiveAgentIndex+RefreshPublication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+RefreshPublication.swift"; sourceTree = "<group>"; };
+		D7332C0E0000000000000002 /* SharedLiveAgentIndex+ResumeAuthority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+ResumeAuthority.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndex.swift; sourceTree = "<group>"; };
 		F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexAgentLivenessTests.swift; sourceTree = "<group>"; };
 		D7332D030000000000000002 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexFingerprintInvalidationTests.swift; sourceTree = "<group>"; };
@@ -4740,6 +4742,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7332C060000000000000002 /* SharedLiveAgentIndex+RefreshFreshness.swift */,
 				D7332C070000000000000002 /* SharedLiveAgentIndex+RefreshPublication.swift */,
 				D7332C080000000000000002 /* SharedLiveAgentIndex+RefreshGeneration.swift */,
+				D7332C0E0000000000000002 /* SharedLiveAgentIndex+ResumeAuthority.swift */,
 				D7332C090000000000000002 /* SharedLiveAgentIndexRefreshGeneration+Phase.swift */,
 				F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */,
 				D7332C0A0000000000000002 /* TerminationResumeIndexCoordinator.swift */,
@@ -6590,6 +6593,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7332C080000000000000001 /* SharedLiveAgentIndex+RefreshGeneration.swift in Sources */,
 				F73320000000000000000016 /* SharedLiveAgentIndex+RefreshOutcome.swift in Sources */,
 				D7332C070000000000000001 /* SharedLiveAgentIndex+RefreshPublication.swift in Sources */,
+				D7332C0E0000000000000001 /* SharedLiveAgentIndex+ResumeAuthority.swift in Sources */,
 				F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */,
 				F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */,
 				D7332C090000000000000001 /* SharedLiveAgentIndexRefreshGeneration+Phase.swift in Sources */,

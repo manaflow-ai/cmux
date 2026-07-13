@@ -14,6 +14,7 @@ extension SharedLiveAgentIndex {
                || generation.phase == .queued {
             if cachedResultToValidate == nil {
                 generation.cachedResultToValidate = nil
+                generation.cachedResultRevision = nil
             }
             generation.publication.include(publication)
             if let panelKey {
@@ -37,7 +38,7 @@ extension SharedLiveAgentIndex {
             pendingForkValidationGenerationByPanelID[panelKey.panelId] = generationID
         }
 
-        refreshGenerationsByID[generationID] = RefreshGeneration(
+        var generation = RefreshGeneration(
             id: generationID,
             ordinal: nextRefreshOrdinal,
             phase: .queued,
@@ -45,6 +46,10 @@ extension SharedLiveAgentIndex {
             validationPanelsByPanelID: validationPanelsByPanelID,
             cachedResultToValidate: cachedResultToValidate
         )
+        if cachedResultToValidate != nil {
+            generation.cachedResultRevision = resumeAuthorityRevision
+        }
+        refreshGenerationsByID[generationID] = generation
         let task = Task { @MainActor [weak self] () -> LoadResult? in
             guard let self else { return nil }
             return await self.consumeRefreshOutcome(generationID: generationID)
@@ -68,13 +73,29 @@ extension SharedLiveAgentIndex {
             self.refreshGenerationsByID[generationID] = generation
             self.capturingGenerationIDs.insert(generationID)
 
-            let workResult = await self.performRefreshWork(
-                validating: generation.cachedResultToValidate
-            )
+            let cachedResult = generation.cachedResultToValidate
+            let cachedResultMatches = await self.cachedResultMatchesCurrentProcessScope(cachedResult)
+            let currentGeneration = self.refreshGenerationsByID[generationID]
+            let ownsCachedAuthority = currentGeneration?.phase == .capturing
+                && currentGeneration?.cachedResultToValidate != nil
+                && currentGeneration?.cachedResultRevision == self.resumeAuthorityRevision
+                && generation.ordinal >= self.latestCompletedOrdinal
+            let reusesCachedResult = cachedResultMatches && ownsCachedAuthority
+            if cachedResult != nil,
+               !cachedResultMatches,
+               ownsCachedAuthority {
+                self.invalidateAllCachedResults()
+            }
+            let result: LoadResult
+            if reusesCachedResult, let cachedResult {
+                result = cachedResult
+            } else {
+                result = await self.loadIndex()
+            }
             self.completeRefresh(
                 generationID: generationID,
-                result: workResult.result,
-                preservingPublishedForkValidations: workResult.reusedCachedResult
+                result: result,
+                preservingPublishedForkValidations: reusesCachedResult
             )
         }
         refreshWorkTasksByID[generationID] = workTask
@@ -108,7 +129,9 @@ extension SharedLiveAgentIndex {
 
     private func handleRefreshTimeout(generationID: UUID) {
         guard var generation = refreshGenerationsByID[generationID] else { return }
-        if generation.cachedResultToValidate != nil {
+        if generation.cachedResultToValidate != nil,
+           generation.cachedResultRevision == resumeAuthorityRevision,
+           generation.ordinal >= latestCompletedOrdinal {
             invalidateAllCachedResults()
         }
         if generation.phase == .queued {
@@ -139,28 +162,23 @@ extension SharedLiveAgentIndex {
         drainPendingHookStoreChangeIfPossible()
     }
 
-    private func performRefreshWork(
-        validating cachedResult: LoadResult?
-    ) async -> (result: LoadResult, reusedCachedResult: Bool) {
-        let indexLoader = self.indexLoader
-        guard let cachedResult else {
-            let result = await Task.detached(priority: .utility) {
-                indexLoader()
-            }.value
-            return (result, false)
-        }
+    private func cachedResultMatchesCurrentProcessScope(
+        _ cachedResult: LoadResult?
+    ) async -> Bool {
+        guard let cachedResult else { return false }
         let processScopeFingerprintProvider = self.processScopeFingerprintProvider
         let currentProcessScopeFingerprint = await Task.detached(priority: .utility) {
             processScopeFingerprintProvider()
         }.value
-        guard cachedResult.processScopeFingerprint != currentProcessScopeFingerprint else {
-            return (cachedResult, true)
-        }
-        invalidateAllCachedResults()
+        return cachedResult.processScopeFingerprint == currentProcessScopeFingerprint
+    }
+
+    private func loadIndex() async -> LoadResult {
+        let indexLoader = self.indexLoader
         let result = await Task.detached(priority: .utility) {
             indexLoader()
         }.value
-        return (result, false)
+        return result
     }
 
     private func completeRefresh(

@@ -26,6 +26,8 @@ final class SharedLiveAgentIndex {
     var refreshTailID: UUID?
     var nextRefreshOrdinal: UInt64 = 0
     var latestCompletedOrdinal: UInt64 = 0
+    // Monotonic token that revokes in-flight warm-cache validation claims.
+    var resumeAuthorityRevision: UInt64 = 0
     var pendingForkValidationGenerationByPanelID: [UUID: UUID] = [:]
     private var validatedForkPanelProbeCompletedAt: [PanelKey: Date] = [:]
     private var validatedForkPanels = Set<PanelKey>()
@@ -215,73 +217,6 @@ final class SharedLiveAgentIndex {
         return await task.value?.index
     }
 
-    /// Returns combined indexes from a generation whose physical capture starts after this request.
-    func resumeIndexesCapturedAfterRequest() async -> ProcessDetectedResumeIndexes? {
-        ensureWatchingHookStoreDirectory()
-        let task = requestRefresh(
-            freshness: .captureAfterRequest,
-            publication: .scoped,
-            validating: nil
-        )
-        guard let result = await task.value else { return nil }
-        return ProcessDetectedResumeIndexes(result)
-    }
-
-    /// Returns a recent combined result, joins the active generation, or starts one when stale.
-    func resumeIndexesRefreshingIfNeeded(
-        maximumAge: TimeInterval = 60
-    ) async -> ProcessDetectedResumeIndexes? {
-        ensureWatchingHookStoreDirectory()
-        while true {
-            if refreshTailID != nil {
-                let task = requestRefresh(
-                    freshness: .joinCurrentGeneration,
-                    publication: .scoped,
-                    validating: nil
-                )
-                return await task.value.map(ProcessDetectedResumeIndexes.init)
-            }
-            guard case .some = latestCompletedLoadResult,
-                  let latestCompletedAt,
-                  dateProvider().timeIntervalSince(latestCompletedAt) < maximumAge else {
-                break
-            }
-            guard let currentResult = latestCompletedLoadResult else { continue }
-            let validationTask = requestRefresh(
-                freshness: .joinCurrentGeneration,
-                publication: .scoped,
-                validating: nil,
-                cachedResultToValidate: currentResult
-            )
-            guard let validatedResult = await validationTask.value else {
-                invalidateAllCachedResults()
-                return nil
-            }
-            guard refreshTailID == nil else { continue }
-            return ProcessDetectedResumeIndexes(validatedResult)
-        }
-        let task = requestRefresh(
-            freshness: .joinCurrentGeneration,
-            publication: .scoped,
-            validating: nil
-        )
-        if let result = await task.value {
-            return ProcessDetectedResumeIndexes(result)
-        }
-        return nil
-    }
-
-    /// Returns the newest completed coordinated capture immediately on the main actor.
-    func cachedResumeIndexes() -> ProcessDetectedResumeIndexes? {
-        latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
-    }
-
-    /// Returns the newest completed coordinated capture and schedules a refresh if stale.
-    func currentResumeIndexesSchedulingRefresh() -> ProcessDetectedResumeIndexes? {
-        scheduleRefreshIfStale()
-        return cachedResumeIndexes()
-    }
-
     func scheduleRefreshIfStale(
         validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil
     ) {
@@ -346,6 +281,7 @@ final class SharedLiveAgentIndex {
     }
 
     func invalidateCachedResumeIndexes() {
+        resumeAuthorityRevision &+= 1
         latestCompletedLoadResult = nil
         latestCompletedAt = nil
     }
@@ -468,7 +404,7 @@ final class SharedLiveAgentIndex {
         }
     }
 
-    private func ensureWatchingHookStoreDirectory() {
+    func ensureWatchingHookStoreDirectory() {
         guard directoryWatchSource == nil else { return }
         let dir = hookStoreDirectoryProvider()
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
