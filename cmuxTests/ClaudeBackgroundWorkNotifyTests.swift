@@ -205,6 +205,42 @@ struct ClaudeBackgroundWorkNotifyTests {
                 "Permission-cue notification without notification_type must tag needs-permission; saw \(context.state.snapshot())")
     }
 
+    @Test func nestedNotificationPreferenceCanAllowDeliveryWithoutVisibleOwnership() throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "notif-child-opt-in")
+        defer { context.cleanup() }
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-notif-child-opt-in",
+            ttySurfaceId: context.surfaceId
+        )
+        var environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: "ttys-notif-child-opt-in",
+            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+        )
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "1"
+        environment["CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"] = "0"
+        let result = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "notification"],
+            environment: environment,
+            standardInput: #"{"session_id":"notif-child-opt-in-session","cwd":"/tmp/x","hook_event_name":"Notification","message":"Child needs your permission","notification_type":"permission_prompt"}"#,
+            timeout: 5
+        )
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        harness.assertSuccessfulHook(result)
+        let snapshot = context.state.snapshot()
+        #expect(notifyLine(snapshot, containing: "c=needs-permission;p=0") != nil,
+                "Explicit opt-in must deliver nested notifications; saw \(snapshot)")
+        #expect(!snapshot.contains { $0.hasPrefix("set_status claude_code ") },
+                "Nested notification delivery must not claim the root status; saw \(snapshot)")
+        #expect(!snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code ") },
+                "Nested notification delivery must not claim the root lifecycle; saw \(snapshot)")
+    }
+
     @Test func idlePromptAfterPendingStopReadsCachedPending() throws {
         // Stop (pending) then idle_prompt on the SAME session: the idle nag must
         // inherit the cached pending flag because its payload lacks background_tasks.

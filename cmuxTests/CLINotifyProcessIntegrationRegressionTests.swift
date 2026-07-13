@@ -3290,6 +3290,107 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(child["foregroundState"] as? String, "completed")
     }
 
+    func testManagedCodexSubagentStopCanNotifyWithoutTakingVisibleOwnership() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-notify-opt-in")
+        defer { context.cleanup() }
+
+        let sessionId = "managed-child-notify-session"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "0",
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Explicit opt-in should deliver the child completion notification, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains {
+                $0.hasPrefix("set_status codex ")
+                    || $0.hasPrefix("set_agent_lifecycle codex ")
+                    || self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "Notification opt-in must not grant the child visible ownership, saw \(context.state.commands)"
+        )
+    }
+
+    func testManagedCodexSubagentNotificationCanDeliverWithoutUpdatingRootState() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-notification-opt-in")
+        defer { context.cleanup() }
+
+        let sessionId = "managed-child-notification-session"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "notification",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"child needs input","notification_type":"permission_prompt"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "0",
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Explicit opt-in should deliver the child alert, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains {
+                $0.hasPrefix("set_status codex ")
+                    || $0.hasPrefix("set_agent_lifecycle codex ")
+                    || self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "Child alert delivery must not update root-visible state, saw \(context.state.commands)"
+        )
+    }
+
+    func testManagedCodexSubagentNotificationIsSuppressedByDefault() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-notification-default")
+        defer { context.cleanup() }
+
+        let sessionId = "managed-child-notification-default"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "notification",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"child needs input","notification_type":"permission_prompt"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(
+            context.state.commands.contains {
+                $0.hasPrefix("notify_target")
+                    || $0.hasPrefix("set_status codex ")
+                    || $0.hasPrefix("set_agent_lifecycle codex ")
+                    || self.jsonObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "Default child policy should suppress alerts and visible ownership, saw \(context.state.commands)"
+        )
+    }
+
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-relay")
         defer { context.cleanup() }
