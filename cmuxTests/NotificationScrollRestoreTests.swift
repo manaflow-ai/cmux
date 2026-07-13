@@ -79,6 +79,20 @@ struct NotificationScrollRestoreTests {
         #expect(surfaceView.bindingActions == ["scroll_to_row:218"])
     }
 
+    @Test func notificationWithoutPositionSupersedesPendingRestore() {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 400, offset: 218, visible: 0)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(!hostedView.restoreNotificationScrollPosition(nil))
+        postScrollbar(total: 400, offset: 218, visible: 44, to: surfaceView)
+        #expect(surfaceView.bindingActions.isEmpty)
+        #expect(hostedView.notificationScrollRestorePhase == .idle)
+    }
+
     @Test func restoreWaitsForCapturedRowsDuringReplay() {
         let surfaceView = ActionProbeView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 200, offset: 156, visible: 44)
@@ -160,6 +174,31 @@ struct NotificationScrollRestoreTests {
         ))
         #expect(panel.hostedView.notificationScrollRestorePhase == .idle)
         #expect(SessionScrollbackReplayCompletionMarker.isReservedReportedDirectory(marker.reportedDirectory))
+    }
+
+    @Test func pasteAndTextBoxInputCancelPendingRestore() {
+        let workspaceID = UUID()
+        let surface = TerminalSurface(
+            tabId: workspaceID,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let panel = TerminalPanel(workspaceId: workspaceID, surface: surface)
+        let marker = completionMarker(named: "replay-input")
+
+        panel.hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        _ = panel.hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        )
+        _ = panel.hostedView.surfaceView.prepareSurfaceForPaste(reason: "test")
+        #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
+
+        _ = panel.hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        )
+        _ = surface.sendText("textbox submission")
+        #expect(panel.hostedView.notificationScrollRestorePhase == .sessionScrollbackReplayActive(marker))
     }
 
     @Test func zshReplayEmitsOrderedCompletionMarker() throws {

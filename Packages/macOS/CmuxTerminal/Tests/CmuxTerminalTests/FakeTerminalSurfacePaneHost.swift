@@ -26,6 +26,7 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
     }
 
     func cancelFocusRequest() {}
+    func noteExplicitInput() {}
     func setVisibleInUI(_ visible: Bool) {}
     func setActive(_ active: Bool) {}
     func syncKeyStateIndicator(text: String?) {}

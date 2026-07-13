@@ -36,6 +36,7 @@ extension TerminalSurface {
     @discardableResult
     public func sendText(_ text: String) -> Bool {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
+        paneHost.noteExplicitInput()
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return false }
             let queued = enqueuePendingSocketInput(.pasteText(data))
@@ -61,6 +62,7 @@ extension TerminalSurface {
     @discardableResult
     public func sendKeyText(_ text: String) -> Bool {
         guard !text.isEmpty else { return true }
+        paneHost.noteExplicitInput()
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendKeyText") else {
             return false
         }
@@ -85,6 +87,7 @@ extension TerminalSurface {
     @discardableResult
     public func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
+        paneHost.noteExplicitInput()
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
@@ -143,6 +146,7 @@ extension TerminalSurface {
     @discardableResult
     public func sendInputResult(_ text: String) -> InputSendResult {
         guard !text.isEmpty else { return .sent }
+        paneHost.noteExplicitInput()
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(text)

@@ -295,7 +295,7 @@ extension GhosttySurfaceCallbackContext {
 // The surface model drives its views through the CmuxTerminal hosting seams;
 // the concrete view classes conform here.
 extension GhosttyNSView: TerminalSurfaceNativeViewing {}
-extension GhosttySurfaceScrollView: TerminalSurfacePaneHosting {}
+extension GhosttySurfaceScrollView: TerminalSurfacePaneHosting { func noteExplicitInput() { cancelPendingNotificationScrollRestore() } }
 
 extension TerminalSurface {
     /// Concrete-typed convenience over ``TerminalSurface/paneHost`` for app
@@ -4285,7 +4285,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     func prepareSurfaceForPaste(reason: String) -> Bool {
-        guard ensureSurfaceReadyForInput() != nil else {
+        terminalSurface?.paneHost.noteExplicitInput(); guard ensureSurfaceReadyForInput() != nil else {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
         }
@@ -5652,7 +5652,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
-        MainActor.assumeIsolated { terminalSurface?.hostedView.cancelPendingNotificationScrollRestore() }
+        terminalSurface?.paneHost.noteExplicitInput()
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -11524,7 +11524,7 @@ extension GhosttyNSView: NSTextInputClient {
     /// execution, etc.). Programmatic callers can preserve literal ESC bytes so
     /// automation payloads remain byte-for-byte stable.
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
-        guard let surface = ensureSurfaceReadyForInput() else { return }
+        terminalSurface?.paneHost.noteExplicitInput(); guard let surface = ensureSurfaceReadyForInput() else { return }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
 #endif
