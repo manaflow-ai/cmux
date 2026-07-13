@@ -35,7 +35,7 @@ extension PhonePushPayload {
             subtitle: notification.subtitle,
             body: notification.body,
             workspaceId: notification.tabId.uuidString,
-            surfaceId: notification.surfaceId?.uuidString,
+            surfaceId: notification.retargetsToLiveSurfaceOwner ? notification.surfaceId?.uuidString : nil,
             macDeviceId: macDeviceId,
             notificationId: notification.id.uuidString,
             notificationIds: [],
