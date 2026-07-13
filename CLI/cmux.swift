@@ -306,7 +306,7 @@ final class ClaudeHookSessionStore {
                terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                 return (staleTerminalTurn: true, nested: false)
             }
-            update(
+            guard update(
                 &record,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -323,7 +323,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
-            )
+            ) else { return (staleTerminalTurn: false, nested: false) }
             appendAutoNameMessages(autoNameMessages, to: &record)
             if let normalizedTurnId {
                 markPromptTurnActive(normalizedTurnId, on: &record)
@@ -411,7 +411,7 @@ final class ClaudeHookSessionStore {
             )
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             let depthAfterStop = max(0, depthBeforeStop - 1)
-            update(
+            guard update(
                 &record,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -428,7 +428,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
-            )
+            ) else { return false }
             appendAutoNameMessages(autoNameMessages, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
             if let normalizedTurnId {
@@ -576,7 +576,7 @@ final class ClaudeHookSessionStore {
                 startedAt: now,
                 updatedAt: now
             )
-            update(
+            guard update(
                 &record,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -594,7 +594,7 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
                 now: now
-            )
+            ) else { return }
             state.sessions[normalized] = record
             if markActive {
                 let activeRecord = ClaudeHookActiveSessionRecord(
@@ -641,7 +641,7 @@ final class ClaudeHookSessionStore {
                 return false
             }
             clearCodexSessionStartTurnState(on: &record)
-            update(
+            guard update(
                 &record,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -658,7 +658,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
-            )
+            ) else { return false }
             state.sessions[normalized] = record
             return true
         }
@@ -690,7 +690,7 @@ final class ClaudeHookSessionStore {
                terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                 return false
             }
-            update(
+            guard update(
                 &record,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -707,7 +707,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: .running,
                 updateRuntimeStatus: true,
                 now: now
-            )
+            ) else { return false }
             state.sessions[normalized] = record
             return true
         }
@@ -761,7 +761,7 @@ final class ClaudeHookSessionStore {
                 surfaceId: surfaceId,
                 now: now
             )
-            update(
+            guard update(
                 &record,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -778,7 +778,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: runtimeStatus != nil,
                 now: now
-            )
+            ) else { return }
             record.lastSubtitle = nil
             record.lastBody = nil
             record.lastNotificationStatus = nil
@@ -947,6 +947,7 @@ final class ClaudeHookSessionStore {
         return String(value[..<index]) + "…"
     }
 
+    @discardableResult
     private func update(
         _ record: inout ClaudeHookSessionRecord,
         workspaceId: String,
@@ -965,7 +966,21 @@ final class ClaudeHookSessionStore {
         updateRuntimeStatus: Bool,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
         now: TimeInterval
-    ) {
+    ) -> Bool {
+        let effectivePID = pid ?? record.pid
+        let lineage = lineageResolver.resolve(
+            agentName: agentName,
+            sessionId: record.sessionId,
+            pid: effectivePID,
+            environment: processEnv
+        )
+        guard AgentHookSessionActivationPolicy().canActivate(
+            record: record,
+            lineage: lineage,
+            hasIncomingPID: pid != nil
+        ) else {
+            return false
+        }
         record.workspaceId = workspaceId
         if !surfaceId.isEmpty {
             record.surfaceId = surfaceId
@@ -1017,62 +1032,30 @@ final class ClaudeHookSessionStore {
         }
         record.completedAt = nil
         record.sessionState = .active
-        recordSessionRun(&record, pid: pid ?? record.pid, now: now)
+        recordSessionRun(&record, lineage: lineage, now: now)
         record.updatedAt = now
+        return true
     }
 
     private func recordSessionRun(
         _ record: inout ClaudeHookSessionRecord,
-        pid: Int?,
+        lineage: AgentHookSessionLineage,
         now: TimeInterval
     ) {
-        let lineage = lineageResolver.resolve(
-            agentName: agentName,
-            sessionId: record.sessionId,
-            pid: pid,
-            environment: processEnv
+        let runs = AgentSessionRunReconciler(maximumRecords: Self.maxRunsPerSession).reconciling(
+            record.runs ?? [],
+            activeRunId: record.activeRunId,
+            lineage: lineage,
+            now: now
         )
-        var runs = record.runs ?? []
-        if let previousActiveRunId = record.activeRunId,
-           previousActiveRunId != lineage.runId,
-           let previousIndex = runs.firstIndex(where: { $0.runId == previousActiveRunId && $0.endedAt == nil }) {
-            runs[previousIndex].endedAt = now
-            runs[previousIndex].updatedAt = now
-        }
-        if let index = runs.firstIndex(where: { $0.runId == lineage.runId }) {
-            runs[index].pid = lineage.pid ?? runs[index].pid
-            runs[index].processStartedAt = lineage.processStartedAt ?? runs[index].processStartedAt
-            runs[index].parentRunId = lineage.parentRunId ?? runs[index].parentRunId
-            runs[index].parentSessionId = lineage.parentSessionId ?? runs[index].parentSessionId
-            runs[index].relationship = lineage.relationship ?? runs[index].relationship
-            runs[index].restoreAuthority = runs[index].restoreAuthority || lineage.restoreAuthority
-            runs[index].updatedAt = now
-        } else {
-            runs.append(AgentSessionRunRecord(
-                runId: lineage.runId,
-                pid: lineage.pid,
-                processStartedAt: lineage.processStartedAt,
-                parentRunId: lineage.parentRunId,
-                parentSessionId: lineage.parentSessionId,
-                relationship: lineage.relationship,
-                restoreAuthority: lineage.restoreAuthority,
-                startedAt: now,
-                updatedAt: now
-            ))
-        }
-        if runs.count > Self.maxRunsPerSession {
-            let active = runs.filter { $0.endedAt == nil }
-            let ended = runs.filter { $0.endedAt != nil }
-                .sorted { $0.updatedAt > $1.updatedAt }
-            runs = active + Array(ended.prefix(max(0, Self.maxRunsPerSession - active.count)))
-        }
         record.runs = runs
         record.activeRunId = lineage.runId
         record.runId = lineage.runId
-        record.parentRunId = lineage.parentRunId
-        record.restoreAuthority = record.restoreAuthority == true || lineage.restoreAuthority
-        record.parentSessionId = lineage.parentSessionId ?? record.parentSessionId
-        record.relationship = lineage.relationship ?? record.relationship
+        let activeRun = runs.first { $0.runId == lineage.runId }
+        record.parentRunId = activeRun?.parentRunId
+        record.restoreAuthority = activeRun?.restoreAuthority ?? false
+        record.parentSessionId = activeRun?.parentSessionId
+        record.relationship = activeRun?.relationship
     }
 
     func clearNotificationEmission(sessionId: String) throws {
@@ -1294,6 +1277,7 @@ final class ClaudeHookSessionStore {
         return try withLockedState { state in
             if let normalizedSessionId,
                let existing = state.sessions[normalizedSessionId] {
+                guard existing.completedAt == nil, existing.sessionState != .ended else { return nil }
                 guard !hasActiveTurnMismatch(state, record: existing, turnId: turnId) else {
                     return nil
                 }
@@ -1382,6 +1366,7 @@ final class ClaudeHookSessionStore {
         workspaceId: String?,
         surfaceId: String?
     ) -> ClaudeHookSessionRecord? {
+        let sessions = sessions.filter { $0.completedAt == nil && $0.sessionState != .ended }
         if let surfaceId {
             let matches = sessions.filter { $0.surfaceId == surfaceId }
             return matches.max(by: { $0.updatedAt < $1.updatedAt })

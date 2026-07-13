@@ -11,7 +11,12 @@ struct AgentSessionStateProjection: Sendable, Equatable {
 
     init(record: ClaudeHookSessionRecord, run: AgentSessionRunRecord) {
         let ended = run.endedAt != nil || record.completedAt != nil
-        process = ended ? .exited : (run.pid == nil ? .unknown : .alive)
+        process = ended
+            ? .exited
+            : AgentHookSessionLineageResolver().processState(
+                pid: run.pid,
+                expectedStartedAt: run.processStartedAt
+            )
         session = ended ? .ended : (record.sessionState ?? .active)
         foreground = record.foregroundState ?? Self.foreground(from: record.runtimeStatus)
         attention = record.attentionState ?? Self.attention(from: record.runtimeStatus)

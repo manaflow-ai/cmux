@@ -95,6 +95,7 @@
 		A78670230000000000000001 /* AgentSessionHibernationLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670230000000000000002 /* AgentSessionHibernationLifecycleTests.swift */; };
 		A9F20000000000000000001B /* AgentSessionInputWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000001B /* AgentSessionInputWriter.swift */; };
 		A9F200000000000000000004 /* AgentSessionLaunchPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000004 /* AgentSessionLaunchPlan.swift */; };
+		A78670300000000000000001 /* AgentSessionLifecycleAuthorityRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670300000000000000002 /* AgentSessionLifecycleAuthorityRegressionTests.swift */; };
 		A78670270000000000000001 /* AgentSessionLifecycleFlowDocumentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670270000000000000002 /* AgentSessionLifecycleFlowDocumentation.swift */; };
 		A9F20000000000000000000E /* AgentSessionOutputLineBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000000E /* AgentSessionOutputLineBuffer.swift */; };
 		A9E020000000000000000002 /* AgentSessionPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000002 /* AgentSessionPanel.swift */; };
@@ -1934,6 +1935,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A78670230000000000000002 /* AgentSessionHibernationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionHibernationLifecycleTests.swift; sourceTree = "<group>"; };
 		A9F10000000000000000001B /* AgentSessionInputWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionInputWriter.swift; sourceTree = "<group>"; };
 		A9F100000000000000000004 /* AgentSessionLaunchPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionLaunchPlan.swift; sourceTree = "<group>"; };
+		A78670300000000000000002 /* AgentSessionLifecycleAuthorityRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionLifecycleAuthorityRegressionTests.swift; sourceTree = "<group>"; };
 		A78670270000000000000002 /* AgentSessionLifecycleFlowDocumentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionLifecycleFlowDocumentation.swift; sourceTree = "<group>"; };
 		A9F10000000000000000000E /* AgentSessionOutputLineBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionOutputLineBuffer.swift; sourceTree = "<group>"; };
 		A9E010000000000000000002 /* AgentSessionPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionPanel.swift; sourceTree = "<group>"; };
@@ -5218,6 +5220,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */,
 				C0DE64950000000000000006 /* CMUXCLISessionsListTests.swift */,
 				A78670220000000000000002 /* AgentSessionCLIRegressionTests.swift */,
+				A78670300000000000000002 /* AgentSessionLifecycleAuthorityRegressionTests.swift */,
 				C0DE6495000000000000000A /* CMUXCLISessionsListForkDiagnosticsTests.swift */,
 					C0DE64970000000000000002 /* CMUXCLISessionsListOpenCodeTrustTests.swift */,
 					C0DE64970000000000000004 /* CMUXCLISessionsListProcessArgumentTests.swift */,
@@ -7131,6 +7134,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3610B020000000000000001 /* AgentSessionAutoResumeSwiftTests.swift in Sources */,
 					A78670220000000000000001 /* AgentSessionCLIRegressionTests.swift in Sources */,
 				A78670230000000000000001 /* AgentSessionHibernationLifecycleTests.swift in Sources */,
+				A78670300000000000000001 /* AgentSessionLifecycleAuthorityRegressionTests.swift in Sources */,
 				A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */,
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
 				725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,

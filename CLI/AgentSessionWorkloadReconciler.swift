@@ -49,8 +49,11 @@ struct AgentSessionWorkloadReconciler: Sendable {
 
     private func bounded(_ records: [AgentWorkloadRecord]) -> [AgentWorkloadRecord] {
         guard records.count > maximumRecords else { return records }
-        let active = records.filter { $0.phase.isActive }
+        let active = records.filter { $0.phase.isActive }.sorted { $0.updatedAt > $1.updatedAt }
+        if active.count >= maximumRecords {
+            return Array(active.prefix(maximumRecords))
+        }
         let inactive = records.filter { !$0.phase.isActive }.sorted { $0.updatedAt > $1.updatedAt }
-        return active + Array(inactive.prefix(max(0, maximumRecords - active.count)))
+        return active + Array(inactive.prefix(maximumRecords - active.count))
     }
 }

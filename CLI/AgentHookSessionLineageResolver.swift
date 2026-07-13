@@ -25,13 +25,30 @@ struct AgentHookSessionLineageResolver: Sendable {
         let explicitParentRunId = Self.normalized(environment["CMUX_CODEX_TEAMS_PARENT_THREAD_ID"])
 
         let identity = pid.flatMap(processIdentity)
-        let ancestor = pid.flatMap(nearestAgentAncestor)
+        let ancestorResolution = identity.map { agentAncestor(startingAt: $0.parentPID) } ?? .unknown
+        let ancestor = ancestorResolution.identity
         let runId = explicitRunId
             ?? identity.map(Self.runId)
             ?? "session:\(agentName):\(sessionId)"
         let parentRunId = explicitParentRunId ?? ancestor.map(Self.runId)
-        let isSpawnedChild = explicitRelationship != .forked && (managedChild || ancestor != nil)
-        let relationship = explicitRelationship ?? (isSpawnedChild ? .spawned : nil)
+        // Fork metadata is inherited like every other environment variable. It
+        // only describes the fork root while that process has no agent ancestor.
+        // Descendants must remain children even when they inherit `forked`.
+        let isForkRoot = explicitRelationship == .forked
+            && !managedChild
+            && identity != nil
+            && ancestorResolution.provesNoAgentAncestor
+        let isSpawnedChild = managedChild
+            || ancestor != nil
+            || explicitRelationship == .spawned
+            || (explicitRelationship == .forked && !isForkRoot)
+        let relationship: AgentSessionRelationship? = if isForkRoot {
+            .forked
+        } else if isSpawnedChild {
+            .spawned
+        } else {
+            explicitRelationship
+        }
 
         return AgentHookSessionLineage(
             runId: runId,
@@ -40,29 +57,53 @@ struct AgentHookSessionLineageResolver: Sendable {
             parentRunId: parentRunId,
             parentSessionId: parentSessionId,
             relationship: relationship,
-            // A semantic fork on a separate TTY is an independent root. Only
-            // same-process ancestry or an explicit managed-child marker removes
-            // restore authority.
+            // A semantic fork on a separate TTY is an independent root. Process
+            // ancestry, a managed-child marker, or an explicit spawned marker
+            // removes restore authority.
             restoreAuthority: !isSpawnedChild
         )
     }
 
-    private func nearestAgentAncestor(of pid: Int) -> AgentProcessIdentity? {
-        var candidate = parentPID(of: pid)
+    func processState(pid: Int?, expectedStartedAt: TimeInterval?) -> AgentProcessState {
+        guard let pid, let expectedStartedAt else { return .unknown }
+        guard let process = kernelProcessInfo(pid) else { return .exited }
+        let start = process.kp_proc.p_un.__p_starttime
+        let actualStartedAt = TimeInterval(start.tv_sec) + TimeInterval(start.tv_usec) / 1_000_000
+        return abs(actualStartedAt - expectedStartedAt) <= 0.001 ? .alive : .exited
+    }
+
+    private enum AgentAncestorResolution {
+        case found(AgentProcessIdentity)
+        case none
+        case unknown
+
+        var identity: AgentProcessIdentity? {
+            guard case let .found(identity) = self else { return nil }
+            return identity
+        }
+
+        var provesNoAgentAncestor: Bool {
+            if case .none = self { return true }
+            return false
+        }
+    }
+
+    private func agentAncestor(startingAt parentPID: Int) -> AgentAncestorResolution {
+        var candidate = parentPID
         var visited: Set<Int> = []
         var remaining = maximumAncestorDepth
         while candidate > 1, remaining > 0, visited.insert(candidate).inserted {
-            guard let identity = processIdentity(candidate) else { break }
+            guard let identity = processIdentity(candidate) else { return .unknown }
             if AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
                 processName: identity.executableName,
                 arguments: identity.arguments
             ) {
-                return identity
+                return .found(identity)
             }
             candidate = identity.parentPID
             remaining -= 1
         }
-        return nil
+        return candidate <= 1 ? .none : .unknown
     }
 
     private func processIdentity(_ pid: Int) -> AgentProcessIdentity? {
@@ -90,10 +131,6 @@ struct AgentHookSessionLineageResolver: Sendable {
             return nil
         }
         return process
-    }
-
-    private func parentPID(of pid: Int) -> Int {
-        kernelProcessInfo(pid).map { Int($0.kp_eproc.e_ppid) } ?? -1
     }
 
     private func executableName(_ pid: Int, arguments: [String]) -> String? {

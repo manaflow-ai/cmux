@@ -738,14 +738,13 @@ extension Workspace {
         // Prefer the warm cached agent index over a synchronous
         // `RestorableAgentSessionIndex.load()` (sysctl-per-record + disk, ~350ms-1.8s on
         // machines with large agent history) so closing a tab does not freeze the main
-        // thread. Fall back to a fresh load only when the cache has not loaded yet (the
-        // brief window after launch before the first refresh completes; the cache is
-        // prewarmed at launch so this is rare). A cached entry at most one refresh stale
+        // thread. An empty index is safer than a synchronous cold load before
+        // the prewarmed cache finishes. A cached entry at most one refresh stale
         // is acceptable here because restore prefers the always-fresh in-memory
         // resumeBinding and only consults this agent snapshot when no binding exists, so
         // cmux-launched agents reopen correctly regardless of cache freshness.
         let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            ?? RestorableAgentSessionIndex.load()
+            ?? .empty
         let restorableAgentObservation = agentIndex.entry(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
@@ -4533,6 +4532,15 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }
+        // Resume-state handlers can clear this binding on the same transition.
+        // Root-exit persistence must use the pre-transition owner snapshot.
+        let rootExitBinding = surfaceResumeBindingsByPanelId[panelId]
+        let rootExitCandidate = AgentHookSessionStateWriter.rootExitCandidate(
+            previousWasRunning: previousState == .commandRunning,
+            isPromptIdle: state == .promptIdle,
+            isHibernated: (panels[panelId] as? TerminalPanel)?.isAgentHibernated == true,
+            binding: rootExitBinding
+        )
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             updateRestoredAgentResumeState(
                 panelId: panelId,
@@ -4542,7 +4550,12 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
-        if state == .promptIdle { AgentHookSessionStateWriter.recordRootExitIfNeeded(binding: AgentHookSessionStateWriter.rootExitCandidate(previousWasRunning: previousState == .commandRunning, isPromptIdle: true, isHibernated: (panels[panelId] as? TerminalPanel)?.isAgentHibernated == true, binding: surfaceResumeBindingsByPanelId[panelId])) { clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) } }
+        if let rootExitCandidate {
+            markAgentRootExitLocally(panelId: panelId, binding: rootExitCandidate)
+            AgentHookSessionStateWriter.recordRootExitIfNeeded(binding: rootExitCandidate) {
+                clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
+            }
+        }
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +

@@ -44,19 +44,25 @@ extension CMUXCLI {
           --session <id>        Filter to one agent session id
           --workspace <id>      Filter to one saved workspace id
           --surface <id>        Filter to one saved surface id
-          --cwd <text>          Filter by saved cwd or launch working directory
           --state-dir <path>    Override hook state directory
-          --codex-home <path>   Override the default Codex home used for transcript checks
-          --limit <n>           Limit text output (default: 100)
           --state <state>       Filter by effective state
           --activity <state>    Filter by busy, idle, or unknown activity
           --work-kind <kind>    Filter by an active workload kind
           --all                 Print all matches
           --json                Print structured JSON
 
+        List options:
+          --cwd <text>          Filter by saved cwd or launch working directory
+          --codex-home <path>   Override the default Codex home used for transcript checks
+          --limit <n>           Limit text output (default: 100)
+
         Tree options:
           --relation <kind>     Filter edges to spawned, forked, or resumed
           --depth <n>           Limit rendered tree depth (default: 64)
+
+        Codex rows include whether the saved id exists in CODEX_HOME/session_index.jsonl
+        and whether a matching transcript file exists under CODEX_HOME/sessions or
+        CODEX_HOME/archived_sessions.
 
         Compatibility aliases:
           cmux sessions [list|tree] [options]

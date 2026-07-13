@@ -130,6 +130,25 @@ struct ClaudeHookSessionStoreFile: Codable {
     }
 }
 
+struct AgentHookSessionActivationPolicy: Sendable {
+    func canActivate(
+        record: ClaudeHookSessionRecord,
+        lineage: AgentHookSessionLineage,
+        hasIncomingPID: Bool
+    ) -> Bool {
+        guard record.completedAt != nil else { return true }
+        // A completed record is a durable root-exit boundary. Only a hook that
+        // supplies a verified, different process generation can reopen it.
+        guard hasIncomingPID, let incomingStartedAt = lineage.processStartedAt else { return false }
+        let matchingRuns = (record.runs ?? []).filter { $0.runId == lineage.runId }
+        guard !matchingRuns.isEmpty else { return true }
+        return matchingRuns.allSatisfy { run in
+            guard let previousStartedAt = run.processStartedAt else { return false }
+            return abs(previousStartedAt - incomingStartedAt) > 0.001
+        }
+    }
+}
+
 extension ClaudeHookSessionStore {
     func completeSessionRecord(_ record: ClaudeHookSessionRecord) -> ClaudeHookSessionRecord {
         var completed = record

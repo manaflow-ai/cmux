@@ -94,10 +94,14 @@ extension CMUXCLI {
             if let normalizedAgent, specification.name.lowercased() != normalizedAgent { continue }
             let url = URL(fileURLWithPath: stateDirectory, isDirectory: true)
                 .appendingPathComponent("\(specification.suffix)-hook-sessions.json", isDirectory: false)
-            guard fileManager.fileExists(atPath: url.path),
-                  let data = try? Data(contentsOf: url),
-                  let store = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
-                continue
+            guard fileManager.fileExists(atPath: url.path) else { continue }
+            let data: Data
+            let store: ClaudeHookSessionStoreFile
+            do {
+                data = try Data(contentsOf: url)
+                store = try decoder.decode(ClaudeHookSessionStoreFile.self, from: data)
+            } catch {
+                throw CLIError(message: "\(url.path): \(error.localizedDescription)")
             }
             let activeSessionIds = Set(store.activeSessionsBySurface.values.map(\.sessionId))
                 .union(store.activeSessionsByWorkspace.values.map(\.sessionId))

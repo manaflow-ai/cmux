@@ -48,6 +48,21 @@ extension Workspace {
         )
     }
 
+    func markAgentRootExitLocally(
+        panelId: UUID,
+        binding: SurfaceResumeBindingSnapshot
+    ) {
+        // Disk completion is deliberately queued off the main thread. Mark the
+        // in-memory owner ended first so a close snapshot taken before that write
+        // cannot persist the old session as restorable.
+        restoredAgentResumeStatesByPanelId[panelId] = .completedAgentExit
+        guard let storedBinding = surfaceResumeBindingsByPanelId[panelId],
+              storedBinding.isAgentHookBinding,
+              storedBinding.kind == binding.kind,
+              storedBinding.checkpointId == binding.checkpointId else { return }
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+    }
+
     func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
         panelShellActivityStates[panelId] == .commandRunning
             ? .observedAgentCommandRunning
