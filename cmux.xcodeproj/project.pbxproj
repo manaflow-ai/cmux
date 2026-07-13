@@ -107,6 +107,7 @@
 		A9E02000000000000000000F /* AgentSessionRendererKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000F /* AgentSessionRendererKind.swift */; };
 		A9F200000000000000000010 /* AgentSessionRunningSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000010 /* AgentSessionRunningSession.swift */; };
 		A78670030000000000000001 /* AgentSessionRunRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670030000000000000002 /* AgentSessionRunRecord.swift */; };
+		A78670310000000000000001 /* AgentSessionRuntimeScopingRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670310000000000000002 /* AgentSessionRuntimeScopingRegressionTests.swift */; };
 		A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */; };
 		A9F200000000000000000011 /* AgentSessionStartedSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000011 /* AgentSessionStartedSession.swift */; };
 		A78670130000000000000001 /* AgentSessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670130000000000000002 /* AgentSessionState.swift */; };
@@ -1947,6 +1948,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9E01000000000000000000F /* AgentSessionRendererKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRendererKind.swift; sourceTree = "<group>"; };
 		A9F100000000000000000010 /* AgentSessionRunningSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionRunningSession.swift; sourceTree = "<group>"; };
 		A78670030000000000000002 /* AgentSessionRunRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRunRecord.swift; sourceTree = "<group>"; };
+		A78670310000000000000002 /* AgentSessionRuntimeScopingRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionRuntimeScopingRegressionTests.swift; sourceTree = "<group>"; };
 		A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionSocketSurfaceTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000011 /* AgentSessionStartedSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionStartedSession.swift; sourceTree = "<group>"; };
 		A78670130000000000000002 /* AgentSessionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionState.swift; sourceTree = "<group>"; };
@@ -5221,6 +5223,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE64950000000000000006 /* CMUXCLISessionsListTests.swift */,
 				A78670220000000000000002 /* AgentSessionCLIRegressionTests.swift */,
 				A78670300000000000000002 /* AgentSessionLifecycleAuthorityRegressionTests.swift */,
+				A78670310000000000000002 /* AgentSessionRuntimeScopingRegressionTests.swift */,
 				C0DE6495000000000000000A /* CMUXCLISessionsListForkDiagnosticsTests.swift */,
 					C0DE64970000000000000002 /* CMUXCLISessionsListOpenCodeTrustTests.swift */,
 					C0DE64970000000000000004 /* CMUXCLISessionsListProcessArgumentTests.swift */,
@@ -7135,6 +7138,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					A78670220000000000000001 /* AgentSessionCLIRegressionTests.swift in Sources */,
 				A78670230000000000000001 /* AgentSessionHibernationLifecycleTests.swift in Sources */,
 				A78670300000000000000001 /* AgentSessionLifecycleAuthorityRegressionTests.swift in Sources */,
+				A78670310000000000000001 /* AgentSessionRuntimeScopingRegressionTests.swift in Sources */,
 				A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */,
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
 				725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */,
