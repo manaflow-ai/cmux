@@ -40,81 +40,65 @@ extension PortScanner {
     func expandAgentProcessTree(
         agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>]
     ) async -> (
-        values: [Int: [UUID: Set<AgentPortRootIdentity>]],
+        values: [Int: Set<UUID>],
         completenessByWorkspace: [UUID: PortScanCompleteness]
     ) {
-        let rootValidation = validateAgentRoots(agentRootsByWorkspace)
-        guard !rootValidation.values.isEmpty else {
-            return ([:], rootValidation.completenessByWorkspace)
+        guard !agentRootsByWorkspace.isEmpty else { return ([:], [:]) }
+        let initialRootValidation = validateAgentRoots(agentRootsByWorkspace)
+        guard !initialRootValidation.values.isEmpty else {
+            return ([:], initialRootValidation.completenessByWorkspace)
         }
-
-        var ownershipByPID: [Int: [UUID: Set<AgentPortRootIdentity>]] = [:]
-        var pending: [(pid: Int, workspaceId: UUID, root: AgentPortRootIdentity)] = []
-        for (workspaceId, roots) in rootValidation.values {
-            for root in roots {
-                var ownership = ownershipByPID[root.pid] ?? [:]
-                var ownedRoots = ownership[workspaceId] ?? []
-                if ownedRoots.insert(root).inserted {
-                    ownership[workspaceId] = ownedRoots
-                    ownershipByPID[root.pid] = ownership
-                    pending.append((root.pid, workspaceId, root))
-                }
-            }
-        }
-
         let processScan = await runAllProcesses()
-        var childrenByParent: [Int: [Int]] = [:]
-        for (pid, parentPid) in processScan.values {
-            childrenByParent[parentPid, default: []].append(pid)
-        }
-
-        var index = 0
-        while index < pending.count {
-            let (pid, workspaceId, root) = pending[index]
-            index += 1
-            for childPID in childrenByParent[pid] ?? [] {
-                var ownership = ownershipByPID[childPID] ?? [:]
-                var ownedRoots = ownership[workspaceId] ?? []
-                if ownedRoots.insert(root).inserted {
-                    ownership[workspaceId] = ownedRoots
-                    ownershipByPID[childPID] = ownership
-                    pending.append((childPID, workspaceId, root))
-                }
-            }
-        }
-
-        var completenessByWorkspace = rootValidation.completenessByWorkspace
+        // A root recycled during `ps` must not inherit descendants from the captured graph.
+        let postScanRootValidation = validateAgentRoots(agentRootsByWorkspace)
+        var completenessByWorkspace = combineAgentCompleteness(
+            initialRootValidation.completenessByWorkspace,
+            postScanRootValidation.completenessByWorkspace,
+            workspaceIds: Set(agentRootsByWorkspace.keys)
+        )
         if processScan.completeness == .incomplete {
             for workspaceId in agentRootsByWorkspace.keys {
                 completenessByWorkspace[workspaceId] = .incomplete
             }
         }
-        return (ownershipByPID, completenessByWorkspace)
+        return (
+            Self.agentProcessOwnership(
+                processParents: processScan.values,
+                rootsByWorkspace: postScanRootValidation.values
+            ),
+            completenessByWorkspace
+        )
     }
 
-    func revalidateAgentProcessTree(
-        _ ownershipByPID: [Int: [UUID: Set<AgentPortRootIdentity>]],
+    /// Traverses each captured `(PID, workspace)` pair at most once from already-validated roots.
+    static func agentProcessOwnership(
+        processParents: [Int: Int],
         rootsByWorkspace: [UUID: Set<AgentPortRootIdentity>]
-    ) -> (
-        values: [Int: [UUID: Set<AgentPortRootIdentity>]],
-        completenessByWorkspace: [UUID: PortScanCompleteness]
-    ) {
-        let rootValidation = validateAgentRoots(rootsByWorkspace)
-        let filtered = ownershipByPID.reduce(
-            into: [Int: [UUID: Set<AgentPortRootIdentity>]]()
-        ) { partial, item in
-            var validOwnership: [UUID: Set<AgentPortRootIdentity>] = [:]
-            for (workspaceId, roots) in item.value {
-                let validRoots = roots.intersection(rootValidation.values[workspaceId] ?? [])
-                if !validRoots.isEmpty {
-                    validOwnership[workspaceId] = validRoots
+    ) -> [Int: Set<UUID>] {
+        var childrenByParent: [Int: [Int]] = [:]
+        for (pid, parentPID) in processParents {
+            childrenByParent[parentPID, default: []].append(pid)
+        }
+        var ownershipByPID: [Int: Set<UUID>] = [:]
+        var pending: [(pid: Int, workspaceId: UUID)] = []
+        for (workspaceId, roots) in rootsByWorkspace {
+            for root in roots {
+                if ownershipByPID[root.pid, default: []].insert(workspaceId).inserted {
+                    pending.append((root.pid, workspaceId))
                 }
             }
-            if !validOwnership.isEmpty {
-                partial[item.key] = validOwnership
+        }
+        var index = 0
+        while index < pending.count {
+            let (pid, workspaceId) = pending[index]
+            index += 1
+            for childPID in childrenByParent[pid] ?? [] {
+                if ownershipByPID[childPID, default: []].insert(workspaceId).inserted {
+                    pending.append((childPID, workspaceId))
+                }
             }
         }
-        return (filtered, rootValidation.completenessByWorkspace)
+        return ownershipByPID
     }
 
     func validateAgentRoots(
@@ -156,13 +140,13 @@ extension PortScanner {
     }
 
     func agentLsofCompleteness(
-        ownershipByPID: [Int: [UUID: Set<AgentPortRootIdentity>]],
+        ownershipByPID: [Int: Set<UUID>],
         lsofScan: PortLsofScanResult,
         workspaceIds: Set<UUID>
     ) -> [UUID: PortScanCompleteness] {
         var pidsByWorkspace: [UUID: Set<Int>] = [:]
         for (pid, ownership) in ownershipByPID {
-            for workspaceId in ownership.keys {
+            for workspaceId in ownership {
                 pidsByWorkspace[workspaceId, default: []].insert(pid)
             }
         }

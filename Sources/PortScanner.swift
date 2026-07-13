@@ -239,16 +239,8 @@ final class PortScanner: @unchecked Sendable {
             : await runPS(ttyList: ttyList)
         let agentProcessScan = await agentProcessScanTask
         let pidToTTY = psScan.values
-        let revalidatedAgentProcessScan = revalidateAgentProcessTree(
-            agentProcessScan.values,
-            rootsByWorkspace: agentRootsByWorkspace
-        )
-        let agentOwnershipByPID = revalidatedAgentProcessScan.values
-        let agentTreeCompletenessByWorkspace = combineAgentCompleteness(
-            agentProcessScan.completenessByWorkspace,
-            revalidatedAgentProcessScan.completenessByWorkspace,
-            workspaceIds: workspaceIds
-        )
+        let agentOwnershipByPID = agentProcessScan.values
+        let agentTreeCompletenessByWorkspace = agentProcessScan.completenessByWorkspace
 
         let allPids = Set(pidToTTY.keys).union(agentOwnershipByPID.keys)
         guard !allPids.isEmpty else {
@@ -289,7 +281,7 @@ final class PortScanner: @unchecked Sendable {
         var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
         for (pid, ports) in pidToPorts {
             guard let ownership = agentOwnershipByPID[pid] else { continue }
-            for workspaceId in ownership.keys {
+            for workspaceId in ownership {
                 agentPortsByWorkspace[workspaceId, default: []].formUnion(ports)
             }
         }
@@ -375,15 +367,24 @@ final class PortScanner: @unchecked Sendable {
             agentSnapshotReplacementState.cancel(workspaceId: workspaceId)
             agentPortSnapshot.remove(keys: [workspaceId])
             scanCoordination.removeAgentWorkspaces([workspaceId])
-        } else {
-            trackedAgentWorkspaces.insert(workspaceId)
+            updateAgentScanTimerLocked()
+            forceAgentResultWorkspaces.insert(workspaceId)
+            deliverAgentResults(
+                workspaceIds: [workspaceId],
+                agentPortsByWorkspace: [:],
+                agentRevisions: [workspaceId: revision],
+                completenessByWorkspace: [workspaceId: .complete],
+                requestID: scanCoordination.makeRequestID()
+            )
+            return
         }
+        trackedAgentWorkspaces.insert(workspaceId)
         updateAgentScanTimerLocked()
         forceAgentResultWorkspaces.insert(workspaceId)
 
         scanAgentPorts(
             workspaceIds: [workspaceId],
-            agentRootsByWorkspace: normalizedRoots.isEmpty ? [:] : [workspaceId: normalizedRoots],
+            agentRootsByWorkspace: [workspaceId: normalizedRoots],
             agentRevisions: [workspaceId: revision]
         )
     }
@@ -456,16 +457,8 @@ final class PortScanner: @unchecked Sendable {
             let agentProcessScan = await self.expandAgentProcessTree(
                 agentRootsByWorkspace: agentRootsByWorkspace
             )
-            let revalidatedAgentProcessScan = self.revalidateAgentProcessTree(
-                agentProcessScan.values,
-                rootsByWorkspace: agentRootsByWorkspace
-            )
-            let agentOwnershipByPID = revalidatedAgentProcessScan.values
-            let agentTreeCompletenessByWorkspace = self.combineAgentCompleteness(
-                agentProcessScan.completenessByWorkspace,
-                revalidatedAgentProcessScan.completenessByWorkspace,
-                workspaceIds: request.workspaceIds
-            )
+            let agentOwnershipByPID = agentProcessScan.values
+            let agentTreeCompletenessByWorkspace = agentProcessScan.completenessByWorkspace
             guard !agentOwnershipByPID.isEmpty else {
                 self.queue.async { [weak self] in
                     self?.completeAgentScan(
@@ -483,7 +476,7 @@ final class PortScanner: @unchecked Sendable {
             var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
             for (pid, ports) in pidToPorts {
                 guard let ownership = agentOwnershipByPID[pid] else { continue }
-                for targetWorkspaceId in ownership.keys {
+                for targetWorkspaceId in ownership {
                     agentPortsByWorkspace[targetWorkspaceId, default: []].formUnion(ports)
                 }
             }

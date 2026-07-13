@@ -1,6 +1,7 @@
 import CmuxCore
 import CmuxFoundation
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -168,15 +169,15 @@ struct PortScannerProcessCaptureTests {
 
 @Suite("Agent process identity validation")
 struct AgentProcessIdentityValidationTests {
-    @Test("Process-tree expansion records the root that owns each descendant")
-    func expansionPreservesRootOwnership() async {
+    @Test("Nested roots visit and own each descendant once per workspace")
+    func nestedRootsHaveBoundedWorkspaceOwnership() async {
         let workspaceID = UUID()
         let firstIdentity = AgentPIDProcessIdentity(pid: 100, startSeconds: 10, startMicroseconds: 0)
-        let secondIdentity = AgentPIDProcessIdentity(pid: 200, startSeconds: 20, startMicroseconds: 0)
+        let secondIdentity = AgentPIDProcessIdentity(pid: 101, startSeconds: 20, startMicroseconds: 0)
         let firstRoot = AgentPortRootIdentity(pid: 100, processIdentity: firstIdentity)
-        let secondRoot = AgentPortRootIdentity(pid: 200, processIdentity: secondIdentity)
+        let secondRoot = AgentPortRootIdentity(pid: 101, processIdentity: secondIdentity)
         let runner = StubCommandRunner(result: CommandResult(
-            stdout: "100 1\n101 100\n200 1\n201 200\n",
+            stdout: "100 1\n101 100\n102 101\n103 102\n",
             stderr: "",
             exitStatus: 0,
             timedOut: false,
@@ -197,8 +198,7 @@ struct AgentProcessIdentityValidationTests {
             agentRootsByWorkspace: [workspaceID: [firstRoot, secondRoot]]
         )
 
-        #expect(scan.values[101]?[workspaceID] == [firstRoot])
-        #expect(scan.values[201]?[workspaceID] == [secondRoot])
+        #expect(scan.values == [100: [workspaceID], 101: [workspaceID], 102: [workspaceID], 103: [workspaceID]])
         #expect(scan.completenessByWorkspace[workspaceID] == .complete)
     }
 
@@ -221,69 +221,61 @@ struct AgentProcessIdentityValidationTests {
         #expect(validation.completenessByWorkspace[workspaceID] == .complete)
     }
 
-    @Test("A recycled root PID cannot retain ownership of the expanded process tree")
-    func recycledPIDIsRejectedBeforeLsof() {
+    @Test("Roots recycled or unavailable after process capture retain no descendants")
+    func postCaptureInvalidRootsAreRejectedBeforeTraversal() async {
         let workspaceID = UUID()
         let recorded = AgentPIDProcessIdentity(pid: 100, startSeconds: 10, startMicroseconds: 20)
         let recycled = AgentPIDProcessIdentity(pid: 100, startSeconds: 11, startMicroseconds: 0)
         let root = AgentPortRootIdentity(pid: 100, processIdentity: recorded)
-        let scanner = PortScanner(processIdentityProvider: { _ in recycled })
+        for postCaptureIdentity in [recycled, nil] as [AgentPIDProcessIdentity?] {
+            // Serializes the async runner's identity flip with synchronous provider reads.
+            let identity = OSAllocatedUnfairLock(initialState: Optional(recorded))
+            let runner = StubCommandRunner(
+                result: CommandResult(
+                    stdout: "100 1\n101 100\n",
+                    stderr: "",
+                    exitStatus: 0,
+                    timedOut: false,
+                    executionError: nil
+                ),
+                onRun: { identity.withLock { $0 = postCaptureIdentity } }
+            )
+            let scanner = PortScanner(
+                commandRunner: runner,
+                processIdentityProvider: { _ in identity.withLock { $0 } }
+            )
 
-        let revalidated = scanner.revalidateAgentProcessTree(
-            [
-                100: [workspaceID: [root]],
-                101: [workspaceID: [root]]
-            ],
-            rootsByWorkspace: [workspaceID: [root]]
-        )
+            let scan = await scanner.expandAgentProcessTree(agentRootsByWorkspace: [workspaceID: [root]])
 
-        #expect(revalidated.values.isEmpty)
-        #expect(revalidated.completenessByWorkspace[workspaceID] == .complete)
+            #expect(scan.values.isEmpty)
+            #expect(scan.completenessByWorkspace[workspaceID] == (postCaptureIdentity == nil ? .incomplete : .complete))
+        }
     }
 
-    @Test("An unavailable birth-identity probe is incomplete negative evidence")
-    func unavailableIdentityProbeIsIncomplete() {
+    @Test("An initially unavailable root skips the process scan with incomplete evidence")
+    func initiallyUnavailableRootSkipsProcessScan() async {
         let workspaceID = UUID()
         let identity = AgentPIDProcessIdentity(pid: 100, startSeconds: 10, startMicroseconds: 20)
         let root = AgentPortRootIdentity(pid: 100, processIdentity: identity)
-        let scanner = PortScanner(processIdentityProvider: { _ in nil })
-
-        let validation = scanner.validateAgentRoots([workspaceID: [root]])
-
-        #expect(validation.values.isEmpty)
-        #expect(validation.completenessByWorkspace[workspaceID] == .incomplete)
-    }
-
-    @Test("Revalidation drops only the descendants of a recycled root")
-    func revalidationPreservesRootLevelOwnership() {
-        let workspaceID = UUID()
-        let retainedIdentity = AgentPIDProcessIdentity(pid: 100, startSeconds: 10, startMicroseconds: 0)
-        let staleIdentity = AgentPIDProcessIdentity(pid: 200, startSeconds: 20, startMicroseconds: 0)
-        let recycledIdentity = AgentPIDProcessIdentity(pid: 200, startSeconds: 21, startMicroseconds: 0)
-        let retainedRoot = AgentPortRootIdentity(pid: 100, processIdentity: retainedIdentity)
-        let staleRoot = AgentPortRootIdentity(pid: 200, processIdentity: staleIdentity)
-        let scanner = PortScanner(processIdentityProvider: { pid in
-            switch pid {
-            case retainedIdentity.pid: retainedIdentity
-            case staleIdentity.pid: recycledIdentity
-            default: nil
-            }
-        })
-        let ownership = [
-            100: [workspaceID: Set([retainedRoot])],
-            101: [workspaceID: Set([retainedRoot])],
-            200: [workspaceID: Set([staleRoot])],
-            201: [workspaceID: Set([staleRoot])]
-        ]
-
-        let revalidated = scanner.revalidateAgentProcessTree(
-            ownership,
-            rootsByWorkspace: [workspaceID: [retainedRoot, staleRoot]]
+        // Serializes the async runner callback with the synchronous assertion read.
+        let didRun = OSAllocatedUnfairLock(initialState: false)
+        let runner = StubCommandRunner(
+            result: CommandResult(
+                stdout: "100 1\n",
+                stderr: "",
+                exitStatus: 0,
+                timedOut: false,
+                executionError: nil
+            ),
+            onRun: { didRun.withLock { $0 = true } }
         )
+        let scanner = PortScanner(commandRunner: runner, processIdentityProvider: { _ in nil })
 
-        #expect(Set(revalidated.values.keys) == [100, 101])
-        #expect(revalidated.values[101]?[workspaceID] == [retainedRoot])
-        #expect(revalidated.completenessByWorkspace[workspaceID] == .complete)
+        let scan = await scanner.expandAgentProcessTree(agentRootsByWorkspace: [workspaceID: [root]])
+
+        #expect(scan.values.isEmpty)
+        #expect(scan.completenessByWorkspace[workspaceID] == .incomplete)
+        #expect(didRun.withLock { $0 } == false)
     }
 
     @Test("One unavailable root does not widen incompleteness to another workspace")
@@ -467,10 +459,12 @@ struct ProcessTerminationGateTests {
 
 private actor StubCommandRunner: CommandRunning {
     let result: CommandResult
+    let onRun: (@Sendable () -> Void)?
     private(set) var lastTimeout: TimeInterval?
 
-    init(result: CommandResult) {
+    init(result: CommandResult, onRun: (@Sendable () -> Void)? = nil) {
         self.result = result
+        self.onRun = onRun
     }
 
     func run(
@@ -480,6 +474,7 @@ private actor StubCommandRunner: CommandRunning {
         timeout: TimeInterval?
     ) async -> CommandResult {
         lastTimeout = timeout
+        onRun?()
         return result
     }
 }
