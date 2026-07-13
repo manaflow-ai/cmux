@@ -5,6 +5,20 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitProcessDeadlineTests {
+    @Test func completedWatchdogCannotFire() {
+        let pipe = Pipe()
+        let watchdog = GitProcessWatchdog(
+            process: Process(),
+            processGroupIdentifier: Int32.max,
+            outputHandle: pipe.fileHandleForReading
+        )
+
+        watchdog.cancelEscalation()
+        watchdog.fire()
+
+        #expect(!watchdog.didFire)
+    }
+
     @Test func deadlineEscalatesWhenGitIgnoresTerminationAndChildKeepsPipeOpen() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

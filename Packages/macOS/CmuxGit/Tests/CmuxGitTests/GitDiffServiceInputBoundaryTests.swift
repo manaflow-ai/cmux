@@ -204,7 +204,7 @@ import Testing
         #expect(diff.unifiedDiff.contains("+TargetB"))
     }
 
-    @Test func deletedPathWithUntrackedReplacementKeepsDeletedDiff() throws {
+    @Test func deletedPathWithUntrackedReplacementPreservesBothDiffs() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
         let file = repo.appendingPathComponent("replaced.txt")
@@ -217,11 +217,47 @@ import Testing
         let service = GitDiffService()
         let status = try #require(service.changedFiles(repoRoot: repo.path))
         let summary = try #require(status.files.first { $0.path == "replaced.txt" })
-        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: "replaced.txt"))
+        let diff = try #require(service.fileDiff(
+            repoRoot: repo.path,
+            path: "replaced.txt",
+            status: summary.status
+        ))
 
-        #expect(summary.status == .deleted)
+        #expect(summary.status == .modified)
+        #expect(summary.oldPath == nil)
+        #expect(summary.additions == nil)
+        #expect(summary.deletions == nil)
         #expect(diff.unifiedDiff.contains("-original"))
-        #expect(!diff.unifiedDiff.contains("+replacement"))
+        #expect(diff.unifiedDiff.contains("+replacement"))
+        #expect(diff.unifiedDiff.components(separatedBy: "diff --git ").count == 3)
+    }
+
+    @Test func staleTrackedStatusCannotReturnAReclassifiedDiff() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let tracked = repo.appendingPathComponent("tracked.txt")
+        try Data("original\n".utf8).write(to: tracked)
+        try runTestGit(in: repo, ["add", "--", "tracked.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add tracked"])
+        try Data("modified\n".utf8).write(to: tracked)
+        let service = GitDiffService()
+
+        #expect(service.fileDiff(repoRoot: repo.path, path: "tracked.txt", status: .modified) != nil)
+        try FileManager.default.removeItem(at: tracked)
+        #expect(service.fileDiff(repoRoot: repo.path, path: "tracked.txt", status: .modified) == nil)
+        #expect(service.fileDiff(repoRoot: repo.path, path: "tracked.txt", status: .deleted) != nil)
+        try Data("restored\n".utf8).write(to: tracked)
+        #expect(service.fileDiff(repoRoot: repo.path, path: "tracked.txt", status: .deleted) == nil)
+        #expect(service.fileDiff(repoRoot: repo.path, path: "tracked.txt", status: .modified) != nil)
+
+        let added = repo.appendingPathComponent("added.txt")
+        try Data("added\n".utf8).write(to: added)
+        try runTestGit(in: repo, ["add", "--", "added.txt"])
+        #expect(service.fileDiff(repoRoot: repo.path, path: "added.txt", status: .added) != nil)
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "commit added"])
+        try Data("changed after commit\n".utf8).write(to: added)
+        #expect(service.fileDiff(repoRoot: repo.path, path: "added.txt", status: .added) == nil)
+        #expect(service.fileDiff(repoRoot: repo.path, path: "added.txt", status: .modified) != nil)
     }
 
     private func makeTempRepo() throws -> URL {
