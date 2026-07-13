@@ -11,6 +11,7 @@
 
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
+import { createHash } from "node:crypto";
 import { verifyRequest } from "../../../../services/vms/auth";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import { cloudDb } from "../../../../db/client";
@@ -199,15 +200,22 @@ async function forwardToPostHog(
 > {
   // When authenticated, the server stamps the authoritative user id as the
   // distinct id so a client cannot attribute events to another user. When
-  // anonymous, the client-supplied distinct id (the install `client_id`) is
-  // trusted so the pre-auth funnel attaches to the same anonymous person. The
-  // client's `$anon_distinct_id` (if present) is preserved for aliasing.
-  const batch = events.map((event) => ({
-    event: event.event,
-    distinct_id: userId ?? event.distinctID ?? "anonymous",
-    properties: event.properties,
-    timestamp: event.timestamp,
-  }));
+  // anonymous, the install `client_id` is hashed into a server namespace so it
+  // cannot collide with an account id. The same transform is applied to an
+  // `$anon_distinct_id` alias so authenticated identify calls join that funnel.
+  const batch = events.map((event) => {
+    const properties = { ...event.properties };
+    const anonymousAlias = properties.$anon_distinct_id;
+    if (typeof anonymousAlias === "string") {
+      properties.$anon_distinct_id = anonymousPostHogDistinctID(anonymousAlias);
+    }
+    return {
+      event: event.event,
+      distinct_id: userId ?? anonymousPostHogDistinctID(event.distinctID ?? "anonymous"),
+      properties,
+      timestamp: event.timestamp,
+    };
+  });
 
   try {
     const response = await postHogFetch(`${POSTHOG_HOST}/batch/`, {
@@ -225,4 +233,8 @@ async function forwardToPostHog(
   } catch {
     return { ok: false, status: 502, delivery: "ambiguous" };
   }
+}
+
+function anonymousPostHogDistinctID(clientID: string): string {
+  return `ios-anon-sha256:${createHash("sha256").update(clientID).digest("hex")}`;
 }
