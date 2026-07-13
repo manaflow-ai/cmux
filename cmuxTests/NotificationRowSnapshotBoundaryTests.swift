@@ -31,6 +31,15 @@ import Testing
 @Suite("Notification row snapshot boundary", .serialized)
 struct NotificationRowSnapshotBoundaryTests {
 
+    private final class NotificationScrollActionProbeView: GhosttyNSView {
+        private(set) var bindingActions: [String] = []
+
+        override func performBindingAction(_ action: String) -> Bool {
+            bindingActions.append(action)
+            return true
+        }
+    }
+
     // MARK: - Titlebar popover row
 
     @Test func popoverRowEqualityIgnoresClosureIdentity() {
@@ -345,6 +354,81 @@ struct NotificationRowSnapshotBoundaryTests {
         )
 
         #expect(target == .absoluteRow(156))
+    }
+
+    @Test func notificationScrollRestoreWaitsForUsableViewport() {
+        let surfaceView = NotificationScrollActionProbeView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 400, offset: 218, len: 0)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(surfaceView.bindingActions.isEmpty)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [
+                GhosttyNotificationKey.scrollbar: GhosttyScrollbar(
+                    c: ghostty_action_scrollbar_s(total: 400, offset: 218, len: 44)
+                )
+            ]
+        )
+
+        #expect(surfaceView.bindingActions == ["scroll_to_row:218"])
+    }
+
+    @Test func notificationScrollRestoreWaitsForCapturedRowsDuringReplay() {
+        let surfaceView = NotificationScrollActionProbeView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 200, offset: 156, len: 44)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        #expect(surfaceView.bindingActions.isEmpty)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [
+                GhosttyNotificationKey.scrollbar: GhosttyScrollbar(
+                    c: ghostty_action_scrollbar_s(total: 300, offset: 256, len: 44)
+                )
+            ]
+        )
+
+        #expect(surfaceView.bindingActions == ["scroll_to_row:218"])
+    }
+
+    @Test func userWheelInputCancelsPendingNotificationScrollRestore() {
+        let surfaceView = NotificationScrollActionProbeView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 400, offset: 218, len: 0)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ))
+        NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: surfaceView)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [
+                GhosttyNotificationKey.scrollbar: GhosttyScrollbar(
+                    c: ghostty_action_scrollbar_s(total: 400, offset: 218, len: 44)
+                )
+            ]
+        )
+
+        #expect(surfaceView.bindingActions.isEmpty)
     }
 
     // MARK: - Fixtures
