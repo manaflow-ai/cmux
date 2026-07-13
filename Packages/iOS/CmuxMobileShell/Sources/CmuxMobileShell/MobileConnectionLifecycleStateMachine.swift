@@ -116,6 +116,7 @@ struct MobileConnectionLifecycleStateMachine {
         let requestedKind = recoveryKind(for: request.trigger, health: health)
         if var activeEpisode {
             if activeEpisode.canAbsorb(
+                trigger: request.trigger,
                 kind: requestedKind,
                 reconnectStackUserID: request.reconnectStackUserID
             ) {
@@ -295,6 +296,7 @@ struct MobileConnectionLifecycleStateMachine {
 
 private extension MobileConnectionLifecycleEpisode {
     func canAbsorb(
+        trigger: MobileConnectionLifecycleTrigger,
         kind requestedKind: MobileConnectionLifecycleRecoveryKind,
         reconnectStackUserID requestedStackUserID: String?
     ) -> Bool {
@@ -306,7 +308,9 @@ private extension MobileConnectionLifecycleEpisode {
         case (.streamRepair, .reconnect):
             return false
         case (.reconnect, .reconnect):
-            return reconnectStackUserID == requestedStackUserID
+            guard reconnectStackUserID == requestedStackUserID else { return false }
+            return trigger != .networkPathChanged
+                && trigger != .presenceRoutesChanged
         }
     }
 }

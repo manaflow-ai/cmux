@@ -159,6 +159,25 @@ extension MobileShellComposite {
         connectionLifecycleTaskOwnership.activeReconnectFence?.invalidate()
         connectionLifecycleTaskOwnership.activeReconnectFence = fence
         connectionLifecycleTaskOwnership.activeReconnectProgress = progress
+        let persistPairedMac: @MainActor (StoredMacReconnectPersistenceRequest) async -> Bool = {
+            [weak self] request in
+            guard let self else { return false }
+            let preservesUnclaimedAuthority = request.reportedInstanceTag == nil
+                && request.storedAuthorityMac?.instanceTag == nil
+            let instanceTagUpdate: PairedMacInstanceTagUpdate = preservesUnclaimedAuthority
+                ? .preserveOnlyIfUnclaimed
+                : .replace(request.resolvedInstanceTag)
+            return await self.persistPairedMacFromTicket(
+                request.ticket,
+                instanceTagUpdate: instanceTagUpdate,
+                displayNameOverride: request.displayName,
+                clearsForgottenMac: false,
+                reconnectSourceMacDeviceID: request.sourceMacDeviceID,
+                ifStillCurrent: {
+                    fence.isCurrent(fenceGeneration)
+                }
+            )
+        }
         return StoredMacReconnectOperation(
             runtime: runtime,
             store: pairedMacStore,
@@ -178,7 +197,8 @@ extension MobileShellComposite {
             pendingForgottenIDs: pendingForgottenIDs,
             forgottenScopeKeys: usesCachedReconnect ? [] : forgottenScopeKeys,
             loadsStoreSnapshot: !usesCachedReconnect,
-            persistsPairedMac: !usesCachedReconnect
+            persistsPairedMac: !usesCachedReconnect,
+            persistPairedMac: persistPairedMac
         )
     }
 

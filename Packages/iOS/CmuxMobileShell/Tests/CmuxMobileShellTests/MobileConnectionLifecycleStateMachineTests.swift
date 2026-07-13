@@ -201,13 +201,26 @@ import Testing
 
             let active = reducer.resourceSnapshot
             #expect(active.activeEpisodeCount == 1)
-            #expect(active.pendingRequestCount == 0)
+            #expect(active.pendingRequestCount == (cycle.isMultiple(of: 2) ? 0 : 1))
 
-            #expect(reducer.complete(
+            let completion = reducer.complete(
                 id: episode.id,
                 health: health,
                 succeeded: true
-            ) == nil)
+            )
+            if cycle.isMultiple(of: 2) {
+                #expect(completion == nil)
+            } else if case .start(let replayEpisode) = completion {
+                #expect(replayEpisode.kind == .reconnect)
+                #expect(replayEpisode.triggers == [.presenceRoutesChanged])
+                #expect(reducer.complete(
+                    id: replayEpisode.id,
+                    health: health,
+                    succeeded: true
+                ) == nil)
+            } else {
+                Issue.record("disconnected cycle \(cycle) must replay fresh route demand")
+            }
             let idle = reducer.resourceSnapshot
             #expect(idle.activeEpisodeCount == 0)
             #expect(idle.pendingRequestCount == 0)

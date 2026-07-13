@@ -137,6 +137,7 @@ extension MobileShellComposite {
                 }
                 self.hasKnownPairedMac = true
             } catch {
+                accepted = false
                 pairedMacPersistenceLog.error(
                     "paired mac upsert failed: \(String(describing: error), privacy: .public)"
                 )
@@ -162,11 +163,7 @@ extension MobileShellComposite {
             )
             return
         }
-        guard let reconnectSourceMacDeviceID,
-              reconnectSourceMacDeviceID != persistedMacDeviceID,
-              await isForgottenMacDeviceID(reconnectSourceMacDeviceID, scope: scope) else {
-            return
-        }
+        guard reconnectSourceMacDeviceID != nil else { return }
         do {
             if let previousPersistedMac {
                 try await store.upsert(

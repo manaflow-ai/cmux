@@ -31,6 +31,7 @@ struct StoredMacReconnectOperation {
     let forgottenScopeKeys: [String]
     let loadsStoreSnapshot: Bool
     let persistsPairedMac: Bool
+    let persistPairedMac: @MainActor (StoredMacReconnectPersistenceRequest) async -> Bool
 
     private var ownsFence: Bool {
         fence.isCurrent(fenceGeneration)
@@ -215,13 +216,14 @@ struct StoredMacReconnectOperation {
                 return (nil, nil)
             }
             if persistsPairedMac {
-                let accepted = await persist(
+                let accepted = await persistPairedMac(StoredMacReconnectPersistenceRequest(
                     ticket: ticket,
+                    sourceMacDeviceID: mac.macDeviceID,
                     storedAuthorityMac: authority.storedMac,
                     displayName: hostStatus?.macDisplayName,
                     reportedInstanceTag: hostStatus?.macInstanceTag,
                     resolvedInstanceTag: resolvedAuthority.instanceTag
-                )
+                ))
                 guard accepted, ownsFence else {
                     await client.disconnect()
                     return (nil, nil)
@@ -369,120 +371,4 @@ struct StoredMacReconnectOperation {
         return fresh == tried ? nil : refreshed
     }
 
-    private func persist(
-        ticket: CmxAttachTicket,
-        storedAuthorityMac: MobilePairedMac?,
-        displayName: String?,
-        reportedInstanceTag: String?,
-        resolvedInstanceTag: String?
-    ) async -> Bool {
-        guard !ticket.macDeviceID.isEmpty,
-              ticket.macDeviceID != "manual-ticket-request",
-              !ticket.macDeviceID.hasPrefix("manual-") else {
-            return true
-        }
-        let scopedMacs = (try? await store.loadAll(
-            stackUserID: scope.userID,
-            teamID: scope.teamID
-        )) ?? []
-        guard ownsFence else { return false }
-        let matchingMacs = scopedMacs.filter { $0.macDeviceID == ticket.macDeviceID }
-        let existing = matchingMacs.first {
-            $0.stackUserID == scope.userID && $0.teamID == scope.teamID
-        }
-        let fallback = existing
-            ?? matchingMacs.first { $0.stackUserID == scope.userID }
-            ?? matchingMacs.first
-        let previousActive = try? await store.activeMac(
-            stackUserID: scope.userID,
-            teamID: scope.teamID
-        )
-        guard ownsFence else { return false }
-        let authorityUnchanged = resolvedInstanceTag == existing?.instanceTag
-        let routes = authorityUnchanged && ticket.routes.count == 1 && !(fallback?.routes.isEmpty ?? true)
-            ? MobileShellComposite.mergedReconnectRoutes(
-                ticketRoutes: ticket.routes,
-                storedRoutes: fallback?.routes ?? []
-            )
-            : ticket.routes
-        do {
-            let accepted: Bool
-            if reportedInstanceTag == nil, storedAuthorityMac?.instanceTag == nil {
-                accepted = try await store.upsertRoutesIfAuthorized(
-                    macDeviceID: ticket.macDeviceID,
-                    displayName: displayName ?? fallback?.displayName,
-                    routes: routes,
-                    condition: .unclaimed,
-                    markActive: true,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID,
-                    now: Date()
-                )
-            } else {
-                try await store.upsert(
-                    macDeviceID: ticket.macDeviceID,
-                    displayName: displayName ?? fallback?.displayName,
-                    routes: routes,
-                    instanceTag: resolvedInstanceTag ?? existing?.instanceTag,
-                    markActive: true,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID,
-                    now: Date()
-                )
-                accepted = true
-            }
-            guard accepted else { return false }
-            guard !ownsFence else { return true }
-            await rollback(
-                persistedMacDeviceID: ticket.macDeviceID,
-                previousPersistedMac: existing,
-                previousActiveMac: previousActive
-            )
-            return false
-        } catch {
-            return false
-        }
-    }
-
-    private func rollback(
-        persistedMacDeviceID: String,
-        previousPersistedMac: MobilePairedMac?,
-        previousActiveMac: MobilePairedMac?
-    ) async {
-        do {
-            if progress.wasForgotten(persistedMacDeviceID)
-                || progress.wasForgotten(previousPersistedMac?.macDeviceID ?? "") {
-                try await store.remove(
-                    macDeviceID: persistedMacDeviceID,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID
-                )
-            } else if let previousPersistedMac {
-                try await store.upsert(
-                    macDeviceID: previousPersistedMac.macDeviceID,
-                    displayName: previousPersistedMac.displayName,
-                    routes: previousPersistedMac.routes,
-                    instanceTag: previousPersistedMac.instanceTag,
-                    markActive: previousPersistedMac.isActive,
-                    stackUserID: previousPersistedMac.stackUserID,
-                    teamID: previousPersistedMac.teamID,
-                    now: previousPersistedMac.lastSeenAt
-                )
-            } else {
-                try await store.remove(
-                    macDeviceID: persistedMacDeviceID,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID
-                )
-            }
-            if let previousActiveMac,
-               previousActiveMac.macDeviceID != persistedMacDeviceID {
-                try await store.setActive(
-                    macDeviceID: previousActiveMac.macDeviceID,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID
-                )
-            }
-        } catch {}
-    }
 }
