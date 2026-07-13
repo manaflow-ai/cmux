@@ -87,6 +87,60 @@ import Testing
         #expect(result.initialEnv == ["CMUX_TASK_PROMPT": prompt])
     }
 
+    @Test func apostropheInCommentDoesNotChangeFollowingLineQuoteContext() {
+        let template = MobileTaskTemplate(
+            name: "Comment",
+            icon: "terminal",
+            command: "# don't expand here\nclaude {prompt}"
+        )
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "# don't expand here\nclaude \"${CMUX_TASK_PROMPT}\"")
+    }
+
+    @Test func placeholdersAndQuotesInsideCommentsRemainLiteralUntilNewline() {
+        let template = MobileTaskTemplate(
+            name: "Comments",
+            icon: "terminal",
+            command: "# '{prompt} \"ignored\"\nclaude {prompt}\n# \"{prompt}\"\ncodex {prompt}"
+        )
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(
+            result.initialCommand
+                == "# '{prompt} \"ignored\"\nclaude \"${CMUX_TASK_PROMPT}\"\n# \"{prompt}\"\ncodex \"${CMUX_TASK_PROMPT}\""
+        )
+    }
+
+    @Test func escapedEmbeddedAndQuotedHashesDoNotStartComments() {
+        let commands = [
+            "echo \\# {prompt}",
+            "echo word#suffix {prompt}",
+            "echo '#' {prompt}",
+            "echo \"#\" {prompt}",
+        ]
+
+        for command in commands {
+            let template = MobileTaskTemplate(name: "Hash", icon: "terminal", command: command)
+            let result = composer.compose(template: template, prompt: "ship it")
+            #expect(result.initialCommand?.hasSuffix("\"${CMUX_TASK_PROMPT}\"") == true)
+        }
+    }
+
+    @Test func commentStartsAtControlOperatorWordBoundary() {
+        let template = MobileTaskTemplate(
+            name: "Boundary",
+            icon: "terminal",
+            command: "echo ready; # {prompt}\nclaude {prompt}"
+        )
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "echo ready; # {prompt}\nclaude \"${CMUX_TASK_PROMPT}\"")
+    }
+
     @Test func appendModeLeavesCommandUnchangedForEmptyPrompt() {
         let template = MobileTaskTemplate(name: "Codex", icon: "sparkles", command: "codex")
 
@@ -116,6 +170,42 @@ import Testing
         #expect(bracedResult.initialCommand == "agent \"${CMUX_TASK_PROMPT}\"")
         #expect(unbracedResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
         #expect(bracedResult.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
+    }
+
+    @Test func promptEnvironmentReferenceInsideCommentDoesNotSuppressImplicitArgument() {
+        let template = MobileTaskTemplate(
+            name: "Comment",
+            icon: "terminal",
+            command: "# $CMUX_TASK_PROMPT is documented here\nagent"
+        )
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "# $CMUX_TASK_PROMPT is documented here\nagent -- \"${CMUX_TASK_PROMPT}\"")
+    }
+
+    @Test func singleQuotedPromptEnvironmentTextDoesNotSuppressImplicitArgument() {
+        let template = MobileTaskTemplate(
+            name: "Literal",
+            icon: "terminal",
+            command: "agent '$CMUX_TASK_PROMPT'"
+        )
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "agent '$CMUX_TASK_PROMPT' -- \"${CMUX_TASK_PROMPT}\"")
+    }
+
+    @Test func escapedPromptEnvironmentTextDoesNotSuppressImplicitArgument() {
+        let template = MobileTaskTemplate(
+            name: "Escaped",
+            icon: "terminal",
+            command: "agent \\$CMUX_TASK_PROMPT"
+        )
+
+        let result = composer.compose(template: template, prompt: "ship it")
+
+        #expect(result.initialCommand == "agent \\$CMUX_TASK_PROMPT -- \"${CMUX_TASK_PROMPT}\"")
     }
 
     @Test func submissionIdentityStaysStableUntilRotated() {

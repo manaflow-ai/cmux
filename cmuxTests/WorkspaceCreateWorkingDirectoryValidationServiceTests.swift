@@ -18,7 +18,7 @@ import Testing
         await probe.waitForCount(1)
 
         #expect(await probe.count == 1)
-        await probe.completeActive(isDirectory: true)
+        await probe.complete(path: "/tmp/shared", isDirectory: true)
         #expect(await first.value == .valid("/tmp/shared"))
         #expect(await second.value == .valid("/tmp/shared"))
         await service.waitUntilIdleForTesting()
@@ -48,11 +48,11 @@ import Testing
 
         #expect(Self.errorCode(from: result) == "request_timeout")
         #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
-        await probe.completeActive(isDirectory: true)
+        await probe.complete(path: "/tmp/wedged", isDirectory: true)
         await service.waitUntilIdleForTesting()
     }
 
-    @Test func wedgedProbeRetainsGlobalSlotUntilCompletionThenAllowsNextProbe() async {
+    @Test func oneWedgedProbeLeavesSecondSlotAvailableAndSamePathRemainsCoalesced() async {
         let probe = ControlledDirectoryProbe()
         let deadlines = ControlledValidationDeadlines()
         let service = Self.service(probe: probe, deadlines: deadlines)
@@ -65,19 +65,47 @@ import Testing
         let samePath = Task { await service.validate(rawValue: "/tmp/wedged", isProvided: true) }
         let differentPath = Task { await service.validate(rawValue: "/tmp/different", isProvided: true) }
         await deadlines.waitForCount(3)
-        #expect(await probe.count == 1)
-        await deadlines.fireAll()
-        #expect(await samePath.value == .timedOut)
-        #expect(await differentPath.value == .timedOut)
-        #expect(await probe.count == 1)
-
-        await probe.completeActive(isDirectory: true)
-        await service.waitUntilIdleForTesting()
-        let recovered = Task { await service.validate(rawValue: "/tmp/recovered", isProvided: true) }
         await probe.waitForCount(2)
         #expect(await probe.count == 2)
-        await probe.completeActive(isDirectory: true)
+        await probe.complete(path: "/tmp/different", isDirectory: true)
+        #expect(await differentPath.value == .valid("/tmp/different"))
+        await deadlines.fireAll()
+        #expect(await samePath.value == .timedOut)
+        #expect(await probe.count == 2)
+
+        await probe.complete(path: "/tmp/wedged", isDirectory: true)
+        await service.waitUntilIdleForTesting()
+    }
+
+    @Test func twoWedgedProbesEnforceCapThenCompletionRestoresCapacity() async {
+        let probe = ControlledDirectoryProbe()
+        let deadlines = ControlledValidationDeadlines()
+        let service = Self.service(probe: probe, deadlines: deadlines)
+        let first = Task { await service.validate(rawValue: "/tmp/first-wedge", isProvided: true) }
+        let second = Task { await service.validate(rawValue: "/tmp/second-wedge", isProvided: true) }
+        await probe.waitForCount(2)
+        await deadlines.waitForCount(2)
+        await deadlines.fireAll()
+        #expect(await first.value == .timedOut)
+        #expect(await second.value == .timedOut)
+
+        let third = Task { await service.validate(rawValue: "/tmp/third", isProvided: true) }
+        let repeated = Task { await service.validate(rawValue: "/tmp/first-wedge", isProvided: true) }
+        await deadlines.waitForCount(4)
+        #expect(await probe.count == 2)
+        await deadlines.fireAll()
+        #expect(await third.value == .timedOut)
+        #expect(await repeated.value == .timedOut)
+        #expect(await probe.count == 2)
+
+        await probe.complete(path: "/tmp/first-wedge", isDirectory: true)
+        let recovered = Task { await service.validate(rawValue: "/tmp/recovered", isProvided: true) }
+        await probe.waitForCount(3)
+        #expect(await probe.count == 3)
+        await probe.complete(path: "/tmp/recovered", isDirectory: true)
         #expect(await recovered.value == .valid("/tmp/recovered"))
+        await probe.complete(path: "/tmp/second-wedge", isDirectory: true)
+        await service.waitUntilIdleForTesting()
     }
 
     @Test func cancellingOneCoalescedWaiterDoesNotCancelProbeOrOtherWaiter() async {
@@ -93,7 +121,7 @@ import Testing
         #expect(await cancelled.value == .cancelled)
         #expect(await service.waiterCountForTesting() == 1)
         #expect(await probe.count == 1)
-        await probe.completeActive(isDirectory: true)
+        await probe.complete(path: "/tmp/shared", isDirectory: true)
         #expect(await remaining.value == .valid("/tmp/shared"))
         await service.waitUntilIdleForTesting()
         #expect(await service.waiterCountForTesting() == 0)
@@ -113,7 +141,7 @@ import Testing
 
         #expect(result == .cancelled || result == .timedOut)
         #expect(await service.waiterCountForTesting() == 0)
-        await probe.completeActive(isDirectory: true)
+        await probe.complete(path: "/tmp/race", isDirectory: true)
         await service.waitUntilIdleForTesting()
         #expect(await service.waiterCountForTesting() == 0)
     }
@@ -124,6 +152,7 @@ import Testing
     ) -> TerminalController.WorkspaceCreateWorkingDirectoryValidationService {
         TerminalController.WorkspaceCreateWorkingDirectoryValidationService(
             timeout: .seconds(1),
+            maxConcurrentProbes: 2,
             probe: { path in await probe.run(path: path) },
             sleepUntilDeadline: { _ in await deadlines.sleep() }
         )
@@ -137,13 +166,13 @@ import Testing
 
 private actor ControlledDirectoryProbe {
     private(set) var count = 0
-    private var activeContinuation: CheckedContinuation<Bool, Never>?
+    private var activeContinuations: [String: CheckedContinuation<Bool, Never>] = [:]
     private var countWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
-    func run(path _: String) async -> Bool {
+    func run(path: String) async -> Bool {
         count += 1
         resumeCountWaiters()
-        return await withCheckedContinuation { activeContinuation = $0 }
+        return await withCheckedContinuation { activeContinuations[path] = $0 }
     }
 
     func waitForCount(_ expected: Int) async {
@@ -151,9 +180,8 @@ private actor ControlledDirectoryProbe {
         await withCheckedContinuation { countWaiters.append((expected, $0)) }
     }
 
-    func completeActive(isDirectory: Bool) {
-        activeContinuation?.resume(returning: isDirectory)
-        activeContinuation = nil
+    func complete(path: String, isDirectory: Bool) {
+        activeContinuations.removeValue(forKey: path)?.resume(returning: isDirectory)
     }
 
     private func resumeCountWaiters() {
