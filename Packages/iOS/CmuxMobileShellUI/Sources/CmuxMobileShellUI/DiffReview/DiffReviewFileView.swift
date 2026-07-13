@@ -1,11 +1,10 @@
 import CmuxDiffModel
-import CmuxMobileRPC
 import CmuxMobileSupport
 import SwiftUI
 
 struct DiffReviewFileView: View {
     @Bindable var session: DiffReviewSession
-    let fetchFile: (String, String?, String) async throws -> MobileWorkspaceDiffFileResponse
+    let fetchFile: (String, String?, DiffFileStatus) async throws -> DiffFilePatch
     private let parser = DiffReviewParser()
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -220,7 +219,7 @@ struct DiffReviewFileView: View {
         .presentationDetents([.medium, .large])
     }
 
-    private var filteredFiles: [MobileWorkspaceDiffStatusResponse.File] {
+    private var filteredFiles: [DiffFileSummary] {
         let query = fileSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return session.files }
         return session.files.filter { $0.path.localizedCaseInsensitiveContains(query) }
@@ -332,9 +331,6 @@ struct DiffReviewFileView: View {
         do {
             let response = try await fetchFile(path, request.oldPath, status)
             guard activeRequest == request, !Task.isCancelled else { return }
-            guard response.path == path else {
-                throw MobileShellConnectionError.invalidResponse
-            }
             let result = await parser.parse(response)
             guard activeRequest == request, !Task.isCancelled else { return }
             loadState = .loaded(path: path, hunks: result.hunks, isTruncated: result.isTruncated)

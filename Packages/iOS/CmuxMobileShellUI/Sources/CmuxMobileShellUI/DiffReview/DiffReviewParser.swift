@@ -1,5 +1,4 @@
 import CmuxDiffModel
-import CmuxMobileRPC
 
 struct DiffReviewParser: Sendable {
     private let unifiedDiffParser: UnifiedDiffParser
@@ -8,10 +7,10 @@ struct DiffReviewParser: Sendable {
         self.unifiedDiffParser = unifiedDiffParser
     }
 
-    func parse(_ response: MobileWorkspaceDiffFileResponse) async -> DiffParseResult {
+    func parse(_ response: DiffFilePatch) async -> DiffParseResult {
         let unifiedDiffParser = unifiedDiffParser
         let task = Task.detached(priority: .userInitiated) {
-            unifiedDiffParser.parse(response.unifiedDiff, isTruncated: response.truncated)
+            unifiedDiffParser.parse(response.unifiedDiff, isTruncated: response.isTruncated)
         }
         return await withTaskCancellationHandler {
             await task.value

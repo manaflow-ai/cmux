@@ -1,11 +1,11 @@
-import CmuxMobileRPC
+import CmuxDiffModel
 import CmuxMobileSupport
 import SwiftUI
 
 struct DiffReviewFilesView: View {
     let workspaceName: String
-    let fetchStatus: () async throws -> MobileWorkspaceDiffStatusResponse
-    let fetchFile: (String, String?, String, String) async throws -> MobileWorkspaceDiffFileResponse
+    let fetchStatus: () async throws -> DiffStatusSnapshot
+    let fetchFile: (String, String?, DiffFileStatus, String) async throws -> DiffFilePatch
 
     @State private var session = DiffReviewSession()
     @State private var isLoading = false
@@ -91,7 +91,7 @@ struct DiffReviewFilesView: View {
             guard statusLoadGeneration == generation, !Task.isCancelled else { return false }
             session.setFiles(response.files)
             repoRoot = response.repoRoot
-            isListTruncated = response.truncated
+            isListTruncated = response.isTruncated
             return true
         } catch is CancellationError {
             return false
@@ -105,8 +105,8 @@ struct DiffReviewFilesView: View {
     private func fetchFileWithRepositoryRecovery(
         path: String,
         oldPath: String?,
-        status: String
-    ) async throws -> MobileWorkspaceDiffFileResponse {
+        status: DiffFileStatus
+    ) async throws -> DiffFilePatch {
         let retry = DiffReviewRepositoryRetry(reloadStatus: reload)
         return try await retry.run { attempt in
             switch attempt {

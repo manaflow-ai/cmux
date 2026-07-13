@@ -1,3 +1,4 @@
+import CmuxDiffModel
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -11,12 +12,69 @@ import Testing
         let fileData = Data(#"{"path":"A.swift","unified_diff":"+new"}"#.utf8)
 
         let ranOnMainThread = try await MobileShellComposite.decodeWorkspaceDiffResponse {
-            _ = try MobileWorkspaceDiffStatusResponse.decode(statusData)
-            _ = try MobileWorkspaceDiffFileResponse.decode(fileData)
+            _ = try MobileShellComposite.decodeDiffStatusSnapshot(statusData)
+            _ = try MobileShellComposite.decodeDiffFilePatch(fileData, expectedPath: "A.swift")
             return Thread.isMainThread
         }
 
         #expect(!ranOnMainThread)
+    }
+
+    @Test func workspaceDiffWireValuesMapIntoDomainModels() throws {
+        let statusData = Data(
+            #"{"repo_root":"/tmp/repo","files":[{"path":"New.swift","old_path":"Old.swift","status":"R","additions":2,"deletions":1}],"truncated":true}"#.utf8
+        )
+        let fileData = Data(
+            #"{"path":"New.swift","unified_diff":"+new","truncated":true}"#.utf8
+        )
+
+        let status = try MobileShellComposite.decodeDiffStatusSnapshot(statusData)
+        let file = try MobileShellComposite.decodeDiffFilePatch(fileData, expectedPath: "New.swift")
+
+        #expect(status.repoRoot == "/tmp/repo")
+        #expect(status.files == [
+            DiffFileSummary(
+                path: "New.swift",
+                oldPath: "Old.swift",
+                status: .renamed,
+                additions: 2,
+                deletions: 1
+            ),
+        ])
+        #expect(status.isTruncated)
+        #expect(file == DiffFilePatch(path: "New.swift", unifiedDiff: "+new", isTruncated: true))
+    }
+
+    @Test func unknownWireStatusAndMismatchedFilePathFailClosed() {
+        let statusData = Data(
+            #"{"repo_root":"/tmp/repo","files":[{"path":"A.swift","status":"future"}]}"#.utf8
+        )
+        let fileData = Data(#"{"path":"Other.swift","unified_diff":"+new"}"#.utf8)
+
+        #expect(throws: WorkspaceDiffError.self) {
+            try MobileShellComposite.decodeDiffStatusSnapshot(statusData)
+        }
+        #expect(throws: WorkspaceDiffError.self) {
+            try MobileShellComposite.decodeDiffFilePatch(fileData, expectedPath: "A.swift")
+        }
+    }
+
+    @Test func transportErrorsMapIntoDiffDomain() {
+        #expect(MobileShellComposite.workspaceDiffError(
+            from: MobileShellConnectionError.rpcError("not_found", "server")
+        ) == .notFound)
+        #expect(MobileShellComposite.workspaceDiffError(
+            from: MobileShellConnectionError.rpcError("git_failed", "server")
+        ) == .gitFailed)
+        #expect(MobileShellComposite.workspaceDiffError(
+            from: MobileShellConnectionError.requestTimedOut
+        ) == .timedOut)
+        #expect(MobileShellComposite.workspaceDiffError(
+            from: MobileShellConnectionError.rpcError("stale_repository", "server")
+        ) == .staleRepository)
+        #expect(MobileShellComposite.workspaceDiffError(
+            from: MobileShellConnectionError.connectionClosed
+        ) == .unavailable)
     }
 
     @Test func secondaryAuthorizationFailurePreservesForegroundConnection() async throws {
@@ -60,7 +118,7 @@ import Testing
         )
         let foregroundClient = try #require(store.remoteClient)
 
-        await #expect(throws: MobileShellConnectionError.self) {
+        await #expect(throws: WorkspaceDiffError.self) {
             try await store.fetchDiffStatus(workspaceID: secondaryWorkspaceID)
         }
 

@@ -1,4 +1,4 @@
-import CmuxMobileRPC
+import CmuxDiffModel
 import CmuxMobileSupport
 
 struct DiffReviewErrorPresentation {
@@ -9,41 +9,31 @@ struct DiffReviewErrorPresentation {
     }
 
     private static func makeMessage(for error: any Error) -> String {
-        guard let connectionError = error as? MobileShellConnectionError else {
+        guard let diffError = error as? WorkspaceDiffError else {
             return unavailableMessage
         }
-        switch connectionError {
-        case .rpcError(let code, _):
-            switch code {
-            case "not_found":
-                return L10n.string(
-                    "mobile.diff.error.notFound",
-                    defaultValue: "Git repository or file not found"
-                )
-            case "git_failed":
-                return L10n.string(
-                    "mobile.diff.error.gitFailed",
-                    defaultValue: "Could not read repository changes"
-                )
-            case "git_timeout":
-                return L10n.string(
-                    "mobile.diff.error.timedOut",
-                    defaultValue: "The paired Mac took too long to load changes"
-                )
-            case "stale_repository":
-                return L10n.string(
-                    "mobile.diff.error.repositoryChanged",
-                    defaultValue: "Workspace repository changed. Refresh changes."
-                )
-            default:
-                return unavailableMessage
-            }
-        case .requestTimedOut:
+        switch diffError {
+        case .notFound:
+            return L10n.string(
+                "mobile.diff.error.notFound",
+                defaultValue: "Git repository or file not found"
+            )
+        case .gitFailed:
+            return L10n.string(
+                "mobile.diff.error.gitFailed",
+                defaultValue: "Could not read repository changes"
+            )
+        case .timedOut:
             return L10n.string(
                 "mobile.diff.error.timedOut",
                 defaultValue: "The paired Mac took too long to load changes"
             )
-        default:
+        case .staleRepository:
+            return L10n.string(
+                "mobile.diff.error.repositoryChanged",
+                defaultValue: "Workspace repository changed. Refresh changes."
+            )
+        case .unavailable:
             return unavailableMessage
         }
     }

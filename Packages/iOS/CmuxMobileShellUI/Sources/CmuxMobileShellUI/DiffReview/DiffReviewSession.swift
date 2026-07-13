@@ -1,4 +1,4 @@
-import CmuxMobileRPC
+import CmuxDiffModel
 import Foundation
 import Observation
 
@@ -10,7 +10,7 @@ final class DiffReviewSession {
         let hunkIndex: Int
     }
 
-    private(set) var files: [MobileWorkspaceDiffStatusResponse.File]
+    private(set) var files: [DiffFileSummary]
     private(set) var currentFileIndex: Int
     private(set) var currentHunkIndex: Int
     private(set) var bookmark: Bookmark?
@@ -21,7 +21,7 @@ final class DiffReviewSession {
     /// of leaving the index at zero.
     private var pendingSeekToLastHunk = false
 
-    init(files: [MobileWorkspaceDiffStatusResponse.File] = []) {
+    init(files: [DiffFileSummary] = []) {
         self.files = files
         self.currentFileIndex = 0
         self.currentHunkIndex = 0
@@ -30,7 +30,7 @@ final class DiffReviewSession {
         self.hunkCountsByPath = [:]
     }
 
-    var currentFile: MobileWorkspaceDiffStatusResponse.File? {
+    var currentFile: DiffFileSummary? {
         guard files.indices.contains(currentFileIndex) else { return nil }
         return files[currentFileIndex]
     }
@@ -61,7 +61,7 @@ final class DiffReviewSession {
         return currentFileIndex + 1 < files.count
     }
 
-    func setFiles(_ files: [MobileWorkspaceDiffStatusResponse.File]) {
+    func setFiles(_ files: [DiffFileSummary]) {
         let selectedPath = currentFile?.path
         self.files = files
         let validPaths = Set(files.map(\.path))

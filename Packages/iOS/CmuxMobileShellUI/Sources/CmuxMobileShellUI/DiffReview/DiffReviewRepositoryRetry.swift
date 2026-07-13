@@ -1,4 +1,4 @@
-import CmuxMobileRPC
+import CmuxDiffModel
 
 @MainActor
 struct DiffReviewRepositoryRetry {
@@ -22,8 +22,7 @@ struct DiffReviewRepositoryRetry {
     }
 
     private static func isStaleRepository(_ error: any Error) -> Bool {
-        guard let connectionError = error as? MobileShellConnectionError,
-              case .rpcError(let code, _) = connectionError else { return false }
-        return code == "stale_repository"
+        guard let diffError = error as? WorkspaceDiffError else { return false }
+        return diffError == .staleRepository
     }
 }

@@ -1,6 +1,7 @@
-public import CmuxMobileRPC
+public import CmuxDiffModel
 public import CmuxMobileShellModel
 internal import Foundation
+internal import CmuxMobileRPC
 
 extension MobileShellComposite {
     private static let workspaceDiffCapability = "workspace.diff.v1"
@@ -26,15 +27,21 @@ extension MobileShellComposite {
     ///
     /// - Parameter workspaceID: The workspace to review.
     /// - Returns: Diff status payload from the paired Mac.
-    public func fetchDiffStatus(workspaceID: MobileWorkspacePreview.ID) async throws -> MobileWorkspaceDiffStatusResponse {
-        let params = workspaceDiffParams(workspaceID: workspaceID)
-        let data = try await sendWorkspaceDiffRequest(
-            method: "mobile.workspace.diff_status",
-            params: params,
-            workspaceID: workspaceID
-        )
-        return try await Self.decodeWorkspaceDiffResponse {
-            try MobileWorkspaceDiffStatusResponse.decode(data)
+    public func fetchDiffStatus(workspaceID: MobileWorkspacePreview.ID) async throws -> DiffStatusSnapshot {
+        do {
+            let params = workspaceDiffParams(workspaceID: workspaceID)
+            let data = try await sendWorkspaceDiffRequest(
+                method: "mobile.workspace.diff_status",
+                params: params,
+                workspaceID: workspaceID
+            )
+            return try await Self.decodeWorkspaceDiffResponse {
+                try Self.decodeDiffStatusSnapshot(data)
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw Self.workspaceDiffError(from: error)
         }
     }
 
@@ -51,23 +58,88 @@ extension MobileShellComposite {
         workspaceID: MobileWorkspacePreview.ID,
         path: String,
         oldPath: String?,
-        status: String,
+        status: DiffFileStatus,
         repoRoot: String
-    ) async throws -> MobileWorkspaceDiffFileResponse {
-        var params = workspaceDiffParams(workspaceID: workspaceID)
-        params["path"] = path
-        if let oldPath {
-            params["old_path"] = oldPath
+    ) async throws -> DiffFilePatch {
+        do {
+            var params = workspaceDiffParams(workspaceID: workspaceID)
+            params["path"] = path
+            if let oldPath {
+                params["old_path"] = oldPath
+            }
+            params["status"] = status.rawValue
+            params["repo_root"] = repoRoot
+            let data = try await sendWorkspaceDiffRequest(
+                method: "mobile.workspace.diff_file",
+                params: params,
+                workspaceID: workspaceID
+            )
+            return try await Self.decodeWorkspaceDiffResponse {
+                try Self.decodeDiffFilePatch(data, expectedPath: path)
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw Self.workspaceDiffError(from: error)
         }
-        params["status"] = status
-        params["repo_root"] = repoRoot
-        let data = try await sendWorkspaceDiffRequest(
-            method: "mobile.workspace.diff_file",
-            params: params,
-            workspaceID: workspaceID
+    }
+
+    nonisolated static func decodeDiffStatusSnapshot(_ data: Data) throws -> DiffStatusSnapshot {
+        let response = try MobileWorkspaceDiffStatusResponse.decode(data)
+        let files = try response.files.map { file in
+            guard let status = DiffFileStatus(rawValue: file.status) else {
+                throw WorkspaceDiffError.unavailable
+            }
+            return DiffFileSummary(
+                path: file.path,
+                oldPath: file.oldPath,
+                status: status,
+                additions: file.additions,
+                deletions: file.deletions
+            )
+        }
+        return DiffStatusSnapshot(
+            repoRoot: response.repoRoot,
+            files: files,
+            isTruncated: response.truncated
         )
-        return try await Self.decodeWorkspaceDiffResponse {
-            try MobileWorkspaceDiffFileResponse.decode(data)
+    }
+
+    nonisolated static func decodeDiffFilePatch(_ data: Data, expectedPath: String) throws -> DiffFilePatch {
+        let response = try MobileWorkspaceDiffFileResponse.decode(data)
+        guard response.path == expectedPath else { throw WorkspaceDiffError.unavailable }
+        return DiffFilePatch(
+            path: response.path,
+            unifiedDiff: response.unifiedDiff,
+            isTruncated: response.truncated
+        )
+    }
+
+    nonisolated static func workspaceDiffError(from error: any Error) -> WorkspaceDiffError {
+        if let diffError = error as? WorkspaceDiffError {
+            return diffError
+        }
+        guard let connectionError = error as? MobileShellConnectionError else {
+            return .unavailable
+        }
+        switch connectionError {
+        case .requestTimedOut:
+            return .timedOut
+        case .rpcError(let code, _):
+            switch code {
+            case "not_found":
+                return .notFound
+            case "git_failed":
+                return .gitFailed
+            case "git_timeout":
+                return .timedOut
+            case "stale_repository":
+                return .staleRepository
+            default:
+                return .unavailable
+            }
+        default:
+            return .unavailable
         }
     }
 

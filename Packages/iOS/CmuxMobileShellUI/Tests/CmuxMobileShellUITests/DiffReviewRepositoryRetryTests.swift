@@ -1,4 +1,4 @@
-import CmuxMobileRPC
+import CmuxDiffModel
 import Testing
 
 @testable import CmuxMobileShellUI
@@ -16,7 +16,7 @@ import Testing
         let value: String = try await retry.run { _ in
             attempts += 1
             if attempts == 1 {
-                throw MobileShellConnectionError.rpcError("stale_repository", "stale")
+                throw WorkspaceDiffError.staleRepository
             }
             return "fresh"
         }
@@ -32,7 +32,7 @@ import Testing
         let value: String = try await retry.run { attempt in
             switch attempt {
             case .initial:
-                throw MobileShellConnectionError.rpcError("stale_repository", "stale")
+                throw WorkspaceDiffError.staleRepository
             case .reloaded:
                 return "fresh metadata"
             }

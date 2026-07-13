@@ -1,9 +1,9 @@
-import CmuxMobileRPC
+import CmuxDiffModel
 import CmuxMobileSupport
 import SwiftUI
 
 struct DiffReviewFileRow: View {
-    let file: MobileWorkspaceDiffStatusResponse.File
+    let file: DiffFileSummary
     let open: () -> Void
 
     var body: some View {
@@ -45,7 +45,7 @@ struct DiffReviewFileRow: View {
         HStack(spacing: 2) {
             Image(systemName: statusSymbol)
                 .font(.caption2.weight(.bold))
-            Text(verbatim: file.status)
+            Text(verbatim: file.status.rawValue)
                 .font(.caption2.monospaced().bold())
         }
         .foregroundStyle(statusColor)
@@ -90,29 +90,29 @@ struct DiffReviewFileRow: View {
 
     private var statusSymbol: String {
         switch file.status {
-        case "A", "U": "plus"
-        case "D": "minus"
-        case "R": "arrow.right"
-        default: "pencil"
+        case .added, .untracked: "plus"
+        case .deleted: "minus"
+        case .renamed: "arrow.right"
+        case .modified: "pencil"
         }
     }
 
     private var statusColor: Color {
         switch file.status {
-        case "A", "U": .green
-        case "D": .red
-        case "R": .blue
-        default: .orange
+        case .added, .untracked: .green
+        case .deleted: .red
+        case .renamed: .blue
+        case .modified: .orange
         }
     }
 
     private var statusAccessibilityText: String {
         switch file.status {
-        case "A": L10n.string("mobile.diff.status.added", defaultValue: "Added")
-        case "D": L10n.string("mobile.diff.status.deleted", defaultValue: "Deleted")
-        case "R": L10n.string("mobile.diff.status.renamed", defaultValue: "Renamed")
-        case "U": L10n.string("mobile.diff.status.untracked", defaultValue: "Untracked")
-        default: L10n.string("mobile.diff.status.modified", defaultValue: "Modified")
+        case .added: L10n.string("mobile.diff.status.added", defaultValue: "Added")
+        case .deleted: L10n.string("mobile.diff.status.deleted", defaultValue: "Deleted")
+        case .renamed: L10n.string("mobile.diff.status.renamed", defaultValue: "Renamed")
+        case .untracked: L10n.string("mobile.diff.status.untracked", defaultValue: "Untracked")
+        case .modified: L10n.string("mobile.diff.status.modified", defaultValue: "Modified")
         }
     }
 

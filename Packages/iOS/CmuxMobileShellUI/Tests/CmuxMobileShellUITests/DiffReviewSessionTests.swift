@@ -1,4 +1,4 @@
-import CmuxMobileRPC
+import CmuxDiffModel
 import Foundation
 import Testing
 
@@ -259,8 +259,13 @@ import Testing
         #expect(session.currentHunkIndex == 0)
     }
 
-    private func file(_ path: String) -> MobileWorkspaceDiffStatusResponse.File {
-        let data = Data(#"{"path":"\#(path)","status":"M","additions":1,"deletions":0}"#.utf8)
-        return try! JSONDecoder().decode(MobileWorkspaceDiffStatusResponse.File.self, from: data)
+    private func file(_ path: String) -> DiffFileSummary {
+        DiffFileSummary(
+            path: path,
+            oldPath: nil,
+            status: .modified,
+            additions: 1,
+            deletions: 0
+        )
     }
 }
