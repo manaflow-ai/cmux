@@ -5874,7 +5874,12 @@ struct ContentView: View {
             guard !Task.isCancelled else { return }
             let indexEntry = index?.entry(workspaceId: workspaceId, panelId: panelId)
             let indexSnapshot = indexEntry?.snapshot
-            let snapshot = indexSnapshot ?? fallbackSnapshot
+            let snapshot = Self.commandPaletteForkProbeSnapshot(
+                authoritativeIndex: index,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: fallbackSnapshot
+            )
             let supportsFork: Bool
             if let snapshot {
                 supportsFork = await AgentForkSupport.supportsFork(
