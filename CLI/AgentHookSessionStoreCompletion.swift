@@ -17,11 +17,13 @@ extension ClaudeHookSessionStore {
             now: now
         )
         completed.updatedAt = now
-        if let activeRunId = completed.activeRunId,
-           let index = completed.runs?.firstIndex(where: { $0.runId == activeRunId }) {
-            completed.runs?[index].endedAt = now
-            completed.runs?[index].updatedAt = now
-            completed.runs?[index].restoreAuthority = false
+        if var runs = completed.runs {
+            for index in runs.indices where runs[index].endedAt == nil {
+                runs[index].endedAt = now
+                runs[index].updatedAt = now
+                runs[index].restoreAuthority = false
+            }
+            completed.runs = runs
         }
         completed.activeRunId = nil
         return completed

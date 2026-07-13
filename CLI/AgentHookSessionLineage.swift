@@ -10,4 +10,5 @@ struct AgentHookSessionLineage: Sendable, Equatable {
     var parentSessionId: String?
     var relationship: AgentSessionRelationship?
     var restoreAuthority: Bool
+    var authorityEvidence: AgentSessionAuthorityEvidence? = nil
 }

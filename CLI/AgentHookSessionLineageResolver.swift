@@ -5,6 +5,7 @@ import Foundation
 struct AgentHookSessionAuthority: Sendable, Equatable {
     var relationship: AgentSessionRelationship?
     var restoreAuthority: Bool
+    var evidence: AgentSessionAuthorityEvidence?
 }
 
 /// Classifies restore ownership from explicit markers and bounded ancestry.
@@ -37,9 +38,23 @@ struct AgentHookSessionAuthorityPolicy: Sendable {
         } else {
             explicitRelationship
         }
+        let evidence: AgentSessionAuthorityEvidence? = if isForkRoot {
+            .verifiedForkRoot
+        } else if managedChild {
+            .managedChild
+        } else if explicitRelationship == .spawned {
+            .explicitSpawnedChild
+        } else if hasAgentAncestor {
+            .verifiedAncestorChild
+        } else if isSpawnedChild {
+            .provisionalAmbiguousChild
+        } else {
+            nil
+        }
         return AgentHookSessionAuthority(
             relationship: relationship,
-            restoreAuthority: !isSpawnedChild
+            restoreAuthority: !isSpawnedChild,
+            evidence: evidence
         )
     }
 }
@@ -91,7 +106,8 @@ struct AgentHookSessionLineageResolver: Sendable {
             parentRunId: parentRunId,
             parentSessionId: parentSessionId,
             relationship: authority.relationship,
-            restoreAuthority: authority.restoreAuthority
+            restoreAuthority: authority.restoreAuthority,
+            authorityEvidence: authority.evidence
         )
     }
 

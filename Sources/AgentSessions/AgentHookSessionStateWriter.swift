@@ -164,7 +164,9 @@ struct AgentHookSessionStateWriter: Sendable {
         record["updatedAt"] = now
         record["runtimeStatus"] = "idle"
         record["agentLifecycle"] = "idle"
-        record["foregroundState"] = "completed"
+        if record["foregroundState"] as? String != "interrupted" {
+            record["foregroundState"] = "completed"
+        }
         record["attentionState"] = "none"
         record["sessionState"] = "ended"
         record["restoreAuthority"] = false

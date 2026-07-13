@@ -10,6 +10,7 @@ struct AgentSessionRunRecord: Codable, Sendable, Equatable {
     var parentSessionId: String?
     var relationship: AgentSessionRelationship?
     var restoreAuthority: Bool
+    var authorityEvidence: AgentSessionAuthorityEvidence? = nil
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
     var endedAt: TimeInterval?
@@ -56,20 +57,40 @@ struct AgentSessionRunReconciler: Sendable {
         lineage: AgentHookSessionLineage,
         now: TimeInterval
     ) {
+        let previousEvidence = AgentSessionAuthorityTransition.persistedEvidence(for: run)
+        let recoversProvisionalFork = AgentSessionAuthorityTransition.canRecoverProvisionalFork(
+            previous: previousEvidence,
+            incoming: lineage
+        )
+        let incomingDurableEvidence = lineage.authorityEvidence.flatMap {
+            $0.isDurableChild ? $0 : nil
+        }
         let replacesProcessGeneration = run.processStartedAt.flatMap { previousStartedAt in
             lineage.processStartedAt.map { abs(previousStartedAt - $0) > 0.001 }
         } == true
         if replacesProcessGeneration {
             let previous = run
             run = Self.newRun(lineage: lineage, now: now)
+            if recoversProvisionalFork {
+                return
+            }
             // A stable logical run can span multiple process generations. Once
-            // process ancestry proves it is a child, loss of that transient
-            // evidence after the parent exits must not turn it into a root.
+            // durable evidence proves it is a child, loss of process ancestry
+            // after the parent exits must not turn it into a root.
             run.parentRunId = lineage.parentRunId ?? previous.parentRunId
             run.parentSessionId = lineage.parentSessionId ?? previous.parentSessionId
-            if previous.relationship == .spawned {
+            if let previousEvidence, previousEvidence.isDurableChild {
                 run.relationship = .spawned
                 run.restoreAuthority = false
+                run.authorityEvidence = previousEvidence
+            } else if let incomingDurableEvidence {
+                run.relationship = .spawned
+                run.restoreAuthority = false
+                run.authorityEvidence = incomingDurableEvidence
+            } else if previousEvidence == .provisionalAmbiguousChild {
+                run.relationship = .spawned
+                run.restoreAuthority = false
+                run.authorityEvidence = .provisionalAmbiguousChild
             } else {
                 // Root authority is generation-scoped. Completion demotes the
                 // exited generation, but a verified replacement root starts
@@ -81,9 +102,44 @@ struct AgentSessionRunReconciler: Sendable {
         run.pid = lineage.pid ?? run.pid
         run.processStartedAt = lineage.processStartedAt ?? run.processStartedAt
         run.cmuxRuntime = run.cmuxRuntime ?? lineage.cmuxRuntime
+        if recoversProvisionalFork {
+            run.parentRunId = lineage.parentRunId
+            run.parentSessionId = lineage.parentSessionId
+            run.relationship = .forked
+            run.restoreAuthority = true
+            run.authorityEvidence = .verifiedForkRoot
+            run.endedAt = nil
+            run.updatedAt = now
+            return
+        }
         run.parentRunId = lineage.parentRunId ?? run.parentRunId
         run.parentSessionId = lineage.parentSessionId ?? run.parentSessionId
+        if let previousEvidence, previousEvidence.isDurableChild {
+            run.relationship = .spawned
+            run.restoreAuthority = false
+            run.authorityEvidence = previousEvidence
+            run.endedAt = nil
+            run.updatedAt = now
+            return
+        }
+        if let incomingDurableEvidence {
+            run.relationship = .spawned
+            run.restoreAuthority = false
+            run.authorityEvidence = incomingDurableEvidence
+            run.endedAt = nil
+            run.updatedAt = now
+            return
+        }
+        if previousEvidence == .provisionalAmbiguousChild {
+            run.relationship = .spawned
+            run.restoreAuthority = false
+            run.authorityEvidence = .provisionalAmbiguousChild
+            run.endedAt = nil
+            run.updatedAt = now
+            return
+        }
         run.relationship = lineage.relationship == .spawned ? .spawned : (run.relationship ?? lineage.relationship)
+        run.authorityEvidence = lineage.authorityEvidence ?? run.authorityEvidence
         // Authority is monotonic within one process generation. New child
         // evidence can demote a run, but missing ancestry later cannot promote
         // that child into a restore owner.
@@ -105,6 +161,7 @@ struct AgentSessionRunReconciler: Sendable {
             parentSessionId: lineage.parentSessionId,
             relationship: lineage.relationship,
             restoreAuthority: lineage.restoreAuthority,
+            authorityEvidence: lineage.authorityEvidence,
             startedAt: now,
             updatedAt: now,
             endedAt: nil
