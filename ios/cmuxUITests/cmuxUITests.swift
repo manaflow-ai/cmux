@@ -121,6 +121,43 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    /// Regression: every task-composer action must remain discoverable through
+    /// the accessibility hierarchy, and its exposed activation frame must meet
+    /// Apple's 44-point minimum on both compact and regular-width layouts.
+    @MainActor
+    func testTaskComposerExposesPrimaryActionAndMinimumControlTargets() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
+
+        let create = app.buttons["MobileTaskComposerCreateButton"]
+        XCTAssertTrue(
+            create.waitForExistence(timeout: 4),
+            "The visible Create action must be present in the accessibility hierarchy"
+        )
+        XCTAssertGreaterThanOrEqual(
+            create.frame.height,
+            44,
+            "The Create action must expose at least a 44-point activation frame"
+        )
+
+        for name in ["Claude", "Codex", "OpenCode", "Shell"] {
+            let template = app.buttons[name]
+            XCTAssertTrue(
+                template.waitForExistence(timeout: 2),
+                "The \(name) template must be present in the accessibility hierarchy"
+            )
+            XCTAssertGreaterThanOrEqual(
+                template.frame.height,
+                44,
+                "The \(name) template must expose at least a 44-point activation frame"
+            )
+        }
+    }
+
     /// Regression: fast pinch-zoom must not hang the main thread (the
     /// scene-update watchdog `0x8BADF00D` was killing the app because
     /// libghostty surface calls block on the main thread) and must not
