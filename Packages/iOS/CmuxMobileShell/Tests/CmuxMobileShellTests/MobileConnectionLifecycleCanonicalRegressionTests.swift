@@ -210,6 +210,63 @@ import Testing
         store.signOut()
     }
 
+    @Test func cachedRetryExcludesMacWithPendingForgetIntent() async throws {
+        let route = try loopbackRoute(id: "forgotten", port: 51_004)
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [storedMac(id: "mac-a", route: route)]],
+            blockedTeams: []
+        )
+        let factory = RouteRecordingTransportFactory(
+            router: LivenessHostRouter(),
+            box: TransportBox(),
+            failingPorts: []
+        )
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { Date() },
+                supportedRouteKinds: [.debugLoopback]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        await store.loadPairedMacs()
+        let currentScope = await store.currentScopeSnapshot()
+        let scope = try #require(currentScope)
+        store.forgottenMacIntentDeviceIDsByScope[store.pairedMacScopeKey(scope)] = ["mac-a"]
+
+        let outcome = await store.performCachedStoredMacReconnect()
+
+        #expect(outcome == .unavailable)
+        #expect(factory.attemptedPorts().isEmpty)
+    }
+
+    @Test func retiredStoreReadDoesNotRetainShellAfterDeadline() async throws {
+        let deadline = ControlledStoredMacReconnectDeadline()
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: [""]
+        )
+        var store: MobileShellComposite? = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            storedMacReconnectDeadline: { await deadline.wait() }
+        )
+        weak let weakStore = store
+        store?.requestConnectionLifecycleRecovery(.manualRetry)
+        await pairedMacStore.waitUntilLoadStarted(teamID: nil)
+        await deadline.waitUntilArmed()
+
+        await deadline.expire()
+        #expect(try await pollUntil { store?.connectionLifecycle.activeEpisode == nil })
+        store = nil
+
+        #expect(try await pollUntil { weakStore == nil })
+        await pairedMacStore.release(teamID: nil)
+    }
+
     private func loopbackRoute(id: String, port: Int) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: id,
