@@ -199,7 +199,27 @@ struct NotificationScrollRestoreTests {
         ))
         #expect(surfaceView.bindingActions == ["scroll_to_row:18"])
         #expect(surfaceView.scrollbar?.total == 220)
-        #expect(hostedView.sessionScrollbackReplayCompletionScrollbar == nil)
+        #expect(hostedView.sessionScrollbackReplayCompletionScrollbar?.total == 200)
+    }
+
+    @Test func postReplayNotificationUsesItsLiveGeneration() throws {
+        let surfaceView = ActionProbeView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 100, offset: 56, visible: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let marker = completionMarker(named: "post-replay-notification")
+        hostedView.beginSessionScrollbackReplay(completionMarker: marker)
+        #expect(completeReplay(
+            hostedView,
+            marker: marker,
+            scrollbar: scrollbar(total: 200, offset: 156, visible: 44)
+        ))
+
+        postScrollbar(total: 220, offset: 126, visible: 44, to: surfaceView)
+        let postReplayPosition = try #require(hostedView.notificationScrollPosition)
+        #expect(postReplayPosition.row == 50)
+        #expect(postReplayPosition.replayGeneration == marker.reportedDirectory)
+        #expect(hostedView.restoreNotificationScrollPosition(postReplayPosition))
+        #expect(surfaceView.bindingActions == ["scroll_to_row:126"])
     }
 
     @Test func replayCompletionBeforeArtifactAdoptionIsPreserved() {

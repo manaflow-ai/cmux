@@ -156,7 +156,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             panelId: nil,
             notificationId: nil,
             scrollRow: nil,
-            scrollTotalRows: nil
+            scrollTotalRows: nil,
+            scrollReplayGeneration: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -174,7 +175,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             panelId: nil,
             notificationId: nil,
             scrollRow: nil,
-            scrollTotalRows: nil
+            scrollTotalRows: nil,
+            scrollReplayGeneration: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -210,7 +212,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             panelId: notification.panelId,
             notificationId: notification.id,
             scrollRow: notification.scrollRow,
-            scrollTotalRows: notification.scrollTotalRows
+            scrollTotalRows: notification.scrollTotalRows,
+            scrollReplayGeneration: notification.scrollReplayGeneration
         )
     }
 
@@ -246,7 +249,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             panelId: nil,
             notificationId: notificationId,
             scrollRow: nil,
-            scrollTotalRows: nil
+            scrollTotalRows: nil,
+            scrollReplayGeneration: nil
         )
     }
 
@@ -264,6 +268,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     ///   - scrollTotalRows: Total terminal scrollback rows at capture time. The
     ///     app-side router uses this to adjust `scrollRow` for output appended
     ///     after the notification was recorded.
+    ///   - scrollReplayGeneration: Session replay generation that produced the
+    ///     captured scroll position.
     @discardableResult
     public func open(
         tabId: UUID,
@@ -271,7 +277,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         panelId: UUID?,
         notificationId: UUID?,
         scrollRow: Int?,
-        scrollTotalRows: Int?
+        scrollTotalRows: Int?,
+        scrollReplayGeneration: String?
     ) -> Bool {
         openRouting.openRouted(
             tabId: tabId,
@@ -279,7 +286,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             panelId: panelId,
             notificationId: notificationId,
             scrollRow: scrollRow,
-            scrollTotalRows: scrollTotalRows
+            scrollTotalRows: scrollTotalRows,
+            scrollReplayGeneration: scrollReplayGeneration
         )
     }
 

@@ -2480,7 +2480,7 @@ class GhosttyApp {
         }
     }
 
-    private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
+    func performOnMain<T>(_ work: @MainActor () -> T) -> T {
         if Thread.isMainThread {
             return MainActor.assumeIsolated { work() }
         }
@@ -8186,7 +8186,7 @@ final class GhosttySurfaceScrollView: NSView {
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
-    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var earlySessionScrollbackReplayCompletionDirectory: String?; var sessionScrollbackReplayCompletionScrollbar: GhosttyScrollbar?; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?
+    var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var earlySessionScrollbackReplayCompletionDirectory: String?; var sessionScrollbackReplayGeneration: String?; var sessionScrollbackReplayCompletionScrollbar: GhosttyScrollbar?; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
