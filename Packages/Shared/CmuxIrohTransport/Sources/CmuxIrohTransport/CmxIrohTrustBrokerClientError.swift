@@ -6,6 +6,8 @@ public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
     case missingAuthentication
     case invalidAuthentication
     case nonHTTPResponse
+    /// The broker rejected a request and supplied a bounded retry floor.
+    case rateLimited(code: String?, retryAfterSeconds: Int)
     case rejected(statusCode: Int, code: String?)
     case invalidResponse
 
@@ -13,6 +15,8 @@ public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
         guard let brokerError = error as? Self else { return false }
         switch brokerError {
         case .connectivity:
+            return true
+        case .rateLimited:
             return true
         case let .rejected(statusCode, _):
             return statusCode == 408
@@ -26,5 +30,11 @@ public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
              .invalidResponse:
             return false
         }
+    }
+
+    /// The validated server retry floor, when present.
+    public var retryAfterSeconds: Int? {
+        guard case let .rateLimited(_, retryAfterSeconds) = self else { return nil }
+        return retryAfterSeconds
     }
 }

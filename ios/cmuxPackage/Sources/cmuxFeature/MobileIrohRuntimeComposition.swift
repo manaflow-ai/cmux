@@ -50,8 +50,6 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         }
     }
 
-    nonisolated private static let relayDeployment = CmxIrohRelayDeployment.current
-    nonisolated private static let managedRelayURLs = relayDeployment.urls
     private static let capabilities = ["mobile-rpc-v1", "multistream-v1"]
     private static let protocolConfiguration = CmxIrohProtocolConfiguration(
         alpn: CmxIrohProtocolConfiguration.cmuxMobileV1.alpn,
@@ -205,8 +203,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                 }
                 return try CmxIrohTrustBrokerClient(
                     baseURL: baseURL,
-                    tokenSource: tokenSource,
-                    relayTokenEndpoint: Self.relayDeployment.tokenEndpoint
+                    tokenSource: tokenSource
                 )
             },
             deviceID: { stableDeviceID },
@@ -957,7 +954,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
            ) {
             cachedManagedRelayURLs = Set(cachedPolicy.relays.map(\.url))
         } else {
-            cachedManagedRelayURLs = Self.managedRelayURLs
+            cachedManagedRelayURLs = []
         }
         let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
@@ -1040,7 +1037,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                 )
                 endpointRelayProfile = .unavailableCustomOverride
             }
-            managedRelayURLs = Self.managedRelayURLs
+            managedRelayURLs = []
             resolvedPolicyService = nil
             resolvedEffectivePolicy = nil
         }
@@ -1598,6 +1595,8 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         }
         relayPolicyRefreshTask = Task { @MainActor [weak self] in
             var retryAt: Date?
+            var failureCount = 0
+            var relayAuthorityExpired = false
             while !Task.isCancelled {
                 guard let self,
                       revision == self.lifecycleRevision,
@@ -1606,7 +1605,9 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                 let snapshot = await service.diagnosticsSnapshot()
                 let current = self.now()
                 let attemptAt = Self.relayPolicyRefreshAttemptDate(
-                    policyExpiresAt: snapshot.policyExpiresAt,
+                    policyExpiresAt: relayAuthorityExpired
+                        ? nil
+                        : snapshot.policyExpiresAt,
                     retryAt: retryAt,
                     now: current
                 )
@@ -1617,6 +1618,22 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                     } catch {
                         return
                     }
+                }
+                let wakeDate = self.now()
+                if let retryAt,
+                   retryAt > wakeDate,
+                   Self.shouldDeactivateRelayPolicy(
+                       policyExpiresAt: snapshot.policyExpiresAt,
+                       now: wakeDate
+                   ) {
+                    let expired = await service.restore(
+                        accountID: accountID,
+                        trustRoot: trustRoot,
+                        now: wakeDate
+                    )
+                    try? await self.applyRelayPolicy(expired)
+                    relayAuthorityExpired = true
+                    continue
                 }
                 guard !Task.isCancelled,
                       revision == self.lifecycleRevision,
@@ -1631,6 +1648,8 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                     )
                     try await self.applyRelayPolicy(effective)
                     retryAt = nil
+                    failureCount = 0
+                    relayAuthorityExpired = false
                 } catch {
                     let failureDate = self.now()
                     if Self.shouldDeactivateRelayPolicy(
@@ -1643,11 +1662,19 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                             now: failureDate
                         )
                         try? await self.applyRelayPolicy(expired)
+                        relayAuthorityExpired = true
                     } else {
                         self.relayPolicyDiagnostics = await service.diagnosticsSnapshot()
                         self.publishIrohSettingsUpdate()
                     }
-                    retryAt = failureDate.addingTimeInterval(30)
+                    let retryDelay = CmxIrohRetrySchedule().delay(
+                        failureCount: failureCount,
+                        retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+                            .retryAfterSeconds,
+                        jitterUnitInterval: Double.random(in: 0 ... 1)
+                    )
+                    failureCount = min(failureCount + 1, 20)
+                    retryAt = failureDate.addingTimeInterval(retryDelay)
                 }
             }
         }
@@ -1658,7 +1685,9 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         retryAt: Date?,
         now: Date
     ) -> Date {
-        if let retryAt { return retryAt }
+        if let retryAt {
+            return min(retryAt, policyExpiresAt ?? retryAt)
+        }
         if let policyExpiresAt {
             return policyExpiresAt.addingTimeInterval(-60)
         }

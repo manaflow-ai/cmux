@@ -21,6 +21,7 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             managedRelayURLs: Set(fixture.relayURLs),
             clock: clock,
             jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 },
             credentialDidInstall: { response in
                 await installs.record(response)
             }
@@ -48,6 +49,33 @@ struct CmxIrohRelayCredentialCoordinatorTests {
     }
 
     @Test
+    func bootstrapKeepsEachTokenAssociatedWithItsSignedRelayURL() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: TestRelayTokenBroker(steps: []),
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: TestRelayClock(now: fixture.now),
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
+        )
+
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity,
+            bootstrap: try fixture.response(tokens: ["abc234", "def567"])
+        )
+
+        let updates = await endpoint.observedRelayUpdates()
+        #expect(updates.count == 1)
+        #expect(updates[0].map(\.url) == fixture.relayURLs)
+        #expect(updates[0].map(\.token) == ["abc234", "def567"])
+        await coordinator.deactivate()
+    }
+
+    @Test
     func selectedManagedSubsetInstallsOnlyChosenRelayAfterFullFleetValidation() async throws {
         let fixture = try RelayCoordinatorFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.identity)
@@ -60,7 +88,8 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             managedRelayURLs: Set(fixture.relayURLs),
             selectedRelayURLs: [selectedURL],
             clock: clock,
-            jitter: { _, refreshAfter in refreshAfter }
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
         )
 
         try await coordinator.activate(
@@ -90,7 +119,8 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             broker: broker,
             managedRelayURLs: Set(fixture.relayURLs),
             clock: clock,
-            jitter: { _, refreshAfter in refreshAfter }
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
         )
 
         try await coordinator.activate(
@@ -122,7 +152,8 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             broker: broker,
             managedRelayURLs: Set(fixture.relayURLs),
             clock: clock,
-            jitter: { _, refreshAfter in refreshAfter }
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
         )
 
         try await coordinator.activate(
@@ -134,10 +165,39 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             Issue.record("Expected the relay retry sleep")
             return
         }
-        #expect(deadline == fixture.now.addingTimeInterval(60))
+        #expect(deadline == fixture.now.addingTimeInterval(30))
         #expect(await broker.observedEndpointIDs() == [fixture.identity])
         #expect(await endpoint.observedRelayUpdates().isEmpty)
         #expect(try await supervisor.activeEndpoint().identity() == fixture.identity)
+        await coordinator.deactivate()
+    }
+
+    @Test
+    func rateLimitRetryNeverPrecedesValidatedServerFloor() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let clock = TestRelayClock(now: fixture.now)
+        var clockEvents = clock.events().makeAsyncIterator()
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: TestRelayTokenBroker(steps: [.rateLimited(600)]),
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
+        )
+
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity
+        )
+
+        #expect(
+            await clockEvents.next()
+                == .sleep(fixture.now.addingTimeInterval(600))
+        )
+        #expect(await endpoint.observedRelayUpdates().isEmpty)
         await coordinator.deactivate()
     }
 
@@ -156,7 +216,8 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             broker: broker,
             managedRelayURLs: Set(fixture.relayURLs),
             clock: clock,
-            jitter: { _, refreshAfter in refreshAfter }
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
         )
 
         try await coordinator.activate(
@@ -191,7 +252,8 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             broker: TestRelayTokenBroker(steps: [.failure]),
             managedRelayURLs: Set(fixture.relayURLs),
             clock: TestRelayClock(now: fixture.now),
-            jitter: { _, refreshAfter in refreshAfter }
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
         )
         let incomplete = try fixture.response(relayURLs: [fixture.relayURLs[0]])
 
@@ -227,6 +289,7 @@ private actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
     enum Step: Sendable {
         case response(CmxIrohRelayTokenResponse)
         case failure
+        case rateLimited(Int)
     }
 
     private var steps: [Step]
@@ -247,6 +310,11 @@ private actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
             return response
         case .failure:
             throw TestRelayCoordinatorError.transient
+        case let .rateLimited(retryAfterSeconds):
+            throw CmxIrohTrustBrokerClientError.rateLimited(
+                code: "rate_limited",
+                retryAfterSeconds: retryAfterSeconds
+            )
         }
     }
 
@@ -363,16 +431,37 @@ private struct RelayCoordinatorFixture: Sendable {
 
     func response(
         relayURLs: [String]? = nil,
+        tokens: [String]? = nil,
         refreshAfter: Date? = nil,
         expiresAt: Date? = nil
     ) throws -> CmxIrohRelayTokenResponse {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let urls = relayURLs ?? self.relayURLs
+        if let tokens {
+            guard tokens.count == urls.count else {
+                throw CmxIrohTrustBrokerClientError.invalidResponse
+            }
+            return CmxIrohRelayTokenResponse(
+                credentials: zip(urls, tokens).map { url, token in
+                    CmxIrohManagedRelayCredential(
+                        relayURL: url,
+                        token: token,
+                        expiresAt: formatter.string(
+                            from: expiresAt ?? self.expiresAt
+                        ),
+                        refreshAfter: formatter.string(
+                            from: refreshAfter ?? self.refreshAfter
+                        )
+                    )
+                }
+            )
+        }
         let object: [String: Any] = [
             "token": "abc234",
             "expires_at": formatter.string(from: expiresAt ?? self.expiresAt),
             "refresh_after": formatter.string(from: refreshAfter ?? self.refreshAfter),
-            "relay_fleet": relayURLs ?? self.relayURLs,
+            "relay_fleet": urls,
         ]
         return try JSONDecoder().decode(
             CmxIrohRelayTokenResponse.self,

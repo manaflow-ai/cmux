@@ -37,11 +37,20 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private struct BindingRequest: Encodable { let bindingId: String }
     private struct EndpointRequest: Encodable { let endpointId: String }
+    private struct RelayAccessCredential: Decodable {
+        let relayUrl: String
+        let token: String
+        let expiresAt: Int64
+        let refreshAfter: Int64
+        let ttlSeconds: Int64
+    }
     private struct RelayAccessResponse: Decodable {
         let token: String?
-        let expiresAt: Int64
-        let ttlSeconds: Int64
-        let relays: [String]
+        let expiresAt: Int64?
+        let ttlSeconds: Int64?
+        let relays: [String]?
+        let endpointId: String?
+        let relayCredentials: [RelayAccessCredential]?
         let policy: String?
         let preference: CmxIrohAccountRelayConfiguration?
         let preferenceRevision: Int64?
@@ -82,21 +91,18 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private let tokenSource: CmxIrohBrokerTokenSource
     private let transport: any CmxIrohHTTPTransport
     private let requestTimeout: TimeInterval
-    private let relayTokenEndpoint: CmxIrohRelayTokenEndpoint
 
     /// Creates a client that rejects cleartext non-loopback API origins.
     public init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
-        requestTimeout: TimeInterval = 10,
-        relayTokenEndpoint: CmxIrohRelayTokenEndpoint = .selfHosted
+        requestTimeout: TimeInterval = 10
     ) throws {
         try self.init(
             baseURL: baseURL,
             tokenSource: tokenSource,
             transport: CmxIrohURLSessionTransport(),
-            requestTimeout: requestTimeout,
-            relayTokenEndpoint: relayTokenEndpoint
+            requestTimeout: requestTimeout
         )
     }
 
@@ -105,8 +111,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
         transport: any CmxIrohHTTPTransport,
-        requestTimeout: TimeInterval = 10,
-        relayTokenEndpoint: CmxIrohRelayTokenEndpoint = .selfHosted
+        requestTimeout: TimeInterval = 10
     ) throws {
         guard Self.isAllowedBaseURL(baseURL), requestTimeout > 0 else {
             throw CmxIrohTrustBrokerClientError.invalidBaseURL
@@ -115,7 +120,6 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         self.tokenSource = tokenSource
         self.transport = transport
         self.requestTimeout = requestTimeout
-        self.relayTokenEndpoint = relayTokenEndpoint
     }
 
     public func issueChallenge(
@@ -169,16 +173,9 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     }
 
     public func issueRelayToken(
-        bindingID: String,
+        bindingID _: String,
         endpointID: CmxIrohPeerIdentity
     ) async throws -> CmxIrohRelayTokenResponse {
-        if relayTokenEndpoint == .legacyTrustBroker {
-            return try await send(
-                path: "api/devices/iroh/relay-token",
-                method: "POST",
-                body: BindingRequest(bindingId: bindingID)
-            )
-        }
         let response: RelayAccessResponse = try await send(
             path: "api/relay/token",
             method: "POST",
@@ -212,7 +209,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
         let relayToken: CmxIrohRelayTokenResponse?
-        if response.token == nil {
+        if response.relayCredentials == nil, response.token == nil {
             relayToken = nil
         } else {
             relayToken = try Self.relayTokenResponse(response, endpointID: endpointID)
@@ -302,6 +299,15 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
         guard (200 ... 299).contains(http.statusCode) else {
             let code = try? JSONDecoder().decode(BrokerError.self, from: data).error
+            if http.statusCode == 429,
+               let retryAfterSeconds = Self.retryAfterSeconds(
+                   http.value(forHTTPHeaderField: "Retry-After")
+               ) {
+                throw CmxIrohTrustBrokerClientError.rateLimited(
+                    code: code,
+                    retryAfterSeconds: retryAfterSeconds
+                )
+            }
             throw CmxIrohTrustBrokerClientError.rejected(
                 statusCode: http.statusCode,
                 code: code
@@ -335,39 +341,85 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             && !value.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f })
     }
 
+    private static func retryAfterSeconds(_ value: String?) -> Int? {
+        guard let value,
+              !value.isEmpty,
+              value.utf8.allSatisfy({ (48 ... 57).contains($0) }),
+              let seconds = Int(value),
+              (1 ... 3_600).contains(seconds),
+              String(seconds) == value else {
+            return nil
+        }
+        return seconds
+    }
+
     private static func relayTokenResponse(
         _ response: RelayAccessResponse,
         endpointID: CmxIrohPeerIdentity
     ) throws -> CmxIrohRelayTokenResponse {
+        if let credentials = response.relayCredentials {
+            guard response.endpointId == endpointID.endpointID,
+                  (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(
+                      credentials.count
+                  ) else {
+                throw CmxIrohTrustBrokerClientError.invalidResponse
+            }
+            let relayCredentials = try credentials.map { credential in
+                guard (30 ... 24 * 60 * 60).contains(credential.ttlSeconds),
+                      credential.expiresAt > credential.refreshAfter,
+                      credential.refreshAfter
+                          >= credential.expiresAt - credential.ttlSeconds,
+                      (1 ... 8 * 1_024).contains(credential.token.utf8.count) else {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+                return CmxIrohManagedRelayCredential(
+                    relayURL: try canonicalRelayOrigin(credential.relayUrl),
+                    token: credential.token,
+                    expiresAt: iso8601(epochSeconds: credential.expiresAt),
+                    refreshAfter: iso8601(epochSeconds: credential.refreshAfter)
+                )
+            }
+            guard Set(relayCredentials.map(\.relayURL)).count
+                    == relayCredentials.count else {
+                throw CmxIrohTrustBrokerClientError.invalidResponse
+            }
+            return CmxIrohRelayTokenResponse(credentials: relayCredentials)
+        }
+
         guard let token = response.token,
-              response.ttlSeconds == 300,
-              response.expiresAt > response.ttlSeconds,
+              let expiresAtSeconds = response.expiresAt,
+              let ttlSeconds = response.ttlSeconds,
+              let relays = response.relays,
+              ttlSeconds == 300,
+              expiresAtSeconds > ttlSeconds,
               (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(
-                  response.relays.count
+                  relays.count
               ),
               validRelayToken(
                   token,
-                  expiresAt: response.expiresAt,
+                  expiresAt: expiresAtSeconds,
                   endpointID: endpointID
               ) else {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
-        let relayFleet = try response.relays.map(canonicalRelayOrigin)
+        let relayFleet = try relays.map(canonicalRelayOrigin)
         guard Set(relayFleet).count == relayFleet.count else {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
-        let expiresAt = Date(timeIntervalSince1970: TimeInterval(response.expiresAt))
-        let refreshLead = min(60, response.ttlSeconds / 2)
-        let refreshAfter = Date(
-            timeIntervalSince1970: TimeInterval(response.expiresAt - refreshLead)
-        )
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let refreshLead = min(60, ttlSeconds / 2)
         return CmxIrohRelayTokenResponse(
             token: token,
-            expiresAt: formatter.string(from: expiresAt),
-            refreshAfter: formatter.string(from: refreshAfter),
+            expiresAt: iso8601(epochSeconds: expiresAtSeconds),
+            refreshAfter: iso8601(epochSeconds: expiresAtSeconds - refreshLead),
             relayFleet: relayFleet
+        )
+    }
+
+    private static func iso8601(epochSeconds: Int64) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(
+            from: Date(timeIntervalSince1970: TimeInterval(epochSeconds))
         )
     }
 

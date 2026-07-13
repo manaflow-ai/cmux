@@ -9,6 +9,7 @@ import {
   type RelayTokenDeps,
 } from "../app/api/relay/token/route";
 import type { RelayPolicyPayload } from "../services/relay/model";
+import { mintManagedRelayCredentials } from "../services/relay/token";
 import type { AuthedUser } from "../services/vms/auth";
 
 const { privateKey, publicKey } = generateKeyPairSync("ed25519");
@@ -48,6 +49,13 @@ function deps(overrides: Partial<RelayTokenDeps> = {}): RelayTokenDeps {
         preferenceRevision: 3,
       };
     },
+    issueCredentials: (input) => mintManagedRelayCredentials({
+      sub: input.accountId,
+      endpointId: input.endpointId,
+      relayUrls: input.relayUrls,
+      key: input.key,
+      nowSeconds: input.nowSeconds,
+    }),
     checkRateLimit: async () => ({ rateLimited: false }),
     rateLimitRuleId: () => undefined,
     isVercel: () => false,
@@ -73,6 +81,14 @@ describe("POST /api/relay/token", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     const body = await response.json() as Record<string, unknown>;
     expect(body.relays).toEqual(["https://relay-one.cmux.dev/"]);
+    expect(body.endpointId).toBe(ENDPOINT_ID);
+    expect(body.relayCredentials).toEqual([{
+      relayUrl: "https://relay-one.cmux.dev/",
+      token: body.token,
+      expiresAt: 1_700_000_300,
+      refreshAfter: 1_700_000_240,
+      ttlSeconds: 300,
+    }]);
     expect(body.policy).toBe("signed.policy.value");
     expect(body.preference).toEqual({
       mode: "managed",
@@ -98,6 +114,127 @@ describe("POST /api/relay/token", () => {
       exp: 1_700_000_300,
       endpoint_id: ENDPOINT_ID,
     });
+  });
+
+  test("preserves distinct URL-token associations without ambiguous legacy fields", async () => {
+    const secondRelay = {
+      id: "managed-two",
+      provider: "other",
+      region: "eu-west",
+      url: "https://relay-two.example/",
+    } as const;
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        signedPolicy: async () => ({
+          policy: "signed.policy.value",
+          payload: { ...PAYLOAD, relays: [...PAYLOAD.relays, secondRelay] },
+          preference: { mode: "automatic" },
+          preferenceRevision: 4,
+        }),
+        issueCredentials: ({ relayUrls, nowSeconds }) => relayUrls.map(
+          (relayUrl, index) => ({
+            relayUrl,
+            token: index === 0 ? "abc234" : "def567",
+            expiresAt: nowSeconds + 300 + index,
+            refreshAfter: nowSeconds + 240 + index,
+            ttlSeconds: 300,
+          }),
+        ),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body.relayCredentials).toEqual([
+      {
+        relayUrl: PAYLOAD.relays[0]?.url,
+        token: "abc234",
+        expiresAt: 1_700_000_300,
+        refreshAfter: 1_700_000_240,
+        ttlSeconds: 300,
+      },
+      {
+        relayUrl: secondRelay.url,
+        token: "def567",
+        expiresAt: 1_700_000_301,
+        refreshAfter: 1_700_000_241,
+        ttlSeconds: 300,
+      },
+    ]);
+    expect(body.token).toBeUndefined();
+    expect(body.relays).toBeUndefined();
+  });
+
+  test("omits legacy fields when otherwise shared credentials refresh differently", async () => {
+    const secondRelay = {
+      id: "managed-two",
+      provider: "other",
+      region: "eu-west",
+      url: "https://relay-two.example/",
+    } as const;
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        signedPolicy: async () => ({
+          policy: "signed.policy.value",
+          payload: { ...PAYLOAD, relays: [...PAYLOAD.relays, secondRelay] },
+          preference: { mode: "automatic" },
+          preferenceRevision: 4,
+        }),
+        issueCredentials: ({ relayUrls, nowSeconds }) => relayUrls.map(
+          (relayUrl, index) => ({
+            relayUrl,
+            token: "shared-token",
+            expiresAt: nowSeconds + 300,
+            refreshAfter: nowSeconds + 240 + index,
+            ttlSeconds: 300,
+          }),
+        ),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body.relayCredentials).toHaveLength(2);
+    expect(body.token).toBeUndefined();
+    expect(body.relays).toBeUndefined();
+  });
+
+  test("rejects missing, duplicate, and substituted credential URLs", async () => {
+    for (const issueCredentials of [
+      () => [],
+      ({ relayUrls, nowSeconds }: Parameters<RelayTokenDeps["issueCredentials"]>[0]) => [
+        {
+          relayUrl: relayUrls[0]!,
+          token: "abc234",
+          expiresAt: nowSeconds + 300,
+          refreshAfter: nowSeconds + 240,
+          ttlSeconds: 300,
+        },
+        {
+          relayUrl: relayUrls[0]!,
+          token: "def567",
+          expiresAt: nowSeconds + 300,
+          refreshAfter: nowSeconds + 240,
+          ttlSeconds: 300,
+        },
+      ],
+      ({ nowSeconds }: Parameters<RelayTokenDeps["issueCredentials"]>[0]) => [{
+        relayUrl: "https://attacker.example/",
+        token: "abc234",
+        expiresAt: nowSeconds + 300,
+        refreshAfter: nowSeconds + 240,
+        ttlSeconds: 300,
+      }],
+    ]) {
+      const response = await handleRelayTokenRequest(
+        request({ endpointId: ENDPOINT_ID }),
+        deps({ issueCredentials }),
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "relay_policy_unavailable" });
+    }
   });
 
   test("requires native same-account authentication and a valid endpoint id", async () => {
@@ -129,6 +266,7 @@ describe("POST /api/relay/token", () => {
     );
     expect(limited.status).toBe(429);
     expect(key).toBe("account-a");
+    expect(limited.headers.get("retry-after")).toBe("600");
 
     const unavailable = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),

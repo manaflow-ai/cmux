@@ -79,8 +79,7 @@ extension MobileHostIrohRuntime {
                 tokenSource: CmxIrohBrokerTokenSource(
                     accessToken: { accessToken },
                     refreshToken: { refreshToken }
-                ),
-                relayTokenEndpoint: Self.relayDeployment.tokenEndpoint
+                )
             )
             try await preparation.revoke(
                 using: broker,

@@ -73,9 +73,14 @@ actor RecordingBrokerTransport: CmxIrohHTTPTransport {
     struct Response: Sendable {
         let status: Int
         let body: Data
+        let headers: [String: String]
 
-        static func json(status: Int, body: String) -> Self {
-            Self(status: status, body: Data(body.utf8))
+        static func json(
+            status: Int,
+            body: String,
+            headers: [String: String] = [:]
+        ) -> Self {
+            Self(status: status, body: Data(body.utf8), headers: headers)
         }
     }
 
@@ -97,6 +102,7 @@ actor RecordingBrokerTransport: CmxIrohHTTPTransport {
             statusCode: response.status,
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]
+                .merging(response.headers) { _, new in new }
         )!
         return (response.body, http)
     }

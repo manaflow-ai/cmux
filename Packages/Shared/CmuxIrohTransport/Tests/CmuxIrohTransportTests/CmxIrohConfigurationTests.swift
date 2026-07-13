@@ -17,17 +17,6 @@ struct CmxIrohConfigurationTests {
     }
 
     @Test
-    func relayDeploymentKeepsReleaseBehindTheSecurityGate() {
-        #expect(CmxIrohRelayDeployment.selfHosted.urls.count == 7)
-        #expect(CmxIrohRelayDeployment.legacy.urls.count == 4)
-        #if DEBUG
-        #expect(CmxIrohRelayDeployment.current == CmxIrohRelayDeployment.selfHosted)
-        #else
-        #expect(CmxIrohRelayDeployment.current == CmxIrohRelayDeployment.legacy)
-        #endif
-    }
-
-    @Test
     func relayCredentialRequiresCanonicalURLTokenAndFutureRefresh() throws {
         #expect(throws: CmxIrohRelayConfigurationError.invalidURL) {
             try relay(url: "http://relay.example/", token: "aaaa")

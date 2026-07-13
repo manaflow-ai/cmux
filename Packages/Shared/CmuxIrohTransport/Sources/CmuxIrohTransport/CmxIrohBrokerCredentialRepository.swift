@@ -121,7 +121,7 @@ public actor CmxIrohBrokerCredentialRepository {
               ),
               stored.version == CmxIrohStoredRelayCredential.currentVersion,
               stored.binding == binding,
-              hasExactFleet(stored.relayFleet, expected: expectedRelayFleet),
+              hasExactFleet(stored.response.relayFleet, expected: expectedRelayFleet),
               (try? stored.response.relayConfigurations(now: now))?.count
                   == expectedRelayFleet.count else {
             try await deleteSecureRecord(account: scope, epoch: epoch)

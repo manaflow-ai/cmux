@@ -18,6 +18,7 @@ struct MobileIrohRuntimeCompositionTests {
         let now = Date(timeIntervalSince1970: 1_000)
         let expiresAt = now.addingTimeInterval(300)
         let retryAt = now.addingTimeInterval(15)
+        let retryAfterExpiry = expiresAt.addingTimeInterval(600)
 
         #expect(MobileIrohRuntimeComposition.relayPolicyRefreshAttemptDate(
             policyExpiresAt: expiresAt,
@@ -29,6 +30,11 @@ struct MobileIrohRuntimeCompositionTests {
             retryAt: retryAt,
             now: now
         ) == retryAt)
+        #expect(MobileIrohRuntimeComposition.relayPolicyRefreshAttemptDate(
+            policyExpiresAt: expiresAt,
+            retryAt: retryAfterExpiry,
+            now: now
+        ) == expiresAt)
         #expect(MobileIrohRuntimeComposition.relayPolicyRefreshAttemptDate(
             policyExpiresAt: nil,
             retryAt: nil,

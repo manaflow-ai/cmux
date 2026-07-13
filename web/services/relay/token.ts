@@ -13,6 +13,15 @@ import { configuredRelayCatalog } from "./catalog";
 export const RELAY_TOKEN_ISS = "cmux";
 export const RELAY_TOKEN_AUD = "cmux-relay";
 export const RELAY_TOKEN_TTL_SECONDS = 300; // short-lived; the client refreshes
+export const RELAY_TOKEN_REFRESH_LEAD_SECONDS = 60;
+
+export type ManagedRelayCredentialGrant = {
+  readonly relayUrl: string;
+  readonly token: string;
+  readonly expiresAt: number;
+  readonly refreshAfter: number;
+  readonly ttlSeconds: number;
+};
 
 // iroh EndpointId is a 32-byte Ed25519 public key. The cmux relay parses the
 // JWT claim with `EndpointId::from_str`, which (in iroh-base 1.0.0-rc.1) accepts
@@ -103,4 +112,22 @@ export function mintRelayToken(params: {
   )}`;
   const signature = edSign(null, Buffer.from(signingInput), key);
   return { token: `${signingInput}.${b64url(signature)}`, expiresAt };
+}
+
+/** Mint URL-keyed grants without coupling clients to a relay provider. */
+export function mintManagedRelayCredentials(params: {
+  readonly sub: string;
+  readonly endpointId: string;
+  readonly relayUrls: readonly string[];
+  readonly key: KeyObject;
+  readonly nowSeconds: number;
+}): ManagedRelayCredentialGrant[] {
+  const minted = mintRelayToken(params);
+  return params.relayUrls.map((relayUrl) => ({
+    relayUrl,
+    token: minted.token,
+    expiresAt: minted.expiresAt,
+    refreshAfter: minted.expiresAt - RELAY_TOKEN_REFRESH_LEAD_SECONDS,
+    ttlSeconds: RELAY_TOKEN_TTL_SECONDS,
+  }));
 }

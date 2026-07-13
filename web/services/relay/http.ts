@@ -25,6 +25,7 @@ export function enforceRelayRateLimit(input: {
   readonly ruleId: string | undefined;
   readonly check: RelayRateLimitCheck;
   readonly isVercel?: boolean;
+  readonly retryAfterSeconds?: number;
 }): Effect.Effect<void, RelayConfigurationError | RelayRateLimitError> {
   if (!(input.isVercel ?? process.env.VERCEL === "1")) {
     return Effect.void;
@@ -44,7 +45,16 @@ export function enforceRelayRateLimit(input: {
   }).pipe(
     Effect.flatMap(({ rateLimited, error }) => {
       if (rateLimited || error === "blocked") {
-        return Effect.fail(new RelayRateLimitError({ code: "rate_limited" }));
+        const retryAfterSeconds = input.retryAfterSeconds;
+        return Effect.fail(new RelayRateLimitError({
+          code: "rate_limited",
+          ...(retryAfterSeconds !== undefined &&
+          Number.isSafeInteger(retryAfterSeconds) &&
+          retryAfterSeconds >= 1 &&
+          retryAfterSeconds <= 3_600
+            ? { retryAfterSeconds }
+            : {}),
+        }));
       }
       if (error) {
         return Effect.fail(
@@ -63,6 +73,10 @@ export function relayErrorResponse(error: unknown): Response {
     return jsonResponse(
       { error: code },
       code === "rate_limited" ? 429 : 503,
+      code === "rate_limited" &&
+      (error as RelayRateLimitError).retryAfterSeconds !== undefined
+        ? { "retry-after": String((error as RelayRateLimitError).retryAfterSeconds) }
+        : undefined,
     );
   }
   if (tag === "RelayPreferenceValidationError") {
@@ -101,12 +115,17 @@ export function relayErrorResponse(error: unknown): Response {
   return jsonResponse({ error: "internal_error" }, 500);
 }
 
-export function jsonResponse(data: unknown, status = 200): Response {
+export function jsonResponse(
+  data: unknown,
+  status = 200,
+  extraHeaders?: HeadersInit,
+): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
+      ...Object.fromEntries(new Headers(extraHeaders)),
     },
   });
 }

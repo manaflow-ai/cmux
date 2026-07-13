@@ -11,6 +11,15 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         "https://usw1-1.relay.lawrence.cmux.iroh.link/",
     ]
 
+    @Test("credential descriptions redact opaque tokens")
+    func credentialDescriptionsRedactTokens() {
+        let credential = relayResponse().credentials[0]
+
+        #expect(!String(describing: credential).contains(credential.token))
+        #expect(!String(reflecting: credential).contains(credential.token))
+        #expect(String(describing: credential).contains("<redacted>"))
+    }
+
     @Test("binding metadata and relay credentials survive repository recreation")
     func roundTripsDurableState() async throws {
         let (defaults, suiteName) = try isolatedDefaults()
@@ -50,8 +59,102 @@ struct CmxIrohBrokerCredentialRepositoryTests {
         )
         #expect(
             !defaults.dictionaryRepresentation().values.contains(where: { value in
-                String(describing: value).contains(response.token)
+                response.credentials.contains { credential in
+                    String(describing: value).contains(credential.token)
+                }
             })
+        )
+    }
+
+    @Test("distinct per-relay credentials survive device-only persistence")
+    func roundTripsDistinctPerRelayCredentials() async throws {
+        let (defaults, suiteName) = try isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let secureStore = TestSecureCredentialStore()
+        let binding = try metadata()
+        let response = CmxIrohRelayTokenResponse(credentials: [
+            CmxIrohManagedRelayCredential(
+                relayURL: relayFleet[0],
+                token: "abc234",
+                expiresAt: iso8601(now.addingTimeInterval(2 * 60 * 60)),
+                refreshAfter: iso8601(now.addingTimeInterval(60 * 60))
+            ),
+            CmxIrohManagedRelayCredential(
+                relayURL: relayFleet[1],
+                token: "def567",
+                expiresAt: iso8601(now.addingTimeInterval(3 * 60 * 60)),
+                refreshAfter: iso8601(now.addingTimeInterval(90 * 60))
+            ),
+        ])
+        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+
+        try await repository.saveBinding(binding, accountID: "account-a")
+        try await repository.saveRelayCredential(
+            response,
+            accountID: "account-a",
+            binding: binding,
+            expectedRelayFleet: Set(relayFleet),
+            now: now
+        )
+
+        #expect(
+            try await repository.loadRelayCredential(
+                accountID: "account-a",
+                binding: binding,
+                expectedRelayFleet: Set(relayFleet),
+                now: now
+            ) == response
+        )
+        let stored = try #require(await secureStore.onlyStoredData())
+        let object = try #require(
+            JSONSerialization.jsonObject(with: stored) as? [String: Any]
+        )
+        #expect(object["version"] as? Int == 2)
+        #expect(object["token"] == nil)
+        #expect(object["response"] != nil)
+    }
+
+    @Test("version-one homogeneous credentials migrate without a new network mint")
+    func loadsVersionOneCredentialRecord() async throws {
+        let (defaults, suiteName) = try isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let secureStore = TestSecureCredentialStore()
+        let binding = try metadata()
+        let repository = makeRepository(defaults: defaults, secureStore: secureStore)
+        let legacyResponse = relayResponse()
+
+        try await repository.saveBinding(binding, accountID: "account-a")
+        try await repository.saveRelayCredential(
+            legacyResponse,
+            accountID: "account-a",
+            binding: binding,
+            expectedRelayFleet: Set(relayFleet),
+            now: now
+        )
+        let account = try #require(await secureStore.lastDeletedOrWrittenAccount())
+        let bindingObject = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(binding)
+        )
+        let legacyRecord: [String: Any] = [
+            "version": 1,
+            "binding": bindingObject,
+            "token": "abc234",
+            "expiresAt": iso8601(now.addingTimeInterval(2 * 60 * 60)),
+            "refreshAfter": iso8601(now.addingTimeInterval(60 * 60)),
+            "relayFleet": relayFleet,
+        ]
+        await secureStore.seed(
+            try JSONSerialization.data(withJSONObject: legacyRecord),
+            account: account
+        )
+
+        #expect(
+            try await repository.loadRelayCredential(
+                accountID: "account-a",
+                binding: binding,
+                expectedRelayFleet: Set(relayFleet),
+                now: now
+            ) == legacyResponse
         )
     }
 

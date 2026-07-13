@@ -127,6 +127,114 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func relayTokenPreservesDistinctCredentialsForEachServerDrivenRelay() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: """
+                {
+                  "endpointId":"\(Self.endpointID)",
+                  "relayCredentials":[
+                    {
+                      "relayUrl":"https://usc1.relay.cmux.dev",
+                      "token":"abc234",
+                      "expiresAt":1782000300,
+                      "refreshAfter":1782000240,
+                      "ttlSeconds":300
+                    },
+                    {
+                      "relayUrl":"https://relay.other.example/",
+                      "token":"def567",
+                      "expiresAt":1782000360,
+                      "refreshAfter":1782000240,
+                      "ttlSeconds":360
+                    }
+                  ]
+                }
+                """
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+        let endpointID = try CmxIrohPeerIdentity(endpointID: Self.endpointID)
+
+        let response = try await client.issueRelayToken(
+            bindingID: Self.bindingID,
+            endpointID: endpointID
+        )
+
+        #expect(response.relayFleet == [
+            "https://usc1.relay.cmux.dev/",
+            "https://relay.other.example/",
+        ])
+        let configurations = try response.relayConfigurations(
+            now: Date(timeIntervalSince1970: 1_782_000_000)
+        )
+        #expect(configurations.map(\.token) == ["abc234", "def567"])
+        #expect(configurations[0].expiresAt != configurations[1].expiresAt)
+
+        let captured = try #require(await transport.requests().first)
+        #expect(captured.url?.path == "/api/relay/token")
+    }
+
+    @Test
+    func relayTokenRejectsCredentialAssociationForAnotherEndpoint() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: """
+                {
+                  "endpointId":"\(String(repeating: "f", count: 64))",
+                  "relayCredentials":[{
+                    "relayUrl":"https://usc1.relay.cmux.dev/",
+                    "token":"abc234",
+                    "expiresAt":1782000300,
+                    "refreshAfter":1782000240,
+                    "ttlSeconds":300
+                  }]
+                }
+                """
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+        let endpointID = try CmxIrohPeerIdentity(endpointID: Self.endpointID)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.issueRelayToken(
+                bindingID: Self.bindingID,
+                endpointID: endpointID
+            )
+        }
+    }
+
+    @Test
+    func relayTokenRejectsCredentialCatalogAboveBound() async throws {
+        let credentials = (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount + 1)
+            .map { index in
+                """
+                {"relayUrl":"https://relay-\(index).example/","token":"abc234","expiresAt":1782000300,"refreshAfter":1782000240,"ttlSeconds":300}
+                """
+            }
+            .joined(separator: ",")
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: """
+                {"endpointId":"\(Self.endpointID)","relayCredentials":[\(credentials)]}
+                """
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+        let endpointID = try CmxIrohPeerIdentity(endpointID: Self.endpointID)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.issueRelayToken(
+                bindingID: Self.bindingID,
+                endpointID: endpointID
+            )
+        }
+    }
+
+    @Test
     func relayTokenRejectsNonOriginFleetURL() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(
@@ -167,38 +275,6 @@ struct CmxIrohTrustBrokerClientTests {
                 endpointID: endpointID
             )
         }
-    }
-
-    @Test
-    func legacyRelayTokenRouteRemainsAvailableForReleaseGate() async throws {
-        let transport = RecordingBrokerTransport(responses: [
-            .json(
-                status: 200,
-                body: """
-                {"token":"abc234","expires_at":"2026-07-11T00:00:00.000Z","refresh_after":"2026-07-10T12:00:00.000Z","relay_fleet":["https://use1-1.relay.lawrence.cmux.iroh.link/"]}
-                """
-            ),
-        ])
-        let client = try makeClient(
-            transport: transport,
-            relayTokenEndpoint: .legacyTrustBroker
-        )
-        let endpointID = try CmxIrohPeerIdentity(endpointID: Self.endpointID)
-
-        let response = try await client.issueRelayToken(
-            bindingID: Self.bindingID,
-            endpointID: endpointID
-        )
-
-        #expect(response.token == "abc234")
-        let captured = try #require(await transport.requests().first)
-        #expect(captured.url?.path == "/api/devices/iroh/relay-token")
-        let body = try #require(captured.httpBody)
-        let object = try #require(
-            JSONSerialization.jsonObject(with: body) as? [String: Any]
-        )
-        #expect(object.count == 1)
-        #expect(object["bindingId"] as? String == Self.bindingID)
     }
 
     @Test
@@ -287,6 +363,41 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func rateLimitRetainsOnlyBoundedCanonicalRetryAfterSeconds() async throws {
+        for (header, expected) in [
+            ("600", CmxIrohTrustBrokerClientError.rateLimited(
+                code: "rate_limited",
+                retryAfterSeconds: 600
+            )),
+            ("0", CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 429,
+                code: "rate_limited"
+            )),
+            ("3601", CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 429,
+                code: "rate_limited"
+            )),
+            ("0600", CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 429,
+                code: "rate_limited"
+            )),
+        ] {
+            let transport = RecordingBrokerTransport(responses: [
+                .json(
+                    status: 429,
+                    body: #"{"error":"rate_limited","token":"do-not-copy"}"#,
+                    headers: ["Retry-After": header]
+                ),
+            ])
+            let client = try makeClient(transport: transport)
+
+            await #expect(throws: expected) {
+                _ = try await client.discover()
+            }
+        }
+    }
+
+    @Test
     func missingAuthFailsBeforeAnyNetworkRequest() async throws {
         let transport = RecordingBrokerTransport(responses: [])
         let client = try CmxIrohTrustBrokerClient(
@@ -366,14 +477,12 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     private func makeClient(
-        transport: RecordingBrokerTransport,
-        relayTokenEndpoint: CmxIrohRelayTokenEndpoint = .selfHosted
+        transport: RecordingBrokerTransport
     ) throws -> CmxIrohTrustBrokerClient {
         try CmxIrohTrustBrokerClient(
             baseURL: #require(URL(string: "https://cmux.example")),
             tokenSource: Self.tokenSource,
-            transport: transport,
-            relayTokenEndpoint: relayTokenEndpoint
+            transport: transport
         )
     }
 

@@ -6,6 +6,7 @@ export class RelayConfigurationError extends Data.TaggedError("RelayConfiguratio
     | "catalog_invalid"
     | "signing_key_not_configured"
     | "signing_key_invalid"
+    | "credential_set_invalid"
     | "rate_limit_not_configured";
 }> {}
 
@@ -43,6 +44,7 @@ export class RelayAccountDeletionBlockedError extends Data.TaggedError(
 
 export class RelayRateLimitError extends Data.TaggedError("RelayRateLimitError")<{
   readonly code: "rate_limited" | "rate_limit_unavailable";
+  readonly retryAfterSeconds?: number;
 }> {}
 
 export class RelaySigningError extends Data.TaggedError("RelaySigningError")<{

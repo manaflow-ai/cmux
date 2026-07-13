@@ -265,61 +265,6 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
     }
 }
 
-/// Endpoint-scoped relay credential minted for the complete managed fleet.
-public struct CmxIrohRelayTokenResponse: Decodable, Equatable, Sendable {
-    public let token: String
-    public let expiresAt: String
-    public let refreshAfter: String
-    public let relayFleet: [String]
-
-    /// Creates a relay-token response for durable cache restoration.
-    ///
-    /// Validation remains centralized in ``relayConfigurations(now:)`` so
-    /// broker responses and restored responses follow the same path.
-    ///
-    /// - Parameters:
-    ///   - token: The lowercase unpadded Base32 RCAN token.
-    ///   - expiresAt: The provider-enforced expiry in ISO 8601 format.
-    ///   - refreshAfter: The replacement time in ISO 8601 format.
-    ///   - relayFleet: The complete managed relay fleet covered by the token.
-    public init(
-        token: String,
-        expiresAt: String,
-        refreshAfter: String,
-        relayFleet: [String]
-    ) {
-        self.token = token
-        self.expiresAt = expiresAt
-        self.refreshAfter = refreshAfter
-        self.relayFleet = relayFleet
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case token
-        case expiresAt = "expires_at"
-        case refreshAfter = "refresh_after"
-        case relayFleet = "relay_fleet"
-    }
-
-    /// Validates the broker timestamps and creates one credential per relay.
-    public func relayConfigurations(now: Date) throws -> [CmxIrohRelayConfiguration] {
-        guard let expiresAt = CmxIrohISO8601Date.parse(expiresAt),
-              let refreshAfter = CmxIrohISO8601Date.parse(refreshAfter) else {
-            throw CmxIrohTrustBrokerClientError.invalidResponse
-        }
-        return try relayFleet.map { url in
-            try CmxIrohRelayConfiguration(
-                url: url,
-                token: token,
-                expiresAt: expiresAt,
-                refreshAfter: refreshAfter,
-                now: now
-            )
-        }
-    }
-
-}
-
 /// Registration response. Relay bootstrap failure never rolls back the binding.
 public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
     public let binding: CmxIrohBrokerBinding

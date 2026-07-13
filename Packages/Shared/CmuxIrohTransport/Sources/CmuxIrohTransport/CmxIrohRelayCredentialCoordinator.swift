@@ -22,6 +22,8 @@ public actor CmxIrohRelayCredentialCoordinator {
     private let selectedRelayURLs: Set<String>
     private let clock: any CmxIrohRelayClock
     private let jitter: @Sendable (_ now: Date, _ refreshAfter: Date) -> Date
+    private let retrySchedule: CmxIrohRetrySchedule
+    private let retryJitter: @Sendable () -> Double
     private let credentialDidInstall: @Sendable (CmxIrohRelayTokenResponse) async -> Void
     private var binding: Binding?
     private var installedCredential: InstalledCredential?
@@ -41,6 +43,10 @@ public actor CmxIrohRelayCredentialCoordinator {
             let window = min(30, max(0, refreshAfter.timeIntervalSince(now)))
             return refreshAfter.addingTimeInterval(-Double.random(in: 0 ... window))
         },
+        retrySchedule: CmxIrohRetrySchedule = CmxIrohRetrySchedule(),
+        retryJitter: @escaping @Sendable () -> Double = {
+            Double.random(in: 0 ... 1)
+        },
         credentialDidInstall: @escaping @Sendable (
             CmxIrohRelayTokenResponse
         ) async -> Void = { _ in }
@@ -51,6 +57,8 @@ public actor CmxIrohRelayCredentialCoordinator {
         self.selectedRelayURLs = selectedRelayURLs ?? managedRelayURLs
         self.clock = clock
         self.jitter = jitter
+        self.retrySchedule = retrySchedule
+        self.retryJitter = retryJitter
         self.credentialDidInstall = credentialDidInstall
     }
 
@@ -101,9 +109,11 @@ public actor CmxIrohRelayCredentialCoordinator {
             startLoop(revision: revision, firstRefresh: installed.refreshAfter)
         } catch {
             if isCurrent(revision), !Task.isCancelled {
+                let delay = retryDelay(failureCount: 0, error: error)
                 startLoop(
                     revision: revision,
-                    firstRefresh: clock.now().addingTimeInterval(60)
+                    firstRefresh: clock.now().addingTimeInterval(delay),
+                    initialFailureCount: 1
                 )
             }
         }
@@ -123,15 +133,27 @@ public actor CmxIrohRelayCredentialCoordinator {
         installedCredential?.expiresAt
     }
 
-    private func startLoop(revision: UInt64, firstRefresh: Date?) {
+    private func startLoop(
+        revision: UInt64,
+        firstRefresh: Date?,
+        initialFailureCount: Int = 0
+    ) {
         refreshTask = Task { [weak self] in
-            await self?.run(revision: revision, firstRefresh: firstRefresh)
+            await self?.run(
+                revision: revision,
+                firstRefresh: firstRefresh,
+                initialFailureCount: initialFailureCount
+            )
         }
     }
 
-    private func run(revision: UInt64, firstRefresh: Date?) async {
+    private func run(
+        revision: UInt64,
+        firstRefresh: Date?,
+        initialFailureCount: Int
+    ) async {
         var deadline = firstRefresh
-        var retryDelay: TimeInterval = 60
+        var failureCount = initialFailureCount
         while isCurrent(revision) {
             if let deadline {
                 do {
@@ -151,21 +173,21 @@ public actor CmxIrohRelayCredentialCoordinator {
                     binding: binding,
                     revision: revision
                 )
-                retryDelay = 60
+                failureCount = 0
                 deadline = installed.refreshAfter
             } catch is CancellationError {
                 return
             } catch {
                 guard isCurrent(revision), !Task.isCancelled else { return }
                 let now = clock.now()
-                deadline = retryDeadline(now: now, backoff: retryDelay)
-                if let expiresAt = installedCredential?.expiresAt,
-                   let deadline,
-                   deadline > expiresAt {
-                    retryDelay = 60
-                } else {
-                    retryDelay = min(retryDelay * 2, 30 * 60)
-                }
+                let delay = retryDelay(failureCount: failureCount, error: error)
+                deadline = retryDeadline(
+                    now: now,
+                    backoff: delay,
+                    honorsServerFloor: (error as? CmxIrohTrustBrokerClientError)?
+                        .retryAfterSeconds != nil
+                )
+                failureCount = min(failureCount + 1, 20)
             }
         }
     }
@@ -177,7 +199,14 @@ public actor CmxIrohRelayCredentialCoordinator {
     /// remaining lifetime preserves multiple bounded attempts. Once too little
     /// validity remains for a useful mint-and-install round trip, retry just
     /// after expiry and reset the backoff instead of growing a long outage.
-    private func retryDeadline(now: Date, backoff: TimeInterval) -> Date {
+    private func retryDeadline(
+        now: Date,
+        backoff: TimeInterval,
+        honorsServerFloor: Bool
+    ) -> Date {
+        if honorsServerFloor {
+            return now.addingTimeInterval(backoff)
+        }
         guard let expiresAt = installedCredential?.expiresAt,
               now < expiresAt else {
             return now.addingTimeInterval(backoff)
@@ -189,6 +218,15 @@ public actor CmxIrohRelayCredentialCoordinator {
         return min(
             now.addingTimeInterval(backoff),
             now.addingTimeInterval(remainingValidity / 2)
+        )
+    }
+
+    private func retryDelay(failureCount: Int, error: any Error) -> TimeInterval {
+        retrySchedule.delay(
+            failureCount: failureCount,
+            retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+                .retryAfterSeconds,
+            jitterUnitInterval: retryJitter()
         )
     }
 
