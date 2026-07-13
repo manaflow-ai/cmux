@@ -14,6 +14,7 @@ struct KanbanCardSnapshot: Identifiable, Equatable {
     /// drop delegate to compute "place at end of column".
     let order: Double
 
+    @MainActor
     init(workspace: Workspace) {
         id = workspace.id
         title = workspace.customTitle ?? workspace.title

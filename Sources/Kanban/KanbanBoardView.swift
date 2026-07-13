@@ -19,6 +19,7 @@ import SwiftUI
 /// — the one shared action path per cmux-shared-behavior — so drag/drop, the
 /// card/column context menus, and any future CLI/Command Palette entrypoint stay
 /// in lockstep.
+@MainActor
 struct KanbanBoardView: View {
     @EnvironmentObject var tabManager: TabManager
     @Binding var selection: SidebarSelection

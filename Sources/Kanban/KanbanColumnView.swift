@@ -45,7 +45,10 @@ struct KanbanColumnActions {
     /// A card was dropped on this column: the tab id, the target column id,
     /// and the fractional order to place it at (computed by the column's drop
     /// delegate — end-of-column for Stage 3, no inter-card gap detection).
-    let onCardDropped: (_ tabId: UUID, _ targetColumnId: String, _ dropOrder: Double) -> Void
+    /// `@MainActor @Sendable` so `KanbanColumnDropDelegate` can carry it into
+    /// `loadDataRepresentation`'s `@Sendable` completion (the capture stays on
+    /// the main actor at the creation site, where it closes over `tabManager`).
+    let onCardDropped: @MainActor @Sendable (_ tabId: UUID, _ targetColumnId: String, _ dropOrder: Double) -> Void
     /// "Move to Column" context-menu path (no drop-neighbor context, so the
     /// card lands at the end of the target column).
     let onMoveCardToColumn: (_ tabId: UUID, _ columnId: String) -> Void
@@ -62,6 +65,7 @@ struct KanbanColumnActions {
 /// card moves. The Archive column is pinned last by the board sorting
 /// columns by `order` (its default `order` is highest); when collapsed, only
 /// the header renders.
+@MainActor
 struct KanbanColumnView: View, Equatable {
     let column: KanbanColumnSnapshot
     let cards: [KanbanCardSnapshot]
@@ -322,7 +326,7 @@ private struct KanbanColumnDropDelegate: DropDelegate {
     let targetColumnId: String
     let nextOrder: Double
     @Binding var isTargeted: Bool
-    let onCardDropped: (_ tabId: UUID, _ targetColumnId: String, _ dropOrder: Double) -> Void
+    let onCardDropped: @MainActor @Sendable (_ tabId: UUID, _ targetColumnId: String, _ dropOrder: Double) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
         info.hasItemsConforming(to: SidebarTabDragPayload.dropContentTypes)
