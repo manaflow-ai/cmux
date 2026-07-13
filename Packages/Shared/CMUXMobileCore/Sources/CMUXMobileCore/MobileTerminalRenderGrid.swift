@@ -439,6 +439,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public struct ModeSetting: Codable, Equatable, Sendable {
         static let decOriginModeCode = 6
         static let decAutowrapModeCode = 7
+        static let decReverseColorsModeCode = 5
         static let decAlternateScreenCode = 47
         static let decAlternateScreenSaveCursorCode = 1047
         static let decSaveRestoreCursorCode = 1048
@@ -464,6 +465,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
 
         /// Whether this DEC private mode is origin mode (`CSI ? 6 h/l`).
         public var isDECOriginMode: Bool { !ansi && code == Self.decOriginModeCode }
+
+        var isDECReverseColorsMode: Bool { !ansi && code == Self.decReverseColorsModeCode }
 
         enum CodingKeys: String, CodingKey {
             case code

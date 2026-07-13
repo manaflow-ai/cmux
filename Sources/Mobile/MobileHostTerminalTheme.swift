@@ -5,6 +5,7 @@ import Foundation
 
 @MainActor
 enum MobileTerminalThemeFrameRevision {
+    nonisolated static let producerEpoch = UUID().uuidString
     private static var current: UInt64 = 0
 
     static func next() -> UInt64 {
@@ -113,6 +114,6 @@ extension TerminalTheme {
            TerminalTheme.rgbComponents(cursor) != nil {
             resolved.cursor = cursor
         }
-        return resolved.validatedOrDefault()
+        return resolved
     }
 }

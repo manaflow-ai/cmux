@@ -313,7 +313,7 @@ final class MobileHostService {
         return [
             "routes": routesPayload,
             "terminal_fidelity": "render_grid",
-            "capabilities": mobileHostCapabilities,
+            "capabilities": mobileHostCapabilities, "terminal_theme_revision_epoch": MobileTerminalThemeFrameRevision.producerEpoch,
             "theme": theme.mobileHostJSONObject,
         ]
     }

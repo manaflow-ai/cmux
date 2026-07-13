@@ -435,9 +435,9 @@ import Testing
         columns: 4,
         rows: 1,
         rowSpans: [],
+        modes: [.init(code: 5, ansi: false, on: true)],
         terminalForeground: "#EEEEEE",
-        terminalBackground: "#111111",
-        modes: [.init(code: 5, ansi: false, on: true)]
+        terminalBackground: "#111111"
     )
 
     let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))

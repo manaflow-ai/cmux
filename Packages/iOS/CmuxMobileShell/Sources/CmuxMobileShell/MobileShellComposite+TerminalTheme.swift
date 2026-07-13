@@ -45,14 +45,20 @@ extension MobileShellComposite {
 
     func prepareTerminalThemeRevisionAuthority(
         macInstanceTag: String?,
+        producerEpoch: String?,
         connectionID: String
     ) {
         let normalizedTag = macInstanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let authority = normalizedTag.flatMap { $0.isEmpty ? nil : "instance:\($0)" }
+        let normalizedEpoch = producerEpoch?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tag = normalizedTag.flatMap { $0.isEmpty ? nil : $0 }
+        let epoch = normalizedEpoch.flatMap { $0.isEmpty ? nil : $0 }
+        let authority = epoch.map { "producer:\(tag ?? "unknown"):\($0)" }
             ?? "connection:\(connectionID)"
         guard terminalThemeState.revisionAuthority != authority else { return }
         terminalThemeState.revisionAuthority = authority
         terminalThemeState.revisionsBySurfaceID.removeAll(keepingCapacity: true)
+        terminalThemeState.themesBySurfaceID.removeAll(keepingCapacity: true)
+        applySelectedTerminalTheme()
     }
 
     func pruneTerminalThemes(to workspaces: [MobileWorkspacePreview]) {

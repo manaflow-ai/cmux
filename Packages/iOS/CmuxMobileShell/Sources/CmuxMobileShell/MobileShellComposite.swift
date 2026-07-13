@@ -4839,7 +4839,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     replaceRemoteClient(with: client)
                     activeMacInstanceTag = resolvedInstanceTag
                     prepareTerminalThemeRevisionAuthority(
-                        macInstanceTag: resolvedInstanceTag,
+                        macInstanceTag: resolvedInstanceTag, producerEpoch: status?.terminalThemeRevisionEpoch,
                         connectionID: generation.uuidString
                     )
                     // Reuse the authenticated status response that bound this
@@ -6090,7 +6090,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard remoteClient === client else { return fallback }
             supportedHostCapabilities = Set(payload.capabilities)
             prepareTerminalThemeRevisionAuthority(
-                macInstanceTag: payload.macInstanceTag,
+                macInstanceTag: payload.macInstanceTag, producerEpoch: payload.terminalThemeRevisionEpoch,
                 connectionID: connectionGeneration.uuidString
             )
             // Adopt the Mac's resolved terminal theme. Older Macs omit the
