@@ -1,4 +1,5 @@
 import AppKit
+import CmuxControlSocket
 import Testing
 
 #if canImport(cmux_DEV)
