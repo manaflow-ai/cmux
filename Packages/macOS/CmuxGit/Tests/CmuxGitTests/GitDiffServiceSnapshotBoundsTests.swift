@@ -37,6 +37,141 @@ import Testing
         }
     }
 
+    @Test func fileDiffRejectsAttributesChangedSinceStatusSnapshot() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let path = "Snapshot.txt"
+        let fileURL = repo.appendingPathComponent(path)
+        try Data("first\nsecond\n".utf8).write(to: fileURL)
+        try runTestGit(in: repo, ["add", "--", path])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add attributes fixture"])
+        try Data("first\nchanged\n".utf8).write(to: fileURL)
+
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let visible = try #require(changed.files.first { $0.path == path })
+
+        // Change only Git's diff semantics after the row snapshot. The file,
+        // index, and baseline identities remain unchanged while the same
+        // content switches from a text patch to a binary diff.
+        let attributes = repo.appendingPathComponent(".git/info/attributes")
+        try Data("Snapshot.txt binary\n".utf8).write(to: attributes)
+
+        let result = service.fileDiffResult(
+            repoRoot: repo.path,
+            path: visible.path,
+            oldPath: visible.oldPath,
+            status: visible.status,
+            additions: visible.additions,
+            deletions: visible.deletions,
+            snapshotToken: visible.snapshotToken
+        )
+        guard case .notFound = result else {
+            Issue.record("Expected diff-semantics change to invalidate the status snapshot, got \(result)")
+            return
+        }
+    }
+
+    @Test func deletedGitlinkRowExcludesStagedDescendants() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let path = "Nested"
+        let nested = repo.appendingPathComponent(path)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        for arguments in [
+            ["init", "--quiet"],
+            ["config", "user.email", "tests@cmux.dev"],
+            ["config", "user.name", "cmux tests"],
+        ] {
+            try runTestGit(in: nested, arguments)
+        }
+        try Data("nested original\n".utf8).write(to: nested.appendingPathComponent("original.txt"))
+        try runTestGit(in: nested, ["add", "--", "original.txt"])
+        try runTestGit(in: nested, ["commit", "--quiet", "-m", "add nested fixture"])
+        try runTestGit(in: repo, ["add", "--", path])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add gitlink fixture"])
+
+        try runTestGit(in: repo, ["rm", "--quiet", "--cached", "--", path])
+        try FileManager.default.removeItem(at: nested)
+        let replacement = nested.appendingPathComponent("child/replacement.txt")
+        try FileManager.default.createDirectory(
+            at: replacement.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("replacement\n".utf8).write(to: replacement)
+        try runTestGit(in: repo, ["add", "--", "Nested/child/replacement.txt"])
+
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let visible = try #require(
+            changed.files.first { $0.path == path && $0.status == .deleted }
+        )
+
+        let result = service.fileDiffResult(
+            repoRoot: repo.path,
+            path: visible.path,
+            oldPath: visible.oldPath,
+            status: visible.status,
+            additions: visible.additions,
+            deletions: visible.deletions,
+            snapshotToken: visible.snapshotToken
+        )
+        guard case .success(let diff) = result else {
+            Issue.record("Expected exact deleted-gitlink diff, got \(result)")
+            return
+        }
+        #expect(diff.unifiedDiff.contains("deleted file mode 160000"))
+        #expect(!diff.unifiedDiff.contains("Nested/child/replacement.txt"))
+    }
+
+    @Test func fileDiffRejectsGitlinkTargetChangedSinceStatusSnapshot() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let path = "Nested"
+        let nested = repo.appendingPathComponent(path)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        for arguments in [
+            ["init", "--quiet"],
+            ["config", "user.email", "tests@cmux.dev"],
+            ["config", "user.name", "cmux tests"],
+        ] {
+            try runTestGit(in: nested, arguments)
+        }
+        let nestedFile = nested.appendingPathComponent("Value.txt")
+        try Data("value 0\n".utf8).write(to: nestedFile)
+        try runTestGit(in: nested, ["add", "--", "Value.txt"])
+        try runTestGit(in: nested, ["commit", "--quiet", "-m", "nested value zero"])
+        try runTestGit(in: repo, ["add", "--", path])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add gitlink fixture"])
+
+        try Data("value 1\n".utf8).write(to: nestedFile)
+        try runTestGit(in: nested, ["add", "--", "Value.txt"])
+        try runTestGit(in: nested, ["commit", "--quiet", "-m", "nested value one"])
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let visible = try #require(changed.files.first { $0.path == path })
+
+        // Move the submodule worktree to another commit with identical summary
+        // counts. The parent index, baseline, and directory metadata stay fixed.
+        try Data("value 2\n".utf8).write(to: nestedFile)
+        try runTestGit(in: nested, ["add", "--", "Value.txt"])
+        try runTestGit(in: nested, ["commit", "--quiet", "-m", "nested value two"])
+
+        let result = service.fileDiffResult(
+            repoRoot: repo.path,
+            path: visible.path,
+            oldPath: visible.oldPath,
+            status: visible.status,
+            additions: visible.additions,
+            deletions: visible.deletions,
+            snapshotToken: visible.snapshotToken
+        )
+        guard case .notFound = result else {
+            Issue.record("Expected submodule target change to invalidate the status snapshot, got \(result)")
+            return
+        }
+    }
+
     @Test func cappedStatusDropsUnverifiedUntrackedReplacement() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
