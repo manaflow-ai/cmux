@@ -5,8 +5,8 @@
 // status on exactly P in W. Live identity therefore outranks every persisted
 // or spawn-time claim:
 //
-//   1. live agent-pid target (`agent.resolve_delivery_target {pid}`) — the
-//      surface that owns the agent process RIGHT NOW; wins over a polluted
+//   1. current-invocation agent-pid target (`agent.resolve_delivery_target
+//      {pid}`) — the surface that owns the agent process RIGHT NOW; wins over a polluted
 //      session record (#7391 resume/tty drift) and heals it via the caller's
 //      subsequent upsert. Local direct-socket hooks only: a relay-backed
 //      connection carries a remote host's pid namespace.
@@ -53,6 +53,13 @@ extension CMUXCLI {
         var allowsPidProbe: Bool = true
     }
 
+    private enum LiveAgentPidProbeResult {
+        case notAttempted
+        case unsupported
+        case failed
+        case resolved(ClaudeHookDeliveryTarget)
+    }
+
     func resolveClaudeHookDeliveryTarget(
         mappedSession: ClaudeHookSessionRecord?,
         routing: ClaudeHookRoutingContext,
@@ -60,12 +67,26 @@ extension CMUXCLI {
     ) throws -> ClaudeHookDeliveryTarget? {
         let pidProbeAllowed = routing.allowsPidProbe && routing.preferCallerTTYRouting
         let rehomeAllowed = routing.preferCallerTTYRouting
-        if pidProbeAllowed,
-           let live = liveAgentPidDeliveryTarget(
-               pid: routing.agentPid ?? mappedSession?.pid,
-               client: client
-           ) {
-            return live
+        if pidProbeAllowed {
+            switch liveAgentPidDeliveryTarget(pid: routing.agentPid, client: client) {
+            case .resolved(let live):
+                return live
+            case .failed:
+                // A present resolver rejected the current invocation pid. Do
+                // not fall back to a reusable persisted pid or an uncorroborated
+                // record; only matching record+invocation surface identity may
+                // be re-homed through the app's live surface ownership map.
+                guard nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId)
+                        == nonEmptyClaudeHookIdentifier(routing.surfaceArg),
+                      let corroborated = rehomedClaudeHookDeliveryTarget(
+                          surfaceId: routing.surfaceArg,
+                          claimedWorkspaceId: mappedSession?.workspaceId,
+                          client: client
+                      ) else { return nil }
+                return corroborated
+            case .notAttempted, .unsupported:
+                break
+            }
         }
         guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
             preferred: mappedSession?.workspaceId,
@@ -139,38 +160,47 @@ extension CMUXCLI {
         )
     }
 
-    /// `{pid}` probe: only a `source == "pid"` answer counts — the app refuses
-    /// to guess, and an older app (method_not_found) or a dead/remote pid
-    /// falls back to the legacy chain.
+    /// `{pid}` probe: only the current hook invocation's pid may be promoted
+    /// to live identity. An older app may fall back; a present resolver's
+    /// rejection must fail closed unless the caller supplies corroborated
+    /// surface identity (handled by the caller).
     private func liveAgentPidDeliveryTarget(
         pid: Int?,
         client: SocketClient
-    ) -> ClaudeHookDeliveryTarget? {
+    ) -> LiveAgentPidProbeResult {
         // A relay-backed connection means this hook is not running in the
         // app's process namespace (SSH/cloud host): its CMUX_CLAUDE_PID is a
         // REMOTE pid, and resolving that number against the Mac's local
         // process table could match an unrelated local process attached to
         // some other pane. Surface/workspace UUIDs are machine-independent,
         // so the legacy chain and the {surface_id} re-home probe still apply.
-        guard !client.isRelayBacked,
-              let pid, pid > 0,
-              let payload = try? client.sendV2(
-                  method: "agent.resolve_delivery_target",
-                  params: ["pid": pid],
-                  responseTimeout: 2.0
-              ),
+        guard !client.isRelayBacked, let pid, pid > 0 else { return .notAttempted }
+        let payload: [String: Any]
+        do {
+            payload = try client.sendV2(
+                method: "agent.resolve_delivery_target",
+                params: ["pid": pid],
+                responseTimeout: 2.0
+            )
+        } catch let error as CLIError where error.v2Code == "method_not_found"
+                || error.v2Code == "unrecognized_method" {
+            return .unsupported
+        } catch {
+            return .failed
+        }
+        guard
               (payload["source"] as? String) == "pid",
               let workspaceId = normalizedHandleValue(payload["workspace_id"] as? String),
               isUUID(workspaceId),
               let surfaceId = normalizedHandleValue(payload["surface_id"] as? String),
               isUUID(surfaceId) else {
-            return nil
+            return .failed
         }
-        return ClaudeHookDeliveryTarget(
+        return .resolved(ClaudeHookDeliveryTarget(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             isAuthoritative: true
-        )
+        ))
     }
 
     /// `{surface_id}` probe: the workspace that CURRENTLY owns a known
