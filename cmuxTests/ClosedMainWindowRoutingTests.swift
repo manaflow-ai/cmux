@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import Combine
 import CmuxTerminal
 import Testing
 
@@ -69,6 +70,11 @@ struct ClosedMainWindowRoutingTests {
         let workspaceB = try #require(managerB.selectedWorkspace)
         let terminalPanelB = try #require(workspaceB.focusedTerminalPanel)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanelB.id) === terminalPanelB.surface)
+        var surfacePortPublicationCount = 0
+        let surfacePortCancellable = workspaceB.$surfaceListeningPorts.dropFirst().sink { _ in
+            surfacePortPublicationCount += 1
+        }
+        defer { surfacePortCancellable.cancel() }
         #expect(TerminalController.shared.applyAgentPortPublication(
             workspaceId: workspaceB.id,
             ports: [4200]
@@ -78,8 +84,14 @@ struct ClosedMainWindowRoutingTests {
             panelId: terminalPanelB.id,
             ports: [4300]
         )
+        TerminalController.shared.applyPanelPortPublication(
+            workspaceId: workspaceB.id,
+            panelId: terminalPanelB.id,
+            ports: [4300]
+        )
         #expect(workspaceB.agentListeningPorts == [4200])
         #expect(workspaceB.surfaceListeningPorts[terminalPanelB.id] == [4300])
+        #expect(surfacePortPublicationCount == 1)
 
         let baselineSummaries = app.listMainWindowSummaries()
         #expect(baselineSummaries.contains { $0.windowId == windowAId })

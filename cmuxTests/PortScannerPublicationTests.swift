@@ -12,6 +12,13 @@ import Testing
 @MainActor
 @Suite("Port scan publication lifecycle")
 struct PortScanPublicationStateTests {
+    private func roots(startSeconds: Int64) -> Set<AgentPortRootIdentity> {
+        [AgentPortRootIdentity(
+            pid: 100,
+            processIdentity: AgentPIDProcessIdentity(pid: 100, startSeconds: startSeconds, startMicroseconds: 0)
+        )]
+    }
+
     @Test("A claimed panel publication is rejected after its TTY lifecycle changes")
     func staleClaimedPanelPublicationIsRejected() throws {
         let state = PortScanPublicationState()
@@ -31,12 +38,12 @@ struct PortScanPublicationStateTests {
         #expect(state.acceptCurrentPanelPublications([current]) == [current])
     }
 
-    @Test("A newer lifecycle revision rejects a queued stale publication")
+    @Test("Identical roots preserve a lifecycle while recycled roots reject stale publications")
     func staleRevisionIsRejected() {
         let state = PortScanPublicationState()
         let workspaceID = UUID()
-        let staleRevision = state.nextAgentRevision(for: workspaceID)
-        let currentRevision = state.nextAgentRevision(for: workspaceID)
+        let staleRevision = state.replaceAgentLifecycle(workspaceId: workspaceID, roots: roots(startSeconds: 1))
+        let repeatedRevision = state.replaceAgentLifecycle(workspaceId: workspaceID, roots: roots(startSeconds: 1))
         let stalePublication = AgentPortScanPublication(
             workspaceId: workspaceID,
             ports: [4000],
@@ -44,6 +51,8 @@ struct PortScanPublicationStateTests {
             requestID: 1,
             removesLifecycle: false
         )
+        let repeatedAccepted = state.acceptCurrentAgentPublications([stalePublication])
+        let currentRevision = state.replaceAgentLifecycle(workspaceId: workspaceID, roots: roots(startSeconds: 2))
         let currentPublication = AgentPortScanPublication(
             workspaceId: workspaceID,
             ports: [4200],
@@ -54,6 +63,9 @@ struct PortScanPublicationStateTests {
 
         let accepted = state.acceptCurrentAgentPublications([stalePublication, currentPublication])
 
+        #expect(repeatedRevision == staleRevision)
+        #expect(repeatedAccepted == [stalePublication])
+        #expect(currentRevision > staleRevision)
         #expect(accepted == [currentPublication])
     }
 
@@ -61,8 +73,8 @@ struct PortScanPublicationStateTests {
     func oneShotLifecycleRemovalIsRevisionGated() {
         let state = PortScanPublicationState()
         let workspaceID = UUID()
-        let staleRevision = state.nextAgentRevision(for: workspaceID)
-        let currentRevision = state.nextAgentRevision(for: workspaceID)
+        let staleRevision = state.replaceAgentLifecycle(workspaceId: workspaceID, roots: roots(startSeconds: 1))
+        let currentRevision = state.replaceAgentLifecycle(workspaceId: workspaceID, roots: roots(startSeconds: 2))
 
         state.finishAgentLifecycle(workspaceId: workspaceID, revision: staleRevision)
         #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID))
@@ -70,7 +82,7 @@ struct PortScanPublicationStateTests {
         state.finishAgentLifecycle(workspaceId: workspaceID, revision: currentRevision)
         #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID) == false)
 
-        let restartedRevision = state.nextAgentRevision(for: workspaceID)
+        let restartedRevision = state.replaceAgentLifecycle(workspaceId: workspaceID, roots: roots(startSeconds: 3))
         #expect(restartedRevision > currentRevision)
         #expect(state.isCurrentAgentRevision(currentRevision, workspaceId: workspaceID) == false)
         #expect(state.isCurrentAgentRevision(restartedRevision, workspaceId: workspaceID))
@@ -80,7 +92,7 @@ struct PortScanPublicationStateTests {
     func workspaceInvalidationRejectsQueuedPublication() {
         let state = PortScanPublicationState()
         let workspaceID = UUID()
-        let revision = state.nextAgentRevision(for: workspaceID)
+        let revision = state.replaceAgentLifecycle(workspaceId: workspaceID, roots: roots(startSeconds: 1))
         let publication = AgentPortScanPublication(
             workspaceId: workspaceID,
             ports: [4200],
@@ -382,8 +394,14 @@ struct PortScannerAgentPublicationIntegrationTests {
 
         scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
         await runner.waitUntilProcessScanStarted()
+        let initialRevision = scanner.queue.sync {
+            scanner.agentRevisionByWorkspace[workspaceID, default: 0]
+        }
         scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
         scanner.queue.sync {}
+        #expect(scanner.queue.sync {
+            scanner.agentRevisionByWorkspace[workspaceID, default: 0]
+        } == initialRevision)
 
         scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [])
         removalRevision = scanner.queue.sync {

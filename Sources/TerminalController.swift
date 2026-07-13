@@ -857,7 +857,9 @@ class TerminalController {
     func applyPanelPortPublication(workspaceId: UUID, panelId: UUID, ports: [Int]) {
         guard let workspace = portPublicationWorkspace(workspaceId: workspaceId),
               workspace.panels[panelId] != nil else { return }
-        workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
+        let nextPorts: [Int]? = ports.isEmpty ? nil : ports
+        guard workspace.surfaceListeningPorts[panelId] != nextPorts else { return }
+        workspace.surfaceListeningPorts[panelId] = nextPorts
         workspace.recomputeListeningPorts()
     }
 

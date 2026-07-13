@@ -124,9 +124,13 @@ final class PortScanner: @unchecked Sendable {
     }
     @MainActor
     func refreshAgentPorts(workspaceId: UUID, agentRoots: Set<AgentPortRootIdentity>) {
-        let agentRevision = publicationState.nextAgentRevision(for: workspaceId)
+        let normalizedRoots = Set(agentRoots.filter { $0.pid > 0 })
+        let agentRevision = publicationState.replaceAgentLifecycle(
+            workspaceId: workspaceId,
+            roots: normalizedRoots
+        )
         queue.async { [self] in
-            refreshAgentPortsLocked(workspaceId: workspaceId, agentRoots: agentRoots, revision: agentRevision)
+            refreshAgentPortsLocked(workspaceId: workspaceId, agentRoots: normalizedRoots, revision: agentRevision)
         }
     }
 
@@ -423,12 +427,11 @@ final class PortScanner: @unchecked Sendable {
         revision: UInt64
     ) {
         agentRevisionByWorkspace[workspaceId] = revision
-        let normalizedRoots = Set(agentRoots.filter { $0.pid > 0 })
-        if agentTrackingState.replaceRoots(normalizedRoots, workspaceId: workspaceId),
-           !normalizedRoots.isEmpty {
+        if agentTrackingState.replaceRoots(agentRoots, workspaceId: workspaceId),
+           !agentRoots.isEmpty {
             agentSnapshotReplacementState.begin(workspaceId: workspaceId)
         }
-        if normalizedRoots.isEmpty {
+        if agentRoots.isEmpty {
             trackedAgentWorkspaces.remove(workspaceId)
             agentSnapshotReplacementState.cancel(workspaceId: workspaceId)
             agentPortSnapshot.remove(keys: [workspaceId])
@@ -450,7 +453,7 @@ final class PortScanner: @unchecked Sendable {
 
         scanAgentPorts(
             workspaceIds: [workspaceId],
-            agentRootsByWorkspace: [workspaceId: normalizedRoots],
+            agentRootsByWorkspace: [workspaceId: agentRoots],
             agentRevisions: [workspaceId: revision]
         )
     }
