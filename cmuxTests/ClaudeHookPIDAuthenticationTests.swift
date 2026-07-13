@@ -91,8 +91,8 @@ struct ClaudeHookPIDAuthenticationTests {
         #expect(!context.state.snapshot().contains { $0.hasPrefix("notify_target_async ") })
     }
 
-    @Test("Fresh SessionStart validates its invocation surface when PID lookup has no TTY")
-    func freshSessionStartUsesValidatedInvocationSurface() throws {
+    @Test("Fresh SessionStart rejects spawn-environment identity when PID lookup has no TTY")
+    func freshSessionStartRejectsUnverifiedInvocationSurface() throws {
         let context = try Harness.makeContext(name: "fresh-session-surface-corroboration")
         defer { context.cleanup() }
         let sessionId = "fresh-session-surface-corroboration-session"
@@ -118,10 +118,7 @@ struct ClaudeHookPIDAuthenticationTests {
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
-        let persistedRecord = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
-        let record = try #require(persistedRecord)
-        #expect(record["workspaceId"] as? String == Self.liveWorkspaceId)
-        #expect(record["surfaceId"] as? String == Self.liveSurfaceId)
+        #expect(try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId) == nil)
     }
 
     @Test("SessionEnd does not mutate a record rejected by live identity")
@@ -160,6 +157,7 @@ struct ClaudeHookPIDAuthenticationTests {
         let commands = context.state.snapshot()
         #expect(!commands.contains { $0.hasPrefix("clear_agent_pid ") })
         #expect(!commands.contains { $0.hasPrefix("clear_notifications ") })
+        #expect(try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId) != nil)
     }
 
     private func assertSuccessfulHook(_ result: Harness.ProcessRunResult) {

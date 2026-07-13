@@ -8,9 +8,9 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Agent notification move races", .serialized)
+@Suite("Agent notification regressions", .serialized)
 @MainActor
-struct AgentNotificationMoveRaceTests {
+struct AgentNotificationRegressionTests {
     private struct Fixture {
         let store: TerminalNotificationStore
         let appDelegate: AppDelegate
@@ -276,6 +276,7 @@ struct AgentNotificationMoveRaceTests {
     func immediateRelayDeliveryDoesNotRebindAcrossWorkspaceBoundary() throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
+        AppFocusState.overrideIsFocused = true
 
         let routing = ControlRoutingSelectors(
             hasWindowIDParam: false,
@@ -297,12 +298,14 @@ struct AgentNotificationMoveRaceTests {
             Issue.record("Expected relay-target delivery, got \(result)")
             return
         }
+        #expect(fixture.store.focusedReadIndicatorSurfaceId(forTabId: fixture.source.id) == fixture.panelId)
 
         try movePanel(fixture)
 
         let recorded = fixture.store.notifications.filter { $0.title == "Relay immediate" }
         #expect(recorded.map(\.tabId) == [fixture.source.id])
         #expect(!recorded.contains { $0.tabId == fixture.destination.id })
+        #expect(fixture.store.focusedReadIndicatorSurfaceId(forTabId: fixture.destination.id) == nil)
     }
 
     @Test("Session persistence preserves source-confined notification provenance")
@@ -422,6 +425,10 @@ struct AgentNotificationMoveRaceTests {
         }
 
         try movePanel(fixture)
+        _ = TerminalController.shared.controlNotificationCreateForTarget(
+            routing: routing, workspaceID: fixture.destination.id, surfaceID: fixture.panelId,
+            title: "Relay live", subtitle: "Completed", body: "Must also stay cleared"
+        )
         fixture.store.clearNotifications(forTabId: fixture.source.id, surfaceId: fixture.panelId)
 
         #expect(await waitForFile(at: completionURL))

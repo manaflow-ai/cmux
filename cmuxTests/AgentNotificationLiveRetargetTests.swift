@@ -1,6 +1,6 @@
 import AppKit
 import CmuxControlSocket
-import XCTest
+import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -13,9 +13,8 @@ import XCTest
 /// surface's CURRENT workspace at delivery time — not dropped (async path) and
 /// not recorded against the stale workspace (sync path). The unread ring and
 /// the stored notification must land on the pane that owns the surface.
-@MainActor
-final class AgentNotificationLiveRetargetTests: XCTestCase {
-    private struct Fixture {
+extension AgentNotificationRegressionTests {
+    private struct LiveRetargetFixture {
         let store: TerminalNotificationStore
         let appDelegate: AppDelegate
         let manager: TabManager
@@ -25,7 +24,7 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         let restore: () -> Void
     }
 
-    private func makeFixture() throws -> Fixture {
+    private func makeLiveRetargetFixture() throws -> LiveRetargetFixture {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = appDelegate.tabManager ?? TabManager()
@@ -43,9 +42,7 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
 
         let claimedWorkspace = manager.addWorkspace(select: false)
         let owningWorkspace = manager.addWorkspace(select: true)
-        guard let panelId = owningWorkspace.focusedPanelId else {
-            throw XCTSkip("Expected a focused panel in the owning workspace")
-        }
+        let panelId = try #require(owningWorkspace.focusedPanelId)
 
         let restore = {
             for workspace in [claimedWorkspace, owningWorkspace] where manager.tabs.contains(where: { $0.id == workspace.id }) {
@@ -58,7 +55,7 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
             AppFocusState.overrideIsFocused = originalAppFocusOverride
         }
-        return Fixture(
+        return LiveRetargetFixture(
             store: store,
             appDelegate: appDelegate,
             manager: manager,
@@ -69,8 +66,9 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         )
     }
 
+    @Test
     func testQueuedNotificationRetargetsToSurfaceCurrentWorkspace() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         // Claimed workspace is stale (e.g. captured at spawn, pane since moved):
@@ -85,24 +83,24 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         TerminalMutationBus.shared.drainForTesting()
 
         let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
-        XCTAssertEqual(
-            recorded.map(\.tabId),
-            [fixture.owningWorkspace.id],
+        #expect(
+            recorded.map(\.tabId) == [fixture.owningWorkspace.id],
             "Queued notification must be retargeted to the surface's current workspace, not dropped or misfiled"
         )
-        XCTAssertEqual(recorded.first?.surfaceId, fixture.panelId)
-        XCTAssertTrue(
+        #expect(recorded.first?.surfaceId == fixture.panelId)
+        #expect(
             fixture.store.hasUnreadNotification(forTabId: fixture.owningWorkspace.id, surfaceId: fixture.panelId),
             "Unread ring must appear on the pane that owns the surface"
         )
-        XCTAssertFalse(
-            fixture.store.hasUnreadNotification(forTabId: fixture.claimedWorkspace.id, surfaceId: fixture.panelId),
+        #expect(
+            !fixture.store.hasUnreadNotification(forTabId: fixture.claimedWorkspace.id, surfaceId: fixture.panelId),
             "Unread ring must not appear under the stale workspace"
         )
     }
 
+    @Test
     func testSyncDeliveredNotificationRetargetsToSurfaceCurrentWorkspace() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         TerminalController.shared.deliverNotificationSynchronously(
@@ -114,19 +112,19 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         )
 
         let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
-        XCTAssertEqual(
-            recorded.map(\.tabId),
-            [fixture.owningWorkspace.id],
+        #expect(
+            recorded.map(\.tabId) == [fixture.owningWorkspace.id],
             "Synchronously delivered notification must be recorded under the surface's current workspace"
         )
-        XCTAssertEqual(recorded.first?.surfaceId, fixture.panelId)
-        XCTAssertTrue(
+        #expect(recorded.first?.surfaceId == fixture.panelId)
+        #expect(
             fixture.store.hasUnreadNotification(forTabId: fixture.owningWorkspace.id, surfaceId: fixture.panelId)
         )
     }
 
+    @Test
     func testSyncDeliverySupersedesPendingNotificationUnderStaleClaimedKey() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         // An older async notification still queued under the stale claimed
@@ -151,16 +149,16 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         TerminalMutationBus.shared.drainForTesting()
 
         let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
-        XCTAssertEqual(
-            recorded.map(\.body),
-            ["New sync"],
+        #expect(
+            recorded.map(\.body) == ["New sync"],
             "A stale-keyed pending notification must not survive (or replace) the newer synchronous one for the same surface"
         )
-        XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
+        #expect(recorded.map(\.tabId) == [fixture.owningWorkspace.id])
     }
 
+    @Test
     func testResolveDeliveryTargetRejectsOutOfRangePid() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         // A 64-bit pid beyond pid_t range (any socket caller controls this
@@ -171,13 +169,15 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
             "surface_id": fixture.panelId.uuidString,
         ])
         guard case .err(let code, _, _) = result else {
-            return XCTFail("Expected invalid_params for an out-of-range pid, got \(result)")
+            Issue.record("Expected invalid_params for an out-of-range pid, got \(result)")
+            return
         }
-        XCTAssertEqual(code, "invalid_params")
+        #expect(code == "invalid_params")
     }
 
+    @Test
     func testSurfaceScopedClearDiscardsStaleKeyedPendingNotification() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         // Queued under the stale claimed workspace key...
@@ -197,17 +197,18 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         )
         TerminalMutationBus.shared.drainForTesting()
 
-        XCTAssertTrue(
+        #expect(
             fixture.store.notifications.filter { $0.title == "Claude Code" }.isEmpty,
             "A cleared pane must stay cleared; the stale-keyed pending entry must not deliver after the clear"
         )
-        XCTAssertFalse(
-            fixture.store.hasUnreadNotification(forTabId: fixture.owningWorkspace.id, surfaceId: fixture.panelId)
+        #expect(
+            !fixture.store.hasUnreadNotification(forTabId: fixture.owningWorkspace.id, surfaceId: fixture.panelId)
         )
     }
 
+    @Test
     func testWorkspaceWideClearDiscardsStaleKeyedPendingNotification() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         // Queued under a stale claimed workspace, but its surface's CURRENT
@@ -224,17 +225,18 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         fixture.store.clearNotifications(forTabId: fixture.owningWorkspace.id)
         TerminalMutationBus.shared.drainForTesting()
 
-        XCTAssertTrue(
+        #expect(
             fixture.store.notifications.filter { $0.title == "Claude Code" }.isEmpty,
             "A tab-wide clear of the live workspace must discard stale-keyed pending entries destined for it"
         )
-        XCTAssertFalse(
-            fixture.store.hasUnreadNotification(forTabId: fixture.owningWorkspace.id, surfaceId: fixture.panelId)
+        #expect(
+            !fixture.store.hasUnreadNotification(forTabId: fixture.owningWorkspace.id, surfaceId: fixture.panelId)
         )
     }
 
+    @Test
     func testWorkspaceWideClearPreservesNotificationRetargetedAwayFromClearedWorkspace() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         // The enqueue-time workspace is stale and is the one being cleared,
@@ -252,12 +254,13 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         TerminalMutationBus.shared.drainForTesting()
 
         let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
-        XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
-        XCTAssertEqual(recorded.first?.surfaceId, fixture.panelId)
+        #expect(recorded.map(\.tabId) == [fixture.owningWorkspace.id])
+        #expect(recorded.first?.surfaceId == fixture.panelId)
     }
 
+    @Test
     func testAsyncTabWideClearEndsWithNoResurrectedNotification() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         // v1 `clear_notifications --tab` path: the bus is FIFO, so the
@@ -273,14 +276,15 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         TerminalMutationBus.shared.enqueueClearNotifications(forTabId: fixture.owningWorkspace.id)
         TerminalMutationBus.shared.drainForTesting()
 
-        XCTAssertTrue(
+        #expect(
             fixture.store.notifications.filter { $0.title == "Claude Code" }.isEmpty,
             "An async tab-wide clear must not leave a resurrected notification behind"
         )
     }
 
+    @Test
     func testAsyncSurfaceScopedClearDiscardsStaleKeyedPendingNotification() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         // Same resurrection race as the store-clear test, via the async
@@ -298,14 +302,15 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         )
         TerminalMutationBus.shared.drainForTesting()
 
-        XCTAssertTrue(
+        #expect(
             fixture.store.notifications.filter { $0.title == "Claude Code" }.isEmpty,
             "An async surface-scoped clear must discard the stale-keyed pending entry, not let it re-deliver"
         )
     }
 
+    @Test
     func testCreateForCallerFollowsMovedPreferredSurface() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         // `cmux notify` from a moved pane: spawn-time CMUX_WORKSPACE_ID is
@@ -319,17 +324,19 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
             "body": "Body",
         ])
         guard case .ok(let payload) = result, let dict = payload as? [String: Any] else {
-            return XCTFail("Expected delivery, got \(result)")
+            Issue.record("Expected delivery, got \(result)")
+            return
         }
-        XCTAssertEqual(dict["workspace_id"] as? String, fixture.owningWorkspace.id.uuidString)
-        XCTAssertEqual(dict["surface_id"] as? String, fixture.panelId.uuidString)
+        #expect((dict["workspace_id"] as? String) == fixture.owningWorkspace.id.uuidString)
+        #expect((dict["surface_id"] as? String) == fixture.panelId.uuidString)
         let recorded = fixture.store.notifications.filter { $0.title == "Caller notify" }
-        XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
-        XCTAssertEqual(recorded.first?.surfaceId, fixture.panelId)
+        #expect(recorded.map(\.tabId) == [fixture.owningWorkspace.id])
+        #expect(recorded.first?.surfaceId == fixture.panelId)
     }
 
+    @Test
     func testCreateForTargetRejectsSurfaceOutsideClaimedWorkspace() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         // SECURITY boundary: `notification.create_for_target` is reachable
@@ -354,16 +361,16 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
             subtitle: "",
             body: "Body"
         )
-        XCTAssertEqual(
-            resolution,
-            .surfaceNotFound(fixture.panelId),
+        #expect(
+            resolution == .surfaceNotFound(fixture.panelId),
             "create_for_target must stay confined to the claimed workspace (relay authorization boundary)"
         )
-        XCTAssertTrue(fixture.store.notifications.filter { $0.title == "Target notify" }.isEmpty)
+        #expect(fixture.store.notifications.filter { $0.title == "Target notify" }.isEmpty)
     }
 
+    @Test
     func testCreateForSurfaceFollowsMovedSurface() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         // `notification.create_for_surface` is local-only (not relay-
@@ -377,6 +384,13 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
             surfaceID: nil,
             paneID: nil
         )
+        #expect(TerminalController.shared.controlNotificationCreate(
+            routing: routing,
+            explicitSurfaceID: fixture.panelId,
+            title: "Primary notify",
+            subtitle: "",
+            body: "Body"
+        ) == .delivered(workspaceID: fixture.owningWorkspace.id, surfaceID: fixture.panelId))
         let resolution = TerminalController.shared.controlNotificationCreateForSurface(
             routing: routing,
             surfaceID: fixture.panelId,
@@ -385,16 +399,18 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
             body: "Body"
         )
         guard case .delivered(let workspaceID, let surfaceID, _) = resolution else {
-            return XCTFail("A moved surface must be re-homed, not rejected; got \(resolution)")
+            Issue.record("A moved surface must be re-homed, not rejected; got \(resolution)")
+            return
         }
-        XCTAssertEqual(workspaceID, fixture.owningWorkspace.id)
-        XCTAssertEqual(surfaceID, fixture.panelId)
+        #expect(workspaceID == fixture.owningWorkspace.id)
+        #expect(surfaceID == fixture.panelId)
         let recorded = fixture.store.notifications.filter { $0.title == "Surface notify" }
-        XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
+        #expect(recorded.map(\.tabId) == [fixture.owningWorkspace.id])
     }
 
+    @Test
     func testRebindKeepsNewerDestinationKeyedPendingNotification() throws {
-        let fixture = try makeFixture()
+        let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
         // Mid-move race: the destination already owns the surface and a hook
@@ -415,61 +431,63 @@ final class AgentNotificationLiveRetargetTests: XCTestCase {
         TerminalMutationBus.shared.drainForTesting()
 
         let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
-        XCTAssertEqual(
-            recorded.map(\.body),
-            ["Destination queued"],
+        #expect(
+            recorded.map(\.body) == ["Destination queued"],
             "Rebind must preserve a newer destination-keyed pending entry"
         )
-        XCTAssertEqual(recorded.map(\.tabId), [fixture.owningWorkspace.id])
+        #expect(recorded.map(\.tabId) == [fixture.owningWorkspace.id])
     }
 
+    @Test
     func testPidSignalCombiningRequiresTTYMatch() {
         let tty = AgentDeliveryTargetCandidate(workspaceId: UUID(), surfaceId: UUID())
         let otherEnv = AgentDeliveryTargetCandidate(workspaceId: UUID(), surfaceId: UUID())
-        XCTAssertEqual(agentDeliveryTargetCombining(ttyTarget: tty, envTarget: nil), tty)
-        XCTAssertEqual(
+        #expect(agentDeliveryTargetCombining(ttyTarget: tty, envTarget: nil) == tty)
+        #expect(
             agentDeliveryTargetCombining(
                 ttyTarget: tty,
                 envTarget: AgentDeliveryTargetCandidate(workspaceId: otherEnv.workspaceId, surfaceId: tty.surfaceId)
-            ),
-            tty,
+            ) == tty,
             "A corroborating env surface keeps the tty answer"
         )
-        XCTAssertNil(
-            agentDeliveryTargetCombining(ttyTarget: tty, envTarget: otherEnv),
+        #expect(
+            agentDeliveryTargetCombining(ttyTarget: tty, envTarget: otherEnv) == nil,
             "Disagreement between two individually stale-able signals must fail closed"
         )
-        XCTAssertNil(
-            agentDeliveryTargetCombining(ttyTarget: nil, envTarget: otherEnv),
+        #expect(
+            agentDeliveryTargetCombining(ttyTarget: nil, envTarget: otherEnv) == nil,
             "Inherited CMUX_SURFACE_ID alone is spawn-time evidence (leakable from the operator's pane) and must never resolve by itself"
         )
-        XCTAssertNil(agentDeliveryTargetCombining(ttyTarget: nil, envTarget: nil))
+        #expect(agentDeliveryTargetCombining(ttyTarget: nil, envTarget: nil) == nil)
     }
 
-    func testTTYDeviceMatchRequiresUniqueSurface() {
+    @Test
+    func testTTYDeviceMatchRequiresUniqueSurface() throws {
+        let workspace = Workspace(), panel = try #require(workspace.focusedPanelId)
+        workspace.surfaceTTYNames[panel] = "/dev/null"
+        #expect(workspace.surfaceTTYDevices[panel] == CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: "/dev/null"))
         let w1 = UUID(), s1 = UUID(), w2 = UUID(), s2 = UUID()
         let bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = [
             (workspaceId: w1, surfaceId: s1, ttyDevice: 7),
             (workspaceId: w2, surfaceId: s2, ttyDevice: 9),
         ]
-        XCTAssertEqual(
-            agentDeliveryTargetMatchingTTYDevice(7, surfaceTTYDevices: bindings),
-            AgentDeliveryTargetCandidate(workspaceId: w1, surfaceId: s1)
+        #expect(
+            agentDeliveryTargetMatchingTTYDevice(7, surfaceTTYDevices: bindings)
+                == AgentDeliveryTargetCandidate(workspaceId: w1, surfaceId: s1)
         )
-        XCTAssertNil(agentDeliveryTargetMatchingTTYDevice(5, surfaceTTYDevices: bindings))
-        XCTAssertNil(
+        #expect(agentDeliveryTargetMatchingTTYDevice(5, surfaceTTYDevices: bindings) == nil)
+        #expect(
             agentDeliveryTargetMatchingTTYDevice(
                 7,
                 surfaceTTYDevices: bindings + [(workspaceId: w2, surfaceId: s2, ttyDevice: 7)]
-            ),
+            ) == nil,
             "A tty device claimed by two different surfaces must refuse to guess"
         )
-        XCTAssertEqual(
+        #expect(
             agentDeliveryTargetMatchingTTYDevice(
                 7,
                 surfaceTTYDevices: bindings + [(workspaceId: w1, surfaceId: s1, ttyDevice: 7)]
-            )?.surfaceId,
-            s1,
+            )?.surfaceId == s1,
             "Consistent duplicate rows for the same surface still resolve"
         )
     }
