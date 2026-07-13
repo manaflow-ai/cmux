@@ -64,6 +64,7 @@ type AppState = {
   copyFeedback: string;
   draft: CommentDraft | null;
   fileSearchOpen: boolean;
+  fileSearchRequest: number;
   filesWidth: number;
   filesVisible: boolean;
   items: DiffItem[];
@@ -84,6 +85,7 @@ type AppAction =
   | { type: "set-copy-feedback"; message: string }
   | { type: "set-draft"; draft: CommentDraft | null }
   | { type: "set-file-search-open"; open: boolean }
+  | { type: "request-file-search" }
   | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
   | { type: "set-metrics"; metrics: StreamMetrics }
@@ -108,6 +110,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     copyFeedback: "",
     draft: null,
     fileSearchOpen: false,
+    fileSearchRequest: 0,
     filesWidth: 252,
     filesVisible: true,
     items: [],
@@ -189,6 +192,8 @@ function reducer(state: AppState, action: AppAction): AppState {
     };
   case "set-file-search-open":
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
+  case "request-file-search":
+    return { ...state, fileSearchOpen: true, fileSearchRequest: state.fileSearchRequest + 1, filesVisible: true };
   case "set-files-width":
     return { ...state, filesWidth: action.width };
   case "set-files-visible":
@@ -1102,6 +1107,7 @@ function FilesSidebar({
         {state.treeSource ? (
           <PierreFileTree
             fileSearchOpen={state.fileSearchOpen}
+            fileSearchRequest={state.fileSearchRequest}
             label={label}
             onSelectItem={onSelectItem}
             selectedPath={selectedPath}
@@ -1125,12 +1131,14 @@ function FilesSidebar({
 
 function PierreFileTree({
   fileSearchOpen,
+  fileSearchRequest,
   label,
   onSelectItem,
   selectedPath,
   source,
 }: {
   fileSearchOpen: boolean;
+  fileSearchRequest: number;
   label: DiffViewerLabelResolver;
   onSelectItem: (itemId: string) => void;
   selectedPath: string;
@@ -1163,7 +1171,7 @@ function PierreFileTree({
   });
 
   usePierreFileTreeSource(model, source);
-  usePierreFileTreeSearch(model, fileSearchOpen);
+  usePierreFileTreeSearch(model, fileSearchOpen, fileSearchRequest);
   usePierreFileTreeSelection(model, selectedPath);
 
   return <FileTree model={model} style={{ height: "100%" }} />;
@@ -1318,14 +1326,18 @@ function usePierreFileTreeSource(
   }, [model, source]);
 }
 
-function usePierreFileTreeSearch(model: ReturnType<typeof useFileTree>["model"], fileSearchOpen: boolean): void {
+function usePierreFileTreeSearch(
+  model: ReturnType<typeof useFileTree>["model"],
+  fileSearchOpen: boolean,
+  fileSearchRequest: number,
+): void {
   useEffect(() => {
     if (fileSearchOpen) {
       model.openSearch("");
     } else {
       model.closeSearch();
     }
-  }, [fileSearchOpen, model]);
+  }, [fileSearchOpen, fileSearchRequest, model]);
 }
 
 function usePierreFileTreeSelection(model: ReturnType<typeof useFileTree>["model"], selectedPath: string): void {
@@ -1500,7 +1512,7 @@ function useNativeViewerNavigation(
       }
       switch (action) {
         case "diffViewerOpenFileSearch":
-          dispatch({ type: "set-file-search-open", open: true });
+          dispatch({ type: "request-file-search" });
           break;
         case "diffViewerNextFile":
           if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);

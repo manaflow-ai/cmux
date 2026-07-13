@@ -3730,19 +3730,19 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didClearPDFDocument = { [weak self] in
             MainActor.assumeIsolated { self?.clearRenderedPDFDocument() }
         }
-        navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
+        navigationDelegate.didStartProvisionalNavigation = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                (webView as? CmuxWebView)?.diffViewerNavigationDidStart()
+                (webView as? CmuxWebView)?.diffViewerNavigationDidStart(navigation)
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
             }
         }
-        navigationDelegate.didCommit = { [weak self] webView in
+        navigationDelegate.didCommit = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                (webView as? CmuxWebView)?.diffViewerNavigationDidCommit()
+                (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
                 self.isMainFrameProvisionalNavigationActive = false
                 // An about:blank placeholder leaves the restore-stall detector armed.
                 if !Self.isAboutBlankURL(webView.url) {
@@ -3808,7 +3808,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView, cancelledNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                (webView as? CmuxWebView)?.diffViewerNavigationDidCancel()
+                (webView as? CmuxWebView)?.diffViewerNavigationDidCancel(cancelledNavigation)
                 let isRestoreBookkeepingNavigation = self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation)
                 self.isMainFrameProvisionalNavigationActive = false
                 if isRestoreBookkeepingNavigation {

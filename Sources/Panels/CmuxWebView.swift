@@ -380,17 +380,17 @@ final class CmuxWebView: WKWebView {
         }
     }
 
-    func diffViewerNavigationDidStart() {
-        diffViewerDocumentState.navigationDidStart()
+    func diffViewerNavigationDidStart(_ navigation: WKNavigation?) {
+        diffViewerDocumentState.navigationDidStart(id: navigation.map(ObjectIdentifier.init))
         diffViewerNavigationKeyRouter.reset()
     }
 
-    func diffViewerNavigationDidCommit() {
-        diffViewerDocumentState.navigationDidCommit()
+    func diffViewerNavigationDidCommit(_ navigation: WKNavigation?) {
+        diffViewerDocumentState.navigationDidCommit(id: navigation.map(ObjectIdentifier.init))
     }
 
-    func diffViewerNavigationDidCancel() {
-        diffViewerDocumentState.navigationDidCancel()
+    func diffViewerNavigationDidCancel(_ navigation: WKNavigation?) {
+        diffViewerDocumentState.navigationDidCancel(id: navigation.map(ObjectIdentifier.init))
     }
 
     private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
@@ -404,7 +404,15 @@ final class CmuxWebView: WKWebView {
         }, perform: { [weak self] action in
             guard let self else { return }
             let rawAction = action.rawValue.replacingOccurrences(of: "'", with: "\\'")
-            evaluateJavaScript("window.__cmuxPerformDiffViewerNavigationAction?.('\(rawAction)')")
+            let script = "window.__cmuxPerformDiffViewerNavigationAction?.('\(rawAction)')"
+            if action == .diffViewerOpenFileSearch {
+                diffViewerDocumentState.beginEditableFocusTransition()
+                evaluateJavaScript(script) { [weak self] _, error in
+                    if error != nil { self?.diffViewerDocumentState.editableFocusTransitionDidFail() }
+                }
+            } else {
+                evaluateJavaScript(script)
+            }
         })
     }
 

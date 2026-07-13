@@ -31,17 +31,28 @@ struct ViewerNavigationTests {
     @Test
     func diffViewerNavigationStateRestoresOnlyAfterCancelledNavigation() {
         let state = DiffViewerNavigationDocumentState()
+        let firstNavigationObject = NSObject()
+        let secondNavigationObject = NSObject()
+        let firstNavigation = ObjectIdentifier(firstNavigationObject)
+        let secondNavigation = ObjectIdentifier(secondNavigationObject)
         state.update(viewer: true, editable: false)
         #expect(state.canHandleNavigation)
 
-        state.navigationDidStart()
+        state.navigationDidStart(id: firstNavigation)
         #expect(!state.canHandleNavigation)
-        state.navigationDidCancel()
+        state.navigationDidCancel(id: firstNavigation)
         #expect(state.canHandleNavigation)
 
-        state.navigationDidStart()
-        state.navigationDidCommit()
-        state.navigationDidCancel()
+        state.navigationDidStart(id: firstNavigation)
+        state.navigationDidStart(id: secondNavigation)
+        state.navigationDidCancel(id: firstNavigation)
+        #expect(!state.canHandleNavigation)
+        state.navigationDidCancel(id: secondNavigation)
+        #expect(state.canHandleNavigation)
+
+        state.navigationDidStart(id: firstNavigation)
+        state.navigationDidCommit(id: firstNavigation)
+        state.navigationDidCancel(id: firstNavigation)
         #expect(!state.canHandleNavigation)
     }
 
