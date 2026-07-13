@@ -20,9 +20,13 @@ struct WorktreeIncludeCopyService: Sendable {
         fileManager: FileManager,
         limits: WorktreeIncludeCopyLimits = .production,
         availableCapacity: @escaping @Sendable (URL) -> Int64? = { destination in
-            try? destination.resourceValues(
+            if let capacity = try? destination.resourceValues(
                 forKeys: [.volumeAvailableCapacityForImportantUsageKey]
-            ).volumeAvailableCapacityForImportantUsage
+            ).volumeAvailableCapacityForImportantUsage {
+                return capacity
+            }
+            let attributes = try? FileManager.default.attributesOfFileSystem(forPath: destination.path)
+            return (attributes?[.systemFreeSize] as? NSNumber)?.int64Value
         }
     ) {
         self.fileManager = fileManager
@@ -61,10 +65,14 @@ struct WorktreeIncludeCopyService: Sendable {
             }
         }
 
-        let availableByteBudget = availableCapacity(destination).map {
-            max(0, $0 - limits.freeSpaceReserve)
+        guard let availableCapacity = availableCapacity(destination) else {
+            diagnostics.append(
+                "Skipped .worktreeinclude copy because the destination volume's available capacity could not be determined."
+            )
+            return diagnostics
         }
-        if let availableByteBudget, byteCount > availableByteBudget {
+        let availableByteBudget = max(0, availableCapacity - limits.freeSpaceReserve)
+        if byteCount > availableByteBudget {
             diagnostics.append(
                 "Skipped .worktreeinclude copy because the destination volume lacks sufficient free space."
             )
@@ -78,6 +86,7 @@ struct WorktreeIncludeCopyService: Sendable {
             }
             let destinationItem = destination.appendingPathComponent(relativePath).standardizedFileURL
             let destinationExisted = fileManager.fileExists(atPath: destinationItem.path)
+            let copiedDirectoryStartIndex = copiedDirectories.count
             do {
                 try copyItem(
                     source.appendingPathComponent(relativePath).standardizedFileURL,
@@ -90,20 +99,38 @@ struct WorktreeIncludeCopyService: Sendable {
                 )
             } catch is CancellationError {
                 if !destinationExisted { try? fileManager.removeItem(at: destinationItem) }
+                removeCopiedDirectories(
+                    since: copiedDirectoryStartIndex,
+                    copiedDirectories: &copiedDirectories
+                )
                 diagnostics.append("Cancelled .worktreeinclude copy before it completed.")
                 break copyLoop
             } catch let limitError as WorktreeIncludeCopyLimitError {
                 if !destinationExisted { try? fileManager.removeItem(at: destinationItem) }
+                removeCopiedDirectories(
+                    since: copiedDirectoryStartIndex,
+                    copiedDirectories: &copiedDirectories
+                )
                 diagnostics.append(limitError.localizedDescription)
                 break copyLoop
             } catch {
                 if !destinationExisted { try? fileManager.removeItem(at: destinationItem) }
+                removeCopiedDirectories(
+                    since: copiedDirectoryStartIndex,
+                    copiedDirectories: &copiedDirectories
+                )
                 diagnostics.append(
                     "Could not copy .worktreeinclude path \(relativePath): \(error.localizedDescription)"
                 )
             }
         }
         for directory in copiedDirectories.reversed() {
+            if Task.isCancelled {
+                if !diagnostics.contains(where: { $0.localizedCaseInsensitiveContains("cancelled") }) {
+                    diagnostics.append("Cancelled .worktreeinclude copy before it completed.")
+                }
+                break
+            }
             guard fileManager.fileExists(atPath: directory.destination.path) else { continue }
             do {
                 try copySecurityMetadata(from: directory.source, to: directory.destination)
@@ -157,7 +184,7 @@ struct WorktreeIncludeCopyService: Sendable {
         to destinationItem: URL,
         itemCount: inout Int,
         byteCount: inout Int64,
-        availableByteBudget: Int64?,
+        availableByteBudget: Int64,
         destinationRoot: URL,
         copiedDirectories: inout [(source: URL, destination: URL)]
     ) throws {
@@ -167,6 +194,8 @@ struct WorktreeIncludeCopyService: Sendable {
                 destinationItem.deletingLastPathComponent(),
                 from: sourceItem.deletingLastPathComponent(),
                 destinationRoot: destinationRoot,
+                itemCount: &itemCount,
+                byteCount: byteCount,
                 copiedDirectories: &copiedDirectories
             )
             try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
@@ -184,11 +213,12 @@ struct WorktreeIncludeCopyService: Sendable {
             return
         }
 
-        try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
         try createDirectoryIfNeeded(
             destinationItem,
             from: sourceItem,
             destinationRoot: destinationRoot,
+            itemCount: &itemCount,
+            byteCount: byteCount,
             copiedDirectories: &copiedDirectories
         )
         guard let enumerator = fileManager.enumerator(atPath: sourceItem.path) else {
@@ -200,11 +230,12 @@ struct WorktreeIncludeCopyService: Sendable {
             let destinationChild = destinationItem.appendingPathComponent(relativePath)
             let values = try child.resourceValues(forKeys: Self.resourceKeys)
             if values.isDirectory == true, values.isSymbolicLink != true {
-                try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
                 try createDirectoryIfNeeded(
                     destinationChild,
                     from: child,
                     destinationRoot: destinationRoot,
+                    itemCount: &itemCount,
+                    byteCount: byteCount,
                     copiedDirectories: &copiedDirectories
                 )
             } else {
@@ -212,6 +243,8 @@ struct WorktreeIncludeCopyService: Sendable {
                     destinationChild.deletingLastPathComponent(),
                     from: child.deletingLastPathComponent(),
                     destinationRoot: destinationRoot,
+                    itemCount: &itemCount,
+                    byteCount: byteCount,
                     copiedDirectories: &copiedDirectories
                 )
                 try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
@@ -234,6 +267,8 @@ struct WorktreeIncludeCopyService: Sendable {
         _ destinationDirectory: URL,
         from sourceDirectory: URL,
         destinationRoot: URL,
+        itemCount: inout Int,
+        byteCount: Int64,
         copiedDirectories: inout [(source: URL, destination: URL)]
     ) throws {
         let destinationDirectory = destinationDirectory.standardizedFileURL
@@ -245,10 +280,28 @@ struct WorktreeIncludeCopyService: Sendable {
             destinationDirectory.deletingLastPathComponent(),
             from: sourceDirectory.deletingLastPathComponent(),
             destinationRoot: destinationRoot,
+            itemCount: &itemCount,
+            byteCount: byteCount,
             copiedDirectories: &copiedDirectories
         )
+        try accountCopiedItem(itemCount: &itemCount, byteCount: byteCount)
         try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: false)
         copiedDirectories.append((sourceDirectory, destinationDirectory))
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: destinationDirectory.path
+        )
+    }
+
+    private func removeCopiedDirectories(
+        since startIndex: Int,
+        copiedDirectories: inout [(source: URL, destination: URL)]
+    ) {
+        guard startIndex < copiedDirectories.count else { return }
+        for directory in copiedDirectories[startIndex...].reversed() {
+            try? fileManager.removeItem(at: directory.destination)
+        }
+        copiedDirectories.removeSubrange(startIndex...)
     }
 
     private func accountCopiedItem(
@@ -270,7 +323,7 @@ struct WorktreeIncludeCopyService: Sendable {
         to destinationItem: URL,
         itemCount: Int,
         byteCount: inout Int64,
-        availableByteBudget: Int64?
+        availableByteBudget: Int64
     ) throws {
         guard !fileManager.fileExists(atPath: destinationItem.path) else {
             throw CocoaError(.fileWriteFileExists)
@@ -298,7 +351,7 @@ struct WorktreeIncludeCopyService: Sendable {
                         reason: .resourceLimit
                     )
                 }
-                if let availableByteBudget, nextByteCount > availableByteBudget {
+                if nextByteCount > availableByteBudget {
                     throw WorktreeIncludeCopyLimitError(
                         itemCount: itemCount,
                         byteCount: nextByteCount,

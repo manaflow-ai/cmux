@@ -46,9 +46,13 @@ public struct WorktreeIncludeSyncService: Sendable {
         gitTimeout: TimeInterval = 30,
         copyLimits: WorktreeIncludeCopyLimits,
         availableCapacity: @escaping @Sendable (URL) -> Int64? = { destination in
-            try? destination.resourceValues(
+            if let capacity = try? destination.resourceValues(
                 forKeys: [.volumeAvailableCapacityForImportantUsageKey]
-            ).volumeAvailableCapacityForImportantUsage
+            ).volumeAvailableCapacityForImportantUsage {
+                return capacity
+            }
+            let attributes = try? FileManager.default.attributesOfFileSystem(forPath: destination.path)
+            return (attributes?[.systemFreeSize] as? NSNumber)?.int64Value
         }
     ) {
         self.commandRunner = commandRunner
