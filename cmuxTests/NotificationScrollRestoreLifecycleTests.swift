@@ -332,6 +332,64 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(!panel.hostedView.hasPendingNotificationScrollRestore)
     }
 
+    @Test func missingRenderedFrameDeadlineReleasesDemandWithoutDiscardingRestore() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
+        #expect(hostedView.notificationScrollRestoreRenderedFrameObserver != nil)
+        #expect(hostedView.releaseNotificationScrollRestoreFrameDemand != nil)
+        #expect(hostedView.notificationScrollRestoreFrameDeadlineTimer != nil)
+
+        hostedView.expireNotificationScrollRestoreFrameDeadline()
+
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+        #expect(hostedView.notificationScrollRestoreRenderedFrameObserver == nil)
+        #expect(hostedView.releaseNotificationScrollRestoreFrameDemand == nil)
+        #expect(hostedView.notificationScrollRestoreFrameDeadlineTimer == nil)
+        #expect(hostedView.notificationScrollRestoreBoundaryFrameGeneration == nil)
+
+        postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
+    @Test func missingTerminalBindingAtReplayBoundaryKeepsRestorePending() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
+
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+        #expect(surfaceView.terminalSurface == nil)
+        #expect(hostedView.notificationScrollRestoreRenderedFrameObserver != nil)
+        #expect(hostedView.releaseNotificationScrollRestoreFrameDemand != nil)
+
+        hostedView.expireNotificationScrollRestoreFrameDeadline()
+
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+        #expect(hostedView.notificationScrollRestoreRenderedFrameObserver == nil)
+        #expect(hostedView.releaseNotificationScrollRestoreFrameDemand == nil)
+
+        postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
     private func beginReplay(on hostedView: GhosttySurfaceScrollView, endBoundary: String) {
         let startBoundary = endBoundary + "-start"
         hostedView.armSessionScrollbackReplay(
@@ -364,27 +422,6 @@ struct NotificationScrollRestoreLifecycleTests {
 
 private final class NotificationLifecycleRecordingSurfaceView: GhosttyNSView {
     private(set) var performedBindingActions: [String] = []
-    private var retainedTerminalSurface: TerminalSurface?
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        let terminalSurface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        retainedTerminalSurface = terminalSurface
-        self.terminalSurface = terminalSurface
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        retainedTerminalSurface?.releaseSurfaceForTesting()
-    }
 
     override func performBindingAction(_ action: String) -> Bool {
         performedBindingActions.append(action)

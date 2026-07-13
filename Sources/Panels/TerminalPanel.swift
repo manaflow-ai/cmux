@@ -757,7 +757,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func performBindingAction(_ action: String) -> Bool {
         guard !isAgentHibernated else { return false }
-        return surface.performBindingAction(action)
+        return surface.performExplicitInputBindingAction(action)
     }
 
     @discardableResult

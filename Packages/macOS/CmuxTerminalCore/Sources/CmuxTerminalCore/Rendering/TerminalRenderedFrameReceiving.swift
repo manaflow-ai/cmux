@@ -12,5 +12,8 @@
 @MainActor
 public protocol TerminalRenderedFrameReceiving: AnyObject, Sendable {
     /// Schedules a coalesced rendered-frame notification.
-    func enqueueRenderedFrameUpdate()
+    ///
+    /// - Parameter generation: The generation assigned synchronously when the
+    ///   renderer vended the drawable.
+    func enqueueRenderedFrameUpdate(generation: UInt64)
 }
