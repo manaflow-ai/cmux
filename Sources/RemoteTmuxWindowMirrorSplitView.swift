@@ -13,6 +13,45 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     @State private var containerSize: CGSize = .zero
 
     var body: some View {
+        // The base color is the region, and it answers every proposal with
+        // the proposal; the split tree renders in the overlay at its exact
+        // grid-plus-chrome size. The two are separated because they disagree
+        // under churn: the tree's frame is derived from the BANKED container
+        // while the proposal comes from the live window, so a window shrink
+        // leaves the tree momentarily wider than the region. In an overlay
+        // the excess overflows in place. Sizing the tree inline let it leak —
+        // a flexible frame with no minWidth reports its CHILD's width when
+        // the child exceeds the proposal — so the imposed width became this
+        // view's reported size, every space-filling ancestor up to the main
+        // window's root content inherited it (observed live: the content
+        // view marching wider than the display-pinned window a step per
+        // layout pass), and the geometry callback below then read the
+        // mirror's own imposed width back as its "container".
+        Color(nsColor: appearance.backgroundColor)
+            .overlay(alignment: .topLeading) {
+                splitTree
+            }
+            .background(MirrorHostProbe(mirror: mirror))
+            .onGeometryChange(for: CGSize.self) { proxy in
+                proxy.size
+            } action: { newSize in
+                containerSize = newSize
+                pushClientSize(pointSize: newSize)
+            }
+            .onAppear {
+                mirror.isVisibleForSizing = isVisibleInUI
+                if isVisibleInUI { becameVisible() }
+            }
+            .onChange(of: isVisibleInUI) { _, visible in
+                mirror.isVisibleForSizing = visible
+                if visible { becameVisible() }
+            }
+            .onChange(of: mirror.layoutStructureVersion) { _, _ in
+                pushClientSize(pointSize: containerSize)
+            }
+    }
+
+    private var splitTree: some View {
         BonsplitView(controller: mirror.bonsplitController) { tab, paneId in
             if let tmuxPaneId = mirror.tmuxPaneId(forTab: tab.id),
                let panel = mirror.panel(forPane: tmuxPaneId) {
@@ -50,34 +89,15 @@ struct RemoteTmuxWindowMirrorSplitView: View {
         .internalOnlyTabDrag()
         // The tree renders at its exact grid-plus-chrome size; the region's
         // sub-cell remainder stays outside it as trailing margin (painted by
-        // the background below), so no pane inherits a fraction of a cell
-        // along a split axis and rounds onto an extra row or column. nil
-        // (before the first sized pass) falls back to filling the region.
+        // the base color), so no pane inherits a fraction of a cell along a
+        // split axis and rounds onto an extra row or column. nil (before the
+        // first sized pass) falls back to filling the region — the overlay
+        // proposes the base's size.
         .frame(
             width: mirror.renderFrameSize?.width,
             height: mirror.renderFrameSize?.height,
             alignment: .topLeading
         )
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(nsColor: appearance.backgroundColor))
-        .background(MirrorHostProbe(mirror: mirror))
-        .onGeometryChange(for: CGSize.self) { proxy in
-            proxy.size
-        } action: { newSize in
-            containerSize = newSize
-            pushClientSize(pointSize: newSize)
-        }
-        .onAppear {
-            mirror.isVisibleForSizing = isVisibleInUI
-            if isVisibleInUI { becameVisible() }
-        }
-        .onChange(of: isVisibleInUI) { _, visible in
-            mirror.isVisibleForSizing = visible
-            if visible { becameVisible() }
-        }
-        .onChange(of: mirror.layoutStructureVersion) { _, _ in
-            pushClientSize(pointSize: containerSize)
-        }
     }
 
     private func pushClientSize(pointSize: CGSize) {

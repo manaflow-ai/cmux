@@ -56,6 +56,56 @@ final class MainWindowSelfSizingTests: XCTestCase {
         )
     }
 
+    /// The hosting view's OWN frame must track the window too, not just the
+    /// window's frame. The live fuzz observed content that over-reports its
+    /// width (a fixed-size subtree leaking through a flexible frame) marching
+    /// the content view wider than the display-pinned window a step per
+    /// layout pass — every space-filling descendant then inherits the
+    /// inflated width. The root content here reports 4000pt to every
+    /// proposal; the hosting view must stay at the window's content size.
+    @MainActor
+    func testContentViewFrameTracksWindowWhenContentOverReports() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        // A fixed-size child inside a topLeading flexible frame: the frame
+        // reports the child's 4000pt whenever the proposal is smaller — the
+        // same shape as the leak the fuzz caught.
+        let overReporting = Color.clear
+            .frame(width: 4000, height: 3000)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        let hostingView = MainWindowHostingView(rootView: AnyView(overReporting))
+        window.contentView = hostingView
+        window.setFrame(NSRect(x: 0, y: 0, width: 500, height: 400), display: true)
+        window.makeKeyAndOrderFront(nil)
+
+        for _ in 0..<5 {
+            window.displayIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+
+        XCTAssertEqual(
+            window.frame.width, 500, accuracy: 1.0,
+            "Window width must stay where it was set — over-reporting content must not grow the window"
+        )
+        XCTAssertLessThanOrEqual(
+            hostingView.frame.width, window.frame.width + 1.0,
+            "The hosting view's frame must track the window, never the content's reported width"
+        )
+        XCTAssertLessThanOrEqual(
+            hostingView.frame.height, window.frame.height + 1.0,
+            "The hosting view's frame must track the window, never the content's reported height"
+        )
+    }
+
     /// Same contract when the window sits BELOW the content's minimum size —
     /// the live trigger: a programmatic resize can place a window under the
     /// workspace chrome's minimum width, and the hosting view must not march
