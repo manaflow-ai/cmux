@@ -222,6 +222,80 @@ import CmuxMobileShellModel
         #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).composerDraft() == currentDraft)
     }
 
+    @Test func staleCancelClearCannotEraseNewSessionDraft() {
+        let defaults = Self.defaults()
+        let templateStore = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let shell = MobileShellComposite(isSignedIn: true, taskTemplateStore: templateStore)
+        let staleGeneration = shell.currentSessionGeneration
+        let currentDraft = MobileTaskComposerDraft(
+            prompt: "Account B task",
+            templateID: nil,
+            macDeviceID: "mac-b",
+            directory: "~/Account-B",
+            didEditDirectory: true,
+            operationID: UUID()
+        )
+
+        shell.signOut()
+        shell.signIn()
+        templateStore.setComposerDraft(currentDraft)
+        let didClear = shell.clearTaskComposerDraft(ifSessionGeneration: staleGeneration)
+
+        #expect(!didClear)
+        #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).composerDraft() == currentDraft)
+    }
+
+    @Test func staleAsyncSuccessClearCannotEraseNewSessionDraft() async {
+        let defaults = Self.defaults()
+        let templateStore = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let shell = MobileShellComposite(isSignedIn: true, taskTemplateStore: templateStore)
+        let staleGeneration = shell.currentSessionGeneration
+        let currentDraft = MobileTaskComposerDraft(
+            prompt: "Account B task",
+            templateID: nil,
+            macDeviceID: "mac-b",
+            directory: "~/Account-B",
+            didEditDirectory: true,
+            operationID: UUID()
+        )
+        let completion = AsyncStream<Void>.makeStream()
+        let clearAfterSuccess = Task { @MainActor in
+            for await _ in completion.stream { break }
+            return shell.clearTaskComposerDraft(ifSessionGeneration: staleGeneration)
+        }
+
+        shell.signOut()
+        shell.signIn()
+        templateStore.setComposerDraft(currentDraft)
+        completion.continuation.yield()
+        completion.continuation.finish()
+        let didClear = await clearAfterSuccess.value
+
+        #expect(!didClear)
+        #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).composerDraft() == currentDraft)
+    }
+
+    @Test func currentSessionClearRemovesComposerDraft() {
+        let defaults = Self.defaults()
+        let templateStore = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let shell = MobileShellComposite(isSignedIn: true, taskTemplateStore: templateStore)
+        templateStore.setComposerDraft(MobileTaskComposerDraft(
+            prompt: "Current task",
+            templateID: nil,
+            macDeviceID: "mac-a",
+            directory: "~/Current",
+            didEditDirectory: true,
+            operationID: UUID()
+        ))
+
+        let didClear = shell.clearTaskComposerDraft(
+            ifSessionGeneration: shell.currentSessionGeneration
+        )
+
+        #expect(didClear)
+        #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).composerDraft() == nil)
+    }
+
     private static func defaults() -> UserDefaults {
         let suiteName = "MobileTaskTemplateStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
