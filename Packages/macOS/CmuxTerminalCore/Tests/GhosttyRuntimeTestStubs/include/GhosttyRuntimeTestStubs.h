@@ -12,5 +12,6 @@ bool ghostty_surface_clear_selection(void *surface);
 // Test-only stand-in for the GhosttyKit symbol referenced by
 // GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints; no test calls it.
 void *ghostty_surface_quicklook_font(void *surface);
+void ghostty_surface_inherited_config(void);
 
 #endif

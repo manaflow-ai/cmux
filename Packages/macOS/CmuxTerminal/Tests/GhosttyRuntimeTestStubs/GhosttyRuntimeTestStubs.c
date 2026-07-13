@@ -60,7 +60,7 @@ void ghostty_surface_process_output(void) {}
 void ghostty_surface_quicklook_font(void) {}
 void ghostty_surface_read_text(void) {}
 void ghostty_surface_refresh(void) {}
-void ghostty_surface_render_now(void) {}
+void ghostty_surface_inherited_config(void) {}
 void ghostty_surface_render_grid_json(void) {}
 void ghostty_surface_set_content_scale(void) {}
 void ghostty_surface_set_display_id(void) {}

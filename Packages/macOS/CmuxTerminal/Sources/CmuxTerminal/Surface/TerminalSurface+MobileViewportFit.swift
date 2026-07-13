@@ -262,13 +262,8 @@ extension TerminalSurface {
         let configuredFont = configuredFontPointSizeOverride
             ?? configuredMobileViewportFontPointSize()
         let shouldProbeLiveFont = mobileViewportFontFitState.consumeLiveFontProbeRequest()
-        if shouldProbeLiveFont {
-            // Cell-size is emitted before Ghostty enqueues its renderer font
-            // grid. Drain that mailbox before reading the renderer-owned font.
-            ghostty_surface_render_now(surface)
-        }
         let probedLiveFont = shouldProbeLiveFont
-            ? GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface)
+            ? GhosttySurfaceRuntimeProbe.currentCoreSurfaceFontSizePoints(surface)
             : nil
         let liveFont = probedLiveFont
             ?? mobileViewportFontFitState.fittedFontPointSize

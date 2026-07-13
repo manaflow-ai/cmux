@@ -64,6 +64,19 @@ public struct GhosttySurfaceRuntimeProbe {
         return points
     }
 
+    /// The app-thread-owned live surface font size, without reading renderer state.
+    ///
+    /// - Parameter surface: The runtime surface to read.
+    /// - Returns: The live inherited font size in points, or nil when the
+    ///   surface is stale or font inheritance is disabled.
+    public static func currentCoreSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
+        guard surfacePointerAppearsLive(surface) else { return nil }
+        let inherited = ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
+        let points = inherited.font_size
+        guard points.isFinite, points > 0 else { return nil }
+        return points
+    }
+
     private static func pointerAppearsLive(_ pointer: UnsafeMutableRawPointer?) -> Bool {
         guard let pointer,
               malloc_zone_from_ptr(pointer) != nil else {

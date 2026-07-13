@@ -111,7 +111,7 @@ extension TerminalSurface {
         mobileViewportFontFitState.reconcilePendingLiveFontProbe(
             configuredFontPointSize: configuredMobileViewportFontPointSize()
         ) {
-            GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface)
+            GhosttySurfaceRuntimeProbe.currentCoreSurfaceFontSizePoints(surface)
         }
 
         let hadAutomaticFit = mobileViewportFontFitState.fittedFontPointSize != nil
