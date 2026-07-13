@@ -10511,7 +10511,10 @@ struct VerticalTabsSidebar: View {
             .overlay(alignment: .top) {
                 // Applied after `.mask(...)` so the fade never dims the field.
                 // Padded below the draggable titlebar strip / window controls.
-                SidebarTabSearchView(entriesProvider: sidebarTabSearchEntriesProvider)
+                SidebarTabSearchView(
+                    entriesProvider: sidebarTabSearchEntriesProvider,
+                    focusTargetWindow: observedWindow
+                )
                     .padding(.top, sidebarTitlebarInteractionHeight + Self.sidebarTabSearchFieldTopGap)
                     .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
                     .frame(maxWidth: .infinity, alignment: .top)
