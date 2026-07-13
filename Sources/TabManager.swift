@@ -5533,7 +5533,7 @@ class TabManager: ObservableObject {
 extension TabManager {
     func sessionAutosaveFingerprint(
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = .empty
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(selectedTabId)

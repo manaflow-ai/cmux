@@ -16,7 +16,7 @@ struct TerminationResumeIndexSavePlanCacheTests {
         )
         var cacheReads = 0
 
-        let plan = TerminationResumeIndexSavePlan.resolve(
+        let plan = ProcessDetectedResumeIndexSavePlan.resolve(
             .pending,
             cachedResumeIndexes: {
                 cacheReads += 1

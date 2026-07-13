@@ -5,15 +5,34 @@ nonisolated enum TerminationResumeIndexAuthority: Sendable {
     case completed(ProcessDetectedResumeIndexes?)
 }
 
-nonisolated struct TerminationResumeIndexSavePlan {
-    let restorableAgentIndex: RestorableAgentSessionIndex?
+nonisolated struct ProcessDetectedResumeIndexSavePlan {
+    let restorableAgentIndex: RestorableAgentSessionIndex
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     let usesCoreSnapshotFallback: Bool
 
     static func resolve(
+        _ resumeIndexes: ProcessDetectedResumeIndexes?
+    ) -> ProcessDetectedResumeIndexSavePlan {
+        if let resumeIndexes {
+            return ProcessDetectedResumeIndexSavePlan(
+                restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
+                usesCoreSnapshotFallback: false
+            )
+        }
+        return ProcessDetectedResumeIndexSavePlan(
+            // An explicit empty process augmentation keeps the core snapshot
+            // path from scheduling a second cold shared-index refresh.
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: nil,
+            usesCoreSnapshotFallback: true
+        )
+    }
+
+    static func resolve(
         _ authority: TerminationResumeIndexAuthority,
         cachedResumeIndexes: () -> ProcessDetectedResumeIndexes? = { nil }
-    ) -> TerminationResumeIndexSavePlan {
+    ) -> ProcessDetectedResumeIndexSavePlan {
         let resumeIndexes: ProcessDetectedResumeIndexes?
         switch authority {
         case .pending:
@@ -23,20 +42,7 @@ nonisolated struct TerminationResumeIndexSavePlan {
         case .completed(let completedIndexes):
             resumeIndexes = completedIndexes
         }
-        if let resumeIndexes {
-            return TerminationResumeIndexSavePlan(
-                restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
-                usesCoreSnapshotFallback: false
-            )
-        }
-        return TerminationResumeIndexSavePlan(
-            // An explicit empty process augmentation keeps the core snapshot
-            // path from scheduling a second cold shared-index refresh.
-            restorableAgentIndex: .empty,
-            surfaceResumeBindingIndex: nil,
-            usesCoreSnapshotFallback: true
-        )
+        return resolve(resumeIndexes)
     }
 }
 
