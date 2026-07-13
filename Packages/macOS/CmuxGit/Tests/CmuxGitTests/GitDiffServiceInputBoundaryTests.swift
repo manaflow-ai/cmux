@@ -4,6 +4,34 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitDiffServiceInputBoundaryTests {
+    @Test func trackedTabPathRemainsVisibleAndDiffable() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let path = "tab\tname.txt"
+        let fileURL = repo.appendingPathComponent(path)
+        try Data("original\n".utf8).write(to: fileURL)
+        try runTestGit(in: repo, ["add", "--", path])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add tab path"])
+        try Data("changed\n".utf8).write(to: fileURL)
+
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let visible = try #require(changed.files.first { $0.path == path })
+        let diff = try #require(
+            service.fileDiff(
+                repoRoot: repo.path,
+                path: visible.path,
+                status: visible.status,
+                additions: visible.additions,
+                deletions: visible.deletions,
+                snapshotToken: visible.snapshotToken
+            )
+        )
+
+        #expect(changed.files.map(\.path) == [path])
+        #expect(diff.unifiedDiff.contains("+changed"))
+    }
+
     @Test func trackedDirectoryShapedFileDiffRequestIsRejected() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

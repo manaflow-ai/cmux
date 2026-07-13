@@ -25,6 +25,20 @@ import Testing
         #expect(binary.deletions == nil)
     }
 
+    @Test func preservesTabsInNumstatPaths() throws {
+        let path = "tab\tname.txt"
+        let files = GitDiffService().parseChangedFiles(
+            numstatOutput: "1\t0\t\(path)\0",
+            nameStatusOutput: "M\0\(path)\0",
+            untrackedOutput: nil
+        )
+
+        let file = try #require(files.first)
+        #expect(files.count == 1)
+        #expect(file.path == path)
+        #expect(file.additions == 1)
+    }
+
     @Test func mergesRenameNumstatAndNameStatusStreams() {
         let service = GitDiffService()
         let files = service.parseChangedFiles(
