@@ -315,8 +315,9 @@ export function App({ config, initialStatus }: ConfigProps) {
   };
 
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
-  const scrollToItem = (itemId: string) => {
-    const target = scrollTargetForItem(itemId, state.items);
+  const scrollToItem = useCallback((itemId: string) => {
+    const current = latestState.current;
+    const target = scrollTargetForItem(itemId, current.items);
     if (!target) {
       return;
     }
@@ -324,15 +325,16 @@ export function App({ config, initialStatus }: ConfigProps) {
     dispatch({
       type: "set-active-item",
       itemId: target,
-      treePath: state.treeSource?.treePathByItemId.get(target),
+      treePath: current.treeSource?.treePathByItemId.get(target),
     });
-  };
-  const jumpAdjacentFile = (direction: -1 | 1) => {
-    const target = adjacentItemId(state.activeItemId, state.items, direction);
+  }, [latestState]);
+  const jumpAdjacentFile = useCallback((direction: -1 | 1) => {
+    const current = latestState.current;
+    const target = adjacentItemId(current.activeItemId, current.items, direction);
     if (target) {
       scrollToItem(target);
     }
-  };
+  }, [latestState, scrollToItem]);
   useKeyboardShortcuts(payload.shortcuts ?? {}, dispatch, jumpAdjacentFile);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);

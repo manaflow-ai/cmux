@@ -12,6 +12,25 @@ import WebKit
 @Suite(.serialized)
 struct ViewerNavigationTests {
     @Test
+    func viewerEmacsBindingsDoNotConflictWithCommandPaletteNavigation() {
+        let next = KeyboardShortcutSettings.Action.commandPaletteNext.defaultShortcut
+        let previous = KeyboardShortcutSettings.Action.commandPalettePrevious.defaultShortcut
+
+        #expect(KeyboardShortcutSettings.Action.commandPaletteNext.shortcutContext == .commandPaletteVisible)
+        #expect(KeyboardShortcutSettings.Action.commandPalettePrevious.shortcutContext == .commandPaletteVisible)
+        #expect(!KeyboardShortcutSettings.Action.diffViewerScrollDownEmacs.conflicts(
+            with: next,
+            proposedAction: .commandPaletteNext,
+            configuredShortcut: KeyboardShortcutSettings.Action.diffViewerScrollDownEmacs.defaultShortcut
+        ))
+        #expect(!KeyboardShortcutSettings.Action.diffViewerScrollUpEmacs.conflicts(
+            with: previous,
+            proposedAction: .commandPalettePrevious,
+            configuredShortcut: KeyboardShortcutSettings.Action.diffViewerScrollUpEmacs.defaultShortcut
+        ))
+    }
+
+    @Test
     func markdownViewerUsesSmoothVimAndEmacsNavigation() async throws {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
         let webView = MarkdownWebView(frame: frame, configuration: WKWebViewConfiguration())

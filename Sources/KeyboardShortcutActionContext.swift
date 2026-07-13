@@ -44,6 +44,7 @@ extension KeyboardShortcutSettings.Action {
 
     enum ShortcutContext: Equatable {
         case application
+        case commandPaletteVisible
         case nonBrowserPanel
         case browserPanel
         case viewerPanel
@@ -73,6 +74,7 @@ extension KeyboardShortcutSettings.Action {
         ) -> Bool {
             switch self {
             case .application: return true
+            case .commandPaletteVisible: return false
             case .nonBrowserPanel: return !focusedBrowserPanel && !rightSidebarFocused
             case .browserPanel: return focusedBrowserPanel
             case .viewerPanel: return focusedBrowserPanel || focusedMarkdownPanel
@@ -89,7 +91,7 @@ extension KeyboardShortcutSettings.Action {
         }
 
         func isAvailable(_ context: ShortcutEventFocusContext) -> Bool {
-            isAvailable(
+            return isAvailable(
                 focusedBrowserPanel: context.browserPanel != nil,
                 focusedMarkdownPanel: context.markdownPanel != nil,
                 focusedFilePreviewTextEditor: context.filePreviewTextEditorFocused,
@@ -99,7 +101,10 @@ extension KeyboardShortcutSettings.Action {
         }
 
         func isAvailable(commandPaletteContext context: CommandPaletteContextSnapshot) -> Bool {
-            isAvailable(
+            if self == .commandPaletteVisible {
+                return context.bool(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
+            }
+            return isAvailable(
                 focusedBrowserPanel: context.bool(CommandPaletteContextKeys.panelIsBrowser),
                 focusedMarkdownPanel: context.bool(CommandPaletteContextKeys.panelIsMarkdown),
                 focusedFilePreviewTextEditor: context.bool(CommandPaletteContextKeys.panelIsFilePreviewTextEditor),
@@ -111,6 +116,7 @@ extension KeyboardShortcutSettings.Action {
         var defaultWhenClause: ShortcutWhenClause {
             switch self {
             case .application: return .always
+            case .commandPaletteVisible: return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
             case .nonBrowserPanel: return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
             case .browserPanel: return .atom(.browserFocus)
             case .viewerPanel: return .or(.atom(.browserFocus), .atom(.markdownFocus))
@@ -192,6 +198,8 @@ extension KeyboardShortcutSettings.Action {
             return .viewerPanel
         case .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile:
             return .browserPanel
+        case .commandPaletteNext, .commandPalettePrevious:
+            return .commandPaletteVisible
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
              .switchRightSidebarToFeed, .switchRightSidebarToDock, .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:

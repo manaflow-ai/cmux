@@ -207,6 +207,38 @@ test("adjacent diff file navigation moves in order and stops at the edges", () =
   expect(adjacentItemId("missing", [], 1)).toBe("");
 });
 
+test("diff file chord survives an unrelated render between strokes", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  renderApp(
+    <App
+      config={{
+        payload: {
+          shortcuts: {
+            diffViewerNextFile: {
+              first: { key: "]", command: false, control: false, option: false, shift: false },
+              second: { key: "f", command: false, control: false, option: false, shift: false },
+            },
+          },
+          statusMessage: "Rendered diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  const prefix = new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "]" });
+  dom.window.document.dispatchEvent(prefix);
+  expect(prefix.defaultPrevented).toBe(true);
+  dom.window.document.getElementById("layout-toggle")?.click();
+  await waitFor(() => dom?.window.document.documentElement.dataset.layout === "split");
+  const suffix = new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "f" });
+  dom.window.document.dispatchEvent(suffix);
+  expect(suffix.defaultPrevented).toBe(true);
+});
+
 function createDom(): JSDOM {
   return new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
     url: "http://127.0.0.1/diff",
