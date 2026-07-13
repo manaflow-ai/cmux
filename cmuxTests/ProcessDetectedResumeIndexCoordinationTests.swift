@@ -107,7 +107,7 @@ struct ProcessDetectedResumeIndexCoordinationTests {
             coordinator.current().map { _ in true } == nil,
             "A memoized unavailable termination capture must override an older shared cache."
         )
-        let savePlan = TerminationResumeIndexSavePlan.resolve(
+        let savePlan = ProcessDetectedResumeIndexSavePlan.resolve(
             coordinator.resolution(),
             cachedResumeIndexes: { sharedIndex.cachedResumeIndexes() }
         )
@@ -338,9 +338,9 @@ struct ProcessDetectedResumeIndexCoordinationTests {
             panelId: panelId
         ))
 
-        let plan = TerminationResumeIndexSavePlan.resolve(.completed(nil))
+        let plan = ProcessDetectedResumeIndexSavePlan.resolve(.completed(nil))
         #expect(
-            plan.restorableAgentIndex != nil,
+            plan.restorableAgentIndex.snapshot(workspaceId: UUID(), panelId: UUID()) == nil,
             "Core snapshot fallback must suppress the snapshot builder's cold refresh."
         )
         let snapshot = try #require(app.debugBuildSessionSnapshotForTesting(
@@ -353,43 +353,6 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         #expect(savedWorkspace.workspaceId == workspace.id)
         #expect(savedWorkspace.panels.first(where: { $0.id == panelId })?
             .terminal?.resumeBinding?.checkpointId == "preserved")
-    }
-
-    @Test
-    func unavailableProcessIndexesProduceACoreSessionSavePlan() {
-        let plan = ProcessDetectedResumeIndexSavePlan.resolve(nil)
-
-        #expect(plan.usesCoreSnapshotFallback)
-        #expect(plan.surfaceResumeBindingIndex == nil)
-        #expect(
-            plan.restorableAgentIndex.snapshot(workspaceId: UUID(), panelId: UUID()) == nil,
-            "The fallback must explicitly suppress a second process-index load."
-        )
-    }
-
-    @Test
-    func coreFallbackFingerprintTracksStoredResumeBindings() throws {
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        #expect(workspace.setSurfaceResumeBinding(
-            Self.resumeBinding(checkpointId: "first"),
-            panelId: panelId
-        ))
-        let firstFingerprint = manager.sessionAutosaveFingerprint(
-            surfaceResumeBindingIndex: nil
-        )
-
-        #expect(workspace.setSurfaceResumeBinding(
-            Self.resumeBinding(checkpointId: "second"),
-            panelId: panelId
-        ))
-
-        #expect(
-            firstFingerprint != manager.sessionAutosaveFingerprint(
-                surfaceResumeBindingIndex: nil
-            )
-        )
     }
 
     @Test
@@ -506,18 +469,6 @@ struct ProcessDetectedResumeIndexCoordinationTests {
             workspaceId: workspaceId,
             panelId: panelId
         )?.checkpointId
-    }
-
-    private static func resumeBinding(checkpointId: String) -> SurfaceResumeBindingSnapshot {
-        SurfaceResumeBindingSnapshot(
-            name: "tmux",
-            kind: "tmux",
-            command: "tmux attach -t \(checkpointId)",
-            cwd: "/tmp/\(checkpointId)",
-            checkpointId: checkpointId,
-            source: "process-detected",
-            updatedAt: 42
-        )
     }
 
     private static func loadSucceeded(from sharedIndex: SharedLiveAgentIndex) async -> Bool {
