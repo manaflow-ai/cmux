@@ -1082,6 +1082,22 @@ struct MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.group_actions.v1"))
         #expect(Set(capabilities).isSuperset(of: ["workspace.task_create.v1", "terminal.render_grid.v1"]))
     }
+
+    @Test func testMobileDirectorySearchIsAdvertisedAndDispatched() async {
+        #expect(MobileHostService.mobileHostCapabilities.contains("workspace.directory_search.v1"))
+
+        let request = MobileHostRPCRequest(
+            id: "directory-search",
+            method: "mobile.directory.search",
+            params: ["query": ""],
+            auth: nil
+        )
+        let result = await TerminalController.shared.mobileHostHandleRPC(request)
+        guard case let .failure(error) = result else {
+            return #expect(Bool(false), "An empty directory query must be rejected")
+        }
+        #expect(error.code == "invalid_params")
+    }
     // MARK: - Mobile workspace.action sub-action gate
     @Test func testMobileWorkspaceActionGateAllowsOnlyPinNameAndReadStateActions() {
         for action in ["pin", "unpin", "rename", "mark_read", "mark_unread", "PIN", "UnPin", "RENAME", "MARK_READ", "Mark_Unread"] {
