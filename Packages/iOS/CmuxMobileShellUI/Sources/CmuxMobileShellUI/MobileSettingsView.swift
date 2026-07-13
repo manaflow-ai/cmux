@@ -24,6 +24,9 @@ struct MobileSettingsView: View {
     /// where the "Switch Mac" entry is hidden.
     var store: CMUXMobileShellStore?
     @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
+    #if DEBUG
+    @AppStorage(MobileDiffViewerModel.debugSettingKey) private var isDiffViewerEnabled = true
+    #endif
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
@@ -154,6 +157,14 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
+                    Toggle(isOn: $isDiffViewerEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.diffViewerChanges",
+                            defaultValue: "Diff viewer (Changes)"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsDiffViewerChangesToggle")
+
                     Button {
                         showingChatDemo = true
                     } label: {

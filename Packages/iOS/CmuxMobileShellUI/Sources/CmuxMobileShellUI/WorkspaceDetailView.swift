@@ -34,6 +34,12 @@ struct WorkspaceDetailView: View {
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
+    #if os(iOS) && DEBUG
+    @Environment(\.mobileDiffRPCClientFactory) private var mobileDiffRPCClientFactory
+    @AppStorage(MobileDiffViewerModel.debugSettingKey) private var isDiffViewerEnabled = true
+    @State private var isDiffViewerPresented = false
+    @State private var diffViewerModel: MobileDiffViewerModel?
+    #endif
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -109,6 +115,19 @@ struct WorkspaceDetailView: View {
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
+            #if DEBUG
+            .fullScreenCover(
+                isPresented: $isDiffViewerPresented,
+                onDismiss: { diffViewerModel = nil }
+            ) {
+                if let diffViewerModel {
+                    MobileDiffViewerCover(
+                        model: diffViewerModel,
+                        workspaceTitle: workspace.name
+                    )
+                }
+            }
+            #endif
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
                 text: $renameText,
@@ -148,10 +167,50 @@ struct WorkspaceDetailView: View {
                 }
             }
         }
+        #if DEBUG
+        if isDiffViewerEnabled {
+            ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
+                changesToolbarButton
+            }
+        }
+        #endif
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
             toolbarTrailingCluster
         }
     }
+
+    #if DEBUG
+    private var changesToolbarButton: some View {
+        Button(action: presentDiffViewer) {
+            Label(
+                L10n.string("mobile.diff.changes", defaultValue: "Changes"),
+                systemImage: "plus.forwardslash.minus"
+            )
+            .labelStyle(.iconOnly)
+        }
+        .disabled(!canPresentDiffViewer)
+        .accessibilityIdentifier("MobileWorkspaceChangesButton")
+    }
+
+    private var canPresentDiffViewer: Bool {
+        mobileDiffRPCClientFactory != nil
+            && store.connectionState == .connected
+            && store.activeRoute != nil
+            && store.activeTicket != nil
+    }
+
+    private func presentDiffViewer() {
+        guard let mobileDiffRPCClientFactory,
+              let route = store.activeRoute,
+              let ticket = store.activeTicket else { return }
+        let client = mobileDiffRPCClientFactory.client(route: route, ticket: ticket)
+        diffViewerModel = MobileDiffViewerModel(service: MobileDiffRPCService(
+            client: client,
+            workspaceID: workspace.rpcWorkspaceID.rawValue
+        ))
+        isDiffViewerPresented = true
+    }
+    #endif
 
     private var workspaceTitleToolbarMenu: some View {
         WorkspaceTitleMenu(

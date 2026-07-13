@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
+import CmuxMobileRPC
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -231,6 +232,17 @@ public struct CMUXMobileRootScene: View {
             .environment(auth.coordinator)
             .analytics(analytics)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
+            .environment(
+                \.mobileDiffRPCClientFactory,
+                MobileDiffRPCClientFactory { route, ticket in
+                    MobileCoreRPCClient(
+                        runtime: runtime,
+                        route: route,
+                        ticket: ticket,
+                        allowsStackAuthFallback: true
+                    )
+                }
+            )
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(displaySettings)
