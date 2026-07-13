@@ -129,7 +129,7 @@ extension TerminalController {
         guard let host = Self.remoteTmuxHost(from: params) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
-        let activate = (params["activate"] as? Bool) ?? false
+        let activate = Self.remoteTmuxActivate(from: params)
         let routing = remoteTmuxRouting(from: params)
         return v2VmCall(id: id, timeoutSeconds: 60) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
@@ -172,7 +172,7 @@ extension TerminalController {
         guard let host = Self.remoteTmuxHost(from: params) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
-        let activate = (params["activate"] as? Bool) ?? true
+        let activate = Self.remoteTmuxActivate(from: params)
         return v2VmCall(id: id, timeoutSeconds: 60) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
             else {
@@ -212,6 +212,10 @@ extension TerminalController {
                 ?? v2UUID(params, "tab_id"),
             paneID: v2UUID(params, "pane_id")
         )
+    }
+
+    private nonisolated static func remoteTmuxActivate(from params: [String: Any]) -> Bool {
+        (params["activate"] as? Bool) ?? false
     }
 
     @MainActor
