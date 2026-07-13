@@ -19,11 +19,21 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
         self.lastReferencedSeq = lastReferencedSeq
     }
 
-    /// Derives one record per path from parsed transcript messages.
+    /// Derives one record per normalized path from parsed transcript messages.
     ///
     /// Agent edits outrank attachments, which outrank read-only references;
     /// every occurrence still advances the path's last-reference sequence.
-    public static func derive(from messages: [ChatMessage]) -> [ChatArtifactIndexedReference] {
+    /// Relative paths are lexically resolved against the session working
+    /// directory without accessing the filesystem.
+    ///
+    /// - Parameters:
+    ///   - messages: Parsed transcript messages to inspect.
+    ///   - workingDirectory: Absolute session directory used for relative paths.
+    /// - Returns: De-duplicated artifact references with normalized paths.
+    public static func derive(
+        from messages: [ChatMessage],
+        workingDirectory: String? = nil
+    ) -> [ChatArtifactIndexedReference] {
         var byPath: [String: ChatArtifactIndexedReference] = [:]
         for message in messages {
             let occurrences: [(String, ChatArtifactProvenance)]
@@ -33,11 +43,17 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
             case .attachment(let attachment):
                 occurrences = attachment.hostPath.map { [($0, .attached)] } ?? []
             case .toolUse(let toolUse):
-                occurrences = (toolUse.referencedPaths ?? []).map { ($0, .referenced) }
+                let provenance: ChatArtifactProvenance = Self.isFileMutationTool(toolUse.toolName)
+                    ? .created
+                    : .referenced
+                occurrences = (toolUse.referencedPaths ?? []).map { ($0, provenance) }
             case .prose, .thought, .terminal, .permissionRequest, .question, .status, .unsupported:
                 occurrences = []
             }
-            for (path, provenance) in occurrences where !path.isEmpty {
+            for (rawPath, provenance) in occurrences {
+                guard let path = Self.normalizedPath(rawPath, workingDirectory: workingDirectory) else {
+                    continue
+                }
                 let previous = byPath[path]
                 byPath[path] = ChatArtifactIndexedReference(
                     path: path,
@@ -47,6 +63,48 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
             }
         }
         return Array(byPath.values)
+    }
+
+    private static func normalizedPath(_ path: String, workingDirectory: String?) -> String? {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let absolute: String
+        if trimmed.hasPrefix("/") {
+            absolute = trimmed
+        } else if let workingDirectory {
+            let cwd = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard cwd.hasPrefix("/") else { return trimmed }
+            absolute = (cwd as NSString).appendingPathComponent(trimmed)
+        } else {
+            return trimmed
+        }
+        // Purely lexical normalization (drop ".", collapse ".."): unlike
+        // NSString.standardizingPath, this never consults the filesystem, so
+        // derivation stays deterministic for paths that no longer exist.
+        var components: [String] = []
+        for component in absolute.split(separator: "/") {
+            switch component {
+            case ".":
+                continue
+            case "..":
+                if !components.isEmpty { components.removeLast() }
+            default:
+                components.append(String(component))
+            }
+        }
+        let standardized = "/" + components.joined(separator: "/")
+        if standardized == "/tmp" {
+            return "/private/tmp"
+        }
+        if standardized.hasPrefix("/tmp/") {
+            return "/private" + standardized
+        }
+        return standardized
+    }
+
+    private static func isFileMutationTool(_ toolName: String) -> Bool {
+        let normalized = toolName.split(separator: ".").last.map(String.init) ?? toolName
+        return normalized.lowercased() == "apply_patch"
     }
 
     private static func higherPrecedence(

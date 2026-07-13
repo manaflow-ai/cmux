@@ -44,7 +44,8 @@ extension TerminalController {
             let snapshot = try await TerminalControllerChatArtifactIndexProvider.shared.snapshot(
                 sessionID: record.sessionID,
                 agentKind: record.agentKind,
-                transcriptPath: transcriptPath
+                transcriptPath: transcriptPath,
+                workingDirectory: record.workingDirectory
             )
             let pageSize = min(max(v2Int(params, "page_size") ?? 60, 1), 100)
             let query = v2RawString(params, "query")
@@ -80,10 +81,16 @@ extension TerminalController {
             }.value
             return .ok(ChatArtifactWire.payload(stat) ?? [:])
         } catch ArtifactByteReader.Error.fileNotFound {
+            debugLogMobileChatArtifactDenial(
+                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
+            )
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
         } catch ArtifactByteReader.Error.unsupportedMedia {
             return mobileChatArtifactError(.unsupportedMedia, path: resolved.requestedPath)
         } catch {
+            debugLogMobileChatArtifactDenial(
+                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
+            )
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
         }
     }
@@ -102,8 +109,14 @@ extension TerminalController {
             }.value
             return .ok(ChatArtifactWire.payload(chunk) ?? [:])
         } catch ArtifactByteReader.Error.fileNotFound {
+            debugLogMobileChatArtifactDenial(
+                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
+            )
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
         } catch {
+            debugLogMobileChatArtifactDenial(
+                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
+            )
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
         }
     }
@@ -122,6 +135,9 @@ extension TerminalController {
         } catch ArtifactByteReader.Error.unsupportedMedia {
             return mobileChatArtifactError(.unsupportedMedia, path: resolved.requestedPath)
         } catch ArtifactByteReader.Error.fileNotFound {
+            debugLogMobileChatArtifactDenial(
+                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
+            )
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
         } catch {
             return mobileChatArtifactError(.unsupportedMedia, path: resolved.requestedPath)
@@ -139,8 +155,14 @@ extension TerminalController {
             }.value
             return .ok(ChatArtifactWire.payload(listing) ?? [:])
         } catch ArtifactByteReader.Error.fileNotFound {
+            debugLogMobileChatArtifactDenial(
+                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
+            )
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
         } catch {
+            debugLogMobileChatArtifactDenial(
+                code: "file_not_found", reason: "stat-failed", path: resolved.requestedPath
+            )
             return mobileChatArtifactError(.fileNotFound, path: resolved.requestedPath)
         }
     }
@@ -205,20 +227,40 @@ extension TerminalController {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
         }
         do {
-            let canonicalPath = try await TerminalControllerChatArtifactIndexProvider.shared.canonicalPath(
+            let pathResult = try await TerminalControllerChatArtifactIndexProvider.shared.canonicalPath(
                 sessionID: record.sessionID,
                 agentKind: record.agentKind,
                 transcriptPath: transcriptPath,
+                workingDirectory: record.workingDirectory,
                 requestedPath: requestedPath,
                 operation: operation.indexOperation
             )
-            guard let canonicalPath else {
+            switch pathResult {
+            case .success(let canonicalPath):
+                return .success(ResolvedChatArtifact(
+                    requestedPath: requestedPath,
+                    canonicalPath: canonicalPath
+                ))
+            case .canonicalizationFailed:
+                debugLogMobileChatArtifactDenial(
+                    code: "forbidden", reason: "canonicalization-failed", path: requestedPath
+                )
+                return .failure(mobileChatArtifactError(.forbidden, path: requestedPath))
+            case .notInSet:
+                debugLogMobileChatArtifactDenial(
+                    code: "forbidden", reason: "not-in-set", path: requestedPath
+                )
                 return .failure(mobileChatArtifactError(.forbidden, path: requestedPath))
             }
-            return .success(ResolvedChatArtifact(requestedPath: requestedPath, canonicalPath: canonicalPath))
         } catch {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
         }
+    }
+
+    private func debugLogMobileChatArtifactDenial(code: String, reason: String, path: String) {
+        #if DEBUG
+        cmuxDebugLog("mobile.chat.artifact.deny code=\(code) reason=\(reason) path=\(path)")
+        #endif
     }
 
     private enum MobileChatArtifactErrorKind {

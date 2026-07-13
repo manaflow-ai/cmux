@@ -248,9 +248,9 @@ struct CodexTranscriptParserTests {
         #expect(tool.referencedPaths == ["/repo/screenshot.png"])
     }
 
-    @Test("custom_tool_call apply_patch maps to toolUse with the first patched file in the summary")
+    @Test("custom_tool_call apply_patch extracts every patched path")
     func applyPatch() {
-        let patch = "*** Begin Patch\n*** Update File: /repo/Sources/App.swift\n@@\n-old\n+new\n*** End Patch"
+        let patch = "*** Begin Patch\n*** Update File: /repo/Sources/App.swift\n@@\n-old\n+new\n*** Add File: Tests/AppTests.swift\n+test\n*** End Patch"
         let lines = [
             line(type: "response_item", payload: [
                 "type": "custom_tool_call", "status": "completed",
@@ -268,8 +268,28 @@ struct CodexTranscriptParserTests {
         }
         #expect(tool.toolName == "apply_patch")
         #expect(tool.summary == "apply_patch /repo/Sources/App.swift")
-        #expect(tool.referencedPaths == ["/repo/Sources/App.swift"])
+        #expect(tool.referencedPaths == ["/repo/Sources/App.swift", "Tests/AppTests.swift"])
         #expect(tool.status == .succeeded)
+    }
+
+    @Test("function_call apply_patch extracts path arguments for Created provenance")
+    func applyPatchFunctionCall() throws {
+        let call = functionCallLine(
+            name: "apply_patch",
+            arguments: #"{"patch":"*** Begin Patch\n*** Update File: Sources/App.swift\n@@\n-old\n+new\n*** End Patch"}"#
+        )
+        let messages = parser.parse(lines: [call], startingSeq: 0).messages
+        guard case .toolUse(let tool) = try #require(messages.first).kind else {
+            Issue.record("expected toolUse kind")
+            return
+        }
+        #expect(tool.referencedPaths == ["Sources/App.swift"])
+        let artifact = try #require(ChatArtifactIndexedReference.derive(
+            from: messages,
+            workingDirectory: "/repo"
+        ).first)
+        #expect(artifact.path == "/repo/Sources/App.swift")
+        #expect(artifact.provenance == .created)
     }
 
     // MARK: - Robustness

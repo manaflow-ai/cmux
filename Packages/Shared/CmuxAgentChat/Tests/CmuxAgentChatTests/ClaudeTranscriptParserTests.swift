@@ -293,6 +293,34 @@ struct ClaudeTranscriptParserTests {
         #expect(edit.deletions == 0)
     }
 
+    @Test("MultiEdit and NotebookEdit map to file edits for Created provenance")
+    func multiEditAndNotebookEditTools() {
+        let line = assistantLine(blocks: [
+            ["type": "tool_use", "id": "toolu_multi", "name": "MultiEdit",
+             "input": ["file_path": "Sources/App.swift", "edits": [[
+                "old_string": "old", "new_string": "new",
+             ]]]],
+            ["type": "tool_use", "id": "toolu_notebook", "name": "NotebookEdit",
+             "input": ["notebook_path": "Notes/Research.ipynb", "old_string": "a",
+                       "new_source": "b"]],
+        ])
+        let messages = parser.parse(lines: [line], startingSeq: 0).messages
+        let edits = messages.compactMap { message -> ChatFileEdit? in
+            guard case .fileEdit(let edit) = message.kind else { return nil }
+            return edit
+        }
+        #expect(edits.map(\.filePath) == ["Sources/App.swift", "Notes/Research.ipynb"])
+        let artifacts = ChatArtifactIndexedReference.derive(
+            from: messages,
+            workingDirectory: "/repo"
+        )
+        #expect(Set(artifacts.map(\.path)) == [
+            "/repo/Sources/App.swift",
+            "/repo/Notes/Research.ipynb",
+        ])
+        #expect(artifacts.allSatisfy { $0.provenance == .created })
+    }
+
     @Test("unknown tools map to a generic toolUse with summary and input detail")
     func genericTool() {
         let line = assistantLine(blocks: [

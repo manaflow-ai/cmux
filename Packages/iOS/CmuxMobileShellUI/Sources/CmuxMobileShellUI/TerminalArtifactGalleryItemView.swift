@@ -81,17 +81,8 @@ struct TerminalArtifactGalleryItemView: View {
     private var gridContent: some View {
         let metadata = detailText
         return VStack(alignment: .center, spacing: 7) {
-            // The missing badge overlays the tile itself so it stays visually
-            // attached to the cell instead of floating below the reserved
-            // name/metadata frames.
             preview
                 .aspectRatio(1, contentMode: .fit)
-                .overlay(alignment: .bottom) {
-                    if !artifact.exists {
-                        missingBadge
-                            .padding(.bottom, 6)
-                    }
-                }
 
             // Name + metadata share one top-aligned reserve so the subtitle hugs
             // the title instead of sitting below the name's empty two-line
@@ -103,12 +94,18 @@ struct TerminalArtifactGalleryItemView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
 
-                Text(metadata ?? "")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .opacity(metadata == nil ? 0 : 1)
+                if artifact.exists {
+                    Text(metadata ?? "")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .opacity(metadata == nil ? 0 : 1)
+                } else {
+                    // Missing files have no metadata; the badge takes the
+                    // subtitle slot so it sits right under the cell.
+                    missingBadge
+                }
             }
             .frame(
                 maxWidth: .infinity,

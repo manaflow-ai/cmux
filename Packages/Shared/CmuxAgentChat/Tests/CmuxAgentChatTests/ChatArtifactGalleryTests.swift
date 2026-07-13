@@ -97,10 +97,98 @@ struct ChatArtifactGalleryTests {
             ),
         ]
         let records = ChatArtifactIndexedReference.derive(from: messages)
-        let shared = try #require(records.first { $0.path == "/tmp/shared.txt" })
+        let shared = try #require(records.first { $0.path == "/private/tmp/shared.txt" })
         #expect(shared.provenance == .created)
         #expect(shared.lastReferencedSeq == 40)
         #expect(records.count == 2)
+    }
+
+    @Test("relative paths resolve lexically against the session working directory")
+    func relativePathResolution() {
+        let timestamp = Date(timeIntervalSince1970: 0)
+        let messages = [
+            ChatMessage(
+                id: "write",
+                seq: 1,
+                role: .agent,
+                timestamp: timestamp,
+                kind: .fileEdit(ChatFileEdit(filePath: "notes.md", operation: .write))
+            ),
+            ChatMessage(
+                id: "parent",
+                seq: 2,
+                role: .agent,
+                timestamp: timestamp,
+                kind: .toolUse(ChatToolUse(
+                    toolName: "Read",
+                    summary: "read",
+                    referencedPaths: ["../shared/image.png"]
+                ))
+            ),
+        ]
+        let records = ChatArtifactIndexedReference.derive(
+            from: messages,
+            workingDirectory: "/Users/example/project/Sources"
+        )
+        #expect(Set(records.map(\.path)) == [
+            "/Users/example/project/Sources/notes.md",
+            "/Users/example/project/shared/image.png",
+        ])
+    }
+
+    @Test("tmp aliases deduplicate on the canonical macOS spelling")
+    func tmpAliasDeduplication() throws {
+        let timestamp = Date(timeIntervalSince1970: 0)
+        let messages = [
+            ChatMessage(
+                id: "short-alias",
+                seq: 1,
+                role: .agent,
+                timestamp: timestamp,
+                kind: .toolUse(ChatToolUse(
+                    toolName: "Read",
+                    summary: "read",
+                    referencedPaths: ["/tmp/report.png"]
+                ))
+            ),
+            ChatMessage(
+                id: "resolved-alias",
+                seq: 2,
+                role: .agent,
+                timestamp: timestamp,
+                kind: .fileEdit(ChatFileEdit(
+                    filePath: "/private/tmp/report.png",
+                    operation: .edit
+                ))
+            ),
+        ]
+        let records = ChatArtifactIndexedReference.derive(from: messages)
+        let record = try #require(records.first)
+        #expect(records.count == 1)
+        #expect(record.path == "/private/tmp/report.png")
+        #expect(record.provenance == .created)
+        #expect(record.lastReferencedSeq == 2)
+    }
+
+    @Test("apply_patch tool references carry Created provenance")
+    func applyPatchProvenance() throws {
+        let message = ChatMessage(
+            id: "patch",
+            seq: 1,
+            role: .agent,
+            timestamp: Date(timeIntervalSince1970: 0),
+            kind: .toolUse(ChatToolUse(
+                toolName: "functions.apply_patch",
+                summary: "patch",
+                referencedPaths: ["Sources/App.swift"]
+            ))
+        )
+        let record = try #require(ChatArtifactIndexedReference.derive(
+            from: [message],
+            workingDirectory: "/repo"
+        ).first)
+        #expect(record.path == "/repo/Sources/App.swift")
+        #expect(record.provenance == .created)
     }
 
     @Test("cursor remains strictly append-only across generation refresh")

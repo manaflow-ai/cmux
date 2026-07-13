@@ -72,6 +72,11 @@ struct AgentChatArtifactGalleryBuilder: Sendable {
                     provenance: reference.provenance
                 )
             } catch {
+                #if DEBUG
+                cmuxDebugLog(
+                    "mobile.chat.artifact.gallery unavailable reason=stat-failed path=\(reference.path)"
+                )
+                #endif
                 return ChatArtifactGalleryItem(
                     path: reference.path,
                     kind: reader.kind(path: reference.path, isDirectory: false),

@@ -330,9 +330,12 @@ public struct CodexTranscriptParser: Sendable {
         let input = payload["input"]?.string ?? ""
         var summary = name
         var patchReferencedPaths: [String]?
-        if name == "apply_patch", let path = firstPatchedFile(in: input) {
-            summary = "\(name) \(budget.summaryArgument(path))"
-            patchReferencedPaths = [path]
+        if Self.isApplyPatchTool(name) {
+            let paths = patchedFiles(in: input)
+            if let path = paths.first {
+                summary = "\(name) \(budget.summaryArgument(path))"
+            }
+            patchReferencedPaths = paths.isEmpty ? nil : paths
         }
         assembler.append(
             ChatMessage(
@@ -395,12 +398,24 @@ public struct CodexTranscriptParser: Sendable {
         let detail = rawArguments.flatMap { raw -> String? in
             raw.isEmpty || raw == "{}" ? nil : budget.inputDetail(raw)
         }
+        let structuredPaths = referencedPaths.referencedPaths(in: arguments) ?? []
+        let patchPaths: [String]
+        if Self.isApplyPatchTool(toolName) {
+            let patch = arguments?["patch"]?.string
+                ?? arguments?["input"]?.string
+                ?? arguments?["patch_text"]?.string
+                ?? ""
+            patchPaths = patchedFiles(in: patch)
+        } else {
+            patchPaths = []
+        }
+        let allPaths = deduplicatedPaths(structuredPaths + patchPaths)
         return .toolUse(
             ChatToolUse(
                 toolName: toolName,
                 summary: summary,
                 inputDetail: detail,
-                referencedPaths: referencedPaths.referencedPaths(in: arguments)
+                referencedPaths: allPaths.isEmpty ? nil : allPaths
             )
         )
     }
@@ -429,13 +444,21 @@ public struct CodexTranscriptParser: Sendable {
         return strings.joined(separator: " ")
     }
 
-    private func firstPatchedFile(in patch: String) -> String? {
-        guard
-            let match = patch.firstMatch(
-                of: /\*\*\* (?:Update|Add|Delete) File: (.+)/
-            )
-        else { return nil }
-        return String(match.1)
+    private func patchedFiles(in patch: String) -> [String] {
+        let paths = patch.matches(of: /\*\*\* (?:Update|Add|Delete) File: ([^\r\n]+)/).map {
+            String($0.1).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return deduplicatedPaths(paths)
+    }
+
+    private func deduplicatedPaths(_ paths: [String]) -> [String] {
+        var seen: Set<String> = []
+        return paths.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    private static func isApplyPatchTool(_ name: String) -> Bool {
+        let normalized = name.split(separator: ".").last.map(String.init) ?? name
+        return normalized.lowercased() == "apply_patch"
     }
 
     private func blockID(lineID: String, emitted: Int) -> String {
