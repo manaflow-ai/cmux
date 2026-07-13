@@ -97,20 +97,22 @@ extension AgentHibernationController {
                 return
             }
             // Quiesce every otherwise-qualified prior monitor before one shared
-            // post-quiescence capture. The final index is then authoritative for
-            // the whole batch, regardless of how many panels had restore monitors.
+            // post-quiescence capture. Final validation may narrow this set, but
+            // it cannot admit a request whose prior monitor was never quiesced.
+            var postSnapshotQualifiedKeys = Set<AgentHibernationPanelKey>()
             var quiescedMonitorKeys = Set<AgentHibernationPanelKey>()
             for request in requests {
                 let record = request.record
                 guard let snapshotOutcome = snapshotOutcomes[record.key],
-                      case .snapshot(let snapshot) = snapshotOutcome,
                       confirmedTeardownStillQualifies(
                         request,
                         index: postSnapshotIndex,
                         runtimeObservation: runtimeObservationProvider?(record)
-                      ) else {
+                ) else {
                     continue
                 }
+                postSnapshotQualifiedKeys.insert(record.key)
+                guard case .snapshot(let snapshot) = snapshotOutcome else { continue }
                 if await cancelPostTeardownRestoreTaskForReplacement(
                     transcriptPath: snapshot.transcriptPath
                 ) {
@@ -149,7 +151,8 @@ extension AgentHibernationController {
             }
             for request in requests {
                 let record = request.record
-                guard let snapshotOutcome = snapshotOutcomes[record.key] else { continue }
+                guard postSnapshotQualifiedKeys.contains(record.key),
+                      let snapshotOutcome = snapshotOutcomes[record.key] else { continue }
                 // Re-validate: the pane must still be exactly as confirmed. Any activity,
                 // scrollback change, visibility/protection change, hibernation disable,
                 // hibernation, or surface loss during the hop aborts; the regular 30s
