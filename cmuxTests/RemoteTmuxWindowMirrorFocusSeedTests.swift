@@ -85,7 +85,7 @@ import Testing
         #expect(windowMirror.activePaneId == 5)
     }
 
-    @Test func reconnectResizesALogicallyVisibleMirrorBeforePortalReattach() throws {
+    @Test func reconnectWaitsForAttachDrainBeforeResizingVisibleMirror() throws {
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
         workspace.isRemoteTmuxMirror = true
@@ -115,9 +115,9 @@ import Testing
         #expect(!windowMirror.isEffectivelyVisibleForSizing)
         #expect(!windowMirror.sizingPassScheduled)
 
-        sessionMirror.forceResizeAllVisibleMirrors()
+        connection.observers.notifyStateChanged(.connected)
 
-        #expect(windowMirror.sizingPassScheduled)
+        #expect(!windowMirror.sizingPassScheduled)
     }
 
     @Test func reconcileWithUnchangedLayoutDoesNotReassertBonsplitFocus() throws {
