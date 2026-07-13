@@ -133,32 +133,3 @@ final class MobileTerminalByteTee {
         MobileHostService.shared.emitEvent(topic: "terminal.bytes", payload: payload)
     }
 }
-
-/// C-callable trampoline matching `ghostty_pty_tee_cb` exactly:
-/// `void (void* userdata, const char* bytes, uintptr_t len)`. The
-/// userdata pointer is an opaque token that recovers the surface UUID.
-/// We expose this as a `@convention(c)` closure (not `@_cdecl`) so the
-/// symbol is private to this translation unit and the linker doesn't
-/// see a duplicate when other files reference the symbol via function
-/// pointer.
-public let cmuxMobileTerminalByteTeeCallback: @convention(c) (
-    UnsafeMutableRawPointer?, UnsafePointer<CChar>?, UInt
-) -> Void = { userdata, bytes, len in
-    guard let userdata, let bytes, len > 0 else { return }
-    let box = Unmanaged<MobileTerminalByteTeeUserdata>.fromOpaque(userdata).takeUnretainedValue()
-    let count = Int(len)
-    bytes.withMemoryRebound(to: UInt8.self, capacity: count) { rebound in
-        let buffer = UnsafeBufferPointer(start: rebound, count: count)
-        MobileTerminalByteTee.shared.append(surfaceID: box.surfaceID, bytes: buffer)
-    }
-}
-
-/// Heap-allocated userdata box passed to libghostty. The box's lifetime
-/// is tied to the surface via a retained `Unmanaged` reference held on
-/// the `TerminalSurface`; release happens when the surface is freed.
-public final class MobileTerminalByteTeeUserdata {
-    public let surfaceID: UUID
-    public init(surfaceID: UUID) {
-        self.surfaceID = surfaceID
-    }
-}

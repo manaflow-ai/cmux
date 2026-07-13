@@ -15,16 +15,34 @@ export const remoteTmuxDocsLocales = [
   "ja",
 ] as const satisfies readonly Locale[];
 
-// These routes currently ship page copy and metadata only in English and Japanese.
+// Routes in this registry intentionally expose only their authored locales.
 export const fallbackContentLocales = [
   "en",
   "ja",
 ] as const satisfies readonly Locale[];
 
-export const fallbackContentPaths = [
-  "/pricing",
-  "/docs/agent-integrations/oh-my-pi",
+export const englishFallbackContentLocales = [
+  "en",
+] as const satisfies readonly Locale[];
+
+const fallbackContentRoutes = [
+  { path: "/pricing", locales: fallbackContentLocales },
+  {
+    path: "/docs/agent-integrations/oh-my-pi",
+    locales: fallbackContentLocales,
+  },
+  { path: "/blog/cmux-ssh", locales: fallbackContentLocales },
+  {
+    path: "/blog/cmux-claude-teams",
+    locales: englishFallbackContentLocales,
+  },
+  { path: "/blog/cmux-omo", locales: englishFallbackContentLocales },
+  { path: "/blog/gpl", locales: englishFallbackContentLocales },
 ] as const;
+
+export const fallbackContentPaths = fallbackContentRoutes.map(
+  ({ path }) => path,
+);
 
 export function hasFeatureWorkflowContent(
   locale: string,
@@ -62,27 +80,27 @@ export function featureWorkflowDocRequestForPathname(
 
 export function hasFallbackContent(
   locale: string,
-): locale is (typeof fallbackContentLocales)[number] {
-  return fallbackContentLocales.includes(
-    locale as (typeof fallbackContentLocales)[number],
+  availableLocales: readonly Locale[] = fallbackContentLocales,
+): boolean {
+  return availableLocales.includes(
+    locale as Locale,
   );
 }
 
 export function fallbackContentRequestForPathname(
   pathname: string,
 ): {
-  path: (typeof fallbackContentPaths)[number];
+  path: (typeof fallbackContentRoutes)[number]["path"];
   locale: Locale | null;
+  locales: readonly Locale[];
 } | null {
   const { locale, path } = unprefixLocale(pathname);
-  if (
-    fallbackContentPaths.includes(
-      path as (typeof fallbackContentPaths)[number],
-    )
-  ) {
+  const route = fallbackContentRoutes.find((candidate) => candidate.path === path);
+  if (route) {
     return {
-      path: path as (typeof fallbackContentPaths)[number],
+      path: route.path,
       locale,
+      locales: route.locales,
     };
   }
   return null;
