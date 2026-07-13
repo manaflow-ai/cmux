@@ -12,6 +12,15 @@ import WebKit
 /// scene's live browser by closing or reconciling its own copy.
 @MainActor
 public final class BrowserSurfacePersistenceCoordinator {
+    private enum ArchiveRequest {
+        case write(
+            scope: BrowserPersistenceScope,
+            snapshotsByWorkspace: [String: BrowserSurfaceSnapshot],
+            generation: String
+        )
+        case removal
+    }
+
     private struct VersionedSnapshot {
         let snapshot: BrowserSurfaceSnapshot
         let revision: UInt64
@@ -25,6 +34,8 @@ public final class BrowserSurfacePersistenceCoordinator {
     private var persistenceScope: BrowserPersistenceScope?
     private var contributionsByClient: [UUID: [String: VersionedSnapshot]] = [:]
     private var nextRevision: UInt64 = 0
+    private var pendingArchiveRequest: ArchiveRequest?
+    private var archiveDrainTask: Task<Void, Never>?
 
     /// Creates the process persistence owner.
     ///
@@ -38,7 +49,10 @@ public final class BrowserSurfacePersistenceCoordinator {
         self.defaults = defaults
         self.archiveKey = archiveKey
         self.archiveWriter = defaults.map {
-            BrowserSurfaceArchiveWriter(defaults: $0, key: archiveKey)
+            BrowserSurfaceArchiveWriter(
+                defaults: BrowserSurfaceArchiveDefaults($0),
+                key: archiveKey
+            )
         }
         self.archiveGeneration = BrowserArchiveGenerationState(
             defaults: defaults,
@@ -130,7 +144,9 @@ public final class BrowserSurfacePersistenceCoordinator {
 
     /// Waits for archive requests already submitted by any scene.
     public func flush() async {
-        await archiveWriter?.flush()
+        while let archiveDrainTask {
+            await archiveDrainTask.value
+        }
     }
 
     private func restoreArchive(
@@ -187,16 +203,48 @@ public final class BrowserSurfacePersistenceCoordinator {
         scope: BrowserPersistenceScope,
         snapshots: [String: VersionedSnapshot]
     ) {
-        archiveWriter?.enqueueWrite(
+        enqueueArchiveRequest(.write(
             scope: scope,
             snapshotsByWorkspace: snapshots.mapValues(\.snapshot),
             generation: archiveGeneration.current
-        )
+        ))
+    }
+
+    private func enqueueArchiveRequest(_ request: ArchiveRequest) {
+        guard archiveWriter != nil else { return }
+        pendingArchiveRequest = request
+        guard archiveDrainTask == nil else { return }
+        archiveDrainTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while let request = self.takePendingArchiveRequest() {
+                await self.executeArchiveRequest(request)
+            }
+            self.archiveDrainTask = nil
+        }
+    }
+
+    private func takePendingArchiveRequest() -> ArchiveRequest? {
+        defer { pendingArchiveRequest = nil }
+        return pendingArchiveRequest
+    }
+
+    private func executeArchiveRequest(_ request: ArchiveRequest) async {
+        guard let archiveWriter else { return }
+        switch request {
+        case let .write(scope, snapshotsByWorkspace, generation):
+            await archiveWriter.write(
+                scope: scope,
+                snapshotsByWorkspace: snapshotsByWorkspace,
+                generation: generation
+            )
+        case .removal:
+            await archiveWriter.remove()
+        }
     }
 
     private func revokePersistedArchive() {
         archiveGeneration.revoke(in: defaults)
         defaults?.removeObject(forKey: archiveKey)
-        archiveWriter?.enqueueRemoval()
+        enqueueArchiveRequest(.removal)
     }
 }

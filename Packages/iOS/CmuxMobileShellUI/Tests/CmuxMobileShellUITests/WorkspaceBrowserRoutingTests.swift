@@ -1,6 +1,7 @@
 import CmuxMobileBrowser
 import CmuxMobileShellModel
 import Testing
+@testable import CmuxMobileShell
 @testable import CmuxMobileShellUI
 
 @MainActor
@@ -58,6 +59,59 @@ import Testing
         #expect(browserStore.browser(for: reconciliation.identities[0]) === anonymousBrowser)
         #expect(browserStore.browser(for: reconciliation.identities[1]) === secondaryBrowser)
         #expect(browserStore.browser(for: "stale") == nil)
+    }
+
+    @Test func surfaceGridTerminalSelectionWaitsForWorkspaceOpen() async throws {
+        let store = CMUXMobileShellStore.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+        let workspace = try #require(store.workspaces.first(where: { $0.id == "workspace-docs" }))
+        let terminal = try #require(workspace.terminals.first)
+        let browserStore = BrowserSurfaceStore(defaultURL: nil)
+        _ = browserStore.openBrowser(for: workspace.browserSurfaceIdentity)
+
+        let resolvedWorkspaceID = await WorkspaceTerminalSurfaceSelection(
+            store: store,
+            browserStore: browserStore
+        ).selectFromSurfaceGrid(workspaceID: workspace.id, terminalID: terminal.id)
+
+        #expect(resolvedWorkspaceID == workspace.id)
+        #expect(store.selectedWorkspaceID == workspace.id)
+        #expect(store.selectedTerminalID == terminal.id)
+        #expect(browserStore.activeBrowser(for: workspace.browserSurfaceIdentity) == nil)
+    }
+
+    @Test func failedSurfaceGridWorkspaceOpenDoesNotExposeTerminal() async throws {
+        let store = CMUXMobileShellStore.preview()
+        let terminal = MobileTerminalPreview(id: "secondary-terminal", name: "Terminal")
+        let secondaryWorkspace = MobileWorkspacePreview(
+            id: "secondary-workspace",
+            macDeviceID: "mac-b",
+            name: "Secondary",
+            terminals: [terminal]
+        )
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(macDeviceID: "mac-a", workspaces: [], status: .connected),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [secondaryWorkspace],
+                status: .unavailable
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+        let workspace = try #require(store.workspaces.first)
+        let browserStore = BrowserSurfaceStore(defaultURL: nil)
+        let browser = browserStore.openBrowser(for: workspace.browserSurfaceIdentity)
+        let priorTerminalID = store.selectedTerminalID
+
+        let resolvedWorkspaceID = await WorkspaceTerminalSurfaceSelection(
+            store: store,
+            browserStore: browserStore
+        ).selectFromSurfaceGrid(workspaceID: workspace.id, terminalID: terminal.id)
+
+        #expect(resolvedWorkspaceID == nil)
+        #expect(store.selectedTerminalID == priorTerminalID)
+        #expect(browserStore.activeBrowser(for: workspace.browserSurfaceIdentity) === browser)
     }
 
     private func workspace(

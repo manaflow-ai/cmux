@@ -1,102 +1,31 @@
 import Foundation
 
-/// Delivers immutable browser archive I/O away from the main actor while
-/// coalescing queued requests to the newest complete state.
-// UserDefaults is documented thread-safe; one serial drain executes at a time.
-final class BrowserSurfaceArchiveWriter: @unchecked Sendable {
-    private enum Request {
-        case write(
-            scope: BrowserPersistenceScope,
-            snapshotsByWorkspace: [String: BrowserSurfaceSnapshot],
-            generation: String
-        )
-        case removal
-    }
+/// Sendable handle to Foundation's documented thread-safe defaults storage.
+/// It owns no mutable coordination state; request ordering stays actor-isolated.
+final class BrowserSurfaceArchiveDefaults: @unchecked Sendable {
+    let value: UserDefaults
 
-    private let defaults: UserDefaults
+    init(_ value: UserDefaults) {
+        self.value = value
+    }
+}
+
+/// Delivers immutable browser archive I/O away from the main actor while
+/// keeping blocking defaults encoding and writes actor-isolated.
+actor BrowserSurfaceArchiveWriter {
+    private let defaults: BrowserSurfaceArchiveDefaults
     private let key: String
     private let generationKey: String
     private let legacyMigrationKey: String
-    private let requestLock = NSLock()
-    private var pendingRequest: Request?
-    private var isDrainScheduled = false
-    private let queue = DispatchQueue(
-        label: "com.cmux.mobile.browser-archive",
-        qos: .utility
-    )
 
-    init(defaults: UserDefaults, key: String) {
+    init(defaults: BrowserSurfaceArchiveDefaults, key: String) {
         self.defaults = defaults
         self.key = key
         self.generationKey = "\(key).generation"
         self.legacyMigrationKey = "\(key).generation.legacyMigration"
     }
 
-    func enqueueWrite(
-        scope: BrowserPersistenceScope,
-        snapshotsByWorkspace: [String: BrowserSurfaceSnapshot],
-        generation: String
-    ) {
-        enqueue(.write(
-            scope: scope,
-            snapshotsByWorkspace: snapshotsByWorkspace,
-            generation: generation
-        ))
-    }
-
-    func enqueueRemoval() {
-        enqueue(.removal)
-    }
-
-    func flush() async {
-        await withCheckedContinuation { continuation in
-            queue.async { [self] in
-                drainPendingRequests()
-                continuation.resume()
-            }
-        }
-    }
-
-    private func enqueue(_ request: Request) {
-        let shouldSchedule = requestLock.withLock {
-            pendingRequest = request
-            guard !isDrainScheduled else { return false }
-            isDrainScheduled = true
-            return true
-        }
-        guard shouldSchedule else { return }
-        queue.async { [self] in
-            drainPendingRequests()
-        }
-    }
-
-    private func drainPendingRequests() {
-        while let request = takePendingRequest() {
-            switch request {
-            case let .write(scope, snapshotsByWorkspace, generation):
-                write(
-                    scope: scope,
-                    snapshotsByWorkspace: snapshotsByWorkspace,
-                    generation: generation
-                )
-            case .removal:
-                defaults.removeObject(forKey: key)
-            }
-        }
-    }
-
-    private func takePendingRequest() -> Request? {
-        requestLock.withLock {
-            guard let pendingRequest else {
-                isDrainScheduled = false
-                return nil
-            }
-            self.pendingRequest = nil
-            return pendingRequest
-        }
-    }
-
-    private func write(
+    func write(
         scope: BrowserPersistenceScope,
         snapshotsByWorkspace: [String: BrowserSurfaceSnapshot],
         generation: String
@@ -110,10 +39,14 @@ final class BrowserSurfaceArchiveWriter: @unchecked Sendable {
             generation: generation
         )
         guard let data = try? JSONEncoder().encode(archive) else { return }
-        defaults.set(data, forKey: key)
-        if defaults.string(forKey: generationKey) == generation,
-           defaults.string(forKey: legacyMigrationKey) == generation {
-            defaults.removeObject(forKey: legacyMigrationKey)
+        defaults.value.set(data, forKey: key)
+        if defaults.value.string(forKey: generationKey) == generation,
+           defaults.value.string(forKey: legacyMigrationKey) == generation {
+            defaults.value.removeObject(forKey: legacyMigrationKey)
         }
+    }
+
+    func remove() {
+        defaults.value.removeObject(forKey: key)
     }
 }

@@ -206,6 +206,10 @@ public final class MobilePushCoordinator {
             return true
         }
         if let surfaceId {
+            if let workspace = store.selectedWorkspace,
+               browserStore?.isBrowserSelected(for: workspace.browserSurfaceIdentity) == true {
+                return true
+            }
             return store.selectedTerminalID?.rawValue != surfaceId
         }
         return false

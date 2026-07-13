@@ -458,24 +458,26 @@ import Testing
         let defaults = try #require(BlockingArchiveUserDefaults(suiteName: suiteName, archiveKey: key))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let writer = BrowserSurfaceArchiveWriter(defaults: defaults, key: key)
+        let coordinator = BrowserSurfacePersistenceCoordinator(defaults: defaults, archiveKey: key)
         let scope = BrowserPersistenceScope(userID: "user", teamID: "team")
+        let clientID = UUID()
+        _ = coordinator.setScope(scope, for: clientID)
 
-        writer.enqueueWrite(
-            scope: scope,
-            snapshotsByWorkspace: ["workspace": Self.snapshot(title: "0")],
-            generation: "generation"
+        coordinator.replaceSnapshots(
+            ["workspace": Self.snapshot(title: "0")],
+            for: clientID,
+            scope: scope
         )
         await defaults.firstArchiveWriteStarted.wait()
         for index in 1 ... 100 {
-            writer.enqueueWrite(
-                scope: scope,
-                snapshotsByWorkspace: ["workspace": Self.snapshot(title: "\(index)")],
-                generation: "generation"
+            coordinator.replaceSnapshots(
+                ["workspace": Self.snapshot(title: "\(index)")],
+                for: clientID,
+                scope: scope
             )
         }
         defaults.allowFirstArchiveWrite.signal()
-        await writer.flush()
+        await coordinator.flush()
 
         #expect(defaults.archiveWriteCount <= 2)
         let data = try #require(defaults.data(forKey: key))
