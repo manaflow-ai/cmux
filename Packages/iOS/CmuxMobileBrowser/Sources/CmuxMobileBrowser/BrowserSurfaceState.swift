@@ -67,6 +67,9 @@ public final class BrowserSurfaceState: Identifiable {
     /// destinations may seed `currentURL` before the new `WKWebView` commits
     /// them, and must never receive secure or insecure chrome prematurely.
     private(set) var securityIndicatorURL: URL?
+    /// The last URL WebKit committed, retained while a provisional navigation
+    /// temporarily clears the visible security indicator.
+    private var committedSecurityIndicatorURL: URL?
 
     /// The most recent WebKit interaction state for this surface.
     ///
@@ -154,6 +157,7 @@ public final class BrowserSurfaceState: Identifiable {
         self.title = nil
         self.currentURL = initialURL
         self.securityIndicatorURL = nil
+        self.committedSecurityIndicatorURL = nil
         self.savedInteractionState = nil
         self.contentModePreference = .recommended
         self.recommendedContentModeIsDesktop = false
@@ -281,6 +285,7 @@ public final class BrowserSurfaceState: Identifiable {
     ///   expose one for the commit.
     func navigationDidCommit(url: URL?) {
         securityIndicatorURL = url
+        committedSecurityIndicatorURL = url
     }
 
     /// Commit a URL change that WebKit reports without a full navigation
@@ -320,6 +325,7 @@ public final class BrowserSurfaceState: Identifiable {
         isLoading = false
         estimatedProgress = 1
         securityIndicatorURL = url
+        committedSecurityIndicatorURL = url
         if let url {
             currentURL = url
             if !isAddressEditing {
@@ -346,7 +352,12 @@ public final class BrowserSurfaceState: Identifiable {
     ) {
         isLoading = false
         estimatedProgress = 0
-        securityIndicatorURL = nil
+        if wasProvisional {
+            securityIndicatorURL = committedSecurityIndicatorURL
+        } else {
+            securityIndicatorURL = nil
+            committedSecurityIndicatorURL = nil
+        }
         lastErrorMessage = message
         lastFailedURL = url
         lastFailureWasProvisional = wasProvisional
@@ -356,7 +367,7 @@ public final class BrowserSurfaceState: Identifiable {
     public func navigationDidCancel() {
         isLoading = false
         estimatedProgress = 0
-        securityIndicatorURL = nil
+        securityIndicatorURL = committedSecurityIndicatorURL
         if let currentURL, !isAddressEditing {
             addressText = currentURL.absoluteString
         }

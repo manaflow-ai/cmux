@@ -4,10 +4,35 @@ import UIKit
 /// Bridges the workspace navigation controller's pop gesture delegate to policy.
 final class InteractiveSwipeBackGestureHostController: UIViewController, UIGestureRecognizerDelegate {
     private let policy = InteractiveSwipeBackGesturePolicy()
+    private weak var installedGestureRecognizer: UIGestureRecognizer?
+    private weak var previousGestureDelegate: UIGestureRecognizerDelegate?
+
+    override func willMove(toParent parent: UIViewController?) {
+        if parent == nil {
+            restoreGestureDelegate()
+        }
+        super.willMove(toParent: parent)
+    }
 
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
-        navigationController?.interactivePopGestureRecognizer?.delegate = self
+        guard parent != nil,
+              let gestureRecognizer = navigationController?.interactivePopGestureRecognizer
+        else { return }
+        if gestureRecognizer.delegate !== self {
+            previousGestureDelegate = gestureRecognizer.delegate
+            installedGestureRecognizer = gestureRecognizer
+            gestureRecognizer.delegate = self
+        }
+    }
+
+    private func restoreGestureDelegate() {
+        guard let installedGestureRecognizer else { return }
+        if installedGestureRecognizer.delegate === self {
+            installedGestureRecognizer.delegate = previousGestureDelegate
+        }
+        self.installedGestureRecognizer = nil
+        previousGestureDelegate = nil
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {

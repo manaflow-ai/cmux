@@ -22,7 +22,7 @@ struct WorkspaceDetailView: View {
     let openMode: WorkspaceDetailOpenMode
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
-    let createTerminal: () -> Void
+    let createTerminal: () -> Bool
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
     let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     /// Close this workspace on the Mac. When `nil`, the close affordance is
@@ -667,11 +667,10 @@ struct WorkspaceDetailView: View {
     private func createTerminalFromToolbar() {
         openMode.performRemoteAction {
             dismissTerminalKeyboardForChrome()
-            // Creating a terminal from the (shared) chrome must surface it. If a
-            // browser pane is up, hide it so `body` shows the new terminal while
-            // retaining the phone-local browser for the Safari grid.
+            guard createTerminal() else { return }
+            // Hide the browser only after creation is accepted, so a rejected
+            // duplicate request leaves the user's current surface unchanged.
             browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
-            createTerminal()
         }
     }
 

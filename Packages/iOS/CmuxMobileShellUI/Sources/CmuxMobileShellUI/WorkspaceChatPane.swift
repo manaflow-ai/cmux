@@ -56,6 +56,8 @@ struct WorkspaceChatPane: View {
                 terminalID: MobileTerminalPreview.ID(rawValue: terminalID),
                 browserWorkspaceIdentity: browserWorkspaceIdentity
             )
+        } else {
+            browserStore.showNonBrowserSurface(for: browserWorkspaceIdentity)
         }
         onExitChat()
     }

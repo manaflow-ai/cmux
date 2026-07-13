@@ -46,6 +46,20 @@ import Testing
         #expect(first === second)
     }
 
+    @Test func aliasLookupReusesAndMigratesStoredBrowser() {
+        let store = makeStore()
+        let browser = store.openBrowser(for: "legacy-workspace")
+        let stableIdentity = BrowserWorkspaceIdentity(
+            rawValue: "5:mac-a:workspace",
+            aliases: ["legacy-workspace"]
+        )
+
+        #expect(store.browser(for: stableIdentity) === browser)
+        #expect(store.openBrowser(for: stableIdentity) === browser)
+        #expect(store.browser(for: stableIdentity) === browser)
+        #expect(store.browser(for: "legacy-workspace") == nil)
+    }
+
     @Test func browsersAreScopedPerWorkspace() {
         let store = makeStore()
         let a = store.openBrowser(for: "ws-1")

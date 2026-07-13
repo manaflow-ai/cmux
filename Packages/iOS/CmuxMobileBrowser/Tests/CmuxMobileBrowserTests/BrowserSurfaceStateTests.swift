@@ -166,6 +166,22 @@ import Testing
 
         #expect(state.isLoading == false)
         #expect(state.addressText == committedURL.absoluteString)
+        #expect(state.securityIndicatorURL == committedURL)
+    }
+
+    @Test func provisionalFailureRestoresCommittedSecurityIndicator() {
+        let committedURL = URL(string: "https://secure.example")!
+        let state = makeState()
+        state.navigationDidFinish(url: committedURL)
+        state.load(URL(string: "http://failed.example")!)
+
+        state.navigationDidFail(
+            message: "offline",
+            url: URL(string: "http://failed.example")!,
+            wasProvisional: true
+        )
+
+        #expect(state.securityIndicatorURL == committedURL)
     }
 
     @Test func dismissingProvisionalFailureRestoresCommittedAddress() {

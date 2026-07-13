@@ -50,9 +50,8 @@ struct WorkspaceDetailContainer: View {
                     },
                     canCreateWorkspace: openMode.showsRemoteWorkspaceControls && canCreateWorkspace,
                     createTerminal: {
-                        openMode.performRemoteAction {
-                            store.createTerminal(in: workspace.id)
-                        }
+                        guard openMode.opensRemoteWorkspace else { return false }
+                        return store.createTerminal(in: workspace.id)
                     },
                     renameWorkspace: openMode.showsRemoteWorkspaceControls
                         && workspace.actionCapabilities.supportsWorkspaceActions ? renameWorkspace : nil,

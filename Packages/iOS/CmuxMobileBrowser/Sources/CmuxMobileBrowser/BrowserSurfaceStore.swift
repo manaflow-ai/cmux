@@ -33,6 +33,10 @@ public final class BrowserSurfaceStore {
     /// Value snapshots used for copy-on-write persistence handoff.
     private var durableSnapshotsByWorkspace: [String: BrowserSurfaceSnapshot]
 
+    /// Stable keys from the latest authoritative workspace list. An alias that
+    /// is itself canonical belongs to that workspace and must not be borrowed.
+    private var canonicalWorkspaceIDs: Set<String>
+
     /// Produces a fresh, unique surface id. Injected so tests are deterministic.
     private let makeSurfaceID: () -> BrowserSurfaceState.ID
 
@@ -93,6 +97,7 @@ public final class BrowserSurfaceStore {
         self.selectedBrowserWorkspaceIDs = []
         self.snapshotSourcesByWorkspace = [:]
         self.durableSnapshotsByWorkspace = [:]
+        self.canonicalWorkspaceIDs = []
         self.persistenceScope = nil
         self.scheduledPersistenceTask = nil
         #if canImport(WebKit)
@@ -117,6 +122,7 @@ public final class BrowserSurfaceStore {
         selectedBrowserWorkspaceIDs.removeAll()
         snapshotSourcesByWorkspace.removeAll()
         durableSnapshotsByWorkspace.removeAll()
+        canonicalWorkspaceIDs.removeAll()
         persistenceScope = newScope
         #if canImport(WebKit)
         websiteDataStore = persistenceCoordinator.websiteDataStore(for: newScope)
@@ -217,7 +223,11 @@ public final class BrowserSurfaceStore {
     /// - Returns: The active browser surface for the workspace.
     @discardableResult
     public func openBrowser(for workspace: BrowserWorkspaceIdentity) -> BrowserSurfaceState {
-        if let existing = surfacesByWorkspace[workspace.rawValue] {
+        if let existingKey = existingKey(for: workspace),
+           let existing = surfacesByWorkspace[existingKey] {
+            if existingKey != workspace.rawValue {
+                migrateBrowserIfNeeded(from: existingKey, to: workspace.rawValue)
+            }
             selectedBrowserWorkspaceIDs.insert(workspace.rawValue)
             refreshSnapshot(workspaceID: workspace.rawValue, surface: existing)
             persistImmediately()
@@ -279,6 +289,7 @@ public final class BrowserSurfaceStore {
     /// - Parameter workspaces: The complete authoritative stable workspace identity set.
     public func reconcileWorkspaces(_ workspaces: [BrowserWorkspaceIdentity]) {
         let canonicalWorkspaceIDs = Set(workspaces.map(\.rawValue))
+        self.canonicalWorkspaceIDs = canonicalWorkspaceIDs
         let aliasClaimCounts = workspaces.reduce(into: [String: Int]()) { counts, workspace in
             for alias in workspace.aliases {
                 counts[alias, default: 0] += 1
@@ -326,7 +337,12 @@ public final class BrowserSurfaceStore {
     }
 
     private func existingKey(for workspace: BrowserWorkspaceIdentity) -> String? {
-        surfacesByWorkspace[workspace.rawValue] == nil ? nil : workspace.rawValue
+        if surfacesByWorkspace[workspace.rawValue] != nil {
+            return workspace.rawValue
+        }
+        return workspace.aliases.sorted().first {
+            !canonicalWorkspaceIDs.contains($0) && surfacesByWorkspace[$0] != nil
+        }
     }
 
     private func migrateBrowserIfNeeded(from oldKey: String, to newKey: String) {
@@ -354,6 +370,7 @@ public final class BrowserSurfaceStore {
         selectedBrowserWorkspaceIDs.removeAll()
         snapshotSourcesByWorkspace.removeAll()
         durableSnapshotsByWorkspace.removeAll()
+        canonicalWorkspaceIDs.removeAll()
         enqueuePersistence()
     }
 

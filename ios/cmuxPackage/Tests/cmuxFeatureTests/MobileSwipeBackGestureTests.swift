@@ -9,6 +9,8 @@ import UIKit
 @MainActor
 @Suite("iOS swipe-back over terminal/browser surfaces")
 struct MobileSwipeBackGestureTests {
+    private final class GestureDelegate: NSObject, UIGestureRecognizerDelegate {}
+
     /// The browser pane is pushed onto the workspace `NavigationStack`. With the
     /// web view's own edge gesture enabled, a left-edge swipe is eaten by the web
     /// view (going nowhere when there is no web history) instead of popping back
@@ -59,6 +61,27 @@ struct MobileSwipeBackGestureTests {
                 navigationController: nav
             ) == false
         )
+    }
+
+    @Test("gesture host restores the previous pop delegate when removed")
+    func gestureHostRestoresPreviousDelegate() throws {
+        let root = UIViewController()
+        let navigationController = UINavigationController(rootViewController: root)
+        navigationController.loadViewIfNeeded()
+        let popGesture = try #require(navigationController.interactivePopGestureRecognizer)
+        let previousDelegate = GestureDelegate()
+        popGesture.delegate = previousDelegate
+        let host = InteractiveSwipeBackGestureHostController()
+
+        root.addChild(host)
+        root.view.addSubview(host.view)
+        host.didMove(toParent: root)
+        #expect(popGesture.delegate === host)
+
+        host.willMove(toParent: nil)
+        host.view.removeFromSuperview()
+        host.removeFromParent()
+        #expect(popGesture.delegate === previousDelegate)
     }
 }
 #endif
