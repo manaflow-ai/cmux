@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import CmuxTerminal
 import CmuxTerminalCore
 import Testing
 
