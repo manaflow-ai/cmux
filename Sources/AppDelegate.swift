@@ -13183,6 +13183,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        if matchConfiguredShortcut(event: event, action: .searchTabs) {
+            NotificationCenter.default.post(
+                name: .cmuxSidebarTabSearchFocusRequested,
+                object: event.window ?? shortcutRoutingActiveWindow
+            )
+            return true
+        }
+
         if shouldConsumeShortcutWhileCommandPaletteVisible(
             isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
             normalizedFlags: normalizedFlags,

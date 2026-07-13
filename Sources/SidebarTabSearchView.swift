@@ -1,6 +1,13 @@
+import Combine
 import CmuxCommandPalette
 import CmuxFoundation
 import SwiftUI
+
+extension Notification.Name {
+    /// Posted by the `searchTabs` keyboard shortcut to focus the sidebar
+    /// tab-search field.
+    static let cmuxSidebarTabSearchFocusRequested = Notification.Name("cmux.sidebarTabSearchFocusRequested")
+}
 
 /// Compact tab-name search pinned at the top-left of the workspace sidebar.
 ///
@@ -28,6 +35,14 @@ struct SidebarTabSearchView: View {
     private static let workspaceIdPrefix = "switcher.workspace."
     /// Debounce window: coalesces keystroke bursts before rebuilding the corpus.
     private static let debounceNanoseconds: UInt64 = 120_000_000
+    /// Approximate rendered height of one result row (title + subtitle + padding).
+    private static let estimatedRowHeight: CGFloat = 40
+    /// Approximate rendered height of one section header.
+    private static let sectionHeaderHeight: CGFloat = 22
+    /// The dropdown's own top/bottom padding.
+    private static let dropdownVerticalPadding: CGFloat = 8
+    /// Cap beyond which the dropdown scrolls instead of growing further.
+    private static let maxDropdownHeight: CGFloat = 320
 
     private var trimmedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -50,12 +65,29 @@ struct SidebarTabSearchView: View {
                 resultsDropdown
             }
         }
+        // Esc closes the dropdown, clears the query, and drops focus.
+        .onExitCommand(perform: clear)
+        // The `searchTabs` shortcut (⌥⌘P) focuses the field.
+        .onReceive(NotificationCenter.default.publisher(for: .cmuxSidebarTabSearchFocusRequested)) { _ in
+            fieldFocused = true
+        }
         // `.task(id:)` reruns on every keystroke and cancels the prior run (and
         // its debounce sleep), so the sleep below is a bounded, cancellable
         // delay rather than a poll.
         .task(id: query) {
             await refreshResults()
         }
+    }
+
+    /// Height needed to show all current results, so the dropdown shrinks to
+    /// fit a few hits instead of always reserving the full maximum. Scrolls
+    /// only once the estimate exceeds `maxDropdownHeight`.
+    private var dropdownContentHeight: CGFloat {
+        guard !results.isEmpty else { return 0 }
+        let sectionCount = (workspaceResults.isEmpty ? 0 : 1) + (tabResults.isEmpty ? 0 : 1)
+        let rowsHeight = CGFloat(results.count) * Self.estimatedRowHeight
+        let headersHeight = CGFloat(sectionCount) * Self.sectionHeaderHeight
+        return rowsHeight + headersHeight + Self.dropdownVerticalPadding
     }
 
     private var searchField: some View {
@@ -90,7 +122,7 @@ struct SidebarTabSearchView: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .frame(height: 28)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(Color.primary.opacity(0.06))
@@ -131,7 +163,7 @@ struct SidebarTabSearchView: View {
                     }
                     .padding(.vertical, 4)
                 }
-                .frame(maxHeight: 320)
+                .frame(height: min(dropdownContentHeight, Self.maxDropdownHeight))
             }
         }
         .background(

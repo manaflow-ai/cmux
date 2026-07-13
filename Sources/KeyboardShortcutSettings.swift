@@ -80,6 +80,7 @@ enum KeyboardShortcutSettings {
         case openFolder
         case reopenPreviousSession
         case goToWorkspace
+        case searchTabs
         case commandPalette
         case commandPaletteNext
         case commandPalettePrevious
@@ -207,6 +208,7 @@ enum KeyboardShortcutSettings {
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
             case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Restore Previous App Launch")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
+            case .searchTabs: return String(localized: "shortcut.searchTabs.label", defaultValue: "Search Tabs")
             case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
             case .commandPaletteNext: return String(localized: "shortcut.commandPaletteNext.label", defaultValue: "Command Palette: Next")
             case .commandPalettePrevious: return String(localized: "shortcut.commandPalettePrevious.label", defaultValue: "Command Palette: Previous")
@@ -368,6 +370,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "o", command: true, shift: true, option: false, control: false)
             case .goToWorkspace:
                 return StoredShortcut(key: "p", command: true, shift: false, option: false, control: false)
+            case .searchTabs:
+                return StoredShortcut(key: "p", command: true, shift: false, option: true, control: false)
             case .commandPalette:
                 return StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
             case .commandPaletteNext:

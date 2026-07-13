@@ -10016,9 +10016,17 @@ struct VerticalTabsSidebar: View {
     private var sidebarTitlebarInteractionHeight: CGFloat {
         MinimalModeChromeMetrics.titlebarHeight
     }
-    /// Vertical space reserved under the titlebar strip for the pinned
-    /// ``SidebarTabSearchView`` field so the first workspace row clears it.
-    static let sidebarTabSearchBandHeight: CGFloat = 40
+    /// Gap from the titlebar strip to the top of the pinned
+    /// ``SidebarTabSearchView`` field. The first workspace row's own top
+    /// padding (`SidebarWorkspaceListMetrics.rowVerticalPadding`) provides the
+    /// matching gap below the field, so top and bottom read as equal.
+    static let sidebarTabSearchFieldTopGap: CGFloat = 8
+    /// Fixed height of the search-field box (kept in sync with the
+    /// `.frame(height:)` in ``SidebarTabSearchView``).
+    static let sidebarTabSearchFieldHeight: CGFloat = 28
+    /// Total band reserved under the titlebar strip for the field, so the
+    /// first workspace row sits flush below it.
+    static let sidebarTabSearchBandHeight: CGFloat = sidebarTabSearchFieldTopGap + sidebarTabSearchFieldHeight
 
     /// Adapter binding for unmigrated consumers (extension sidebar drop
     /// delegates, bonsplit overlays) that still expect @Binding<UUID?>. Reads
@@ -10455,7 +10463,7 @@ struct VerticalTabsSidebar: View {
         // field. Folding it into `scrollInsets.top` keeps the first-row offset,
         // reorder drop zone, and content-height math consistent in one place.
         let scrollInsets = SidebarWorkspaceScrollInsets(
-            top: baseInsets.top + Self.sidebarTabSearchBandHeight,
+            top: sidebarTitlebarInteractionHeight + Self.sidebarTabSearchBandHeight,
             bottom: baseInsets.bottom
         )
         return ScrollViewReader { scrollProxy in
@@ -10504,7 +10512,7 @@ struct VerticalTabsSidebar: View {
                 // Applied after `.mask(...)` so the fade never dims the field.
                 // Padded below the draggable titlebar strip / window controls.
                 SidebarTabSearchView(entriesProvider: sidebarTabSearchEntriesProvider)
-                    .padding(.top, sidebarTitlebarInteractionHeight)
+                    .padding(.top, sidebarTitlebarInteractionHeight + Self.sidebarTabSearchFieldTopGap)
                     .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
                     .frame(maxWidth: .infinity, alignment: .top)
             }

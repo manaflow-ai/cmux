@@ -29,6 +29,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case openFolder
     case reopenPreviousSession
     case goToWorkspace
+    case searchTabs
     case commandPalette
     case commandPaletteNext
     case commandPalettePrevious
@@ -188,7 +189,7 @@ extension ShortcutAction {
         case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit:
             return .app
-        case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
+        case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace, .searchTabs,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
@@ -352,6 +353,7 @@ extension ShortcutAction {
         case .openFolder: return "Open Folder"
         case .reopenPreviousSession: return "Restore Previous App Launch"
         case .goToWorkspace: return "Go to Workspace…"
+        case .searchTabs: return "Search Tabs"
         case .commandPalette: return "Command Palette…"
         case .commandPaletteNext: return "Command Palette: Next"
         case .commandPalettePrevious: return "Command Palette: Previous"
