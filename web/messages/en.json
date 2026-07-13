@@ -1742,6 +1742,7 @@
           "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         },
         "fileExplorer": {
