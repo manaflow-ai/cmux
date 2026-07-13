@@ -5,6 +5,51 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitDiffServiceTests {
+    @Test func repositoryRootPreservesTrailingWhitespace() throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-git-whitespace-parent-\(UUID().uuidString)")
+        let repo = parent.appendingPathComponent("repo ")
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        for arguments in [
+            ["init", "--quiet"],
+            ["config", "user.email", "tests@cmux.dev"],
+            ["config", "user.name", "cmux tests"],
+            ["commit", "--allow-empty", "--quiet", "-m", "init"],
+        ] {
+            try runTestGit(in: repo, arguments)
+        }
+
+        let root = try #require(GitDiffService().repositoryRoot(for: repo.path))
+
+        #expect(root.hasSuffix("/repo "))
+        #expect(URL(fileURLWithPath: root).standardizedFileURL == repo.standardizedFileURL)
+    }
+
+    @Test func gitWrapperLaunchesOutsideRepositoryAndPassesExactDirectoryWithDashC() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let marker = repo.appendingPathComponent("wrapper-pwd.txt")
+        let checkingGit = repo.appendingPathComponent("checking-launch-git.sh")
+        let script = """
+        #!/bin/sh
+        /bin/pwd > \(marker.path.debugDescription)
+        if [ "$1" != "-C" ] || [ "$2" != \(repo.path.debugDescription) ]; then exit 92; fi
+        printf '%s\\n' "$2"
+        """
+        try Data(script.utf8).write(to: checkingGit)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: checkingGit.path
+        )
+
+        let root = GitDiffService(gitExecutableURL: checkingGit).repositoryRoot(for: repo.path)
+        let wrapperDirectory = try String(contentsOf: marker, encoding: .utf8)
+            .trimmingCharacters(in: .newlines)
+
+        #expect(root == repo.path)
+        #expect(wrapperDirectory == "/")
+    }
+
     @Test func mergesSeparateNumstatAndNameStatusStreams() {
         let service = GitDiffService()
         let files = service.parseChangedFiles(
@@ -387,8 +432,9 @@ import Testing
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
         let stalledGit = repo.appendingPathComponent("descendant-git.sh")
+        let childPIDFile = repo.appendingPathComponent("child.pid")
         try Data(
-            "#!/bin/sh\ntrap '' TERM\nsleep 30 &\necho $! > child.pid\nwait\n".utf8
+            "#!/bin/sh\ntrap '' TERM\nsleep 30 &\necho $! > \(childPIDFile.path.debugDescription)\nwait\n".utf8
         ).write(to: stalledGit)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755], ofItemAtPath: stalledGit.path
@@ -400,7 +446,7 @@ import Testing
         )
         #expect(service.repositoryRoot(for: repo.path) == nil)
 
-        let pidText = try String(contentsOf: repo.appendingPathComponent("child.pid"), encoding: .utf8)
+        let pidText = try String(contentsOf: childPIDFile, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let childPID = try #require(Int32(pidText))
         // A terminated grandchild can remain as a zombie briefly while launchd
