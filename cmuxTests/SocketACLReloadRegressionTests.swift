@@ -180,6 +180,44 @@ struct SocketACLReloadRegressionTests {
         #expect(!FileManager.default.fileExists(atPath: preferredPath))
     }
 
+    @Test func reconcileRestartsAfterLivePermissionUpdateLosesSocketPath() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+
+        let directory = shortTemporaryDirectory(prefix: "salm")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        let tabManager = TabManager()
+        defer {
+            controller.stop()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        controller.reconcileSocketConfiguration(
+            SocketControlServerConfiguration(
+                accessMode: .cmuxOnly,
+                preferredSocketPath: socketPath
+            ),
+            preferredTabManager: tabManager,
+            source: "test.missing_path_baseline"
+        )
+        #expect(controller.socketServer.isRunning)
+        #expect(unlink(socketPath) == 0)
+
+        controller.reconcileSocketConfiguration(
+            SocketControlServerConfiguration(
+                accessMode: .automation,
+                preferredSocketPath: socketPath
+            ),
+            preferredTabManager: tabManager,
+            source: "test.missing_path_reconfigure"
+        )
+
+        #expect(controller.socketServer.isRunning)
+        #expect(controller.socketServer.accessMode == .automation)
+        #expect(FileManager.default.fileExists(atPath: socketPath))
+    }
+
     @Test func restartStopsListenerWhenModeIsOffWithoutTabManager() throws {
         let controller = TerminalController.shared
         controller.stop()
