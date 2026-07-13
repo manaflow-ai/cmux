@@ -127,6 +127,8 @@ class TerminalController {
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
+    nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
+    private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
     /// windows), constructed at this app-hub composition point and injected into each
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
@@ -349,11 +351,16 @@ class TerminalController {
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         transport: SocketTransport = SocketTransport(),
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
+        socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter = .init(
+            maximumConcurrentClaims: 32
+        ),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         )
     ) {
         self.passwordStore = passwordStore
+        self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
         let serverEventTarget = ServerEventTarget()
@@ -373,7 +380,7 @@ class TerminalController {
                     close(connection.socket)
                     continue
                 }
-                controller.spawnClientHandler(socket: connection.socket, peerPid: connection.peerProcessID)
+                await controller.spawnClientHandler(socket: connection.socket, peerPid: connection.peerProcessID)
             }
         }
         serverEventTarget.controller = self
@@ -1426,78 +1433,70 @@ class TerminalController {
         }
     }
 
-    private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) {
+    private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) async {
+        let initialReadLimits = socketClientInitialReadLimits(peerProcessID: peerPid)
+        let claimedPreauthorizationSlot = if initialReadLimits != nil {
+            await socketClientPreauthorizationLimiter.claim()
+        } else {
+            false
+        }
+        guard initialReadLimits == nil || claimedPreauthorizationSlot else {
+            close(clientSocket)
+            return
+        }
         Thread.detachNewThread { [weak self] in
             guard let self else {
                 close(clientSocket)
                 return
             }
-            self.handleClient(clientSocket, peerPid: peerPid)
-        }
-    }
-
-    private nonisolated func scheduleListenerRearm(
-        generation: UInt64,
-        errnoCode: Int32,
-        consecutiveFailures: Int,
-        delayMs: Int
-    ) {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            // Bounded rearm delay on the server's injected recovery clock
-            // (replaces the legacy main-queue asyncAfter); a stale fire is a
-            // no-op via the pending-rearm generation guard in the claim.
-            try? await self.socketServer.recoveryClock.sleep(forMilliseconds: delayMs)
-            guard let tabManager = self.tabManager else { return }
-            guard let restartPath = self.socketServer.claimPendingRearm(
-                generation: generation,
-                errnoCode: errnoCode,
-                consecutiveFailures: consecutiveFailures,
-                delayMs: delayMs
-            ) else { return }
-
-            let restartMode = self.socketServer.accessMode
-
-            self.stop()
-            self.start(
-                tabManager: tabManager,
-                socketPath: restartPath,
-                accessMode: restartMode,
-                preserveAcceptFailureStreak: true
+            self.handleClient(
+                clientSocket,
+                peerPid: peerPid,
+                initialReadLimits: initialReadLimits,
+                holdsPreauthorizationSlot: claimedPreauthorizationSlot
             )
         }
     }
 
-    private nonisolated func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
+    private nonisolated func handleClient(
+        _ socket: Int32,
+        peerPid: pid_t? = nil,
+        initialReadLimits: ControlClientLineReadLimits? = nil,
+        holdsPreauthorizationSlot initialSlotHeld: Bool = false
+    ) {
         defer { close(socket) }
+        let pid = peerPid ?? transport.peerProcessID(of: socket)
+        let peerHasSameUID = transport.peerHasSameUID(socket)
+        let preauthorizationLimiter = socketClientPreauthorizationLimiter
+        var holdsPreauthorizationSlot = initialSlotHeld
+        defer {
+            if holdsPreauthorizationSlot {
+                Task { await preauthorizationLimiter.release() }
+            }
+        }
+        var authenticated = false
+        let lineReader = ControlClientLineReader(socket: socket, initialLimits: initialReadLimits)
 
-        // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
-        // In allowAll mode (env-var only), skip the ancestry check.
-        if socketServer.accessMode == .cmuxOnly {
-            // Use pre-captured peer PID if available (captured in accept loop before
-            // the peer can disconnect), falling back to live lookup.
-            let pid = peerPid ?? transport.peerProcessID(of: socket)
-            guard SocketClientAuthorization().isCmuxOnlyClientAllowed(
+        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
+            let receivedCommand = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !receivedCommand.isEmpty else { continue }
+            guard let trimmed = authorizedSocketCommand(
+                receivedCommand,
                 peerProcessID: pid,
-                peerHasSameUID: false,
-                isDescendant: { isDescendant($0) }
+                peerHasSameUID: peerHasSameUID
             ) else {
                 _ = writeSocketResponse(
-                    pid == nil
-                        ? "ERROR: Unable to verify client process"
+                    pid == nil ? "ERROR: Unable to verify client process"
                         : "ERROR: Access denied — only processes started inside cmux can connect",
                     to: socket
                 )
                 return
             }
-        }
-
-        var authenticated = false
-        let lineReader = ControlClientLineReader(socket: socket)
-
-        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
+            lineReader.clearLimits()
+            if holdsPreauthorizationSlot {
+                holdsPreauthorizationSlot = false
+                Task { await preauthorizationLimiter.release() }
+            }
 
             var shouldCloseSocket = false
             autoreleasepool {
