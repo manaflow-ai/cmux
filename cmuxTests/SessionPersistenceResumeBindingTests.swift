@@ -412,8 +412,7 @@ import Testing
         )
 
         let startupInput = try #require(binding.startupInput)
-        #expect(startupInput.contains("codex 'resume' 'session-existing-cli'"), "\(startupInput)")
-        #expect(!startupInput.contains(executable.path), "\(startupInput)")
+        #expect(startupInput.contains("codex 'resume' 'session-existing-cli'") && !startupInput.contains(executable.path), "\(startupInput)")
     }
 
     @Test func agentHookSurfaceResumeStartupInputFallsBackWhenRecordedAgentExecutableMoved() throws {
