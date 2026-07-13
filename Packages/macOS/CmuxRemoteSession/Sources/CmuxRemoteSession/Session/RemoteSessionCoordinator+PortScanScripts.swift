@@ -205,6 +205,12 @@ extension RemoteSessionCoordinator {
         cmux_scan_output=""
         cmux_scan_status=127
         cmux_scanner=""
+        cmux_tmpdir="$(mktemp -d 2>/dev/null || mktemp -d -t cmux-ports 2>/dev/null || true)"
+        cmux_scan_stderr=""
+        if [ -n "$cmux_tmpdir" ]; then
+          cmux_scan_stderr="$cmux_tmpdir/scanner.stderr"
+          trap 'rm -rf "$cmux_tmpdir"' EXIT INT TERM
+        fi
 
         cmux_emit_port() {
           cmux_port="$1"
@@ -215,18 +221,24 @@ extension RemoteSessionCoordinator {
           printf '%s\\n' "$cmux_port"
         }
 
+        cmux_run_scanner() {
+          cmux_scan_status=0
+          if [ -n "$cmux_scan_stderr" ]; then
+            cmux_scan_output="$("$@" 2>"$cmux_scan_stderr")" || cmux_scan_status=$?
+          else
+            cmux_scan_output="$("$@" 2>/dev/null)" || cmux_scan_status=$?
+          fi
+        }
+
         if command -v ss >/dev/null 2>&1; then
           cmux_scanner=ss
-          cmux_scan_status=0
-          cmux_scan_output="$(ss -ltnH 2>&1)" || cmux_scan_status=$?
+          cmux_run_scanner ss -ltnH
         elif command -v netstat >/dev/null 2>&1; then
           cmux_scanner=netstat
-          cmux_scan_status=0
-          cmux_scan_output="$(netstat -lnt 2>&1)" || cmux_scan_status=$?
+          cmux_run_scanner netstat -lnt
         elif command -v lsof >/dev/null 2>&1; then
           cmux_scanner=lsof
-          cmux_scan_status=0
-          cmux_scan_output="$(lsof -nP -iTCP -sTCP:LISTEN 2>&1)" || cmux_scan_status=$?
+          cmux_run_scanner lsof -nP -iTCP -sTCP:LISTEN
         fi
 
         cmux_parsed_output=""
@@ -278,10 +290,12 @@ extension RemoteSessionCoordinator {
         done
 
         cmux_command_complete=0
-        if [ "$cmux_scan_status" -eq 0 ]; then
-          cmux_command_complete=1
-        elif [ "$cmux_scanner" = lsof ] && [ "$cmux_scan_status" -eq 1 ] && [ -z "$cmux_scan_output" ]; then
-          cmux_command_complete=1
+        if [ -n "$cmux_scan_stderr" ] && [ ! -s "$cmux_scan_stderr" ]; then
+          if [ "$cmux_scan_status" -eq 0 ]; then
+            cmux_command_complete=1
+          elif [ "$cmux_scanner" = lsof ] && [ "$cmux_scan_status" -eq 1 ] && [ -z "$cmux_scan_output" ]; then
+            cmux_command_complete=1
+          fi
         fi
         if [ "$cmux_command_complete" -eq 1 ] && [ "$cmux_parse_complete" -eq 1 ]; then
           printf '%s\\n' '\(remotePortScanCompleteMarker)'
