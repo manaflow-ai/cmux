@@ -193,6 +193,24 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
+    @Test func truncatedReplayRebasesHistoricalRestoreIntoRetainedSuffix() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 10_000)
+        ))
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
+
+        postScrollbar(scrollbar(total: 4_000, offset: 3_956, len: 44), to: surfaceView)
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:3856"])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
     @Test func legacyRestoreWaitsForPostReplayGeometry() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
@@ -247,6 +265,19 @@ struct NotificationScrollRestoreLifecycleTests {
 
         #expect(panel.isAgentHibernated)
         #expect(!panel.restoreNotificationScrollPosition(nil))
+        #expect(!panel.hostedView.hasPendingNotificationScrollRestore)
+    }
+
+    @Test func panelBindingActionCancelsPendingRestoreForAutomationEntrypoints() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.releaseSurfaceForTesting() }
+        panel.hostedView.notificationScrollRestoreState = .replaying(
+            expectedBoundary: "expected-end",
+            pendingPosition: TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        )
+
+        _ = panel.performBindingAction("clear_screen")
+
         #expect(!panel.hostedView.hasPendingNotificationScrollRestore)
     }
 
