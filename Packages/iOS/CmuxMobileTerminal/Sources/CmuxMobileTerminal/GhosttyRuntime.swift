@@ -53,13 +53,20 @@ public final class GhosttyRuntime {
     /// The Ghostty app is process-wide, but terminal themes are surface-scoped.
     /// Updating only the target surface prevents another scene or terminal from
     /// inheriting the selected surface's palette.
-    public static func applyTheme(_ theme: TerminalTheme, to surfaceView: GhosttySurfaceView) {
+    /// - Parameters:
+    ///   - configTheme: Raw Mac configuration defaults, without OSC overrides
+    ///     or DEC reverse-video.
+    ///   - surfaceView: The embedded surface that receives the configuration.
+    public static func applyTheme(
+        _ configTheme: TerminalTheme,
+        to surfaceView: GhosttySurfaceView
+    ) {
         guard let surface = surfaceView.surface,
               let runtime = try? Self.shared(),
               let baseConfig = runtime.config,
               let newConfig = ghostty_config_clone(baseConfig) else { return }
-        let theme = theme.validatedOrDefault()
-        Self.applyiOSTheme(theme, to: newConfig)
+        let configTheme = configTheme.validatedOrDefault()
+        Self.applyiOSTheme(configTheme, to: newConfig)
         ghostty_config_finalize(newConfig)
         ghostty_surface_update_config(surface, newConfig)
         surfaceView.applyThemeConfig(newConfig)

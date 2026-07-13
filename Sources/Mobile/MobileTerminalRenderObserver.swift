@@ -1,50 +1,47 @@
 import CMUXMobileCore
 import CmuxTerminal
-import Dispatch
 import Foundation
 
 @MainActor
 final class MobileTerminalThemeInvalidationScheduler {
-    private let delay: DispatchTimeInterval
+    private let delay: Duration
+    private let clock: any Clock<Duration>
     private let handler: @MainActor (Set<UUID>) -> Void
     private var pendingSurfaceIDs = Set<UUID>()
-    private var workItem: DispatchWorkItem?
+    private var flushTask: Task<Void, Never>?
 
     init(
-        delay: DispatchTimeInterval = .milliseconds(100),
+        delay: Duration = .milliseconds(100),
+        clock: any Clock<Duration> = ContinuousClock(),
         handler: @escaping @MainActor (Set<UUID>) -> Void
     ) {
         self.delay = delay
+        self.clock = clock
         self.handler = handler
     }
 
     func schedule(surfaceID: UUID) {
         pendingSurfaceIDs.insert(surfaceID)
-        guard workItem == nil else { return }
-        let item = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated {
-                self?.flush()
+        guard flushTask == nil else { return }
+        flushTask = Task { @MainActor [weak self, clock, delay] in
+            do {
+                try await clock.sleep(for: delay)
+            } catch {
+                return
             }
+            guard !Task.isCancelled else { return }
+            self?.flush()
         }
-        workItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
     }
 
     func cancel() {
-        workItem?.cancel()
-        workItem = nil
+        flushTask?.cancel()
+        flushTask = nil
         pendingSurfaceIDs.removeAll()
     }
 
-    #if DEBUG
-    func flushForTesting() {
-        workItem?.cancel()
-        flush()
-    }
-    #endif
-
     private func flush() {
-        workItem = nil
+        flushTask = nil
         guard !pendingSurfaceIDs.isEmpty else { return }
         let surfaceIDs = pendingSurfaceIDs
         pendingSurfaceIDs.removeAll(keepingCapacity: true)
@@ -88,7 +85,7 @@ final class MobileTerminalRenderObserver {
     private var isEmitFlushScheduled = false
     private var renderGridStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
     private var terminalThemesBySurfaceID: [UUID: TerminalTheme] = [:]
-    private var runtimeSurfaceIdentitiesBySurfaceID: [UUID: UInt] = [:]
+    private var runtimeSurfaceGenerationsBySurfaceID: [UUID: UInt64] = [:]
     private var reconciledSurfaceTopologyGeneration: UInt64?
     private var cachedTerminalTheme: TerminalTheme = .monokai
     private var hasLoadedTerminalTheme = false
@@ -186,7 +183,7 @@ final class MobileTerminalRenderObserver {
         isEmitFlushScheduled = false
         renderGridStatesBySurfaceID.removeAll()
         terminalThemesBySurfaceID.removeAll()
-        runtimeSurfaceIdentitiesBySurfaceID.removeAll()
+        runtimeSurfaceGenerationsBySurfaceID.removeAll()
         hasLoadedTerminalTheme = false
     }
 
@@ -323,13 +320,13 @@ final class MobileTerminalRenderObserver {
     private func emitRenderGrid(surfaceID: UUID, forceIncludeTheme: Bool) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
-              let runtimeSurface = surface.surface else {
+              surface.surface != nil else {
             clearRenderGridCache(surfaceID: surfaceID)
             return
         }
-        let runtimeIdentity = UInt(bitPattern: runtimeSurface)
-        let didReplaceRuntimeSurface = runtimeSurfaceIdentitiesBySurfaceID[surfaceID]
-            .map { $0 != runtimeIdentity } ?? false
+        let runtimeGeneration = surface.runtimeSurfaceGeneration
+        let didReplaceRuntimeSurface = runtimeSurfaceGenerationsBySurfaceID[surfaceID]
+            .map { $0 != runtimeGeneration } ?? false
         if didReplaceRuntimeSurface {
             clearRenderGridCache(surfaceID: surfaceID)
         }
@@ -360,7 +357,8 @@ final class MobileTerminalRenderObserver {
         } else {
             terminalThemesBySurfaceID[surfaceID] = themeDecision.theme
         }
-        runtimeSurfaceIdentitiesBySurfaceID[surfaceID] = runtimeIdentity
+        themedFrame.terminalConfigTheme = cachedTerminalTheme
+        runtimeSurfaceGenerationsBySurfaceID[surfaceID] = runtimeGeneration
         themedFrame.terminalThemeRevision = MobileTerminalThemeFrameRevision.next()
         guard let emission = try? themedFrame.renderGridEmission(
             comparedTo: renderGridStatesBySurfaceID[surfaceID]
@@ -399,7 +397,7 @@ final class MobileTerminalRenderObserver {
         let liveSurfaceIDs = Set(registry.allSurfaces().map(\.id))
         renderGridStatesBySurfaceID = renderGridStatesBySurfaceID.filter { liveSurfaceIDs.contains($0.key) }
         terminalThemesBySurfaceID = terminalThemesBySurfaceID.filter { liveSurfaceIDs.contains($0.key) }
-        runtimeSurfaceIdentitiesBySurfaceID = runtimeSurfaceIdentitiesBySurfaceID.filter {
+        runtimeSurfaceGenerationsBySurfaceID = runtimeSurfaceGenerationsBySurfaceID.filter {
             liveSurfaceIDs.contains($0.key)
         }
         // Store the revision read before enumeration. If topology changed during
@@ -410,13 +408,13 @@ final class MobileTerminalRenderObserver {
     private func clearRenderGridCache(surfaceID: UUID) {
         renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
         terminalThemesBySurfaceID.removeValue(forKey: surfaceID)
-        runtimeSurfaceIdentitiesBySurfaceID.removeValue(forKey: surfaceID)
+        runtimeSurfaceGenerationsBySurfaceID.removeValue(forKey: surfaceID)
     }
 
     private func clearRenderGridCaches() {
         renderGridStatesBySurfaceID.removeAll()
         terminalThemesBySurfaceID.removeAll()
-        runtimeSurfaceIdentitiesBySurfaceID.removeAll()
+        runtimeSurfaceGenerationsBySurfaceID.removeAll()
         reconciledSurfaceTopologyGeneration = nil
     }
 

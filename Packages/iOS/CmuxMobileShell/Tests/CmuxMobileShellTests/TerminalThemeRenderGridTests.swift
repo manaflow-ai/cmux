@@ -1,5 +1,7 @@
 import CMUXMobileCore
 import CmuxMobileShellModel
+import Observation
+import Synchronization
 import Testing
 @testable import CmuxMobileShell
 
@@ -285,6 +287,69 @@ import Testing
 
     #expect(store.terminalThemeState.themesBySurfaceID[surfaceID] == nil)
     #expect(store.terminalThemeState.revisionsBySurfaceID[surfaceID] == nil)
+}
+
+@MainActor
+@Test func reverseFrameKeepsRawConfigSeparateFromEffectiveChrome() throws {
+    let surfaceID = "terminal-reverse-theme"
+    let store = MobileShellComposite.preview()
+    store.selectedTerminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+    var rawConfig = TerminalTheme.monokai
+    rawConfig.background = "#eeeeee"
+    rawConfig.foreground = "#111111"
+    var effective = rawConfig
+    effective.background = rawConfig.foreground
+    effective.foreground = rawConfig.background
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        modes: [.init(code: 5, ansi: false, on: true)],
+        terminalForeground: rawConfig.foreground,
+        terminalBackground: rawConfig.background,
+        terminalTheme: effective,
+        terminalConfigTheme: rawConfig,
+        terminalThemeRevision: 1
+    )
+
+    store.recordTerminalTheme(frame)
+
+    #expect(store.activeTerminalTheme == effective)
+    #expect(store.activeTerminalConfigTheme == rawConfig)
+}
+
+@MainActor
+@available(macOS 15, *)
+@Test func inactiveSurfaceThemeCacheDoesNotInvalidateSelectedThemeObservation() throws {
+    let store = MobileShellComposite.preview()
+    let selectedID = MobileTerminalPreview.ID(rawValue: "terminal-selected")
+    store.selectedTerminalID = selectedID
+    let invalidations = Mutex(0)
+    withObservationTracking {
+        _ = store.activeTerminalTheme
+        _ = store.activeTerminalConfigTheme
+        _ = store.terminalThemeGeneration
+    } onChange: {
+        invalidations.withLock { $0 += 1 }
+    }
+    var inactive = TerminalTheme.monokai
+    inactive.background = "#f4f0df"
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-inactive",
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: inactive,
+        terminalConfigTheme: inactive,
+        terminalThemeRevision: 1
+    )
+
+    store.recordTerminalTheme(frame)
+
+    #expect(invalidations.withLock { $0 } == 0)
 }
 
 private func delayedFrame(

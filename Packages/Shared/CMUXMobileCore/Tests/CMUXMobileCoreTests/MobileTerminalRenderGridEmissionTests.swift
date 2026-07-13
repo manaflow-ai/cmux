@@ -166,3 +166,33 @@ import Testing
     #expect(emission.frame.full)
     #expect(emission.frame.terminalTheme == light)
 }
+
+@Test func renderGridEmissionKeepsConfigOnlyChangesAsFullSnapshots() throws {
+    var oldConfig = TerminalTheme.monokai
+    oldConfig.background = "#101820"
+    var newConfig = oldConfig
+    newConfig.background = "#f5f1e8"
+    let previous = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 50,
+        columns: 8,
+        rows: 2,
+        rowSpans: [.init(row: 0, column: 0, text: "same")],
+        terminalTheme: .monokai,
+        terminalConfigTheme: oldConfig
+    ).emissionState
+    let next = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 50,
+        columns: 8,
+        rows: 2,
+        rowSpans: [.init(row: 0, column: 0, text: "same")],
+        terminalTheme: .monokai,
+        terminalConfigTheme: newConfig
+    )
+
+    let emission = try #require(try next.renderGridEmission(comparedTo: previous))
+
+    #expect(emission.frame.full)
+    #expect(emission.frame.terminalConfigTheme == newConfig)
+}

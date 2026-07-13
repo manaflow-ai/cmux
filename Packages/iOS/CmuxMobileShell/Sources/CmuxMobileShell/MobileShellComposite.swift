@@ -328,15 +328,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceGroupCreate: Bool { supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
-    var terminalThemeState = MobileTerminalThemeState()
-    /// The selected terminal surface's theme, which is the source of truth for
-    /// iOS terminal chrome and the embedded renderer configuration.
-    public var activeTerminalTheme: TerminalTheme { terminalThemeState.activeTheme }
+    @ObservationIgnored var terminalThemeState = MobileTerminalThemeState()
+    /// The selected surface's effective theme and iOS chrome source of truth.
+    public internal(set) var activeTerminalTheme: TerminalTheme = .monokai
+    /// Raw Ghostty defaults, kept separate so OSC resets exclude dynamic colors.
+    public internal(set) var activeTerminalConfigTheme: TerminalTheme = .monokai
     /// Bumped whenever the selected surface's terminal theme actually changes.
     /// The mounted representable observes this and updates only its Ghostty
     /// surface plus SwiftUI/UIKit chrome without remounting, preserving
     /// scrollback and other scenes' independent themes.
-    public var terminalThemeGeneration: UInt64 { terminalThemeState.generation }
+    public internal(set) var terminalThemeGeneration: UInt64 = 0
     /// The composer's live draft for the currently selected terminal.
     ///
     /// Edits are persisted per-terminal through the FIFO draft pipeline on every

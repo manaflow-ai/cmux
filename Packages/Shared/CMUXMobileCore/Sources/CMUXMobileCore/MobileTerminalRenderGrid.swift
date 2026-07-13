@@ -45,6 +45,12 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// frames omit it because the most recent full snapshot remains
     /// authoritative until another full snapshot replaces it.
     public var terminalTheme: TerminalTheme?
+    /// The Mac terminal's raw configuration defaults when this is a full snapshot.
+    ///
+    /// Unlike ``terminalTheme``, these colors do not include OSC overrides or
+    /// DEC reverse-video. A mirror installs them as its Ghostty configuration so
+    /// OSC reset commands restore the same defaults as the Mac.
+    public var terminalConfigTheme: TerminalTheme?
     /// Monotonic producer order for full-frame theme metadata.
     public var terminalThemeRevision: UInt64?
     /// Count of scrollback lines carried in ``scrollbackSpans`` (rows above the
@@ -72,6 +78,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         terminalBackground: String? = nil,
         terminalCursorColor: String? = nil,
         terminalTheme: TerminalTheme? = nil,
+        terminalConfigTheme: TerminalTheme? = nil,
         terminalThemeRevision: UInt64? = nil,
         scrollbackRows: Int = 0,
         scrollbackSpans: [RowSpan] = []
@@ -150,6 +157,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.terminalBackground = terminalBackground
         self.terminalCursorColor = terminalCursorColor
         self.terminalTheme = full ? terminalTheme?.validatedOrDefault() : nil
+        self.terminalConfigTheme = full ? terminalConfigTheme?.validatedOrDefault() : nil
         self.terminalThemeRevision = full ? terminalThemeRevision : nil
         self.scrollbackRows = full ? resolvedScrollbackRows : 0
         self.scrollbackSpans = full ? scrollbackSpans : []
@@ -173,6 +181,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let terminalBackground = try container.decodeIfPresent(String.self, forKey: .terminalBackground)
         let terminalCursorColor = try container.decodeIfPresent(String.self, forKey: .terminalCursorColor)
         let terminalTheme = try container.decodeIfPresent(TerminalTheme.self, forKey: .terminalTheme)
+        let terminalConfigTheme = try container.decodeIfPresent(TerminalTheme.self, forKey: .terminalConfigTheme)
         let terminalThemeRevision = try container.decodeIfPresent(UInt64.self, forKey: .terminalThemeRevision)
         let scrollbackRows = try container.decodeIfPresent(Int.self, forKey: .scrollbackRows) ?? 0
         let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
@@ -193,6 +202,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
             terminalTheme: terminalTheme,
+            terminalConfigTheme: terminalConfigTheme,
             terminalThemeRevision: terminalThemeRevision,
             scrollbackRows: scrollbackRows,
             scrollbackSpans: scrollbackSpans
@@ -315,6 +325,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalBackground: full ? terminalBackground : nil,
             terminalCursorColor: full ? terminalCursorColor : nil,
             terminalTheme: full ? terminalTheme : nil,
+            terminalConfigTheme: full ? terminalConfigTheme : nil,
             terminalThemeRevision: full ? terminalThemeRevision : nil,
             scrollbackRows: full ? scrollbackRows : 0,
             scrollbackSpans: full ? scrollbackSpans : []
@@ -404,28 +415,6 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             end = previous
         }
         return String(String.UnicodeScalarView(scalars[..<end]))
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case format
-        case surfaceID = "surface_id"
-        case stateSeq = "state_seq"
-        case columns
-        case rows
-        case cursor
-        case full
-        case clearedRows = "cleared_rows"
-        case styles
-        case rowSpans = "row_spans"
-        case activeScreen = "active_screen"
-        case modes
-        case terminalForeground = "terminal_foreground"
-        case terminalBackground = "terminal_background"
-        case terminalCursorColor = "terminal_cursor_color"
-        case terminalTheme = "terminal_theme"
-        case terminalThemeRevision = "terminal_theme_revision"
-        case scrollbackRows = "scrollback_rows"
-        case scrollbackSpans = "scrollback_spans"
     }
 
     /// Which terminal screen a full snapshot represents.

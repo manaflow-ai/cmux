@@ -1,5 +1,7 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import Foundation
+import GhosttyKit
 import Testing
 import UIKit
 @testable import CmuxMobileTerminal
@@ -59,6 +61,59 @@ import UIKit
     for identifier in identifiers {
         #expect(before[identifier] === after[identifier])
     }
+}
+
+@MainActor
+@Test func reverseModeOSCResetsUseRawConfigDefaults() async throws {
+    let runtime = try GhosttyRuntime.shared()
+    let delegate = ThemeTestSurfaceDelegate()
+    var rawConfig = TerminalTheme.monokai
+    rawConfig.background = "#eeeeee"
+    rawConfig.foreground = "#111111"
+    var effectiveChrome = rawConfig
+    effectiveChrome.background = rawConfig.foreground
+    effectiveChrome.foreground = rawConfig.background
+    let view = GhosttySurfaceView(
+        runtime: runtime,
+        delegate: delegate,
+        terminalTheme: effectiveChrome,
+        terminalConfigTheme: rawConfig
+    )
+    defer { view.prepareForDismantle() }
+    let resetWhileReversed = Data(
+        ("\u{1B}]10;#123456\u{1B}\\" +
+            "\u{1B}]11;#654321\u{1B}\\" +
+            "\u{1B}[?5h" +
+            "\u{1B}]110\u{1B}\\" +
+            "\u{1B}]111\u{1B}\\").utf8
+    )
+
+    #expect(await view.processOutputAndWait(resetWhileReversed))
+    let frame = try exportThemeFrame(from: view)
+
+    #expect(frame.terminalBackground?.lowercased() == rawConfig.foreground.lowercased())
+    #expect(frame.terminalForeground?.lowercased() == rawConfig.background.lowercased())
+    #expect(view.configBackgroundColor == GhosttyRuntime.backgroundUIColor(for: effectiveChrome))
+}
+
+@MainActor
+private func exportThemeFrame(from view: GhosttySurfaceView) throws -> MobileTerminalRenderGridFrame {
+    let surface = try #require(view.surface)
+    let surfaceID = "reverse-reset-test"
+    let exported = surfaceID.withCString { pointer in
+        ghostty_surface_render_grid_json(
+            surface,
+            pointer,
+            UInt(surfaceID.utf8.count),
+            1,
+            0,
+            true
+        )
+    }
+    defer { ghostty_string_free(exported) }
+    let pointer = try #require(exported.ptr)
+    let data = Data(bytes: pointer, count: Int(exported.len))
+    return try JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data)
 }
 
 private extension UIView {

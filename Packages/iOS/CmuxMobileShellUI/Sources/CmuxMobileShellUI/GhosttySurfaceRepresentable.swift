@@ -38,6 +38,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var isComposerActive: Bool = false
     /// Theme for this exact Mac terminal surface.
     var terminalTheme: TerminalTheme
+    /// Raw Mac Ghostty defaults installed into the local mirror surface.
+    var terminalConfigTheme: TerminalTheme
     /// The store's terminal-theme generation. This drives a surface-local
     /// Ghostty config update without remounting or changing another scene.
     var themeGeneration: UInt64 = 0
@@ -65,7 +67,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             runtime: runtime,
             delegate: context.coordinator,
             fontSize: fontSize,
-            terminalTheme: terminalTheme
+            terminalTheme: terminalTheme,
+            terminalConfigTheme: terminalConfigTheme
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         #if DEBUG
@@ -99,13 +102,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
+        surfaceView.terminalConfigTheme = terminalConfigTheme
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         // Live theme change: apply a config only to this surface so other mounted
         // terminals keep their own palettes.
         context.coordinator.themeApplicationScheduler.schedule(generation: themeGeneration) { [weak surfaceView] in
             guard let surfaceView else { return }
-            GhosttyRuntime.applyTheme(terminalTheme, to: surfaceView)
+            GhosttyRuntime.applyTheme(terminalConfigTheme, to: surfaceView)
         }
         // A width change (rotation) is not a text change, so the field-content trigger
         // misses it. Re-measure the open composer here so the band height tracks the new

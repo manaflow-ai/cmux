@@ -478,6 +478,7 @@ import Testing
         ],
         terminalForeground: "#010203",
         terminalTheme: terminalTheme,
+        terminalConfigTheme: .monokai,
         scrollbackRows: 1,
         scrollbackSpans: [.init(row: 0, column: 0, text: "sb")]
     )
@@ -511,8 +512,7 @@ import Testing
         scrollbackSpans: [.init(row: 0, column: 0, text: "sb")]
     )
 
-    // A delta frame carries no scrollback and does not enter the alt screen or
-    // replay unrelated modes; it normalizes coordinates, then clears and
+    // A delta carries no scrollback or unrelated mode transitions; it normalizes coordinates, then clears and
     // repaints its changed rows.
     #expect(frame.scrollbackRows == 0)
     #expect(frame.scrollbackSpans.isEmpty)

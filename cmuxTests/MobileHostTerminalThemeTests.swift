@@ -70,20 +70,47 @@ import Testing
     }
 
     @MainActor
-    @Test func producerThemeInvalidationsCoalesceToLatestSurfaceBatch() {
+    @Test func producerThemeInvalidationsCoalesceToLatestSurfaceBatch() async {
         let first = UUID()
         let second = UUID()
-        var batches: [Set<UUID>] = []
-        let scheduler = MobileTerminalThemeInvalidationScheduler(delay: .seconds(60)) {
-            batches.append($0)
+        let clock = ThemeInvalidationTestClock()
+        let batches = AsyncStream<Set<UUID>>.makeStream()
+        defer { batches.continuation.finish() }
+        let scheduler = MobileTerminalThemeInvalidationScheduler(
+            delay: .milliseconds(100),
+            clock: clock
+        ) {
+            batches.continuation.yield($0)
         }
 
         scheduler.schedule(surfaceID: first)
         scheduler.schedule(surfaceID: first)
         scheduler.schedule(surfaceID: second)
-        scheduler.flushForTesting()
+        await clock.waitUntilSleeping()
+        clock.advance(by: .milliseconds(100))
+        var iterator = batches.stream.makeAsyncIterator()
+        let batch = await iterator.next()
 
-        #expect(batches == [Set([first, second])])
+        #expect(batch == Set([first, second]))
+    }
+
+    @MainActor
+    @Test func cancellingProducerThemeInvalidationDropsPendingBatch() async {
+        let clock = ThemeInvalidationTestClock()
+        var batches: [Set<UUID>] = []
+        let scheduler = MobileTerminalThemeInvalidationScheduler(
+            delay: .milliseconds(100),
+            clock: clock
+        ) {
+            batches.append($0)
+        }
+
+        scheduler.schedule(surfaceID: UUID())
+        await clock.waitUntilSleeping()
+        scheduler.cancel()
+        await clock.waitUntilIdle()
+
+        #expect(batches.isEmpty)
     }
 
     @Test func ordinaryTicksDeferChangedThemeUntilProducerBatch() {
@@ -107,5 +134,109 @@ import Testing
         #expect(ordinaryTick.shouldScheduleCandidate)
         #expect(invalidationBatch.theme == candidate)
         #expect(!invalidationBatch.shouldScheduleCandidate)
+    }
+}
+
+private final class ThemeInvalidationTestClock: Clock, @unchecked Sendable {
+    struct Instant: InstantProtocol, Sendable {
+        var offset: Duration
+
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    private struct Sleeper {
+        let deadline: Instant
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
+    private let lock = NSLock()
+    private var currentInstant = Instant(offset: .zero)
+    private var sleepers: [UUID: Sleeper] = [:]
+    private var cancelledSleeperIDs: Set<UUID> = []
+    private var sleepWaiters: [CheckedContinuation<Void, Never>] = []
+    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+
+    var now: Instant {
+        lock.lock()
+        defer { lock.unlock() }
+        return currentInstant
+    }
+
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                lock.lock()
+                if cancelledSleeperIDs.remove(id) != nil {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if deadline <= currentInstant {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                sleepers[id] = Sleeper(deadline: deadline, continuation: continuation)
+                let waiters = sleepWaiters
+                sleepWaiters.removeAll()
+                lock.unlock()
+                for waiter in waiters { waiter.resume() }
+            }
+        } onCancel: {
+            lock.lock()
+            let sleeper = sleepers.removeValue(forKey: id)
+            if sleeper == nil { cancelledSleeperIDs.insert(id) }
+            let waiters = sleepers.isEmpty ? idleWaiters : []
+            if sleepers.isEmpty { idleWaiters.removeAll() }
+            lock.unlock()
+            sleeper?.continuation.resume(throwing: CancellationError())
+            for waiter in waiters { waiter.resume() }
+        }
+    }
+
+    func waitUntilSleeping() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if sleepers.isEmpty {
+                sleepWaiters.append(continuation)
+                lock.unlock()
+            } else {
+                lock.unlock()
+                continuation.resume()
+            }
+        }
+    }
+
+    func advance(by duration: Duration) {
+        lock.lock()
+        currentInstant = currentInstant.advanced(by: duration)
+        var due: [Sleeper] = []
+        for (id, sleeper) in sleepers where sleeper.deadline <= currentInstant {
+            sleepers[id] = nil
+            due.append(sleeper)
+        }
+        let waiters = sleepers.isEmpty ? idleWaiters : []
+        if sleepers.isEmpty { idleWaiters.removeAll() }
+        lock.unlock()
+        for sleeper in due { sleeper.continuation.resume() }
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func waitUntilIdle() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if sleepers.isEmpty {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                idleWaiters.append(continuation)
+                lock.unlock()
+            }
+        }
     }
 }

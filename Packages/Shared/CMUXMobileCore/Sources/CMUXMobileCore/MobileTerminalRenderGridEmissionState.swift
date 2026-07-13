@@ -14,6 +14,8 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     public let activeScreen: MobileTerminalRenderGridFrame.Screen
     /// Resolved terminal theme represented by the source full frame.
     public let terminalTheme: TerminalTheme?
+    /// Raw terminal configuration theme represented by the source full frame.
+    public let terminalConfigTheme: TerminalTheme?
     /// Per-row text/style signatures from ``MobileTerminalRenderGridFrame/rowSignatures()``.
     public let rowSignatures: [String]
 
@@ -25,6 +27,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     ///   - stateSeq: Terminal byte sequence covered by the source frame.
     ///   - activeScreen: Terminal screen represented by the source frame.
     ///   - terminalTheme: Resolved terminal theme represented by the source frame.
+    ///   - terminalConfigTheme: Raw configuration defaults represented by the source frame.
     ///   - rowSignatures: Per-row text/style signatures for the source frame.
     ///     The count must match `rows`.
     public init(
@@ -33,6 +36,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         stateSeq: UInt64,
         activeScreen: MobileTerminalRenderGridFrame.Screen,
         terminalTheme: TerminalTheme? = nil,
+        terminalConfigTheme: TerminalTheme? = nil,
         rowSignatures: [String]
     ) {
         precondition(columns >= 0, "columns must be non-negative")
@@ -43,6 +47,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         self.stateSeq = stateSeq
         self.activeScreen = activeScreen
         self.terminalTheme = terminalTheme
+        self.terminalConfigTheme = terminalConfigTheme
         self.rowSignatures = rowSignatures
     }
 }

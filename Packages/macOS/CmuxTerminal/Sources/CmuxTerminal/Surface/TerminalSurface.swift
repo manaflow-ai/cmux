@@ -59,7 +59,18 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     /// The live runtime surface pointer, or nil before creation/after teardown.
-    public internal(set) var surface: ghostty_surface_t?
+    public internal(set) var surface: ghostty_surface_t? {
+        didSet {
+            guard surface != oldValue else { return }
+            runtimeSurfaceGeneration &+= 1
+        }
+    }
+    /// Monotonic lifetime identity for the native Ghostty surface.
+    ///
+    /// The generation advances whenever the runtime handle is installed or
+    /// removed, so clients can invalidate pointer-backed caches even when an
+    /// allocator later reuses the same address.
+    public private(set) var runtimeSurfaceGeneration: UInt64 = 0
     weak var attachedView: (any TerminalSurfaceNativeViewing)?
     // MARK: Injected collaborators (see TerminalSurfaceRuntimeDependencies)
     let registry: any TerminalSurfaceRegistering

@@ -22,8 +22,14 @@ extension MobileShellComposite {
             terminalThemeState.revisionsBySurfaceID[frame.surfaceID] = revision
         }
         terminalThemeState.themesBySurfaceID[frame.surfaceID] = theme
+        if let configTheme = frame.terminalConfigTheme?.validatedOrDefault() {
+            terminalThemeState.configThemesBySurfaceID[frame.surfaceID] = configTheme
+        }
         if selectedTerminalID?.rawValue == frame.surfaceID {
-            setActiveTerminalTheme(theme)
+            setActiveTerminalThemes(
+                chrome: theme,
+                config: terminalThemeState.configTheme(for: frame.surfaceID)
+            )
         }
     }
 
@@ -33,14 +39,21 @@ extension MobileShellComposite {
         terminalThemeState.theme(for: surfaceID)
     }
 
+    /// Returns the raw Ghostty defaults for one surface.
+    public func terminalConfigTheme(for surfaceID: String) -> TerminalTheme {
+        terminalThemeState.configTheme(for: surfaceID)
+    }
+
     func applySelectedTerminalTheme() {
-        let theme = selectedTerminalID.map { terminalTheme(for: $0.rawValue) }
-            ?? terminalThemeState.hostTheme
-        setActiveTerminalTheme(theme)
+        let surfaceID = selectedTerminalID?.rawValue
+        let theme = surfaceID.map(terminalTheme(for:)) ?? terminalThemeState.hostTheme
+        let configTheme = surfaceID.map(terminalConfigTheme(for:)) ?? terminalThemeState.hostTheme
+        setActiveTerminalThemes(chrome: theme, config: configTheme)
     }
 
     func resetTerminalThemes() {
         terminalThemeState = MobileTerminalThemeState()
+        setActiveTerminalThemes(chrome: .monokai, config: .monokai)
     }
 
     func prepareTerminalThemeRevisionAuthority(
@@ -58,6 +71,7 @@ extension MobileShellComposite {
         terminalThemeState.revisionAuthority = authority
         terminalThemeState.revisionsBySurfaceID.removeAll(keepingCapacity: true)
         terminalThemeState.themesBySurfaceID.removeAll(keepingCapacity: true)
+        terminalThemeState.configThemesBySurfaceID.removeAll(keepingCapacity: true)
         applySelectedTerminalTheme()
     }
 
@@ -66,15 +80,19 @@ extension MobileShellComposite {
         terminalThemeState.themesBySurfaceID = terminalThemeState.themesBySurfaceID.filter {
             surfaceIDs.contains($0.key)
         }
+        terminalThemeState.configThemesBySurfaceID = terminalThemeState.configThemesBySurfaceID.filter {
+            surfaceIDs.contains($0.key)
+        }
         terminalThemeState.revisionsBySurfaceID = terminalThemeState.revisionsBySurfaceID.filter {
             surfaceIDs.contains($0.key)
         }
     }
 
-    private func setActiveTerminalTheme(_ theme: TerminalTheme) {
-        guard terminalThemeState.activeTheme != theme else { return }
-        terminalThemeState.activeTheme = theme
-        terminalThemeState.generation &+= 1
+    private func setActiveTerminalThemes(chrome: TerminalTheme, config: TerminalTheme) {
+        guard activeTerminalTheme != chrome || activeTerminalConfigTheme != config else { return }
+        activeTerminalTheme = chrome
+        activeTerminalConfigTheme = config
+        terminalThemeGeneration &+= 1
     }
 
     #if DEBUG

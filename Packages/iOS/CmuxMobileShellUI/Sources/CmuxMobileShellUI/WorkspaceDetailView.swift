@@ -208,6 +208,7 @@ struct WorkspaceDetailView: View {
                     autoFocusOnWindowAttach: shouldAutoFocus,
                     isComposerActive: store.isComposerPresented,
                     terminalTheme: store.activeTerminalTheme,
+                    terminalConfigTheme: store.activeTerminalConfigTheme,
                     // Drives the live recolor: when the synced theme changes the
                     // shell bumps this, and the representable rebuilds the runtime
                     // config + recolors the mounted surface in place (background,
