@@ -8,6 +8,12 @@ extension MobileShellComposite {
         case failClosed
     }
 
+    enum WorkspaceCreateCaughtErrorDisposition: Equatable {
+        case preserveSuccess
+        case failClosed
+        case surfaceError
+    }
+
     /// Exact remote target captured before a workspace-create request suspends.
     struct WorkspaceCreatePinnedContext {
         let macDeviceID: String?
@@ -34,6 +40,17 @@ extension MobileShellComposite {
             isCurrent: Bool
         ) -> WorkspaceCreatePostResponseDisposition {
             guard isCancelled || !isCurrent else { return .apply }
+            return operationID == nil ? .preserveSuccess : .failClosed
+        }
+
+        /// Settles a thrown create by what actually interrupted the request.
+        /// Ambient task cancellation can race delivery of a definite host error,
+        /// so it cannot classify that error as an ambiguous legacy create.
+        static func caughtErrorDisposition(
+            operationID: UUID?,
+            error: any Error
+        ) -> WorkspaceCreateCaughtErrorDisposition {
+            guard error is CancellationError else { return .surfaceError }
             return operationID == nil ? .preserveSuccess : .failClosed
         }
     }

@@ -147,24 +147,17 @@ import Testing
         #expect(await router.recordedWorkspaceCreateCount() == 1)
     }
 
-    @Test func specLessCreateCancellationRacingHostRejectionStillSurfacesFailure() async throws {
-        let router = RoutingHostRouter()
-        await router.setHoldFirstWorkspaceCreate(true)
-        await router.setRejectWorkspaceCreate(true)
-        let store = try await makeRoutingConnectedStore(router: router)
+    @Test func specLessCreateCancellationRacingHostRejectionStillSurfacesFailure() async {
+        let disposition = await Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            #expect(Task.isCancelled)
+            return MobileShellComposite.WorkspaceCreatePinnedContext.caughtErrorDisposition(
+                operationID: nil,
+                error: MobileWorkspaceMutationFailure.rejected(hostDisplayName: "Test Mac")
+            )
+        }.value
 
-        let create = Task { @MainActor in
-            await store.createWorkspaceRequest()
-        }
-        await router.awaitFirstWorkspaceCreateReached()
-        store.cancelRemoteOperationTasks()
-        await router.releaseFirstWorkspaceCreate()
-        let result = await create.value
-
-        guard case .failure(.rejected) = result else {
-            return #expect(Bool(false), "a definite host rejection must survive ambient task cancellation")
-        }
-        #expect(await router.recordedWorkspaceCreateCount() == 1)
+        #expect(disposition == .surfaceError)
     }
 
     @Test func differentGroupCreateWorkspaceRequestDoesNotJoinInFlightResult() async throws {

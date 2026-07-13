@@ -133,15 +133,21 @@ extension MobileShellComposite {
             return .success(())
         } catch {
             let isCurrentContext = isCurrentWorkspaceCreateContext(context)
-            if spec?.operationID == nil, Task.isCancelled {
+            switch WorkspaceCreatePinnedContext.caughtErrorDisposition(
+                operationID: spec?.operationID,
+                error: error
+            ) {
+            case .preserveSuccess:
                 // A legacy create has no idempotency key, so an interrupted
                 // request may already have succeeded and cannot be retried
-                // safely. Task-composer creates have an operation ID and fail
-                // closed instead.
+                // safely. A definite host rejection must remain a failure even
+                // when cancellation races its delivery. Task-composer creates
+                // have an operation ID and fail closed instead.
                 return .success(())
-            }
-            if Task.isCancelled {
+            case .failClosed:
                 return .failure(.notConnected(hostDisplayName: context.hostDisplayName))
+            case .surfaceError:
+                break
             }
             // A stale operation (connection replaced mid-flight) must not mutate
             // the NEW connection's state, but it must still report failure:
