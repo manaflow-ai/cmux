@@ -8,22 +8,34 @@ final class TerminalNotificationPolicyInFlightStore {
     private struct Entry {
         let request: TerminalNotificationPolicyRequest
         let generation: UInt64
+        let onDiscard: @MainActor @Sendable () -> Void
+        var task: Task<Void, Never>?
     }
     private let maximumRequestCount = 1_024
     private var requests: [UUID: Entry] = [:]
     private var requestOrder: [UUID] = []
     private var requestOrderOffset = 0
 
-    func register(_ request: TerminalNotificationPolicyRequest, generation: UInt64) -> UUID {
+    func register(
+        _ request: TerminalNotificationPolicyRequest,
+        generation: UInt64,
+        onDiscard: @escaping @MainActor @Sendable () -> Void
+    ) -> UUID {
         compactRequestOrderIfNeeded()
         while requests.count >= maximumRequestCount, requestOrderOffset < requestOrder.count {
-            requests.removeValue(forKey: requestOrder[requestOrderOffset])
+            discardRequest(requestOrder[requestOrderOffset])
             requestOrderOffset += 1
         }
         let id = UUID()
-        requests[id] = Entry(request: request, generation: generation)
+        requests[id] = Entry(request: request, generation: generation, onDiscard: onDiscard, task: nil)
         requestOrder.append(id)
         return id
+    }
+
+    func attach(task: Task<Void, Never>, to id: UUID) {
+        guard var entry = requests[id] else { task.cancel(); return }
+        entry.task = task
+        requests[id] = entry
     }
 
     func claim(_ id: UUID?) -> Bool {
@@ -32,13 +44,15 @@ final class TerminalNotificationPolicyInFlightStore {
     }
 
     func discardAll(through generation: UInt64? = nil) {
-        guard let generation else {
-            requests.removeAll()
+        let ids = requests.compactMap { id, entry in
+            if let generation, entry.generation > generation { return nil }
+            return id
+        }
+        ids.forEach(discardRequest)
+        if generation == nil {
             requestOrder.removeAll(keepingCapacity: true)
             requestOrderOffset = 0
-            return
         }
-        requests = requests.filter { $0.value.generation > generation }
     }
 
     /// Discards requests by their delivery identity: source-confined requests
@@ -47,19 +61,26 @@ final class TerminalNotificationPolicyInFlightStore {
     func discard(forTabId tabId: UUID, surfaceId: UUID?, through generation: UInt64? = nil) {
         var resolvedSurfaces = Set<UUID>()
         var liveOwnersBySurface: [UUID: UUID] = [:]
-        requests = requests.filter { _, entry in
-            if let generation, entry.generation > generation { return true }
+        var idsToDiscard: [UUID] = []
+        for (id, entry) in requests {
+            if let generation, entry.generation > generation { continue }
             let request = entry.request
             if !request.retargetsToLiveSurfaceOwner {
                 if let surfaceId {
-                    return request.tabId != tabId || request.surfaceId != surfaceId
+                    if request.tabId == tabId, request.surfaceId == surfaceId { idsToDiscard.append(id) }
+                } else if request.tabId == tabId {
+                    idsToDiscard.append(id)
                 }
-                return request.tabId != tabId
+                continue
             }
             if let surfaceId {
-                return request.surfaceId != surfaceId
+                if request.surfaceId == surfaceId { idsToDiscard.append(id) }
+                continue
             }
-            guard let requestSurfaceId = request.surfaceId else { return request.tabId != tabId }
+            guard let requestSurfaceId = request.surfaceId else {
+                if request.tabId == tabId { idsToDiscard.append(id) }
+                continue
+            }
             let liveTabId: UUID
             if resolvedSurfaces.insert(requestSurfaceId).inserted {
                 let owner = AppDelegate.shared?.agentNotificationDeliveryTarget(
@@ -71,8 +92,15 @@ final class TerminalNotificationPolicyInFlightStore {
             } else {
                 liveTabId = liveOwnersBySurface[requestSurfaceId] ?? request.tabId
             }
-            return liveTabId != tabId
+            if liveTabId == tabId { idsToDiscard.append(id) }
         }
+        idsToDiscard.forEach(discardRequest)
+    }
+
+    private func discardRequest(_ id: UUID) {
+        guard let entry = requests.removeValue(forKey: id) else { return }
+        entry.task?.cancel()
+        entry.onDiscard()
     }
 
     private func compactRequestOrderIfNeeded() {

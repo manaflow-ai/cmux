@@ -59,6 +59,7 @@ public final class MobilePushCoordinator {
         let macDeviceId: String?
         let retargetsToLiveSurfaceOwner: Bool
         let createdAt: Date
+        let lastNavigatedWorkspaceId: MobileWorkspacePreview.ID?
     }
 
     @ObservationIgnored private var pendingDeeplink: PendingDeeplink?
@@ -245,7 +246,8 @@ public final class MobilePushCoordinator {
             surfaceId: surfaceId,
             macDeviceId: macDeviceId,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
-            createdAt: now()
+            createdAt: now(),
+            lastNavigatedWorkspaceId: nil
         )
         applyPendingDeeplinkIfReady()
     }
@@ -292,7 +294,9 @@ public final class MobilePushCoordinator {
            !store.workspace(workspaceTarget, containsSurfaceID: surfaceId) {
             // The workspace is here but its terminal snapshot is not (still
             // loading, closed, or moved). Land the user in the right workspace.
-            store.navigateToWorkspaceForDeeplink(workspaceTarget)
+            if pending.lastNavigatedWorkspaceId != workspaceTarget {
+                store.navigateToWorkspaceForDeeplink(workspaceTarget)
+            }
             if !pending.retargetsToLiveSurfaceOwner,
                let liveOwner = store.workspaceID(
                    containingSurfaceID: surfaceId,
@@ -317,12 +321,15 @@ public final class MobilePushCoordinator {
                 surfaceId: surfaceId,
                 macDeviceId: pending.macDeviceId,
                 retargetsToLiveSurfaceOwner: pending.retargetsToLiveSurfaceOwner,
-                createdAt: pending.createdAt
+                createdAt: pending.createdAt,
+                lastNavigatedWorkspaceId: workspaceTarget
             )
             return
         }
 
-        store.navigateToWorkspaceForDeeplink(workspaceTarget)
+        if pending.lastNavigatedWorkspaceId != workspaceTarget {
+            store.navigateToWorkspaceForDeeplink(workspaceTarget)
+        }
         if let surfaceId = pending.surfaceId {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
         }

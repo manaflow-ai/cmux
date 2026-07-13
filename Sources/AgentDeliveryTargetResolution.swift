@@ -7,9 +7,9 @@ import Foundation
 /// Invariant (https://github.com/manaflow-ai/cmux/issues/7939): an agent that
 /// finishes in pane P of workspace W gets its notification, unread ring, and
 /// status on exactly P in W. Attribution therefore resolves from LIVE identity
-/// at delivery time — the agent process's controlling terminal and the
-/// surface's current workspace — never from spawn-time environment, a stale
-/// tty registry row, or a persisted session record alone.
+/// at delivery time — the exact live process's controlling terminal and
+/// start-time-keyed environment, plus the surface's current workspace — never
+/// from a stale tty registry row or a persisted session record alone.
 ///
 /// Two lookups implement this:
 /// - pid → surface: the agent process's controlling tty device
@@ -29,14 +29,14 @@ nonisolated struct AgentDeliveryTargetCandidate: Equatable {
     let surfaceId: UUID
 }
 
-/// Combines the two pid signals. The controlling-tty match is the live kernel
-/// fact and is required; inherited `CMUX_SURFACE_ID` and the reported surface
-/// TTY mapping can each be stale, so disagreement fails closed.
+/// Combines the two live pid signals. The start-time-keyed process environment
+/// covers nested PTYs whose controlling TTY differs from the cmux pane. When
+/// both signals resolve, disagreement still fails closed.
 nonisolated func agentDeliveryTargetCombining(
     ttyTarget: AgentDeliveryTargetCandidate?,
     envTarget: AgentDeliveryTargetCandidate?
 ) -> AgentDeliveryTargetCandidate? {
-    guard let ttyTarget else { return nil }
+    guard let ttyTarget else { return envTarget }
     if let envTarget, envTarget.surfaceId != ttyTarget.surfaceId { return nil }
     return ttyTarget
 }
@@ -94,10 +94,10 @@ extension Workspace {
 extension AppDelegate {
     /// The live pane that owns the given agent process right now: the
     /// process's controlling tty matched against every surface's pty device
-    /// (unique-match only), corroborated — never replaced — by the process's
-    /// own `CMUX_SURFACE_ID` environment re-homed through
-    /// `workspaceContainingPanel`. Disagreement fails closed, and an env-only
-    /// answer still refuses.
+    /// (unique-match only), with the exact live process's start-time-keyed
+    /// `CMUX_SURFACE_ID` environment re-homed through
+    /// `workspaceContainingPanel` as a nested-PTY fallback. Disagreement fails
+    /// closed.
     func liveAgentDeliveryTarget(forAgentPID pid: pid_t) -> AgentDeliveryTargetCandidate? {
         guard let identity = agentLiveProcessIdentity(pid: pid) else { return nil }
 
