@@ -10,10 +10,8 @@ import Testing
         let metrics = CmuxSidebarGitRuntimeMetrics()
         metrics.reset(enable: true)
 
-        let result = try await SidebarGitOwnerPerformanceExercise.run(
-            requestCount: 4,
-            runtimeMetricsRecorder: metrics
-        )
+        let exercise = SidebarGitOwnerPerformanceExercise(runtimeMetricsRecorder: metrics)
+        let result = try await exercise.run(requestCount: 4)
         let snapshot = metrics.snapshot()
 
         #expect(result.requestCount == 4)
@@ -94,15 +92,15 @@ import Testing
         let probe = SidebarGitOwnerPerformanceCleanupProbe()
         let metrics = CmuxSidebarGitRuntimeMetrics()
         metrics.reset(enable: true)
+        let exercise = SidebarGitOwnerPerformanceExercise(
+            runtimeMetricsRecorder: metrics,
+            deadlineClock: clock,
+            lifecycleDeadline: .seconds(1),
+            fault: .missingFetchSignal,
+            cleanupProbe: probe
+        )
         let task = Task { @MainActor in
-            try await SidebarGitOwnerPerformanceExercise.run(
-                requestCount: 4,
-                runtimeMetricsRecorder: metrics,
-                deadlineClock: clock,
-                lifecycleDeadline: .seconds(1),
-                fault: .missingFetchSignal,
-                cleanupProbe: probe
-            )
+            try await exercise.run(requestCount: 4)
         }
 
         #expect(await clock.waitForRecordedDuration(1, count: 1))
@@ -124,15 +122,15 @@ import Testing
         let probe = SidebarGitOwnerPerformanceCleanupProbe()
         let metrics = CmuxSidebarGitRuntimeMetrics()
         metrics.reset(enable: true)
+        let exercise = SidebarGitOwnerPerformanceExercise(
+            runtimeMetricsRecorder: metrics,
+            deadlineClock: clock,
+            lifecycleDeadline: .seconds(1),
+            fault: .missingBadgeApplySignal,
+            cleanupProbe: probe
+        )
         let task = Task { @MainActor in
-            try await SidebarGitOwnerPerformanceExercise.run(
-                requestCount: 4,
-                runtimeMetricsRecorder: metrics,
-                deadlineClock: clock,
-                lifecycleDeadline: .seconds(1),
-                fault: .missingBadgeApplySignal,
-                cleanupProbe: probe
-            )
+            try await exercise.run(requestCount: 4)
         }
 
         #expect(await clock.waitForRecordedDuration(1, count: 2))
@@ -154,15 +152,15 @@ import Testing
         let probe = SidebarGitOwnerPerformanceCleanupProbe()
         let metrics = CmuxSidebarGitRuntimeMetrics()
         metrics.reset(enable: true)
+        let exercise = SidebarGitOwnerPerformanceExercise(
+            runtimeMetricsRecorder: metrics,
+            deadlineClock: clock,
+            lifecycleDeadline: .seconds(1),
+            fault: .missingFetchSignal,
+            cleanupProbe: probe
+        )
         let task = Task { @MainActor in
-            try await SidebarGitOwnerPerformanceExercise.run(
-                requestCount: 4,
-                runtimeMetricsRecorder: metrics,
-                deadlineClock: clock,
-                lifecycleDeadline: .seconds(1),
-                fault: .missingFetchSignal,
-                cleanupProbe: probe
-            )
+            try await exercise.run(requestCount: 4)
         }
 
         #expect(await clock.waitForRecordedDuration(1, count: 1))

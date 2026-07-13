@@ -31,10 +31,10 @@ extension TerminalController: ControlPerformanceContext {
         }
 
         do {
-            let git = try await GitOwnerPerformanceExercise.run(
+            let git = try await GitOwnerPerformanceExercise().run(
                 requestCount: concurrentRequests
             )
-            let sidebarGit = try await SidebarGitOwnerPerformanceExercise.run(
+            let sidebarGit = try await SidebarGitOwnerPerformanceExercise().run(
                 requestCount: concurrentRequests
             )
             guard git.completedSnapshotCount == concurrentRequests,

@@ -14,17 +14,20 @@ public struct GitOwnerPerformanceExerciseResult: Sendable {
 
 /// Runs the production tracked-status cache path against an isolated temporary
 /// repository. It does not inspect user repositories or spawn a process.
-public enum GitOwnerPerformanceExercise {
-    public static func run(requestCount: Int) async throws -> GitOwnerPerformanceExerciseResult {
-        try await run(
-            requestCount: requestCount,
-            runtimeMetricsRecorder: GitMetadataService.runtimeMetrics
-        )
+public struct GitOwnerPerformanceExercise: Sendable {
+    private let runtimeMetricsRecorder: CmuxGitRuntimeMetrics
+
+    /// Creates an exercise that records through the production metrics owner.
+    public init() {
+        runtimeMetricsRecorder = GitMetadataService.runtimeMetrics
     }
 
-    static func run(
-        requestCount: Int,
-        runtimeMetricsRecorder: CmuxGitRuntimeMetrics
+    init(runtimeMetricsRecorder: CmuxGitRuntimeMetrics) {
+        self.runtimeMetricsRecorder = runtimeMetricsRecorder
+    }
+
+    public func run(
+        requestCount: Int
     ) async throws -> GitOwnerPerformanceExerciseResult {
         guard (2...8).contains(requestCount) else {
             throw GitOwnerPerformanceExerciseError.invalidRequestCount

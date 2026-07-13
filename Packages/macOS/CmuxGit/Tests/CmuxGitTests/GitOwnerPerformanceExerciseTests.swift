@@ -7,10 +7,8 @@ import Testing
         let metrics = CmuxGitRuntimeMetrics()
         metrics.reset(enable: true)
 
-        let result = try await GitOwnerPerformanceExercise.run(
-            requestCount: 4,
-            runtimeMetricsRecorder: metrics
-        )
+        let exercise = GitOwnerPerformanceExercise(runtimeMetricsRecorder: metrics)
+        let result = try await exercise.run(requestCount: 4)
         let snapshot = metrics.snapshot()
 
         #expect(result.requestCount == 4)

@@ -41,27 +41,41 @@ actor SidebarGitOwnerPerformanceCleanupProbe {
 /// Runs the production PR scheduler and completion-authority state machine with
 /// an isolated in-memory host and staged executor. It uses no GitHub network or
 /// user workspace state.
-public enum SidebarGitOwnerPerformanceExercise {
-    private static let defaultLifecycleDeadline: Duration = .seconds(10)
+public struct SidebarGitOwnerPerformanceExercise: Sendable {
+    private let runtimeMetricsRecorder: CmuxSidebarGitRuntimeMetrics
+    private let deadlineClock: any GitPollClock
+    private let lifecycleDeadline: Duration
+    private let fault: SidebarGitOwnerPerformanceExerciseFault
+    private let cleanupProbe: SidebarGitOwnerPerformanceCleanupProbe?
 
+    /// Creates an exercise with the production metrics owner and system clock.
     @MainActor
-    public static func run(
-        requestCount: Int
-    ) async throws -> SidebarGitOwnerPerformanceExerciseResult {
-        try await run(
-            requestCount: requestCount,
-            runtimeMetricsRecorder: SidebarGitMetadataService.runtimeMetrics
-        )
+    public init() {
+        runtimeMetricsRecorder = SidebarGitMetadataService.runtimeMetrics
+        deadlineClock = SystemGitPollClock()
+        lifecycleDeadline = .seconds(10)
+        fault = []
+        cleanupProbe = nil
     }
 
     @MainActor
-    static func run(
-        requestCount: Int,
+    init(
         runtimeMetricsRecorder: CmuxSidebarGitRuntimeMetrics,
         deadlineClock: any GitPollClock = SystemGitPollClock(),
-        lifecycleDeadline: Duration = defaultLifecycleDeadline,
+        lifecycleDeadline: Duration = .seconds(10),
         fault: SidebarGitOwnerPerformanceExerciseFault = [],
         cleanupProbe: SidebarGitOwnerPerformanceCleanupProbe? = nil
+    ) {
+        self.runtimeMetricsRecorder = runtimeMetricsRecorder
+        self.deadlineClock = deadlineClock
+        self.lifecycleDeadline = lifecycleDeadline
+        self.fault = fault
+        self.cleanupProbe = cleanupProbe
+    }
+
+    @MainActor
+    public func run(
+        requestCount: Int
     ) async throws -> SidebarGitOwnerPerformanceExerciseResult {
         guard (2...8).contains(requestCount) else {
             throw SidebarGitOwnerPerformanceExerciseError.invalidRequestCount
@@ -77,8 +91,7 @@ public enum SidebarGitOwnerPerformanceExercise {
         )
         let singleFlightService = makeService(
             host: singleFlightHost,
-            executor: singleFlightExecutor,
-            runtimeMetricsRecorder: runtimeMetricsRecorder
+            executor: singleFlightExecutor
         )
         let singleFlightApplyCount: Int
         do {
@@ -121,8 +134,7 @@ public enum SidebarGitOwnerPerformanceExercise {
         let staleExecutor = SidebarGitOwnerPerformanceExecutor()
         let staleService = makeService(
             host: staleHost,
-            executor: staleExecutor,
-            runtimeMetricsRecorder: runtimeMetricsRecorder
+            executor: staleExecutor
         )
         let staleApplyCountBeforeFollowUp: Int
         let staleFinalApplyCount: Int
@@ -186,10 +198,9 @@ public enum SidebarGitOwnerPerformanceExercise {
     }
 
     @MainActor
-    private static func makeService(
+    private func makeService(
         host: SidebarGitOwnerPerformanceHost,
-        executor: SidebarGitOwnerPerformanceExecutor,
-        runtimeMetricsRecorder: CmuxSidebarGitRuntimeMetrics
+        executor: SidebarGitOwnerPerformanceExecutor
     ) -> PullRequestPollService {
         let service = PullRequestPollService(
             refreshExecutor: executor,
@@ -200,7 +211,7 @@ public enum SidebarGitOwnerPerformanceExercise {
         return service
     }
 
-    private static func waitForLifecycleSignal(
+    private func waitForLifecycleSignal(
         clock: any GitPollClock,
         deadline: Duration,
         operation: @escaping @Sendable () async throws -> Void
@@ -224,7 +235,7 @@ public enum SidebarGitOwnerPerformanceExercise {
     }
 
     @MainActor
-    private static func cleanup(
+    private func cleanup(
         service: PullRequestPollService,
         host: SidebarGitOwnerPerformanceHost,
         executor: SidebarGitOwnerPerformanceExecutor,
