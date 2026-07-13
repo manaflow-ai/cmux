@@ -25,7 +25,10 @@ enum CommandProcessTreeTerminator {
     ) {
         if let processGroupID {
             guard ownsProcessGroup(process, processGroupID) else {
-                completion?(false)
+                // Lost ownership is safe only when the original numeric group no
+                // longer exists. An extant group may have been reused, so never
+                // signal it and report cleanup failure instead.
+                completion?(!processGroupExists(processGroupID))
                 return
             }
             // One immediate signal avoids re-probing a numeric PGID after its original

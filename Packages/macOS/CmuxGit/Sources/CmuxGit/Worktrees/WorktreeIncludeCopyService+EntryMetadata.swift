@@ -127,10 +127,21 @@ extension WorktreeIncludeCopyService {
         destinationRoot: WorktreeIncludeDestinationRoot
     ) throws {
         var pending: [(source: String, destination: String, depth: Int)] = []
+        var inspectedItemCount = 0
+        if Task.isCancelled { throw CancellationError() }
         guard let enumerator = fileManager.enumerator(atPath: sourceDirectory.path) else {
             throw CocoaError(.fileReadUnknown)
         }
         while let relativePath = enumerator.nextObject() as? String {
+            if Task.isCancelled { throw CancellationError() }
+            inspectedItemCount += 1
+            guard inspectedItemCount <= limits.maximumItemCount else {
+                throw WorktreeIncludeCopyLimitError(
+                    itemCount: inspectedItemCount,
+                    byteCount: byteCount,
+                    reason: .resourceLimit
+                )
+            }
             let depth = enumerator.level
             while let last = pending.last, last.depth >= depth {
                 let directory = pending.removeLast()

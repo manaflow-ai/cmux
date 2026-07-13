@@ -200,6 +200,23 @@ public struct WorktreeIncludeSyncService: Sendable {
             }
             safeCandidates.append(relativePath)
         }
+
+        let destinationGitEntry = destination.appendingPathComponent(".git", isDirectory: false)
+        if fileManager.fileExists(atPath: destinationGitEntry.path), !safeCandidates.isEmpty {
+            let destinationIgnored = await standardIgnoredFiles(
+                source: destination,
+                candidates: safeCandidates
+            )
+            diagnostics += destinationIgnored.diagnostics
+            if destinationIgnored.shouldAbort { return diagnostics }
+            let ignoredPaths = Set(destinationIgnored.paths)
+            for relativePath in safeCandidates where !ignoredPaths.contains(relativePath) {
+                diagnostics.append(
+                    "Skipped .worktreeinclude path not ignored by the destination worktree: \(relativePath)"
+                )
+            }
+            safeCandidates.removeAll { !ignoredPaths.contains($0) }
+        }
         return diagnostics + copyService.copy(relativePaths: safeCandidates, from: source, to: destination)
     }
 
@@ -440,60 +457,4 @@ public struct WorktreeIncludeSyncService: Sendable {
         return escaped
     }
 
-    private nonisolated func destinationContainer(
-        destination: URL,
-        inside source: URL
-    ) -> URL? {
-        let sourceComponents = source.pathComponents
-        let destinationComponents = destination.pathComponents
-        guard destinationComponents.count > sourceComponents.count,
-              destinationComponents.starts(with: sourceComponents) else {
-            return nil
-        }
-        let container = destination.deletingLastPathComponent().standardizedFileURL
-        return container == source ? nil : container
-    }
-
-    private nonisolated func isSafe(
-        relativePath: String,
-        source: URL,
-        destination: URL,
-        protectedSourceSubtree: URL?
-    ) -> Bool {
-        guard !relativePath.isEmpty,
-              !relativePath.hasPrefix("/"),
-              relativePath != ".git",
-              !relativePath.hasPrefix(".git/") else {
-            return false
-        }
-
-        let relativeComponents = relativePath.split(separator: "/", omittingEmptySubsequences: true)
-        guard !relativeComponents.isEmpty,
-              !relativeComponents.contains("..") else {
-            return false
-        }
-
-        let candidate = source.appendingPathComponent(relativePath).standardizedFileURL
-        guard candidate.pathComponents.starts(with: source.pathComponents) else {
-            return false
-        }
-
-        let candidateComponents = candidate.pathComponents
-        let destinationComponents = destination.pathComponents
-        let candidateContainsDestination = destinationComponents.starts(with: candidateComponents)
-        let destinationContainsCandidate = candidateComponents.starts(with: destinationComponents)
-        guard !candidateContainsDestination && !destinationContainsCandidate else {
-            return false
-        }
-
-        if let protectedSourceSubtree {
-            let protectedComponents = protectedSourceSubtree.pathComponents
-            let candidateContainsProtectedSubtree = protectedComponents.starts(with: candidateComponents)
-            let protectedSubtreeContainsCandidate = candidateComponents.starts(with: protectedComponents)
-            if candidateContainsProtectedSubtree || protectedSubtreeContainsCandidate {
-                return false
-            }
-        }
-        return true
-    }
 }

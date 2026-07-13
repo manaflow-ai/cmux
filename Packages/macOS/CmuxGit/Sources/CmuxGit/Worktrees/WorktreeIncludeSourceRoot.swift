@@ -14,12 +14,30 @@ final class WorktreeIncludeSourceRoot {
     private let descriptor: Int32
 
     init(rootURL: URL) throws {
-        self.rootURL = rootURL.standardizedFileURL
-        descriptor = Darwin.open(
-            self.rootURL.path,
+        let logicalRootURL = rootURL.standardizedFileURL
+        let physicalRootURL = logicalRootURL.resolvingSymlinksInPath().standardizedFileURL
+        let openedDescriptor = Darwin.open(
+            physicalRootURL.path,
             O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
         )
-        guard descriptor >= 0 else { throw posixError() }
+        guard openedDescriptor >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        var openedStatus = stat()
+        var logicalStatus = stat()
+        let logicalStatusResult = logicalRootURL.path.withCString {
+            fstatat(AT_FDCWD, $0, &logicalStatus, 0)
+        }
+        guard fstat(openedDescriptor, &openedStatus) == 0,
+              logicalStatusResult == 0,
+              openedStatus.st_dev == logicalStatus.st_dev,
+              openedStatus.st_ino == logicalStatus.st_ino,
+              openedStatus.st_mode & S_IFMT == S_IFDIR else {
+            Darwin.close(openedDescriptor)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ESTALE))
+        }
+        self.rootURL = logicalRootURL
+        descriptor = openedDescriptor
     }
 
     deinit {
