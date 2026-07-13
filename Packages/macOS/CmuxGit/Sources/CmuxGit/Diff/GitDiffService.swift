@@ -277,7 +277,8 @@ public struct GitDiffService: Sendable {
             excludingDescendantsOf: descendantExclusions
         )
         var arguments = [
-            "diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames",
+            "diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color",
+            "--submodule=short", "--find-renames",
         ]
         if oldPath != nil {
             arguments.append("--diff-filter=R")

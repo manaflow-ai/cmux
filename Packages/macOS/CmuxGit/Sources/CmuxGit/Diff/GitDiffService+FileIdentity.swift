@@ -84,8 +84,9 @@ extension GitDiffService {
         let trackedResult = runGit(
             in: repoRoot,
             arguments: [
-                "diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", "--",
-                literalPathspec(path), descendantExclusionPathspec(path),
+                "diff", baseline, "--no-ext-diff", "--no-textconv", "--no-color",
+                "--submodule=short", "--find-renames", "--", literalPathspec(path),
+                descendantExclusionPathspec(path),
             ],
             maxOutputBytes: trackedOutputBytes
         )
