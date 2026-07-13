@@ -3511,6 +3511,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _scrollbarLock.unlock()
 
         guard let pending else { return }
+        publishScrollbarUpdate(pending)
+    }
+
+    /// Replaces any queued scrollbar packet and publishes exactly `newValue`.
+    /// The supplied value is extracted while holding the same lock used by the
+    /// Ghostty callback, so concurrent output cannot substitute another packet
+    /// between replacement and publication.
+    func publishExactScrollbarUpdate(_ newValue: GhosttyScrollbar) {
+        _scrollbarLock.lock()
+        _pendingScrollbar = newValue
+        let exact = _pendingScrollbar!
+        _pendingScrollbar = nil
+        _scrollbarFlushScheduled = false
+        _scrollbarLock.unlock()
+        publishScrollbarUpdate(exact)
+    }
+
+    private func publishScrollbarUpdate(_ pending: GhosttyScrollbar) {
         let wasPendingViewportJumpSync = keyboardCopyModePendingViewportJumpSync
         scrollbar = pending
         finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: pending)
@@ -8187,6 +8205,11 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
     var notificationScrollRestorePhase: TerminalNotificationScrollRestorePhase = .idle; var earlySessionScrollbackReplayCompletionDirectory: String?; var sessionScrollbackReplayGeneration: String?; var currentScrollbackRowSpaceRevision: UInt64?; var sessionScrollbackReplayCompletionScrollbar: GhosttyScrollbar?; var sessionScrollbackReplayCompletionRowSpaceRevision: UInt64?; var sessionScrollbackReplayCompletionDeadlineTimer: Timer?
+    var hasUsableNotificationScrollRestoreViewport: Bool {
+        surfaceView.cellSize.height > 0 &&
+            bounds.height > 0 &&
+            scrollView.contentView.bounds.height > 0
+    }
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true

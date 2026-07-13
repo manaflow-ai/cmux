@@ -211,8 +211,8 @@ extension GhosttySurfaceScrollView {
 
     private func publishScrollbarSynchronously(_ snapshot: GhosttyScrollbar?) -> Bool {
         guard let snapshot else { return false }
-        surfaceView.enqueueScrollbarUpdate(snapshot)
-        return surfaceView.flushPendingScrollbarIfAvailable()
+        surfaceView.publishExactScrollbarUpdate(snapshot)
+        return true
     }
 
     func performNotificationScrollRestore(
@@ -266,6 +266,7 @@ extension GhosttySurfaceScrollView {
         let currentTotalRows = Int(clamping: scrollbar.total)
         let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
         guard currentVisibleRows > 0 else { return .waitForViewport }
+        guard hasUsableNotificationScrollRestoreViewport else { return .waitForViewport }
 
         guard let target = notificationScrollRestoreTarget(position, scrollbar: scrollbar) else {
             return .waitForViewport
