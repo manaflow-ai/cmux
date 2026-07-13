@@ -1,4 +1,4 @@
-import GhosttyKit
+import CmuxTerminalCore
 
 @MainActor
 extension GhosttyApp {
