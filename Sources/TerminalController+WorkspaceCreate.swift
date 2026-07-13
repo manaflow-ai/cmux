@@ -1,6 +1,19 @@
 import CmuxSettings
 import Foundation
 
+private func sanitizedInitialEnvironment(_ environment: [String: String]) -> [String: String] {
+    environment.reduce(into: [:]) { result, pair in
+        let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty,
+              !key.contains("\0"),
+              !key.contains("="),
+              !pair.value.contains("\0") else {
+            return
+        }
+        result[key] = pair.value
+    }
+}
+
 extension TerminalController {
     struct TaskCreateWorkspaceCandidate {
         let tabManager: TabManager
@@ -75,12 +88,7 @@ extension TerminalController {
         let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
 
-        let rawInitialEnv = v2StringMap(params, "initial_env") ?? [:]
-        let initialEnv = rawInitialEnv.reduce(into: [String: String]()) { result, pair in
-            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty else { return }
-            result[key] = pair.value
-        }
+        let initialEnv = sanitizedInitialEnvironment(v2StringMap(params, "initial_env") ?? [:])
         // Persistent per-workspace environment (issue #5995): applied to the
         // initial shell and every later pane/surface/split, then round-tripped
         // through session restore.

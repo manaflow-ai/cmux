@@ -189,24 +189,12 @@ final class cmuxUITests: XCTestCase {
     func testTaskTemplateDirectoryHasMeaningfulAccessibilityLabel() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_TEMPLATE_FORM_PREVIEW": "1",
         ])
         defer { app.terminate() }
 
-        XCTAssertTrue(app.textFields["MobileTaskComposerPrompt"].waitForExistence(timeout: 8))
-        dismissKeyboard(in: app)
-        let templateScroll = app.scrollViews.containing(.button, identifier: "Claude").firstMatch
-        XCTAssertTrue(templateScroll.waitForExistence(timeout: 3))
-        templateScroll.swipeLeft()
-        let edit = app.buttons["Edit"]
-        XCTAssertTrue(edit.waitForExistence(timeout: 3))
-        tap(edit, in: app)
-
-        let add = app.buttons["Add Template"]
-        XCTAssertTrue(add.waitForExistence(timeout: 3))
-        tap(add, in: app)
-
         XCTAssertTrue(
-            app.textFields["Directory"].waitForExistence(timeout: 3),
+            app.textFields["Directory"].waitForExistence(timeout: 8),
             "The template directory field must expose the localized Directory label"
         )
     }

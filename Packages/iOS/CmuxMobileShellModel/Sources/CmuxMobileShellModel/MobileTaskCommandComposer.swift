@@ -305,6 +305,7 @@ public struct MobileTaskCommandComposer: Sendable {
     private static func referencesPromptEnvironment(in command: String) -> Bool {
         let unbraced = "$CMUX_TASK_PROMPT"
         let bracedPrefix = "${CMUX_TASK_PROMPT"
+        let bracedLengthExpansion = "${#CMUX_TASK_PROMPT}"
         var lexicalState = ShellLexicalState()
         var index = command.startIndex
         while index < command.endIndex {
@@ -320,6 +321,9 @@ public struct MobileTaskCommandComposer: Sendable {
                 continue
             }
             if lexicalState.permitsEnvironmentExpansion {
+                if command[index...].hasPrefix(bracedLengthExpansion) {
+                    return true
+                }
                 if command[index...].hasPrefix(bracedPrefix) {
                     let nameEnd = command.index(index, offsetBy: bracedPrefix.count)
                     if nameEnd < command.endIndex,

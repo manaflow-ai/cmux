@@ -10,10 +10,13 @@ public struct TaskComposerAccessibilityPreviewView: View {
     @State private var isPresented = false
     private let store: CMUXMobileShellStore
     private let returnsSubmissionFailure: Bool
+    private let presentsTemplateForm: Bool
 
     /// Creates the preview with isolated, in-memory task state so repeated UI
     /// tests cannot inherit production templates, selections, or drafts. Set
-    /// `CMUX_UITEST_TASK_COMPOSER_FAILURE=1` to exercise failure recovery.
+    /// `CMUX_UITEST_TASK_COMPOSER_FAILURE=1` to exercise failure recovery, or
+    /// `CMUX_UITEST_TASK_TEMPLATE_FORM_PREVIEW=1` to present the production
+    /// add-template form directly.
     public init() {
         self.store = CMUXMobileShellStore(
             isSignedIn: true,
@@ -22,23 +25,30 @@ public struct TaskComposerAccessibilityPreviewView: View {
         self.returnsSubmissionFailure = ProcessInfo.processInfo.environment[
             "CMUX_UITEST_TASK_COMPOSER_FAILURE"
         ] == "1"
+        self.presentsTemplateForm = ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_TASK_TEMPLATE_FORM_PREVIEW"
+        ] == "1"
     }
 
-    /// Presents the production task composer over an otherwise empty host.
+    /// Presents the requested production task-composer surface over an otherwise empty host.
     public var body: some View {
         Color.clear
             .onAppear { isPresented = true }
             .sheet(isPresented: $isPresented) {
-                TaskComposerSheet(
-                    store: store,
-                    availableMachines: [Self.previewMac],
-                    submitTaskComposer: { _, _ in
-                        if returnsSubmissionFailure {
-                            return .failure(.invalidWorkingDirectory(hostDisplayName: "Preview Mac"))
+                if presentsTemplateForm {
+                    TaskTemplateFormView(template: nil, onSave: { _ in })
+                } else {
+                    TaskComposerSheet(
+                        store: store,
+                        availableMachines: [Self.previewMac],
+                        submitTaskComposer: { _, _ in
+                            if returnsSubmissionFailure {
+                                return .failure(.invalidWorkingDirectory(hostDisplayName: "Preview Mac"))
+                            }
+                            return .success(())
                         }
-                        return .success(())
-                    }
-                )
+                    )
+                }
             }
     }
 

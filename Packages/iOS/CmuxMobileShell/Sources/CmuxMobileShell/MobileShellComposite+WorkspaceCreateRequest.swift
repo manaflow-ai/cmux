@@ -132,6 +132,14 @@ extension MobileShellComposite {
             }
             return .success(())
         } catch {
+            let isCurrentContext = isCurrentWorkspaceCreateContext(context)
+            if spec?.operationID == nil, Task.isCancelled {
+                // A legacy create has no idempotency key, so an interrupted
+                // request may already have succeeded and cannot be retried
+                // safely. Task-composer creates have an operation ID and fail
+                // closed instead.
+                return .success(())
+            }
             if Task.isCancelled {
                 return .failure(.notConnected(hostDisplayName: context.hostDisplayName))
             }
@@ -139,7 +147,7 @@ extension MobileShellComposite {
             // the NEW connection's state, but it must still report failure:
             // mapping it to success lets the task composer dismiss and persist
             // last-used defaults for a workspace that was never created.
-            if isCurrentWorkspaceCreateContext(context) {
+            if isCurrentContext {
                 if disconnectForAuthorizationFailureIfNeeded(error) {
                     return .failure(.authorizationFailed(hostDisplayName: context.hostDisplayName))
                 }

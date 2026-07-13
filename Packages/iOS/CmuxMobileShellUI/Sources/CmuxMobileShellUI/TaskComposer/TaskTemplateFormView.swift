@@ -49,6 +49,7 @@ struct TaskTemplateFormView: View {
                         .font(.system(.body, design: .monospaced))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .accessibilityLabel(L10n.string("mobile.taskComposer.directory", defaultValue: "Directory"))
                 }
             }
             .navigationTitle(existing == nil ? L10n.string("mobile.taskComposer.template.addTitle", defaultValue: "Add Template") : L10n.string("mobile.taskComposer.template.editTitle", defaultValue: "Edit Template"))
