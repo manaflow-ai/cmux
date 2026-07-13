@@ -40,8 +40,8 @@ public enum SwiftValue: Codable, Sendable, Equatable {
             if name == "count" { return .int(values.count) }
             if name == "isEmpty" { return .bool(values.isEmpty) }
             if name == "indices" { return .array(values.indices.map { .int($0) }) }
-            if name == "first" { return values.first }
-            if name == "last" { return values.last }
+            if name == "first" { return values.first ?? .null }
+            if name == "last" { return values.last ?? .null }
             return nil
         case let .string(value):
             if name == "count" { return .int(value.count) }

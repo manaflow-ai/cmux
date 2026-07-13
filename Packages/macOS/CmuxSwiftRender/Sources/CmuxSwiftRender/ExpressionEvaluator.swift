@@ -152,6 +152,25 @@ public struct ExpressionEvaluator: Sendable {
         return result
     }
 
+    /// Resolves a supported optional binding while preserving the distinction
+    /// between an absent value (`.null`) and an expression we cannot evaluate.
+    func resolveOptionalBinding(
+        _ binding: OptionalBindingConditionSyntax,
+        _ env: EvalEnvironment
+    ) -> (name: String?, value: SwiftValue)? {
+        let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
+        let resolved: SwiftValue?
+        if let initializer = binding.initializer?.value {
+            resolved = eval(initializer, env)
+        } else if let name {
+            resolved = env.lookup(name)
+        } else {
+            resolved = nil
+        }
+        guard let value = resolved, value != .null else { return nil }
+        return (name, value)
+    }
+
     // MARK: - Operators
 
     private func evalPrefix(_ op: String, _ value: SwiftValue?) -> SwiftValue? {
@@ -298,8 +317,8 @@ public struct ExpressionEvaluator: Sendable {
                 }
                 return acc
             case "first":
-                guard let closure else { return values.first }
-                return values.first { evalClosure(closure, $0, env)?.isTruthy ?? false }
+                guard let closure else { return values.first ?? .null }
+                return values.first { evalClosure(closure, $0, env)?.isTruthy ?? false } ?? .null
             case "contains":
                 if let closure { return .bool(values.contains { evalClosure(closure, $0, env)?.isTruthy ?? false }) }
                 guard let firstArg, let needle = eval(firstArg, env) else { return nil }
