@@ -8750,7 +8750,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     deinit {
-        cancelPendingNotificationScrollRestore()
+        sessionScrollbackReplayCompletionDeadlineTimer?.invalidate(); if let observer = sessionScrollbackReplayRenderedFrameObserver { NotificationCenter.default.removeObserver(observer) }; releaseSessionScrollbackReplayFrameDemand?()
 #if DEBUG
         cmuxDebugLog(
             "surface.hosted.deinit surface=\(debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +
