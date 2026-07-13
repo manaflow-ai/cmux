@@ -6,6 +6,7 @@ struct AgentSessionStateProjection: Sendable, Equatable {
     var session: AgentSessionLifecycleState
     var foreground: AgentForegroundState
     var attention: AgentAttentionState
+    var workloads: [AgentWorkloadRecord]
     var activity: AgentActivitySnapshot
     var effective: AgentEffectiveState
 
@@ -18,9 +19,14 @@ struct AgentSessionStateProjection: Sendable, Equatable {
                 expectedStartedAt: run.processStartedAt
             )
         session = ended ? .ended : (record.sessionState ?? .active)
-        foreground = record.foregroundState ?? Self.foreground(from: record.runtimeStatus)
-        attention = record.attentionState ?? Self.attention(from: record.runtimeStatus)
-        activity = Self.activity(foreground: foreground, workloads: record.workloads ?? [])
+        foreground = ended
+            ? .completed
+            : (record.foregroundState ?? Self.foreground(from: record.runtimeStatus))
+        attention = ended
+            ? .none
+            : (record.attentionState ?? Self.attention(from: record.runtimeStatus))
+        workloads = ended ? [] : (record.workloads ?? [])
+        activity = Self.activity(foreground: foreground, workloads: workloads)
         effective = Self.effective(
             process: process,
             session: session,

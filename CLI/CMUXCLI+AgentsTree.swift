@@ -125,7 +125,7 @@ extension CMUXCLI {
                     if let normalizedState, projection.effective.rawValue != normalizedState { continue }
                     if let normalizedActivity, projection.activity.state.rawValue != normalizedActivity { continue }
                     if let normalizedWorkKind,
-                       !(record.workloads ?? []).contains(where: {
+                       !projection.workloads.contains(where: {
                            $0.kind.rawValue == normalizedWorkKind && $0.phase.isActive
                        }) { continue }
                     let node = AgentSessionGraphNode(
@@ -143,7 +143,7 @@ extension CMUXCLI {
                         attentionState: projection.attention,
                         activity: projection.activity,
                         effectiveState: projection.effective,
-                        workloads: (record.workloads ?? []).map(AgentWorkloadSnapshot.init),
+                        workloads: projection.workloads.map(AgentWorkloadSnapshot.init),
                         restoreAuthority: run.restoreAuthority,
                         startedAt: run.startedAt,
                         updatedAt: run.updatedAt,

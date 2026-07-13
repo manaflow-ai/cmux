@@ -205,6 +205,12 @@ struct AgentHookSessionStateWriter: Sendable {
               var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               var sessions = root["sessions"] as? [String: Any],
               var record = sessions[sessionId] as? [String: Any] else { return }
+        // `now` is captured before this write enters the utility queue. A hook
+        // write with a later timestamp belongs to a newer process generation,
+        // so this queued lifecycle transition must not move that record or its
+        // runtime ownership backwards.
+        guard let actualUpdatedAt = record["updatedAt"] as? TimeInterval,
+              actualUpdatedAt <= now else { return }
         record["sessionState"] = lifecycle.rawValue
         record["updatedAt"] = now
         if let runtime = runtimePayload() {

@@ -24069,6 +24069,10 @@ struct CMUXCLI {
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
                 )
+                let suppressNotification = shouldSuppressNestedAgentNotification(
+                    visibleMutationsSuppressed: suppressVisibleMutations,
+                    env: ProcessInfo.processInfo.environment
+                )
                 sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
 
                 if suppressVisibleMutations {
@@ -24082,20 +24086,20 @@ struct CMUXCLI {
                         environment: ProcessInfo.processInfo.environment
                     )
                     telemetry.breadcrumb("claude-hook.stop.nested-suppressed")
-                    print("OK")
-                    return
                 }
 
-                guard shouldApplyClaudeHookVisibleMutation(
-                    sessionStore: sessionStore,
-                    parsedInput: parsedInput,
-                    workspaceId: workspaceId,
-                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
-                    telemetry: telemetry
-                ) else {
-                    telemetry.breadcrumb("claude-hook.stop.stale")
-                    print("OK")
-                    return
+                if !suppressVisibleMutations {
+                    guard shouldApplyClaudeHookVisibleMutation(
+                        sessionStore: sessionStore,
+                        parsedInput: parsedInput,
+                        workspaceId: workspaceId,
+                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                        telemetry: telemetry
+                    ) else {
+                        telemetry.breadcrumb("claude-hook.stop.stale")
+                        print("OK")
+                        return
+                    }
                 }
 
                 // Whether this turn ended with unfinished background work (a running
@@ -24118,7 +24122,7 @@ struct CMUXCLI {
                     parsedInput: parsedInput,
                     sessionRecord: mappedSession
                 )
-                if let sessionId = parsedInput.sessionId {
+                if !suppressVisibleMutations, let sessionId = parsedInput.sessionId {
                     try? sessionStore.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
@@ -24154,37 +24158,39 @@ struct CMUXCLI {
                     )
                 }
 
-                setAgentLifecycle(
-                    client: client,
-                    key: Self.claudeCodeStatusKey,
-                    lifecycle: hasPendingBackgroundWork ? .running : .idle,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
-                if hasPendingBackgroundWork {
-                    // The turn ended but a background task or scheduled wakeup is
-                    // still live, so the pane is not idle — show it as still
-                    // running rather than the misleading "Idle". Reuse the shared
-                    // generic-agent status strings so the pill stays localized.
-                    try? setClaudeStatus(
+                if !suppressVisibleMutations {
+                    setAgentLifecycle(
                         client: client,
+                        key: Self.claudeCodeStatusKey,
+                        lifecycle: hasPendingBackgroundWork ? .running : .idle,
                         workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
-                        icon: "bolt.fill",
-                        color: "#4C8DFF"
+                        surfaceId: surfaceId
                     )
-                } else {
-                    try? setClaudeStatus(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
-                        icon: "pause.circle.fill",
-                        color: "#8E8E93"
-                    )
+                    if hasPendingBackgroundWork {
+                        // The turn ended but a background task or scheduled wakeup is
+                        // still live, so the pane is not idle — show it as still
+                        // running rather than the misleading "Idle". Reuse the shared
+                        // generic-agent status strings so the pill stays localized.
+                        try? setClaudeStatus(
+                            client: client,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                            icon: "bolt.fill",
+                            color: "#4C8DFF"
+                        )
+                    } else {
+                        try? setClaudeStatus(
+                            client: client,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                            icon: "pause.circle.fill",
+                            color: "#8E8E93"
+                        )
+                    }
                 }
-                if let completion {
+                if let completion, !suppressNotification {
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
@@ -24401,6 +24407,10 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
+            let suppressNotification = shouldSuppressNestedAgentNotification(
+                visibleMutationsSuppressed: suppressVisibleMutations,
+                env: ProcessInfo.processInfo.environment
+            )
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
@@ -24422,7 +24432,7 @@ struct CMUXCLI {
                 print("OK")
                 return
             }
-            guard !suppressVisibleMutations else {
+            guard !suppressNotification else {
                 telemetry.breadcrumb("claude-hook.notification.nested-suppressed")
                 print("OK")
                 return
@@ -24499,7 +24509,9 @@ struct CMUXCLI {
                 meta: notifyCategory.metaSegment(pending: notifyPending)
             )
 
-            if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
+            if !suppressVisibleMutations,
+               let sessionId = parsedInput.sessionId,
+               !suppressNeedsInputState {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -24516,7 +24528,7 @@ struct CMUXCLI {
                 )
             }
 
-            if !suppressNeedsInputState {
+            if !suppressVisibleMutations, !suppressNeedsInputState {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
@@ -27357,6 +27369,16 @@ struct CMUXCLI {
             pid: currentAgentPID,
             environment: env
         ).restoreAuthority
+    }
+
+    /// Child sessions never own the root surface's status, resume binding, or
+    /// lifecycle. Notification delivery is a separate user policy: the default
+    /// suppresses child alerts, while an explicit opt-in allows the alert only.
+    func shouldSuppressNestedAgentNotification(
+        visibleMutationsSuppressed: Bool,
+        env: [String: String]
+    ) -> Bool {
+        visibleMutationsSuppressed && subagentNotificationSuppressionEnabled(env: env)
     }
 
     private func managedSubagentVisibleMutationSuppressionRequested(env: [String: String]) -> Bool {
@@ -31088,13 +31110,18 @@ export default CMUXSessionRestore;
             } else {
                 nestedPromptStop = false
             }
-            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+            let suppressNestedVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: pid,
                 nestedPromptEvent: nestedPromptStop,
                 transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
                 env: env
-            ) || staleIdleStopHasNewerRunningSession
-            let suppressCompletionNotification = suppressVisibleMutations
+            )
+            let suppressVisibleMutations = suppressNestedVisibleMutations || staleIdleStopHasNewerRunningSession
+            let suppressCompletionNotification = staleIdleStopHasNewerRunningSession
+                || shouldSuppressNestedAgentNotification(
+                    visibleMutationsSuppressed: suppressNestedVisibleMutations,
+                    env: env
+                )
                 || codexSubagentSignals.hasSubagentNotificationRelay
             let genericWorkloads: [AgentWorkloadRecord]? = antigravityHasActiveBackgroundWork
                 ? [AgentWorkloadRecord(
@@ -31379,6 +31406,15 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
+            let pid = mapped?.pid ?? inferredPID
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: pid,
+                env: env
+            )
+            let suppressNotification = shouldSuppressNestedAgentNotification(
+                visibleMutationsSuppressed: suppressVisibleMutations,
+                env: env
+            )
 
             let notificationCwd = hookCwd ?? mapped?.cwd
 #if DEBUG
@@ -31503,8 +31539,7 @@ export default CMUXSessionRestore;
                 return
             }
 
-            if !sessionId.isEmpty {
-                let pid = mapped?.pid ?? inferredPID
+            if !sessionId.isEmpty, !suppressVisibleMutations {
                 let launchCommand = agentLaunchCommandFromEnvironment(
                     env,
                     fallbackPID: pid,
@@ -31564,7 +31599,9 @@ export default CMUXSessionRestore;
                 category: summary.notifyCategory,
                 body: summary.body
             )
-            if shouldSendNotification(fingerprint: notificationFingerprint) {
+            if suppressNotification {
+                telemetry.breadcrumb("\(def.name)-hook.notification.nested-suppressed")
+            } else if shouldSendNotification(fingerprint: notificationFingerprint) {
                 // Tag by the classifier's category so the app's agent notification
                 // settings cover every built-in agent: approval prompts gate under
                 // "Agent Needs Permission", waiting-for-input cues under "Agent
@@ -31616,56 +31653,58 @@ export default CMUXSessionRestore;
 #endif
             }
 
-            switch summary.status {
-            case .needsInput? where suppressPendingWaitingState:
-                // Suppressed pending waiting cue: leave the Running pill and
-                // lifecycle in place; the fullyIdle turn boundary reconciles.
-                break
-            case .needsInput?:
-                setAgentLifecycle(
-                    client: client,
-                    key: def.statusKey,
-                    lifecycle: .needsInput,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
-                let statusValue = String.localizedStringWithFormat(
-                    String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
-                    def.displayName
-                )
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
-            case .error?:
-                setAgentLifecycle(
-                    client: client,
-                    key: def.statusKey,
-                    lifecycle: .needsInput,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
-                let statusValue = String.localizedStringWithFormat(
-                    String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
-                    def.displayName
-                )
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
-            case .idle?:
-                if !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
+            if !suppressVisibleMutations {
+                switch summary.status {
+                case .needsInput? where suppressPendingWaitingState:
+                    // Suppressed pending waiting cue: leave the Running pill and
+                    // lifecycle in place; the fullyIdle turn boundary reconciles.
+                    break
+                case .needsInput?:
                     setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
-                        lifecycle: .idle,
+                        lifecycle: .needsInput,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
                     )
+                    let statusValue = String.localizedStringWithFormat(
+                        String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+                        def.displayName
+                    )
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                case .error?:
+                    setAgentLifecycle(
+                        client: client,
+                        key: def.statusKey,
+                        lifecycle: .needsInput,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                    let statusValue = String.localizedStringWithFormat(
+                        String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
+                        def.displayName
+                    )
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                case .idle?:
+                    if !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
+                        setAgentLifecycle(
+                            client: client,
+                            key: def.statusKey,
+                            lifecycle: .idle,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId
+                        )
+                    }
+                    setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                case nil:
+                    break
                 }
-                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
-            case nil:
-                break
             }
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
 

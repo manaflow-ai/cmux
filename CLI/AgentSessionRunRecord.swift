@@ -31,6 +31,7 @@ struct AgentSessionRunReconciler: Sendable {
            let index = runs.firstIndex(where: { $0.runId == activeRunId && $0.endedAt == nil }) {
             runs[index].endedAt = now
             runs[index].updatedAt = now
+            runs[index].restoreAuthority = false
             if effectiveLineage.parentRunId == nil {
                 effectiveLineage.parentRunId = activeRunId
                 if effectiveLineage.relationship == nil {
