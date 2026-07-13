@@ -28,7 +28,8 @@ struct CustomSidebarDataContextBuilderTests {
     private func minimalWorkspace(
         id: UUID = UUID(),
         index: Int = 0,
-        surfaces: [CustomSidebarSurfaceSnapshot] = []
+        surfaces: [CustomSidebarSurfaceSnapshot] = [],
+        statusEntries: [SidebarStatusEntry] = []
     ) -> CustomSidebarWorkspaceSnapshot {
         CustomSidebarWorkspaceSnapshot(
             id: id,
@@ -46,6 +47,7 @@ struct CustomSidebarDataContextBuilderTests {
             gitBranch: nil,
             gitIsDirty: false,
             pullRequestValues: [],
+            statusEntries: statusEntries,
             progress: nil,
             latestConversationMessage: nil,
             latestSubmittedMessage: nil,
@@ -156,6 +158,8 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("portCount") == .int(2))
         #expect(value.member("unread") == .int(2))
         #expect(value.member("tabCount") == .int(1))
+        #expect(value.member("statuses") == .array([]))
+        #expect(value.member("status") == nil)
         // Optional fields absent when their source is nil/empty.
         #expect(value.member("description") == nil)
         #expect(value.member("color") == nil)
@@ -163,6 +167,45 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("pr") == nil)
         #expect(value.member("progress") == nil)
         #expect(value.member("remote") == nil)
+    }
+
+    @Test("Native statuses preserve order and optional fields")
+    func nativeStatuses() throws {
+        let url = try #require(URL(string: "https://example.com/agent"))
+        let first = SidebarStatusEntry(
+            key: "codex",
+            value: "Idle",
+            icon: "pause.circle.fill",
+            color: "#8E8E93",
+            url: url,
+            priority: 100,
+            format: .plain,
+            timestamp: Date(timeIntervalSince1970: 20)
+        )
+        let second = SidebarStatusEntry(
+            key: "review",
+            value: "Waiting",
+            priority: 20,
+            format: .plain,
+            timestamp: Date(timeIntervalSince1970: 10)
+        )
+        let value = CustomSidebarDataContextBuilder().workspaceValue(
+            minimalWorkspace(statusEntries: [first, second])
+        )
+        let statuses = try #require(value.member("statuses")?.iterationValues)
+
+        #expect(statuses.count == 2)
+        #expect(value.member("status") == statuses[0])
+        #expect(statuses[0].member("key") == .string("codex"))
+        #expect(statuses[0].member("value") == .string("Idle"))
+        #expect(statuses[0].member("icon") == .string("pause.circle.fill"))
+        #expect(statuses[0].member("color") == .string("#8E8E93"))
+        #expect(statuses[0].member("url") == .string("https://example.com/agent"))
+        #expect(statuses[0].member("priority") == .int(100))
+        #expect(statuses[0].member("format") == .string("plain"))
+        #expect(statuses[1].member("icon") == nil)
+        #expect(statuses[1].member("color") == nil)
+        #expect(statuses[1].member("url") == nil)
     }
 
     @Test("Empty optional strings are omitted like nil")

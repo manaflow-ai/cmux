@@ -38,6 +38,7 @@ extension Workspace {
             gitBranch: firstBranch?.branch,
             gitIsDirty: firstBranch?.isDirty ?? false,
             pullRequestValues: customSidebarPullRequestValues(),
+            statusEntries: sidebarStatusEntriesInDisplayOrder(),
             progress: progress,
             latestConversationMessage: latestConversationMessage,
             latestSubmittedMessage: latestSubmittedMessage,
