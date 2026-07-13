@@ -263,6 +263,9 @@ jobs:
             --device-type IPAD_PRO_3GEN_129 \
             --replace
 
+      - name: Ensure App Store availability
+        run: python3 ios/scripts/asc_bootstrap_app_availability.py --app "$ASC_APP_ID"
+
       - name: Archive, export, and upload production build
         id: upload
         env:
