@@ -1,4 +1,5 @@
 import AppKit
+import CmuxRemoteSession
 import SwiftUI
 import Testing
 @testable import Bonsplit
@@ -155,6 +156,104 @@ import Testing
         #expect(
             widest.0 <= 401,
             "an unclipped hosted view inflated past the 400pt window: \(widest.1) at \(widest.0)pt — space-filling siblings inherit this width"
+        )
+    }
+
+    /// The imposed render frame must never become the mirror view's reported
+    /// size. The plan is derived from the BANKED container, the proposal from
+    /// the live window, and under churn the two disagree: a window shrink
+    /// leaves the plan wider than the region until the next sized pass, and
+    /// the oversized-reading guard keeps the stale bank (deferring is
+    /// correct — the reading is not the slot). The view must answer the
+    /// region's proposal with the proposal and let the tree overflow in
+    /// place. When the imposed width leaked into the reported size instead,
+    /// every space-filling ancestor up to the main window's root content
+    /// inherited it (observed live: the content view marching wider than the
+    /// display-pinned window a step per layout pass, 2559pt and climbing),
+    /// and the mirror then read its own imposed width back as its container.
+    @Test func staleImposedRenderFrameDoesNotInflateTheMirrorViewsReportedSize() throws {
+        func node(
+            _ content: RemoteTmuxLayoutContent, w: Int, h: Int, x: Int, y: Int
+        ) -> RemoteTmuxLayoutNode {
+            RemoteTmuxLayoutNode(width: w, height: h, x: x, y: y, content: content)
+        }
+        let layout = node(.horizontal([
+            node(.pane(1), w: 61, h: 35, x: 0, y: 0),
+            node(.pane(2), w: 61, h: 35, x: 62, y: 0),
+        ]), w: 123, h: 35, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            hostingContentSizeSource: { CGSize(width: 800, height: 620) },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.containerSizePt = CGSize(width: 800, height: 620)
+        mirror.containerScale = 2
+        mirror.reconcile(layout: layout)
+        mirror.performSizingPassNow()
+        let planned = try #require(mirror.renderFrameSize)
+        #expect(
+            planned.width >= 700,
+            "the plan must be far wider than the 400pt window for this test to bite"
+        )
+
+        final class MeasuredWidth { var value: CGFloat = 0 }
+        let measured = MeasuredWidth()
+        let appearance = PanelAppearance(
+            backgroundColor: .black, foregroundColor: .white,
+            dividerColor: .gray, unfocusedOverlayNSColor: .black,
+            unfocusedOverlayOpacity: 0, usesClearContentBackground: false
+        )
+        let hostingView = NSHostingView(
+            rootView: RemoteTmuxWindowMirrorSplitView(
+                mirror: mirror,
+                appearance: appearance,
+                isOuterFocused: false,
+                isVisibleInUI: true,
+                portalPriority: 0,
+                onOuterFocus: {}
+            )
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                measured.value = width
+            }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        let contentView = try #require(window.contentView)
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        for _ in 0..<10 {
+            contentView.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        defer { window.orderOut(nil) }
+
+        #expect(
+            measured.value > 0,
+            "the geometry probe never fired — the view was not laid out"
+        )
+        #expect(
+            measured.value <= 401,
+            "the mirror view reported \(measured.value)pt to its ancestors inside a 400pt window — the imposed render frame leaked into the reported size"
         )
     }
 
