@@ -37,17 +37,36 @@ public final class AuthPresentationContextProvider: NSObject, AuthPresentationAn
         }
         return UIWindow(frame: UIScreen.main.bounds)
         #elseif os(macOS)
-        if let keyWindow = NSApplication.shared.keyWindow {
-            return keyWindow
-        }
-        if let window = NSApplication.shared.windows.first {
-            return window
-        }
-        let window = NSWindow()
-        window.makeKey()
-        return window
+        return resolveAnchor(
+            keyWindow: NSApplication.shared.keyWindow,
+            mainWindow: NSApplication.shared.mainWindow,
+            firstWindow: NSApplication.shared.windows.first
+        )
         #else
         preconditionFailure("AuthPresentationContextProvider: unsupported platform")
         #endif
     }
+
+    #if os(macOS)
+    /// Resolves the anchor from explicit window state. Internal so tests can
+    /// deterministically exercise every branch — most importantly the
+    /// no-window fallback invariant — without depending on the test host's
+    /// live `NSApplication` window state.
+    func resolveAnchor(
+        keyWindow: NSWindow?,
+        mainWindow: NSWindow?,
+        firstWindow: NSWindow?
+    ) -> ASPresentationAnchor {
+        if let keyWindow {
+            return keyWindow
+        }
+        if let window = mainWindow ?? firstWindow {
+            return window
+        }
+        // Last-resort anchor when the app has no windows at all. It must stay
+        // invisible and must never be made key: a bare NSWindow made key shows
+        // up as an empty black zombie window (#7825 class of bugs).
+        return NSWindow()
+    }
+    #endif
 }

@@ -17,6 +17,14 @@ public struct AuthDebugLog: Sendable {
     public func log(_ message: String) {
         let redactedMessage = Self.redacted(message)
         Self.logger.log(level: authDebugLogType(for: redactedMessage), "\(redactedMessage, privacy: .public)")
+        #if DEBUG
+        Self.recentLines.withLock { lines in
+            lines.append(redactedMessage)
+            if lines.count > Self.recentLineCapacity {
+                lines.removeFirst(lines.count - Self.recentLineCapacity)
+            }
+        }
+        #endif
         #if DEBUG && os(macOS)
         let line = "[\(Date().formatted(Self.timestampFormat))] auth: \(redactedMessage)\n"
         for path in Self.debugLogPaths(environment: ProcessInfo.processInfo.environment) {
@@ -24,6 +32,14 @@ public struct AuthDebugLog: Sendable {
         }
         #endif
     }
+
+    #if DEBUG
+    /// In-process ring buffer of the most recent redacted lines, alongside the
+    /// unified-log and `/tmp` sinks: unlike the shared file, it cannot lose a
+    /// line to another process once `log(_:)` returns.
+    static let recentLines = OSAllocatedUnfairLock(initialState: [String]())
+    static let recentLineCapacity = 512
+    #endif
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "auth")
 
