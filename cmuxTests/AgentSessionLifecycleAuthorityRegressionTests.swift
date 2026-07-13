@@ -65,6 +65,80 @@ extension CMUXCLIErrorOutputRegressionTests {
             lineage: lineage,
             hasIncomingPID: true
         ))
+        #expect(!AgentSessionSemanticUpdatePolicy().canUpdate(record: record))
+    }
+
+    @Test func verifiedReplacementRootRegainsRestoreAuthority() throws {
+        let completedRoot = AgentSessionRunRecord(
+            runId: "stable-root-run",
+            pid: 101,
+            processStartedAt: 100,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: false,
+            startedAt: 100,
+            updatedAt: 110,
+            endedAt: 110
+        )
+        let replacement = AgentHookSessionLineage(
+            runId: "stable-root-run",
+            pid: 202,
+            processStartedAt: 200,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: true
+        )
+
+        let runs = AgentSessionRunReconciler(maximumRecords: 128).reconciling(
+            [completedRoot],
+            activeRunId: completedRoot.runId,
+            lineage: replacement,
+            now: 210
+        )
+        let run = try #require(runs.first)
+
+        #expect(run.restoreAuthority)
+        #expect(run.relationship == nil)
+        #expect(run.endedAt == nil)
+    }
+
+    @Test func replacingActiveRunCreatesResumedEdge() throws {
+        let previous = AgentSessionRunRecord(
+            runId: "previous-root-run",
+            pid: 101,
+            processStartedAt: 100,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: true,
+            startedAt: 100,
+            updatedAt: 110,
+            endedAt: nil
+        )
+        let resumed = AgentHookSessionLineage(
+            runId: "resumed-root-run",
+            pid: 202,
+            processStartedAt: 200,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: true
+        )
+
+        let runs = AgentSessionRunReconciler(maximumRecords: 128).reconciling(
+            [previous],
+            activeRunId: previous.runId,
+            lineage: resumed,
+            now: 210
+        )
+        let previousRun = try #require(runs.first { $0.runId == previous.runId })
+        let resumedRun = try #require(runs.first { $0.runId == resumed.runId })
+
+        #expect(previousRun.endedAt == 210)
+        #expect(resumedRun.parentRunId == previous.runId)
+        #expect(resumedRun.relationship == .resumed)
     }
 
     @Test func processStateRequiresMatchingLiveProcessGeneration() throws {
@@ -132,6 +206,88 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         #expect(projection.process == .exited)
         #expect(projection.effective == .ended)
+    }
+
+    @Test func missingActivityEvidenceRemainsUnknown() throws {
+        let now = Date().timeIntervalSince1970
+        let recordData = try JSONSerialization.data(withJSONObject: [
+            "sessionId": "legacy-session",
+            "workspaceId": "workspace-a",
+            "surfaceId": "surface-a",
+            "startedAt": now - 10,
+            "updatedAt": now,
+        ])
+        let record = try JSONDecoder().decode(ClaudeHookSessionRecord.self, from: recordData)
+        let run = AgentSessionRunRecord(
+            runId: "legacy-run",
+            pid: nil,
+            processStartedAt: nil,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: true,
+            startedAt: now - 10,
+            updatedAt: now,
+            endedAt: nil
+        )
+
+        let projection = AgentSessionStateProjection(record: record, run: run)
+
+        #expect(projection.activity.state == .unknown)
+        #expect(!projection.activity.busy)
+        #expect(projection.effective == .unknown)
+    }
+
+    @Test func queuedRootExitCannotCompleteNewerRecordGeneration() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-completion-fence-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 2,
+            "sessions": [
+                "replacement-session": [
+                    "sessionId": "replacement-session",
+                    "workspaceId": "workspace-a",
+                    "surfaceId": "surface-a",
+                    "activeRunId": "replacement-run",
+                    "restoreAuthority": true,
+                    "sessionState": "active",
+                    "startedAt": 100.0,
+                    "updatedAt": 200.0,
+                    "runs": [[
+                        "runId": "replacement-run",
+                        "restoreAuthority": true,
+                        "startedAt": 200.0,
+                        "updatedAt": 200.0,
+                    ]],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stateURL, options: .atomic)
+        let writer = AgentHookSessionStateWriter(
+            homeDirectory: root.path,
+            environment: ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path]
+        )
+
+        writer.completeSynchronously(
+            kind: .codex,
+            sessionId: "replacement-session",
+            expectedRecordUpdatedAt: 150,
+            now: 210
+        )
+
+        let saved = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        let sessions = try #require(saved["sessions"] as? [String: Any])
+        let record = try #require(sessions["replacement-session"] as? [String: Any])
+        #expect(record["completedAt"] == nil)
+        #expect(record["sessionState"] as? String == "active")
+        #expect(record["activeRunId"] as? String == "replacement-run")
+        #expect(record["restoreAuthority"] as? Bool == true)
     }
 
     @Test func workloadHistoryAppliesHardCapWhenEveryRecordIsActive() {

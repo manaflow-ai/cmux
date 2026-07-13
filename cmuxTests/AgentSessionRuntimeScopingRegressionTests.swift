@@ -139,6 +139,20 @@ extension CMUXCLIErrorOutputRegressionTests {
         let scopedNodes = try #require(scopedOutput["nodes"] as? [[String: Any]])
         #expect(scopedNodes.map { $0["session_id"] as? String } == ["current-session"])
 
+        let filteredList = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "list", "--state", "unknown", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!filteredList.timedOut, Comment(rawValue: filteredList.stdout))
+        #expect(filteredList.status == 0, Comment(rawValue: filteredList.stdout))
+        let filteredOutput = try #require(
+            JSONSerialization.jsonObject(with: Data(filteredList.stdout.utf8)) as? [String: Any]
+        )
+        let filteredSessions = try #require(filteredOutput["sessions"] as? [[String: Any]])
+        #expect(filteredSessions.map { $0["session_id"] as? String } == ["current-session"])
+
         let history = runProcess(
             executablePath: cliPath,
             arguments: ["agents", "tree", "--all", "--json"],
