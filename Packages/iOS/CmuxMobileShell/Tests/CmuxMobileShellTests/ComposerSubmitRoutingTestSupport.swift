@@ -50,6 +50,7 @@ actor RoutingHostRouter {
     }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
     private var workspaceCreates: [WorkspaceCreateRecord] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
@@ -137,6 +138,7 @@ actor RoutingHostRouter {
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
+    func recordedDirectorySearchQueries() -> [String] { directorySearchQueries }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
 
     /// Sendable extract of the request fields the router needs, pulled off the
@@ -155,6 +157,7 @@ actor RoutingHostRouter {
         var initialCommand: String?
         var initialEnv: [String: String]?
         var operationID: String?
+        var query: String?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -253,6 +256,14 @@ actor RoutingHostRouter {
                 ],
                 "created_workspace_id": "workspace-created",
                 "created_terminal_id": "terminal-created",
+            ])
+        case "mobile.directory.search":
+            directorySearchQueries.append(info.query ?? "")
+            return try? Self.resultFrame(id: id, result: [
+                "directories": [
+                    "/Users/test/Dev/Manaflow/cmux",
+                    "/Users/test/Dev/Manaflow/cmuxterm-hq",
+                ],
             ])
         case "terminal.paste_image":
             let surfaceID = info.surfaceID ?? ""
@@ -364,7 +375,8 @@ private actor RoutingTransport: CmxByteTransport {
                 workingDirectory: params?["working_directory"] as? String,
                 initialCommand: params?["initial_command"] as? String,
                 initialEnv: params?["initial_env"] as? [String: String],
-                operationID: params?["operation_id"] as? String
+                operationID: params?["operation_id"] as? String,
+                query: params?["query"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {
