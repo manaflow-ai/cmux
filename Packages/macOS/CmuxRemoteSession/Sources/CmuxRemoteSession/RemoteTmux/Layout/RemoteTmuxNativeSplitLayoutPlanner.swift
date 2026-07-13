@@ -63,11 +63,11 @@ public struct RemoteTmuxNativeSplitLayoutPlanner: Sendable {
         verticalCarry: CGFloat = 0
     ) -> Plan {
         switch tree {
-        case .atomic(let layout, _):
+        case .atomic(let layout, _, _):
             var paneId: Int?
             if case .pane(let id) = layout.content { paneId = id }
             return .leaf(paneId: paneId, outer: parentSize)
-        case .split(_, _, let orientation, let firstTree, let secondTree):
+        case .split(_, _, _, let orientation, let firstTree, let secondTree):
             let axisCarry = orientation == .horizontal ? horizontalCarry : verticalCarry
             var fraction: CGFloat?
             var firstSize: CGSize?

@@ -15,12 +15,17 @@ HOST="${1:?usage: CMUX_TAG=<tag> $0 <ssh-host> [seeds] [iters]}"
 SEEDS="${2:-40}"
 ITERS="${3:-25}"
 : "${CMUX_TAG:?CMUX_TAG is required}"
-APP="${CMUX_FUZZ_APP:-$HOME/Library/Developer/Xcode/DerivedData/cmux-${CMUX_TAG}/Build/Products/Debug/cmux DEV ${CMUX_TAG}.app}"
 RELAUNCH_HOST="${CMUX_FUZZ_RELAUNCH_HOST:-}"
-DEBUG_LOG="/tmp/cmux-debug-${CMUX_TAG}.log"
 LOCAL_TMP_ROOT="${TMPDIR:-/tmp}"
 LOCAL_TMP_ROOT="${LOCAL_TMP_ROOT%/}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/lib/mobile-attach.sh"
+cmux_attach_validate_dev_tag "$CMUX_TAG" || exit 2
+TAG_SLUG="$(cmux_attach__slug "$CMUX_TAG")"
+APP="${CMUX_FUZZ_APP:-$(cmux_attach_mac_app_path "$CMUX_TAG")}"
+APP_EXECUTABLE="$APP/Contents/MacOS/cmux DEV"
+DEBUG_LOG="${CMUX_FUZZ_DEBUG_LOG:-/tmp/cmux-debug-${TAG_SLUG}.log}"
+export CMUX_FUZZ_DEBUG_LOG="$DEBUG_LOG"
 . "$HERE/remote-tmux-fuzz-lock.sh"
 # Exactly one driver. Concurrent marathons share one app and one tmux lab,
 # and each seed's setup kills the lab server — yanking layouts out from
@@ -46,13 +51,18 @@ DIR=$(mktemp -d "$LOCAL_TMP_ROOT/cmux-fuzz-marathon.XXXXXXXX") || {
 echo "marathon: $SEEDS seeds x $ITERS iters -> $DIR"
 
 app_pid() {
-  local pattern="cmux-${CMUX_TAG}/Build.*MacOS/cmux DEV" command remote_command
+  local command remote_command pid executable
   if [ -n "$RELAUNCH_HOST" ]; then
-    printf -v command 'pgrep -f %q | head -1' "$pattern"
+    printf -v command 'target=%q; ps -axo pid=,comm= | while read -r pid executable; do if [ "$executable" = "$target" ]; then printf "%%s\\n" "$pid"; break; fi; done' "$APP_EXECUTABLE"
     printf -v remote_command 'zsh -lc %q' "$command"
     ssh "$RELAUNCH_HOST" "$remote_command" 2>/dev/null
   else
-    pgrep -f "$pattern" | head -1
+    while read -r pid executable; do
+      if [ "$executable" = "$APP_EXECUTABLE" ]; then
+        printf '%s\n' "$pid"
+        break
+      fi
+    done < <(ps -axo pid=,comm=)
   fi
 }
 

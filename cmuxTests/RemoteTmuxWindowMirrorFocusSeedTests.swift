@@ -118,6 +118,8 @@ import Testing
         connection.observers.notifyStateChanged(.connected)
 
         #expect(!windowMirror.sizingPassScheduled)
+        connection.observers.notifyReconnectReady()
+        #expect(windowMirror.sizingPassScheduled)
     }
 
     @Test func reconcileWithUnchangedLayoutDoesNotReassertBonsplitFocus() throws {

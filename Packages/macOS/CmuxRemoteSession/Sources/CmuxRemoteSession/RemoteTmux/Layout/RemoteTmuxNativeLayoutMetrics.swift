@@ -73,7 +73,8 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         )
     }
 
-    private func chromeResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
+    /// Native chrome residual without optional placement slack.
+    func minimumResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
         residual(
             of: node,
             panePlacementSlack: 0,
@@ -175,7 +176,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     ) -> CGFloat {
         extent(
             of: tree.layout,
-            residual: chromeResidual(of: tree.layout),
+            residual: tree.minimumResidual,
             along: orientation
         )
     }
@@ -279,7 +280,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         let available = parentExtent - dividerThickness
         let firstOuterExtent = available * dividerPosition
         let firstResidual = residualExtent(
-            chromeResidual(of: first),
+            minimumResidual(of: first),
             along: orientation
         )
         let cells = (firstOuterExtent - firstResidual) / cellExtent(along: orientation)
@@ -294,7 +295,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     ) -> Int {
         let available = parentExtent - dividerThickness
         let firstOuterExtent = available * dividerPosition
-        let firstResidual = residualExtent(chromeResidual(of: first.layout), along: orientation)
+        let firstResidual = residualExtent(first.minimumResidual, along: orientation)
         let cells = (firstOuterExtent - firstResidual) / cellExtent(along: orientation)
         return max(1, Int(cells.rounded()))
     }
@@ -319,7 +320,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     ) -> Int {
         let cell = cellExtent(along: orientation)
         guard cell > 0 else { return 0 }
-        let chrome = residualExtent(chromeResidual(of: pane), along: orientation)
+        let chrome = residualExtent(minimumResidual(of: pane), along: orientation)
         let cells = (outerExtent - chrome) / cell
         return max(1, NSNumber(value: Double(cells.rounded())).intValue)
     }

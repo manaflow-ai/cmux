@@ -116,6 +116,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             onTopologyChanged: { [weak self] in
                 self?.rebuild()
             },
+            onReconnectReady: { [weak self] in
+                self?.forceResizeAllVisibleMirrors()
+            },
             onExit: { [weak self] in
                 self?.handleConnectionExited()
             },
@@ -126,16 +129,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 // Resetting on the disconnect edge is ordering-independent (no output
                 // arrives while not connected).
                 if state != .connected { self?.titleFilters.removeAll() }
-                // On reconnect, re-derive every visible mirror's claim from
-                // its live window rather than trusting the cached size the
-                // reseed replays: a container change that raced the outage
-                // leaves the replayed size stale and tmux holds the window
-                // there. A fresh pass re-validates the container against the
-                // window, making the post-reconnect claim current truth.
-                // This is the reconnect-during-churn race the fuzz isolates.
-                if state == .connected {
-                    self?.forceResizeAllVisibleMirrors()
-                }
             }
         )
         rebuild()

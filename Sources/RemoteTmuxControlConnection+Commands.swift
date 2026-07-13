@@ -220,6 +220,7 @@ extension RemoteTmuxControlConnection {
                 seedPane(paneId: paneId)
             }
         }
+        observers.notifyReconnectReady()
     }
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),
