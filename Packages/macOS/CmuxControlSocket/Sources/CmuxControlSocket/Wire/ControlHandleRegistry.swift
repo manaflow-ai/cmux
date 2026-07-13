@@ -46,6 +46,21 @@ public struct ControlHandleRegistry: Sendable {
         return ref
     }
 
+    /// Returns the ref already minted for an object, without minting one.
+    ///
+    /// Unlike ``ensureRef(kind:uuid:)`` this never mutates the registry or
+    /// advances an ordinal, so it is safe to call from read-only projections
+    /// (e.g. building the custom-sidebar data context during a SwiftUI render)
+    /// where allocating a handle as a side effect would be undesirable.
+    ///
+    /// - Parameters:
+    ///   - kind: The handle kind.
+    ///   - uuid: The object identity to look up.
+    /// - Returns: The existing ref string, or `nil` if none has been minted.
+    public func existingRef(kind: ControlHandleKind, uuid: UUID) -> String? {
+        refByUUID[kind]?[uuid]
+    }
+
     /// Forgets the ref minted for an object (e.g. when a surface closes).
     ///
     /// Ordinals are never reused: a later `ensureRef` for the same identity

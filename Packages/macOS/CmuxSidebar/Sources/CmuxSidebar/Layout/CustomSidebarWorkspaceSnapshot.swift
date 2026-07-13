@@ -92,7 +92,7 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
     /// Creates a workspace snapshot from already-resolved leaf values.
     public init(
         id: UUID,
-        ref: String?,
+        ref: String? = nil,
         title: String,
         isSelected: Bool,
         isPinned: Bool,

@@ -234,7 +234,7 @@ extension ContentView {
 
     func rightSidebarCustomSidebarDataContext(now: Date) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
-        let workspaceRefs = TerminalController.shared.v2WorkspaceRefs(for: tabManager.tabs.map(\.id))
+        let workspaceRefs = TerminalController.shared.v2WorkspaceRefsIfPresent(for: tabManager.tabs.map(\.id))
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
             workspace.customSidebarWorkspaceSnapshot(
                 index: index,
