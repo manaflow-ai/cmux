@@ -2,6 +2,14 @@ public import CoreText
 public import Darwin
 public import GhosttyKit
 
+private func ghosttySurfacePointerAppearsLive(_ pointer: UnsafeMutableRawPointer?) -> Bool {
+    guard let pointer,
+          malloc_zone_from_ptr(pointer) != nil else {
+        return false
+    }
+    return malloc_size(pointer) > 0
+}
+
 /// Pure read-only probes over a runtime `ghostty_surface_t` and its context.
 ///
 /// These are stateless functions over C runtime values; they are grouped on a
@@ -39,7 +47,7 @@ public struct GhosttySurfaceRuntimeProbe {
     /// - Parameter surface: The runtime surface pointer to probe.
     /// - Returns: Whether the pointer appears to be a live allocation.
     public static func surfacePointerAppearsLive(_ surface: ghostty_surface_t) -> Bool {
-        pointerAppearsLive(surface)
+        ghosttySurfacePointerAppearsLive(surface)
     }
 
     /// The current runtime font size of a live surface, in points.
@@ -48,7 +56,7 @@ public struct GhosttySurfaceRuntimeProbe {
     /// - Returns: The QuickLook font size in points, or nil when the surface
     ///   pointer is stale or the runtime reports no font.
     public static func currentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
-        guard surfacePointerAppearsLive(surface) else {
+        guard ghosttySurfacePointerAppearsLive(surface) else {
             return nil
         }
 
@@ -64,24 +72,4 @@ public struct GhosttySurfaceRuntimeProbe {
         return points
     }
 
-    /// The app-thread-owned live surface font size, without reading renderer state.
-    ///
-    /// - Parameter surface: The runtime surface to read.
-    /// - Returns: The live inherited font size in points, or nil when the
-    ///   surface is stale or font inheritance is disabled.
-    public static func currentCoreSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
-        guard surfacePointerAppearsLive(surface) else { return nil }
-        let inherited = ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-        let points = inherited.font_size
-        guard points.isFinite, points > 0 else { return nil }
-        return points
-    }
-
-    private static func pointerAppearsLive(_ pointer: UnsafeMutableRawPointer?) -> Bool {
-        guard let pointer,
-              malloc_zone_from_ptr(pointer) != nil else {
-            return false
-        }
-        return malloc_size(pointer) > 0
-    }
 }
