@@ -39,6 +39,11 @@ struct PopoverPointerTracker: NSViewRepresentable {
         // collected via preference.
         override var isFlipped: Bool { true }
 
+        // Tracking areas fire from geometry alone; this view must never win
+        // hit testing over the SwiftUI buttons/fields/gestures it sits
+        // behind (same contract as `HoverTrackingNSView`).
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             trackingAreas.forEach(removeTrackingArea)

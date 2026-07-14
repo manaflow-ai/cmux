@@ -37,28 +37,34 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// Return toggles it when the add field is empty, and Cmd+Return always
     /// toggles it between completed and pending.
     @State private var highlightedItemId: UUID?
-    /// Pointer position in ``Self/pointerSpaceName`` coordinates, or nil when
-    /// the pointer is outside the popover. Driven by `PopoverPointerTracker`
-    /// (AppKit-owned tracking area, seeded at window attach), so a fresh
-    /// presentation under an already-resting pointer still knows where it is.
-    @State private var pointerLocation: CGPoint?
-    /// Item-row frames in ``Self/pointerSpaceName`` coordinates, collected via
-    /// preference. Frames update on scroll and reflow, so the derived hover
-    /// below self-corrects when rows move under a stationary pointer.
+    /// Pointer position in ``Self/pointerSpaceName`` space (nil = outside).
+    /// A REFERENCE box, not `@State` value storage: mouse-moved arrives per
+    /// pixel, and a CGPoint state write per event would rebuild every
+    /// non-lazy row at mouse frequency. Mutating the box invalidates
+    /// nothing; only `hoveredItemId` (row-granular) drives renders.
+    private final class PointerLocationBox {
+        var location: CGPoint?
+    }
+
+    @State private var pointerLocation = PointerLocationBox()
+    /// Item under the pointer (reveals the trailing delete button). Derived
+    /// from pointer position + row geometry — never from per-row hover
+    /// events, which die when content recreates or rows reflow under a
+    /// resting pointer. Written only when the hovered ROW changes.
+    @State private var hoveredItemId: UUID?
+    /// Row frames in ``Self/pointerSpaceName`` space (via preference); update
+    /// on scroll/reflow so hover self-corrects under a resting pointer.
     @State private var itemRowFrames: [UUID: CGRect] = [:]
 
     private static let pointerSpaceName = "checklistPopoverPointerSpace"
 
-    /// The item currently under the pointer, used to reveal the trailing
-    /// delete button. DERIVED from pointer position + row geometry rather
-    /// than stored from per-row hover events: event-driven hover state dies
-    /// whenever the popover content is recreated or rows reflow while the
-    /// pointer rests in place (no new mouse-moved arrives), which was the
-    /// "delete x barely ever shows" bug. Geometry-derived hover has no such
-    /// event dependency.
-    private var hoveredItemId: UUID? {
-        guard let pointerLocation else { return nil }
-        return itemRowFrames.first { $0.value.contains(pointerLocation) }?.key
+    private func rederiveHover(frames: [UUID: CGRect]) {
+        let hovered = pointerLocation.location.flatMap { point in
+            frames.first { $0.value.contains(point) }?.key
+        }
+        if hovered != hoveredItemId {
+            hoveredItemId = hovered
+        }
     }
 
     private static let itemFontSize: CGFloat = 13
@@ -131,19 +137,17 @@ struct SidebarWorkspaceChecklistPopover: View {
         }
         .frame(width: 320, alignment: .leading)
         .coordinateSpace(name: Self.pointerSpaceName)
-        // AppKit-owned pointer tracking feeding the derived `hoveredItemId`
-        // (see its doc comment). NOT SwiftUI `.onContinuousHover`: SwiftUI
-        // hover modifiers rebuild their NSTrackingArea whenever the content
-        // updates, and the first mouse event after a rebuild can arrive as a
-        // spurious "ended" from the torn-down area — observed live as the
-        // delete x vanishing on a 1px pointer move right after a checklist
-        // mutation. The tracker's backing NSView persists across SwiftUI
-        // updates, so its tracking area never churns with content changes.
+        // AppKit-owned pointer tracking (see PopoverPointerTracker's doc for
+        // why SwiftUI hover modifiers can't be used here: their tracking
+        // areas churn with content updates and drop the first post-mutation
+        // event as a spurious "ended").
         .background(PopoverPointerTracker { location in
-            pointerLocation = location
+            pointerLocation.location = location
+            rederiveHover(frames: itemRowFrames)
         })
         .onPreferenceChange(ChecklistPopoverRowFramesKey.self) { frames in
             itemRowFrames = frames
+            rederiveHover(frames: frames)
         }
         .background(toggleHighlightedShortcutButton(visible: ordered))
         // Without this, the popover's window only gets promoted to key once,

@@ -12408,9 +12408,6 @@ struct VerticalTabsSidebar: View {
             }
         }
         let onChecklistPopoverPresentedChange: @MainActor (Bool) -> Void = { [tabId = tab.id] presented in
-#if DEBUG
-            cmuxDebugLog("focus.todoPopover.stateChange presented=\(presented) tab=\(tabId.uuidString.prefix(5)) current=\(checklistPopoverWorkspaceId?.uuidString.prefix(5) ?? "nil")")
-#endif
             if presented {
                 statusPopoverWorkspaceId = nil
                 checklistPopoverWorkspaceId = tabId
@@ -13839,9 +13836,10 @@ struct TabItemView: View, Equatable {
                 .lineLimit(1)
             }
 
-            // Checklist summary line + inline expansion. Rendered whenever there is
-            // content or a pending add request — independent of the status glyph.
-            if !workspaceSnapshot.checklistItems.isEmpty || checklistAddFieldActivationToken > 0 {
+            // Rendered whenever there is content, a pending add request, or an OPEN
+            // popover — unmounting dismantles the popover's anchor mid-presentation.
+            if !workspaceSnapshot.checklistItems.isEmpty || checklistAddFieldActivationToken > 0
+                || isChecklistPopoverPresented {
                 SidebarWorkspaceChecklistSection(
                     items: workspaceSnapshot.checklistItems,
                     completedCount: workspaceSnapshot.checklistCompletedCount,
