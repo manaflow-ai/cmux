@@ -3419,8 +3419,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
-    // SAFETY: replay setup replaces this dispatcher on the main actor before
-    // Ghostty attaches the runtime callback; callback delivery only reads it.
+    // SAFETY: replay setup replaces this before runtime attachment; callbacks only read it.
     nonisolated(unsafe) var currentDirectoryActionDispatcher = GhosttyCurrentDirectoryActionDispatcher()
     var scrollbar: GhosttyScrollbar?
     /// Pending scrollbar value written from the action callback thread;
