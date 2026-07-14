@@ -64,7 +64,7 @@ public import UIKit
     }
     public override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor(currentTheme.background)
+        view.backgroundColor = .clear
         view.clipsToBounds = true
         configureCollectionView()
         configureDataSource()
@@ -102,7 +102,7 @@ public import UIKit
             return
         }
         let anchor = captureAnchor()
-        view.backgroundColor = UIColor(theme.background)
+        view.backgroundColor = .clear
         collectionView.backgroundColor = UIColor(theme.background)
         topMaskView?.apply(theme: theme)
         bottomMaskView?.apply(theme: theme)

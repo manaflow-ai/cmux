@@ -53,7 +53,7 @@ public struct TranscriptLiveView: View {
         let syncPresentation = TranscriptSyncPresentation(
             phase: engine.connectivity.phase,
             consecutiveFailures: engine.connectivity.consecutiveFailureCount,
-            hasContent: !input.entries.isEmpty
+            input: input
         )
         ZStack {
             TranscriptLiveControllerRepresentable(

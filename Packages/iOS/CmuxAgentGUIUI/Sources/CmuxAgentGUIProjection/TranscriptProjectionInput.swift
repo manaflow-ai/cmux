@@ -2,6 +2,8 @@ public import CmuxAgentReplica
 
 /// Value input consumed by ``TranscriptProjector``.
 public struct TranscriptProjectionInput: Sendable {
+    /// Whether the replica has received its first authoritative journal page.
+    public let hasCompletedInitialSync: Bool
     /// Loaded entries in ascending journal sequence order.
     public let entries: [EntrySnapshot]
     /// Known holes in the local entry window.
@@ -23,8 +25,19 @@ public struct TranscriptProjectionInput: Sendable {
     /// Maps a display tick to a display day key.
     public let dayKey: @Sendable (Int) -> String?
 
+    /// Whether the projector has any durable or transient row content to display.
+    public var hasVisibleContent: Bool {
+        !entries.isEmpty
+            || hasMoreBefore
+            || !holes.isEmpty
+            || sendTickets.contains { !$0.state.isResolved }
+            || asks.contains { $0.state == .active }
+            || streamingTail?.textTail.isEmpty == false
+    }
+
     /// Creates projection input.
     /// - Parameters:
+    ///   - hasCompletedInitialSync: Whether the first authoritative journal page arrived.
     ///   - entries: Loaded entries in ascending journal sequence order.
     ///   - holes: Known holes in the local entry window.
     ///   - hasMoreBefore: Whether older history exists before the retained window.
@@ -36,6 +49,7 @@ public struct TranscriptProjectionInput: Sendable {
     ///   - displayTick: Deterministic display tick provider.
     ///   - dayKey: Display day key provider for a tick.
     public init(
+        hasCompletedInitialSync: Bool = false,
         entries: [EntrySnapshot],
         holes: [EntryRange] = [],
         hasMoreBefore: Bool = false,
@@ -47,6 +61,7 @@ public struct TranscriptProjectionInput: Sendable {
         displayTick: @escaping @Sendable (EntrySnapshot) -> Int = { $0.seq.rawValue },
         dayKey: @escaping @Sendable (Int) -> String? = { _ in nil }
     ) {
+        self.hasCompletedInitialSync = hasCompletedInitialSync
         self.entries = entries.sorted { $0.seq < $1.seq }
         self.holes = holes.sorted { $0.lowerBound < $1.lowerBound }
         self.hasMoreBefore = hasMoreBefore
@@ -76,6 +91,7 @@ public struct TranscriptProjectionInput: Sendable {
         dayKey: @escaping @Sendable (Int) -> String? = { _ in nil }
     ) {
         self.init(
+            hasCompletedInitialSync: state.journalID != nil,
             entries: state.entries,
             holes: state.holes,
             hasMoreBefore: hasMoreBefore,

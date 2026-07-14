@@ -48,7 +48,7 @@ extension AgentSyncEngineTests {
     }
 
     @Test
-    func streamTickRequiresContiguousTailAndClearsOnAppend() async throws {
+    func streamTickRequiresContiguousTextAndClearsOnMismatchedEmptyTickOrAppend() async throws {
         let transport = FixtureSyncTransport()
         let server = AgentSyncTestServer(entries: [
             AgentSyncTestSupport.entry(1),
@@ -92,17 +92,17 @@ extension AgentSyncEngineTests {
         for _ in 0..<20 { await Task.yield() }
         #expect(engine.streamingTails[AgentSyncTestSupport.session]?.revision == 1)
 
-        let clear = try AgentSyncTestSupport.eventData(.streamTick(
+        let mismatchedClear = try AgentSyncTestSupport.eventData(.streamTick(
             GuiStreamTickEvent(
                 journalID: AgentSyncTestSupport.journalOne,
-                afterSeq: EntrySeq(rawValue: 2),
+                afterSeq: EntrySeq(rawValue: 3),
                 textTail: "",
                 revision: 2
             )
         ))
         await transport.injectFrame(
             topic: GuiWireTopic.journal(sessionID: AgentSyncTestSupport.session),
-            payload: clear
+            payload: mismatchedClear
         )
         #expect(await AgentSyncTestSupport.waitUntil {
             engine.streamingTails[AgentSyncTestSupport.session] == nil

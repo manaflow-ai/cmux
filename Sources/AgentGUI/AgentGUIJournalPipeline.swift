@@ -23,6 +23,7 @@ final class AgentGUIJournalPipeline {
     private(set) var window: AgentGUIJournalWindow?
     private(set) var isWatching = false
     private(set) var lastReadByteCount = 0
+    private(set) var lastReadFailed = false
 
     init(sessionID: AgentSessionID, kind: AgentKind, path: String) {
         self.sessionID = sessionID
@@ -46,7 +47,7 @@ final class AgentGUIJournalPipeline {
     }
 
     func entries(beforeSeq: EntrySeq?, afterSeq: EntrySeq?, limit: Int) -> (journalID: JournalID, entries: [EntrySnapshot], windowStart: EntrySeq, windowEnd: EntrySeq, tailSeq: EntrySeq, hasMoreBefore: Bool)? {
-        guard let window else { return nil }
+        guard !lastReadFailed, let window else { return nil }
         let entries = window.page(beforeSeq: beforeSeq, afterSeq: afterSeq, limit: limit)
         let start = entries.first?.seq ?? window.tailSeq
         let end = entries.last?.seq ?? window.tailSeq
@@ -89,37 +90,56 @@ final class AgentGUIJournalPipeline {
     }
 
     private func performIngest(fullRefresh: Bool) async -> [AgentGUIJournalPipelineEvent] {
-        guard let fileIdentity = await fileIdentity() else {
+        let capturedIdentity: AgentGUIFileIdentity
+        switch await fileIdentity() {
+        case .success(let captured):
+            capturedIdentity = captured
+        case .failure(let error) where error.code == .ENOENT || error.code == .ENOTDIR:
+            lastReadFailed = false
+            guard window == nil else { return [] }
+            let journalID = JournalID(rawValue: "pending:\(sessionID.rawValue)")
+            window = AgentGUIJournalWindow(journalID: journalID)
+            return [.reset(journalID: journalID, tailSeq: EntrySeq(rawValue: 0))]
+        case .failure:
+            lastReadFailed = true
             return []
         }
-        let shrankInPlace = fileIdentity.size < currentByteOffset
-        let identity = fileIdentity.journalIdentity(
+        let shrankInPlace = capturedIdentity.size < currentByteOffset
+        let identity = capturedIdentity.journalIdentity(
             baselineFirstLine: baselineFirstLine,
             forceHeadTruncated: shrankInPlace
         )
         let decision = minter.decide(previous: currentIdentity, current: identity, currentJournalID: window?.journalID)
         let journalID: JournalID
-        var didReset = false
+        let didReset: Bool
         switch decision {
         case .same(let existing):
             journalID = existing
+            didReset = false
         case .created(let created):
             journalID = created
             didReset = true
-            decoder = AgentGUITranscriptDecoderBox(kind: kind)
-            bookkeeper.reset()
-            toolPairingIndex.reset()
-            currentByteOffset = 0
-            currentLineIndex = 0
-            pendingPartialLine.removeAll(keepingCapacity: true)
-            baselineFirstLine = fileIdentity.firstLine
-            currentIdentity = fileIdentity.journalIdentity(baselineFirstLine: baselineFirstLine)
         }
 
         let chunk = if didReset || fullRefresh {
             await readInitialTail()
         } else {
             await readChunk(from: currentByteOffset)
+        }
+        guard chunk.readSucceeded else {
+            lastReadFailed = true
+            return []
+        }
+        lastReadFailed = false
+        if didReset {
+            decoder = AgentGUITranscriptDecoderBox(kind: kind)
+            bookkeeper.reset()
+            toolPairingIndex.reset()
+            currentByteOffset = 0
+            currentLineIndex = 0
+            pendingPartialLine.removeAll(keepingCapacity: true)
+            baselineFirstLine = capturedIdentity.firstLine
+            currentIdentity = capturedIdentity.journalIdentity(baselineFirstLine: baselineFirstLine)
         }
         lastReadByteCount = chunk.data.count
         if didReset || fullRefresh {
@@ -189,7 +209,7 @@ final class AgentGUIJournalPipeline {
         return apply(stamped)
     }
 
-    private func fileIdentity() async -> AgentGUIFileIdentity? {
+    private func fileIdentity() async -> Result<AgentGUIFileIdentity, POSIXError> {
         let path = path
         return await Task.detached(priority: .utility) {
             AgentGUIFileIdentity.capture(path: path)
@@ -200,14 +220,18 @@ final class AgentGUIJournalPipeline {
         let path = path
         return await Task.detached(priority: .utility) {
             guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
-                return ReadChunk(data: Data(), endOffset: byteOffset, discardedPrefix: false)
+                return ReadChunk(data: Data(), endOffset: byteOffset, discardedPrefix: false, readSucceeded: false)
             }
             defer { try? handle.close() }
             do { try handle.seek(toOffset: UInt64(byteOffset)) } catch {
-                return ReadChunk(data: Data(), endOffset: byteOffset, discardedPrefix: false)
+                return ReadChunk(data: Data(), endOffset: byteOffset, discardedPrefix: false, readSucceeded: false)
             }
-            let data = (try? handle.readToEnd()) ?? Data()
-            return ReadChunk(data: data, endOffset: byteOffset + data.count, discardedPrefix: false)
+            do {
+                let data = try handle.readToEnd() ?? Data()
+                return ReadChunk(data: data, endOffset: byteOffset + data.count, discardedPrefix: false, readSucceeded: true)
+            } catch {
+                return ReadChunk(data: Data(), endOffset: byteOffset, discardedPrefix: false, readSucceeded: false)
+            }
         }.value
     }
 
@@ -240,21 +264,28 @@ private struct ReadChunk: Sendable {
     let data: Data
     let endOffset: Int
     let discardedPrefix: Bool
+    let readSucceeded: Bool
     var byteCount: Int { data.count }
 }
 
 private enum AgentGUITranscriptTailReader {
     static func read(path: String, lineLimit: Int, byteLimit: Int) -> ReadChunk {
         guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
-            return ReadChunk(data: Data(), endOffset: 0, discardedPrefix: false)
+            return ReadChunk(data: Data(), endOffset: 0, discardedPrefix: false, readSucceeded: false)
         }
         defer { try? handle.close() }
         let endOffset = Int((try? handle.seekToEnd()) ?? 0)
         let startOffset = max(0, endOffset - max(1, byteLimit))
         do { try handle.seek(toOffset: UInt64(startOffset)) } catch {
-            return ReadChunk(data: Data(), endOffset: endOffset, discardedPrefix: startOffset > 0)
+            return ReadChunk(data: Data(), endOffset: endOffset, discardedPrefix: startOffset > 0, readSucceeded: false)
         }
-        var data = (try? handle.readToEnd()) ?? Data()
+        let readData: Data
+        do {
+            readData = try handle.readToEnd() ?? Data()
+        } catch {
+            return ReadChunk(data: Data(), endOffset: endOffset, discardedPrefix: startOffset > 0, readSucceeded: false)
+        }
+        var data = readData
         var discardedPrefix = startOffset > 0
         if startOffset > 0 {
             if let firstNewline = data.firstIndex(of: 0x0A) {
@@ -269,6 +300,6 @@ private enum AgentGUITranscriptTailReader {
             data = Data(data[data.index(after: cutoff)...])
             discardedPrefix = true
         }
-        return ReadChunk(data: data, endOffset: endOffset, discardedPrefix: discardedPrefix)
+        return ReadChunk(data: data, endOffset: endOffset, discardedPrefix: discardedPrefix, readSucceeded: true)
     }
 }

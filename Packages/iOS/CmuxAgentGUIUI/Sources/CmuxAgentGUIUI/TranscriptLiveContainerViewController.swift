@@ -28,7 +28,7 @@ public import UIKit
 
     public override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor(currentTheme.background)
+        view.backgroundColor = .clear
         addChild(transcript)
         transcript.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(transcript.view)
@@ -68,7 +68,7 @@ public import UIKit
         self.terminalThemeGeneration = terminalThemeGeneration
         currentTheme = theme
         if isViewLoaded {
-            view.backgroundColor = UIColor(theme.background)
+            view.backgroundColor = .clear
         }
         transcript.apply(theme: theme)
     }

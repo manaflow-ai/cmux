@@ -16,17 +16,18 @@ struct AgentGUIFileIdentity: Sendable {
         )
     }
 
-    static func capture(path: String) -> AgentGUIFileIdentity? {
+    static func capture(path: String) -> Result<AgentGUIFileIdentity, POSIXError> {
         var info = stat()
         guard stat(path, &info) == 0 else {
-            return nil
+            let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+            return .failure(POSIXError(code))
         }
-        return AgentGUIFileIdentity(
+        return .success(AgentGUIFileIdentity(
             path: path,
             inodeLikeToken: "\(info.st_dev):\(info.st_ino)",
             size: Int(info.st_size),
             firstLine: readFirstLine(path: path)
-        )
+        ))
     }
 
     private static func readFirstLine(path: String) -> String? {

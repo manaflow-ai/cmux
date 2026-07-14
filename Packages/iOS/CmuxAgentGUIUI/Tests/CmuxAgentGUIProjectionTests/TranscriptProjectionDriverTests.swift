@@ -58,8 +58,34 @@ import Testing
 
         let observed = await Self.waitUntil {
             inputs.last?.entries.map(\.seq.rawValue) == [1]
+                && inputs.last?.hasCompletedInitialSync == true
         }
         #expect(observed)
+        driver.stop()
+    }
+
+    @Test func emptyProjectionBecomesEligibleOnlyAfterJournalIsKnown() async throws {
+        let engine = AgentSyncEngine(transport: FixtureSyncTransport())
+        var inputs: [TranscriptProjectionInput] = []
+        let driver = TranscriptProjectionDriver(engine: engine, sessionID: Self.sessionID) { input in
+            inputs.append(input)
+        }
+        driver.start()
+        #expect(inputs.last?.hasCompletedInitialSync == false)
+
+        let conversation = try #require(engine.conversations[Self.sessionID])
+        conversation.mergePage(
+            journal: Self.journalID,
+            entries: [],
+            windowStart: EntrySeq(rawValue: 0),
+            windowEnd: EntrySeq(rawValue: 0),
+            tailSeq: EntrySeq(rawValue: 0),
+            hasMoreBefore: false
+        )
+
+        #expect(await Self.waitUntil {
+            inputs.last?.hasCompletedInitialSync == true
+        })
         driver.stop()
     }
 

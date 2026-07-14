@@ -12,6 +12,16 @@ struct TranscriptSyncStatusView: View {
         switch presentation {
         case .hidden:
             EmptyView()
+        case .empty:
+            Text(AgentGUIL10n.string(
+                "agent.transcript.empty",
+                defaultValue: "No messages yet. Say something."
+            ))
+            .font(.footnote)
+            .foregroundStyle(Color(theme.faintForeground))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("AgentTranscriptEmptyState")
+            .allowsHitTesting(false)
         case .loading:
             VStack(spacing: 10) {
                 ProgressView()

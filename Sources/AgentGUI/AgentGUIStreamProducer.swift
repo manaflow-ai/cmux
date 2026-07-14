@@ -58,6 +58,15 @@ final class AgentGUIStreamProducer {
         clearPreview(sessionID: sessionID)
     }
 
+    func journalEventArrived(
+        _ event: AgentGUIJournalPipelineEvent,
+        sessionID: AgentSessionID,
+        window: AgentGUIJournalWindow?
+    ) {
+        guard event.containsAgentProse(in: window) else { return }
+        authoritativeProseArrived(sessionID: sessionID)
+    }
+
     func turnEnded(sessionID: AgentSessionID) {
         tasks.removeValue(forKey: sessionID)?.cancel()
         guard turns.removeValue(forKey: sessionID) != nil else { return }
@@ -102,5 +111,19 @@ final class AgentGUIStreamProducer {
             textTail: "",
             revision: revision
         ))
+    }
+}
+
+private extension AgentGUIJournalPipelineEvent {
+    func containsAgentProse(in window: AgentGUIJournalWindow?) -> Bool {
+        switch self {
+        case .reset(let journalID, _):
+            guard window?.journalID == journalID else { return false }
+            return window?.entriesBySeq.values.contains { $0.kind == .agentProse } == true
+        case .appended(_, let entries):
+            return entries.contains { $0.kind == .agentProse }
+        case .replaced(_, let entry):
+            return entry.kind == .agentProse
+        }
     }
 }

@@ -89,7 +89,7 @@ import UIKit
         #expect(collection.contentOffset == offset)
         #expect(container.terminalThemeGeneration == 5)
         #expect(list.currentTheme == replacement)
-        #expect(container.view.backgroundColor == UIColor(replacement.background))
+        #expect(container.view.backgroundColor == UIColor.clear)
         #expect(collection.backgroundColor == UIColor(replacement.background))
     }
 
@@ -122,8 +122,8 @@ import UIKit
         let cell = try #require(
             controller.transcript.collectionView.visibleCells.first as? TranscriptCollectionCell
         )
-        #expect(controller.view.backgroundColor == UIColor(theme.background))
-        #expect(controller.transcript.view.backgroundColor == UIColor(theme.background))
+        #expect(controller.view.backgroundColor == UIColor.clear)
+        #expect(controller.transcript.view.backgroundColor == UIColor.clear)
         #expect(controller.transcript.collectionView.backgroundColor == UIColor(theme.background))
         #expect(cell.backgroundConfiguration?.backgroundColor == UIColor.clear)
         #expect(cell.contentView.backgroundColor == UIColor.clear)

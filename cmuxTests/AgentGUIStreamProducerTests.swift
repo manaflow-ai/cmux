@@ -86,4 +86,57 @@ import Testing
         #expect(frames[1].revision == 2)
         producer.turnEnded(sessionID: sessionID)
     }
+
+    @Test func resetWindowContainingDurableProseSettlesPreviewAndEmitsClear() {
+        let sessionID = AgentSessionID(rawValue: "reset-stream-session")
+        let surfaceID = UUID()
+        let journalID = JournalID(rawValue: "reset-stream-journal")
+        var frames: [GuiStreamTickEvent] = []
+        var screenLines = [
+            "› prompt",
+            "Live answer.",
+            "Working (3s • Esc to interrupt)",
+        ]
+        let producer = AgentGUIStreamProducer(
+            publish: { _, event in frames.append(event) },
+            snapshot: { requestedSurfaceID in
+                #expect(requestedSurfaceID == surfaceID)
+                return screenLines
+            },
+            hasSubscribers: { $0 == sessionID },
+            context: { _ in
+                .init(journalID: journalID, afterSeq: EntrySeq(rawValue: 1))
+            },
+            pollInterval: .seconds(60),
+            sleep: { _ in }
+        )
+        producer.turnStarted(sessionID: sessionID, surfaceID: surfaceID, agentKind: .codex)
+        defer { producer.turnEnded(sessionID: sessionID) }
+        producer.emitPreviewIfChanged(sessionID: sessionID)
+        #expect(frames.count == 1)
+        #expect(frames[0].textTail == "Live answer.")
+
+        var window = AgentGUIJournalWindow(journalID: journalID)
+        window.apply(EntrySnapshot(
+            journalID: journalID,
+            seq: EntrySeq(rawValue: 1),
+            kind: .agentProse,
+            content: EntryContent(
+                contentHash: 1,
+                payload: .agentProse(AgentProsePayload(markdown: "Live answer."))
+            ),
+            version: EntityVersion(rawValue: 1)
+        ))
+        producer.journalEventArrived(
+            .reset(journalID: journalID, tailSeq: EntrySeq(rawValue: 1)),
+            sessionID: sessionID,
+            window: window
+        )
+
+        #expect(frames.count == 2)
+        #expect(frames[1].textTail.isEmpty)
+        screenLines[1] = "A preview that must not reappear."
+        producer.emitPreviewIfChanged(sessionID: sessionID)
+        #expect(frames.count == 2)
+    }
 }

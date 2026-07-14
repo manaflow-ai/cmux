@@ -11,6 +11,60 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AgentGUIJournalPipelineTests {
+    @Test func missingJournalIsAnEmptyPageThenResetsWhenCreated() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-gui-missing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let transcript = directory.appendingPathComponent("not-created-yet.jsonl")
+        let pipeline = AgentGUIJournalPipeline(
+            sessionID: AgentSessionID(rawValue: "session-empty"),
+            kind: .codex,
+            path: transcript.path
+        )
+
+        let emptyEvents = await pipeline.ingestInitial()
+        let emptyPage = try #require(pipeline.entries(beforeSeq: nil, afterSeq: nil, limit: 10))
+        #expect(emptyPage.entries.isEmpty)
+        #expect(emptyPage.tailSeq == EntrySeq(rawValue: 0))
+        #expect(emptyPage.windowStart == EntrySeq(rawValue: 0))
+        #expect(emptyPage.windowEnd == EntrySeq(rawValue: 0))
+        #expect(emptyPage.hasMoreBefore == false)
+        guard case .reset(let pendingJournal, let tail)? = emptyEvents.first else {
+            Issue.record("missing journal should establish an empty replica journal")
+            return
+        }
+        #expect(tail == EntrySeq(rawValue: 0))
+
+        try write(lines: [Self.codexMessageLine], to: transcript)
+        let createdEvents = await pipeline.ingestInitial()
+        let createdPage = try #require(pipeline.entries(beforeSeq: nil, afterSeq: nil, limit: 10))
+        #expect(createdPage.journalID != pendingJournal)
+        #expect(createdPage.entries.count == 1)
+        #expect(createdEvents.contains { event in
+            if case .reset(let journalID, _) = event { return journalID == createdPage.journalID }
+            return false
+        })
+    }
+
+    @Test func pathThatCannotBeReadDoesNotMasqueradeAsEmpty() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-gui-unreadable-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pipeline = AgentGUIJournalPipeline(
+            sessionID: AgentSessionID(rawValue: "session-unreadable"),
+            kind: .codex,
+            path: directory.path
+        )
+
+        _ = await pipeline.ingestInitial()
+
+        #expect(pipeline.lastReadFailed)
+        #expect(pipeline.entries(beforeSeq: nil, afterSeq: nil, limit: 10) == nil)
+    }
+
     @Test func pairsToolResultsAsReplacementsAndResetsAfterRotation() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-gui-journal-\(UUID().uuidString)", isDirectory: true)

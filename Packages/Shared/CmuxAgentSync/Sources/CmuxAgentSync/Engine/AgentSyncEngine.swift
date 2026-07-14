@@ -409,12 +409,12 @@ public final class AgentSyncEngine {
         case .streamTick(let value):
             guard let sessionID = sessionID(for: event, topic: frame.topic),
                   let conversation = conversations[sessionID],
-                  conversation.journalID == value.journalID,
-                  conversation.tailSeq == value.afterSeq else { return }
+                  conversation.journalID == value.journalID else { return }
             guard !value.textTail.isEmpty else {
                 streamingTails[sessionID] = nil
                 return
             }
+            guard conversation.tailSeq == value.afterSeq else { return }
             streamingTails[sessionID] = AgentStreamingTail(
                 journalID: value.journalID,
                 afterSeq: value.afterSeq,

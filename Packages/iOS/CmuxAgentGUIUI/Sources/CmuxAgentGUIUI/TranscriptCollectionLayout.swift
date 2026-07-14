@@ -7,20 +7,24 @@ final class TranscriptCollectionLayout: UICollectionViewLayout {
     private var attributes: [UICollectionViewLayoutAttributes] = []
     private var contentSize = CGSize.zero
     private var measuredWidth: CGFloat = 0
+    private var measuredHeight: CGFloat = 0
     private var needsMeasurement = true
 
     override func prepare() {
         super.prepare()
         guard let collectionView else { return }
         let width = collectionView.bounds.width
+        let height = collectionView.bounds.height
         let itemCount = collectionView.numberOfItems(inSection: 0)
         let mustRebuild = needsMeasurement
             || abs(measuredWidth - width) > 0.5
+            || abs(measuredHeight - height) > 0.5
             || attributes.count != itemCount
         guard mustRebuild else {
             return
         }
         measuredWidth = width
+        measuredHeight = height
         needsMeasurement = false
         attributes.removeAll(keepingCapacity: true)
         attributes.reserveCapacity(itemCount)
@@ -33,7 +37,7 @@ final class TranscriptCollectionLayout: UICollectionViewLayout {
             attributes.append(itemAttributes)
             originY += height
         }
-        contentSize = CGSize(width: width, height: originY)
+        contentSize = CGSize(width: width, height: max(originY, height))
     }
 
     override var collectionViewContentSize: CGSize {
@@ -52,6 +56,7 @@ final class TranscriptCollectionLayout: UICollectionViewLayout {
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
         guard let collectionView else { return true }
         return abs(collectionView.bounds.width - newBounds.width) > 0.5
+            || abs(collectionView.bounds.height - newBounds.height) > 0.5
     }
 
     override func invalidateLayout(with context: UICollectionViewLayoutInvalidationContext) {

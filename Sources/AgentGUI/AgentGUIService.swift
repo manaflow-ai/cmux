@@ -383,9 +383,11 @@ final class AgentGUIService {
 
     private func handleJournalEvents(_ events: [AgentGUIJournalPipelineEvent], sessionID: AgentSessionID) {
         for event in events {
-            if event.containsAgentProse {
-                streamProducer?.authoritativeProseArrived(sessionID: sessionID)
-            }
+            streamProducer?.journalEventArrived(
+                event,
+                sessionID: sessionID,
+                window: pipelines[sessionID]?.window
+            )
             publisher.publishJournalEvent(event, sessionID: sessionID)
             sendLedgers[sessionID]?.handleJournalEvent(event)
             askRegistry.handleJournalEvent(event, sessionID: sessionID)
@@ -409,18 +411,5 @@ final class AgentGUIService {
         }
         sendLedgers[sessionID] = ledger
         return ledger
-    }
-}
-
-private extension AgentGUIJournalPipelineEvent {
-    var containsAgentProse: Bool {
-        switch self {
-        case .reset:
-            false
-        case .appended(_, let entries):
-            entries.contains { $0.kind == .agentProse }
-        case .replaced(_, let entry):
-            entry.kind == .agentProse
-        }
     }
 }
