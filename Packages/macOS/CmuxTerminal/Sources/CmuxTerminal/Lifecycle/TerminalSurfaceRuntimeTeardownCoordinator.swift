@@ -41,14 +41,20 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///     main-thread owner state.
     ///   - callbackContext: The retained callback context released on the
     ///     main actor after the free completes.
+    ///   - manualIOContext: Retained MANUAL-mode write callback userdata,
+    ///     released only after native free has stopped the I/O thread.
+    ///   - byteTeeLease: The retained tee callback userdata released only
+    ///     after the native free has stopped the PTY read thread.
     ///   - freeSurface: The free operation; defaults to
     ///     `ghostty_surface_free`.
-    public nonisolated func enqueueRuntimeTeardown(
+    nonisolated func enqueueRuntimeTeardown(
         id: UUID,
         workspaceId: UUID,
         reason: String,
         surface: ghostty_surface_t,
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
+        manualIOContext: Unmanaged<TerminalManualIOWriteBox>? = nil,
+        byteTeeLease: (any TerminalByteTeeLease)? = nil,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void = { surface in
             ghostty_surface_free(surface)
         }
@@ -59,6 +65,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             reason: reason,
             surface: surface,
             callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: byteTeeLease,
             freeSurface: freeSurface
         )
         Task {
@@ -99,12 +107,15 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         )
 #endif
         request.freeSurface(request.surface)
-        if request.callbackContext != nil {
+        if request.callbackContext != nil || request.manualIOContext != nil || request.byteTeeLease != nil {
             // The request is the @unchecked Sendable transport for the
-            // Unmanaged context; release through the request so the @Sendable
-            // closure never captures the non-Sendable Unmanaged directly.
+            // callback userdata; release through the request so the @Sendable
+            // closure never captures either owner directly. Waiting until
+            // native free returns guarantees the PTY read callback is gone.
             await MainActor.run {
                 request.callbackContext?.release()
+                request.manualIOContext?.release()
+                request.byteTeeLease?.release()
             }
         }
 #if DEBUG
