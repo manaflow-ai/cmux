@@ -24,6 +24,12 @@ final class NoteTitleTextFieldCoordinator: NSObject, NSTextFieldDelegate {
         if !parent.isFocused {
             parent.isFocused = true
         }
+        // Accent caret, matching the editing underline; the default
+        // text-colored caret reads as a stray gray line in the header.
+        if let field = obj.object as? NSTextField,
+           let editor = field.currentEditor() as? NSTextView {
+            editor.insertionPointColor = .controlAccentColor
+        }
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {

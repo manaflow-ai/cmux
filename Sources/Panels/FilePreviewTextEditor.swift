@@ -125,7 +125,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             textView.drawsBackground = drawsBackground
             textView.backgroundColor = resolvedBackgroundColor
             textView.textColor = foregroundColor
-            textView.insertionPointColor = foregroundColor
+            // Accent caret: the theme-foreground caret reads as a stray gray
+            // line against dark note backgrounds rather than a cursor.
+            textView.insertionPointColor = .controlAccentColor
             if let savingTextView = textView as? SavingTextView {
                 savingTextView.currentLineHighlightColor = foregroundColor.withAlphaComponent(0.055)
             }

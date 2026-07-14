@@ -30,6 +30,7 @@ final class NoteTitleNativeTextField: NSTextField {
         beginsEditingOnAttach = false
         allowsFocusFromClick = true
         window.makeFirstResponder(self)
+        applyAccentInsertionPoint()
         currentEditor()?.selectAll(nil)
     }
 
@@ -66,7 +67,14 @@ final class NoteTitleNativeTextField: NSTextField {
         if window?.firstResponder !== currentEditor() {
             window?.makeFirstResponder(self)
         }
+        applyAccentInsertionPoint()
         super.mouseDown(with: event)
+    }
+
+    /// Accent caret, matching the editing underline; the default
+    /// text-colored caret reads as a stray gray line in the header.
+    private func applyAccentInsertionPoint() {
+        (currentEditor() as? NSTextView)?.insertionPointColor = .controlAccentColor
     }
 
     override func textDidEndEditing(_ notification: Notification) {
