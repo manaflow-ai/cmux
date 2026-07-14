@@ -184,22 +184,22 @@ struct TerminalNotificationPolicyEnvelope: Codable, Sendable, Equatable {
     var effects: TerminalNotificationPolicyEffects = TerminalNotificationPolicyEffects()
     var stop: Bool?
 }
-
 struct TerminalNotificationPolicyRequest: Sendable {
     let tabId: UUID
     let surfaceId: UUID?
     let panelId: UUID?
+    let retargetsToLiveSurfaceOwner: Bool
     let title: String
     let subtitle: String
     let body: String
     let cwd: String?
     let isAppFocused: Bool
     let isFocusedPanel: Bool
-
     init(
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID? = nil,
+        retargetsToLiveSurfaceOwner: Bool = false,
         title: String,
         subtitle: String,
         body: String,
@@ -210,6 +210,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.tabId = tabId
         self.surfaceId = surfaceId
         self.panelId = panelId
+        self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
         self.title = title
         self.subtitle = subtitle
         self.body = body
@@ -218,7 +219,6 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.isFocusedPanel = isFocusedPanel
     }
 }
-
 struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
     let hookId: String
     let sourcePath: String?
@@ -442,8 +442,8 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
     private var killSource: DispatchSourceTimer?
     private var didComplete = false
     private var didRequestTermination = false
+    private var didRequestCancellation = false
     private var pendingFailure: TerminalNotificationPolicyFailure?
-
     init(
         hook: CmuxResolvedNotificationHook,
         envelope: TerminalNotificationPolicyEnvelope,
@@ -455,17 +455,23 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         self.inputData = inputData
         self.maxOutputBytes = maxOutputBytes
     }
-
     func run() async -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure> {
-        await withCheckedContinuation { continuation in
-            queue.async { [self] in
-                self.continuation = continuation
-                self.start()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                queue.async { [self] in
+                    self.continuation = continuation
+                    self.start()
+                }
             }
+        } onCancel: { [self] in
+            queue.async { [self] in requestCancellation() }
         }
     }
-
     private func start() {
+        guard !didRequestCancellation else {
+            complete(.failure(cancellationFailure()))
+            return
+        }
         do {
             try spawnHook()
             installReadSources()
@@ -480,7 +486,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             )))
         }
     }
-
     private func spawnHook() throws {
         var stdinFDs = [Int32](repeating: -1, count: 2)
         var stdoutFDs = [Int32](repeating: -1, count: 2)
@@ -493,11 +498,9 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         try throwIfPOSIXError(pipe(&stdinFDs), operation: "create stdin pipe")
         try throwIfPOSIXError(pipe(&stdoutFDs), operation: "create stdout pipe")
         try throwIfPOSIXError(pipe(&stderrFDs), operation: "create stderr pipe")
-
         var fileActions: posix_spawn_file_actions_t?
         try throwIfPOSIXError(posix_spawn_file_actions_init(&fileActions), operation: "initialize spawn file actions")
         defer { posix_spawn_file_actions_destroy(&fileActions) }
-
         try hook.cwd.withCString { cwd in
             try throwIfPOSIXError(
                 posix_spawn_file_actions_addchdir_np(&fileActions, cwd),
@@ -513,14 +516,12 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
                 operation: "close inherited hook pipe"
             )
         }
-
         var attributes: posix_spawnattr_t?
         try throwIfPOSIXError(posix_spawnattr_init(&attributes), operation: "initialize spawn attributes")
         defer { posix_spawnattr_destroy(&attributes) }
         let flags = Int16(POSIX_SPAWN_SETPGROUP)
         try throwIfPOSIXError(posix_spawnattr_setflags(&attributes, flags), operation: "set spawn flags")
         try throwIfPOSIXError(posix_spawnattr_setpgroup(&attributes, 0), operation: "set process group")
-
         let arguments = ["/bin/sh", "-c", hook.command]
         let environment = environmentStrings()
         var spawnedPID: pid_t = 0
@@ -532,7 +533,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             }
         }
         try throwIfPOSIXError(spawnResult, operation: "spawn notification hook")
-
         processId = spawnedPID
         stdinWriteFD = stdinFDs[1]
         stdoutReadFD = stdoutFDs[0]
@@ -549,7 +549,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         makeNonBlocking(stdoutReadFD)
         makeNonBlocking(stderrReadFD)
     }
-
     private func environmentStrings() -> [String] {
         var env = ProcessInfo.processInfo.environment
         env["CMUX_NOTIFICATION_TITLE"] = envelope.notification.title
@@ -560,7 +559,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         env["CMUX_NOTIFICATION_POLICY_JSON"] = String(data: inputData, encoding: .utf8) ?? ""
         return env.map { "\($0.key)=\($0.value)" }
     }
-
     private func addDup2(
         _ fileActions: inout posix_spawn_file_actions_t?,
         from source: Int32,
@@ -571,12 +569,10 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             operation: "configure hook pipe"
         )
     }
-
     private func throwIfPOSIXError(_ result: Int32, operation: String) throws {
         guard result != 0 else { return }
         throw POSIXError(.init(rawValue: result) ?? .EIO)
     }
-
     private func withCStringArray<T>(
         _ strings: [String],
         _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> T
@@ -592,18 +588,15 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             try body(buffer.baseAddress!)
         }
     }
-
     private func makeNonBlocking(_ fileDescriptor: Int32) {
         let flags = fcntl(fileDescriptor, F_GETFL)
         guard flags >= 0 else { return }
         _ = fcntl(fileDescriptor, F_SETFL, flags | O_NONBLOCK)
     }
-
     private func installReadSources() {
         stdoutSource = makeReadSource(fileDescriptor: stdoutReadFD, stream: .stdout)
         stderrSource = makeReadSource(fileDescriptor: stderrReadFD, stream: .stderr)
     }
-
     private func makeReadSource(
         fileDescriptor: Int32,
         stream: NotificationHookOutputStream
@@ -627,7 +620,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         source.resume()
         return source
     }
-
     private func installWaitSource() {
         let source = DispatchSource.makeProcessSource(
             identifier: processId,
@@ -640,7 +632,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         waitSource = source
         source.resume()
     }
-
     private func installTimeoutSource() {
         let source = DispatchSource.makeTimerSource(queue: queue)
         source.schedule(deadline: .now() + hook.timeoutSeconds)
@@ -650,7 +641,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         timeoutSource = source
         source.resume()
     }
-
     private func writeInputAndCloseStdin() {
         guard stdinWriteFD >= 0 else { return }
         let fileDescriptor = stdinWriteFD
@@ -675,7 +665,6 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             close(fileDescriptor)
         }
     }
-
     private func timeoutReached() {
         guard !didComplete else { return }
         if let status = reapProcessIfExited() {
@@ -686,6 +675,17 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
             hook: hook,
             message: "Notification hook timed out after \(Int(hook.timeoutSeconds))s"
         ))
+    }
+
+    private func requestCancellation() {
+        guard !didComplete else { return }
+        didRequestCancellation = true
+        guard continuation != nil else { return }
+        requestTermination(cancellationFailure())
+    }
+
+    private func cancellationFailure() -> TerminalNotificationPolicyFailure {
+        TerminalNotificationPolicyEngine.failure(hook: hook, message: "Notification hook cancelled")
     }
 
     private func requestTermination(_ failure: TerminalNotificationPolicyFailure) {
