@@ -15,6 +15,7 @@ struct SharedLiveAgentIndexLoader {
     private let processSnapshotProvider: () -> CmuxTopProcessSnapshot
     private let capturedAtProvider: () -> TimeInterval
     private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    private let injectedProcessArgumentsProvider: ((Int) -> CmuxTopProcessArguments?)?
     private let processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
     private let cachedAgentProcessValidator: CachedAgentProcessIdentityValidator
 
@@ -26,9 +27,7 @@ struct SharedLiveAgentIndexLoader {
         capturedAtProvider: @escaping () -> TimeInterval = {
             Date().timeIntervalSince1970
         },
-        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
-            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
-        },
+        processArgumentsProvider: ((Int) -> CmuxTopProcessArguments?)? = nil,
         processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -40,7 +39,10 @@ struct SharedLiveAgentIndexLoader {
         self.registry = registry
         self.processSnapshotProvider = processSnapshotProvider
         self.capturedAtProvider = capturedAtProvider
-        self.processArgumentsProvider = processArgumentsProvider
+        self.injectedProcessArgumentsProvider = processArgumentsProvider
+        self.processArgumentsProvider = processArgumentsProvider ?? {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
         self.processIdentityProvider = processIdentityProvider
         self.cachedAgentProcessValidator = cachedAgentProcessValidator
     }
@@ -64,7 +66,7 @@ struct SharedLiveAgentIndexLoader {
             fileManager: fileManager,
             processSnapshot: processSnapshot,
             capturedAt: capturedAtProvider(),
-            processArgumentsProvider: processArgumentsProvider
+            processArgumentsProvider: injectedProcessArgumentsProvider
         )
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
