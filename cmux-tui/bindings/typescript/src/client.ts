@@ -389,6 +389,7 @@ export class CmuxClient {
       (event) => event as SubscribeEvent,
       (event, dedicated) => dedicated
         || (!this.attachOnlyEvent(event.event) && !this.isSurfaceOverflow(event)),
+      (event) => event.event === "overflow" && !this.isSurfaceOverflow(event),
     );
   }
 

@@ -87,7 +87,7 @@ test("surface overflow terminates only the matching shared attach stream", async
   if (subscriptionOverflow.event === "overflow") {
     assert.equal(subscriptionOverflow.scope, undefined);
   }
-  subscription.close();
+  await assert.rejects(() => subscription.next(), /stream is closed/);
   await client.close();
 });
 

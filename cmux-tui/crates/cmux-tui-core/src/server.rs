@@ -18,12 +18,11 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-tui","session":"main",...}}
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -485,37 +484,65 @@ impl MessageSink for LineSink {
 }
 
 const WEBSOCKET_OUTBOUND_CAPACITY: usize = 256;
+const WEBSOCKET_CONTROL_RESERVE: usize = 256;
 
 struct WebSocketSink {
-    outbound: SyncSender<String>,
-    terminal: SyncSender<String>,
+    outbound: Arc<WebSocketOutbound>,
+}
+
+#[derive(Default)]
+struct WebSocketOutbound {
+    state: Mutex<WebSocketOutboundState>,
+}
+
+#[derive(Default)]
+struct WebSocketOutboundState {
+    queue: VecDeque<(String, bool)>,
+    regular_count: usize,
+}
+
+impl WebSocketOutbound {
+    fn push(&self, text: String, terminal: bool) -> std::io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        let total_capacity = WEBSOCKET_OUTBOUND_CAPACITY + WEBSOCKET_CONTROL_RESERVE;
+        if state.queue.len() >= total_capacity
+            || (!terminal && state.regular_count >= WEBSOCKET_OUTBOUND_CAPACITY)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                if terminal {
+                    "WebSocket control reserve overflowed"
+                } else {
+                    "WebSocket outbound queue overflowed"
+                },
+            ));
+        }
+        if !terminal {
+            state.regular_count += 1;
+        }
+        state.queue.push_back((text, terminal));
+        Ok(())
+    }
+
+    fn pop(&self) -> Option<String> {
+        let mut state = self.state.lock().unwrap();
+        let (text, terminal) = state.queue.pop_front()?;
+        if !terminal {
+            state.regular_count -= 1;
+        }
+        Some(text)
+    }
 }
 
 impl MessageSink for WebSocketSink {
     fn send(&self, value: &Value) -> std::io::Result<()> {
         let text = serde_json::to_string(value)?;
-        self.outbound.try_send(text).map_err(|error| match error {
-            TrySendError::Full(_) => std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                "WebSocket outbound queue overflowed",
-            ),
-            TrySendError::Disconnected(_) => {
-                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "WebSocket connection closed")
-            }
-        })
+        self.outbound.push(text, false)
     }
 
     fn send_terminal(&self, value: &Value) -> std::io::Result<()> {
         let text = serde_json::to_string(value)?;
-        self.terminal.try_send(text).map_err(|error| match error {
-            TrySendError::Full(_) => std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                "WebSocket terminal queue overflowed",
-            ),
-            TrySendError::Disconnected(_) => {
-                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "WebSocket connection closed")
-            }
-        })
+        self.outbound.push(text, true)
     }
 
     fn close(&self) {}
@@ -680,28 +707,13 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
         }
     }
     let _ = websocket.get_mut().set_read_timeout(Some(STREAM_DISCONNECT_POLL));
-    let (outbound_tx, outbound_rx) = sync_channel(WEBSOCKET_OUTBOUND_CAPACITY);
-    let (terminal_tx, terminal_rx) = sync_channel(1);
-    let writer = MessageWriter::new(WebSocketSink { outbound: outbound_tx, terminal: terminal_tx });
+    let outbound = Arc::new(WebSocketOutbound::default());
+    let writer = MessageWriter::new(WebSocketSink { outbound: outbound.clone() });
 
     'connection: loop {
-        match terminal_rx.try_recv() {
-            Ok(text) => {
-                let _ = websocket.send(Message::Text(text.into()));
-                break;
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => break,
-        }
-        loop {
-            match outbound_rx.try_recv() {
-                Ok(text) => {
-                    if websocket.send(Message::Text(text.into())).is_err() {
-                        break 'connection;
-                    }
-                }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => break 'connection,
+        while let Some(text) = outbound.pop() {
+            if websocket.send(Message::Text(text.into())).is_err() {
+                break 'connection;
             }
         }
         if !writer.is_open() {
@@ -1910,18 +1922,24 @@ mod tests {
 
     #[test]
     fn websocket_writer_reserves_a_terminal_overflow_lane() {
-        let (outbound, _outbound_receiver) = sync_channel(1);
-        let (terminal, terminal_receiver) = sync_channel(1);
-        let writer = MessageWriter::new(WebSocketSink { outbound, terminal });
+        let outbound = Arc::new(WebSocketOutbound::default());
+        let writer = MessageWriter::new(WebSocketSink { outbound: outbound.clone() });
 
-        writer.send(&json!({"event": "first"})).unwrap();
-        let error = writer.send(&json!({"event": "second"})).unwrap_err();
+        for sequence in 0..WEBSOCKET_OUTBOUND_CAPACITY {
+            writer.send(&json!({"event": "output", "sequence": sequence})).unwrap();
+        }
+        let error = writer.send(&json!({"event": "extra"})).unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
         assert!(writer.is_open());
 
         writer.send_terminal(&subscription_overflow_json()).unwrap();
-        let terminal: Value = serde_json::from_str(&terminal_receiver.recv().unwrap()).unwrap();
+        let drained = (0..WEBSOCKET_OUTBOUND_CAPACITY)
+            .map(|_| outbound.pop().expect("accepted output"))
+            .collect::<Vec<_>>();
+        assert!(drained[0].contains("\"sequence\":0"));
+        let terminal: Value = serde_json::from_str(&outbound.pop().unwrap()).unwrap();
         assert_eq!(terminal["event"], "overflow");
+        assert!(writer.is_open());
     }
 
     #[test]
