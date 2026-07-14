@@ -711,6 +711,10 @@ final class WindowTerminalPortal: NSObject {
 
     var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
+    /// Hosted views arrive from SwiftUI hosting with a flexible autoresizing
+    /// mask; adoption clears it (see bind) and detach restores this saved
+    /// value so the view resumes its normal AppKit life.
+    private var preAdoptionAutoresizingMaskByHostedId: [ObjectIdentifier: NSView.AutoresizingMask] = [:]
 
     deinit {
         // tearDown() removes these when a window closes normally, but a
@@ -1088,6 +1092,44 @@ final class WindowTerminalPortal: NSObject {
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
     }
 
+#if DEBUG
+    /// Stomp forensics for the frame ping-pong class: when the portal finds
+    /// a hosted view moved off the portal's own last write, some other
+    /// writer re-applied a different solution between portal passes. The
+    /// engine is the usual suspect, and which constraints fed its solution
+    /// is the fact the post-mortems keep having to infer — so capture it
+    /// live, at the moment of the miss, rate-limited.
+    private var lastPortalTargetByHostedId: [ObjectIdentifier: NSRect] = [:]
+    private var stompDiagnosticsBudget = 12
+
+    private func logStompDiagnostics(
+        hostedView: GhosttySurfaceScrollView,
+        oldFrame: NSRect,
+        lastTarget: NSRect,
+        targetFrame: NSRect
+    ) {
+        guard stompDiagnosticsBudget > 0 else { return }
+        stompDiagnosticsBudget -= 1
+        let engineWidthConstant = hostedView.superview?.constraints.first {
+            String(describing: type(of: $0)) == "NSAutoresizingMaskLayoutConstraint"
+                && $0.firstItem === hostedView
+                && $0.firstAttribute == .width
+        }?.constant
+        cmuxDebugLog(
+            "portal.stomp.diag hosted=\(portalDebugToken(hostedView)) " +
+            "lastTarget=\(portalDebugFrame(lastTarget)) stompedTo=\(portalDebugFrame(oldFrame)) " +
+            "newTarget=\(portalDebugFrame(targetFrame)) " +
+            "engineWidthConstant=\(engineWidthConstant.map { String(format: "%.1f", $0) } ?? "nil") " +
+            "ambiguous=\(hostedView.hasAmbiguousLayout ? 1 : 0) budget=\(stompDiagnosticsBudget)"
+        )
+        for constraint in hostedView.constraintsAffectingLayout(for: .horizontal) {
+            cmuxDebugLog(
+                "portal.stomp.diag.h hosted=\(portalDebugToken(hostedView)) \(constraint)"
+            )
+        }
+    }
+#endif
+
     private struct HostedGeometrySignature: Equatable {
         let hostedFrame: NSRect?
         let expectedFrame: NSRect?
@@ -1380,6 +1422,9 @@ final class WindowTerminalPortal: NSObject {
 
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
+#if DEBUG
+        lastPortalTargetByHostedId.removeValue(forKey: hostedId)
+#endif
         if let anchor = entry.anchorView {
             hostedByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
         }
@@ -1390,8 +1435,15 @@ final class WindowTerminalPortal: NSObject {
             "anchor=\(portalDebugToken(entry.anchorView)) hadSuperview=\(hadSuperview)"
         )
 #endif
-        if let hostedView = entry.hostedView, hostedView.superview === hostView {
-            hostedView.removeFromSuperview()
+        if let hostedView = entry.hostedView {
+            if let restoredMask = preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId) {
+                hostedView.autoresizingMask = restoredMask
+            }
+            if hostedView.superview === hostView {
+                hostedView.removeFromSuperview()
+            }
+        } else {
+            preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId)
         }
     }
 
@@ -1451,6 +1503,22 @@ final class WindowTerminalPortal: NSObject {
         let hostedId = ObjectIdentifier(hostedView)
         let anchorId = ObjectIdentifier(anchorView)
         let previousEntry = entriesByHostedId[hostedId]
+
+        // The portal is the sole writer of a hosted view's geometry, and the
+        // autoresizing mask the view arrives with breaks that: the layout
+        // engine translates a flexible mask into EDGE pins — a minX constant
+        // plus a trailing margin to the host, no width at all — frozen at
+        // the last constraint pass. Every host resize then re-derives the
+        // view's size from those stale margins against the new host bounds
+        // and stomps the portal's write (panes re-inflated to a previous
+        // generation's geometry, hierarchy syncs in the thousands per settle
+        // window). An empty mask translates to rigid position+size constants
+        // that always equal the last portal write, so the engine can only
+        // ever re-apply portal truth. Detach restores the saved mask.
+        if preAdoptionAutoresizingMaskByHostedId[hostedId] == nil {
+            preAdoptionAutoresizingMaskByHostedId[hostedId] = hostedView.autoresizingMask
+        }
+        hostedView.autoresizingMask = []
 
         if let previousHostedId = hostedByAnchorId[anchorId], previousHostedId != hostedId {
 #if DEBUG
@@ -1934,6 +2002,19 @@ final class WindowTerminalPortal: NSObject {
             entry.visibleInUI &&
             !hostedView.isHidden
 
+        // Reparenting churn can hand the view back through hosting plumbing
+        // that re-applies a flexible mask; portal geometry only holds while
+        // the mask stays empty, so re-assert it on every sync.
+        if hostedView.autoresizingMask != [] {
+#if DEBUG
+            cmuxDebugLog(
+                "portal.autoresizingMask.reassert hosted=\(portalDebugToken(hostedView)) " +
+                "mask=\(hostedView.autoresizingMask.rawValue)"
+            )
+#endif
+            hostedView.autoresizingMask = []
+        }
+
         let oldFrame = hostedView.frame
 #if DEBUG
         let frameWasClamped = hasFiniteFrame && !Self.rectApproximatelyEqual(frameInHost, targetFrame)
@@ -1987,6 +2068,19 @@ final class WindowTerminalPortal: NSObject {
         if hasFiniteFrame {
             let expectedBounds = NSRect(origin: .zero, size: targetFrame.size)
             var geometryChanged = false
+#if DEBUG
+            if let lastTarget = lastPortalTargetByHostedId[hostedId],
+               !Self.rectApproximatelyEqual(oldFrame, lastTarget),
+               !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
+                logStompDiagnostics(
+                    hostedView: hostedView,
+                    oldFrame: oldFrame,
+                    lastTarget: lastTarget,
+                    targetFrame: targetFrame
+                )
+            }
+            lastPortalTargetByHostedId[hostedId] = targetFrame
+#endif
             performSelfFrameWrite {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
