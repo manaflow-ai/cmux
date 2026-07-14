@@ -280,6 +280,22 @@ describe("browser design-mode runtime", () => {
     expect(runtime.snapshot().selection?.selector).toBe("#renamed-hero");
   });
 
+  test("coalesces native snapshots during sustained selected-subtree churn", async () => {
+    const { dom, messages, runtime } = fixture(`<main><section id="ticker"></section></main>`);
+    runtime.select("#ticker");
+    const messagesBeforeChurn = messages.length;
+    const ticker = dom.window.document.querySelector("#ticker") as HTMLElement;
+
+    for (let index = 0; index < 6; index += 1) {
+      ticker.append(dom.window.document.createComment(`tick ${index}`));
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+    }
+
+    expect(messages.length - messagesBeforeChurn).toBeLessThanOrEqual(2);
+  });
+
   test("preserves application style and text updates beneath active edits", async () => {
     const { dom, runtime } = fixture(`<main><h1 id="hero" style="color: purple">Original</h1></main>`);
     const hero = dom.window.document.querySelector("#hero") as HTMLElement;
