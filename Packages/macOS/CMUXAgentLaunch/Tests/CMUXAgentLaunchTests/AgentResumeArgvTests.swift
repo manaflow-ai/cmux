@@ -149,6 +149,55 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Codex resume restores Subrouter's dummy provider credential")
+    func codexResumeRestoresSubrouterDummyProviderCredential() {
+        let subrouterConfig = [
+            "-c", "model_provider=\"subrouter\"",
+            "-c", "model_providers.subrouter.env_key=\"SUBROUTER_CODEX_DUMMY_API_KEY\"",
+            "-c", "model_providers.subrouter.base_url=\"http://subrouter.example/v1\"",
+        ]
+
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SUBROUTER-SID",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex"] + subrouterConfig
+            ) == [
+                "env",
+                "SUBROUTER_CODEX_DUMMY_API_KEY=subrouter",
+                "/opt/bin/codex",
+                "resume",
+                "SUBROUTER-SID",
+                "-c",
+                "check_for_update_on_startup=false",
+            ] + subrouterConfig
+        )
+    }
+
+    @Test("Codex resume does not invent credentials for unrelated providers")
+    func codexResumeDoesNotInventUnrelatedProviderCredentials() {
+        let unrelatedConfig = [
+            "-c", "model_provider=\"company\"",
+            "-c", "model_providers.company.env_key=\"COMPANY_API_KEY\"",
+        ]
+
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "COMPANY-SID",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex"] + unrelatedConfig
+            ) == [
+                "/opt/bin/codex",
+                "resume",
+                "COMPANY-SID",
+                "-c",
+                "check_for_update_on_startup=false",
+            ] + unrelatedConfig
+        )
+    }
+
     @Test("Codex resume respects an explicit captured check_for_update_on_startup setting")
     func codexResumeRespectsExplicitUpdateCheckSetting() {
         // The codex sanitizer policy preserves `-c key=value` pairs, so a captured

@@ -49,6 +49,43 @@ import Testing
         )
     }
 
+    @Test func persistedSubrouterCodexBindingGainsDummyProviderCredentialOnReplay() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && '/opt/company/bin/codex' 'resume' 'subrouter-session' '-c' 'model_provider=\"subrouter\"' '-c' 'model_providers.subrouter.env_key=\"SUBROUTER_CODEX_DUMMY_API_KEY\"'",
+            cwd: "/tmp/repo",
+            checkpointId: "subrouter-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+
+        #expect(
+            startupInput.contains("&& env SUBROUTER_CODEX_DUMMY_API_KEY=subrouter '/opt/company/bin/codex' 'resume' 'subrouter-session'"),
+            "\(startupInput)"
+        )
+    }
+
+    @Test func persistedSubrouterCodexBindingKeepsExistingDummyProviderCredential() throws {
+        let command = "'env' 'SUBROUTER_CODEX_DUMMY_API_KEY=custom-value' '/opt/company/bin/codex' 'resume' 'subrouter-session' '-c' 'model_providers.subrouter.env_key=\"SUBROUTER_CODEX_DUMMY_API_KEY\"'"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: command,
+            checkpointId: "subrouter-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+
+        #expect(
+            startupInput.contains("'env' 'SUBROUTER_CODEX_DUMMY_API_KEY=custom-value' '/opt/company/bin/codex'"),
+            "\(startupInput)"
+        )
+        #expect(!startupInput.contains("SUBROUTER_CODEX_DUMMY_API_KEY=subrouter"), "\(startupInput)")
+    }
+
     @Test func codexBindingWithExistingUpdateCheckSettingReplaysUnchanged() throws {
         let command = "'/opt/company/bin/codex' 'resume' 'session-explicit' '-c' 'check_for_update_on_startup=true'"
         let binding = SurfaceResumeBindingSnapshot(
