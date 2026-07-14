@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { BranchBasePicker, buildFlatRows, toCurrentOriginRelative, type BranchPickerPayload } from "../src/BranchBasePicker";
+import { BranchBasePicker, branchPickerStateKey, buildFlatRows, toCurrentOriginRelative, type BranchPickerPayload } from "../src/BranchBasePicker";
 import type { DiffTransport } from "../src/diff/transport";
 import { createDiffViewerLabelResolver } from "../src/labels";
 
@@ -75,6 +75,48 @@ test("base picker caps a huge remotes group and shows a type-to-filter affordanc
   expect(more).toBeTruthy();
   // 2304 - 8 visible = 2296 hidden.
   expect(more?.textContent).toContain("2296 more, type to filter");
+});
+
+test("switching repositories remounts the picker and ignores an older refs load", async () => {
+  dom = createDom();
+  installDomGlobals(dom);
+  const completions = new Map<string, (response: Response) => void>();
+  (globalThis as any).fetch = (input: RequestInfo | URL) => new Promise<Response>((resolve) => {
+    completions.set(String(input), resolve);
+  });
+  const first = { ...pickerPayload(0), repoRoot: "/tmp/first", capabilityToken: "first", refsURL: "/first" };
+  const second = { ...pickerPayload(0), repoRoot: "/tmp/second", capabilityToken: "second", refsURL: "/second" };
+  const render = (picker: BranchPickerPayload) => {
+    flushSync(() => {
+      root?.render(
+        <BranchBasePicker
+          key={branchPickerStateKey(picker)}
+          label={label}
+          onNavigate={() => {}}
+          picker={picker}
+        />,
+      );
+    });
+  };
+  root = createRoot(document.getElementById("root")!);
+  render(first);
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => completions.has("/first"));
+
+  render(second);
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => completions.has("/second"));
+  completions.get("/second")?.(new Response(JSON.stringify({
+    groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "second-ref", label: "second-ref" }] }],
+  }), { status: 200 }));
+  await waitFor(() => document.body.textContent?.includes("second-ref") === true);
+
+  completions.get("/first")?.(new Response(JSON.stringify({
+    groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "stale-ref", label: "stale-ref" }] }],
+  }), { status: 200 }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(document.body.textContent).toContain("second-ref");
+  expect(document.body.textContent).not.toContain("stale-ref");
 });
 
 test("button renders the head -> base comparison with the base as the bold ref", () => {
