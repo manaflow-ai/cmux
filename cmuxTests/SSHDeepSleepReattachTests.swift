@@ -243,7 +243,10 @@ struct SSHDeepSleepReattachTests {
         #expect(restartedSnapshot.remotePTYSessionID == customSessionID)
     }
 
-    @Test func foregroundAuthenticatedAttachRetriesPastLegacyBudgetWithCappedBackoff() throws {
+    @Test(arguments: [(nil, Int32(253), "24", 23), ("2O", Int32(255), "21", 20)])
+    func foregroundAuthenticatedAttachUsesConfiguredRetryBudget(
+        reconnectLimit: String?, expectedStatus: Int32, expectedAttempts: String, expectedSleepCount: Int
+    ) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-persistent-backoff-\(UUID().uuidString)", isDirectory: true)
@@ -285,6 +288,7 @@ struct SSHDeepSleepReattachTests {
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
         environment["CMUX_TEST_AUTH_ATTEMPT_FILE"] = authAttemptFile.path
         environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = reconnectLimit
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "5"
 
@@ -297,25 +301,24 @@ struct SSHDeepSleepReattachTests {
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 253, Comment(rawValue: result.stderr))
+        #expect(result.status == expectedStatus, Comment(rawValue: result.stderr))
         #expect(try String(contentsOf: authAttemptFile, encoding: .utf8) == "1")
-        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "24")
+        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == expectedAttempts)
         let delays = try String(contentsOf: sleepLog, encoding: .utf8)
             .split(separator: "\n").map(String.init)
-        #expect(delays.count == 23)
+        #expect(delays.count == expectedSleepCount)
         #expect(Array(delays.prefix(4)) == ["2", "4", "5", "5"])
         #expect(delays.last == "5")
     }
 
-    @Test func defaultUnlimitedRetryClampsZeroDelayToAvoidHotLoop() throws {
-        try Self.assertZeroDelayIsClamped(reconnectLimit: nil)
+    @Test(arguments: [(nil, "0", "0"), ("100000", "0", "0"), (nil, "08", "09"), ("100000", "09", "08")])
+    func invalidDelayIsClamped(reconnectLimit: String?, delay: String, maxDelay: String) throws {
+        try Self.assertInvalidDelayIsClamped(reconnectLimit: reconnectLimit, delay: delay, maxDelay: maxDelay)
     }
 
-    @Test func finiteRetryClampsZeroDelayToAvoidHotLoop() throws {
-        try Self.assertZeroDelayIsClamped(reconnectLimit: "100000")
-    }
-
-    private static func assertZeroDelayIsClamped(reconnectLimit: String?) throws {
+    private static func assertInvalidDelayIsClamped(
+        reconnectLimit: String?, delay: String, maxDelay: String
+    ) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-persistent-zero-delay-\(UUID().uuidString)", isDirectory: true)
@@ -347,8 +350,8 @@ struct SSHDeepSleepReattachTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
         environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
-        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
-        environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "0"
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = delay
+        environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = maxDelay
         if let reconnectLimit {
             environment["CMUX_SSH_RECONNECT_LIMIT"] = reconnectLimit
         }
