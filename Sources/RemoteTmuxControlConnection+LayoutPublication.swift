@@ -97,6 +97,14 @@ extension RemoteTmuxControlConnection {
     }
 
 
+    /// Whether a layout for `windowId` is still quarantined behind its rects
+    /// fetch. A divider send's barrier ack consults this to tell "no layout
+    /// event followed the resize" (judge now) from "the resize's layout is in
+    /// flight to publication" (the publication's reconcile judges).
+    func hasPendingLayout(windowId: Int) -> Bool {
+        pendingLayouts[windowId] != nil
+    }
+
     /// Marks `windowId` resolved (published into staging, dropped, or closed)
     /// for the initial atomic batch; flushes the batch when it drains.
     func finishInitialBatchMember(_ windowId: Int) {
@@ -186,6 +194,12 @@ extension RemoteTmuxControlConnection {
                 pendingLayouts[windowId] = nil
                 record("pane-rects-dropped @\(windowId)")
                 finishInitialBatchMember(windowId)
+                // The drop RESOLVES the pending layout (observers keep the
+                // last verified tree). A mirror deferring a divider-hold
+                // verdict to "this window's pending layout resolved" needs
+                // the resolution edge even when nothing published — notify
+                // so its reconcile runs and judges against the kept tree.
+                observers.notifyTopologyChanged()
             }
             return
         }
@@ -301,6 +315,9 @@ extension RemoteTmuxControlConnection {
             pendingLayouts[windowId] = nil
             record("pane-rects-dropped @\(windowId)")
             finishInitialBatchMember(windowId)
+            // Same resolution edge as the garbled-reply drop above: a mirror
+            // deferring a divider-hold verdict must see the fetch resolve.
+            observers.notifyTopologyChanged()
         }
     }
 

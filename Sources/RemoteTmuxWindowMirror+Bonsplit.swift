@@ -170,8 +170,9 @@ extension RemoteTmuxWindowMirror {
     /// longer exists (the structure changed under the drag, so the hold is
     /// meaningless); otherwise the held split's id, which the imposition
     /// walk skips so an unrelated replan cannot bounce the user's divider.
-    /// The no-reply deadline (recordDividerResizeAwaitingReply) bounds how
-    /// long a never-answered send can keep returning non-nil here.
+    /// A never-answered send cannot keep returning non-nil here: the
+    /// resize's own ack plus a barrier ack prove the no-op on the ordered
+    /// control stream and release the hold (see judgeDividerResizeHold).
     private func resolveDividerResizeHold(
         tmuxTree: RemoteTmuxNativeSplitTree,
         treeNode: ExternalTreeNode
@@ -195,7 +196,7 @@ extension RemoteTmuxWindowMirror {
     /// bonsplit split `splitId`, walking the bonsplit tree and the tmux tree
     /// in the same pairing every other walk uses. nil when the split cannot
     /// be found or the pairing drifted.
-    private func assignedFirstSpan(
+    func assignedFirstSpan(
         forSplit splitId: UUID,
         axis: RemoteTmuxSplitOrientation,
         tmuxTree: RemoteTmuxNativeSplitTree,

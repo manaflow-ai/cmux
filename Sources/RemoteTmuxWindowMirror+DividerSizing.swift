@@ -191,17 +191,127 @@ extension RemoteTmuxWindowMirror {
         else {
             return false
         }
-        let sent = requestResizePane(
-            targetPaneID,
-            absoluteAxis: orientation.treeName,
+        let sent = sendDividerResize(
+            targetPaneID: targetPaneID,
+            splitID: splitID,
+            orientation: orientation,
             targetCells: cells
         )
         if sent {
             dividerResizeSentSinceDragBegan = true
-            recordDividerResizeAwaitingReply(
-                splitId: splitID, axis: orientation, targetCells: cells
-            )
         }
         return sent
+    }
+
+    /// The causality barrier issued at a divider resize's own ack: the
+    /// cheapest command the connection already parses (an empty
+    /// `display-message -p` block). Its only job is to occupy a slot on the
+    /// ordered stream BEHIND anything the resize caused.
+    static let dividerResizeBarrierCommand = "display-message -p \"\""
+
+    /// Sends the drag's `resize-pane` on the tracked path and arms the
+    /// round-trip hold. The hold's release is protocol-anchored end to end
+    /// (see ``DividerResizeInFlight``): the tracked completion fires exactly
+    /// once — `%end`, `%error`, or stream reset — so every armed hold owns a
+    /// pending protocol edge and no timer exists to bound it.
+    private func sendDividerResize(
+        targetPaneID: Int,
+        splitID: UUID,
+        orientation: RemoteTmuxSplitOrientation,
+        targetCells: Int
+    ) -> Bool {
+        guard let connection,
+              let command = resizePaneCommand(
+                  targetPaneID, absoluteAxis: orientation.treeName, targetCells: targetCells
+              ) else { return false }
+        dividerResizeInFlightGeneration &+= 1
+        let generation = dividerResizeInFlightGeneration
+        guard connection.sendTracked(command, completion: { [weak self] accepted in
+            self?.handleDividerResizeResolved(generation: generation, accepted: accepted)
+        }) else { return false }
+        dividerResizeInFlight = DividerResizeInFlight(
+            generation: generation,
+            splitId: splitID,
+            axis: orientation,
+            targetCells: targetCells
+        )
+        return true
+    }
+
+    /// The resize's own `%begin`/`%end` block resolved. On `%error` (or a
+    /// stream reset) tmux applied nothing and never will — recover now. On
+    /// success, issue the barrier: a `%layout-change` the resize caused is
+    /// emitted after the resize's `%end` (notifications never appear inside
+    /// a block — the parser coalesces blocks on that guarantee) but is
+    /// already ordered AHEAD of any command sent from this point, so the
+    /// barrier's ack closes the only window in which "no layout event seen"
+    /// was ambiguous.
+    func handleDividerResizeResolved(generation: UInt64, accepted: Bool) {
+        guard !isTornDown, dividerResizeInFlight?.generation == generation else { return }
+        guard accepted else {
+            releaseDividerResizeHoldAndRecover()
+            return
+        }
+        let barrierSent = connection?.sendTracked(
+            Self.dividerResizeBarrierCommand,
+            completion: { [weak self] barrierAccepted in
+                self?.handleDividerResizeBarrierResolved(
+                    generation: generation, accepted: barrierAccepted
+                )
+            }
+        ) ?? false
+        if !barrierSent {
+            // The stream is dying; the reconnect republishes truth. Recovery
+            // keeps parity armed against the current plan meanwhile.
+            releaseDividerResizeHoldAndRecover()
+        }
+    }
+
+    /// The barrier's block resolved: everything the resize caused is now on
+    /// our side of the stream. If a layout for this window is still
+    /// quarantined behind its rects fetch, the resize DID move the layout —
+    /// the publication (or drop) resolving that fetch makes the final
+    /// judgment in `reconcile`. Otherwise the current tree is already the
+    /// complete answer: judge now.
+    func handleDividerResizeBarrierResolved(generation: UInt64, accepted: Bool) {
+        guard !isTornDown, dividerResizeInFlight?.generation == generation else { return }
+        guard accepted else {
+            releaseDividerResizeHoldAndRecover()
+            return
+        }
+        if connection?.hasPendingLayout(windowId: windowId) == true {
+            dividerResizeInFlight?.barrierAcked = true
+            return
+        }
+        judgeDividerResizeHold()
+    }
+
+    /// Final, protocol-complete verdict on an in-flight hold: every event the
+    /// resize could produce has been drained. A tree assigning the sent span
+    /// means the reply landed — release and let the already-scheduled pass
+    /// impose it. Anything else means the send provably changed nothing (or
+    /// landed off the sent span): release AND re-arm ignoring inputs, so a
+    /// recovery pass re-imposes the plan and parity resumes judging — the
+    /// divider must not stay parked off-grid with the guard down.
+    func judgeDividerResizeHold() {
+        guard let hold = dividerResizeInFlight else { return }
+        dividerResizeInFlight = nil
+        let assigned = assignedFirstSpan(
+            forSplit: hold.splitId,
+            axis: hold.axis,
+            tmuxTree: RemoteTmuxNativeSplitTree(layout: renderedLayout),
+            treeNode: bonsplitController.treeSnapshot()
+        )
+        if assigned != hold.targetCells {
+            setNeedsSizingPassIgnoringInputs()
+        }
+    }
+
+    /// Clears the hold and re-arms the pass: the send left the divider off
+    /// the plan with the parity guard down, and a recovery pass re-imposes
+    /// the plan so parity resumes judging.
+    func releaseDividerResizeHoldAndRecover() {
+        dividerResizeInFlight = nil
+        setNeedsSizingPassIgnoringInputs()
     }
 }

@@ -358,8 +358,9 @@ extension RemoteTmuxWindowMirror {
               // reply assigns the sent span: the views hold the user's
               // dragged position and re-imposing the pre-drag plan is the
               // bounce this re-arm must not cause. The hold is keyed and
-              // bounded (see dividerResizeInFlight); its no-reply deadline
-              // re-arms this path itself.
+              // release-guaranteed by protocol edges (see
+              // dividerResizeInFlight); its no-op verdict re-arms this
+              // path itself.
               dividerResizeInFlight == nil,
               let completed = lastCompletedSizingInputs,
               completed == currentSizingInputs()

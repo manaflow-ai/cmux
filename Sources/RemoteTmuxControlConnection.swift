@@ -86,6 +86,11 @@ final class RemoteTmuxControlConnection {
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
+    /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
+    /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`,
+    /// `%error`, or a stream reset (``failPendingTrackedSends()``) — callers
+    /// build protocol-anchored state machines on that guarantee.
+    var trackedSendCompletions: [UUID: (Bool) -> Void] = [:]
 
     private var process: Process?
     var stdinWriter: RemoteTmuxControlPipeWriter?
@@ -334,6 +339,7 @@ final class RemoteTmuxControlConnection {
         failPendingActivityQueries()
         failPendingNewWindowRequests()
         failPendingWindowReorderVerifications()
+        failPendingTrackedSends()
         attachBlockDrained = false
         stderrBuffer = ""
         preControlOutputBuffer = ""
@@ -464,6 +470,7 @@ final class RemoteTmuxControlConnection {
         failPendingActivityQueries()
         failPendingNewWindowRequests()
         failPendingWindowReorderVerifications()
+        failPendingTrackedSends()
         reconnectTask?.cancel()
         reconnectTask = nil
         resetWindowListRequestCoalescing()
@@ -634,6 +641,7 @@ final class RemoteTmuxControlConnection {
         failPendingActivityQueries()
         failPendingNewWindowRequests()
         failPendingWindowReorderVerifications()
+        failPendingTrackedSends()
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil

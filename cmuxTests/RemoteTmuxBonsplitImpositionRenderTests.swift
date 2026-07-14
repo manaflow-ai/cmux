@@ -479,6 +479,143 @@ import Testing
         return nil
     }
 
+    private func isTracked(_ kind: RemoteTmuxControlCommandKind?) -> Bool {
+        if case .tracked = kind { return true }
+        return false
+    }
+
+    /// Answers every outstanding %begin/%end block so blocks injected later
+    /// correlate with commands the test itself triggers. The first block on
+    /// a control stream is always consumed as the attach command's own (it
+    /// triggers the topology list-windows, whose empty reply is ignored);
+    /// after that each block resolves the FIFO head positionally. A block
+    /// against an empty FIFO is dropped by design, so over-draining is safe.
+    private func drainCommandBlocks(_ connection: RemoteTmuxControlConnection) {
+        var block = 1000
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: block, lines: [], isError: false)
+        )
+        var budget = 64
+        while !connection.pendingCommandKindsForTesting.isEmpty, budget > 0 {
+            block += 1
+            budget -= 1
+            connection.handleMessageForTesting(
+                .commandResult(commandNumber: block, lines: [], isError: false)
+            )
+        }
+    }
+
+    /// A hosted, converged two-pane drag fixture for the protocol-anchored
+    /// hold tests: real connection (pipe-backed writer, control stream
+    /// driven by injected messages), real panels, real window. No clock
+    /// control exists — release edges are protocol events by design.
+    private struct DragRoundTripFixture {
+        let mirror: RemoteTmuxWindowMirror
+        let connection: RemoteTmuxControlConnection
+        let window: NSWindow
+        let splitId: UUID
+        let writer: RemoteTmuxControlPipeWriter
+        let pipe: Pipe
+
+        @MainActor func close() {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+            writer.close()
+            try? pipe.fileHandleForReading.close()
+        }
+    }
+
+    private func makeDragRoundTripFixture(label: String) async throws -> DragRoundTripFixture {
+        let layout = node(.horizontal([
+            node(.pane(1), w: 61, h: 35, x: 0, y: 0),
+            node(.pane(2), w: 61, h: 35, x: 62, y: 0),
+        ]), w: 123, h: 35, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "\(label)-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-\(label)-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        let workspaceId = UUID()
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            makePanel: { _ in
+                TerminalPanel(workspaceId: workspaceId, runtimeSpawnPolicy: .pacedSessionRestore)
+            }
+        )
+        for panel in mirror.panelsByPaneId.values {
+            panel.surface.onManualSizeApplied = nil
+            panel.surface.onRuntimeReady = nil
+        }
+        let appearance = PanelAppearance(
+            backgroundColor: .black, foregroundColor: .white,
+            dividerColor: .gray, unfocusedOverlayNSColor: .black,
+            unfocusedOverlayOpacity: 0, usesClearContentBackground: false
+        )
+        let hostingView = NSHostingView(
+            rootView: RemoteTmuxWindowMirrorSplitView(
+                mirror: mirror,
+                appearance: appearance,
+                isOuterFocused: false,
+                isVisibleInUI: true,
+                portalPriority: 0,
+                onOuterFocus: {}
+            )
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        let contentView = try #require(window.contentView)
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        try await pumpFixture(window, 60, until: { planViewMismatch(mirror) == nil })
+        try #require(
+            planViewMismatch(mirror) == nil,
+            "fixture never converged: \(planViewMismatch(mirror) ?? "")"
+        )
+        let splitId: UUID = try {
+            guard case .split(let split) = mirror.bonsplitController.treeSnapshot() else {
+                throw TestError.notASplit
+            }
+            return UUID(uuidString: split.id) ?? UUID()
+        }()
+        return DragRoundTripFixture(
+            mirror: mirror, connection: connection, window: window,
+            splitId: splitId, writer: writer, pipe: pipe
+        )
+    }
+
+    private func pumpFixture(
+        _ window: NSWindow, _ turns: Int, until done: () -> Bool = { false }
+    ) async throws {
+        for _ in 0..<turns {
+            window.displayIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(50))
+            if done() { return }
+        }
+    }
+
     /// The liveness half of render ownership. The sizing transaction's
     /// convergence proof is input-only: once a completed pass's inputs match
     /// the current inputs, every later trigger early-returns. An apply that
@@ -724,16 +861,19 @@ import Testing
 
         // The user's drag through the hooks bonsplit drives live: session
         // begin, a committed multi-cell fraction, session end. Drag end
-        // syncs the changed divider and sends the resize-pane. The no-reply
-        // deadline is pushed past this test's pumping — the deliberate
-        // round-trip window below must stay open until the reply.
-        mirror.dividerResizeReplyGrace = 30
+        // syncs the changed divider and sends the resize-pane. No clock is
+        // set anywhere: the round-trip window below stays open because no
+        // protocol event closes it — nothing acks the send.
         mirror.bonsplitController.noteDividerDragSession(true)
         _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: splitId)
         mirror.bonsplitController.noteDividerDragSession(false)
         try #require(
             connection.pendingCommandKindsForTesting.count == pendingBefore + 1,
             "precondition: the drag must send exactly one resize-pane"
+        )
+        try #require(
+            isTracked(connection.pendingCommandKindsForTesting.last),
+            "the divider resize must ride the tracked path — its ack anchors the hold's release"
         )
 
         // The round-trip window: no reply yet. Pump passes and redundant
@@ -754,27 +894,46 @@ import Testing
         )
 
         // The reply lands: tmux assigned the dragged span. The settled plan
-        // applies and the fixture converges on it.
+        // applies, the EXISTING release path (a reconciled layout assigning
+        // the sent span) ends the hold, and the fixture converges on it.
         let draggedLayout = node(.horizontal([
             node(.pane(1), w: 92, h: 35, x: 0, y: 0),
             node(.pane(2), w: 30, h: 35, x: 93, y: 0),
         ]), w: 123, h: 35, x: 0, y: 0)
         mirror.reconcile(layout: draggedLayout)
-        try await pump(60, until: { planViewMismatch(mirror) == nil })
+        try await pump(60, until: {
+            mirror.dividerResizeInFlight == nil && planViewMismatch(mirror) == nil
+        })
+        #expect(
+            mirror.dividerResizeInFlight == nil,
+            "a reconciled layout assigning the sent span must release the hold"
+        )
         #expect(
             planViewMismatch(mirror) == nil,
             "the reply's plan must settle cleanly: \(planViewMismatch(mirror) ?? "")"
         )
+        // The resize's ack arrives only now, after the reply already released
+        // the hold. The late ack (and everything else outstanding) must be
+        // ignored: no barrier cycle for a dead hold, and no recovery pass —
+        // the settled inputs stay settled.
+        drainCommandBlocks(connection)
+        #expect(mirror.dividerResizeInFlight == nil)
+        #expect(
+            mirror.lastCompletedSizingInputs != nil,
+            "a late ack for an already-released hold must not trigger a recovery re-impose"
+        )
         withExtendedLifetime(connection) {}
     }
 
-    /// A sent divider resize that tmux never answers — the client clamp can
-    /// produce a span tmux's own cascade minimums treat as a no-op, so no
-    /// %layout-change comes back. The round-trip hold must be BOUNDED: at
-    /// its deadline the re-arm returns and parity heals the divider back
-    /// onto the plan. An unbounded hold left the divider parked off-grid
-    /// with the parity guard disabled forever.
-    @Test func swallowedDividerResizeHealsAtTheHoldDeadline() async throws {
+    /// A divider resize whose span tmux's cascade minimums clamp to a no-op
+    /// produces NO %layout-change — only the command's own %begin/%end block
+    /// comes back. The no-op must be PROVEN on the stream, not timed out:
+    /// the resize's ack triggers one barrier command, and the barrier's ack
+    /// with no intervening layout event releases the hold and re-arms the
+    /// pass so parity heals the divider back onto the plan. No clock is
+    /// touched anywhere here — the old implementation needed real seconds to
+    /// pass before the hold released, and that need WAS the defect.
+    @Test func swallowedDividerResizeIsProvenNoOpByTheBarrierAndHeals() async throws {
         let layout = node(.horizontal([
             node(.pane(1), w: 61, h: 35, x: 0, y: 0),
             node(.pane(2), w: 61, h: 35, x: 62, y: 0),
@@ -862,31 +1021,60 @@ import Testing
             }
             return UUID(uuidString: split.id) ?? UUID()
         }()
-        let pendingBefore = connection.pendingCommandKindsForTesting.count
+        // Answer every block already outstanding (attach, claims, seeds) so
+        // the blocks injected below correlate with the drag's own commands.
+        drainCommandBlocks(connection)
+        try #require(connection.pendingCommandKindsForTesting.isEmpty)
 
-        // A short deadline, then the swallowed send: the resize-pane goes
-        // out and NOTHING ever answers it.
-        mirror.dividerResizeReplyGrace = 0.5
         mirror.bonsplitController.noteDividerDragSession(true)
         _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: splitId)
         mirror.bonsplitController.noteDividerDragSession(false)
         try #require(
-            connection.pendingCommandKindsForTesting.count == pendingBefore + 1,
-            "precondition: the drag must send exactly one resize-pane"
+            connection.pendingCommandKindsForTesting.count == 1
+                && isTracked(connection.pendingCommandKindsForTesting.first),
+            "precondition: the drag must send exactly one tracked resize-pane"
         )
 
-        // Past the deadline, the hold must have released and re-armed the
-        // pass: parity heals the parked divider back onto the plan.
-        try await pump(60, until: {
-            mirror.dividerResizeInFlight == nil && planViewMismatch(mirror) == nil
-        })
-        #expect(
-            mirror.dividerResizeInFlight == nil,
-            "the no-reply hold must release at its deadline"
+        // tmux resolves the resize's own block — and nothing else, because
+        // the clamped send changed no layout. The mirror must answer by
+        // putting exactly one tracked barrier on the stream.
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 2001, lines: [], isError: false)
+        )
+        try #require(
+            connection.pendingCommandKindsForTesting.count == 1
+                && isTracked(connection.pendingCommandKindsForTesting.first),
+            "the resize's ack must issue exactly one tracked barrier command"
         )
         #expect(
+            mirror.dividerResizeInFlight != nil,
+            "the hold stays armed between the resize's ack and the barrier's — the round trip is still open"
+        )
+        #expect(
+            mirror.lastCompletedSizingInputs != nil,
+            "no recovery may fire before the barrier's verdict"
+        )
+
+        // The barrier resolves with no layout event in between: the send is
+        // definitively a no-op. The hold must release NOW — synchronously,
+        // on the protocol edge — and re-arm the pass.
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 2002, lines: [], isError: false)
+        )
+        #expect(
+            mirror.dividerResizeInFlight == nil,
+            "the barrier's ack proves the no-op and must release the hold immediately"
+        )
+        #expect(
+            mirror.lastCompletedSizingInputs == nil,
+            "the proof must RE-ARM, not just clear: recovery re-imposes the plan"
+        )
+
+        // The recovery pass heals the parked divider back onto the plan.
+        try await pump(60, until: { planViewMismatch(mirror) == nil })
+        #expect(
             planViewMismatch(mirror) == nil,
-            "the deadline must RE-ARM, not just clear: parity heals the parked divider back onto the plan — \(planViewMismatch(mirror) ?? "")"
+            "parity must heal the parked divider back onto the plan — \(planViewMismatch(mirror) ?? "")"
         )
         withExtendedLifetime(connection) {}
     }
@@ -995,7 +1183,6 @@ import Testing
         }()
         let pendingBefore = connection.pendingCommandKindsForTesting.count
 
-        mirror.dividerResizeReplyGrace = 30
         mirror.bonsplitController.noteDividerDragSession(true)
         _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: rootId)
         mirror.bonsplitController.noteDividerDragSession(false)
@@ -1029,7 +1216,125 @@ import Testing
         )
         #expect(
             mirror.dividerResizeInFlight != nil,
-            "the keyed hold must survive an unrelated replan — only a layout that assigns the sent span (or the deadline) may end it"
+            "the keyed hold must survive an unrelated replan — only a protocol event (a layout assigning the sent span, or the ack-barrier no-op proof) may end it"
+        )
+        withExtendedLifetime(connection) {}
+    }
+
+    /// tmux rejects the divider resize outright (%error): nothing was
+    /// applied and nothing further will arrive for it, so the hold must
+    /// release and recover on that block — immediately, no barrier, no
+    /// clock — and parity heals the divider back onto the plan.
+    @Test func erroredDividerResizeRecoversImmediately() async throws {
+        let fixture = try await makeDragRoundTripFixture(label: "error")
+        defer { fixture.close() }
+        let mirror = fixture.mirror
+        let connection = fixture.connection
+        drainCommandBlocks(connection)
+        try #require(connection.pendingCommandKindsForTesting.isEmpty)
+
+        mirror.bonsplitController.noteDividerDragSession(true)
+        _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: fixture.splitId)
+        mirror.bonsplitController.noteDividerDragSession(false)
+        try #require(
+            connection.pendingCommandKindsForTesting.count == 1
+                && isTracked(connection.pendingCommandKindsForTesting.first),
+            "precondition: the drag must send exactly one tracked resize-pane"
+        )
+
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 3001, lines: ["no space for pane"], isError: true)
+        )
+        #expect(
+            mirror.dividerResizeInFlight == nil,
+            "%error resolves the send — the hold must release on that block"
+        )
+        #expect(
+            mirror.lastCompletedSizingInputs == nil,
+            "%error must re-arm recovery, not just clear the hold"
+        )
+        #expect(
+            connection.pendingCommandKindsForTesting.isEmpty,
+            "an errored resize needs no barrier — there is nothing left to prove"
+        )
+        try await pumpFixture(fixture.window, 60, until: { planViewMismatch(mirror) == nil })
+        #expect(
+            planViewMismatch(mirror) == nil,
+            "parity must heal the divider back onto the plan after the %error — \(planViewMismatch(mirror) ?? "")"
+        )
+        withExtendedLifetime(connection) {}
+    }
+
+    /// A second drag supersedes the first send's round trip. The FIRST
+    /// resize's ack must then be inert — no barrier cycle, no release —
+    /// because its generation is stale; only the CURRENT send's ack-barrier
+    /// pair may resolve the hold.
+    @Test func supersededDividerResizeAckIsIgnoredByTheNewerHold() async throws {
+        let fixture = try await makeDragRoundTripFixture(label: "supersede")
+        defer { fixture.close() }
+        let mirror = fixture.mirror
+        let connection = fixture.connection
+        drainCommandBlocks(connection)
+        try #require(connection.pendingCommandKindsForTesting.isEmpty)
+
+        mirror.bonsplitController.noteDividerDragSession(true)
+        _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: fixture.splitId)
+        mirror.bonsplitController.noteDividerDragSession(false)
+        try #require(connection.pendingCommandKindsForTesting.count == 1)
+        mirror.bonsplitController.noteDividerDragSession(true)
+        _ = mirror.bonsplitController.setDividerPosition(0.35, forSplit: fixture.splitId)
+        mirror.bonsplitController.noteDividerDragSession(false)
+        try #require(
+            connection.pendingCommandKindsForTesting.count == 2,
+            "precondition: two drags, two sends on the stream"
+        )
+        let newerGeneration = try #require(mirror.dividerResizeInFlight?.generation)
+
+        // The FIRST send's block resolves. Its generation is superseded, so
+        // the ack is inert: the hold stays armed for the newer send and no
+        // barrier goes out for the dead one.
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 4001, lines: [], isError: false)
+        )
+        #expect(
+            mirror.dividerResizeInFlight?.generation == newerGeneration,
+            "a superseded ack must not touch the newer send's hold"
+        )
+        #expect(
+            connection.pendingCommandKindsForTesting.count == 1
+                && isTracked(connection.pendingCommandKindsForTesting.first),
+            "no barrier may be issued for a superseded send"
+        )
+        #expect(
+            mirror.lastCompletedSizingInputs != nil,
+            "a superseded ack must not trigger recovery"
+        )
+
+        // The CURRENT send's ack, then its barrier's ack with no layout
+        // event in between: the newer send is proven a no-op and recovers.
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 4002, lines: [], isError: false)
+        )
+        try #require(
+            connection.pendingCommandKindsForTesting.count == 1
+                && isTracked(connection.pendingCommandKindsForTesting.first),
+            "the current send's ack must issue exactly one tracked barrier"
+        )
+        connection.handleMessageForTesting(
+            .commandResult(commandNumber: 4003, lines: [], isError: false)
+        )
+        #expect(
+            mirror.dividerResizeInFlight == nil,
+            "the current send's barrier proof must release the hold"
+        )
+        #expect(
+            mirror.lastCompletedSizingInputs == nil,
+            "the no-op proof must re-arm recovery"
+        )
+        try await pumpFixture(fixture.window, 60, until: { planViewMismatch(mirror) == nil })
+        #expect(
+            planViewMismatch(mirror) == nil,
+            "parity must heal after the round trips resolve — \(planViewMismatch(mirror) ?? "")"
         )
         withExtendedLifetime(connection) {}
     }

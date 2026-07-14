@@ -160,50 +160,40 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// the stale plan — the divider visibly bounced back, then jumped when
     /// tmux's reply landed. While a send is in flight the re-arm holds, and
     /// impositions skip the held split (an UNRELATED layout change replans
-    /// from a tree that is equally pre-drag for that split). The hold ends
-    /// when a layout assigns the sent span (the reply landed), when the
-    /// split disappears (structure changed under it), or at a bounded
-    /// deadline for a send tmux never answers (a span its cascade minimums
-    /// clamp to a no-op) — the deadline path re-arms the pass so parity can
-    /// heal the divider back onto the plan instead of leaving it parked
-    /// off-grid with the guard disabled.
+    /// from a tree that is equally pre-drag for that split).
+    ///
+    /// Every release edge is a protocol or geometry event — never time:
+    ///  - a reconciled layout assigns the sent span (the reply landed), or
+    ///    the split disappears (structure changed under it);
+    ///  - tmux answers the resize with `%error` — recovery immediately;
+    ///  - the resize's own ack arrives, then a barrier command's ack arrives
+    ///    with no intervening layout event for this window: control mode
+    ///    orders reply blocks and notifications on one stream, and a
+    ///    `%layout-change` a command causes is emitted after that command's
+    ///    `%end` but before any block for a command sent later — so a
+    ///    barrier issued at the resize's ack and answered without a layout
+    ///    event PROVES the send was a no-op (a span tmux's cascade minimums
+    ///    clamped to nothing). Recovery re-imposes the plan and parity
+    ///    resumes judging (see `sendDividerResize` in
+    ///    RemoteTmuxWindowMirror+DividerSizing.swift);
+    ///  - the barrier's ack found this window's layout fetch still in
+    ///    flight: the publication (or its drop — both resolve the pending
+    ///    layout) makes the final judgment in `reconcile`;
+    ///  - the stream resets before any of the above: the tracked completion
+    ///    fails and recovery runs, with the reconnect republishing truth.
+    /// Generation-checked throughout: a newer send supersedes an older
+    /// send's pending acks and barrier.
     struct DividerResizeInFlight {
         let generation: UInt64
         let splitId: UUID
         let axis: RemoteTmuxSplitOrientation
         let targetCells: Int
+        /// Set when the barrier ack found a pending (unpublished) layout for
+        /// this window: the resolution of that fetch is the final verdict.
+        var barrierAcked = false
     }
     @ObservationIgnored var dividerResizeInFlight: DividerResizeInFlight?
-    @ObservationIgnored private var dividerResizeInFlightGeneration: UInt64 = 0
-    /// How long a sent divider resize may hold the parity re-arm while no
-    /// reply arrives. Test-adjustable: the no-reply heal test shortens it,
-    /// the round-trip bounce test lengthens it past its own pumping.
-    @ObservationIgnored var dividerResizeReplyGrace: TimeInterval = 2.0
-
-    /// Arms the round-trip hold for a just-sent divider resize and starts
-    /// its no-reply deadline. Generation-checked: a newer send supersedes
-    /// the pending deadline of an older one.
-    func recordDividerResizeAwaitingReply(
-        splitId: UUID, axis: RemoteTmuxSplitOrientation, targetCells: Int
-    ) {
-        dividerResizeInFlightGeneration &+= 1
-        let generation = dividerResizeInFlightGeneration
-        dividerResizeInFlight = DividerResizeInFlight(
-            generation: generation,
-            splitId: splitId,
-            axis: axis,
-            targetCells: targetCells
-        )
-        DispatchQueue.main.asyncAfter(deadline: .now() + dividerResizeReplyGrace) { [weak self] in
-            guard let self, !self.isTornDown,
-                  self.dividerResizeInFlight?.generation == generation else { return }
-            self.dividerResizeInFlight = nil
-            // Re-arm, not just clear: the swallowed send left the divider
-            // parked off the plan with the parity guard down. A recovery
-            // pass re-imposes the plan and parity resumes judging.
-            self.setNeedsSizingPassIgnoringInputs()
-        }
-    }
+    @ObservationIgnored var dividerResizeInFlightGeneration: UInt64 = 0
     /// The exact point size the split tree renders at (grid + chrome), set by
     /// the sizing pass; the view frames the tree to this, top-leading, so the
     /// region's sub-cell remainder stays outside the tree. nil until the
@@ -409,6 +399,16 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             tmuxTitleRowPlacement = titleRowPlacement
         }
         reconcileBonsplitTree(from: previousRenderedLayout, to: renderedLayout)
+        // A barrier-acked divider hold deferred its verdict to this window's
+        // layout fetch; once the connection holds no pending layout the fetch
+        // has resolved (published — this reconcile — or dropped keeping the
+        // verified tree), and the current tree is the final answer for the
+        // sent span. Judge before scheduling the pass so a released hold no
+        // longer skips its split.
+        if dividerResizeInFlight?.barrierAcked == true,
+           connection?.hasPendingLayout(windowId: windowId) != true {
+            judgeDividerResizeHold()
+        }
         setNeedsSizingPass()
         // Adopt tmux's known active pane when this mirror has none yet: on
         // first attach the rects reply emits the active-pane event BEFORE the
@@ -521,6 +521,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         pendingContainerSizePt = nil
         pendingContainerScale = nil
         pendingOversizedReading = nil
+        dividerResizeInFlight = nil
         let activeConnection = connection
         activeConnection?.removeWindowSizeClaim(windowId: windowId)
         workspaceBonsplitController = nil

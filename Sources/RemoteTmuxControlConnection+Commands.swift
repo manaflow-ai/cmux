@@ -11,6 +11,29 @@ extension RemoteTmuxControlConnection {
         sendInternal(command, kind: .other)
     }
 
+    /// Sends a command and reports how its `%begin`/`%end` block resolved:
+    /// `true` on `%end`, `false` on `%error` — or `false` if the stream resets
+    /// before the block arrives, since a fresh control stream can never answer
+    /// it. A `false` RETURN means the command never left; the completion is
+    /// then not called. Callers get exactly one edge either way, so state
+    /// machines can anchor on the block resolution instead of a timer.
+    @discardableResult
+    func sendTracked(_ command: String, completion: @escaping (Bool) -> Void) -> Bool {
+        let token = UUID()
+        trackedSendCompletions[token] = completion
+        guard sendInternal(command, kind: .tracked(token)) else {
+            trackedSendCompletions.removeValue(forKey: token)
+            return false
+        }
+        return true
+    }
+
+    func failPendingTrackedSends() {
+        let completions = Array(trackedSendCompletions.values)
+        trackedSendCompletions.removeAll()
+        completions.forEach { $0(false) }
+    }
+
     /// Atomically enqueues a window-reorder batch and its result correlation.
     func sendWindowReorder(
         _ commands: [String],

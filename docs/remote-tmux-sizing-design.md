@@ -253,6 +253,25 @@ split's geometry.**
   split's imposition, so the views no longer hold the plan), and a pass that
   was deferred mid-drag re-arms at session end because its inputs changed
   independently of the gesture.
+
+  The round trip after a send is a known-stale-plan window, so the mirror
+  holds the parity re-arm and shields the dragged split until the send is
+  resolved — and every edge that releases the hold is a protocol event,
+  never time. The normal edge is a reconciled layout assigning the sent
+  span (or the split's structure disappearing under it). The send that
+  changes nothing — a span tmux's cascade minimums clamp to a no-op emits
+  no `%layout-change` at all — is proven, not timed out: control mode
+  answers every command with an ordered `%begin`/`%end` block on the same
+  stream as its notifications, and a notification a command causes lands
+  after that command's `%end` but before any block for a command sent
+  later. So when the resize's own block resolves, the mirror issues one
+  cheap barrier command; a barrier ack with no intervening layout event for
+  the window is a proof the resize changed nothing, and recovery re-imposes
+  the plan immediately. A barrier ack that instead finds the window's
+  layout still quarantined behind its rects fetch defers the verdict to
+  that fetch's resolution (publication or drop — also protocol events). An
+  `%error` reply recovers at once, and a stream reset fails the tracked
+  completion, so an armed hold always owns a pending protocol edge.
 - **Hidden, nobody writes.** A hidden tab's tree is frozen: no impositions
   (already the rule) and no model re-assertions. It is re-planned from fresh
   inputs when shown.
