@@ -57,9 +57,35 @@ public struct PreferredEditorService: FileOpening {
     }
 
     public func open(_ url: URL) {
+        open(url, line: nil, column: nil)
+    }
+
+    /// Opens a file, carrying a one-based source location to editor commands.
+    ///
+    /// Configured commands receive one shell-quoted `path:line[:column]`
+    /// argument. Commands that support source locations can navigate directly;
+    /// UI-test capture records that same argument, while the system fallback
+    /// still receives the plain file URL.
+    ///
+    /// - Parameters:
+    ///   - url: The local file URL to open.
+    ///   - line: An optional one-based line.
+    ///   - column: An optional one-based column, used only when `line` exists.
+    public func open(_ url: URL, line: Int?, column: Int?) {
+        let editorArgument: String
+        if let line {
+            if let column {
+                editorArgument = "\(url.path):\(line):\(column)"
+            } else {
+                editorArgument = "\(url.path):\(line)"
+            }
+        } else {
+            editorArgument = url.path
+        }
+
         if capture.appendLineIfConfigured(
             envKey: "CMUX_UI_TEST_CAPTURE_OPEN_PATH",
-            line: url.path
+            line: editorArgument
         ) {
             return
         }
@@ -71,7 +97,7 @@ public struct PreferredEditorService: FileOpening {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "\(command) \(url.path.posixShellSingleQuoted)"]
+        process.arguments = ["-c", "\(command) \(editorArgument.posixShellSingleQuoted)"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 

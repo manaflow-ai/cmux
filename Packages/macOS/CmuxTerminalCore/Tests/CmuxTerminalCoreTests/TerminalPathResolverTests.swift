@@ -162,22 +162,37 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
 
     @Test func resolvesRelativePathWithLineSuffix() {
         let existingFile = "/Users/dev/project/Sources/App/SettingsWindowFactory.swift"
-        #expect(
-            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFilePath(
+        let resolution = TerminalPathResolver(fileExists: existsIn([existingFile]))
+            .resolveOpenURLFileReference(
                 "Sources/App/SettingsWindowFactory.swift:12",
-                cwd: "/Users/dev/project"
-            ) == existingFile
-        )
+                context: TerminalPathResolutionContext(workingDirectory: "/Users/dev/project")
+            )
+        #expect(resolution?.path == existingFile)
+        #expect(resolution?.line == 12)
+        #expect(resolution?.column == nil)
     }
 
     @Test func resolvesRelativePathWithLineAndColumnSuffix() {
         let existingFile = "/Users/dev/project/Sources/App/SettingsWindowFactory.swift"
-        #expect(
-            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFilePath(
+        let resolution = TerminalPathResolver(fileExists: existsIn([existingFile]))
+            .resolveOpenURLFileReference(
                 "Sources/App/SettingsWindowFactory.swift:12:7",
-                cwd: "/Users/dev/project"
-            ) == existingFile
-        )
+                context: TerminalPathResolutionContext(workingDirectory: "/Users/dev/project")
+            )
+        #expect(resolution?.path == existingFile)
+        #expect(resolution?.line == 12)
+        #expect(resolution?.column == 7)
+    }
+
+    @Test func resolvesLocationSuffixBeforeTrailingProsePunctuation() {
+        let existingFile = "/Users/dev/project/Settings.swift"
+        let resolution = TerminalPathResolver(fileExists: existsIn([existingFile]))
+            .resolveOpenURLFileReference(
+                "Settings.swift:12,",
+                context: TerminalPathResolutionContext(workingDirectory: "/Users/dev/project")
+            )
+        #expect(resolution?.path == existingFile)
+        #expect(resolution?.line == 12)
     }
 
     @Test func locationSuffixDoesNotBypassExistenceCheck() {
@@ -187,6 +202,97 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
                 cwd: "/Users/dev/project"
             ) == nil
         )
+    }
+
+    @Test func cwdWinsBeforeFallbackRoots() {
+        let cwdFile = "/Users/dev/project/Sources/Settings.swift"
+        let repositoryFile = "/Users/dev/project/Settings.swift"
+        let resolution = TerminalPathResolver(fileExists: existsIn([cwdFile, repositoryFile]))
+            .resolveOpenURLFileReference(
+                "Settings.swift:8",
+                context: TerminalPathResolutionContext(
+                    workingDirectory: "/Users/dev/project/Sources",
+                    fallbackDirectories: ["/Users/dev/project"]
+                )
+            )
+        #expect(resolution?.path == cwdFile)
+        #expect(resolution?.line == 8)
+    }
+
+    @Test func repositoryRootFallbackHandlesCwdChanges() {
+        let repositoryFile = "/Users/dev/project/Sources/App/SettingsWindowFactory.swift"
+        let resolution = TerminalPathResolver(fileExists: existsIn([repositoryFile]))
+            .resolveOpenURLFileReference(
+                "Sources/App/SettingsWindowFactory.swift:12:7",
+                context: TerminalPathResolutionContext(
+                    workingDirectory: "/Users/dev/project/Sources",
+                    fallbackDirectories: ["/Users/dev/project", "/Users/dev"]
+                )
+            )
+        #expect(resolution?.path == repositoryFile)
+        #expect(resolution?.line == 12)
+        #expect(resolution?.column == 7)
+    }
+
+    @Test func workspaceRootIsTriedAfterMissingRepositoryCandidate() {
+        let workspaceFile = "/Users/dev/workspace/Sources/App.swift"
+        let resolution = TerminalPathResolver(fileExists: existsIn([workspaceFile]))
+            .resolveOpenURLFileReference(
+                "Sources/App.swift:4",
+                context: TerminalPathResolutionContext(
+                    workingDirectory: "/Users/dev/workspace/build",
+                    fallbackDirectories: ["/Users/dev/repository", "/Users/dev/workspace"]
+                )
+            )
+        #expect(resolution?.path == workspaceFile)
+        #expect(resolution?.line == 4)
+    }
+
+    @Test func literalFileEndingInNumericSuffixWins() {
+        let literalFile = "/Users/dev/project/report.txt:12"
+        let strippedFile = "/Users/dev/project/report.txt"
+        let resolution = TerminalPathResolver(fileExists: existsIn([literalFile, strippedFile]))
+            .resolveOpenURLFileReference(
+                "report.txt:12",
+                context: TerminalPathResolutionContext(workingDirectory: "/Users/dev/project")
+            )
+        #expect(resolution?.path == literalFile)
+        #expect(resolution?.line == nil)
+    }
+
+    @Test func zeroLocationSuffixIsNotGuessed() {
+        let strippedFile = "/Users/dev/project/report.txt"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([strippedFile]))
+                .resolveOpenURLFileReference(
+                    "report.txt:0",
+                    context: TerminalPathResolutionContext(workingDirectory: "/Users/dev/project")
+                ) == nil
+        )
+    }
+
+    @Test(arguments: [
+        "./scripts/reload.sh",
+        "../Sources/App.swift:4",
+        "Sources/App/SettingsWindowFactory.swift:12:7",
+        "a/b/c",
+        "s/pipeline-failure-state-model.md",
+        "File.swift:12",
+    ])
+    func recognizesUnambiguousRelativePathReferences(rawText: String) {
+        #expect(TerminalPathResolver().isRelativePathReferenceCandidate(rawText))
+    }
+
+    @Test(arguments: [
+        "https://example.com/path",
+        "mailto:test@example.com",
+        "example.com/docs",
+        "localhost:3000/docs",
+        "/tmp/App.swift:12",
+        "foo_bar",
+    ])
+    func doesNotClassifyURLsAbsolutePathsOrOpaqueTokensAsRelativePaths(rawText: String) {
+        #expect(!TerminalPathResolver().isRelativePathReferenceCandidate(rawText))
     }
 
     @Test func resolvesAbsoluteMarkdownPathWithTrailingDot() {
@@ -220,6 +326,24 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
             TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFilePath(
                 "mailto:test@example.com",
                 cwd: "/tmp"
+            ) == nil
+        )
+        #expect(
+            TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFilePath(
+                "https://example.com:443",
+                cwd: "/tmp"
+            ) == nil
+        )
+        #expect(
+            TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFilePath(
+                "ssh:host/path:22",
+                cwd: "/tmp"
+            ) == nil
+        )
+        #expect(
+            TerminalPathResolver(fileExists: { _ in true }).resolvePath(
+                "\"https://example.com/path\"",
+                context: TerminalPathResolutionContext(workingDirectory: "/tmp")
             ) == nil
         )
     }
@@ -258,6 +382,20 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         )
         #expect(resolution.path == existingFile)
         #expect(resolution.rawToken == "/tmp/cmux-visible-line.md")
+    }
+
+    @Test func visibleLinePreservesSourceLocation() throws {
+        let existingFile = "/tmp/Sources/App.swift"
+        let result = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveVisibleLineReference(
+                "error: Sources/App.swift:19:3",
+                column: 12,
+                context: TerminalPathResolutionContext(workingDirectory: "/tmp")
+            )
+        )
+        #expect(result.resolution.path == existingFile)
+        #expect(result.resolution.line == 19)
+        #expect(result.resolution.column == 3)
     }
 
     @Test func resolvesShellEscapedTokenSpanningSpaces() throws {

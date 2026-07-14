@@ -1,5 +1,7 @@
 import AppKit
 import CmuxSettings
+import CmuxTerminalCore
+import CmuxWorkspaces
 import Foundation
 
 enum CommandClickFileOpenRouter {
@@ -13,18 +15,18 @@ enum CommandClickFileOpenRouter {
     static func openInCmux(
         workspace: Workspace,
         sourcePanelId: UUID,
-        filePath: String
+        resolution: TerminalPathResolution
     ) -> Bool {
         let store = FileRouteSettingsStore(defaults: .standard)
-        if store.shouldRouteMarkdown(path: filePath),
-           workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
+        if store.shouldRouteMarkdown(path: resolution.path),
+           workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: resolution.path) != nil {
             return true
         }
 
-        guard store.shouldRouteSupportedFile(path: filePath) else {
+        guard store.shouldRouteSupportedFile(path: resolution.path) else {
             return false
         }
-        return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
+        return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: resolution.path) != nil
     }
 
     /// Resolve the working directory for a terminal surface, preferring the
@@ -51,6 +53,69 @@ enum CommandClickFileOpenRouter {
         return dir.isEmpty ? nil : dir
     }
 
+    /// Build the shared path-resolution context for a terminal surface.
+    ///
+    /// The live per-panel directory remains authoritative. If output predates
+    /// a cwd change, resolution falls back to the tracked repository root and
+    /// then the workspace directory; the resolver still requires existence at
+    /// every candidate.
+    @MainActor
+    static func resolvePathContext(
+        workspace: Workspace,
+        surfaceId: UUID
+    ) -> TerminalPathResolutionContext {
+        let workingDirectory = resolveWorkingDirectory(
+            workspace: workspace,
+            surfaceId: surfaceId
+        )
+        let standardizedWorkingDirectory = workingDirectory.map {
+            ($0 as NSString).standardizingPath
+        }
+        let fallbackDirectories = [
+            workspace.extensionSidebarProjectRootPath,
+            workspace.terminalPanel(for: surfaceId)?.requestedWorkingDirectory,
+            workspace.currentDirectory,
+        ].compactMap { directory -> String? in
+            guard let directory else { return nil }
+            let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let standardized = (trimmed as NSString).standardizingPath
+            guard let standardizedWorkingDirectory else { return standardized }
+            guard standardizedWorkingDirectory == standardized ||
+                    standardizedWorkingDirectory.hasPrefix(standardized + "/") else {
+                return nil
+            }
+            return standardized
+        }
+        return TerminalPathResolutionContext(
+            workingDirectory: workingDirectory,
+            fallbackDirectories: fallbackDirectories
+        )
+    }
+
+    /// Open a resolved file outside cmux while preserving source locations.
+    ///
+    /// The Ghostty callback keeps the historical system opener for ordinary
+    /// absolute paths. A source location necessarily uses the preferred-editor
+    /// path so commands that understand `file:line[:column]` can honor it.
+    @MainActor
+    @discardableResult
+    static func openExternally(
+        _ resolution: TerminalPathResolution,
+        preferConfiguredEditor: Bool
+    ) -> Bool {
+        let fileURL = URL(fileURLWithPath: resolution.path)
+        guard preferConfiguredEditor || resolution.line != nil else {
+            return NSWorkspace.shared.open(fileURL)
+        }
+        PreferredEditorService(defaults: .standard).open(
+            fileURL,
+            line: resolution.line,
+            column: resolution.column
+        )
+        return true
+    }
+
     /// Schedule a file open in cmux, deferred to the next runloop tick.
     ///
     /// Ghostty's `Surface.openUrl` holds an internal `os_unfair_lock` when it
@@ -64,7 +129,7 @@ enum CommandClickFileOpenRouter {
         workspace: Workspace,
         preferredWorkspaceId: UUID,
         surfaceId: UUID,
-        filePath: String,
+        resolution: TerminalPathResolution,
         fallback: (@MainActor @Sendable () -> Void)? = nil
     ) {
         DispatchQueue.main.async {
@@ -76,14 +141,14 @@ enum CommandClickFileOpenRouter {
                 fallback?()
                 return
             }
-            guard shouldRouteInCmux(path: filePath) else {
+            guard shouldRouteInCmux(path: resolution.path) else {
                 fallback?()
                 return
             }
             if openInCmux(
                 workspace: resolvedWorkspace,
                 sourcePanelId: surfaceId,
-                filePath: filePath
+                resolution: resolution
             ) {
                 return
             }
