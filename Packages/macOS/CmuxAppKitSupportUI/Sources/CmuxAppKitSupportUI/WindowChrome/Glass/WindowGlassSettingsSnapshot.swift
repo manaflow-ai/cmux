@@ -22,6 +22,9 @@ public struct WindowGlassSettingsSnapshot {
     /// Current terminal-derived glass tint, when a Ghostty glass mode owns it.
     public let terminalGlassTintColor: NSColor?
 
+    /// AppKit tint color resolved once at the snapshot boundary.
+    public let tintColor: NSColor
+
     /// Creates a window glass settings snapshot.
     public init(
         sidebarBlendModeRawValue: String,
@@ -37,14 +40,11 @@ public struct WindowGlassSettingsSnapshot {
         self.tintOpacity = tintOpacity
         self.terminalBackgroundBlur = terminalBackgroundBlur
         self.terminalGlassTintColor = terminalGlassTintColor
-    }
-
-    /// Resolved tint color for window glass.
-    public var tintColor: NSColor {
         if let terminalGlassTintColor, terminalBackgroundBlur.isMacOSGlassStyle {
-            return terminalGlassTintColor
+            self.tintColor = terminalGlassTintColor
+        } else {
+            self.tintColor = (NSColor(hex: tintHex) ?? .black).withAlphaComponent(tintOpacity)
         }
-        return (NSColor(hex: tintHex) ?? .black).withAlphaComponent(tintOpacity)
     }
 
     /// Native glass style for the current settings.
