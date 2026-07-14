@@ -19,5 +19,13 @@ import Testing
 
         #expect(message == "The Mac could not safely reserve this task.")
     }
+
+    @Test func completedOperationExplainsHowToRecover() {
+        let message = TaskComposerSheet.failureMessage(
+            .alreadyCompleted(hostDisplayName: "Test Mac")
+        )
+
+        #expect(message == "The Mac already accepted this task. Refresh workspaces before trying again.")
+    }
 }
 #endif

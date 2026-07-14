@@ -402,6 +402,24 @@ import Testing
         #expect(hostDisplayName == store.connectedHostName)
     }
 
+    @Test func completedOperationWithoutWorkspaceMapsToRecoveryFailure() async throws {
+        let router = RoutingHostRouter()
+        await router.setWorkspaceCreateError(
+            code: "already_completed",
+            message: "workspace.create operation already completed"
+        )
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        let result = await store.createWorkspaceRequest(
+            spec: MobileWorkspaceCreateSpec(title: "Task", operationID: UUID())
+        )
+
+        guard case let .failure(.alreadyCompleted(hostDisplayName)) = result else {
+            return #expect(Bool(false), "completed operation without a workspace needs recovery guidance")
+        }
+        #expect(hostDisplayName == store.connectedHostName)
+    }
+
     @Test func unrelatedInvalidParamsRemainsGenericRejection() async throws {
         let router = RoutingHostRouter()
         await router.setWorkspaceCreateError(

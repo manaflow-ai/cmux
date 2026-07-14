@@ -65,4 +65,33 @@ import Testing
         #expect(matches.first.map(FileManager.default.fileExists(atPath:)) == true)
         #expect(await service.search(query: "hidden-project", seedPaths: []).isEmpty)
     }
+
+    @Test func removingAnExternalSeedDoesNotReuseItsCachedPaths() async throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-directory-roots-\(UUID().uuidString)", isDirectory: true)
+        let home = base.appendingPathComponent("home", isDirectory: true)
+        let external = base.appendingPathComponent("external", isDirectory: true)
+        let project = external.appendingPathComponent("removed-root-project", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let service = MobileTaskDirectorySearchService(
+            homeDirectory: home,
+            configuration: .init(maximumDirectories: 200, maximumDepth: 6, cacheLifetime: 30)
+        )
+
+        #expect(await service.search(query: "removed-root-project", seedPaths: [project.path]) == [project.path])
+        #expect(await service.search(query: "removed-root-project", seedPaths: []).isEmpty)
+    }
+
+    @Test func cancelledRankStopsBeforeReturningStaleResults() async {
+        let paths = (0..<12_000).map { "/Users/test/Dev/project-\($0)" }
+        let task = Task.detached {
+            do { try await Task.sleep(for: .seconds(60)) } catch {}
+            return MobileTaskDirectorySearchService.rank(paths: paths, query: "project", limit: 64)
+        }
+        task.cancel()
+
+        #expect(await task.value.isEmpty)
+    }
 }

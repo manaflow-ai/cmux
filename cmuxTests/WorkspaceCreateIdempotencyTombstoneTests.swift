@@ -9,7 +9,7 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct WorkspaceCreateIdempotencyTombstoneTests {
-    @Test func mobileRetryAfterClosedWorkspaceReturnsCurrentListWithoutCreatingOrLaunching() async throws {
+    @Test func mobileRetryAfterClosedWorkspaceReturnsCompletedErrorWithoutCreatingOrLaunching() async throws {
         let defaults = Self.makeDefaults()
         defer { defaults.removePersistentDomain(forName: Self.defaultsSuiteName(defaults)) }
         let cache = Self.cache(defaults: defaults)
@@ -33,9 +33,7 @@ import Testing
             tabManager: manager,
             idempotencyCache: cache
         )
-        let decoded = try Self.decode(retry)
-
-        #expect(decoded.createdWorkspaceID == nil)
+        #expect(Self.errorCode(retry) == "already_completed")
         #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
         #expect(Self.containsInitialCommand("must-not-launch", in: manager) == false)
     }
@@ -68,7 +66,7 @@ import Testing
 
         // A crash before the session snapshot can leave no workspace to recover.
         // At-most-once startup work is stricter: the accepted operation stays complete.
-        #expect(try Self.decode(retry).createdWorkspaceID == nil)
+        #expect(Self.errorCode(retry) == "already_completed")
         #expect(Set(manager.tabs.map(\.id)) == baselineIDs)
         #expect(Self.containsInitialCommand("must-not-launch-after-restart", in: manager) == false)
     }
@@ -241,7 +239,7 @@ import Testing
             idempotencyCache: restoredCache
         )
 
-        #expect(try Self.decode(retry).createdWorkspaceID == nil)
+        #expect(Self.errorCode(retry) == "already_completed")
         #expect(Set(restoredManager.tabs.map(\.id)) == postCloseIDs)
         #expect(Self.containsInitialCommand("must-not-launch-after-restore", in: restoredManager) == false)
     }
