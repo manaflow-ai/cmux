@@ -75,6 +75,29 @@ import Testing
         #expect(plan.glass?.tintColor.hexString(includeAlpha: true) == "#272822FF")
     }
 
+    @Test func resolvedSidebarSnapshotStoresItsMaterialPolicy() {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: "#272822") ?? .black,
+                backgroundOpacity: 1,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true
+            )
+        )
+        let snapshot = resolver.current(settings: makeSettings(
+            unifySurfaceBackdrops: false,
+            sidebarBlendMode: "withinWindow",
+            sidebarTintOpacity: 0.4,
+            bgGlassEnabled: false
+        ))
+
+        let storedPropertyNames = Set(
+            Mirror(reflecting: snapshot.sidebarSettings).children.compactMap(\.label)
+        )
+
+        #expect(storedPropertyNames.contains("materialPolicy"))
+    }
+
     private func makeSettings(
         unifySurfaceBackdrops: Bool,
         sidebarBlendMode: String,
