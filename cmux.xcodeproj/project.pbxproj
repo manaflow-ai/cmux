@@ -1627,6 +1627,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE7B3C0000000000000001 /* TextBoxSubmitActionSettingsFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B3C0000000000000002 /* TextBoxSubmitActionSettingsFileTests.swift */; };
 		C0DE7B360000000000000001 /* TextBoxSubmitActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B360000000000000002 /* TextBoxSubmitActionTests.swift */; };
 		C0DE5A420000000000000001 /* TextBoxSubmitAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5A420000000000000002 /* TextBoxSubmitAvailability.swift */; };
+		D79030000000000000000001 /* TextBoxSubmitSurfaceControlling.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79030000000000000000002 /* TextBoxSubmitSurfaceControlling.swift */; };
 		A5002000 /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = A5002001 /* THIRD_PARTY_LICENSES.md */; };
 		F50030050000000000000001 /* TitlebarAccessoryContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030050000000000000002 /* TitlebarAccessoryContainerView.swift */; };
 		F50030060000000000000001 /* TitlebarAccessoryHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030060000000000000002 /* TitlebarAccessoryHostingView.swift */; };
@@ -3407,6 +3408,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE7B3C0000000000000002 /* TextBoxSubmitActionSettingsFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionSettingsFileTests.swift; sourceTree = "<group>"; };
 		C0DE7B360000000000000002 /* TextBoxSubmitActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionTests.swift; sourceTree = "<group>"; };
 		C0DE5A420000000000000002 /* TextBoxSubmitAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitAvailability.swift; sourceTree = "<group>"; };
+		D79030000000000000000002 /* TextBoxSubmitSurfaceControlling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitSurfaceControlling.swift; sourceTree = "<group>"; };
 		A5002001 /* THIRD_PARTY_LICENSES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_LICENSES.md; sourceTree = SOURCE_ROOT; };
 		F50030050000000000000002 /* TitlebarAccessoryContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarAccessoryContainerView.swift; sourceTree = "<group>"; };
 		F50030060000000000000002 /* TitlebarAccessoryHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarAccessoryHostingView.swift; sourceTree = "<group>"; };
@@ -4104,6 +4106,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE7B220000000000000002 /* TextBoxMentionSuggestion.swift */,
 				C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */,
 				C0DE7B100000000000000002 /* TextBoxInput.swift */,
+				D79030000000000000000002 /* TextBoxSubmitSurfaceControlling.swift */,
 				C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */,
 				C0DE7B370000000000000002 /* TextBoxSubmitAction.swift */,
 				C0DE7B400000000000000002 /* TextBoxSubmitActionCycling.swift */,
@@ -6894,6 +6897,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE7B340000000000000001 /* TextBoxSubmitActions.swift in Sources */,
 				C0DE7B350000000000000001 /* TextBoxSubmitActionSettings.swift in Sources */,
 				C0DE5A420000000000000001 /* TextBoxSubmitAvailability.swift in Sources */,
+				D79030000000000000000001 /* TextBoxSubmitSurfaceControlling.swift in Sources */,
 				F50030050000000000000001 /* TitlebarAccessoryContainerView.swift in Sources */,
 					F50030060000000000000001 /* TitlebarAccessoryHostingView.swift in Sources */,
 					C4160A060000000000000001 /* TitlebarChromeGeometryReporting.swift in Sources */,

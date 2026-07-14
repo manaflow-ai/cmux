@@ -1344,33 +1344,6 @@ final class TextBoxMentionCompletionPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-@MainActor
-protocol TextBoxSubmitSurfaceControlling: AnyObject {
-    var clipboardReadGeneration: Int { get }
-    var textBoxSubmitObservationWindow: NSWindow? { get }
-    var textBoxSubmitTerminalSurface: TerminalSurface? { get }
-
-    func visibleText() -> String?
-    @discardableResult
-    func sendKeyText(_ text: String) -> Bool
-    @discardableResult
-    func sendText(_ text: String) -> Bool
-    @discardableResult
-    func sendNamedKey(_ keyName: String) -> TerminalSurface.NamedKeySendResult
-    @discardableResult
-    func performExplicitInputBindingAction(_ action: String) -> Bool
-}
-
-extension TerminalSurface: TextBoxSubmitSurfaceControlling {
-    var textBoxSubmitObservationWindow: NSWindow? {
-        hostedView.window
-    }
-
-    var textBoxSubmitTerminalSurface: TerminalSurface? {
-        self
-    }
-}
-
 private extension TerminalSurface.NamedKeySendResult {
     var acceptedForTextBoxSubmit: Bool {
         switch self {
