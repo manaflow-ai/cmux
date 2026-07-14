@@ -384,6 +384,33 @@ fn assert_overlapping_sessions_remain_independently_closable(
         session_paths,
         [abandoned_path.as_str(), replacement_path.as_str()]
     );
+    let attacker_token = "fedcba9876543210";
+    std::fs::write(
+        root.join(format!(".manifest-{attacker_token}.json")),
+        serde_json::to_vec(&serde_json::json!({
+            "token": attacker_token,
+            "files": [{
+                "request_path": "/viewer.html",
+                "file_path": root.join("viewer.html"),
+                "mime_type": "text/html"
+            }]
+        }))
+        .expect("encode attacker manifest"),
+    )
+    .expect("write attacker manifest");
+    let attacker_close = serde_json::to_vec(&serde_json::json!({
+        "id": "attacker-close",
+        "version": 1,
+        "method": "sessionClose",
+        "params": {"sessionId": abandoned_session, "capabilityToken": attacker_token}
+    }))
+    .expect("encode attacker close");
+    assert!(
+        run_stdio_rpc_in_root(&attacker_close, root)
+            .status
+            .success()
+    );
+    assert!(root.join(abandoned_path.trim_start_matches('/')).exists());
     close_session(root, token, &replacement_session, &replacement_path);
     assert!(root.join(abandoned_path.trim_start_matches('/')).exists());
     close_session(root, token, &abandoned_session, &abandoned_path);

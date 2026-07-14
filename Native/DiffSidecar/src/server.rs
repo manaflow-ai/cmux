@@ -972,13 +972,19 @@ async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
     let request_path = format!("/diff-session-{}.patch", params.session_id);
     let file_path = state.config.root.join(request_path.trim_start_matches('/'));
     let transaction = mutate_manifest(&state.config.root, &params.capability_token, |manifest| {
+        let owned = manifest.files.iter().any(|entry| {
+            entry.request_path == request_path
+                && entry.remote_url.is_none()
+                && Path::new(&entry.file_path) == file_path
+        });
         manifest
             .files
             .retain(|entry| entry.request_path != request_path);
-        Ok(())
+        Ok(owned)
     });
-    if transaction.is_err() {
-        return false;
+    let Ok(owned) = transaction else { return false };
+    if !owned {
+        return true;
     }
     match std::fs::remove_file(&file_path) {
         Ok(()) => {
@@ -989,7 +995,9 @@ async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
             let _ = unregister_session_temp(&state.config.root, &file_path);
             true
         }
-        Err(_) => false,
+        // The manifest commit is the logical close. Retain index ownership so
+        // bounded cleanup can retry a transient filesystem deletion failure.
+        Err(_) => true,
     }
 }
 
