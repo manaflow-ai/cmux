@@ -44,9 +44,13 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     // MARK: Navigation
     case nextSurface
     case prevSurface
+    /// Moves the selected surface one position left or right.
+    case moveSurfaceLeft, moveSurfaceRight
     case selectSurfaceByNumber
     case nextSidebarTab
     case prevSidebarTab
+    /// Moves the selected workspace one position up or down within its pin tier.
+    case moveWorkspaceUp, moveWorkspaceDown
     case focusHistoryBack
     case focusHistoryForward
     case selectWorkspaceByNumber
@@ -197,8 +201,8 @@ extension ShortcutAction {
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
              .switchRightSidebarToDock, .triggerFlash:
             return .workspace
-        case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
-             .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
+        case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight, .selectSurfaceByNumber,
+             .nextSidebarTab, .prevSidebarTab, .moveWorkspaceUp, .moveWorkspaceDown, .focusHistoryBack, .focusHistoryForward,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
@@ -371,9 +375,13 @@ extension ShortcutAction {
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
+        case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left")
+        case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right")
         case .selectSurfaceByNumber: return "Select Surface 1…9"
         case .nextSidebarTab: return "Next Workspace"
         case .prevSidebarTab: return "Previous Workspace"
+        case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
+        case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
         case .focusHistoryBack: return "Focus Back"
         case .focusHistoryForward: return "Focus Forward"
         case .selectWorkspaceByNumber: return "Select Workspace 1…9"
