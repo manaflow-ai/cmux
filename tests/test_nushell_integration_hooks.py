@@ -57,6 +57,7 @@ TTY_NAME = "ttys042"
 
 
 def _find_nu() -> Optional[str]:
+    """Locate a nu binary: CMUX_TEST_NU_BIN override, PATH, then Homebrew paths."""
     override = os.environ.get("CMUX_TEST_NU_BIN")
     candidates = [
         override,
@@ -71,6 +72,7 @@ def _find_nu() -> Optional[str]:
 
 
 def _require_nu() -> Optional[str]:
+    """Return a nu path, skip loudly when absent locally, fail when CI is set."""
     nu = _find_nu()
     if nu is None:
         if os.environ.get("CI"):
@@ -131,11 +133,12 @@ class _SocketCollector:
 
 
 def _short_tmpdir() -> str:
-    # AF_UNIX paths are length-limited; keep the socket dir short.
+    """Create a short-prefix temp dir under /tmp (AF_UNIX socket paths are length-limited)."""
     return tempfile.mkdtemp(prefix="cmux-nu-", dir="/tmp")
 
 
 def _debug(proc: subprocess.CompletedProcess, lines: List[str]) -> str:
+    """Render process (and socket) state for assertion failure messages."""
     return (
         f"\nexit={proc.returncode}"
         f"\n--- nu stdout ---\n{proc.stdout}"

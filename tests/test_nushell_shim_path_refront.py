@@ -46,6 +46,7 @@ SURFACE_ID = "nushell-refront-test"
 
 
 def _find_nu() -> Optional[str]:
+    """Locate a nu binary: CMUX_TEST_NU_BIN override, PATH, then Homebrew paths."""
     override = os.environ.get("CMUX_TEST_NU_BIN")
     candidates = [
         override,
@@ -60,6 +61,7 @@ def _find_nu() -> Optional[str]:
 
 
 def _require_nu() -> Optional[str]:
+    """Return a nu path, skip loudly when absent locally, fail when CI is set."""
     nu = _find_nu()
     if nu is None:
         if os.environ.get("CI"):
@@ -91,11 +93,13 @@ def _bootstrap_one_liner() -> str:
 
 
 def _write_executable(path: Path, contents: str) -> None:
+    """Write `contents` to `path` and mark it executable."""
     path.write_text(contents, encoding="utf-8")
     path.chmod(0o755)
 
 
 def _make_sandbox(tmp: Path, env_nu_body: str) -> dict:
+    """Build an isolated HOME/XDG tree with a decoy claude, a shim claude, and the env cmux would spawn with."""
     home = tmp / "home"
     xdg = tmp / "xdg"
     nushell_config = xdg / "nushell"
@@ -138,6 +142,7 @@ def _make_sandbox(tmp: Path, env_nu_body: str) -> dict:
 
 
 def _run_nu(nu: str, env: dict, script: str) -> subprocess.CompletedProcess:
+    """Run `script` through `nu -l -c`, mirroring how cmux launches login nushell."""
     return subprocess.run(
         [nu, "-l", "-c", script],
         env=env,
@@ -158,6 +163,7 @@ $env.PATH = ($env.PATH | split row (char esep) | prepend "__DECOY_DIR__" | str j
 
 
 def _debug(proc: subprocess.CompletedProcess) -> str:
+    """Render process output for assertion failure messages."""
     return (
         f"\nexit={proc.returncode}"
         f"\n--- nu stdout ---\n{proc.stdout}"
