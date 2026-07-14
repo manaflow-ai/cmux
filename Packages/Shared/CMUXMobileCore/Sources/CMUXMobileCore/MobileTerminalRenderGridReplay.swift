@@ -45,6 +45,24 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         patchBytes()
     }
 
+    /// Synthesizes only the frame's effective terminal color state.
+    ///
+    /// This patch updates foreground, background, cursor, and palette colors
+    /// without clearing cells, moving the cursor, or replacing terminal text.
+    /// Hybrid mobile mirrors use it when raw PTY bytes own content but a newer
+    /// render-grid theme revision must still repaint the mounted surface.
+    /// - Returns: Synchronized VT color commands for the frame's theme.
+    public func themePatchBytes() -> Data {
+        let theme = frame.terminalTheme
+        var bytes = Data("\u{1B}[?2026h".utf8)
+        bytes.append(oscColorOrResetBytes(10, reset: 110, frame.terminalForeground ?? theme?.foreground))
+        bytes.append(oscColorOrResetBytes(11, reset: 111, frame.terminalBackground ?? theme?.background))
+        bytes.append(oscColorOrResetBytes(12, reset: 112, frame.terminalCursorColor ?? theme?.cursor))
+        appendPaletteRestore(to: &bytes)
+        bytes.append(Data("\u{1B}[?2026l".utf8))
+        return bytes
+    }
+
     private func deltaPatchBytes() -> Data {
         var bytes = Data()
         let stylesByID = styleMapByID(frame.styles)

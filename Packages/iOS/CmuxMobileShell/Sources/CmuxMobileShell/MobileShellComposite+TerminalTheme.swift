@@ -12,17 +12,21 @@ extension MobileShellComposite {
 
     /// Records a full render-grid frame's theme for its surface and updates the
     /// active chrome when that surface is selected.
-    func recordTerminalTheme(_ frame: MobileTerminalRenderGridFrame) {
-        guard frame.full, let theme = frame.terminalTheme?.validatedOrDefault() else { return }
+    @discardableResult
+    func recordTerminalTheme(_ frame: MobileTerminalRenderGridFrame) -> Bool {
+        guard frame.full, let theme = frame.terminalTheme?.validatedOrDefault() else { return false }
         if let currentRevision = terminalThemeState.revisionsBySurfaceID[frame.surfaceID] {
             guard let incomingRevision = frame.terminalThemeRevision,
-                  incomingRevision >= currentRevision else { return }
+                  incomingRevision >= currentRevision else { return false }
         }
+        let configTheme = frame.terminalConfigTheme?.validatedOrDefault()
+        let changed = terminalThemeState.themesBySurfaceID[frame.surfaceID] != theme
+            || configTheme.map { terminalThemeState.configThemesBySurfaceID[frame.surfaceID] != $0 } == true
         if let revision = frame.terminalThemeRevision {
             terminalThemeState.revisionsBySurfaceID[frame.surfaceID] = revision
         }
         terminalThemeState.themesBySurfaceID[frame.surfaceID] = theme
-        if let configTheme = frame.terminalConfigTheme?.validatedOrDefault() {
+        if let configTheme {
             terminalThemeState.configThemesBySurfaceID[frame.surfaceID] = configTheme
         }
         if selectedTerminalID?.rawValue == frame.surfaceID {
@@ -31,6 +35,7 @@ extension MobileShellComposite {
                 config: terminalThemeState.configTheme(for: frame.surfaceID)
             )
         }
+        return changed
     }
 
     func hasCurrentTerminalThemeRevision(_ frame: MobileTerminalRenderGridFrame) -> Bool {

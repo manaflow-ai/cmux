@@ -7,12 +7,14 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     enum ReplacementScope: Equatable, Sendable {
         case byteViewport
         case renderGridViewport
+        case terminalTheme
         case viewportPolicy
     }
 
     private enum Payload: Equatable, Sendable {
         case bytes(Data)
         case renderGrid(MobileTerminalRenderGridFrame)
+        case theme(MobileTerminalRenderGridFrame)
     }
 
     private var payload: Payload
@@ -34,6 +36,12 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.viewportPolicy = viewportPolicy
     }
 
+    init(theme frame: MobileTerminalRenderGridFrame) {
+        self.payload = .theme(frame)
+        self.replacementScope = .terminalTheme
+        self.viewportPolicy = nil
+    }
+
     init(
         renderGrid frame: MobileTerminalRenderGridFrame,
         replaceable: Bool,
@@ -51,12 +59,18 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             bytes
         case .renderGrid(let frame):
             frame.vtPatchBytes()
+        case .theme(let frame):
+            MobileTerminalRenderGridReplay(frame).themePatchBytes()
         }
     }
 
     var terminalConfigTheme: TerminalTheme? {
-        guard case .renderGrid(let frame) = payload else { return nil }
-        return frame.terminalConfigTheme
+        switch payload {
+        case .renderGrid(let frame), .theme(let frame):
+            frame.terminalConfigTheme
+        case .bytes:
+            nil
+        }
     }
 }
 

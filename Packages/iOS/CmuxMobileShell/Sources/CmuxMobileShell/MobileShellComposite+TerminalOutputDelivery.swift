@@ -1,23 +1,9 @@
-public import CMUXMobileCore
+import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 public import Foundation
 
 extension MobileShellComposite {
-    #if DEBUG
-    /// Injects a full render-grid frame through the production surface delivery path.
-    ///
-    /// UI artifact tests use this to verify mounted Ghostty surfaces, including
-    /// ordered theme-config application and terminal canvas repainting.
-    /// - Parameter frame: The Mac-style terminal frame to deliver.
-    /// - Returns: `true` when the target surface has an attached output consumer.
-    public func debugDeliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame) -> Bool {
-        guard hasTerminalOutputSink(surfaceID: frame.surfaceID) else { return false }
-        deliverAuthoritativeTerminalRenderGrid(frame, source: "debug-theme-preview")
-        return true
-    }
-    #endif
-
     func claimTerminalReplayBarrierFollowUp(surfaceID: String) -> Bool {
         let followUpCount = terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] ?? 0
         guard followUpCount < Self.maxTerminalReplayBarrierFollowUps else {
@@ -71,7 +57,9 @@ extension MobileShellComposite {
         // Theme revisions are ordered independently from terminal byte content.
         // A delayed full frame may be stale for the VT replay while still carrying
         // the newest theme revision, and subsequent deltas intentionally omit it.
-        recordTerminalTheme(renderGrid)
+        if recordTerminalTheme(renderGrid) {
+            _ = deliverTerminalTheme(renderGrid, surfaceID: renderGrid.surfaceID)
+        }
         // The stale floor is the delivered high-water mark, surviving a replay
         // barrier via the pre-barrier stash: a buffered frame from before the
         // barrier must not paint (and must not establish an outdated baseline)
@@ -242,6 +230,17 @@ extension MobileShellComposite {
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
+        )
+    }
+
+    @discardableResult
+    func deliverTerminalTheme(
+        _ frame: MobileTerminalRenderGridFrame,
+        surfaceID: String
+    ) -> Bool {
+        deliverTerminalOutput(
+            TerminalOutputDelivery(theme: frame),
+            surfaceID: surfaceID
         )
     }
 
