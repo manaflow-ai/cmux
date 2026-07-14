@@ -1,18 +1,19 @@
+public import CmuxGit
 public import Foundation
 
-/// Caps how many sidebar git metadata snapshot probes run concurrently
-/// across the whole process.
+/// Caps how many sidebar git metadata probes and pull-request refresh chains
+/// run concurrently across the whole process.
 ///
 /// Probes spawn `git` subprocesses; without a cap a burst of workspace
-/// restores would fork dozens at once. The composition root constructs one
-/// limiter and injects it into every window's ``SidebarGitMetadataService``
-/// so the cap stays process-wide (the legacy code reached the same instance
-/// through a `shared` singleton; injection replaces the singleton).
+/// restores would fork dozens at once. The composition root injects one limiter
+/// into every window's ``SidebarGitMetadataService`` and pull-request panel so
+/// the cap stays process-wide (the legacy code reached the same instance through
+/// a `shared` singleton; injection replaces the singleton).
 ///
 /// An `actor` because acquirers are detached background probe tasks
 /// contending from arbitrary executors; the waiter queue is the contended
 /// state and has no main-actor callers.
-public actor WorkspaceGitMetadataProbeLimiter {
+public actor WorkspaceGitMetadataProbeLimiter: PullRequestPanelRefreshLimiting {
     private struct Waiter {
         let id: UUID
         let continuation: CheckedContinuation<Bool, Never>
@@ -21,7 +22,6 @@ public actor WorkspaceGitMetadataProbeLimiter {
     private let limit: Int
     private var activeCount = 0
     private var waiters: [Waiter] = []
-    private var cancelledWaiterIds: Set<UUID> = []
 
     /// Creates a limiter allowing at most `limit` concurrent probes
     /// (clamped to at least 1).
@@ -41,7 +41,7 @@ public actor WorkspaceGitMetadataProbeLimiter {
 
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                if cancelledWaiterIds.remove(id) != nil {
+                if Task.isCancelled {
                     continuation.resume(returning: false)
                 } else {
                     waiters.append(Waiter(id: id, continuation: continuation))
@@ -57,12 +57,8 @@ public actor WorkspaceGitMetadataProbeLimiter {
     /// Returns a permit, waking the oldest non-cancelled waiter if any.
     public func release() {
         guard activeCount > 0 else { return }
-        while !waiters.isEmpty {
-            let waiter = waiters.removeFirst()
-            if cancelledWaiterIds.remove(waiter.id) != nil {
-                waiter.continuation.resume(returning: false)
-                continue
-            }
+        if let waiter = waiters.first {
+            waiters.removeFirst()
             waiter.continuation.resume(returning: true)
             return
         }
@@ -73,8 +69,6 @@ public actor WorkspaceGitMetadataProbeLimiter {
         if let index = waiters.firstIndex(where: { $0.id == id }) {
             let waiter = waiters.remove(at: index)
             waiter.continuation.resume(returning: false)
-        } else {
-            cancelledWaiterIds.insert(id)
         }
     }
 }

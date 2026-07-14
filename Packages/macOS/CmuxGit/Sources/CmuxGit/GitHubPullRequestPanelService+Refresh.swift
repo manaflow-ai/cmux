@@ -7,8 +7,24 @@ extension GitHubPullRequestPanelService {
         let context = try await resolvedContext(for: input)
         try Task.checkCancellation()
         let request = coalescedRefreshRequest(for: context)
-        defer { finishCoalescedRefresh(request.identifier, for: context) }
-        return try await request.task.value
+        return try await withTaskCancellationHandler {
+            defer {
+                finishCoalescedRefreshWaiter(
+                    request.waiterIdentifier,
+                    requestIdentifier: request.identifier,
+                    for: context
+                )
+            }
+            return try await request.task.value
+        } onCancel: {
+            Task {
+                await self.finishCoalescedRefreshWaiter(
+                    request.waiterIdentifier,
+                    requestIdentifier: request.identifier,
+                    for: context
+                )
+            }
+        }
     }
 
     func performRefresh(for context: PullRequestPanelContext) async throws -> PullRequestPanelContent {

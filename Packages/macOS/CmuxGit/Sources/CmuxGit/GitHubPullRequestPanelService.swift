@@ -1,4 +1,5 @@
 public import CmuxFoundation
+import Foundation
 
 /// Resolves and mutates one workspace branch's GitHub pull request exclusively through `gh`.
 public actor GitHubPullRequestPanelService: PullRequestPanelServing {
@@ -12,7 +13,8 @@ public actor GitHubPullRequestPanelService: PullRequestPanelServing {
     var inFlightRefreshByContext: [
         PullRequestPanelContext: (
             identifier: UInt64,
-            task: Task<PullRequestPanelContent, any Error>
+            task: Task<PullRequestPanelContent, any Error>,
+            waiterIdentifiers: Set<UUID>
         )
     ] = [:]
     var refreshRequestIdentifier: UInt64 = 0
@@ -54,19 +56,54 @@ public actor GitHubPullRequestPanelService: PullRequestPanelServing {
 
     func coalescedRefreshRequest(
         for context: PullRequestPanelContext
-    ) -> (identifier: UInt64, task: Task<PullRequestPanelContent, any Error>) {
-        if let request = inFlightRefreshByContext[context] { return request }
+    ) -> (
+        identifier: UInt64,
+        waiterIdentifier: UUID,
+        task: Task<PullRequestPanelContent, any Error>
+    ) {
+        let waiterIdentifier = UUID()
+        if var request = inFlightRefreshByContext[context] {
+            request.waiterIdentifiers.insert(waiterIdentifier)
+            inFlightRefreshByContext[context] = request
+            return (request.identifier, waiterIdentifier, request.task)
+        }
         refreshRequestIdentifier &+= 1
         let identifier = refreshRequestIdentifier
-        let task = Task { try await self.performRefresh(for: context) }
-        let request = (identifier: identifier, task: task)
+        let limiter = refreshLimiter
+        let task = Task {
+            guard await limiter.acquire() else { throw CancellationError() }
+            do {
+                let content = try await self.performRefresh(for: context)
+                await limiter.release()
+                return content
+            } catch {
+                await limiter.release()
+                throw error
+            }
+        }
+        let request = (
+            identifier: identifier,
+            task: task,
+            waiterIdentifiers: Set([waiterIdentifier])
+        )
         inFlightRefreshByContext[context] = request
-        return request
+        return (identifier, waiterIdentifier, task)
     }
 
-    func finishCoalescedRefresh(_ identifier: UInt64, for context: PullRequestPanelContext) {
-        guard inFlightRefreshByContext[context]?.identifier == identifier else { return }
-        inFlightRefreshByContext.removeValue(forKey: context)
+    func finishCoalescedRefreshWaiter(
+        _ waiterIdentifier: UUID,
+        requestIdentifier: UInt64,
+        for context: PullRequestPanelContext
+    ) {
+        guard var request = inFlightRefreshByContext[context],
+              request.identifier == requestIdentifier,
+              request.waiterIdentifiers.remove(waiterIdentifier) != nil else { return }
+        if request.waiterIdentifiers.isEmpty {
+            inFlightRefreshByContext.removeValue(forKey: context)
+            request.task.cancel()
+        } else {
+            inFlightRefreshByContext[context] = request
+        }
     }
 
     func beginRefresh(for context: PullRequestPanelContext) -> UInt64 {
