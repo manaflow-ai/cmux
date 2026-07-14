@@ -70,6 +70,7 @@ actor RoutingHostRouter {
     private var firstWorkspaceCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstTerminalCreate = false
     private var firstTerminalCreateHeld = false
+    private var dropTerminalCreateResponse = false
     private var terminalCreateCount = 0
     private var heldTerminalCreateCount = 0
     private var terminalCreateContinuations: [CheckedContinuation<Void, Never>] = []
@@ -154,6 +155,10 @@ actor RoutingHostRouter {
 
     func setHoldFirstTerminalCreate(_ hold: Bool) {
         holdFirstTerminalCreate = hold
+    }
+
+    func setDropTerminalCreateResponse(_ drop: Bool) {
+        dropTerminalCreateResponse = drop
     }
 
     func awaitFirstTerminalCreateReached() async {
@@ -277,6 +282,7 @@ actor RoutingHostRouter {
                 for waiter in reachedWaiters { waiter.resume() }
                 await withCheckedContinuation { terminalCreateContinuations.append($0) }
             }
+            if dropTerminalCreateResponse { return nil }
             var workspaces: [[String: Any]] = [Self.routingWorkspacePayload(
                 title: "Terminal Response Workspace",
                 isSelected: true,

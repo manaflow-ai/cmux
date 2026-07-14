@@ -1,3 +1,4 @@
+import CmuxMobileShellModel
 import Testing
 @testable import CmuxMobileShell
 
@@ -273,6 +274,85 @@ import Testing
         #expect(await router.workspaceListGate.requestCount() == 1)
         #expect(store.terminalReorderGate.requiresRefresh(workspaceID: workspaceID))
         #expect(store.selectedTerminalID == originalTerminalID)
+    }
+
+    @Test func ambiguousTerminalCreateFailureReconcilesBeforeReleasingReservation() async throws {
+        let router = RoutingHostRouter()
+        await router.setDropTerminalCreateResponse(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected,
+            rpcRequestTimeoutNanoseconds: 20_000_000,
+            workspaceActionCapabilities: MobileWorkspaceActionCapabilities(
+                supportsTerminalCloseActions: true,
+                supportsTerminalCreateInPane: true,
+                supportsTerminalReorderActions: true
+            )
+        )
+        let workspace = try #require(store.workspaces.first)
+        let paneID = try #require(workspace.resolvedPanes.first?.id)
+        let reservation = try #require(store.terminalReorderGate.reserve(
+            workspaceID: workspace.id,
+            paneID: paneID
+        ))
+        let owner = MobileTerminalCreationRequestOwner()
+
+        #expect(owner.startIfIdle(
+            claim: .reserved(reservation),
+            gate: store.terminalReorderGate
+        ) {
+            await store.createRemoteTerminal(in: workspace.id)
+        })
+        for _ in 0..<300 where owner.isActive {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+
+        #expect(!owner.isActive)
+        #expect(await router.recordedTerminalCreateCount() == 1)
+        #expect(await router.workspaceListGate.requestCount() == 1)
+        let refreshedWorkspace = store.workspaces.first(where: { $0.id == workspace.id })
+        let createdTerminalIDs = refreshedWorkspace?.terminals.map(\.id.rawValue) ?? []
+        #expect(createdTerminalIDs.contains("terminal-route-created"))
+        #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
+    }
+
+    @Test func ambiguousTerminalCreateFailureKeepsGateClosedWhenReconciliationFails() async throws {
+        let router = RoutingHostRouter()
+        await router.setDropTerminalCreateResponse(true)
+        await router.setRejectWorkspaceList(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected,
+            rpcRequestTimeoutNanoseconds: 20_000_000,
+            workspaceActionCapabilities: MobileWorkspaceActionCapabilities(
+                supportsTerminalCloseActions: true,
+                supportsTerminalCreateInPane: true,
+                supportsTerminalReorderActions: true
+            )
+        )
+        let workspace = try #require(store.workspaces.first)
+        let paneID = try #require(workspace.resolvedPanes.first?.id)
+        let reservation = try #require(store.terminalReorderGate.reserve(
+            workspaceID: workspace.id,
+            paneID: paneID
+        ))
+        let owner = MobileTerminalCreationRequestOwner()
+
+        #expect(owner.startIfIdle(
+            claim: .reserved(reservation),
+            gate: store.terminalReorderGate
+        ) {
+            await store.createRemoteTerminal(in: workspace.id)
+        })
+        for _ in 0..<300 where owner.isActive {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+
+        #expect(!owner.isActive)
+        #expect(await router.recordedTerminalCreateCount() == 1)
+        #expect(await router.workspaceListGate.requestCount() == 1)
+        #expect(store.terminalReorderGate.requiresRefresh(workspaceID: workspace.id))
+        #expect(!store.terminalReorderGate.canMutate(workspaceID: workspace.id))
     }
 
     @Test func invalidatedWorkspaceCreateCompletionRemainsBenign() async throws {
