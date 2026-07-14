@@ -67,7 +67,7 @@ extension SessionEntry {
         guard let legacyCommand = copyResumeCommand else { return nil }
         return SessionEntryResumeLaunch(
             strategy: .legacyCommand,
-            initialInput: TerminalStartupTypedShellCommand.typedInput(posixCommand: legacyCommand) + "\n",
+            initialInput: TerminalStartupTypedShellCommand().typedInput(posixCommand: legacyCommand) + "\n",
             workingDirectory: resumeWorkingDirectory,
             startupRestoreAgent: nil
         )

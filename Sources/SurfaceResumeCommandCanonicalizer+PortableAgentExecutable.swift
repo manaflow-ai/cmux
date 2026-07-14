@@ -68,7 +68,7 @@ extension SurfaceResumeBindingSnapshot {
         // newline stays outside the wrap). Remote hosts keep raw POSIX via
         // remoteStartupInput().
         let command = inline.hasSuffix("\n") ? String(inline.dropLast()) : inline
-        return TerminalStartupTypedShellCommand.typedInput(posixCommand: command) + "\n"
+        return TerminalStartupTypedShellCommand().typedInput(posixCommand: command) + "\n"
     }
 
     func remoteStartupInput() -> String? {

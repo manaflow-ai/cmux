@@ -28,11 +28,17 @@ def _cmux_pick_send_tool [] {
     }
 }
 
-def _cmux_socket_is_unix [] {
+def --env _cmux_socket_is_unix [] {
     let sock = ($env.CMUX_SOCKET_PATH? | default "")
     if ($sock | is-empty) { return false }
     if not ($sock | str starts-with "/") { return false }
-    (^/bin/test -S $sock | complete | get exit_code) == 0
+    # The probe forks /bin/test and this runs from every prompt hook, so cache
+    # the positive result for the session (the socket path is session-stable).
+    # A negative result is not cached: the socket may come up moments later.
+    if ($env._CMUX_SOCKET_IS_UNIX? | default "") == $"yes:($sock)" { return true }
+    let live = ((^/bin/test -S $sock | complete | get exit_code) == 0)
+    if $live { $env._CMUX_SOCKET_IS_UNIX = $"yes:($sock)" }
+    $live
 }
 
 def _cmux_relay_cli_path [] {
@@ -165,12 +171,14 @@ def --env _cmux_report_tty_once [] {
 
 def --env _cmux_report_shell_activity_state [state: string] {
     if ($state | is-empty) { return }
+    # Dedupe before the socket probe: this runs on every prompt and the
+    # state is unchanged almost every time.
+    if ($env._CMUX_SHELL_ACTIVITY_LAST? | default "") == $state { return }
     if not (_cmux_socket_is_unix) { return }
     let tab = ($env.CMUX_TAB_ID? | default "")
     if ($tab | is-empty) { return }
     let panel = ($env.CMUX_PANEL_ID? | default "")
     if ($panel | is-empty) { return }
-    if ($env._CMUX_SHELL_ACTIVITY_LAST? | default "") == $state { return }
     $env._CMUX_SHELL_ACTIVITY_LAST = $state
     _cmux_send_bg $"report_shell_state ($state) --tab=($tab) --panel=($panel)"
 }
