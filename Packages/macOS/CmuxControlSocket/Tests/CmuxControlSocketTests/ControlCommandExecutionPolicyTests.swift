@@ -217,8 +217,13 @@ struct ControlCommandExecutionPolicyTests {
             #expect(policy == .socketWorker(mainThreadCallable: true), "\(method)")
         }
         #expect(ControlCommandExecutionPolicy(forMethod: "notification.reconcile") == .mainActor)
-        // The read-side notification verbs stay on the main lane.
-        #expect(ControlCommandExecutionPolicy(forMethod: "notification.list") == .mainActor)
+        // Full-list snapshotting is one bounded main hop; per-row formatting
+        // stays on the worker and must never be callable inline on main.
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "notification.list")
+                == .socketWorker(mainThreadCallable: false)
+        )
+        // The remaining read-side mutation stays on the main lane.
         #expect(ControlCommandExecutionPolicy(forMethod: "notification.clear") == .mainActor)
     }
 
