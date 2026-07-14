@@ -12,12 +12,21 @@ final class ChatArtifactViewerModel {
     private(set) var totalBytes: Int64?
     private(set) var textReachedEOF = false
     private(set) var activePath: String?
+    private let temporaryFileStore: ChatArtifactTemporaryFileStore
+    private var temporaryFileURL: URL?
+
+    init(
+        temporaryFileStore: ChatArtifactTemporaryFileStore = ChatArtifactTemporaryFileStore()
+    ) {
+        self.temporaryFileStore = temporaryFileStore
+    }
 
     var renderedText: String {
         textChunks.joined()
     }
 
     func load(path: String, loader: ChatArtifactLoader) async {
+        await removeTemporaryFile()
         reset(for: path)
         var stat: ChatArtifactStat?
         do {
@@ -25,8 +34,10 @@ final class ChatArtifactViewerModel {
             try Task.checkCancellation()
             guard path == activePath else { return }
             stat = loadedStat
+            totalBytes = loadedStat.size
 
-            guard !loadedStat.isDirectory else {
+            let route = ChatArtifactPreviewRouter().route(stat: loadedStat, path: path)
+            guard route != .folder else {
                 state = loadedStat.showsFolder(
                     supportsDirectoryBrowsing: loader.supportsDirectoryBrowsing
                 ) ? .folder : .binary(stat: loadedStat)
@@ -39,11 +50,22 @@ final class ChatArtifactViewerModel {
                 return
             }
 
-            switch loadedStat.kind {
-            case .text:
+            switch route {
+            case .text, .markdown:
                 try await streamText(path: path, loader: loader)
-            case .image, .binary, .directory:
-                try await loadNonText(path: path, stat: loadedStat, loader: loader)
+            case .image:
+                try await loadImage(path: path, loader: loader)
+            case .pdf:
+                try await loadPDF(
+                    path: path,
+                    expectedSize: loadedStat.size,
+                    limit: limit,
+                    loader: loader
+                )
+            case .media, .quickLook, .binary:
+                state = .binary(stat: loadedStat)
+            case .folder:
+                break
             }
         } catch is CancellationError {
             return
@@ -55,6 +77,10 @@ final class ChatArtifactViewerModel {
             guard !Task.isCancelled, path == activePath else { return }
             state = Self.state(for: error, stat: stat)
         }
+    }
+
+    func cleanup() async {
+        await removeTemporaryFile()
     }
 
     private func reset(for path: String) {
@@ -86,11 +112,7 @@ final class ChatArtifactViewerModel {
         state = .text
     }
 
-    private func loadNonText(
-        path: String,
-        stat: ChatArtifactStat,
-        loader: ChatArtifactLoader
-    ) async throws {
+    private func loadImage(path: String, loader: ChatArtifactLoader) async throws {
         let accumulator = ChatArtifactDataAccumulator()
         try await loader.stream(path: path) { chunk in
             try Task.checkCancellation()
@@ -100,14 +122,30 @@ final class ChatArtifactViewerModel {
         try Task.checkCancellation()
         guard path == activePath else { return }
         let data = await accumulator.value()
-        switch stat.kind {
-        case .image:
-            state = .image(data: data)
-        case .text:
-            break
-        case .binary, .directory:
-            state = .binary(stat: stat)
+        state = .image(data: data)
+    }
+
+    private func loadPDF(
+        path: String,
+        expectedSize: Int64,
+        limit: Int64,
+        loader: ChatArtifactLoader
+    ) async throws {
+        let fileURL = try await temporaryFileStore.fetch(
+            path: path,
+            expectedSize: expectedSize,
+            limit: limit,
+            fallbackExtension: "pdf",
+            loader: loader
+        ) { chunk in
+            await self.receiveNonTextProgress(chunk: chunk, path: path)
         }
+        guard path == activePath else {
+            await temporaryFileStore.remove(fileURL)
+            return
+        }
+        temporaryFileURL = fileURL
+        state = .pdf(fileURL: fileURL)
     }
 
     private func receiveNonTextProgress(chunk: ChatArtifactChunk, path: String) {
@@ -120,6 +158,12 @@ final class ChatArtifactViewerModel {
         fetchedBytes = chunk.eof
             ? chunk.totalSize
             : chunk.offset + Int64(chunk.data.count)
+    }
+
+    private func removeTemporaryFile() async {
+        guard let temporaryFileURL else { return }
+        self.temporaryFileURL = nil
+        await temporaryFileStore.remove(temporaryFileURL)
     }
 
     private static func state(

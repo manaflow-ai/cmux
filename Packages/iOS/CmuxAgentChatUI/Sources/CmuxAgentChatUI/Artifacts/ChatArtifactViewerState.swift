@@ -6,6 +6,7 @@ enum ChatArtifactViewerState: Equatable {
     case loading
     case folder
     case image(data: Data)
+    case pdf(fileURL: URL)
     case text
     case binary(stat: ChatArtifactStat)
     case tooLarge(actualSize: Int64?, limit: Int64)

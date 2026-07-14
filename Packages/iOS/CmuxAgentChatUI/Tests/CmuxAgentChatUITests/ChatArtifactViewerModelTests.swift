@@ -131,6 +131,50 @@ struct ChatArtifactViewerModelTests {
         #expect(model.state == .tooLarge(actualSize: actualSize, limit: limit))
     }
 
+    @Test
+    @MainActor
+    func pdfStreamsToTemporaryFileAndCleansUp() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-pdf-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let data = Data("%PDF-test".utf8)
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { _ in
+                ChatArtifactStat(
+                    exists: true,
+                    isDirectory: false,
+                    size: Int64(data.count),
+                    modifiedAt: Date(timeIntervalSince1970: 0),
+                    kind: .binary,
+                    mimeType: "application/pdf"
+                )
+            },
+            stream: { _, onChunk in
+                try await onChunk(ChatArtifactChunk(
+                    data: data,
+                    offset: 0,
+                    totalSize: Int64(data.count),
+                    eof: true
+                ))
+            }
+        )
+        let model = ChatArtifactViewerModel(
+            temporaryFileStore: ChatArtifactTemporaryFileStore(directory: directory)
+        )
+
+        await model.load(path: "/remote/report", loader: loader)
+
+        guard case .pdf(let fileURL) = model.state else {
+            Issue.record("PDF metadata should route to the PDF file state")
+            return
+        }
+        #expect(fileURL.pathExtension == "pdf")
+        #expect(try Data(contentsOf: fileURL) == data)
+        await model.cleanup()
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     private static func loader(
         totalSize: Int64,
         stream: @escaping @Sendable (

@@ -58,6 +58,9 @@ struct ChatArtifactViewerRouteView: View {
             .task(id: "\(path)\u{0}\(retryGeneration)") {
                 await model.load(path: path, loader: loader)
             }
+            .onDisappear {
+                Task { await model.cleanup() }
+            }
     }
 
     @ViewBuilder
@@ -96,6 +99,16 @@ struct ChatArtifactViewerRouteView: View {
                 .scaledToFit()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
+        case .pdf(let fileURL):
+            #if os(iOS)
+            ChatArtifactPDFView(fileURL: fileURL)
+                .ignoresSafeArea(.container, edges: .bottom)
+            #else
+            unavailableView(
+                title: String(localized: "chat.artifact.preview_unavailable.title", defaultValue: "Preview unavailable", bundle: .module),
+                message: String(localized: "chat.artifact.preview_unavailable.message", defaultValue: "This file can't be previewed.", bundle: .module)
+            )
+            #endif
         case .text:
             VStack(spacing: 0) {
                 if !model.textReachedEOF {
