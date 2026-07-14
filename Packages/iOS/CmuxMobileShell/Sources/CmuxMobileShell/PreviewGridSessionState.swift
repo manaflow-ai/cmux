@@ -3,6 +3,7 @@ import Foundation
 /// Reference-backed preview state kept out of the zero-growth composite file.
 @MainActor
 final class PreviewGridSessionState {
+    let browserPreview = BrowserPreviewSessionState()
     let store = PreviewGridStore(
         maximumUpdatesPerSecond: MobileShellComposite.defaultPreviewGridUpdatesPerSecond
     )

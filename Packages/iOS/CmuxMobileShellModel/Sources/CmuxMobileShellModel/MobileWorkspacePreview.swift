@@ -97,6 +97,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var actionCapabilities: MobileWorkspaceActionCapabilities = .none
     /// Whether the owning Mac supports authoritative pane-layout snapshots.
     public var supportsWorkspaceLayout: Bool = false
+    /// Whether the owning Mac supports demand-gated browser bitmap previews.
+    public var supportsBrowserPreview: Bool = false
 
     /// The workspace id to use in RPC params.
     public var rpcWorkspaceID: ID {
@@ -118,6 +120,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - hasUnread: Whether the workspace has unread activity. Defaults to `false`.
     ///   - terminals: The terminals contained in the workspace, in display order.
     ///   - supportsWorkspaceLayout: Whether the owning Mac supports pane topology.
+    ///   - supportsBrowserPreview: Whether the owning Mac supports browser previews.
     public init(
         id: ID,
         macDeviceID: String? = nil,
@@ -131,7 +134,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
         terminals: [MobileTerminalPreview],
-        supportsWorkspaceLayout: Bool = false
+        supportsWorkspaceLayout: Bool = false,
+        supportsBrowserPreview: Bool = false
     ) {
         self.id = id
         self.remoteWorkspaceID = nil
@@ -147,5 +151,6 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.hasUnread = hasUnread
         self.terminals = terminals
         self.supportsWorkspaceLayout = supportsWorkspaceLayout
+        self.supportsBrowserPreview = supportsBrowserPreview
     }
 }

@@ -35,6 +35,9 @@ extension MobileShellComposite {
         if supportedHostCapabilities.contains(Self.renderGridDemandCapability) {
             params["render_grid_demand"] = currentRenderGridDemand.jsonObject()
         }
+        if Self.hostSupportsBrowserPreview(supportedHostCapabilities) {
+            params["browser_preview_demand"] = currentBrowserPreviewDemand.jsonObject()
+        }
         return params
     }
 
@@ -85,18 +88,21 @@ extension MobileShellComposite {
         previewGridSessionState.cancelConnectionTasks()
         previewGridSessionState.store.resetForReconnect()
         scheduleRenderGridDemandRefresh()
+        browserPreviewConnectionDidChange()
     }
 
     func previewGridDidSuspendForeground() {
         previewGridSessionState.store.setConsumptionActive(false)
         previewGridSessionState.cancelConnectionTasks()
         scheduleRenderGridDemandRefresh()
+        browserPreviewDidSuspendForeground()
     }
 
     func previewGridDidResumeForeground() {
         previewGridSessionState.store.setConsumptionActive(true)
         scheduleRenderGridDemandRefresh()
         requestPreviewGridBaselines()
+        browserPreviewDidResumeForeground()
     }
 
     private var currentRenderGridDemand: MobileRenderGridDemand {

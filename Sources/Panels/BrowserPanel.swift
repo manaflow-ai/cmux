@@ -4847,7 +4847,6 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func setupObservers(for webView: WKWebView) {
         let observedWebViewInstanceID = webViewInstanceID
-
         // URL changes
         let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, change in
             let observedURL = change.newValue ?? webView.url
@@ -4856,11 +4855,11 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard !self.isMainFrameProvisionalNavigationActive else { return }
                 self.currentURL = Self.remoteProxyDisplayURL(for: observedURL)
                 self.refreshBackgroundAppearance()
+                self.noteMobileBrowserPreviewContentChanged()
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
         webViewObservers.append(urlObserver)
-
         // Title changes
         let titleObserver = webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
@@ -4871,11 +4870,11 @@ final class BrowserPanel: Panel, ObservableObject {
                 let trimmed = (webView.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
                 self.pageTitle = trimmed
+                self.noteMobileBrowserPreviewContentChanged()
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
         webViewObservers.append(titleObserver)
-
         // Loading state
         // Capture the KVO-provided value at observation time rather than reading
         // webView.isLoading inside the deferred Task. For fast navigations (e.g.
@@ -4916,6 +4915,7 @@ final class BrowserPanel: Panel, ObservableObject {
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 self.estimatedProgress = webView.estimatedProgress
+                self.noteMobileBrowserPreviewContentChanged()
             }
         }
         webViewObservers.append(progressObserver)

@@ -23,6 +23,7 @@ extension MobileHostService {
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
             "terminal.render_grid.demand.v1",
+            "browser.preview.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
             "workspace.actions.v1",

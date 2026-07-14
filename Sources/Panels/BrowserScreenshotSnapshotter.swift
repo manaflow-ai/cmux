@@ -90,13 +90,13 @@ enum BrowserScreenshotWebViewSnapshotter {
 
     static func captureVisibleViewport(
         from webView: WKWebView,
-        afterScreenUpdates: Bool = true
+        afterScreenUpdates: Bool = true, snapshotWidth: CGFloat? = nil
     ) async throws -> NSImage {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = afterScreenUpdates
+        if let snapshotWidth { configuration.snapshotWidth = NSNumber(value: Double(snapshotWidth)) }
         return try await takeSnapshot(from: webView, configuration: configuration)
     }
-
     static func captureVisibleViewport(
         from webView: WKWebView,
         afterScreenUpdates: Bool = true,

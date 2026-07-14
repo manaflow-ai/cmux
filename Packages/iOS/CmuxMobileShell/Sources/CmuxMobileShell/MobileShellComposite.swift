@@ -3212,7 +3212,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         workspaces: previews,
                         status: .connected,
                         actionCapabilities: existing.actionCapabilities,
-                        supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(existing.supportedHostCapabilities)
+                        supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(existing.supportedHostCapabilities), supportsBrowserPreview: Self.hostSupportsBrowserPreview(existing.supportedHostCapabilities)
                     )
                 } else {
                     existing.cancel()
@@ -3363,7 +3363,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 workspaces: previews,
                 status: .connected,
                 actionCapabilities: subscription.actionCapabilities,
-                supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(subscription.supportedHostCapabilities)
+                supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(subscription.supportedHostCapabilities), supportsBrowserPreview: Self.hostSupportsBrowserPreview(subscription.supportedHostCapabilities)
             )
         } else {
             markSecondaryMacUnavailable(macID)
@@ -3474,7 +3474,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         workspaces: previews,
                         status: .connected,
                         actionCapabilities: current.actionCapabilities,
-                        supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(current.supportedHostCapabilities)
+                        supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(current.supportedHostCapabilities), supportsBrowserPreview: Self.hostSupportsBrowserPreview(current.supportedHostCapabilities)
                     )
                 }
             } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
@@ -3549,7 +3549,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             from: supportedHostCapabilities,
             allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
         )
-        state.supportsWorkspaceLayout = Self.hostSupportsWorkspaceLayout(supportedHostCapabilities)
+        state.supportsWorkspaceLayout = Self.hostSupportsWorkspaceLayout(supportedHostCapabilities); state.supportsBrowserPreview = Self.hostSupportsBrowserPreview(supportedHostCapabilities)
         workspacesByMac[foregroundMacKey] = state
     }
 
@@ -3696,7 +3696,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             from: supportedHostCapabilities,
             allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
         )
-        state.supportsWorkspaceLayout = Self.hostSupportsWorkspaceLayout(supportedHostCapabilities)
+        state.supportsWorkspaceLayout = Self.hostSupportsWorkspaceLayout(supportedHostCapabilities); state.supportsBrowserPreview = Self.hostSupportsBrowserPreview(supportedHostCapabilities)
         workspacesByMac[key] = state
     }
 
@@ -6174,7 +6174,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self?.stopRenderGridLivenessWatchdog(listenerID: listenerID)
                 }
             }
-
             let outputTransport = await self?.resolveTerminalOutputTransport(
                 client: client,
                 initialHostStatus: initialHostStatus
@@ -6210,6 +6209,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 } else if event.topic == "workspace.layout.updated" {
                     self.handleWorkspaceLayoutUpdatedEvent(event)
+                } else if event.topic == "browser.preview" { self.routeIncomingBrowserPreview(event)
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
                 } else if event.topic == "terminal.set_font" {

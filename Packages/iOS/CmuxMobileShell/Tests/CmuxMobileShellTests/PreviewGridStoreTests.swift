@@ -6,6 +6,29 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct PreviewGridStoreTests {
+    @Test func browserPreviewDemandUpgradesToFullAndReleasesOnLastConsumer() async {
+        let store = BrowserPreviewStore()
+        let preview = store.updates(surfaceID: "browser", resolution: .preview) {}
+        let previewConsumer = Task { @MainActor in for await _ in preview {} }
+        #expect(store.demand.previewSurfaceIDs == ["browser"])
+
+        let full = store.updates(surfaceID: "browser", resolution: .full) {}
+        let fullConsumer = Task { @MainActor in for await _ in full {} }
+        #expect(store.demand.fullSurfaceIDs == ["browser"])
+        #expect(store.demand.previewSurfaceIDs.isEmpty)
+
+        fullConsumer.cancel()
+        await fullConsumer.value
+        await expectEventually("full browser demand did not downgrade") {
+            store.demand.previewSurfaceIDs == ["browser"]
+        }
+        previewConsumer.cancel()
+        await previewConsumer.value
+        await expectEventually("browser demand did not release") {
+            store.demand.surfaceIDs.isEmpty
+        }
+    }
+
     @Test func multiSurfaceFanoutCoexistsWithMountedFullRateSink() async throws {
         let shell = MobileShellComposite.preview()
         var mounted = shell.terminalOutputStream(surfaceID: "surface-a").makeAsyncIterator()

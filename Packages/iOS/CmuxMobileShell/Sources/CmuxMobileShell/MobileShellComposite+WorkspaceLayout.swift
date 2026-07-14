@@ -15,6 +15,9 @@ extension MobileShellComposite {
         if Self.hostSupportsWorkspaceLayout(supportedHostCapabilities) {
             topics.insert("workspace.layout.updated", at: 1)
         }
+        if Self.hostSupportsBrowserPreview(supportedHostCapabilities) {
+            topics.insert("browser.preview", at: min(2, topics.count))
+        }
         return topics
     }
 
