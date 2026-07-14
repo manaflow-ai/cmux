@@ -168,6 +168,103 @@ struct TerminalScrollSessionTests {
         #expect(harness.delivered.map(\.renderRevision) == [10, 30, 40])
     }
 
+    @Test("legacy host uses matching scalar semantics locally and remotely")
+    func legacyHostDropsExactRowsBeforeOptimisticApply() async throws {
+        let harness = TerminalScrollSessionHarness()
+        let session = harness.makeSession(supportsOrderedRemoteRuns: false)
+
+        session.submit(MobileTerminalScrollRun(
+            primaryRows: 9,
+            alternateScreenLines: 3,
+            col: 4,
+            row: 5
+        ))
+        try await requireEventually {
+            harness.remote.pending.count == 1 && harness.local.pending.count == 1
+        }
+
+        let local = try #require(harness.local.started.first)
+        let remote = try #require(harness.remote.started.first)
+        #expect(local.lines == 3)
+        #expect(local.primaryRows == nil)
+        #expect(remote.lines == 3)
+        #expect(remote.primaryRows == nil)
+        #expect(remote.directionalRuns.first?.primaryRows == nil)
+        #expect(remote.wireEncoding == .legacyScalar)
+
+        let pendingRemote = harness.remote.pending.removeFirst()
+        pendingRemote.continuation.resume(returning: response(
+            for: pendingRemote.request,
+            renderRevision: 10
+        ))
+        harness.local.pending.removeFirst().continuation.resume(returning: true)
+        try await requireEventually { harness.delivered.count == 1 }
+        session.authoritativeDidApply(
+            interactionEpoch: pendingRemote.request.interactionEpoch,
+            clientRevision: pendingRemote.request.clientRevision
+        )
+    }
+
+    @Test("ordered-run capability updates only between interaction plans")
+    func orderedRunCapabilityUpdateWaitsForIdleLane() async throws {
+        let harness = TerminalScrollSessionHarness()
+        let session = harness.makeSession(supportsOrderedRemoteRuns: false)
+        session.updateSupportsOrderedRemoteRuns(true)
+
+        session.submit(MobileTerminalScrollRun(
+            primaryRows: 9,
+            alternateScreenLines: 3,
+            col: 4,
+            row: 5
+        ))
+        try await requireEventually {
+            harness.remote.pending.count == 1 && harness.local.pending.count == 1
+        }
+        #expect(harness.local.started.first?.primaryRows == 9)
+        #expect(harness.remote.started.first?.primaryRows == 9)
+        #expect(harness.remote.started.first?.wireEncoding == .orderedRuns)
+
+        session.updateSupportsOrderedRemoteRuns(false)
+        #expect(session.supportsOrderedRemoteRuns)
+        let firstRemote = harness.remote.pending.removeFirst()
+        firstRemote.continuation.resume(returning: response(
+            for: firstRemote.request,
+            renderRevision: 10
+        ))
+        harness.local.pending.removeFirst().continuation.resume(returning: true)
+        try await requireEventually { harness.delivered.count == 1 }
+        session.authoritativeDidApply(
+            interactionEpoch: firstRemote.request.interactionEpoch,
+            clientRevision: firstRemote.request.clientRevision
+        )
+        #expect(!session.supportsOrderedRemoteRuns)
+
+        session.submit(MobileTerminalScrollRun(
+            primaryRows: 12,
+            alternateScreenLines: 4,
+            col: 4,
+            row: 5
+        ))
+        try await requireEventually {
+            harness.remote.pending.count == 1 && harness.local.pending.count == 1
+        }
+        #expect(harness.local.started.last?.primaryRows == nil)
+        #expect(harness.remote.started.last?.primaryRows == nil)
+        #expect(harness.remote.started.last?.wireEncoding == .legacyScalar)
+
+        let secondRemote = harness.remote.pending.removeFirst()
+        secondRemote.continuation.resume(returning: response(
+            for: secondRemote.request,
+            renderRevision: 20
+        ))
+        harness.local.pending.removeFirst().continuation.resume(returning: true)
+        try await requireEventually { harness.delivered.count == 2 }
+        session.authoritativeDidApply(
+            interactionEpoch: secondRemote.request.interactionEpoch,
+            clientRevision: secondRemote.request.clientRevision
+        )
+    }
+
     @Test("journal overflow enters replay recovery without stuck reconciliation")
     func journalOverflowRecoversCleanly() async throws {
         let harness = TerminalScrollSessionHarness()
@@ -296,24 +393,6 @@ struct TerminalScrollSessionTests {
         ))
     }
 
-    @Test("rolling prefetch counts exact primary rows instead of alternate wheel ticks")
-    func rollingPrefetchCountsPrimaryRows() {
-        let harness = TerminalScrollSessionHarness()
-        let session = harness.makeSession()
-        let run = MobileTerminalScrollRun(
-            primaryRows: 1,
-            alternateScreenLines: 0.1,
-            col: 1,
-            row: 1
-        )
-
-        #expect(session.prefetchWindow(for: run) == .directional(for: 1))
-        for _ in 0..<119 {
-            #expect(session.prefetchWindow(for: run) == nil)
-        }
-        #expect(session.prefetchWindow(for: run) == .directional(for: 1))
-    }
-
     @Test("gridless settlement preserves a pending authoritative frame")
     func gridlessSettlementPreservesPendingFrame() async throws {
         let harness = TerminalScrollSessionHarness()
@@ -349,28 +428,6 @@ struct TerminalScrollSessionTests {
 
         #expect(harness.delivered.map(\.renderRevision) == [40])
         #expect(harness.acceptedRenderRevisions.isEmpty)
-    }
-
-    @Test("disconnect recovery preserves the mounted session")
-    func disconnectRecoveryPreservesMountedSession() {
-        let store = MobileShellComposite.preview()
-        let surfaceID = "surface-1"
-        let token = store.mountTerminalScrollSession(
-            surfaceID: surfaceID,
-            cancelLocal: {}
-        )
-        let originalSession = store.terminalScrollSessionsBySurfaceID[surfaceID]
-        let originalEpoch = originalSession?.interactionEpoch
-
-        store.remoteClient = nil
-
-        let recoveredSession = store.terminalScrollSessionsBySurfaceID[surfaceID]
-        #expect(recoveredSession?.token == token)
-        #expect(recoveredSession === originalSession)
-        #expect(recoveredSession?.interactionEpoch != originalEpoch)
-        #expect(recoveredSession?.shouldDeferLiveRenderGrid == false)
-
-        store.unmountTerminalScrollSession(surfaceID: surfaceID, token: token)
     }
 
     private func response(

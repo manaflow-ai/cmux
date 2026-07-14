@@ -139,17 +139,17 @@ struct MobileTerminalScrollHandlerTests {
         #expect(downward.after == 600)
     }
 
-    @Test func releasedSurfaceRejectsScrollAndZeroLineSettlement() throws {
+    @Test func releasedSurfaceRejectsScrollAndZeroLineSettlement() async throws {
         let harness = try makeTerminalHarness()
         defer { harness.restore() }
         harness.panel.surface.releaseSurfaceForTesting()
 
-        let scroll = TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
+        let scroll = await TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
             epoch: 1,
             revision: 1,
             deltaLines: -8
         ))
-        let settlement = TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
+        let settlement = await TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
             epoch: 1,
             revision: 1,
             deltaLines: 0,
@@ -161,7 +161,7 @@ struct MobileTerminalScrollHandlerTests {
         #expect(accepted(settlement) == false)
     }
 
-    @Test func clickEpochRejectsAnOlderScroll() throws {
+    @Test func clickEpochRejectsAnOlderScroll() async throws {
         let harness = try makeTerminalHarness()
         defer { harness.restore() }
 
@@ -171,7 +171,7 @@ struct MobileTerminalScrollHandlerTests {
                 col == 7 && row == 9
             }
         )
-        let staleScroll = TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
+        let staleScroll = await TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
             epoch: 1,
             revision: 1,
             deltaLines: -4
@@ -216,14 +216,14 @@ struct MobileTerminalScrollHandlerTests {
         #expect(appliedSessions == ["old", "new"])
     }
 
-    @Test func replayFencingDoesNotRequireViewportGeometry() throws {
+    @Test func replayFencingDoesNotRequireViewportGeometry() async throws {
         let harness = try makeTerminalHarness()
         defer { harness.restore() }
 
-        let replay = TerminalController.shared.v2MobileTerminalReplay(
+        let replay = await TerminalController.shared.v2MobileTerminalReplay(
             params: harness.params(epoch: 4)
         )
-        let staleScroll = TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
+        let staleScroll = await TerminalController.shared.v2MobileTerminalScroll(params: harness.params(
             epoch: 3,
             revision: 1,
             deltaLines: -4
@@ -247,7 +247,7 @@ struct MobileTerminalScrollHandlerTests {
         missingClient["viewport_rows"] = 24
 
         for incomplete in [columnsOnly, rowsOnly, generationOnly, missingClient] {
-            guard case .err(let code, _, _) = TerminalController.shared.v2MobileTerminalReplay(
+            guard case .err(let code, _, _) = await TerminalController.shared.v2MobileTerminalReplay(
                 params: incomplete
             ) else {
                 Issue.record("incomplete viewport geometry should be rejected")

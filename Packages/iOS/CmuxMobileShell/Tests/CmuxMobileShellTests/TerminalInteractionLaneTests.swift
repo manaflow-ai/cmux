@@ -347,9 +347,7 @@ private final class InteractionLaneHarness {
                     self.remoteInputs.append(PendingInput(continuation: continuation))
                 }
             },
-            supportsOrderedRemoteRuns: { [weak self] in
-                self?.supportsOrderedRuns == true
-            },
+            supportsOrderedRemoteRuns: supportsOrderedRuns,
             interactionDeadline: { [deadline] _ in
                 await deadline.wait()
             },

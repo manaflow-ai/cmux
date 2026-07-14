@@ -23,6 +23,7 @@ final class TerminalScrollSessionHarness {
 
     struct LocalStarted {
         let lines: Double
+        let primaryRows: Int?
         let col: Int
         let row: Int
     }
@@ -54,7 +55,7 @@ final class TerminalScrollSessionHarness {
     var replayEpochs: [UInt64] = []
     var epoch: UInt64 = 1
 
-    func makeSession() -> TerminalScrollSession {
+    func makeSession(supportsOrderedRemoteRuns: Bool = false) -> TerminalScrollSession {
         TerminalScrollSession(
             surfaceID: "surface-1",
             interactionEpoch: epoch,
@@ -62,6 +63,9 @@ final class TerminalScrollSessionHarness {
                 let latest = runs.last
                 local.started.append(LocalStarted(
                     lines: runs.reduce(0) { $0 + $1.lines },
+                    primaryRows: runs.allSatisfy { $0.primaryRows != nil }
+                        ? runs.reduce(0) { $0 + ($1.primaryRows ?? 0) }
+                        : nil,
                     col: latest?.col ?? 0,
                     row: latest?.row ?? 0
                 ))
@@ -91,12 +95,13 @@ final class TerminalScrollSessionHarness {
                     remote.pending.append(PendingRemote(request: request, continuation: continuation))
                 }
             },
+            supportsOrderedRemoteRuns: supportsOrderedRemoteRuns,
             interactionDeadline: { [deadline] _ in await deadline.wait() },
             prepareIntent: { [weak self] in
                 self?.prepareIntentCount += 1
             },
-            deliverAuthoritative: { [weak self] frame, _, _, _ in
-                self?.delivered.append(frame)
+            deliverAuthoritative: { [weak self] renderGrid, _, _, _ in
+                self?.delivered.append(renderGrid.frame)
                 return true
             },
             completeGridlessAuthoritative: { [weak self] revision in

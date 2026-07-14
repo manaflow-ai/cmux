@@ -127,3 +127,20 @@ import Testing
     #expect(abs(alternateLines - 4.0) < 0.000_001)
     #expect(accumulator.pendingPrimaryRows.magnitude < 0.000_001)
 }
+
+@Test func scrollInputAccumulatorDetectsPrimaryAndAlternateDirectionReversals() {
+    var accumulator = MobileTerminalScrollInputAccumulator()
+    accumulator.accumulate(primaryRows: 1, alternateScreenLines: 0.5)
+
+    #expect(accumulator.wouldReverse(primaryRows: -1, alternateScreenLines: -0.5))
+    #expect(!accumulator.wouldReverse(primaryRows: 2, alternateScreenLines: 1))
+
+    let forward = accumulator.drain(col: 2, row: 3)
+    accumulator.accumulate(primaryRows: -1, alternateScreenLines: -0.5)
+    let reverse = accumulator.drain(col: 2, row: 3)
+
+    #expect(forward?.primaryRows == 1)
+    #expect(forward?.lines == 0.5)
+    #expect(reverse?.primaryRows == -1)
+    #expect(reverse?.lines == -0.5)
+}

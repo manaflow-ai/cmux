@@ -149,7 +149,7 @@ private final class ScrollPlanDeadlineHarness {
                     remote.pending.append(.init(request: request, continuation: continuation))
                 }
             },
-            supportsOrderedRemoteRuns: { false },
+            supportsOrderedRemoteRuns: false,
             interactionDeadline: { [deadline] duration in
                 await deadline.wait(for: duration)
             },

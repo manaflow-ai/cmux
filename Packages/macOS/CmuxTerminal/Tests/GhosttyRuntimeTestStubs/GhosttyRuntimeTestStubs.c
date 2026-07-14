@@ -40,6 +40,7 @@ void ghostty_surface_key(void) {}
 void ghostty_surface_mouse_button(void) {}
 void ghostty_surface_mouse_pos(void) {}
 void ghostty_surface_mouse_scroll(void) {}
+void ghostty_surface_mouse_scroll_with_viewport_rows(void) {}
 bool ghostty_surface_needs_confirm_quit(void *surface) {
     (void)surface;
     return cmux_test_needs_confirm_quit;

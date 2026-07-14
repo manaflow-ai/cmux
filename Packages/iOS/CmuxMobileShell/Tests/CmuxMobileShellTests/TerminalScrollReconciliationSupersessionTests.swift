@@ -109,10 +109,11 @@ private final class ScrollReconciliationSupersessionHarness {
             },
             interactionDeadline: { [deadline] _ in await deadline.wait() },
             prepareIntent: {},
-            deliverAuthoritative: { [weak self] frame, interactionEpoch, clientRevision, followingRuns in
+            deliverAuthoritative: { [weak self] renderGrid, interactionEpoch, clientRevision, followingRuns in
                 guard let self else { return false }
                 _ = queue.enqueue(TerminalOutputDelivery(
-                    renderGrid: frame,
+                    renderGrid: renderGrid.frame,
+                    preparedBytes: renderGrid.bytes,
                     replaceable: true,
                     scrollReconciliation: TerminalScrollReconciliation(
                         interactionEpoch: interactionEpoch,
