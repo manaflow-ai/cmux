@@ -8,6 +8,13 @@ struct GitProcessRunner: Sendable {
     private static let nonLockingGitEnvironmentKey = "GIT_OPTIONAL_LOCKS"
     private static let nonLockingGitEnvironmentValue = "0"
     private static let fileSystemStatFormat = "%d|%i|%p|%z|%Fm|%Fc"
+    /// Deadline delivery must not share the utility pool with callers that are
+    /// synchronously draining subprocess pipes. Under concurrent repository
+    /// scans, that pool can be occupied until after the process deadline.
+    private static let watchdogTimerQueue = DispatchQueue(
+        label: "com.cmuxterm.CmuxGit.process-deadline",
+        qos: .userInitiated
+    )
     /// Leaves ample headroom below macOS `ARG_MAX` for the environment and
     /// process-group wrapper arguments.
     private static let fileSystemArgumentBytesPerBatch = 64 * 1024
@@ -246,7 +253,7 @@ struct GitProcessRunner: Sendable {
                 processGroupIdentifier: processGroupIdentifier,
                 outputHandle: pipe.fileHandleForReading
             )
-            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+            let timer = DispatchSource.makeTimerSource(queue: Self.watchdogTimerQueue)
             timer.schedule(deadline: .now() + effectiveDeadlineSeconds(deadlineSeconds))
             timer.setEventHandler { watchdog.fire() }
             timer.activate()

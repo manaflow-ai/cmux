@@ -8,7 +8,10 @@ import Foundation
 /// barriered compare-and-swap operations supported by the macOS 14 target.
 final class GitProcessWatchdog: @unchecked Sendable {
     private static let sigkillGraceSeconds = 0.2
-    private static let timerQueue = DispatchQueue(label: "com.cmuxterm.CmuxGit.process-watchdog")
+    private static let timerQueue = DispatchQueue(
+        label: "com.cmuxterm.CmuxGit.process-watchdog",
+        qos: .userInitiated
+    )
 
     private let lifecycle: UnsafeMutablePointer<Int32>
     private let process: Process
