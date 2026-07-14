@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "name": "issue-fleet",
+  "version": "1.0.0",
+  "description": "Run a fleet of coding agents over a task list, one git worktree per task",
+  "author": "cmux",
+  "minCmuxVersion": "0.1",
+  "parameters": [
+    {
+      "key": "repo_root",
+      "prompt": "Absolute path of the repository the fleet works on",
+      "type": "path"
+    },
+    {
+      "key": "concurrency",
+      "prompt": "Maximum simultaneous task workspaces per run",
+      "type": "int",
+      "default": 3
+    },
+    {
+      "key": "base_instructions",
+      "prompt": "One extra instruction line included in every prompt",
+      "type": "string",
+      "default": "Follow the repository's contribution guidelines."
+    }
+  ],
+  "substrate": {
+    "kind": "worktree",
+    "branchPrefix": "issue-fleet"
+  },
+  "agents": [
+    {
+      "id": "claude",
+      "registryAgent": "claude",
+      "command": "claude --permission-mode acceptEdits {{prompt}}"
+    },
+    {
+      "id": "codex",
+      "registryAgent": "codex",
+      "command": "codex exec --full-auto {{prompt}}"
+    }
+  ],
+  "defaultAgent": "claude",
+  "steps": [
+    {
+      "id": "implement",
+      "agent": "claude",
+      "prompt": "prompts/task.md",
+      "success": { "kind": "hook-event", "event": "Stop" },
+      "onFailure": { "kind": "retry", "attempts": 1 }
+    },
+    {
+      "id": "review",
+      "agent": "claude",
+      "prompt": "prompts/review.md",
+      "success": { "kind": "pr-exists" },
+      "onFailure": { "kind": "needs-input" }
+    }
+  ],
+  "workflow": "WORKFLOW.md",
+  "instructions": ["instructions/AGENTS.md"]
+}
