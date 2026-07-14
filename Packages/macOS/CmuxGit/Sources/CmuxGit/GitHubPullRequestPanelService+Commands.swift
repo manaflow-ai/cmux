@@ -47,6 +47,12 @@ extension GitHubPullRequestPanelService {
 
     /// Opens GitHub's web-based pull-request creation flow.
     public func createPullRequest(context: PullRequestPanelContext) async throws {
+        guard let currentContext = try? await resolvedContext(for: PullRequestWorkspaceInput(
+            directory: context.repositoryRoot,
+            branchHint: context.branch
+        )), currentContext == context else {
+            throw PullRequestPanelServiceError.createFailed
+        }
         let result = await commandRunner.run(
             directory: context.repositoryRoot,
             executable: "gh",

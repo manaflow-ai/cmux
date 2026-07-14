@@ -12,7 +12,7 @@ extension GitHubPullRequestPanelService {
             directory: context.repositoryRoot,
             executable: "gh",
             arguments: [
-                "pr", "view", context.branch, "--repo", context.repositorySlug, "--json",
+                "pr", "view", "--repo", context.repositorySlug, "--json",
                 "number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid",
             ],
             timeout: 10
@@ -27,8 +27,19 @@ extension GitHubPullRequestPanelService {
         let viewOutput = try requiredOutput(from: viewResult, failure: .refreshFailed)
         let pullRequest: GitHubPullRequest = try decode(viewOutput)
 
+        let cachedSnapshot: PullRequestPanelSnapshot?
+        if case .pullRequest(let snapshot)? = cacheByContext[context],
+           snapshot.pullRequest.number == pullRequest.number {
+            cachedSnapshot = snapshot
+        } else {
+            cachedSnapshot = nil
+        }
+        let shouldFetchComments = cachedSnapshot?.pullRequest.updatedAt != pullRequest.updatedAt
+
         async let checks = fetchChecks(number: pullRequest.number, context: context)
-        async let comments = fetchComments(number: pullRequest.number, context: context)
+        async let comments: PullRequestReviewCommentsPayload? = shouldFetchComments
+            ? fetchComments(number: pullRequest.number, context: context)
+            : nil
         async let settings = fetchMergeSettings(context: context)
         let (resolvedChecks, resolvedComments, resolvedSettings) = try await (checks, comments, settings)
         try Task.checkCancellation()
@@ -39,7 +50,9 @@ extension GitHubPullRequestPanelService {
             pullRequest: pullRequest,
             checks: resolvedChecks,
             checksStatus: checksStatus,
-            unresolvedReviewThreadCount: resolvedComments?.unresolvedThreadCount,
+            unresolvedReviewThreadCount: shouldFetchComments
+                ? resolvedComments?.unresolvedThreadCount
+                : cachedSnapshot?.unresolvedReviewThreadCount,
             mergeMethods: PullRequestMergeMethod.orderedAllowed(
                 settings: resolvedSettings,
                 defaultMethod: resolvedSettings.viewerDefaultMergeMethod
@@ -116,6 +129,7 @@ extension GitHubPullRequestPanelService {
                 "pr", "view", String(number),
                 "--repo", context.repositorySlug,
                 "--json", "comments",
+                "--jq", "{comments: [.comments[] | select(.threadId != null and .isResolved != null) | {threadId, isResolved}]}",
             ],
             timeout: 10
         )

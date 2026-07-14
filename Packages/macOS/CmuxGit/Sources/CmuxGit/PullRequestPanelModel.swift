@@ -47,6 +47,14 @@ public final class PullRequestPanelModel {
             scheduleMergeabilityRefreshIfNeeded()
         } else {
             generation &+= 1
+            switch phase {
+            case .loading:
+                phase = .idle
+            case .refreshing(let cached):
+                phase = .loaded(cached)
+            case .idle, .loaded, .failed:
+                break
+            }
             periodicRefreshTimer?.invalidate()
             periodicRefreshTimer = nil
             mergeabilityRefreshTimer?.invalidate()
