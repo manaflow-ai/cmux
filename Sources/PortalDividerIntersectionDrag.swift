@@ -235,36 +235,42 @@ final class PortalDividerDragController {
                 .leftMouseDragged,
                 .leftMouseUp,
             ]
-        ) { [weak self, weak session] event in
+        ) { [weak self] event in
             MainActor.assumeIsolated {
-                guard let self,
-                      let session,
-                      self.activeSession === session else {
-                    return event
-                }
-
-                if let eventWindow = event.window,
-                   let dragWindow = session.window,
-                   eventWindow !== dragWindow {
-                    return event
-                }
-
-                session.cursorKind.cursor.set()
-                switch event.type {
-                case .mouseMoved, .mouseEntered, .mouseExited, .cursorUpdate, .appKitDefined, .systemDefined:
-                    return nil
-                case .leftMouseUp:
-                    // The session that claimed mouse-down also owns mouse-up.
-                    // Consuming it prevents an underlying pane tap gesture from
-                    // changing focus after the resize has completed. `end`
-                    // also runs the host's cursor-rect cleanup, since returning
-                    // nil means its mouseUp override will not receive this event.
-                    self.end(atWindowPoint: event.locationInWindow)
-                    return nil
-                default:
-                    return event
-                }
+                guard let self else { return event }
+                return self.handleActiveSessionEvent(event)
             }
+        }
+    }
+
+    /// Routes every event belonging to the claimed mouse gesture. Drag
+    /// samples are applied here and consumed, so relayout cannot retarget
+    /// them into a Ghostty surface as terminal text selection.
+    func handleActiveSessionEvent(_ event: NSEvent) -> NSEvent? {
+        guard let session = activeSession else { return event }
+        if let eventWindow = event.window,
+           let dragWindow = session.window,
+           eventWindow !== dragWindow {
+            return event
+        }
+
+        session.cursorKind.cursor.set()
+        switch event.type {
+        case .mouseMoved, .mouseEntered, .mouseExited, .cursorUpdate, .appKitDefined, .systemDefined:
+            return nil
+        case .leftMouseDragged:
+            update(windowPoint: event.locationInWindow)
+            return nil
+        case .leftMouseUp:
+            // The session that claimed mouse-down also owns mouse-up.
+            // Consuming it prevents an underlying pane tap gesture from
+            // changing focus after the resize has completed. `end`
+            // also runs the host's cursor-rect cleanup, since returning
+            // nil means its mouseUp override will not receive this event.
+            end(atWindowPoint: event.locationInWindow)
+            return nil
+        default:
+            return event
         }
     }
 

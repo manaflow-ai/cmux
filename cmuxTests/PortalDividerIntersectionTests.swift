@@ -453,7 +453,7 @@ import Testing
         )
 
         let draggedPoint = NSPoint(x: 450, y: 280)
-        let draggedEvent = try! #require(NSEvent.mouseEvent(
+        guard let draggedEvent = NSEvent.mouseEvent(
             with: .leftMouseDragged,
             location: draggedPoint,
             modifierFlags: [],
@@ -463,7 +463,10 @@ import Testing
             eventNumber: 1,
             clickCount: 1,
             pressure: 1
-        ))
+        ) else {
+            Issue.record("Expected a synthetic drag event")
+            return
+        }
         #expect(
             controller.handleActiveSessionEvent(draggedEvent) == nil,
             "The resize session must consume drag samples so Ghostty cannot interpret them as text selection."
