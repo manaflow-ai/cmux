@@ -37,6 +37,57 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(authority.restoreAuthority == false)
     }
 
+    @Test func agentLauncherAboveCmuxHostCannotDemoteRootSession() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-host-boundary-\(UUID().uuidString)", isDirectory: true)
+        let fakeAgent = root.appendingPathComponent("codex")
+        let fakeCmux = root.appendingPathComponent("cmux.app/Contents/MacOS/cmux")
+        let pidFile = root.appendingPathComponent("pids")
+        try FileManager.default.createDirectory(
+            at: fakeCmux.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(atPath: "/bin/sh", toPath: fakeAgent.path)
+        try FileManager.default.copyItem(atPath: "/bin/sh", toPath: fakeCmux.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let launcher = Process()
+        launcher.executableURL = fakeAgent
+        launcher.arguments = [
+            "-c",
+            "\(fakeCmux.path) -c 'sleep 30 & echo $$ $! > \(pidFile.path); wait'",
+        ]
+        try launcher.run()
+        defer { if launcher.isRunning { launcher.terminate() } }
+
+        let deadline = Date().addingTimeInterval(2)
+        var processIDs: [Int] = []
+        repeat {
+            if let contents = try? String(contentsOf: pidFile, encoding: .utf8) {
+                processIDs = contents.split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
+            }
+            if processIDs.count == 2 { break }
+            usleep(10_000)
+        } while Date() < deadline
+        let cmuxPID = try #require(processIDs.first)
+        let rootAgentPID = try #require(processIDs.last)
+        defer {
+            kill(pid_t(rootAgentPID), SIGTERM)
+            kill(pid_t(cmuxPID), SIGTERM)
+        }
+
+        let lineage = AgentHookSessionLineageResolver().resolve(
+            agentName: "codex",
+            sessionId: "root-session",
+            pid: rootAgentPID,
+            environment: [:]
+        )
+
+        #expect(lineage.restoreAuthority)
+        #expect(lineage.relationship == nil)
+        #expect(lineage.parentRunId == nil)
+    }
+
     @Test func lateHookFromCompletedProcessCannotReactivateSession() throws {
         let pid = Int(getpid())
         let lineage = AgentHookSessionLineageResolver().resolve(
