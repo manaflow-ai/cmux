@@ -100,6 +100,25 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
+    @Test func boundaryGeometryRebasesRestoreWhenReplayGrows() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(scrollbar(total: 410, offset: 366, len: 44))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(
+            boundary,
+            authoritativeGeometry: surfaceView.authoritativeGeometry
+        ))
+
+        #expect(surfaceView.performedRows == [266])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
     @Test func authoritativeGeometryRebasesNumericallyReachableTruncatedAnchor() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)

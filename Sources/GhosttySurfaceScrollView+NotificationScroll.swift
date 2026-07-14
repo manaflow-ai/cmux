@@ -180,7 +180,7 @@ extension GhosttySurfaceScrollView {
                 len: geometry.scrollbar.len
             )
         let shouldRebase = position.totalRows.map {
-            Int(clamping: anchorScrollbar.total) < $0
+            Int(clamping: anchorScrollbar.total) != $0
         } == true
         guard let targetTopRow = targetTopRow(
             for: position,
