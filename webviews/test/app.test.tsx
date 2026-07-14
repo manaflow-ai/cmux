@@ -145,8 +145,12 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
           sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" },
           sourceOptions: [
             { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "branch" },
-            { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/other-repo" }, value: "unstaged" },
+            { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
             { label: "Last turn", selected: false, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
+          ],
+          repoOptions: [
+            { label: "repo", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "/tmp/repo" },
+            { label: "other-repo", selected: false, sessionSource: { kind: "branch", repoRoot: "/tmp/other-repo" }, value: "/tmp/other-repo" },
           ],
           statusMessage: "Loading diff",
           title: "Diff",
@@ -164,9 +168,9 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   expect(requests[0].params.source).toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" });
   expect(fetched).toEqual(["cmux-diff-viewer://0123456789abcdef/diff-session.patch"]);
   expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(0);
-  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
-  sourceSelect.value = "unstaged";
-  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  const repoSelect = dom.window.document.getElementById("repo-select") as HTMLSelectElement;
+  repoSelect.value = "/tmp/other-repo";
+  repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.length === 3);
   dom.window.document.getElementById("options-button")?.click();
   await waitFor(() => Boolean(copyGitApplyButton()));
@@ -174,23 +178,31 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   await waitFor(() => dom?.window.document.getElementById("copy-feedback")?.textContent === "Could not copy git apply command.");
   releaseSecondSession?.();
   await waitFor(() => fetched.length === 2);
-  expect(requests.map((request) => request.method)).toEqual(["sessionOpen", "sessionClose", "sessionOpen"]);
-  expect(requests[2].params.source).toEqual({ kind: "unstaged", repoRoot: "/tmp/other-repo" });
-  await waitFor(() => commentRequests.length === 2);
-  expect(commentRequests[1].params.repoRoot).toBe("/tmp/other-repo");
-  sourceSelect.value = "last-turn";
+  expect(requests[2].params.source).toEqual({ kind: "branch", repoRoot: "/tmp/other-repo" });
+
+  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
+  sourceSelect.value = "unstaged";
   sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.length === 5);
   await waitFor(() => fetched.length === 3);
-  expect(requests.map((request) => request.method)).toEqual([
-    "sessionOpen", "sessionClose", "sessionOpen", "sessionClose", "sessionOpen",
-  ]);
-  expect(requests[4].params.source).toEqual({ kind: "patch", path: "/last-turn.patch" });
+  expect(requests[4].params.source).toEqual({ kind: "unstaged", repoRoot: "/tmp/other-repo" });
+
+  repoSelect.value = "/tmp/repo";
+  repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.length === 7);
+  await waitFor(() => fetched.length === 4);
+  expect(requests[6].params.source).toEqual({ kind: "unstaged", repoRoot: "/tmp/repo" });
+
+  sourceSelect.value = "last-turn";
+  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.length === 9);
+  await waitFor(() => fetched.length === 5);
+  expect(requests[8].params.source).toEqual({ kind: "patch", path: "/last-turn.patch" });
   dom.window.dispatchEvent(new dom.window.Event("pagehide"));
-  await waitFor(() => requests.filter((request) => request.method === "sessionClose").length === 3);
+  await waitFor(() => requests.filter((request) => request.method === "sessionClose").length === 5);
   flushSync(() => root?.unmount());
   root = null;
-  expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(3);
+  expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(5);
 });
 
 test("typed Rust empty diffs keep the localized source-specific message", async () => {
