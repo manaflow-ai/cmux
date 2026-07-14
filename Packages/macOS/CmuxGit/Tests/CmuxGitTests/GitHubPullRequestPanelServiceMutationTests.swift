@@ -4,10 +4,16 @@ import Testing
 
 @Suite struct GitHubPullRequestPanelServiceMutationTests {
     @Test func mergePinsRepositoryAndDisplayedHeadCommit() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("feature")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/example/repo.git
+        """)
         let runner = RecordingPullRequestCommandRunner()
         let service = GitHubPullRequestPanelService(commandRunner: runner)
         let context = PullRequestPanelContext(
-            repositoryRoot: "/repo",
+            repositoryRoot: fixture.root.path,
             branch: "feature",
             repositorySlug: "example/repo"
         )
@@ -44,10 +50,16 @@ import Testing
     }
 
     @Test func disableAutoMergePinsRepositoryAndDisplayedHeadCommit() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("feature")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/example/repo.git
+        """)
         let runner = RecordingPullRequestCommandRunner()
         let service = GitHubPullRequestPanelService(commandRunner: runner)
         let context = PullRequestPanelContext(
-            repositoryRoot: "/repo",
+            repositoryRoot: fixture.root.path,
             branch: "feature",
             repositorySlug: "example/repo"
         )
@@ -62,6 +74,64 @@ import Testing
             "pr", "merge", "42", "--disable-auto",
             "--repo", "example/repo", "--match-head-commit", "abc123",
         ])
+    }
+
+    @Test func mergeFailsClosedWhenDisplayedContextCannotBeRevalidated() async {
+        let runner = RecordingPullRequestCommandRunner()
+        let service = GitHubPullRequestPanelService(commandRunner: runner)
+        let context = PullRequestPanelContext(
+            repositoryRoot: "/path/that/does/not/exist",
+            branch: "feature",
+            repositorySlug: "example/repo"
+        )
+
+        do {
+            try await service.merge(
+                number: 42,
+                context: context,
+                headRefOid: "abc123",
+                method: .squash,
+                whenReady: false
+            )
+            Issue.record("Expected merge to fail closed")
+        } catch let error as PullRequestPanelServiceError {
+            #expect(error == .mergeFailed)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(await runner.invocationArguments.isEmpty)
+    }
+
+    @Test func disableAutoMergeFailsClosedWhenDisplayedBranchIsStale() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("new-branch")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/example/repo.git
+        """)
+        let runner = RecordingPullRequestCommandRunner()
+        let service = GitHubPullRequestPanelService(commandRunner: runner)
+        let context = PullRequestPanelContext(
+            repositoryRoot: fixture.root.path,
+            branch: "old-branch",
+            repositorySlug: "example/repo"
+        )
+
+        do {
+            try await service.disableAutoMerge(
+                number: 42,
+                context: context,
+                headRefOid: "abc123"
+            )
+            Issue.record("Expected disabling auto-merge to fail closed")
+        } catch let error as PullRequestPanelServiceError {
+            #expect(error == .mergeFailed)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(await runner.invocationArguments.isEmpty)
     }
 
     @Test func createPullRequestFailsClosedWhenDisplayedContextCannotBeRevalidated() async {

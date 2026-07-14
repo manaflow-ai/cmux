@@ -224,4 +224,42 @@ import Testing
         #expect(model.actionPhase == .idle)
         model.setVisible(false)
     }
+
+    @Test @MainActor func hidingDuringMutationAllowsAReplacementAfterReopening() async {
+        let input = PullRequestWorkspaceInput(directory: "/repo", branchHint: "feature")
+        let context = PullRequestPanelContext(
+            repositoryRoot: "/repo",
+            branch: "feature",
+            repositorySlug: "example/repo"
+        )
+        let content = PullRequestPanelContent.noPullRequest(context)
+        let service = StubPullRequestPanelService(
+            cached: nil,
+            refreshResult: .success(content),
+            suspendsCreatePullRequest: true
+        )
+        let model = PullRequestPanelModel(service: service)
+        model.setVisible(true)
+        await model.activate(input)
+
+        let hiddenMutation = Task { await model.createPullRequest(for: input) }
+        await service.waitForCreatePullRequestCallCount(1)
+        model.setVisible(false)
+
+        #expect(model.actionPhase == .idle)
+
+        model.setVisible(true)
+        await model.activate(input)
+        let replacementMutation = Task { await model.createPullRequest(for: input) }
+        await service.waitForCreatePullRequestCallCount(2)
+        await service.resumeNextCreatePullRequest()
+        await hiddenMutation.value
+
+        #expect(model.actionPhase == .creatingPullRequest)
+
+        await service.resumeNextCreatePullRequest()
+        await replacementMutation.value
+        #expect(model.actionPhase == .idle)
+        model.setVisible(false)
+    }
 }
