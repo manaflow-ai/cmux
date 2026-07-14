@@ -52,6 +52,14 @@ extension RemoteTmuxWindowMirror {
             // the live fuzz measured the resulting plans running ~30-40pt
             // wide at rest. Drop it and keep the last good reading; only a
             // first-ever reading clamps, so the initial claim still exists.
+            // The verdict is re-checked once, though: during an AppKit
+            // window resize this callback can carry the CORRECT post-resize
+            // slot size while the window still reports its transient old
+            // frame — the reading is truth and the bound is noise, and no
+            // further callback comes once the region has its final size.
+            // Truth delivered during a torn window state must not be
+            // discarded on the noise's verdict, so the dropped reading is
+            // parked and re-judged once against the next settled bound.
             let oversized = pointSize.width > bound.width + 0.5
                 || pointSize.height > bound.height + 0.5
             #if DEBUG
@@ -65,6 +73,8 @@ extension RemoteTmuxWindowMirror {
                     "mirror.container.note @\(windowId) proposed=\(Int(pointSize.width))x\(Int(pointSize.height)) bound=\(Int(bound.width))x\(Int(bound.height)) -> drop"
                 )
                 #endif
+                pendingOversizedReading = (size: pointSize, scale: scale)
+                setNeedsSizingPass()
                 return
             }
             pointSize.width = min(pointSize.width, bound.width)
@@ -87,6 +97,9 @@ extension RemoteTmuxWindowMirror {
         }
         pendingContainerSizePt = nil
         pendingContainerScale = nil
+        // A reading banked here is newer than anything parked above; the
+        // parked reading must not resurface at the next pass and overwrite it.
+        pendingOversizedReading = nil
         #if DEBUG
         if pointSize.width > 3000 || pointSize.height > 3000 {
             let window = visibleHostingContext()?.window
@@ -209,6 +222,22 @@ extension RemoteTmuxWindowMirror {
         let intent = pendingSizingPassIntent
         let hostingContext = visibleHostingContext()
         let visibleHostingBound = hostingContext?.contentSize
+        // A reading the oversized guard rejected gets exactly one
+        // re-judgment, against this pass's bound: a mid-resize callback can
+        // carry the true post-resize slot while the window's transient frame
+        // undersells it, and no later callback re-delivers that truth. If
+        // the reading fits the settled bound it was truth all along — bank
+        // it verbatim. If it still exceeds the bound it is a content ideal
+        // and stays discarded; it is never clamped (see noteContainerSize).
+        if let parked = pendingOversizedReading {
+            pendingOversizedReading = nil
+            if let bound = visibleHostingBound,
+               parked.size.width <= bound.width + 0.5,
+               parked.size.height <= bound.height + 0.5 {
+                containerSizePt = parked.size
+                containerScale = parked.scale
+            }
+        }
         // Adopt a detached callback, or re-clamp a prior value, as soon as
         // any pane is visibly hosted. This pass is also the recovery path
         // when attachment itself does not emit another geometry callback.

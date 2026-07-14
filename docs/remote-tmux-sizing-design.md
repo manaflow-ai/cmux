@@ -99,8 +99,17 @@ size again and no further callback ever comes. Two things close that hole:
 
 - A reading deferred for lack of a window is held, not dropped, and stashing
   it schedules the pass that re-validates it once a window exists. A reading
-  a live window's bound rejects stays dropped — that one is content-derived
-  and carries no truth.
+  a live window's bound rejects is usually content-derived and carries no
+  truth about the slot — but the verdict can be wrong the other way: during
+  an AppKit window resize, the callback can deliver the correct post-resize
+  slot size while the window still reports its transient old frame. The
+  reading is truth, the bound is noise, and no further callback comes once
+  the region holds its final size. So a dropped reading is re-judged once
+  against the next settled bound: banked verbatim if it now fits, discarded
+  for good if it still exceeds it. Truth delivered during a torn window
+  state must not be discarded on the noise's verdict. It is never clamped —
+  clamping a genuinely oversized reading would bank the bound itself, the
+  poison the drop exists to prevent.
 - The pass resolves its window bound through the probe view planted in the
   mirror's own subtree, which survives the portal churn that can blank every
   pane view exactly when a bound is needed most. The full-chain regression

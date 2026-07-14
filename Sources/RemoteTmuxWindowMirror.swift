@@ -131,6 +131,15 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// It is not sizing truth until a hosting window bounds it.
     @ObservationIgnored var pendingContainerSizePt: CGSize?
     @ObservationIgnored var pendingContainerScale: CGFloat?
+    /// The latest reading the hosting window's bound rejected as oversized.
+    /// The verdict itself can be wrong: during an AppKit resize the reading
+    /// may be post-resize truth while the bound is the transient old frame.
+    /// The next sizing pass re-judges it once against that pass's bound —
+    /// banked if it fits, discarded for good if it still exceeds it. Never
+    /// merged with `pendingContainerSizePt`: pending consumption clamps to
+    /// the bound, and clamping a genuinely oversized reading would bank the
+    /// bound itself, the exact poison the drop path exists to prevent.
+    @ObservationIgnored var pendingOversizedReading: (size: CGSize, scale: CGFloat)?
     /// An NSView planted inside the mirror's own view subtree (not the portal
     /// layer), so `hostProbeView?.window` is the hosting window even while
     /// portal-hosted panels churn, and its superview chain is the real
@@ -459,6 +468,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         pendingSizingPassIntent = .inputChange
         pendingContainerSizePt = nil
         pendingContainerScale = nil
+        pendingOversizedReading = nil
         let activeConnection = connection
         activeConnection?.removeWindowSizeClaim(windowId: windowId)
         workspaceBonsplitController = nil
