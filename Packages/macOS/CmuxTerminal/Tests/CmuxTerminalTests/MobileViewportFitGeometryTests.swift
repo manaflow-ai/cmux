@@ -85,6 +85,24 @@ struct MobileViewportFitGeometryTests {
         #expect(state.baseWasUserAdjusted == true)
     }
 
+    @Test func explicitAdjustedOwnershipWinsWhenFontEqualsConfiguration() {
+        var state = MobileViewportFontFitState()
+        let liveFont = MobileViewportLiveFont(
+            pointSize: 12.03,
+            isAdjusted: true
+        )
+
+        state.begin(liveFont: liveFont, configuredFontPointSize: 12)
+        state.recordFittedFontPointSize(8)
+
+        #expect(state.baseFontPointSize == liveFont.pointSize)
+        #expect(state.baseWasUserAdjusted == true)
+        #expect(
+            state.restorePlan(configuredFontPointSize: 12) ==
+                .resetThenSet(liveFont.pointSize)
+        )
+    }
+
     @Test func unavailableLiveFontProbeRearmsUntilTheOwnerCanAnswer() {
         var state = MobileViewportFontFitState()
         var probeCount = 0
@@ -416,15 +434,23 @@ struct MobileViewportFitGeometryTests {
 
     @Test func staleReloadCompletionCannotConsumeNewerLease() throws {
         var state = MobileViewportFontFitReloadLeaseState()
-        let first = state.prepare(
+        let firstLimit = MobileViewportCellLimit(
+            generation: 1,
             columns: 80,
-            rows: 24,
+            rows: 24
+        )
+        let first = state.prepare(
+            viewportLimit: firstLimit,
             surrendered: true,
             userAdjustedBaseFontPointSize: nil
         )
-        let second = state.prepare(
+        let secondLimit = MobileViewportCellLimit(
+            generation: 2,
             columns: 100,
-            rows: 30,
+            rows: 30
+        )
+        let second = state.prepare(
+            viewportLimit: secondLimit,
             surrendered: false,
             userAdjustedBaseFontPointSize: 14
         )
@@ -434,10 +460,32 @@ struct MobileViewportFitGeometryTests {
 
         let completedLease = state.consume(generation: second.generation)
         let consumed = try #require(completedLease)
-        #expect(consumed.columns == 100)
-        #expect(consumed.rows == 30)
+        #expect(consumed.viewportGeneration == secondLimit.generation)
+        #expect(consumed.refitLimit(current: secondLimit) == secondLimit)
         #expect(consumed.userAdjustedBaseFontPointSize == 14)
         #expect(state.pendingGeneration == nil)
+    }
+
+    @Test func reloadLeaseRefitsNewerAuthoritativeViewport() {
+        var state = MobileViewportFontFitReloadLeaseState()
+        let original = MobileViewportCellLimit(
+            generation: 1,
+            columns: 80,
+            rows: 24
+        )
+        let lease = state.prepare(
+            viewportLimit: original,
+            surrendered: true,
+            userAdjustedBaseFontPointSize: nil
+        )
+        let rotated = MobileViewportCellLimit(
+            generation: 2,
+            columns: 42,
+            rows: 82
+        )
+
+        #expect(lease.refitLimit(current: rotated) == rotated)
+        #expect(lease.refitLimit(current: nil) == nil)
     }
 
     private func geometry(
