@@ -68,8 +68,7 @@ struct UnifiedFileExplorerSearchScopeTests {
         let previousMode = UserDefaults.standard.object(forKey: "rightSidebar.mode")
         defer { Self.restore(previousMode, forKey: "rightSidebar.mode") }
 
-        let state = FileExplorerState()
-        state.mode = .files
+        let state = FileExplorerState.unifiedTestState(mode: .files)
         let store = FileExplorerStore()
         store.rootPath = "/repo"
         let sources = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
@@ -165,8 +164,7 @@ struct UnifiedFileExplorerSearchScopeTests {
         let previousMode = UserDefaults.standard.object(forKey: "rightSidebar.mode")
         defer { Self.restore(previousMode, forKey: "rightSidebar.mode") }
 
-        let state = FileExplorerState()
-        state.mode = .files
+        let state = FileExplorerState.unifiedTestState(mode: .files)
         let store = FileExplorerStore()
         store.rootPath = "/repo"
         let root = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
@@ -210,8 +208,7 @@ struct UnifiedFileExplorerSearchScopeTests {
 
     @Test("Empty Escape in the dedicated Find presentation preserves content search")
     func emptyEscapePreservesDedicatedFindPresentation() throws {
-        let state = FileExplorerState()
-        state.mode = .find
+        let state = FileExplorerState.unifiedTestState(mode: .find)
         let store = FileExplorerStore()
         store.rootPath = "/repo"
         store.rootNodes = [
@@ -262,8 +259,7 @@ struct UnifiedFileExplorerSearchScopeTests {
 
     @Test("Filtered disclosure moves into an auto-expanded directory")
     func filteredDisclosureMovesToFirstVisibleChild() throws {
-        let state = FileExplorerState()
-        state.mode = .files
+        let state = FileExplorerState.unifiedTestState(mode: .files)
         let store = FileExplorerStore()
         store.rootPath = "/repo"
         let root = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
@@ -306,8 +302,7 @@ struct UnifiedFileExplorerSearchScopeTests {
 
     @Test("Hidden name filtering defers store refreshes until Files returns")
     func hiddenNameFilterDefersStoreRefresh() throws {
-        let state = FileExplorerState()
-        state.mode = .files
+        let state = FileExplorerState.unifiedTestState(mode: .files)
         let store = FileExplorerStore()
         store.rootPath = "/repo"
         let root = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
@@ -373,8 +368,7 @@ struct UnifiedFileExplorerSearchScopeTests {
 
     @Test("Return flushes a pending name filter before opening")
     func returnFlushesPendingNameFilter() throws {
-        let state = FileExplorerState()
-        state.mode = .files
+        let state = FileExplorerState.unifiedTestState(mode: .files)
         let store = FileExplorerStore()
         store.rootPath = "/repo"
         let match = FileExplorerNode(name: "Needle.swift", path: "/repo/Needle.swift", isDirectory: false)
@@ -460,4 +454,15 @@ private final class UnifiedSearchControllerSpy: FileSearchControlling {
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {}
     func cancel(clear: Bool) {}
     func publish(_ snapshot: FileSearchSnapshot) { onSnapshotChanged?(snapshot) }
+}
+
+extension FileExplorerState {
+    static func unifiedTestState(mode: RightSidebarMode) -> FileExplorerState {
+        let suiteName = "UnifiedFileExplorerTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let state = FileExplorerState(defaults: defaults)
+        state.mode = mode
+        return state
+    }
 }

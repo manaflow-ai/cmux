@@ -157,8 +157,7 @@ struct UnifiedFileExplorerTests {
 
     @Test("Unified pane preserves the original Files and Finder chrome")
     func unifiedPanePreservesOriginalChrome() throws {
-        let state = FileExplorerState()
-        state.mode = .files
+        let state = FileExplorerState.unifiedTestState(mode: .files)
         let store = FileExplorerStore()
         store.rootPath = "/tmp/unified-file-explorer-tests"
         let coordinator = FileExplorerPanelView.Coordinator(
@@ -206,8 +205,7 @@ struct UnifiedFileExplorerTests {
         let previousMode = defaults.object(forKey: "rightSidebar.mode")
         defer { Self.restore(previousMode, forKey: "rightSidebar.mode") }
 
-        let state = FileExplorerState()
-        state.mode = .files
+        let state = FileExplorerState.unifiedTestState(mode: .files)
         let coordinator = FileExplorerPanelView.Coordinator(
             store: FileExplorerStore(),
             state: state,
@@ -251,8 +249,7 @@ struct UnifiedFileExplorerTests {
             Self.restore(previousVisibility, forKey: "fileExplorer.isVisible")
         }
 
-        let state = FileExplorerState()
-        state.mode = .files
+        let state = FileExplorerState.unifiedTestState(mode: .files)
         let store = FileExplorerStore()
         store.rootPath = "/tmp/unified-file-explorer-tests"
         let directory = FileExplorerNode(
