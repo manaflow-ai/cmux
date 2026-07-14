@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+public import Observation
 
 /// The single main-actor owner of pull-request panel lifecycle, cached display state, and actions.
 @MainActor
