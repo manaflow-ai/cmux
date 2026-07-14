@@ -76,6 +76,34 @@ enum FileExplorerStyle: Int, CaseIterable {
         }
     }
 
+    var nameTextColor: NSColor {
+        Self.labelColor(alpha: 1.0)
+    }
+
+    var pathTextColor: NSColor {
+        Self.labelColor(alpha: 0.82)
+    }
+
+    var secondaryTextColor: NSColor {
+        Self.labelColor(alpha: 0.70)
+    }
+
+    var mutedTextColor: NSColor {
+        Self.labelColor(alpha: 0.58)
+    }
+
+    private static func labelColor(alpha: CGFloat) -> NSColor {
+        NSColor(name: nil) { appearance in
+            // NSColor has no resolvedColor(with:) (that is UIKit); resolve labelColor
+            // against the provided appearance by making it the current drawing appearance.
+            var resolved = NSColor.labelColor
+            appearance.performAsCurrentDrawingAppearance {
+                resolved = NSColor.labelColor.usingColorSpace(.sRGB) ?? resolved
+            }
+            return resolved.withAlphaComponent(alpha)
+        }
+    }
+
     var iconToTextSpacing: CGFloat {
         switch self {
         case .liquidGlass: return 8
@@ -132,10 +160,10 @@ enum FileExplorerStyle: Int, CaseIterable {
 
     var fileIconTint: NSColor {
         switch self {
-        case .liquidGlass: return .secondaryLabelColor
-        case .highDensity: return .secondaryLabelColor
-        case .terminalStealth: return .tertiaryLabelColor
-        case .proStudio: return .secondaryLabelColor
+        case .liquidGlass: return secondaryTextColor
+        case .highDensity: return secondaryTextColor
+        case .terminalStealth: return mutedTextColor
+        case .proStudio: return secondaryTextColor
         case .finder: return NSColor(white: 0.55, alpha: 1.0)
         }
     }
@@ -143,8 +171,8 @@ enum FileExplorerStyle: Int, CaseIterable {
     var folderIconTint: NSColor {
         switch self {
         case .liquidGlass: return .systemBlue
-        case .highDensity: return .secondaryLabelColor
-        case .terminalStealth: return .tertiaryLabelColor
+        case .highDensity: return secondaryTextColor
+        case .terminalStealth: return mutedTextColor
         case .proStudio: return .systemBlue
         case .finder: return .systemBlue
         }
@@ -158,7 +186,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return .systemTeal
             case .deleted: return .systemRed
             case .renamed: return .systemPurple
-            case .untracked: return .quaternaryLabelColor
+            case .untracked: return mutedTextColor
             }
         case .highDensity:
             switch status {
@@ -166,7 +194,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return .systemGreen
             case .deleted: return .systemRed
             case .renamed: return .systemBlue
-            case .untracked: return .tertiaryLabelColor
+            case .untracked: return mutedTextColor
             }
         case .terminalStealth:
             switch status {
@@ -174,7 +202,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return NSColor(red: 0.5, green: 0.8, blue: 0.5, alpha: 1.0)
             case .deleted: return NSColor(red: 0.8, green: 0.4, blue: 0.4, alpha: 1.0)
             case .renamed: return NSColor(red: 0.5, green: 0.7, blue: 0.9, alpha: 1.0)
-            case .untracked: return NSColor(white: 0.5, alpha: 1.0)
+            case .untracked: return mutedTextColor
             }
         case .proStudio:
             switch status {
@@ -190,7 +218,7 @@ enum FileExplorerStyle: Int, CaseIterable {
             case .added: return .systemGreen
             case .deleted: return .systemRed
             case .renamed: return .systemBlue
-            case .untracked: return .tertiaryLabelColor
+            case .untracked: return mutedTextColor
             }
         }
     }

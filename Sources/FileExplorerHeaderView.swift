@@ -24,10 +24,10 @@ final class FileExplorerHeaderView: NSView {
 
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
         applyFonts()
-        pathLabel.textColor = .secondaryLabelColor
         pathLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.maximumNumberOfLines = 1
         pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        applyColors()
 
         addSubview(iconView)
         addSubview(pathLabel)
@@ -53,6 +53,12 @@ final class FileExplorerHeaderView: NSView {
     func applyFonts() {
         pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
         heightConstraint?.constant = RightSidebarChromeMetrics.secondaryBarHeight
+    }
+
+    func applyColors() {
+        let style = FileExplorerStyle.current
+        iconView.contentTintColor = style.secondaryTextColor
+        pathLabel.textColor = style.pathTextColor
     }
 
     func update(displayPath: String) {
