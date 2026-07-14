@@ -293,13 +293,14 @@ final class PortalSplitDividerRegion {
     /// flickers between it and the four-way cursor. All rects are in window
     /// coordinates; hosts convert, clip, and register them.
     static func cursorRectPlan(
-        for regions: [PortalSplitDividerRegion]
+        for regions: [PortalSplitDividerRegion],
+        excluding excludedRects: [NSRect] = []
     ) -> (bands: [(rect: NSRect, isVertical: Bool)], corners: [NSRect]) {
         // Cached keepAllAlive content remains structurally live while parked
         // at opacity zero. Match dividerHits' interaction filter so invisible
         // splits cannot register cursors or cut holes in visible bands.
         let interactableRegions = regions.filter(\.isInteractable)
-        var corners: [NSRect] = []
+        var cornerZones: [NSRect] = []
         let verticals = interactableRegions.filter { $0.isVertical && !$0.isInHostedContent }
         let horizontals = interactableRegions.filter { !$0.isVertical && !$0.isInHostedContent }
         for vertical in verticals {
@@ -307,7 +308,7 @@ final class PortalSplitDividerRegion {
                 let corner = vertical.intersectionHitRectInWindow
                     .intersection(horizontal.intersectionHitRectInWindow)
                 if !corner.isNull, corner.width > 0, corner.height > 0 {
-                    corners.append(corner)
+                    cornerZones.append(corner)
                 }
             }
         }
@@ -315,11 +316,63 @@ final class PortalSplitDividerRegion {
         for region in interactableRegions {
             let band = region.hitRectInWindow
             guard !band.isNull, band.width > 0, band.height > 0 else { continue }
-            for segment in subtractingAlongAxis(corners, from: band, isVertical: region.isVertical) {
-                bands.append((segment, region.isVertical))
+            for segment in subtractingAlongAxis(cornerZones, from: band, isVertical: region.isVertical) {
+                for visibleSegment in subtracting(excludedRects, from: segment) {
+                    bands.append((visibleSegment, region.isVertical))
+                }
             }
         }
+        let corners = cornerZones.flatMap { subtracting(excludedRects, from: $0) }
         return (bands, corners)
+    }
+
+    /// Subtract arbitrary control rectangles while retaining every remaining
+    /// part of the cursor target. Unlike corner subtraction, these holes may
+    /// cover only one side of a divider band.
+    private static func subtracting(_ holes: [NSRect], from rect: NSRect) -> [NSRect] {
+        holes.reduce([rect]) { pieces, hole in
+            pieces.flatMap { piece in
+                let overlap = piece.intersection(hole)
+                guard !overlap.isNull, overlap.width > 0, overlap.height > 0 else {
+                    return [piece]
+                }
+
+                var remainder: [NSRect] = []
+                if overlap.minY > piece.minY {
+                    remainder.append(NSRect(
+                        x: piece.minX,
+                        y: piece.minY,
+                        width: piece.width,
+                        height: overlap.minY - piece.minY
+                    ))
+                }
+                if overlap.maxY < piece.maxY {
+                    remainder.append(NSRect(
+                        x: piece.minX,
+                        y: overlap.maxY,
+                        width: piece.width,
+                        height: piece.maxY - overlap.maxY
+                    ))
+                }
+                if overlap.minX > piece.minX {
+                    remainder.append(NSRect(
+                        x: piece.minX,
+                        y: overlap.minY,
+                        width: overlap.minX - piece.minX,
+                        height: overlap.height
+                    ))
+                }
+                if overlap.maxX < piece.maxX {
+                    remainder.append(NSRect(
+                        x: overlap.maxX,
+                        y: overlap.minY,
+                        width: piece.maxX - overlap.maxX,
+                        height: overlap.height
+                    ))
+                }
+                return remainder.filter { $0.width > 0.5 && $0.height > 0.5 }
+            }
+        }
     }
 
     /// Splits `band` along its long axis around each intersecting hole. The

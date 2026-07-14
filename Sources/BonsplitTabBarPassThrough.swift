@@ -4,6 +4,10 @@ import Bonsplit
 /// Shared helpers for portal hosts that must defer to the minimal-mode
 /// Bonsplit tab strip rendered underneath them.
 enum BonsplitTabBarPassThrough {
+    static var interactiveHitRegionsDidChangeNotification: Notification.Name {
+        BonsplitTabBarInteractiveHitRegionRegistry.didChangeNotification
+    }
+
     static func isPassThroughPointerEvent(_ eventType: NSEvent.EventType?) -> Bool {
         WindowInputRoutingContext.allowsTabBarPassThroughHitTesting(eventType: eventType)
     }
@@ -64,6 +68,19 @@ enum BonsplitTabBarPassThrough {
             eventType: eventType
         )
         return (windowPoint, decision.result, decision.registryHit)
+    }
+
+    static func isInteractiveControl(at point: NSPoint, in portalHost: NSView) -> Bool {
+        guard let window = portalHost.window else { return false }
+        return BonsplitTabBarInteractiveHitRegionRegistry.containsWindowPoint(
+            portalHost.convert(point, to: nil),
+            in: window
+        )
+    }
+
+    static func interactiveControlRects(in portalHost: NSView) -> [NSRect] {
+        guard let window = portalHost.window else { return [] }
+        return BonsplitTabBarInteractiveHitRegionRegistry.windowRects(in: window)
     }
 
     private static func usesRegisteredTabBarRegionsOnly(eventType: NSEvent.EventType?) -> Bool {

@@ -22,6 +22,7 @@ final class WindowTerminalHostView: NSView {
     private var cachedSplitDividerRootSubviewIds: [ObjectIdentifier]?
     private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
     private var splitDividerResizeObserver: NSObjectProtocol?
+    private var tabBarInteractiveHitRegionObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
@@ -33,6 +34,7 @@ final class WindowTerminalHostView: NSView {
 
     deinit {
         if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
+        if let tabBarInteractiveHitRegionObserver { NotificationCenter.default.removeObserver(tabBarInteractiveHitRegionObserver) }
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
@@ -82,7 +84,10 @@ final class WindowTerminalHostView: NSView {
             return
         }
         invalidateSplitDividerRegionCache()
-        let plan = PortalSplitDividerRegion.cursorRectPlan(for: splitDividerRegions())
+        let plan = PortalSplitDividerRegion.cursorRectPlan(
+            for: splitDividerRegions(),
+            excluding: BonsplitTabBarPassThrough.interactiveControlRects(in: self)
+        )
         for band in plan.bands {
             let clipped = convert(band.rect, from: nil).intersection(bounds)
             guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { continue }
@@ -187,6 +192,11 @@ final class WindowTerminalHostView: NSView {
             let resolveHostedTerminalHitView = hostedTerminalHitViewResolver(at: point)
 
             if shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return nil
+            }
+
+            if BonsplitTabBarPassThrough.isInteractiveControl(at: point, in: self) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
             }
@@ -379,6 +389,11 @@ final class WindowTerminalHostView: NSView {
             return
         }
 
+        if BonsplitTabBarPassThrough.isInteractiveControl(at: point, in: self) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
+
         // Pane dividers outrank pane tab bars, but never window titlebar space.
         let kind = splitDividerCursorKind(at: point)
         if let kind {
@@ -464,6 +479,10 @@ final class WindowTerminalHostView: NSView {
             NotificationCenter.default.removeObserver(splitDividerResizeObserver)
             self.splitDividerResizeObserver = nil
         }
+        if let tabBarInteractiveHitRegionObserver {
+            NotificationCenter.default.removeObserver(tabBarInteractiveHitRegionObserver)
+            self.tabBarInteractiveHitRegionObserver = nil
+        }
         guard let window else { return }
         splitDividerResizeObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main) { [weak self, weak window] notification in
             guard let self,
@@ -471,6 +490,14 @@ final class WindowTerminalHostView: NSView {
                   let splitView = notification.object as? NSSplitView,
                   splitView.window === window else { return }
             self.invalidateSplitDividerRegionCache()
+            self.window?.invalidateCursorRects(for: self)
+        }
+        tabBarInteractiveHitRegionObserver = NotificationCenter.default.addObserver(
+            forName: BonsplitTabBarPassThrough.interactiveHitRegionsDidChangeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
             self.window?.invalidateCursorRects(for: self)
         }
     }
