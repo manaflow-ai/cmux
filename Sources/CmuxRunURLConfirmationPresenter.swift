@@ -60,11 +60,7 @@ final class CmuxRunURLConfirmationPresenter {
             label: String(localized: "dialog.runURL.field.target", defaultValue: "Target"),
             value: plan.targetDescription
         ))
-        stack.addArrangedSubview(detailRow(
-            label: String(localized: "dialog.runURL.field.directory", defaultValue: "Directory"),
-            value: plan.workingDirectory,
-            monospaced: true
-        ))
+        stack.addArrangedSubview(directoryDetailRow(value: plan.workingDirectory))
 
         let commandLabel = NSTextField(labelWithString: String(
             localized: "dialog.runURL.field.command",
@@ -150,6 +146,14 @@ final class CmuxRunURLConfirmationPresenter {
         row.addArrangedSubview(valueField)
         row.widthAnchor.constraint(equalToConstant: 560).isActive = true
         return row
+    }
+
+    func directoryDetailRow(value: String) -> NSView {
+        detailRow(
+            label: String(localized: "dialog.runURL.field.directory", defaultValue: "Directory"),
+            value: value,
+            monospaced: true
+        )
     }
 
     private func showFailureMessage(_ message: String, presentingWindow: NSWindow?) {

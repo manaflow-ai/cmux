@@ -248,6 +248,32 @@ struct CmuxRunURLCoordinatorTests {
         #expect(manager.selectedTabId == targetWorkspace.id)
     }
 
+    @Test func longApprovalDirectoryIsFullyInspectableAndCopyable() throws {
+        let directory = "/private/var/folders/rr/vmfx6xh12dz2tlvgtmyvjmf80000gn/T/"
+            + String(repeating: "security-sensitive-segment/", count: 14)
+            + "approved-target"
+        let row = CmuxRunURLConfirmationPresenter().directoryDetailRow(value: directory)
+        let scrollView = try #require(firstSubview(of: NSScrollView.self, in: row))
+        let textView = try #require(scrollView.documentView as? NSTextView)
+
+        #expect(scrollView.hasHorizontalScroller)
+        #expect(textView.string == directory)
+        #expect(!textView.isEditable)
+        #expect(textView.isSelectable)
+        #expect(textView.isHorizontallyResizable)
+        #expect(textView.textContainer?.widthTracksTextView == false)
+    }
+
+    @Test func shortApprovalDirectoryRemainsFullyInspectableAndCopyable() throws {
+        let directory = "/tmp/project"
+        let row = CmuxRunURLConfirmationPresenter().directoryDetailRow(value: directory)
+        let scrollView = try #require(firstSubview(of: NSScrollView.self, in: row))
+        let textView = try #require(scrollView.documentView as? NSTextView)
+
+        #expect(textView.string == directory)
+        #expect(textView.isSelectable)
+    }
+
     private func workspaceRequest() throws -> CmuxRunURLRequest {
         CmuxRunURLRequest(
             originalURL: try #require(URL(string: "cmux://run")),
@@ -275,5 +301,17 @@ struct CmuxRunURLCoordinatorTests {
             anchor: anchor,
             direction: direction
         )
+    }
+
+    private func firstSubview<View: NSView>(of type: View.Type, in root: NSView) -> View? {
+        if let root = root as? View {
+            return root
+        }
+        for subview in root.subviews {
+            if let match = firstSubview(of: type, in: subview) {
+                return match
+            }
+        }
+        return nil
     }
 }
