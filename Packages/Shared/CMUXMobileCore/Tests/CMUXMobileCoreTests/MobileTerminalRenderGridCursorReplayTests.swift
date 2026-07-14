@@ -149,6 +149,29 @@ import Testing
     }
 }
 
+@Test func outsideViewportDeltaRestoresExactActiveRow() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-window",
+        stateSeq: 10,
+        columns: 12,
+        rows: 3,
+        cursor: .init(
+            row: 0,
+            column: 4,
+            visible: true,
+            location: .belowViewport,
+            activeRow: 2
+        ),
+        full: false,
+        clearedRows: [0],
+        rowSpans: [.init(row: 0, column: 0, text: "changed")]
+    )
+
+    let cursor = ReplayCursorProbe.finalCursor(after: frame.vtPatchBytes(), rows: frame.rows)
+
+    #expect(cursor.row == 2)
+}
+
 @Test func alternateCursorDecodesExactActiveRow() throws {
     let frame = try decodeCursorFrame(
         row: 1,

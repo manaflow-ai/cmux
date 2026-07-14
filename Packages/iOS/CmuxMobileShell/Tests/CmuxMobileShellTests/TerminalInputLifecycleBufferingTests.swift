@@ -348,7 +348,7 @@ private final class InputBufferingHarness {
             },
             interactionDeadline: { _ in },
             prepareIntent: {},
-            deliverAuthoritative: { _, _, _ in true },
+            deliverAuthoritative: { _, _, _, _ in true },
             completeGridlessAuthoritative: { _ in true },
             reconciliationDidComplete: {},
             requestReplay: { [weak self] epoch in self?.replayEpochs.append(epoch) },

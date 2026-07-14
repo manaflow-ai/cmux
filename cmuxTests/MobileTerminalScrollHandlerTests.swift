@@ -102,6 +102,42 @@ struct MobileTerminalScrollHandlerTests {
         #expect(TerminalController.shared.mobileScrollDirectionalRuns(params: params(count: 33)) == nil)
     }
 
+    @Test func orderedRunPayloadPreservesExactPrimaryRowsAlongsideWheelLines() throws {
+        let runs = try #require(TerminalController.shared.mobileScrollDirectionalRuns(params: [
+            "delta_runs": [[
+                "lines": 0.1,
+                "primary_rows": 3,
+                "col": 4,
+                "row": 5,
+            ]],
+        ]))
+
+        #expect(runs == [MobileTerminalScrollRun(
+            primaryRows: 3,
+            alternateScreenLines: 0.1,
+            col: 4,
+            row: 5
+        )])
+    }
+
+    @Test func hostBoundsPrefetchToDirectionalAndOppositeBudgets() {
+        let upward = TerminalController.shared.mobileScrollPrefetchWindow(params: [
+            "delta_lines": 4.0,
+            "prefetch_before_rows": 600,
+            "prefetch_after_rows": 600,
+        ])
+        let downward = TerminalController.shared.mobileScrollPrefetchWindow(params: [
+            "delta_lines": -4.0,
+            "prefetch_before_rows": 600,
+            "prefetch_after_rows": 600,
+        ])
+
+        #expect(upward.before == 600)
+        #expect(upward.after == 120)
+        #expect(downward.before == 120)
+        #expect(downward.after == 600)
+    }
+
     @Test func releasedSurfaceRejectsScrollAndZeroLineSettlement() throws {
         let harness = try makeTerminalHarness()
         defer { harness.restore() }

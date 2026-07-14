@@ -345,7 +345,7 @@ private final class InteractionLaneHarness {
                 await deadline.wait()
             },
             prepareIntent: {},
-            deliverAuthoritative: { [weak self] _, epoch, revision in
+            deliverAuthoritative: { [weak self] _, epoch, revision, _ in
                 self?.deliveredReconciliations.append((epoch, revision))
                 return true
             },

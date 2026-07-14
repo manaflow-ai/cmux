@@ -85,3 +85,45 @@ import Testing
     #expect(viewport.lowerBound < boundedForward.lowerBound)
     #expect(boundedForward.lowerBound < activeScreen.lowerBound)
 }
+
+@Test func prefetchWindowEnforcesDirectionalAndReversalBudgets() {
+    let older = MobileTerminalScrollPrefetchWindow.bounded(
+        requestedBeforeRows: 600,
+        requestedAfterRows: 600,
+        directionLines: 4
+    )
+    let newer = MobileTerminalScrollPrefetchWindow.bounded(
+        requestedBeforeRows: 600,
+        requestedAfterRows: 600,
+        directionLines: -4
+    )
+    let legacy = MobileTerminalScrollPrefetchWindow.bounded(
+        requestedBeforeRows: 240,
+        requestedAfterRows: 0,
+        directionLines: nil
+    )
+
+    #expect(older == .init(rowsBeforeViewport: 600, rowsAfterViewport: 120))
+    #expect(newer == .init(rowsBeforeViewport: 120, rowsAfterViewport: 600))
+    #expect(legacy == .init(rowsBeforeViewport: 240, rowsAfterViewport: 0))
+    #expect(older.rowsBeforeViewport + older.rowsAfterViewport == 720)
+    #expect(newer.rowsBeforeViewport + newer.rowsAfterViewport == 720)
+}
+
+@Test func scrollInputAccumulatorKeepsPrimaryRowsIndependentFromWheelTicks() {
+    var accumulator = MobileTerminalScrollInputAccumulator()
+    var primaryRows = 0
+    var alternateLines = 0.0
+
+    for _ in 0..<40 {
+        accumulator.accumulate(primaryRows: 0.3, alternateScreenLines: 0.1)
+        if let run = accumulator.drain(col: 2, row: 3) {
+            primaryRows += run.primaryRows ?? 0
+            alternateLines += run.lines
+        }
+    }
+
+    #expect(primaryRows == 12)
+    #expect(abs(alternateLines - 4.0) < 0.000_001)
+    #expect(accumulator.pendingPrimaryRows.magnitude < 0.000_001)
+}

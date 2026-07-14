@@ -268,6 +268,24 @@ struct TerminalScrollSessionTests {
         ))
     }
 
+    @Test("rolling prefetch counts exact primary rows instead of alternate wheel ticks")
+    func rollingPrefetchCountsPrimaryRows() {
+        let harness = Harness()
+        let session = harness.makeSession()
+        let run = MobileTerminalScrollRun(
+            primaryRows: 1,
+            alternateScreenLines: 0.1,
+            col: 1,
+            row: 1
+        )
+
+        #expect(session.prefetchWindow(for: run) == .directional(for: 1))
+        for _ in 0..<119 {
+            #expect(session.prefetchWindow(for: run) == nil)
+        }
+        #expect(session.prefetchWindow(for: run) == .directional(for: 1))
+    }
+
     @Test("gridless settlement preserves a pending authoritative frame")
     func gridlessSettlementPreservesPendingFrame() async throws {
         let harness = Harness()
@@ -473,7 +491,7 @@ private final class Harness {
             prepareIntent: { [weak self] in
                 self?.prepareIntentCount += 1
             },
-            deliverAuthoritative: { [weak self] frame, _, _ in
+            deliverAuthoritative: { [weak self] frame, _, _, _ in
                 self?.delivered.append(frame)
                 return true
             },

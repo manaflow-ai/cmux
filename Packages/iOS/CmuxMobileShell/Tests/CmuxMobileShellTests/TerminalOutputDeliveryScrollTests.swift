@@ -21,6 +21,62 @@ import Testing
 }
 
 @MainActor
+@Test func optimisticScrollPreservesAnUnappliedLiveViewportFrame() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        renderRevision: 7,
+        columns: 12,
+        rows: 2,
+        text: "live\nviewport",
+        full: false,
+        changedRows: [0, 1]
+    )
+    let repaint = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
+    let receipt = TerminalSurfaceMutationReceipt()
+    let scroll = TerminalOutputDelivery(
+        localScroll: [MobileTerminalScrollRun(lines: -2, col: 1, row: 1)],
+        receipt: receipt
+    )
+
+    #expect(queue.enqueue(repaint) == repaint)
+    let result = queue.enqueueOptimisticScroll(scroll)
+
+    #expect(result.immediate == nil)
+    #expect(queue.currentInFlight == repaint)
+    #expect(queue.completeInFlight() == scroll)
+}
+
+@MainActor
+@Test func renderRevisionAdvancesOnlyAfterTheFrameIsApplied() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 5,
+        renderRevision: 42,
+        columns: 12,
+        rows: 2,
+        text: "applied\nrevision"
+    )
+
+    #expect(store.deliverAuthoritativeTerminalRenderGrid(frame, source: "event"))
+    #expect(store.acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] == nil)
+
+    let chunk = try #require(await iterator.next())
+    #expect(store.terminalOutputWillProcess(
+        surfaceID: surfaceID,
+        streamToken: chunk.streamToken,
+        deliveryID: chunk.deliveryID
+    ))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: chunk.streamToken)
+
+    #expect(store.acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] == 42)
+}
+
+@MainActor
 @Test func clickPreservesDeferredLiveFrameThroughGridlessReconciliation() async throws {
     let router = RoutingHostRouter()
     await router.setHoldFirstTerminalScroll(true)

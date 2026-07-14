@@ -101,8 +101,7 @@ struct TerminalScrollPlanDeadlineTests {
         let appended = session.intents.append(.scroll(.init(
             runs: runs,
             submissionCount: runs.count,
-            localReceipts: [],
-            inheritedPrefetchWindow: nil
+            localReceipts: []
         )))
         #expect(appended)
         session.queuedInteractionCount = 1
@@ -155,7 +154,7 @@ private final class ScrollPlanDeadlineHarness {
                 await deadline.wait(for: duration)
             },
             prepareIntent: {},
-            deliverAuthoritative: { _, _, _ in false },
+            deliverAuthoritative: { _, _, _, _ in false },
             completeGridlessAuthoritative: { _ in true },
             reconciliationDidComplete: {},
             requestReplay: { [weak self] epoch in self?.replayEpochs.append(epoch) },

@@ -75,7 +75,7 @@ private final class BottomSnapRearmHarness {
             },
             interactionDeadline: { [deadline] _ in await deadline.wait() },
             prepareIntent: {},
-            deliverAuthoritative: { _, _, _ in true },
+            deliverAuthoritative: { _, _, _, _ in true },
             completeGridlessAuthoritative: { _ in true },
             reconciliationDidComplete: {},
             requestReplay: { _ in },

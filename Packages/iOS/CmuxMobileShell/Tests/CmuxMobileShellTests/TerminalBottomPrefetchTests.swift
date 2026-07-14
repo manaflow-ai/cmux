@@ -24,7 +24,7 @@ struct TerminalBottomPrefetchTests {
                 )
             },
             prepareIntent: {},
-            deliverAuthoritative: { _, _, _ in false },
+            deliverAuthoritative: { _, _, _, _ in false },
             completeGridlessAuthoritative: { _ in true },
             reconciliationDidComplete: {},
             requestReplay: { _ in },

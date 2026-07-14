@@ -7,8 +7,8 @@ import Testing
 @MainActor
 @Suite("Terminal scroll reconciliation supersession")
 struct TerminalScrollReconciliationSupersessionTests {
-    @Test("newer scroll explicitly supersedes queued reconciliation before starting")
-    func newerScrollSupersedesQueuedReconciliation() async throws {
+    @Test("rolling authoritative frame lands and reapplies already optimistic rows")
+    func rollingAuthoritativeFrameReappliesOptimisticRows() async throws {
         let harness = ScrollReconciliationSupersessionHarness()
         let session = harness.makeSession()
 
@@ -19,16 +19,16 @@ struct TerminalScrollReconciliationSupersessionTests {
 
         harness.enqueueClaimedRawBlocker()
         let firstRemote = harness.remoteScrolls[0]
+        session.submit(lines: -7, col: 3, row: 4)
+        #expect(harness.queue.pendingCount == 1)
         firstRemote.continuation.resume(returning: harness.response(for: firstRemote.request))
         try await requireEventually {
             if case .scroll(let transaction) = session.phase {
-                return transaction.awaitingAuthoritative && harness.queue.pendingCount == 1
+                return transaction.awaitingAuthoritative && harness.queue.pendingCount == 2
             }
             return false
         }
 
-        session.submit(lines: -7, col: 3, row: 4)
-        #expect(harness.queue.pendingCount == 2)
         #expect(harness.remoteScrolls.count == 1)
 
         let next = try #require(harness.completeCurrentDelivery())
@@ -37,16 +37,16 @@ struct TerminalScrollReconciliationSupersessionTests {
             return
         }
         #expect(runs.map(\.lines) == [-7])
+        let reconciliation = try #require(harness.completeCurrentDelivery())
+        guard case .output(let operation) = reconciliation.mutation else {
+            Issue.record("Expected the rolling authoritative frame after optimistic input")
+            return
+        }
+        #expect(operation.followingScrollRuns.map(\.lines) == [-7])
         harness.completeCurrentDelivery()
 
         try await requireEventually { harness.remoteScrolls.count == 2 }
-        #expect(harness.superseded == [TerminalScrollReconciliationSupersession(
-            reconciliation: TerminalScrollReconciliation(
-                interactionEpoch: firstRemote.request.interactionEpoch,
-                clientRevision: firstRemote.request.clientRevision
-            ),
-            reason: .optimisticScroll
-        )])
+        #expect(harness.superseded.isEmpty)
         #expect(harness.replayEpochs.isEmpty)
         #expect(harness.remoteScrolls.map(\.request.lines) == [-4, -7])
 
@@ -109,7 +109,7 @@ private final class ScrollReconciliationSupersessionHarness {
             },
             interactionDeadline: { [deadline] _ in await deadline.wait() },
             prepareIntent: {},
-            deliverAuthoritative: { [weak self] frame, interactionEpoch, clientRevision in
+            deliverAuthoritative: { [weak self] frame, interactionEpoch, clientRevision, followingRuns in
                 guard let self else { return false }
                 _ = queue.enqueue(TerminalOutputDelivery(
                     renderGrid: frame,
@@ -117,7 +117,8 @@ private final class ScrollReconciliationSupersessionHarness {
                     scrollReconciliation: TerminalScrollReconciliation(
                         interactionEpoch: interactionEpoch,
                         clientRevision: clientRevision
-                    )
+                    ),
+                    followingScrollRuns: followingRuns
                 ))
                 acknowledgeSupersededReconciliations()
                 return true

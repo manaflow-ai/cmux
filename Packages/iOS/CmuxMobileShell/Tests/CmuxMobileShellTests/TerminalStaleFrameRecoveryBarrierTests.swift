@@ -192,7 +192,7 @@ import Testing
     ))
     let baselineChunk = try #require(await iterator.next())
     lines.append(String(decoding: baselineChunk.data, as: UTF8.self))
-    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 50)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil)
 
     // A delta before the ack forces a follow-up replay; every attempt fails
     // (initial follow-up plus both retries).
@@ -208,6 +208,8 @@ import Testing
     #expect(deltaDroppedByBarrier, "the pre-ack delta must be consumed (and dropped) before the ack")
     await router.failNextReplay(count: 3)
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: baselineChunk.streamToken)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil)
+    #expect(store.terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] == 50)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 4)
 
     // The failed follow-up must fail open instead of leaving live output
