@@ -59,6 +59,21 @@ struct CmuxRunURLCoordinatorTests {
         #expect(plan.workingDirectory == "/tmp")
     }
 
+    @Test func workspacePlanRemainsAvailableWithoutAnOpenWindow() throws {
+        let app = AppDelegate()
+        let result = CmuxRunURLCoordinator(appDelegate: app).makePlan(
+            request: try workspaceRequest(),
+            workingDirectory: "/tmp"
+        )
+
+        guard case .success(let plan) = result else {
+            Issue.record("Expected a new-window workspace plan, saw \(result)")
+            return
+        }
+        #expect(plan.command == "true")
+        #expect(plan.workingDirectory == "/tmp")
+    }
+
     @Test func stableSurfaceAnchorResolvesToCurrentPane() throws {
         let app = AppDelegate()
         let manager = TabManager()

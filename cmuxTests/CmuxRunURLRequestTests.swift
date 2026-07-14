@@ -331,6 +331,31 @@ struct CmuxRunURLRequestTests {
         )
     }
 
+    @Test func concurrentResolutionDoesNotSpawnASecondProcess() async throws {
+        let (started, startedContinuation) = AsyncStream<Void>.makeStream()
+        let resolver = CmuxRunWorkingDirectoryResolver { _ in
+            startedContinuation.yield()
+            return CmuxRunWorkingDirectoryCommand(
+                executableURL: URL(fileURLWithPath: "/usr/bin/yes"),
+                arguments: []
+            )
+        }
+        let first = Task {
+            await resolver.resolveWithDeadline("/tmp", timeout: .seconds(1))
+        }
+        var startedIterator = started.makeAsyncIterator()
+        _ = await startedIterator.next()
+
+        #expect(
+            await resolver.resolveWithDeadline("/tmp", timeout: .zero)
+                == .failure(.busy)
+        )
+
+        first.cancel()
+        #expect(await first.value == .failure(.workingDirectoryResolutionTimedOut))
+        startedContinuation.finish()
+    }
+
     private func parsed(_ queryItems: [URLQueryItem]) throws -> CmuxRunURLRequest {
         switch parse(queryItems) {
         case .success(let request):
