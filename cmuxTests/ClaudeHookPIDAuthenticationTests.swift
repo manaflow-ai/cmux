@@ -163,6 +163,6 @@ struct ClaudeHookPIDAuthenticationTests {
     private func assertSuccessfulHook(_ result: Harness.ProcessRunResult) {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout == "OK\n")
+        #expect(result.stdout == "{}\n")
     }
 }
