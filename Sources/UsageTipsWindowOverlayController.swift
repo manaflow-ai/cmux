@@ -270,6 +270,7 @@ final class UsageTipsWindowOverlayController: NSObject {
                     )
                 }
             )
+            // Usage tips are passive chrome: terminal keyboard focus must never enter this overlay.
             .focusable(false)
             .padding(Self.cardPadding)
             .cmuxFontMagnificationEnvironment()

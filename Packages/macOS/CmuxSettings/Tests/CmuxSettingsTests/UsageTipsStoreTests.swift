@@ -20,6 +20,7 @@ struct UsageTipsStoreTests {
         #expect(!UsageTipsStore(defaults: defaults).isEnabled)
     }
 
+    @MainActor
     @Test func seenIdentifiersPersistWithoutDuplicates() {
         let defaults = makeDefaults()
         let store = UsageTipsStore(defaults: defaults)

@@ -2,10 +2,10 @@ import Foundation
 
 /// Persists usage-tip eligibility, opt-out state, and permanently seen tip identifiers.
 ///
-/// The app has one main-actor usage-tip controller, so seen-ID read/modify/write
-/// operations are serialized by that owner. The store itself remains a stateless,
-/// synchronous value because `UserDefaults` is thread-safe and launch eligibility
-/// must be captured before the first main window appears.
+/// The seen-ID read/modify/write operation is main-actor isolated. Single
+/// `UserDefaults` reads and writes remain synchronous because `UserDefaults` is
+/// thread-safe and launch eligibility must be captured before the first main window
+/// appears.
 public struct UsageTipsStore: Sendable {
     // UserDefaults is documented thread-safe and the reference is immutable.
     private nonisolated(unsafe) let defaults: UserDefaults
@@ -44,6 +44,7 @@ public struct UsageTipsStore: Sendable {
     /// Permanently records a tip identifier as seen without disturbing other identifiers.
     ///
     /// - Parameter id: The stable catalog identifier to record.
+    @MainActor
     public func markSeen(_ id: String) {
         var updated = seenTipIDs
         updated.insert(id)
