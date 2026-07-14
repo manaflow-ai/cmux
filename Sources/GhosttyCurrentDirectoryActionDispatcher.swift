@@ -6,6 +6,8 @@ import Synchronization
 /// main actor. Mutable delivery state lives in `AsyncStream`; atomics only tag
 /// the two replay markers that must survive ordinary PWD coalescing.
 final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
+    typealias Delivery = @MainActor @Sendable (GhosttyCurrentDirectoryAction) -> Void
+
     private let startBoundaryHash = Atomic<UInt64>(0)
     private let endBoundaryHash = Atomic<UInt64>(0)
     private let startBoundaryPending = Atomic<Bool>(false)
@@ -13,14 +15,17 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
     private let boundaryGeneration = Atomic<UInt64>(0)
     private let continuation: AsyncStream<GhosttyCurrentDirectoryAction>.Continuation
 
-    init() {
+    init(delivery: Delivery? = nil) {
         let (stream, continuation) = AsyncStream<GhosttyCurrentDirectoryAction>.makeStream(
             bufferingPolicy: .bufferingNewest(3)
         )
         self.continuation = continuation
+        let resolvedDelivery: Delivery = delivery ?? { action in
+            Self.deliver(action)
+        }
         Task { @MainActor in
             for await action in stream {
-                Self.deliver(action)
+                resolvedDelivery(action)
             }
         }
     }

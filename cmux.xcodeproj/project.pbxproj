@@ -796,6 +796,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C3873003C3873003C3873003 /* GhosttyCrashReportMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */; };
 		D78975000000000000000001 /* GhosttyCurrentDirectoryAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78975000000000000000002 /* GhosttyCurrentDirectoryAction.swift */; };
 		D78972000000000000000001 /* GhosttyCurrentDirectoryActionDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78972000000000000000002 /* GhosttyCurrentDirectoryActionDispatcher.swift */; };
+		D78976000000000000000001 /* GhosttyCurrentDirectoryActionDispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78976000000000000000002 /* GhosttyCurrentDirectoryActionDispatcherTests.swift */; };
 		D5935001A1B2C3D4E5F60718 /* GhosttyDECCKMArrowKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5935002A1B2C3D4E5F60718 /* GhosttyDECCKMArrowKeyTests.swift */; };
 		604100010000000000000001 /* GhosttyDrawableSizeRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604100010000000000000002 /* GhosttyDrawableSizeRetryTests.swift */; };
 		F9000000A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */; };
@@ -2613,6 +2614,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCrashReportMetadata.swift; sourceTree = "<group>"; };
 		D78975000000000000000002 /* GhosttyCurrentDirectoryAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCurrentDirectoryAction.swift; sourceTree = "<group>"; };
 		D78972000000000000000002 /* GhosttyCurrentDirectoryActionDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCurrentDirectoryActionDispatcher.swift; sourceTree = "<group>"; };
+		D78976000000000000000002 /* GhosttyCurrentDirectoryActionDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyCurrentDirectoryActionDispatcherTests.swift; sourceTree = "<group>"; };
 		D5935002A1B2C3D4E5F60718 /* GhosttyDECCKMArrowKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyDECCKMArrowKeyTests.swift; sourceTree = "<group>"; };
 		604100010000000000000002 /* GhosttyDrawableSizeRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyDrawableSizeRetryTests.swift; sourceTree = "<group>"; };
 		F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyEnsureFocusWindowActivationTests.swift; sourceTree = "<group>"; };
@@ -5436,6 +5438,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D79010000000000000000004 /* NotificationScrollRecordingSurfaceView.swift */,
 				C7A507000000000000005797 /* NotificationScrollRestoreLifecycleTests.swift */,
 				C79010000000000000000002 /* NotificationScrollRestoreRecoveryTests.swift */,
+				D78976000000000000000002 /* GhosttyCurrentDirectoryActionDispatcherTests.swift */,
 				C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */,
 				C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */,
 				C7A50C000000000000000001 /* CmuxTopProcessCPUTests.swift */,
@@ -7440,6 +7443,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				1718C0DE1718C0DE17180002 /* GhosttyCommandShiftForwardingTests.swift in Sources */,
 				A11EB0000000000000000000 /* GhosttyConfigPathResolverTests.swift in Sources */,
 				F4000000A1B2C3D4E5F60718 /* GhosttyConfigTests.swift in Sources */,
+				D78976000000000000000001 /* GhosttyCurrentDirectoryActionDispatcherTests.swift in Sources */,
 				D5935001A1B2C3D4E5F60718 /* GhosttyDECCKMArrowKeyTests.swift in Sources */,
 				604100010000000000000001 /* GhosttyDrawableSizeRetryTests.swift in Sources */,
 				F9000000A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */,

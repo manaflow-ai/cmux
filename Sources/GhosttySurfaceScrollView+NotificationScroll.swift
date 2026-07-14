@@ -270,6 +270,7 @@ extension GhosttySurfaceScrollView {
     func cancelPendingNotificationScrollRestoreForUserInput() {
         switch notificationScrollRestoreState.replay {
         case .armed, .replaying:
+            surfaceView.cancelNotificationScrollReplayBoundaryRegistration()
             notificationScrollRestoreState.replay = .inactive
             clearPendingNotificationScrollRestore()
         case .inactive, .completedAwaitingGeometry, .completed:
@@ -279,6 +280,10 @@ extension GhosttySurfaceScrollView {
     }
 
     func armSessionScrollbackReplay(expectedStartBoundary: String, expectedEndBoundary: String) {
+        surfaceView.registerNotificationScrollReplayBoundaries(
+            startBoundary: expectedStartBoundary,
+            endBoundary: expectedEndBoundary
+        )
         notificationScrollRestoreState.replay = .armed(
             expectedStartBoundary: expectedStartBoundary,
             expectedEndBoundary: expectedEndBoundary
