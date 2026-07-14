@@ -111,10 +111,16 @@ test("switching repositories remounts the picker and ignores an older refs load"
   }), { status: 200 }));
   await waitFor(() => document.body.textContent?.includes("second-ref") === true);
 
-  completions.get("/first")?.(new Response(JSON.stringify({
-    groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "stale-ref", label: "stale-ref" }] }],
-  }), { status: 200 }));
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  let staleResponseRead = false;
+  const staleResponse = new Response(null, { status: 200 });
+  staleResponse.json = async () => {
+    staleResponseRead = true;
+    return {
+      groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "stale-ref", label: "stale-ref" }] }],
+    };
+  };
+  completions.get("/first")?.(staleResponse);
+  await waitFor(() => staleResponseRead);
   expect(document.body.textContent).toContain("second-ref");
   expect(document.body.textContent).not.toContain("stale-ref");
 
