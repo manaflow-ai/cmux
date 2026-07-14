@@ -637,6 +637,7 @@ final class FileExplorerContainerView: NSView {
     private var searchDebounceCancellable: AnyCancellable?
     private var searchDebounceGeneration = 0
     private var pendingSearchRefreshAfterSettled = false
+    private var preservedSearchNeedsRefresh = false
     private var isSearchVisible = false
     private var presentation: FileExplorerPanelPresentation
     private let coordinator: FileExplorerPanelView.Coordinator
@@ -705,7 +706,7 @@ final class FileExplorerContainerView: NSView {
             self.isSearchVisible = self.presentation == .find || self.hasSearchQuery
             self.coordinator.noteKeyboardFocus(mode: .find, in: self.window)
             self.updateSearchLayout()
-            if !wasSearchVisible, self.isSearchVisible { self.refreshSearchIfNeeded() }
+            if !wasSearchVisible, self.isSearchVisible { self.resumePreservedSearchIfNeeded() }
         }
         searchBarView.addSubview(searchField)
         searchStatusLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -954,7 +955,7 @@ final class FileExplorerContainerView: NSView {
             isSearchVisible = true
         }
         if wasSearchVisible, !isSearchVisible { pauseSearchPreservingState() }
-        if !wasSearchVisible, isSearchVisible { refreshSearchIfNeeded() }
+        if !wasSearchVisible, isSearchVisible { resumePreservedSearchIfNeeded() }
         updateSearchLayout()
         if presentationChanged { registerWithKeyboardFocusCoordinatorIfNeeded() }
     }
@@ -996,7 +997,7 @@ final class FileExplorerContainerView: NSView {
         }
         isSearchVisible = presentation == .find || hasSearchQuery
         updateSearchLayout()
-        if isSearchVisible { refreshSearchIfNeeded() }
+        resumePreservedSearchIfNeeded()
         let result = window.makeFirstResponder(searchField)
         searchField.selectText(nil)
 #if DEBUG
@@ -1072,7 +1073,8 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func refreshSearchIfNeeded() {
-        guard isSearchVisible else { return }
+        guard isSearchVisible else { if hasSearchQuery { preservedSearchNeedsRefresh = true }; return }
+        preservedSearchNeedsRefresh = false
         cancelPendingSearchRefresh()
 #if DEBUG
         dlog(
@@ -1092,6 +1094,7 @@ final class FileExplorerContainerView: NSView {
 
     private func refreshSearchAfterContentRevisionIfNeeded() {
         guard isSearchVisible else {
+            preservedSearchNeedsRefresh = hasSearchQuery
             pendingSearchRefreshAfterSettled = false
             return
         }
@@ -1146,7 +1149,9 @@ final class FileExplorerContainerView: NSView {
         searchDebounceGeneration += 1
     }
 
-    private func pauseSearchPreservingState() { cancelPendingSearchRefresh(); pendingSearchRefreshAfterSettled = false; searchController.cancel(clear: false) }
+    private func pauseSearchPreservingState() { preservedSearchNeedsRefresh = preservedSearchNeedsRefresh || searchSnapshot.isSearching; cancelPendingSearchRefresh(); pendingSearchRefreshAfterSettled = false; searchController.cancel(clear: false) }
+
+    private func resumePreservedSearchIfNeeded() { if isSearchVisible, hasSearchQuery, preservedSearchNeedsRefresh || searchSnapshot.query != searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) { refreshSearchIfNeeded() } }
 
     private func updateSearchLayout(hasContent: Bool? = nil, isLoading: Bool? = nil) {
         let effectiveHasContent = hasContent ?? !currentRootPath.isEmpty
