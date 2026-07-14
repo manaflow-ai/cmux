@@ -519,7 +519,7 @@ async fn open_session(
     tokio::fs::rename(&temporary_path, &final_path)
         .await
         .map_err(|_| SessionOpenError::Failed)?;
-    temporary_file.disarm();
+    temporary_file.retarget(final_path.clone());
     let metadata = tokio::fs::metadata(&final_path)
         .await
         .map_err(|_| SessionOpenError::Failed)?;
@@ -548,6 +548,7 @@ async fn open_session(
         let _ = tokio::fs::remove_file(&final_path).await;
         return Err(SessionOpenError::Failed);
     }
+    temporary_file.disarm();
 
     Ok(SessionOpened {
         session_id,
@@ -573,6 +574,10 @@ impl TemporaryPatchFile {
 
     fn disarm(&mut self) {
         self.armed = false;
+    }
+
+    fn retarget(&mut self, path: PathBuf) {
+        self.path = path;
     }
 }
 
