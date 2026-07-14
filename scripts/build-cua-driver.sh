@@ -2,7 +2,7 @@
 set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
-CMUX_CUA_PINNED_SHA="d39b377de51eec5a4247ab7b86ce5884bed05ff8"
+CMUX_CUA_PINNED_SHA="baaf2bd0101e759d5487cb6c69f0bdf8451526bd"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT=""
