@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -8,17 +9,19 @@ struct TaskComposerDirectoryPickerView: View {
     @State private var query = ""
     @State private var remotePaths: [String] = []
     @State private var isSearchingMac = false
+    @State private var searchFailure: MobileTaskDirectorySearchFailure?
+    @State private var retryGeneration = 0
 
     private let candidates: [MobileTaskDirectoryCandidate]
     private let selectedPathID: MobileTaskDirectoryPathID
     private let select: (String) -> Void
-    private let searchMac: (String) async -> [String]
+    private let searchMac: (String) async -> Result<[String], MobileTaskDirectorySearchFailure>
 
     init(
         candidates: [MobileTaskDirectoryCandidate],
         selectedPath: String,
         select: @escaping (String) -> Void,
-        searchMac: @escaping (String) async -> [String]
+        searchMac: @escaping (String) async -> Result<[String], MobileTaskDirectorySearchFailure>
     ) {
         self.candidates = candidates
         selectedPathID = MobileTaskDirectoryPathID(path: selectedPath)
@@ -29,7 +32,25 @@ struct TaskComposerDirectoryPickerView: View {
     var body: some View {
         NavigationStack {
             List {
-                if suggestions.isEmpty, !isSearchingMac {
+                if let searchFailure, suggestions.isEmpty, !isSearchingMac {
+                    ContentUnavailableView {
+                        Label(
+                            L10n.string(
+                                "mobile.taskComposer.directoryPicker.failure.title",
+                                defaultValue: "Couldn’t Search Folders"
+                            ),
+                            systemImage: "exclamationmark.folder"
+                        )
+                    } description: {
+                        Text(failureMessage(searchFailure))
+                    } actions: {
+                        Button(L10n.string("mobile.common.retry", defaultValue: "Retry")) {
+                            retryGeneration &+= 1
+                        }
+                        .accessibilityIdentifier("TaskComposerDirectorySearchRetry")
+                    }
+                    .listRowBackground(Color.clear)
+                } else if suggestions.isEmpty, !isSearchingMac {
                     ContentUnavailableView(
                         L10n.string(
                             "mobile.taskComposer.directoryPicker.empty.title",
@@ -100,7 +121,7 @@ struct TaskComposerDirectoryPickerView: View {
                     }
                 }
             }
-            .task(id: query) {
+            .task(id: DirectorySearchRequest(query: query, retryGeneration: retryGeneration)) {
                 await updateRemoteSuggestions()
             }
         }
@@ -124,21 +145,59 @@ struct TaskComposerDirectoryPickerView: View {
         guard !trimmedQuery.isEmpty else {
             remotePaths = []
             isSearchingMac = false
+            searchFailure = nil
             return
         }
         remotePaths = []
+        searchFailure = nil
         isSearchingMac = true
         do {
             try await Task.sleep(for: .milliseconds(120))
-            let paths = await searchMac(trimmedQuery)
+            let result = await searchMac(trimmedQuery)
             guard !Task.isCancelled else { return }
-            remotePaths = paths
+            switch result {
+            case let .success(paths):
+                remotePaths = paths
+                searchFailure = nil
+            case .failure(.cancelled):
+                remotePaths = []
+                searchFailure = nil
+            case let .failure(failure):
+                remotePaths = []
+                searchFailure = failure
+            }
             isSearchingMac = false
         } catch is CancellationError {
         } catch {
             guard !Task.isCancelled else { return }
             remotePaths = []
+            searchFailure = .rejected
             isSearchingMac = false
+        }
+    }
+
+    private func failureMessage(_ failure: MobileTaskDirectorySearchFailure) -> String {
+        switch failure {
+        case .unavailable:
+            L10n.string(
+                "mobile.taskComposer.directoryPicker.failure.unavailable",
+                defaultValue: "Reconnect to this Mac, then try again."
+            )
+        case .timedOut:
+            L10n.string(
+                "mobile.taskComposer.directoryPicker.failure.timeout",
+                defaultValue: "This Mac took too long to search. Try again."
+            )
+        case .authorizationRequired:
+            L10n.string(
+                "mobile.taskComposer.directoryPicker.failure.authorization",
+                defaultValue: "Sign in again on this device and Mac, then retry."
+            )
+        case .rejected, .cancelled:
+            L10n.string(
+                "mobile.taskComposer.directoryPicker.failure.generic",
+                defaultValue: "The folder search failed. Try again."
+            )
         }
     }
 
@@ -168,6 +227,11 @@ struct TaskComposerDirectoryPickerView: View {
             L10n.string("mobile.taskComposer.directoryPicker.source.home", defaultValue: "Home folder")
         }
     }
+}
+
+private struct DirectorySearchRequest: Hashable {
+    let query: String
+    let retryGeneration: Int
 }
 
 private struct TaskComposerDirectorySuggestionRow: View {

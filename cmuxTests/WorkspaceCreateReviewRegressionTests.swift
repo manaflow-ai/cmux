@@ -33,6 +33,33 @@ import Testing
         #expect(classifierCalls.value == 0)
     }
 
+    @Test func blockedClassificationTimesOutWithoutBlockingServiceActor() async {
+        let classifier = ControlledPathClassifier()
+        let deadlines = ControlledReviewDeadlines()
+        let service = TerminalController.WorkspaceCreateWorkingDirectoryValidationService(
+            timeout: .seconds(1),
+            localCapacity: 1,
+            externalCapacity: 1,
+            classificationCapacity: 1,
+            maximumPendingWaiters: 4,
+            laneClassifier: { path in await classifier.classify(path) },
+            probe: { _, _ in true },
+            sleepUntilDeadline: { _ in await deadlines.suspendUntilFired() }
+        )
+        let first = Task { await service.validate(rawValue: "/tmp/first", isProvided: true) }
+        await classifier.waitForCount(1)
+        await deadlines.waitForCount(1)
+        await deadlines.fireAll()
+        #expect(await first.value == .timedOut)
+
+        let second = Task { await service.validate(rawValue: "/tmp/second", isProvided: true) }
+        await deadlines.waitForCount(2)
+        await deadlines.fireAll()
+        #expect(await second.value == .timedOut)
+        #expect(await classifier.count == 1)
+        await classifier.complete()
+    }
+
     @Test func invalidMobileRequestDoesNotConsumeOperationID() async {
         let suiteName = "WorkspaceCreateReviewRegressionTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -73,6 +100,61 @@ import Testing
     private static func errorCode(_ result: TerminalController.V2CallResult) -> String? {
         guard case let .err(code, _, _) = result else { return nil }
         return code
+    }
+}
+
+private actor ControlledPathClassifier {
+    private(set) var count = 0
+    private var continuation: CheckedContinuation<
+        TerminalController.WorkspaceCreateWorkingDirectoryValidationService.ProbeLane,
+        Never
+    >?
+    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    func classify(
+        _ path: String
+    ) async -> TerminalController.WorkspaceCreateWorkingDirectoryValidationService.ProbeLane {
+        _ = path
+        count += 1
+        let ready = countWaiters.filter { count >= $0.0 }
+        countWaiters.removeAll { count >= $0.0 }
+        for waiter in ready { waiter.1.resume() }
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func waitForCount(_ expected: Int) async {
+        if count >= expected { return }
+        await withCheckedContinuation { countWaiters.append((expected, $0)) }
+    }
+
+    func complete() {
+        continuation?.resume(returning: .local)
+        continuation = nil
+    }
+}
+
+private actor ControlledReviewDeadlines {
+    private var count = 0
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    func suspendUntilFired() async {
+        count += 1
+        let ready = countWaiters.filter { count >= $0.0 }
+        countWaiters.removeAll { count >= $0.0 }
+        for waiter in ready { waiter.1.resume() }
+        await withCheckedContinuation { continuations.append($0) }
+    }
+
+    func waitForCount(_ expected: Int) async {
+        if count >= expected { return }
+        await withCheckedContinuation { countWaiters.append((expected, $0)) }
+    }
+
+    func fireAll() {
+        let pending = continuations
+        continuations = []
+        for continuation in pending { continuation.resume() }
     }
 }
 

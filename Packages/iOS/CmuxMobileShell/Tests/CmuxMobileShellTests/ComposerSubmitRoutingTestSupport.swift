@@ -63,6 +63,7 @@ actor RoutingHostRouter {
     private var hostCapabilities = ["workspace.task_create.v1"]
     private var rejectWorkspaceCreate = false
     private var workspaceCreateError: (code: String?, message: String)?
+    private var directorySearchError: (code: String?, message: String)?
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
@@ -111,6 +112,10 @@ actor RoutingHostRouter {
 
     func setWorkspaceCreateError(code: String?, message: String) {
         workspaceCreateError = (code, message)
+    }
+
+    func setDirectorySearchError(code: String?, message: String) {
+        directorySearchError = (code, message)
     }
 
     func setHostCapabilities(_ capabilities: [String]) {
@@ -259,6 +264,13 @@ actor RoutingHostRouter {
             ])
         case "mobile.directory.search":
             directorySearchQueries.append(info.query ?? "")
+            if let directorySearchError {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: directorySearchError.code,
+                    message: directorySearchError.message
+                )
+            }
             return try? Self.resultFrame(id: id, result: [
                 "directories": [
                     "/Users/test/Dev/Manaflow/cmux",

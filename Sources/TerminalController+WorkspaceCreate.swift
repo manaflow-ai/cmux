@@ -1,18 +1,4 @@
-import CmuxSettings
 import Foundation
-
-private func sanitizedInitialEnvironment(_ environment: [String: String]) -> [String: String] {
-    environment.reduce(into: [:]) { result, pair in
-        let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty,
-              !key.contains("\0"),
-              !key.contains("="),
-              !pair.value.contains("\0") else {
-            return
-        }
-        result[key] = pair.value
-    }
-}
 
 extension TerminalController {
     struct TaskCreateWorkspaceCandidate {
@@ -70,130 +56,32 @@ extension TerminalController {
         let workingDirectory = Self.v2ExpandedWorkingDirectory(
             v2RawString(params, "working_directory")
         )
-        return v2PerformWorkspaceCreate(
+        let execution: WorkspaceCreateExecutionPreparation
+        switch v2PrepareWorkspaceCreateExecution(
             params: params,
             preparation: preparation,
             workingDirectory: workingDirectory
+        ) {
+        case let .failure(result):
+            return result
+        case let .ready(ready):
+            execution = ready
+        }
+        return v2PerformWorkspaceCreate(
+            preparation: preparation,
+            execution: execution
         )
     }
 
     private func v2PerformWorkspaceCreate(
-        params: [String: Any],
         preparation: WorkspaceCreatePreparation,
-        workingDirectory: String?,
+        execution: WorkspaceCreateExecutionPreparation,
         operationAlreadyAccepted: Bool = false
     ) -> V2CallResult {
         let tabManager = preparation.tabManager
         let operationID = preparation.operationID
 
-        let requestedInitialCommand = v2RawString(params, "initial_command")
-        let initialCommand = requestedInitialCommand.flatMap {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
-        }
-
-        let initialEnv = sanitizedInitialEnvironment(v2StringMap(params, "initial_env") ?? [:])
-        // Persistent per-workspace environment (issue #5995): applied to the
-        // initial shell and every later pane/surface/split, then round-tripped
-        // through session restore.
-        let workspaceEnv = Workspace.sanitizedWorkspaceEnvironment(
-            v2StringMap(params, "workspace_env") ?? [:]
-        )
-        let cwd: String?
-        if let workingDirectory {
-            cwd = workingDirectory
-        } else if let raw = params["cwd"] {
-            guard let str = raw as? String else {
-                return .err(code: "invalid_params", message: "cwd must be a string", data: nil)
-            }
-            cwd = Self.v2ExpandedWorkingDirectory(str)
-        } else {
-            cwd = nil
-        }
-
-        let requestedTitle = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = (requestedTitle?.isEmpty == false) ? requestedTitle : nil
-        let description = v2RawString(params, "description")
-
-        let groupId = v2UUID(params, "group_id")
-        if v2HasNonNullParam(params, "group_id"), groupId == nil {
-            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
-        }
-        let hasGroupPlacementParam = v2HasNonNullParam(params, "group_placement")
-            || v2HasNonNullParam(params, "placement")
-        let hasGroupReferenceParam = v2HasNonNullParam(params, "group_reference_workspace_id")
-            || v2HasNonNullParam(params, "reference_workspace_id")
-        if groupId == nil, hasGroupPlacementParam || hasGroupReferenceParam {
-            return .err(
-                code: "invalid_params",
-                message: "group_id is required for group placement",
-                data: nil
-            )
-        }
-        let rawGroupPlacement = v2RawString(params, "group_placement")
-            ?? (groupId == nil ? nil : v2RawString(params, "placement"))
-        let groupPlacement = WorkspaceGroupNewPlacement(rawString: rawGroupPlacement)
-        if let raw = rawGroupPlacement,
-           !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           groupPlacement == nil {
-            return .err(code: "invalid_params", message: "Invalid group_placement", data: ["group_placement": raw])
-        }
-        let groupReferenceWorkspaceId: UUID?
-        if v2HasNonNullParam(params, "group_reference_workspace_id") {
-            guard let parsed = v2UUID(params, "group_reference_workspace_id") else {
-                return .err(code: "invalid_params", message: "Missing or invalid group_reference_workspace_id", data: nil)
-            }
-            groupReferenceWorkspaceId = parsed
-        } else if v2HasNonNullParam(params, "reference_workspace_id") {
-            guard let parsed = v2UUID(params, "reference_workspace_id") else {
-                return .err(code: "invalid_params", message: "Missing or invalid group_reference_workspace_id", data: nil)
-            }
-            groupReferenceWorkspaceId = parsed
-        } else {
-            groupReferenceWorkspaceId = nil
-        }
-
-        // Decode optional layout param (same JSON schema as cmux.json layout field).
-        // Validate before creating the workspace so malformed layouts fail fast.
-        var layoutNode: CmuxLayoutNode?
-        if let rawLayout = params["layout"] {
-            guard JSONSerialization.isValidJSONObject(rawLayout),
-                  let layoutData = try? JSONSerialization.data(withJSONObject: rawLayout) else {
-                return .err(code: "invalid_params", message: "layout must be a valid JSON object", data: nil)
-            }
-            do {
-                layoutNode = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
-            } catch {
-                return .err(code: "invalid_params", message: "Invalid layout: \(error.localizedDescription)", data: nil)
-            }
-        }
-
         var newWorkspace: Workspace?
-        let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-        let shouldEagerLoadTerminal = v2Bool(params, "eager_load_terminal") ?? !shouldFocus
-        let shouldAutoRefreshMetadata = v2Bool(params, "auto_refresh_metadata") ?? true
-        if let groupId {
-            let validation = v2MainSync {
-                let groupExists = tabManager.workspaceGroups.contains(where: { $0.id == groupId })
-                let referenceIsMember = groupReferenceWorkspaceId.map { referenceWorkspaceId in
-                    tabManager.tabs.contains { $0.id == referenceWorkspaceId && $0.groupId == groupId }
-                } ?? true
-                return (groupExists: groupExists, referenceIsMember: referenceIsMember)
-            }
-            guard validation.groupExists else {
-                return .err(
-                    code: "not_found",
-                    message: "Group not found",
-                    data: ["group_id": groupId.uuidString]
-                )
-            }
-            guard validation.referenceIsMember else {
-                return .err(
-                    code: "invalid_params",
-                    message: controlWorkspaceGroupStrings().invalidReferenceWorkspace,
-                    data: ["group_reference_workspace_id": groupReferenceWorkspaceId?.uuidString ?? ""]
-                )
-            }
-        }
         if let operationID, !operationAlreadyAccepted {
             // Acceptance must be durable before addWorkspace constructs a
             // terminal and can execute the task command. A crash in between
@@ -213,26 +101,29 @@ extension TerminalController {
         }
         v2MainSync {
             let ws = tabManager.addWorkspace(
-                title: title,
-                workingDirectory: cwd,
-                initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
-                initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
-                workspaceEnvironment: workspaceEnv,
-                select: shouldFocus,
-                eagerLoadTerminal: shouldEagerLoadTerminal,
-                autoRefreshMetadata: shouldAutoRefreshMetadata
+                title: execution.title,
+                workingDirectory: execution.workingDirectory,
+                initialTerminalCommand: execution.layoutNode == nil ? execution.initialCommand : nil,
+                initialTerminalEnvironment: execution.layoutNode == nil ? execution.initialEnvironment : [:],
+                workspaceEnvironment: execution.workspaceEnvironment,
+                select: execution.shouldFocus,
+                eagerLoadTerminal: execution.shouldEagerLoadTerminal,
+                autoRefreshMetadata: execution.shouldAutoRefreshMetadata
             )
             ws.taskCreateOperationID = operationID
-            ws.setCustomDescription(description)
-            if let layoutNode {
-                ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
+            ws.setCustomDescription(execution.description)
+            if let layoutNode = execution.layoutNode {
+                ws.applyCustomLayout(
+                    layoutNode,
+                    baseCwd: execution.workingDirectory ?? ws.currentDirectory
+                )
             }
-            if let groupId {
+            if let groupID = execution.groupID {
                 tabManager.addWorkspaceToGroup(
                     workspaceId: ws.id,
-                    groupId: groupId,
-                    placement: groupPlacement ?? .top,
-                    referenceWorkspaceId: groupReferenceWorkspaceId
+                    groupId: groupID,
+                    placement: execution.groupPlacement ?? .top,
+                    referenceWorkspaceId: execution.groupReferenceWorkspaceID
                 )
             }
             newWorkspace = ws
@@ -421,6 +312,17 @@ extension TerminalController {
         case .cancelled:
             return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
         }
+        let execution: WorkspaceCreateExecutionPreparation
+        switch v2PrepareWorkspaceCreateExecution(
+            params: createParams,
+            preparation: preparation,
+            workingDirectory: workingDirectory
+        ) {
+        case let .failure(result):
+            return result
+        case let .ready(ready):
+            execution = ready
+        }
         var operationAlreadyAccepted = false
         switch await v2ReserveMobileWorkspaceCreate(preparation: preparation) {
         case .notRequired:
@@ -433,9 +335,8 @@ extension TerminalController {
             return result
         }
         let createResult = v2PerformWorkspaceCreate(
-            params: createParams,
             preparation: preparation,
-            workingDirectory: workingDirectory,
+            execution: execution,
             operationAlreadyAccepted: operationAlreadyAccepted
         )
         switch createResult {

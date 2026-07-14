@@ -13,11 +13,25 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "Query must contain 1 to 256 characters", data: nil)
         }
         let seedPaths = mobileDirectorySearchSeedPaths()
-        let directories = await MobileTaskDirectorySearchService.shared.search(
-            query: query,
-            seedPaths: seedPaths
-        )
-        return .ok(["directories": directories])
+        do {
+            let directories = try await MobileTaskDirectorySearchService.shared.search(
+                query: query,
+                seedPaths: seedPaths
+            )
+            return .ok(["directories": directories])
+        } catch MobileTaskDirectorySearchService.SearchError.indexTimedOut {
+            return .err(
+                code: "request_timeout",
+                message: "Directory search index timed out",
+                data: nil
+            )
+        } catch MobileTaskDirectorySearchService.SearchError.busy {
+            return .err(code: "busy", message: "Directory search is busy", data: nil)
+        } catch is CancellationError {
+            return .err(code: "cancelled", message: "Directory search was cancelled", data: nil)
+        } catch {
+            return .err(code: "internal_error", message: "Directory search failed", data: nil)
+        }
     }
 
     private func mobileDirectorySearchSeedPaths() -> [String] {

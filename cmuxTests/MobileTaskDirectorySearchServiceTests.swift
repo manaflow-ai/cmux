@@ -59,11 +59,11 @@ import Testing
             configuration: .init(maximumDirectories: 200, maximumDepth: 6, cacheLifetime: 30)
         )
 
-        let matches = await service.search(query: "cmuxterm", seedPaths: [])
+        let matches = try await service.search(query: "cmuxterm", seedPaths: [])
         #expect(matches.count == 1)
         #expect(matches.first?.hasSuffix("/Dev/Manaflow/cmuxterm-hq") == true)
         #expect(matches.first.map(FileManager.default.fileExists(atPath:)) == true)
-        #expect(await service.search(query: "hidden-project", seedPaths: []).isEmpty)
+        #expect(try await service.search(query: "hidden-project", seedPaths: []).isEmpty)
     }
 
     @Test func filesystemInspectionStopsAtItsIndependentEntryBudget() async throws {
@@ -86,7 +86,7 @@ import Testing
             )
         )
 
-        #expect(await service.search(query: "candidate", seedPaths: []).isEmpty)
+        #expect(try await service.search(query: "candidate", seedPaths: []).isEmpty)
     }
 
     @Test func removingAnExternalSeedDoesNotReuseItsCachedPaths() async throws {
@@ -102,12 +102,12 @@ import Testing
             homeDirectory: home,
             configuration: .init(maximumDirectories: 200, maximumDepth: 6, cacheLifetime: 30)
         )
-        let initialMatches = await service.search(query: "removed-root-project", seedPaths: [project.path])
+        let initialMatches = try await service.search(query: "removed-root-project", seedPaths: [project.path])
         #expect(
             initialMatches.contains { $0.hasSuffix("/external/removed-root-project") },
             "Initial matches: \(initialMatches)"
         )
-        #expect(await service.search(query: "removed-root-project", seedPaths: []).isEmpty)
+        #expect(try await service.search(query: "removed-root-project", seedPaths: []).isEmpty)
     }
 
     @Test func cancelledRankStopsBeforeReturningStaleResults() async {
@@ -121,11 +121,150 @@ import Testing
         #expect(await task.value.isEmpty)
     }
 
+    @Test func newerQueryCancelsAndDrainsPriorRankBeforeStarting() async throws {
+        let ranker = ControlledDirectoryRanker()
+        let service = MobileTaskDirectorySearchService(
+            configuration: .init(maximumDirectories: 1, maximumDepth: 0, cacheLifetime: 30),
+            indexBuilder: { _, _ in [] },
+            rankOperation: { _, query, _ in await ranker.run(query: query) }
+        )
+        let first = Task { try await service.search(query: "first", seedPaths: []) }
+        await ranker.waitForCount(1)
+        let second = Task { try await service.search(query: "second", seedPaths: []) }
+        await ranker.waitForCount(2)
+
+        #expect((try await first.value).isEmpty)
+        #expect(try await second.value == ["latest"])
+        #expect(await ranker.maximumActiveCount == 1)
+    }
+
+    @Test func timedOutIndexBuildIsQuarantinedAtConfiguredCapacity() async {
+        let builder = ControlledDirectoryIndexBuilder()
+        let deadlines = ControlledDirectorySearchDeadlines()
+        let service = MobileTaskDirectorySearchService(
+            configuration: .init(
+                maximumDirectories: 1,
+                maximumDepth: 0,
+                cacheLifetime: 30,
+                maximumFilesystemEntries: 1,
+                indexBuildTimeout: .seconds(1),
+                maximumConcurrentIndexBuilds: 1
+            ),
+            indexBuilder: { _, _ in await builder.run() },
+            deadlineSleep: { _ in await deadlines.suspendUntilFired() }
+        )
+        let first = Task {
+            await Self.searchError(from: service, query: "first")
+        }
+        await builder.waitForCount(1)
+        await deadlines.waitForCount(1)
+        await deadlines.fireAll()
+
+        #expect(await first.value == .indexTimedOut)
+        #expect(await Self.searchError(from: service, query: "second") == .busy)
+        #expect(await builder.count == 1)
+        await builder.complete()
+    }
+
     @Test func filesystemRootNeverNormalizesToDotDot() {
         let root = MobileTaskDirectorySearchService.parentSearchRoot(
             for: URL(fileURLWithPath: "/", isDirectory: true)
         )
 
         #expect(root.path == "/")
+    }
+
+    private static func searchError(
+        from service: MobileTaskDirectorySearchService,
+        query: String
+    ) async -> MobileTaskDirectorySearchService.SearchError? {
+        do {
+            _ = try await service.search(query: query, seedPaths: [])
+            return nil
+        } catch let error as MobileTaskDirectorySearchService.SearchError {
+            return error
+        } catch {
+            return nil
+        }
+    }
+}
+
+private actor ControlledDirectoryRanker {
+    private(set) var count = 0
+    private(set) var activeCount = 0
+    private(set) var maximumActiveCount = 0
+    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    func run(query: String) async -> [String] {
+        count += 1
+        activeCount += 1
+        maximumActiveCount = max(maximumActiveCount, activeCount)
+        resumeCountWaiters()
+        defer { activeCount -= 1 }
+        if query == "first" {
+            try? await Task.sleep(for: .seconds(60))
+            return []
+        }
+        return ["latest"]
+    }
+
+    func waitForCount(_ expected: Int) async {
+        if count >= expected { return }
+        await withCheckedContinuation { countWaiters.append((expected, $0)) }
+    }
+
+    private func resumeCountWaiters() {
+        let ready = countWaiters.filter { count >= $0.0 }
+        countWaiters.removeAll { count >= $0.0 }
+        for waiter in ready { waiter.1.resume() }
+    }
+}
+
+private actor ControlledDirectoryIndexBuilder {
+    private(set) var count = 0
+    private var continuation: CheckedContinuation<[MobileTaskDirectorySearchService.SearchablePath], Never>?
+    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    func run() async -> [MobileTaskDirectorySearchService.SearchablePath] {
+        count += 1
+        let ready = countWaiters.filter { count >= $0.0 }
+        countWaiters.removeAll { count >= $0.0 }
+        for waiter in ready { waiter.1.resume() }
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func waitForCount(_ expected: Int) async {
+        if count >= expected { return }
+        await withCheckedContinuation { countWaiters.append((expected, $0)) }
+    }
+
+    func complete() {
+        continuation?.resume(returning: [])
+        continuation = nil
+    }
+}
+
+private actor ControlledDirectorySearchDeadlines {
+    private var count = 0
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+    private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    func suspendUntilFired() async {
+        count += 1
+        let ready = countWaiters.filter { count >= $0.0 }
+        countWaiters.removeAll { count >= $0.0 }
+        for waiter in ready { waiter.1.resume() }
+        await withCheckedContinuation { continuations.append($0) }
+    }
+
+    func waitForCount(_ expected: Int) async {
+        if count >= expected { return }
+        await withCheckedContinuation { countWaiters.append((expected, $0)) }
+    }
+
+    func fireAll() {
+        let pending = continuations
+        continuations = []
+        for continuation in pending { continuation.resume() }
     }
 }

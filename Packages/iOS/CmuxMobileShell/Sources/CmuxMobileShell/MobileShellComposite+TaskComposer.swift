@@ -3,17 +3,34 @@ internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 internal import Foundation
 
+/// A user-actionable failure returned by task-composer directory search.
+public enum MobileTaskDirectorySearchFailure: Error, Equatable, Sendable {
+    /// The selected Mac could not be reached.
+    case unavailable
+    /// The Mac did not finish directory search before its deadline.
+    case timedOut
+    /// The phone or Mac must be signed in again before search can continue.
+    case authorizationRequired
+    /// The Mac rejected or could not decode the directory-search request.
+    case rejected
+    /// The caller superseded or cancelled this search.
+    case cancelled
+}
+
 extension MobileShellComposite {
     /// Returns real Mac directories matching a task-composer query. Older Macs
     /// degrade to the local open/recent suggestions without surfacing an error.
-    public func searchTaskDirectories(macDeviceID: String, query rawQuery: String) async -> [String] {
+    public func searchTaskDirectories(
+        macDeviceID: String,
+        query rawQuery: String
+    ) async -> Result<[String], MobileTaskDirectorySearchFailure> {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return [] }
+        guard !query.isEmpty else { return .success([]) }
         if macDeviceID != foregroundMacDeviceID || remoteClient == nil {
-            guard await switchToMac(macDeviceID: macDeviceID) else { return [] }
+            guard await switchToMac(macDeviceID: macDeviceID) else { return .failure(.unavailable) }
         }
         guard !Task.isCancelled, foregroundMacDeviceID == macDeviceID,
-              let client = remoteClient else { return [] }
+              let client = remoteClient else { return .failure(.cancelled) }
         // The last learned capability set can be stale after a tagged Mac
         // relaunch. This optional read is safe to probe; genuinely older Macs
         // return an RPC error and fall back to contextual suggestions below.
@@ -23,10 +40,36 @@ extension MobileShellComposite {
                 params: ["query": query]
             )
             let data = try await client.sendRequest(request, timeoutNanoseconds: 4_000_000_000)
-            guard !Task.isCancelled, foregroundMacDeviceID == macDeviceID else { return [] }
-            return try MobileTaskDirectorySearchResponse.decode(data).directories
+            guard !Task.isCancelled, foregroundMacDeviceID == macDeviceID else {
+                return .failure(.cancelled)
+            }
+            return .success(try MobileTaskDirectorySearchResponse.decode(data).directories)
+        } catch let error as MobileShellConnectionError {
+            switch error {
+            case let .rpcError(code, _) where code == "method_not_found":
+                return .success([])
+            case .requestTimedOut,
+                 .rpcError("request_timeout", _):
+                return .failure(.timedOut)
+            case .authorizationFailed,
+                 .accountMismatch,
+                 .rpcError("unauthorized", _),
+                 .rpcError("account_mismatch", _):
+                return .failure(.authorizationRequired)
+            case .rpcError("cancelled", _):
+                return .failure(.cancelled)
+            case .connectionClosed,
+                 .insecureManualRoute,
+                 .attachTicketExpired:
+                return .failure(.unavailable)
+            case .invalidResponse,
+                 .rpcError:
+                return .failure(.rejected)
+            }
+        } catch is CancellationError {
+            return .failure(.cancelled)
         } catch {
-            return []
+            return .failure(.rejected)
         }
     }
 

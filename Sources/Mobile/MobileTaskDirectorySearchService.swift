@@ -5,11 +5,18 @@ import Foundation
 /// across keystrokes, never follows symlinks, and skips dependency/cache trees
 /// that are both noisy and expensive to enumerate.
 actor MobileTaskDirectorySearchService {
+    enum SearchError: Error, Equatable {
+        case indexTimedOut
+        case busy
+    }
+
     struct Configuration: Sendable {
         var maximumDirectories = 12_000
         var maximumDepth = 6
         var cacheLifetime: TimeInterval = 30
         var maximumFilesystemEntries = 24_000
+        var indexBuildTimeout: Duration = .seconds(3)
+        var maximumConcurrentIndexBuilds = 2
     }
 
     static let shared = MobileTaskDirectorySearchService()
@@ -20,13 +27,20 @@ actor MobileTaskDirectorySearchService {
         let builtAt: Date
     }
 
-    private struct PendingBuild: Sendable {
-        let id: UUID
-        let rootIDs: Set<Data>
-        let task: Task<[SearchablePath], Never>
+    private enum BuildOutcome {
+        case success([SearchablePath])
+        case failure(SearchError)
+        case cancelled
     }
 
-    private struct SearchablePath: Sendable {
+    private struct PendingBuild {
+        let id: UUID
+        let rootIDs: Set<Data>
+        var waiters: [UUID: CheckedContinuation<BuildOutcome, Never>]
+        let deadlineTask: Task<Void, Never>
+    }
+
+    struct SearchablePath: Sendable {
         let path: String
         let pathBytes: [UInt8]
         let foldedPath: String
@@ -40,17 +54,46 @@ actor MobileTaskDirectorySearchService {
         let unmatchedComponents: Int
     }
 
+    private struct PendingRank {
+        let id: UUID
+        let task: Task<[String], Never>
+    }
+
+    typealias IndexBuilder = @Sendable ([URL], Configuration) async -> [SearchablePath]
+    typealias RankOperation = @Sendable ([SearchablePath], String, Int) async -> [String]
+    typealias DeadlineSleep = @Sendable (Duration) async -> Void
+
     private let homeDirectory: URL
     private let configuration: Configuration
+    private let indexBuilder: IndexBuilder
+    private let rankOperation: RankOperation
+    private let deadlineSleep: DeadlineSleep
     private var snapshot: Snapshot?
-    private var pendingBuild: PendingBuild?
+    private var pendingBuildIDsByRoots: [Set<Data>: UUID] = [:]
+    private var pendingBuildsByID: [UUID: PendingBuild] = [:]
+    private var activeBuildIDs: Set<UUID> = []
+    private var searchRevision: UInt64 = 0
+    private var pendingRank: PendingRank?
 
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        configuration: Configuration = Configuration()
+        configuration: Configuration = Configuration(),
+        indexBuilder: IndexBuilder? = nil,
+        rankOperation: RankOperation? = nil,
+        deadlineSleep: DeadlineSleep? = nil
     ) {
+        precondition(configuration.maximumConcurrentIndexBuilds > 0)
         self.homeDirectory = homeDirectory.standardizedFileURL
         self.configuration = configuration
+        self.indexBuilder = indexBuilder ?? { roots, configuration in
+            Self.prepare(paths: Self.scan(roots: roots, configuration: configuration))
+        }
+        self.rankOperation = rankOperation ?? { paths, query, limit in
+            Self.rank(searchablePaths: paths, query: query, limit: limit)
+        }
+        self.deadlineSleep = deadlineSleep ?? { timeout in
+            try? await ContinuousClock().sleep(for: timeout)
+        }
     }
 
     func search(
@@ -58,45 +101,153 @@ actor MobileTaskDirectorySearchService {
         seedPaths: [String],
         limit: Int = 64,
         now: Date = Date()
-    ) async -> [String] {
+    ) async throws -> [String] {
+        searchRevision &+= 1
+        let revision = searchRevision
+        pendingRank?.task.cancel()
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty, limit > 0 else { return [] }
         let roots = Self.searchRoots(homeDirectory: homeDirectory, seedPaths: seedPaths)
-        let paths = await indexedPaths(roots: roots, now: now)
-        guard !Task.isCancelled else { return [] }
+        let paths = try await indexedPaths(roots: roots, now: now)
+        guard !Task.isCancelled, revision == searchRevision else { return [] }
         let expandedQuery = Self.expandHome(query, homeDirectory: homeDirectory.path)
-        return await withTaskGroup(of: [String].self) { group in
-            group.addTask {
-                Self.rank(searchablePaths: paths, query: expandedQuery, limit: min(limit, 64))
-            }
-            return await group.next() ?? []
-        }
+        return await rankLatest(
+            paths: paths,
+            query: expandedQuery,
+            limit: min(limit, 64),
+            revision: revision
+        )
     }
 
-    private func indexedPaths(roots: [URL], now: Date) async -> [SearchablePath] {
+    private func indexedPaths(roots: [URL], now: Date) async throws -> [SearchablePath] {
         let rootIDs = Set(roots.map { Data($0.path.utf8) })
         if let snapshot,
            now.timeIntervalSince(snapshot.builtAt) < configuration.cacheLifetime,
            rootIDs == snapshot.rootIDs {
             return snapshot.paths
         }
-        if let pendingBuild, rootIDs == pendingBuild.rootIDs {
-            return await pendingBuild.task.value
+        guard !Task.isCancelled else { throw CancellationError() }
+        let waiterID = UUID()
+        let outcome = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                registerBuildWaiter(
+                    waiterID: waiterID,
+                    roots: roots,
+                    rootIDs: rootIDs,
+                    builtAt: now,
+                    continuation: continuation
+                )
+            }
+        } onCancel: {
+            Task { await self.cancelBuildWaiter(waiterID, rootIDs: rootIDs) }
+        }
+        switch outcome {
+        case let .success(paths):
+            return paths
+        case let .failure(error):
+            throw error
+        case .cancelled:
+            throw CancellationError()
+        }
+    }
+
+    private func registerBuildWaiter(
+        waiterID: UUID,
+        roots: [URL],
+        rootIDs: Set<Data>,
+        builtAt: Date,
+        continuation: CheckedContinuation<BuildOutcome, Never>
+    ) {
+        if let buildID = pendingBuildIDsByRoots[rootIDs],
+           var build = pendingBuildsByID[buildID] {
+            build.waiters[waiterID] = continuation
+            pendingBuildsByID[buildID] = build
+            return
+        }
+        guard activeBuildIDs.count < configuration.maximumConcurrentIndexBuilds else {
+            continuation.resume(returning: .failure(.busy))
+            return
         }
 
-        let id = UUID()
+        let buildID = UUID()
+        let timeout = configuration.indexBuildTimeout
+        let deadlineTask = Task { [weak self, deadlineSleep] in
+            await deadlineSleep(timeout)
+            guard !Task.isCancelled else { return }
+            await self?.timeoutBuild(buildID)
+        }
+        pendingBuildsByID[buildID] = PendingBuild(
+            id: buildID,
+            rootIDs: rootIDs,
+            waiters: [waiterID: continuation],
+            deadlineTask: deadlineTask
+        )
+        pendingBuildIDsByRoots[rootIDs] = buildID
+        activeBuildIDs.insert(buildID)
         let configuration = configuration
-        pendingBuild?.task.cancel()
-        let task = Task.detached(priority: .utility) {
-            Self.prepare(paths: Self.scan(roots: roots, configuration: configuration))
+        Task.detached(priority: .utility) { [weak self, indexBuilder] in
+            let paths = await indexBuilder(roots, configuration)
+            await self?.completeBuild(buildID, paths: paths, builtAt: builtAt)
         }
-        pendingBuild = PendingBuild(id: id, rootIDs: rootIDs, task: task)
-        let paths = await task.value
-        if pendingBuild?.id == id {
-            snapshot = Snapshot(rootIDs: rootIDs, paths: paths, builtAt: now)
-            pendingBuild = nil
+    }
+
+    private func cancelBuildWaiter(_ waiterID: UUID, rootIDs: Set<Data>) {
+        guard let buildID = pendingBuildIDsByRoots[rootIDs],
+              var build = pendingBuildsByID[buildID],
+              let continuation = build.waiters.removeValue(forKey: waiterID) else { return }
+        pendingBuildsByID[buildID] = build
+        continuation.resume(returning: .cancelled)
+    }
+
+    private func timeoutBuild(_ buildID: UUID) {
+        guard let build = pendingBuildsByID.removeValue(forKey: buildID) else { return }
+        if pendingBuildIDsByRoots[build.rootIDs] == buildID {
+            pendingBuildIDsByRoots.removeValue(forKey: build.rootIDs)
         }
-        return paths
+        for continuation in build.waiters.values {
+            continuation.resume(returning: .failure(.indexTimedOut))
+        }
+    }
+
+    private func completeBuild(_ buildID: UUID, paths: [SearchablePath], builtAt: Date) {
+        activeBuildIDs.remove(buildID)
+        guard let build = pendingBuildsByID.removeValue(forKey: buildID) else { return }
+        build.deadlineTask.cancel()
+        if pendingBuildIDsByRoots[build.rootIDs] == buildID {
+            pendingBuildIDsByRoots.removeValue(forKey: build.rootIDs)
+        }
+        snapshot = Snapshot(rootIDs: build.rootIDs, paths: paths, builtAt: builtAt)
+        for continuation in build.waiters.values {
+            continuation.resume(returning: .success(paths))
+        }
+    }
+
+    private func rankLatest(
+        paths: [SearchablePath],
+        query: String,
+        limit: Int,
+        revision: UInt64
+    ) async -> [String] {
+        if let prior = pendingRank {
+            prior.task.cancel()
+            _ = await prior.task.value
+            if pendingRank?.id == prior.id { pendingRank = nil }
+        }
+        guard !Task.isCancelled, revision == searchRevision else { return [] }
+        let rankID = UUID()
+        let rankOperation = rankOperation
+        let task = Task.detached(priority: .userInitiated) {
+            await rankOperation(paths, query, limit)
+        }
+        pendingRank = PendingRank(id: rankID, task: task)
+        let ranked = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        if pendingRank?.id == rankID { pendingRank = nil }
+        guard !Task.isCancelled, revision == searchRevision else { return [] }
+        return ranked
     }
 
     nonisolated static func rank(paths: [String], query: String, limit: Int) -> [String] {
@@ -321,39 +472,6 @@ actor MobileTaskDirectorySearchService {
             candidateIndex = candidate.index(after: match)
         }
         return true
-    }
-
-    private nonisolated static func hasFuzzyComponent(_ query: String, in components: [String]) -> Bool {
-        guard query.count >= 3 else { return false }
-        let maximum = query.count >= 7 ? 2 : 1
-        return components.contains { component in
-            abs(component.count - query.count) <= maximum
-                && editDistance(component, query, maximum: maximum) <= maximum
-        }
-    }
-
-    private nonisolated static func editDistance(_ lhs: String, _ rhs: String, maximum: Int) -> Int {
-        let left = Array(lhs)
-        let right = Array(rhs)
-        guard abs(left.count - right.count) <= maximum else { return maximum + 1 }
-        var previous = Array(0...right.count)
-        for (leftIndex, leftCharacter) in left.enumerated() {
-            var current = [leftIndex + 1]
-            current.reserveCapacity(right.count + 1)
-            var rowMinimum = current[0]
-            for (rightIndex, rightCharacter) in right.enumerated() {
-                let value = min(
-                    current[rightIndex] + 1,
-                    previous[rightIndex + 1] + 1,
-                    previous[rightIndex] + (leftCharacter == rightCharacter ? 0 : 1)
-                )
-                current.append(value)
-                rowMinimum = min(rowMinimum, value)
-            }
-            if rowMinimum > maximum { return maximum + 1 }
-            previous = current
-        }
-        return previous.last ?? maximum + 1
     }
 
     private nonisolated static func expandHome(_ path: String, homeDirectory: String) -> String {

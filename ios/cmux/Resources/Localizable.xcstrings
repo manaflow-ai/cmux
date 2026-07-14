@@ -7267,6 +7267,41 @@
         }
       }
     },
+    "mobile.taskComposer.directoryPicker.failure.authorization": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sign in again on this device and Mac, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このデバイスとMacで再度サインインしてから、もう一度お試しください。" } }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.failure.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The folder search failed. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォルダの検索に失敗しました。もう一度お試しください。" } }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.failure.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This Mac took too long to search. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このMacの検索がタイムアウトしました。もう一度お試しください。" } }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.failure.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t Search Folders" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォルダを検索できませんでした" } }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.failure.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnect to this Mac, then try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このMacに再接続してから、もう一度お試しください。" } }
+      }
+    },
     "mobile.taskComposer.directoryPicker.hint": {
       "extractionState": "manual",
       "localizations": {

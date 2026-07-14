@@ -16,14 +16,20 @@ extension TerminalController {
         _ isProvided: Bool
     ) async -> WorkspaceCreateWorkingDirectoryValidation
 
+    nonisolated static let v2MaximumWorkingDirectoryUTF8Bytes = 4_096
+
     nonisolated static let v2MobileWorkingDirectoryValidationService =
         WorkspaceCreateWorkingDirectoryValidationService(
             timeout: .seconds(3),
             localCapacity: 1,
             externalCapacity: 2,
+            classificationCapacity: 3,
             maximumPendingWaiters: 64,
+            maximumPathUTF8Bytes: v2MaximumWorkingDirectoryUTF8Bytes,
             laneClassifier: { @Sendable path in
-                TerminalController.v2WorkingDirectoryProbeLane(path)
+                await Task.detached(priority: .utility) {
+                    TerminalController.v2WorkingDirectoryProbeLane(path)
+                }.value
             },
             probe: { path, lane in
                 await TerminalController.v2ProbeWorkingDirectory(path, lane: lane)
@@ -212,6 +218,9 @@ extension TerminalController {
         isProvided: Bool
     ) async -> WorkspaceCreateWorkingDirectoryValidation {
         guard !Task.isCancelled else { return .cancelled }
+        guard !isProvided || (rawValue?.utf8.count ?? 0) <= v2MaximumWorkingDirectoryUTF8Bytes else {
+            return .invalid
+        }
         let validation = await v2MobileWorkingDirectoryValidationService.validate(
             rawValue: rawValue,
             isProvided: isProvided

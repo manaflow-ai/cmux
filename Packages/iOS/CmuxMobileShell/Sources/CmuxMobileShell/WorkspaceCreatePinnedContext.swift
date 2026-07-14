@@ -50,7 +50,17 @@ extension MobileShellComposite {
             operationID: UUID?,
             error: any Error
         ) -> WorkspaceCreateCaughtErrorDisposition {
-            guard error is CancellationError else { return .surfaceError }
+            let isAmbiguous: Bool
+            switch error {
+            case is CancellationError,
+                 MobileShellConnectionError.connectionClosed,
+                 MobileShellConnectionError.requestTimedOut,
+                 MobileShellConnectionError.invalidResponse:
+                isAmbiguous = true
+            default:
+                isAmbiguous = false
+            }
+            guard isAmbiguous else { return .surfaceError }
             return operationID == nil ? .preserveSuccess : .failClosed
         }
     }
