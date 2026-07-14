@@ -52,10 +52,16 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
         _ requestedPath: String,
         timeout: Duration = defaultResolutionTimeout
     ) async -> Result<String, CmuxRunURLExecutionError> {
+        let limiter = CmuxRunWorkingDirectoryResolutionLimiter.shared
+        guard await limiter.acquire() else {
+            return .failure(.busy)
+        }
         let gate = CmuxRunWorkingDirectoryResolutionGate()
         let resolver = self
         _ = Task.detached(priority: .userInitiated) {
-            await gate.finish(resolver.resolve(requestedPath))
+            let result = resolver.resolve(requestedPath)
+            await limiter.release()
+            await gate.finish(result)
         }
         let timeoutTask = Task {
             do {
@@ -76,6 +82,22 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
         }
         timeoutTask.cancel()
         return result
+    }
+}
+
+private actor CmuxRunWorkingDirectoryResolutionLimiter {
+    static let shared = CmuxRunWorkingDirectoryResolutionLimiter()
+
+    private var isResolving = false
+
+    func acquire() -> Bool {
+        guard !isResolving else { return false }
+        isResolving = true
+        return true
+    }
+
+    func release() {
+        isResolving = false
     }
 }
 
