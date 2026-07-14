@@ -332,6 +332,10 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         readiness: Pipe,
         termination: AsyncStream<Int32>
     ) async {
+        let processID = process.processIdentifier
+        let processGroupID = processID > 0 && Darwin.getpgid(processID) == processID
+            ? processID
+            : nil
         requestTermination(process: process, input: input, output: output, readiness: readiness)
         let terminated = await withTaskGroup(of: Bool.self) { group in
             group.addTask {
@@ -352,7 +356,9 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             group.cancelAll()
             return result
         }
-        if !terminated, process.isRunning {
+        if let processGroupID {
+            _ = Darwin.kill(-processGroupID, SIGKILL)
+        } else if !terminated, process.isRunning {
             forceTermination(process)
         }
         process.waitUntilExit()

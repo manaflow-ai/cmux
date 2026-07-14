@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import "../../Resources/markdown-viewer/viewer-navigation.js";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
-import { BranchBasePicker, type BranchPickerPayload } from "./BranchBasePicker";
+import { BranchBasePicker, branchPickerStateKey, type BranchPickerPayload } from "./BranchBasePicker";
 import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
 import {
   applyCommentAnnotations,
@@ -948,6 +948,7 @@ function BaseControl({
     };
     return (
       <BranchBasePicker
+        key={branchPickerStateKey(typedPicker)}
         label={label}
         onNavigate={onNavigate}
         onSelectBranchBase={(baseRef) => onSelectSessionSource({
@@ -962,7 +963,15 @@ function BaseControl({
   }
   const picker = resolveBranchPicker(payload);
   if (picker) {
-    return <BranchBasePicker label={label} onNavigate={onNavigate} picker={picker} transport={transport} />;
+    return (
+      <BranchBasePicker
+        key={branchPickerStateKey(picker)}
+        label={label}
+        onNavigate={onNavigate}
+        picker={picker}
+        transport={transport}
+      />
+    );
   }
   return (
     <NavigationSelect

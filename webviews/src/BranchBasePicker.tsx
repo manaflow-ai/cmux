@@ -30,6 +30,10 @@ export type BranchPickerPayload = {
   regenerateURLTemplate: string;
 };
 
+export function branchPickerStateKey(picker: BranchPickerPayload): string {
+  return `${picker.repoRoot}\u0000${picker.capabilityToken ?? ""}`;
+}
+
 // Strip a leading `scheme://host[:port]` so the URL becomes root-relative and
 // resolves against the CURRENT document origin. The persisted diff HTML embeds
 // `refsURL`/`regenerateURLTemplate` as ABSOLUTE URLs with the HTTP origin
