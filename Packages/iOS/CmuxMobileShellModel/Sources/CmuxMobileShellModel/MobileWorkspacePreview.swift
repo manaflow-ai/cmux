@@ -189,4 +189,18 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         }
         return pane.terminalIDs.compactMap { terminalsByID[$0] }
     }
+
+    /// Returns the terminal's unambiguous pane membership, accepting either a
+    /// matching terminal owner or the pane hierarchy's reported membership.
+    /// - Parameter terminal: The terminal whose pane membership should be resolved.
+    /// - Returns: The owning pane id, or `nil` when membership is absent or ambiguous.
+    public func paneID(containing terminal: MobileTerminalPreview) -> MobilePanePreview.ID? {
+        let membershipPanes = resolvedPanes.filter { $0.terminalIDs.contains(terminal.id) }
+        if let explicitPaneID = terminal.paneID,
+           membershipPanes.contains(where: { $0.id == explicitPaneID }) {
+            return explicitPaneID
+        }
+        guard membershipPanes.count == 1 else { return nil }
+        return membershipPanes[0].id
+    }
 }

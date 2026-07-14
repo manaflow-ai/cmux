@@ -23,7 +23,8 @@ extension MobileShellComposite {
               reservation.workspaceID == workspaceID else {
             return .failure(.rejected(hostDisplayName: workspaceHostDisplayName(for: workspaceID)))
         }
-        let paneIDs = terminal.paneID.map { workspace.terminals(in: $0).map(\.id) } ?? []
+        let paneIDs = workspace.paneID(containing: terminal)
+            .map { workspace.terminals(in: $0).map(\.id) } ?? []
         let fallback = MobileTerminalCloseFallback(
             closedTerminalID: terminalID,
             selectedTerminalID: selectedTerminalID,
