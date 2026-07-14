@@ -10,7 +10,7 @@ extension Workspace {
     @discardableResult
     func openOrFocusAppUtilitySurface(
         inPane paneId: PaneID,
-        kind: AppUtilityPanel.Kind,
+        kind: AppUtilityPanelKind,
         settingsNavigationTarget: SettingsNavigationTarget? = nil,
         focus: Bool = true
     ) -> AppUtilityPanel? {
@@ -36,7 +36,7 @@ extension Workspace {
     @discardableResult
     func newAppUtilitySurface(
         inPane paneId: PaneID,
-        kind: AppUtilityPanel.Kind,
+        kind: AppUtilityPanelKind,
         settingsNavigationTarget: SettingsNavigationTarget? = nil,
         focus: Bool? = nil,
         targetIndex: Int? = nil

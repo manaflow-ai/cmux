@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import Observation
 
 /// Type of panel content
 public enum PanelType: String, Codable, Sendable {
@@ -380,6 +381,7 @@ extension Panel {
 }
 
 @MainActor
+@Observable
 final class CloudVMLoadingPanel: Panel {
     enum Phase {
         case loading
@@ -390,8 +392,8 @@ final class CloudVMLoadingPanel: Panel {
     let workspaceId: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .cloudVMLoading
-    @Published var startedAt: Date
-    @Published var phase: Phase = .loading
+    var startedAt: Date
+    var phase: Phase = .loading
 
     var displayTitle: String {
         String(localized: "panel.cloudVM.loading.title", defaultValue: "Cloud VM")

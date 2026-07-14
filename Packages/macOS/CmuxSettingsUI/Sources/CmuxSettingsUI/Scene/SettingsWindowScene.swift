@@ -12,14 +12,43 @@ import SwiftUI
 /// proxy, and the section anchors.
 @MainActor
 public struct SettingsWindowRoot: View {
+    /// Controls sizing behavior for a standalone Settings window or an embedded pane.
+    public enum PresentationStyle: Sendable {
+        /// Preserve the standalone window's minimum content size.
+        case window
+        /// Adapt to the size of the containing workspace pane.
+        case pane
+    }
+
+    struct InitialSelection: Equatable {
+        let sectionRawValue: String
+        let sidebarEntryID: String
+    }
+
+    private static let selectedSectionDefaultsKey = "selectedSettingsSection"
+    private static let selectedSidebarEntryDefaultsKey = "selectedSettingsSidebarEntry"
+
     private let runtime: SettingsRuntime
     private let searchIndex: SettingsSearchIndex
     private let navigationScope: String?
+    private let presentationStyle: PresentationStyle
 
-    public init(runtime: SettingsRuntime, navigationScope: String? = nil) {
+    public init(
+        runtime: SettingsRuntime,
+        navigationScope: String? = nil,
+        initialNavigationSection: SettingsSectionID? = nil,
+        presentationStyle: PresentationStyle = .window
+    ) {
         self.runtime = runtime
         self.searchIndex = runtime.searchIndex
         self.navigationScope = navigationScope
+        self.presentationStyle = presentationStyle
+        let selection = Self.initialSelection(
+            initialNavigationSection: initialNavigationSection,
+            defaults: .standard
+        )
+        _selectedSectionRaw = State(initialValue: selection.sectionRawValue)
+        _selectedSidebarEntryID = State(initialValue: selection.sidebarEntryID)
     }
 
     @State private var searchText: String = ""
@@ -31,10 +60,12 @@ public struct SettingsWindowRoot: View {
     // because under search the user can click an individual setting
     // hit and we still want the section pane to follow, but two
     // sibling hits inside one section must each be selectable.
-    // @AppStorage (not @SceneStorage): the window is AppKit-hosted, so
-    // there is no SwiftUI scene to store into (cmux issue #7777).
-    @AppStorage("selectedSettingsSection") private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
-    @AppStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
+    // Each root owns live selection state so Settings panes in different
+    // workspaces do not drive one another. Mutations are persisted explicitly
+    // to retain the legacy reopen-at-last-section behavior without AppStorage's
+    // cross-root live synchronization.
+    @State private var selectedSectionRaw: String
+    @State private var selectedSidebarEntryID: String
     // Legacy `SettingsRootView` binds `NavigationSplitView`'s
     // `columnVisibility` so the user can collapse the sidebar via the
     // toolbar button (or the SidebarCommands menu) and have that state
@@ -110,10 +141,10 @@ public struct SettingsWindowRoot: View {
         // and publish the active highlight so the matching row pulses.
         .environment(\.settingsSearchIndex, searchIndex)
         .environment(\.settingsSearchHighlightState, searchHighlight)
-        // Legacy SettingsRootView pins the window minimum to
-        // SettingsWindowPresenter.minimumSize (820 x 540); mirror that
-        // so the package window can shrink to the same lower bound.
-        .frame(minWidth: 820, minHeight: 540)
+        .frame(
+            minWidth: presentationStyle == .window ? 820 : nil,
+            minHeight: presentationStyle == .window ? 540 : nil
+        )
         .settingsErrorAlert(log: runtime.errorLog)
         .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
             guard acceptsNavigationNotification(notification) else { return }
@@ -132,7 +163,29 @@ public struct SettingsWindowRoot: View {
             // selected.
             guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             selectedSidebarEntryID = sectionEntryID(for: selectedSection)
+            persistSelection()
         }
+    }
+
+    static func initialSelection(
+        initialNavigationSection: SettingsSectionID?,
+        defaults: UserDefaults
+    ) -> InitialSelection {
+        if let initialNavigationSection {
+            return InitialSelection(
+                sectionRawValue: initialNavigationSection.rawValue,
+                sidebarEntryID: "section:\(initialNavigationSection.rawValue)"
+            )
+        }
+        let sectionRawValue = defaults.string(forKey: selectedSectionDefaultsKey)
+            ?? SettingsSectionID.account.rawValue
+        let section = SettingsSectionID(rawValue: sectionRawValue) ?? .account
+        let sidebarEntryID = defaults.string(forKey: selectedSidebarEntryDefaultsKey)
+            ?? "section:\(section.rawValue)"
+        return InitialSelection(
+            sectionRawValue: section.rawValue,
+            sidebarEntryID: sidebarEntryID
+        )
     }
 
     public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
@@ -232,6 +285,7 @@ public struct SettingsWindowRoot: View {
         if selectedSectionRaw != section.rawValue {
             selectedSectionRaw = section.rawValue
         }
+        persistSelection()
         postNavigationRequest(target: section, anchorID: entry.anchorID, highlight: isSearching)
     }
 
@@ -282,6 +336,12 @@ public struct SettingsWindowRoot: View {
             let sectionEntry = sectionEntryID(for: target)
             if selectedSidebarEntryID != sectionEntry { selectedSidebarEntryID = sectionEntry }
         }
+        persistSelection()
+    }
+
+    private func persistSelection() {
+        UserDefaults.standard.set(selectedSectionRaw, forKey: Self.selectedSectionDefaultsKey)
+        UserDefaults.standard.set(selectedSidebarEntryID, forKey: Self.selectedSidebarEntryDefaultsKey)
     }
 
     /// The canonical entry ID the search index uses for section header

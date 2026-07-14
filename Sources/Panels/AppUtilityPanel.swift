@@ -1,45 +1,25 @@
-import Combine
 import Foundation
+import Observation
 
 @MainActor
+@Observable
 final class AppUtilityPanel: Panel {
-    enum Kind: String, Equatable, Sendable {
-        case settings
-        case mobilePairing
-
-        var displayTitle: String {
-            switch self {
-            case .settings:
-                return String(localized: "settings.title", defaultValue: "Settings")
-            case .mobilePairing:
-                return String(localized: "mobile.pairing.window.title", defaultValue: "Pair iPhone")
-            }
-        }
-
-        var displayIcon: String {
-            switch self {
-            case .settings: return "gearshape"
-            case .mobilePairing: return "iphone"
-            }
-        }
-    }
-
     let id = UUID()
     let workspaceId: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .appUtility
-    let kind: Kind
+    let kind: AppUtilityPanelKind
     let settingsNavigationScope = UUID().uuidString
 
-    @Published private(set) var settingsNavigationTarget: SettingsNavigationTarget?
-    @Published private(set) var settingsNavigationRevision = 0
+    private(set) var settingsNavigationTarget: SettingsNavigationTarget?
+    private(set) var settingsNavigationRevision = 0
 
     var displayTitle: String { kind.displayTitle }
     var displayIcon: String? { kind.displayIcon }
 
     init(
         workspaceId: UUID,
-        kind: Kind,
+        kind: AppUtilityPanelKind,
         settingsNavigationTarget: SettingsNavigationTarget? = nil
     ) {
         self.workspaceId = workspaceId

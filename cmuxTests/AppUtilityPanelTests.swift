@@ -1,5 +1,5 @@
 import CmuxWorkspaces
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,67 +8,69 @@ import XCTest
 #endif
 
 @MainActor
-final class AppUtilityPanelTests: XCTestCase {
-    func testOpenOrFocusAppUtilitySurfaceReusesExistingKind() {
-        let workspace = Workspace()
-        guard let paneId = workspace.bonsplitController.focusedPaneId else {
-            XCTFail("Expected focused pane")
-            return
-        }
-
-        guard let firstPanel = workspace.openOrFocusAppUtilitySurface(
-            inPane: paneId,
+@Suite
+struct AppUtilityPanelTests {
+    @Test func initialSettingsTargetDoesNotScheduleACompetingNavigationPost() {
+        let panel = AppUtilityPanel(
+            workspaceId: UUID(),
             kind: .settings,
-            focus: true
-        ) else {
-            XCTFail("Expected Settings utility surface to be created")
-            return
-        }
-        guard let secondPanel = workspace.openOrFocusAppUtilitySurface(
-            inPane: paneId,
-            kind: .settings,
-            focus: true
-        ) else {
-            XCTFail("Expected existing Settings utility surface to be focused")
-            return
-        }
-
-        XCTAssertEqual(firstPanel.id, secondPanel.id)
-        XCTAssertEqual(
-            workspace.panels.values.compactMap { $0 as? AppUtilityPanel }.filter { $0.kind == .settings }.count,
-            1
+            settingsNavigationTarget: .keyboardShortcuts
         )
-        XCTAssertEqual(workspace.focusedPanelId, firstPanel.id)
-        XCTAssertEqual(
-            workspace.surfaceIdFromPanelId(firstPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind },
-            SurfaceKind.appUtility.rawValue
+
+        #expect(panel.settingsNavigationTarget == .keyboardShortcuts)
+        #expect(panel.settingsNavigationRevision == 0)
+
+        panel.requestSettingsNavigation(.browserImport)
+
+        #expect(panel.settingsNavigationTarget == .browserImport)
+        #expect(panel.settingsNavigationRevision == 1)
+    }
+
+    @Test func openOrFocusAppUtilitySurfaceReusesExistingKind() throws {
+        let workspace = Workspace()
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+
+        let firstPanel = try #require(workspace.openOrFocusAppUtilitySurface(
+            inPane: paneId,
+            kind: .settings,
+            focus: true
+        ))
+        let secondPanel = try #require(workspace.openOrFocusAppUtilitySurface(
+            inPane: paneId,
+            kind: .settings,
+            focus: true
+        ))
+
+        #expect(firstPanel.id == secondPanel.id)
+        #expect(
+            workspace.panels.values.compactMap { $0 as? AppUtilityPanel }.filter { $0.kind == .settings }.count == 1
+        )
+        #expect(workspace.focusedPanelId == firstPanel.id)
+        #expect(
+            workspace.surfaceIdFromPanelId(firstPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind }
+                == SurfaceKind.appUtility.rawValue
         )
     }
 
-    func testAppUtilityKindsCreateIndependentSurfaces() {
+    @Test func appUtilityKindsCreateIndependentSurfaces() throws {
         let workspace = Workspace()
-        guard let paneId = workspace.bonsplitController.focusedPaneId,
-              let originalFocusedPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected focused pane and panel")
-            return
-        }
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let originalFocusedPanelId = try #require(workspace.focusedPanelId)
 
-        guard let settingsPanel = workspace.openOrFocusAppUtilitySurface(
+        let settingsPanel = try #require(workspace.openOrFocusAppUtilitySurface(
             inPane: paneId,
             kind: .settings,
             focus: false
-        ), let mobilePanel = workspace.openOrFocusAppUtilitySurface(
+        ))
+        let mobilePanel = try #require(workspace.openOrFocusAppUtilitySurface(
             inPane: paneId,
             kind: .mobilePairing,
             focus: false
-        ) else {
-            XCTFail("Expected both utility surfaces to be created")
-            return
-        }
+        ))
 
-        XCTAssertNotEqual(settingsPanel.id, mobilePanel.id)
-        XCTAssertEqual(settingsPanel.displayTitle, "Settings")
-        XCTAssertEqual(mobilePanel.displayTitle, "Pair iPhone")
-        XCTAssertEqual(workspace.focusedPanelId, originalFocusedPanelId)
+        #expect(settingsPanel.id != mobilePanel.id)
+        #expect(settingsPanel.displayTitle == "Settings")
+        #expect(mobilePanel.displayTitle == "Pair iPhone")
+        #expect(workspace.focusedPanelId == originalFocusedPanelId)
     }
 }

@@ -3,7 +3,7 @@ import AppKit
 /// The Settings-open entrypoints shared by the app menu, ⌘,, the command
 /// palette, help commands, and the menu-bar extra. Split out of
 /// `AppDelegate.swift` (file-length budget) alongside the AppKit-owned
-/// Settings window lifecycle (https://github.com/manaflow-ai/cmux/issues/7777).
+/// Settings presentation lifecycle (https://github.com/manaflow-ai/cmux/issues/7777).
 extension AppDelegate {
     @MainActor
     static func presentPreferencesWindow(
@@ -19,11 +19,21 @@ extension AppDelegate {
             NSRunningApplication.current.activate(options: [.activateAllWindows])
         }
     ) {
+        if presentSettingsWindow == nil {
+            guard let appDelegate = AppDelegate.shared else {
+                NSSound.beep()
+                return
+            }
+            _ = appDelegate.openPreferencesWindow(
+                debugSource: "static.presentPreferencesWindow",
+                navigationTarget: navigationTarget
+            )
+            return
+        }
 #if DEBUG
-        cmuxDebugLog("settings.open.present path=appkitWindow")
+        cmuxDebugLog("settings.open.present path=injectedAppKitWindow")
 #endif
-        let present = presentSettingsWindow
-            ?? { SettingsWindowPresenter.show(navigationTarget: $0) }
+        guard let present = presentSettingsWindow else { return }
         if case .failed = present(navigationTarget) {
             // The presenter already logged the loud failure diagnostics;
             // surface the failed menu/⌘, action instead of silently activating.
@@ -37,18 +47,25 @@ extension AppDelegate {
     }
 
     @MainActor
-    func openPreferencesWindow(debugSource: String, navigationTarget: SettingsNavigationTarget? = nil) {
+    @discardableResult
+    func openPreferencesWindow(
+        debugSource: String,
+        navigationTarget: SettingsNavigationTarget? = nil,
+        activateApplication: Bool = true
+    ) -> Bool {
 #if DEBUG
         cmuxDebugLog("settings.open.request source=\(debugSource)")
 #endif
         guard openAppUtilityPane(
             kind: .settings,
             debugSource: debugSource,
-            settingsNavigationTarget: navigationTarget
+            settingsNavigationTarget: navigationTarget,
+            activateApplication: activateApplication
         ) else {
             NSSound.beep()
-            return
+            return false
         }
+        return true
     }
 
     @objc func openPreferencesWindow() {
@@ -71,11 +88,12 @@ extension AppDelegate {
 
     @discardableResult
     private func openAppUtilityPane(
-        kind: AppUtilityPanel.Kind,
+        kind: AppUtilityPanelKind,
         debugSource: String,
         settingsNavigationTarget: SettingsNavigationTarget? = nil,
         tabManager explicitTabManager: TabManager? = nil,
-        preferredWindow: NSWindow? = nil
+        preferredWindow: NSWindow? = nil,
+        activateApplication: Bool = true
     ) -> Bool {
         let candidateWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let targetWindow: NSWindow? = if explicitTabManager != nil {
@@ -85,10 +103,10 @@ extension AppDelegate {
         } else {
             showMainWindowFromMenuBar()
         }
-        guard let targetTabManager = explicitTabManager
+        guard let targetTabs = explicitTabManager
             ?? activeTabManagerForCommands(preferredWindow: targetWindow),
-              let workspace = targetTabManager.selectedWorkspace
-                ?? targetTabManager.tabs.first,
+              let workspace = targetTabs.selectedWorkspace
+                ?? targetTabs.tabs.first,
               let paneId = workspace.bonsplitController.focusedPaneId
                 ?? workspace.bonsplitController.allPaneIds.first else {
 #if DEBUG
@@ -107,7 +125,7 @@ extension AppDelegate {
             return false
         }
 
-        if let targetWindow, contextForMainWindow(targetWindow) != nil {
+        if activateApplication, let targetWindow, contextForMainWindow(targetWindow) != nil {
             NSRunningApplication.current.activate(options: [.activateAllWindows])
             targetWindow.makeKeyAndOrderFront(nil)
         }

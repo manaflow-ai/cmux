@@ -11,6 +11,41 @@ import Testing
 @Suite("SettingsSearchIndex")
 struct SettingsSearchIndexTests {
     @MainActor
+    @Test func initialNavigationOverridesPersistedSelectionWithoutChangingDefaults() throws {
+        let suiteName = "SettingsWindowRootSelectionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(SettingsSectionID.browser.rawValue, forKey: "selectedSettingsSection")
+        defaults.set("section:browser", forKey: "selectedSettingsSidebarEntry")
+
+        let selection = SettingsWindowRoot.initialSelection(
+            initialNavigationSection: .keyboardShortcuts,
+            defaults: defaults
+        )
+
+        #expect(selection.sectionRawValue == SettingsSectionID.keyboardShortcuts.rawValue)
+        #expect(selection.sidebarEntryID == "section:keyboardShortcuts")
+        #expect(defaults.string(forKey: "selectedSettingsSection") == SettingsSectionID.browser.rawValue)
+    }
+
+    @MainActor
+    @Test func initialSelectionRestoresPersistedValues() throws {
+        let suiteName = "SettingsWindowRootSelectionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(SettingsSectionID.automation.rawValue, forKey: "selectedSettingsSection")
+        defaults.set("setting:automation:workspace-auto-naming", forKey: "selectedSettingsSidebarEntry")
+
+        let selection = SettingsWindowRoot.initialSelection(
+            initialNavigationSection: nil,
+            defaults: defaults
+        )
+
+        #expect(selection.sectionRawValue == SettingsSectionID.automation.rawValue)
+        #expect(selection.sidebarEntryID == "setting:automation:workspace-auto-naming")
+    }
+
+    @MainActor
     @Test func settingsWindowRootsReuseRuntimeCachedIndex() throws {
         let catalog = SettingCatalog()
         let suiteName = "SettingsSearchIndexTests.\(UUID().uuidString)"

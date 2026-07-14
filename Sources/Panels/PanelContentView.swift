@@ -5,7 +5,6 @@ import Bonsplit
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFeedback
-import CmuxSettingsUI
 
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
@@ -181,44 +180,8 @@ struct PanelContentView: View {
     }
 }
 
-private struct AppUtilityPanelView: View {
-    @ObservedObject var panel: AppUtilityPanel
-
-    var body: some View {
-        Group {
-            switch panel.kind {
-            case .settings:
-                if let runtime = AppDelegate.shared?.settingsRuntime {
-                    SettingsWindowRoot(
-                        runtime: runtime,
-                        navigationScope: panel.settingsNavigationScope
-                    )
-                    .settingsRuntime(runtime)
-                    .task(id: panel.settingsNavigationRevision) {
-                        guard let target = panel.settingsNavigationTarget else { return }
-                        SettingsNavigationRequest.post(
-                            target,
-                            scope: panel.settingsNavigationScope
-                        )
-                    }
-                } else {
-                    Text(String(
-                        localized: "settings.window.runtimeUnavailable",
-                        defaultValue: "Settings could not load. Please restart cmux and report this issue."
-                    ))
-                    .padding(40)
-                }
-            case .mobilePairing:
-                MobilePairingView()
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
-    }
-}
-
 private struct CloudVMLoadingPanelView: View {
-    @ObservedObject var panel: CloudVMLoadingPanel
+    @Bindable var panel: CloudVMLoadingPanel
 
     var body: some View {
         let schedule: PeriodicTimelineSchedule = .periodic(from: panel.startedAt, by: 1)

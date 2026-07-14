@@ -198,19 +198,19 @@ extension TerminalController: ControlSystemContext {
             navigationTarget = nil
         }
 
-        // Present synchronously (this context is @MainActor) so the reply
-        // reflects reality: `opened` if-and-only-if a window materialized.
-        // "OK but nothing happened" was the #7775 failure shape.
-        let result = SettingsWindowPresenter.show(
-            navigationTarget: navigationTarget,
-            activateApp: shouldActivate
-        )
-        switch result {
-        case .presented, .orderedWhileAppHidden:
-            return .opened(target: navigationTarget?.rawValue ?? "general")
-        case .failed(let reason):
-            return .failed(message: reason)
+        // Open synchronously (this context is @MainActor) so the reply
+        // reflects reality: `opened` if-and-only-if the pane materialized.
+        guard let appDelegate = AppDelegate.shared else {
+            return .failed(message: "App delegate unavailable")
         }
+        if appDelegate.openPreferencesWindow(
+            debugSource: "control.settings.open",
+            navigationTarget: navigationTarget,
+            activateApplication: shouldActivate
+        ) {
+            return .opened(target: navigationTarget?.rawValue ?? "general")
+        }
+        return .failed(message: "Settings pane could not open")
     }
 
     func controlFeedbackOpen(workspaceID: UUID?, windowID: UUID?, requestedActivate: Bool) {
