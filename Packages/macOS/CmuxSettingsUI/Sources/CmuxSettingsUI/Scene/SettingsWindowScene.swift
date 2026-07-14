@@ -1,10 +1,7 @@
 import CmuxSettings
 import SwiftUI
 
-/// Root view of the settings window, hosted in an AppKit-owned
-/// `NSWindow` by the app's `SettingsWindowFactory` (cmux issue
-/// #7777; a SwiftUI `Window` scene's `openWindow(id:)` could
-/// silently no-op and strand the open path).
+/// Root view of Settings, hosted in an AppKit window or a workspace pane.
 ///
 /// Composes a single tall `ScrollView` of stacked sections — the
 /// legacy in-app layout — with a left sidebar that scrolls to a
@@ -12,41 +9,27 @@ import SwiftUI
 /// proxy, and the section anchors.
 @MainActor
 public struct SettingsWindowRoot: View {
-    /// Controls sizing behavior for a standalone Settings window or an embedded pane.
-    public enum PresentationStyle: Sendable {
-        /// Preserve the standalone window's minimum content size.
-        case window
-        /// Adapt to the size of the containing workspace pane.
-        case pane
-    }
-
-    struct InitialSelection: Equatable {
-        let sectionRawValue: String
-        let sidebarEntryID: String
-    }
-
-    private static let selectedSectionDefaultsKey = "selectedSettingsSection"
-    private static let selectedSidebarEntryDefaultsKey = "selectedSettingsSidebarEntry"
-
     private let runtime: SettingsRuntime
     private let searchIndex: SettingsSearchIndex
     private let navigationScope: String?
-    private let presentationStyle: PresentationStyle
+    private let presentationStyle: SettingsPresentationStyle
+    private let selectionDefaults: UserDefaults
 
+    /// Creates a Settings root for a standalone window or workspace pane.
     public init(
         runtime: SettingsRuntime,
         navigationScope: String? = nil,
         initialNavigationSection: SettingsSectionID? = nil,
-        presentationStyle: PresentationStyle = .window
+        presentationStyle: SettingsPresentationStyle = .window,
+        selectionDefaults: UserDefaults = .standard
     ) {
         self.runtime = runtime
         self.searchIndex = runtime.searchIndex
         self.navigationScope = navigationScope
         self.presentationStyle = presentationStyle
-        let selection = Self.initialSelection(
-            initialNavigationSection: initialNavigationSection,
-            defaults: .standard
-        )
+        self.selectionDefaults = selectionDefaults
+        let selection = SettingsInitialSelectionResolver(defaults: selectionDefaults)
+            .resolve(initialNavigationSection: initialNavigationSection)
         _selectedSectionRaw = State(initialValue: selection.sectionRawValue)
         _selectedSidebarEntryID = State(initialValue: selection.sidebarEntryID)
     }
@@ -165,27 +148,6 @@ public struct SettingsWindowRoot: View {
             selectedSidebarEntryID = sectionEntryID(for: selectedSection)
             persistSelection()
         }
-    }
-
-    static func initialSelection(
-        initialNavigationSection: SettingsSectionID?,
-        defaults: UserDefaults
-    ) -> InitialSelection {
-        if let initialNavigationSection {
-            return InitialSelection(
-                sectionRawValue: initialNavigationSection.rawValue,
-                sidebarEntryID: "section:\(initialNavigationSection.rawValue)"
-            )
-        }
-        let sectionRawValue = defaults.string(forKey: selectedSectionDefaultsKey)
-            ?? SettingsSectionID.account.rawValue
-        let section = SettingsSectionID(rawValue: sectionRawValue) ?? .account
-        let sidebarEntryID = defaults.string(forKey: selectedSidebarEntryDefaultsKey)
-            ?? "section:\(section.rawValue)"
-        return InitialSelection(
-            sectionRawValue: section.rawValue,
-            sidebarEntryID: sidebarEntryID
-        )
     }
 
     public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
@@ -340,8 +302,8 @@ public struct SettingsWindowRoot: View {
     }
 
     private func persistSelection() {
-        UserDefaults.standard.set(selectedSectionRaw, forKey: Self.selectedSectionDefaultsKey)
-        UserDefaults.standard.set(selectedSidebarEntryID, forKey: Self.selectedSidebarEntryDefaultsKey)
+        selectionDefaults.set(selectedSectionRaw, forKey: "selectedSettingsSection")
+        selectionDefaults.set(selectedSidebarEntryID, forKey: "selectedSettingsSidebarEntry")
     }
 
     /// The canonical entry ID the search index uses for section header

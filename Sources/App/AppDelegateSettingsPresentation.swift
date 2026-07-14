@@ -100,8 +100,12 @@ extension AppDelegate {
             candidateWindow
         } else if contextForMainWindow(candidateWindow) != nil {
             candidateWindow
-        } else {
+        } else if let existingWindow = preferredMainWindowForSettingsPresentation() {
+            existingWindow
+        } else if activateApplication {
             showMainWindowFromMenuBar()
+        } else {
+            windowForMainWindowId(ensureInitialMainWindowIfNeeded(shouldActivate: false))
         }
         guard let targetTabs = explicitTabManager
             ?? activeTabManagerForCommands(preferredWindow: targetWindow),

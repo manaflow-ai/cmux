@@ -18,10 +18,8 @@ struct SettingsSearchIndexTests {
         defaults.set(SettingsSectionID.browser.rawValue, forKey: "selectedSettingsSection")
         defaults.set("section:browser", forKey: "selectedSettingsSidebarEntry")
 
-        let selection = SettingsWindowRoot.initialSelection(
-            initialNavigationSection: .keyboardShortcuts,
-            defaults: defaults
-        )
+        let selection = SettingsInitialSelectionResolver(defaults: defaults)
+            .resolve(initialNavigationSection: .keyboardShortcuts)
 
         #expect(selection.sectionRawValue == SettingsSectionID.keyboardShortcuts.rawValue)
         #expect(selection.sidebarEntryID == "section:keyboardShortcuts")
@@ -36,10 +34,8 @@ struct SettingsSearchIndexTests {
         defaults.set(SettingsSectionID.automation.rawValue, forKey: "selectedSettingsSection")
         defaults.set("setting:automation:workspace-auto-naming", forKey: "selectedSettingsSidebarEntry")
 
-        let selection = SettingsWindowRoot.initialSelection(
-            initialNavigationSection: nil,
-            defaults: defaults
-        )
+        let selection = SettingsInitialSelectionResolver(defaults: defaults)
+            .resolve(initialNavigationSection: nil)
 
         #expect(selection.sectionRawValue == SettingsSectionID.automation.rawValue)
         #expect(selection.sidebarEntryID == "setting:automation:workspace-auto-naming")
