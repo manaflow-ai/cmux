@@ -87,6 +87,7 @@ test("custom-scheme pending pages wait for native navigation without HTTP pollin
 test("custom-scheme pending pages stream exactly one typed Rust session", async () => {
   dom = createDom("cmux-diff-viewer://0123456789abcdef/branch.html");
   const requests: any[] = [];
+  const commentRequests: any[] = [];
   const fetched: string[] = [];
   installDomGlobals(dom, (input) => {
     fetched.push(String(input));
@@ -120,6 +121,12 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
           };
         },
       },
+      cmuxDiffComments: {
+        async postMessage(request: any) {
+          commentRequests.push(request);
+          return { ok: true, value: { comments: [] } };
+        },
+      },
     },
   };
 
@@ -132,7 +139,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
           sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" },
           sourceOptions: [
             { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "branch" },
-            { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
+            { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/other-repo" }, value: "unstaged" },
           ],
           statusMessage: "Loading diff",
           title: "Diff",
@@ -145,6 +152,8 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
 
   await waitFor(() => dom?.window.document.body.dataset.streamFileCount === "0");
   expect(requests.filter((request) => request.method === "sessionOpen")).toHaveLength(1);
+  await waitFor(() => commentRequests.length === 1);
+  expect(commentRequests[0].params.repoRoot).toBe("/tmp/repo");
   expect(requests[0].params.source).toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" });
   expect(fetched).toEqual(["cmux-diff-viewer://0123456789abcdef/diff-session.patch"]);
   expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(0);
@@ -153,7 +162,9 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => fetched.length === 2);
   expect(requests.map((request) => request.method)).toEqual(["sessionOpen", "sessionClose", "sessionOpen"]);
-  expect(requests[2].params.source).toEqual({ kind: "unstaged", repoRoot: "/tmp/repo" });
+  expect(requests[2].params.source).toEqual({ kind: "unstaged", repoRoot: "/tmp/other-repo" });
+  await waitFor(() => commentRequests.length === 2);
+  expect(commentRequests[1].params.repoRoot).toBe("/tmp/other-repo");
   dom.window.dispatchEvent(new dom.window.Event("pagehide"));
   await waitFor(() => requests.filter((request) => request.method === "sessionClose").length === 2);
   flushSync(() => root?.unmount());

@@ -141,7 +141,7 @@ test("streamPatch stops callbacks after its abort signal fires", async () => {
   dom.window.close();
 });
 
-test("streamPatch reuses incremental tree collections with revisioned flushes", async () => {
+test("streamPatch publishes revision-stable tree snapshots", async () => {
   const dom = new JSDOM("<!doctype html><html><body></body></html>");
   (globalThis as any).document = dom.window.document;
   (globalThis as any).window = dom.window;
@@ -175,11 +175,13 @@ test("streamPatch reuses incremental tree collections with revisioned flushes", 
   expect(treeSources.map((source) => source.revision)).toEqual([1, 2]);
   expect(treeSources.map((source) => source.previousRevision)).toEqual([undefined, 1]);
   expect(treeSources.map((source) => source.pathCount)).toEqual([1, 3]);
-  expect(treeSources[0].paths).toBe(treeSources[1].paths);
-  expect(treeSources[0].pathToItemId).toBe(treeSources[1].pathToItemId);
-  expect(treeSources[0].statsByPath).toBe(treeSources[1].statsByPath);
-  expect(treeSources[0].treePathByItemId).toBe(treeSources[1].treePathByItemId);
-  expect(treeSources[0].gitStatus).toBe(treeSources[1].gitStatus);
+  expect(treeSources[0].paths).not.toBe(treeSources[1].paths);
+  expect(treeSources[0].pathToItemId).not.toBe(treeSources[1].pathToItemId);
+  expect(treeSources[0].statsByPath).not.toBe(treeSources[1].statsByPath);
+  expect(treeSources[0].treePathByItemId).not.toBe(treeSources[1].treePathByItemId);
+  expect(treeSources[0].gitStatus).not.toBe(treeSources[1].gitStatus);
+  expect(treeSources[0].paths).toEqual(["a.ts"]);
+  expect(treeSources[0].gitStatus).toEqual([{ path: "a.ts", status: "added" }]);
   expect(treeSources[1].paths).toEqual(["a.ts", "b.ts", "c.ts"]);
   expect(treeSources[1].gitStatus).toEqual([
     { path: "a.ts", status: "added" },

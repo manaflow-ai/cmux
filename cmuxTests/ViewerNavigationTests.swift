@@ -106,6 +106,45 @@ struct ViewerNavigationTests {
     }
 
     @Test
+    func sidecarProcessPoolCancelsQueuedWorkWithoutLeakingPermit() async throws {
+        let pool = DiffSidecarProcessPool(limit: 1)
+        let counter = SidecarPoolTestCounter()
+        let firstStarted = AsyncStream<Void>.makeStream()
+        let releaseFirst = AsyncStream<Void>.makeStream()
+        var firstStartedIterator = firstStarted.stream.makeAsyncIterator()
+
+        let first = Task {
+            try await pool.withPermit {
+                await counter.increment()
+                firstStarted.continuation.yield()
+                for await _ in releaseFirst.stream {
+                    return
+                }
+            }
+        }
+        _ = await firstStartedIterator.next()
+
+        let cancelled = Task {
+            try await pool.withPermit {
+                await counter.increment()
+            }
+        }
+        cancelled.cancel()
+        releaseFirst.continuation.yield()
+        releaseFirst.continuation.finish()
+        try await first.value
+        await #expect(throws: CancellationError.self) {
+            try await cancelled.value
+        }
+        #expect(await counter.value == 1)
+
+        try await pool.withPermit {
+            await counter.increment()
+        }
+        #expect(await counter.value == 2)
+    }
+
+    @Test
     func registeredLiveHTTPViewerTrustRenewsWhileSessionRemainsActive() throws {
         let liveToken = UUID().uuidString.lowercased()
         let url = try #require(URL(
@@ -373,6 +412,14 @@ struct ViewerNavigationTests {
             isARepeat: false,
             keyCode: 0
         )!
+    }
+}
+
+private actor SidecarPoolTestCounter {
+    private(set) var value = 0
+
+    func increment() {
+        value += 1
     }
 }
 
