@@ -51,7 +51,7 @@ private final class FakeTextBoxSubmitSurface: TextBoxSubmitSurfaceControlling {
     }
 
     @discardableResult
-    func performExplicitInputBindingAction(_ action: String) -> Bool {
+    func performBindingAction(_ action: String) -> Bool {
         sentKeys.append(action)
         return performBindingActionResult
     }
