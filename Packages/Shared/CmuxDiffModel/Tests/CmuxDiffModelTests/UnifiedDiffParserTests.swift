@@ -112,14 +112,30 @@ import Testing
         #expect(result.hunks[1].lines.map(\.text) == ["new"])
     }
 
-    @Test func binaryDiffProducesNoHunks() {
+    @Test func binaryDiffPreservesMeaningfulMetadata() {
         let diff = """
         diff --git a/image.png b/image.png
         index 1111111..2222222 100644
         Binary files a/image.png and b/image.png differ
         """
 
-        #expect(parser.parse(diff).hunks.isEmpty)
+        let result = parser.parse(diff)
+
+        #expect(result.hunks.isEmpty)
+        #expect(result.metadataLines == ["Binary files a/image.png and b/image.png differ"])
+    }
+
+    @Test func modeOnlyDiffPreservesMeaningfulMetadata() {
+        let diff = """
+        diff --git a/script.sh b/script.sh
+        old mode 100644
+        new mode 100755
+        """
+
+        let result = parser.parse(diff)
+
+        #expect(result.hunks.isEmpty)
+        #expect(result.metadataLines == ["old mode 100644", "new mode 100755"])
     }
 
     @Test func emptyDiffProducesNoHunks() {

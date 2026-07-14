@@ -30,7 +30,12 @@ import Testing
     }
 
     @Test func loadStateNeverProjectsPreviousFileUnderNewSelection() {
-        let state = DiffReviewFileLoadState.loaded(path: "A.swift", hunks: [], isTruncated: false)
+        let state = DiffReviewFileLoadState.loaded(
+            path: "A.swift",
+            hunks: [],
+            metadataLines: [],
+            isTruncated: false
+        )
 
         switch state.visible(for: "B.swift") {
         case .loading(let path):
@@ -41,12 +46,18 @@ import Testing
     }
 
     @Test func loadStateKeepsMatchingFileSnapshot() {
-        let state = DiffReviewFileLoadState.loaded(path: "A.swift", hunks: [], isTruncated: true)
+        let state = DiffReviewFileLoadState.loaded(
+            path: "A.swift",
+            hunks: [],
+            metadataLines: ["old mode 100644", "new mode 100755"],
+            isTruncated: true
+        )
 
         switch state.visible(for: "A.swift") {
-        case .loaded(let path, let hunks, let isTruncated):
+        case .loaded(let path, let hunks, let metadataLines, let isTruncated):
             #expect(path == "A.swift")
             #expect(hunks.isEmpty)
+            #expect(metadataLines == ["old mode 100644", "new mode 100755"])
             #expect(isTruncated)
         default:
             Issue.record("The matching file snapshot was not projected")
@@ -123,6 +134,26 @@ import Testing
         #expect(session.currentFile?.path == "B.swift")
         #expect(session.currentFileIndex == 1)
         #expect(session.currentHunkIndex == 1)
+    }
+
+    @Test func setFilesInvalidatesNavigationStateWhenSnapshotChanges() {
+        let session = DiffReviewSession(files: [
+            file("A.swift", snapshotToken: "old-a"),
+            file("B.swift", snapshotToken: "old-b"),
+        ])
+        session.recordHunkCount(3, for: "A.swift")
+        session.moveForward()
+        session.markBookmark()
+
+        session.setFiles([
+            file("A.swift", snapshotToken: "new-a"),
+            file("B.swift", snapshotToken: "old-b"),
+        ])
+
+        #expect(session.currentFile?.path == "A.swift")
+        #expect(session.currentHunkIndex == 0)
+        #expect(session.bookmark == nil)
+        #expect(!session.canMoveForward)
     }
 
     @Test func directFileSelectionOpensExactFileAtFirstHunk() {
@@ -271,13 +302,14 @@ import Testing
         #expect(session.currentHunkIndex == 0)
     }
 
-    private func file(_ path: String) -> DiffFileSummary {
+    private func file(_ path: String, snapshotToken: String = "") -> DiffFileSummary {
         DiffFileSummary(
             path: path,
             oldPath: nil,
             status: .modified,
             additions: 1,
-            deletions: 0
+            deletions: 0,
+            snapshotToken: snapshotToken
         )
     }
 }
