@@ -61,6 +61,7 @@ final class CmuxSettingsFileStore {
     private let notificationCenter: NotificationCenter
     private let passwordStore: SocketControlPasswordStore
     private let appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment
+    private let onWatchedFileReload: @MainActor @Sendable (String) -> Void
     private let stateLock = NSLock()
 
     private var watchers: [FileWatcher] = []
@@ -86,7 +87,8 @@ final class CmuxSettingsFileStore {
         notificationCenter: NotificationCenter = .default,
         appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment = .live,
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
-        startWatching: Bool = true
+        startWatching: Bool = true,
+        onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) {
         self.primaryPath = primaryPath
         self.fallbackPaths = ([fallbackPath].compactMap { $0 } + additionalFallbackPaths)
@@ -95,12 +97,10 @@ final class CmuxSettingsFileStore {
         self.notificationCenter = notificationCenter
         self.appearanceEnvironment = appearanceEnvironment
         self.passwordStore = passwordStore
+        self.onWatchedFileReload = onWatchedFileReload
         importedManagedDefaults = Self.loadImportedManagedDefaults()
 
         bootstrapPrimaryTemplateIfNeeded()
-        // The app init path loads cmux.json before applying language/appearance
-        // itself. Running live default side effects here can initialize UI/runtime
-        // singletons while this store singleton is still in its dispatch_once.
         reload(
             applyLiveDefaultSideEffects: false,
             synchronizeManagedAppearanceTerminalTheme: false

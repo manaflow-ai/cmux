@@ -67,6 +67,76 @@ struct SocketACLReloadRegressionTests {
         #expect(controller.socketServer.accessMode == .automation)
     }
 
+    @Test func watchedConfigReloadAppliesSocketModeToRunningServer() async throws {
+        let controller = TerminalController.shared
+        controller.stop()
+
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        let defaults = UserDefaults.standard
+        let restoredDefaults = [
+            SocketControlSettings.appStorageKey,
+            "cmux.settingsFile.backups.v1",
+            "cmux.settingsFile.importedManagedDefaults.v1",
+        ].map { ($0, defaults.object(forKey: $0)) }
+        let directory = shortTemporaryDirectory(prefix: "salw")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let configURL = directory.appendingPathComponent("cmux.json")
+        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        let tabManager = TabManager()
+        let (reloadSources, reloadContinuation) = AsyncStream<String>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+
+        defer {
+            reloadContinuation.finish()
+            controller.stop()
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            for (key, value) in restoredDefaults {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        try writeConfig(mode: .allowAll, to: configURL)
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: configURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: true,
+            onWatchedFileReload: { source in
+                let rawMode = defaults.string(forKey: SocketControlSettings.appStorageKey)
+                    ?? SocketControlSettings.defaultMode.rawValue
+                controller.reconcileSocketConfiguration(
+                    SocketControlServerConfiguration(
+                        accessMode: SocketControlSettings.migrateMode(rawMode),
+                        preferredSocketPath: socketPath
+                    ),
+                    preferredTabManager: tabManager,
+                    source: source
+                )
+                reloadContinuation.yield(source)
+            }
+        )
+        controller.reconcileSocketConfiguration(
+            SocketControlServerConfiguration(
+                accessMode: .allowAll,
+                preferredSocketPath: socketPath
+            ),
+            preferredTabManager: tabManager,
+            source: "test.watcher_baseline"
+        )
+        #expect(controller.socketServer.isRunning)
+
+        try writeConfig(mode: .off, to: configURL)
+
+        #expect(await firstValue(from: reloadSources, within: .seconds(5)) == "settings.file_watcher")
+        #expect(!controller.socketServer.isRunning)
+    }
+
     @Test func deniedConnectionReceivesAccessDeniedResponse() throws {
         let controller = TerminalController.shared
         controller.stop()
@@ -322,6 +392,25 @@ struct SocketACLReloadRegressionTests {
         let identifier = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return FileManager.default.temporaryDirectory
             .appendingPathComponent("\(prefix)-\(identifier)", isDirectory: true)
+    }
+
+    private func firstValue<Element: Sendable>(
+        from stream: AsyncStream<Element>,
+        within timeout: Duration
+    ) async -> Element? {
+        await withTaskGroup(of: Element?.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil
+            }
+            let value = await group.next() ?? nil
+            group.cancelAll()
+            return value
+        }
     }
 
     private func makeSocketPair() throws -> (client: Int32, server: Int32) {
