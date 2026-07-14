@@ -295,7 +295,7 @@ extension TerminalSurface {
     /// agent-hibernation resume.
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
-        cancelAllPendingPortalHostRetries()
+        resetPortalHostOwnershipForRuntimeSuspension()
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal
@@ -314,7 +314,6 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
-        activePortalHostLease = nil
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
         desiredFocusState = false
