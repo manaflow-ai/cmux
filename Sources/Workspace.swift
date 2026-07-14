@@ -2005,7 +2005,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     @Published private(set) var extensionSidebarProjectRootPath: String?
     private var extensionSidebarProjectRootRefreshID: UInt64 = 0
-    private let extensionSidebarProjectRootResolver = WorktreeSidebarProjectRootResolver()
+    private let extensionSidebarProjectRootResolver: WorktreeSidebarProjectRootResolver
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
@@ -2422,8 +2422,11 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         let resolver = extensionSidebarProjectRootResolver
-        Task { @MainActor [weak self, trimmedDirectory, refreshID, resolver] in
-            let projectRootPath = await resolver.projectRoot(onDiskFor: trimmedDirectory)
+        Task { @MainActor [weak self, trimmedDirectory, refreshID, resolver, requesterID = id] in
+            let projectRootPath = await resolver.projectRoot(
+                onDiskFor: trimmedDirectory,
+                requesterID: requesterID
+            )
             guard let self,
                   self.extensionSidebarProjectRootRefreshID == refreshID else {
                 return
@@ -2882,9 +2885,11 @@ final class Workspace: Identifiable, ObservableObject {
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
-        sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil
+        sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
+        extensionSidebarProjectRootResolver: WorktreeSidebarProjectRootResolver = .shared
     ) {
         self.id = UUID()
+        self.extensionSidebarProjectRootResolver = extensionSidebarProjectRootResolver
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.closeTabWarningDefaults = closeTabWarningDefaults

@@ -42,8 +42,14 @@ struct WorktreeSidebarSchedulingTests {
         try FileManager.default.createDirectory(at: sibling, withIntermediateDirectories: true)
         let head = gitDirectory.appendingPathComponent("HEAD")
         let index = gitDirectory.appendingPathComponent("index")
-        try Data().write(to: head)
+        let branchRef = gitDirectory.appendingPathComponent("refs/heads/main")
+        try FileManager.default.createDirectory(
+            at: branchRef.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("ref: refs/heads/main\n".utf8).write(to: head)
         try Data().write(to: index)
+        try Data().write(to: branchRef)
 
         let plan = WorktreeSidebarStatusWatchPlanner().makePlan(
             worktreePath: root.path,
@@ -57,6 +63,7 @@ struct WorktreeSidebarSchedulingTests {
         #expect(plan.recursivePaths.contains(sibling.path))
         #expect(plan.recursivePaths.contains(head.path))
         #expect(plan.recursivePaths.contains(index.path))
+        #expect(plan.shallowPaths.contains(branchRef.path))
         #expect(!plan.recursivePaths.contains { path in
             path == nestedWorktree.path || path.hasPrefix(nestedWorktree.path + "/")
         })

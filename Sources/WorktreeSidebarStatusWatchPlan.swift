@@ -41,7 +41,7 @@ struct WorktreeSidebarStatusWatchPlanner {
             let name = URL(fileURLWithPath: normalizedPath).lastPathComponent
             return name == "HEAD" || name == "index" ? normalizedPath : nil
         }
-        var shallowPaths: [String] = []
+        var shallowPaths = symbolicRefPaths(metadataPaths: metadataPaths)
         if exclusions.isEmpty {
             recursivePaths.append(root)
         } else {
@@ -85,6 +85,48 @@ struct WorktreeSidebarStatusWatchPlanner {
                 )
             }
         }
+    }
+
+    private func symbolicRefPaths(metadataPaths: [String]) -> [String] {
+        metadataPaths.compactMap { path in
+            let head = URL(fileURLWithPath: normalized(path))
+            guard head.lastPathComponent == "HEAD",
+                  let contents = try? String(contentsOf: head, encoding: .utf8) else {
+                return nil
+            }
+            let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+            let prefix = "ref: "
+            guard trimmed.hasPrefix(prefix) else { return nil }
+            let refName = String(trimmed.dropFirst(prefix.count))
+            let gitDirectory = head.deletingLastPathComponent().path
+            let commonDirectory = commonDirectory(gitDirectory: gitDirectory)
+            let candidates = [gitDirectory, commonDirectory].compactMap {
+                safeRefPath(refName: refName, baseDirectory: $0)
+            }
+            return candidates.first(where: fileManager.fileExists(atPath:)) ?? candidates.last
+        }
+    }
+
+    private func commonDirectory(gitDirectory: String) -> String {
+        let gitDirectoryURL = URL(fileURLWithPath: gitDirectory, isDirectory: true)
+        let marker = gitDirectoryURL.appendingPathComponent("commondir")
+        guard let rawPath = try? String(contentsOf: marker, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.isEmpty else {
+            return gitDirectory
+        }
+        return URL(fileURLWithPath: rawPath, relativeTo: gitDirectoryURL)
+            .standardizedFileURL.path
+    }
+
+    private func safeRefPath(refName: String, baseDirectory: String) -> String? {
+        let base = normalized(baseDirectory)
+        let candidate = normalized(
+            URL(fileURLWithPath: base, isDirectory: true)
+                .appendingPathComponent(refName)
+                .path
+        )
+        return isDescendant(candidate, of: base) ? candidate : nil
     }
 
     private func normalized(_ path: String) -> String {
