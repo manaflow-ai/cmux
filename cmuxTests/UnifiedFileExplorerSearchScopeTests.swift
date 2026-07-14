@@ -292,6 +292,8 @@ struct UnifiedFileExplorerSearchScopeTests {
         #expect(!store.isExpanded(root))
         #expect(outline.selectedRow == 0)
 
+        NotificationCenter.default.post(name: .fileExplorerStyleDidChange, object: nil)
+        #expect(outline.isItemExpanded(root))
         outline.keyDown(with: try Self.keyEvent(characters: "\u{f703}", keyCode: 124))
 
         #expect(outline.selectedRow == 1)
