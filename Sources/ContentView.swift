@@ -11626,7 +11626,8 @@ struct VerticalTabsSidebar: View {
                             relativeNow: now,
                             isSelected: row.workspaceId == selectedWorkspaceId,
                             onSelect: selectExtensionSidebarWorkspace,
-                            onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
+                            onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show,
+                            onRename: promptRenameExtensionSidebarWorkspace
                         )
                         .id(row.id)
                         .accessibilityIdentifier("extensionSidebar.workspace.\(row.workspaceId.uuidString)")
@@ -11656,6 +11657,30 @@ struct VerticalTabsSidebar: View {
         selectedTabIds = [workspaceId]
         lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == workspaceId }
         tabManager.selectWorkspace(workspace)
+    }
+
+    private func promptRenameExtensionSidebarWorkspace(_ workspaceId: UUID) {
+        guard let tab = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "alert.renameWorkspace.title", defaultValue: "Rename Workspace")
+        alert.informativeText = String(localized: "alert.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
+        let input = NSTextField(string: tab.customTitle ?? tab.title)
+        input.placeholderString = String(localized: "alert.renameWorkspace.placeholder", defaultValue: "Workspace name")
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        let trimmed = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        tabManager.setCustomTitle(tabId: tab.id, title: trimmed)
     }
 
     private func createExtensionWorktreeWorkspace(for section: CmuxSidebarProviderTreeSection) {

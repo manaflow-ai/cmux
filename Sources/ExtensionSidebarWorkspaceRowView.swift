@@ -12,6 +12,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     let isSelected: Bool
     let onSelect: (UUID) -> Void
     let onOpenWindow: (CmuxSidebarProviderWorkspace) -> Void
+    let onRename: (UUID) -> Void
     @State private var showsInspector = false
     @State private var inspectorDraft: CmuxExtensionWorkspaceInspectorDraft?
 
@@ -106,6 +107,11 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         .contentShape(Rectangle())
         .onTapGesture {
             onSelect(row.workspaceId)
+        }
+        .contextMenu {
+            Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
+                onRename(row.workspaceId)
+            }
         }
     }
 
