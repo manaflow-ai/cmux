@@ -237,6 +237,11 @@ public final class CEFBrowser {
         withHost { $0.pointee.set_focus?($0, focused ? 1 : 0) }
     }
 
+    /// Tells Chromium whether this browser is currently visible to the user.
+    public func setHidden(_ hidden: Bool) {
+        withHost { $0.pointee.was_hidden?($0, hidden ? 1 : 0) }
+    }
+
     /// Requests browser close; `browserDidClose` fires when destruction
     /// completes.
     ///

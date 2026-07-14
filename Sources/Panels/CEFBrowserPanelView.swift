@@ -5,6 +5,7 @@ import SwiftUI
 struct CEFBrowserPanelView: View {
     @ObservedObject var panel: CEFBrowserPanel
     let isFocused: Bool
+    let isVisibleInUI: Bool
     let onRequestPanelFocus: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -17,10 +18,12 @@ struct CEFBrowserPanelView: View {
     init(
         panel: CEFBrowserPanel,
         isFocused: Bool,
+        isVisibleInUI: Bool,
         onRequestPanelFocus: @escaping () -> Void
     ) {
         self.panel = panel
         self.isFocused = isFocused
+        self.isVisibleInUI = isVisibleInUI
         self.onRequestPanelFocus = onRequestPanelFocus
         self._chromeStyle = State(
             initialValue: BrowserChromeStyle.resolve(
@@ -49,6 +52,8 @@ struct CEFBrowserPanelView: View {
                 },
                 onReload: panel.reload,
                 onHardReload: nil,
+                // OmnibarPaneChrome performs the engine-neutral exit handoff
+                // through panel.performAddressBarExitFocusHandoff after commits.
                 onAddressBarFocusStateChange: { _ in },
                 onChromeHeightChange: { _ in },
                 onSuggestionsPresentationChange: { configuration in
@@ -74,7 +79,11 @@ struct CEFBrowserPanelView: View {
         }
         .background(Color(nsColor: chromeStyle.backgroundColor))
         .onAppear {
+            panel.setVisibleInUI(isVisibleInUI)
             refreshChromeStyle()
+        }
+        .onChange(of: isVisibleInUI) { _, visible in
+            panel.setVisibleInUI(visible)
         }
         .onChange(of: colorScheme) { _, _ in
             refreshChromeStyle()

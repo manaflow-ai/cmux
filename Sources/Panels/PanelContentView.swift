@@ -76,6 +76,7 @@ struct PanelContentView: View {
                 CEFBrowserPanelView(
                     panel: cefBrowserPanel,
                     isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI && isSelectedInPane,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }

@@ -667,7 +667,24 @@ extension Workspace {
                 selectedConfigurationName: projectPanel.selectedConfigurationName
             )
             agentSessionSnapshot = nil
-        case .cefBrowser, .extensionBrowser, .cloudVMLoading:
+        case .cefBrowser:
+            guard let cefBrowserPanel = panel as? CEFBrowserPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = SessionBrowserPanelSnapshot(
+                urlString: cefBrowserPanel.currentURL,
+                profileID: nil,
+                shouldRenderWebView: true,
+                pageZoom: 1,
+                developerToolsVisible: false,
+                backHistoryURLStrings: nil,
+                forwardHistoryURLStrings: nil
+            )
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            agentSessionSnapshot = nil
+            projectSnapshot = nil
+        case .extensionBrowser, .cloudVMLoading:
             return nil
         }
         return SessionPanelSnapshot(
@@ -1661,7 +1678,17 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
             return projectPanel.id
-        case .cefBrowser, .extensionBrowser, .cloudVMLoading:
+        case .cefBrowser:
+            guard let cefBrowserPanel = newCEFBrowserSurface(
+                inPane: paneId,
+                url: snapshot.browser?.urlString ?? "about:blank",
+                focus: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: cefBrowserPanel.id)
+            return cefBrowserPanel.id
+        case .extensionBrowser, .cloudVMLoading:
             return nil
         }
     }

@@ -39,6 +39,7 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
     private var isClosing = false
     private var wantsFocus = false
     private var isAddressFieldFocused = false
+    private(set) var isVisibleInUI = true
     private var pendingNavigationURL: String?
     private var lastEmbeddedURL: String
 
@@ -140,11 +141,29 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
     }
 
     func navigateSmart(_ input: String) {
-        navigate(to: input)
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        if let url = resolveNavigableURL(from: trimmed) {
+            navigate(to: url.absoluteString)
+            return
+        }
+
+        let searchConfiguration = BrowserSearchSettingsStore().currentConfiguration
+        guard let searchURL = searchConfiguration.searchURL(query: trimmed) else { return }
+        navigate(to: searchURL.absoluteString)
     }
 
     func resolveNavigableURL(from input: String) -> URL? {
-        Self.normalizedURLString(input).flatMap(URL.init(string:))
+        if let url = resolveBrowserNavigableURL(input) {
+            return url
+        }
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercased = trimmed.lowercased()
+        let hasSupportedOpaqueScheme = ["about:", "chrome:", "data:", "javascript:", "mailto:"].contains {
+            lowercased.hasPrefix($0)
+        }
+        return hasSupportedOpaqueScheme ? URL(string: trimmed) : nil
     }
 
     func preferredURLStringForOmnibar() -> String? {
@@ -183,6 +202,18 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
         wantsFocus = false
         isAddressFieldFocused = false
         browser?.setFocus(false)
+    }
+
+    func setVisibleInUI(_ visible: Bool) {
+        guard isVisibleInUI != visible else { return }
+        isVisibleInUI = visible
+        hostView.isHidden = !visible
+        browser?.setHidden(!visible)
+        if visible {
+            browser?.setFocus(wantsFocus && !isAddressFieldFocused)
+        } else {
+            browser?.setFocus(false)
+        }
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -327,6 +358,7 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
             }
 
             self.browser = browser
+            browser.setHidden(!self.isVisibleInUI)
             if self.isClosing {
                 self.closingRetain = self
                 browser.close(force: true)
@@ -339,7 +371,7 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
                     browser.load(url: pendingNavigationURL)
                 }
             }
-            browser.setFocus(self.wantsFocus && !self.isAddressFieldFocused)
+            browser.setFocus(self.isVisibleInUI && self.wantsFocus && !self.isAddressFieldFocused)
         }
     }
 
