@@ -229,7 +229,8 @@ final class CmuxLiteWindowController: NSWindowController,
 
         guard let screen = selectedScreen(in: snapshot) else { return }
         for (index, tab) in screen.tabs.enumerated() {
-            let fallback = String(
+            let number = String(index + 1)
+            let accessibilityLabel = String(
                 format: String(
                     localized: "tabs.unnamed",
                     defaultValue: "Tab %lld",
@@ -237,13 +238,13 @@ final class CmuxLiteWindowController: NSWindowController,
                 ),
                 Int64(index + 1)
             )
-            let label = tab.label ?? fallback
             let button = CmuxTabButton(frame: .zero)
             button.tag = index
             button.target = self
             button.action = #selector(tabPressed(_:))
-            button.setAccessibilityLabel(label)
-            button.configure(label: label, active: screen.activeTab == index)
+            button.setAccessibilityLabel(accessibilityLabel)
+            button.toolTip = tab.label
+            button.configure(label: number, active: screen.activeTab == index)
             tabsStack.addArrangedSubview(button)
         }
 
@@ -280,9 +281,8 @@ final class CmuxLiteWindowController: NSWindowController,
         )
         label.font = .systemFont(ofSize: 11)
         label.textColor = CmuxPalette.tui.dim
-        label.alignment = .center
+        label.alignment = .left
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.widthAnchor.constraint(greaterThanOrEqualToConstant: 58).isActive = true
         screensStack.addArrangedSubview(label)
 
         guard let workspace = snapshot.workspaces.first(where: {
@@ -395,6 +395,7 @@ final class CmuxLiteWindowController: NSWindowController,
         workspaceTable.dataSource = self
         workspaceTable.delegate = self
         workspaceTable.backgroundColor = palette.background
+        workspaceTable.style = .plain
         workspaceTable.selectionHighlightStyle = .none
         workspaceTable.intercellSpacing = .zero
         workspaceTable.rowHeight = 36
@@ -419,7 +420,7 @@ final class CmuxLiteWindowController: NSWindowController,
             alignment: .left,
             font: .systemFont(ofSize: 11),
             normalForeground: palette.sidebarDim,
-            horizontalPadding: 8
+            horizontalPadding: 6
         )
         newWorkspace.translatesAutoresizingMaskIntoConstraints = false
 
@@ -486,8 +487,8 @@ final class CmuxLiteWindowController: NSWindowController,
             sidebarBorder.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
             sidebarBorder.widthAnchor.constraint(equalToConstant: 1),
             heading.topAnchor.constraint(equalTo: sidebar.topAnchor),
-            heading.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
-            heading.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
+            heading.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 6),
+            heading.trailingAnchor.constraint(equalTo: sidebarBorder.leadingAnchor),
             heading.heightAnchor.constraint(equalToConstant: 24),
             scroll.topAnchor.constraint(equalTo: heading.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),

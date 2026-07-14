@@ -22,8 +22,7 @@ final class CmuxTabButton: NSButton {
     }
 
     override var intrinsicContentSize: NSSize {
-        let preferredWidth = ceil(attributedTitle.size().width) + 18
-        return NSSize(width: min(180, max(64, preferredWidth)), height: 28)
+        NSSize(width: ceil(attributedTitle.size().width), height: 28)
     }
 
     func configure(label: String, active: Bool) {
@@ -64,7 +63,7 @@ final class CmuxTabButton: NSButton {
             ? palette.statusActiveBackground
             : (hovered ? palette.hoverBackground : palette.statusBackground)).cgColor
 
-        let value = "●  \(label)"
+        let value = "● \(label)"
         let text = NSMutableAttributedString(
             string: value,
             attributes: [

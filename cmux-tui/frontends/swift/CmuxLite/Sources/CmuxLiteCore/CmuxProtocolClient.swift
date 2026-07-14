@@ -217,6 +217,7 @@ public actor CmuxProtocolClient {
                 if header.event != nil {
                     eventContinuation.yield(try JSONDecoder().decode(CmuxAttachEvent.self, from: data))
                 } else if let id = header.id {
+                    try? await transport.wakePeer()
                     pending.removeValue(forKey: id)?.resume(returning: data)
                 } else if header.ok == false {
                     throw CmuxProtocolError.command(header.error ?? "uncorrelated server error")
