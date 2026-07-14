@@ -27,7 +27,7 @@ struct NotificationScrollRestoreRecoveryTests {
         hostedView.expireNotificationScrollRestoreFrameDeadline()
 
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
-        #expect(!hostedView.hasPendingNotificationScrollRestore)
+        #expect(hostedView.hasPendingNotificationScrollRestore)
     }
 
     @Test func activationAfterEndBoundaryWaitsForAuthoritativeGeometry() {
@@ -49,7 +49,7 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func frameDeadlineRebasesTruncatedRestoreFromLatestGeometry() {
+    @Test func frameDeadlineCancelsTruncatedRestoreWithoutLateJump() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 1_200, offset: 1_156, len: 44)
@@ -63,9 +63,9 @@ struct NotificationScrollRestoreRecoveryTests {
         hostedView.expireNotificationScrollRestoreFrameDeadline()
 
         #expect(surfaceView.performedBindingActions.isEmpty)
-        #expect(hostedView.hasPendingNotificationScrollRestore)
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
         postScrollbar(scrollbar(total: 1_200, offset: 1_156, len: 44), to: surfaceView)
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:1056"])
+        #expect(surfaceView.performedBindingActions.isEmpty)
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
@@ -117,7 +117,7 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(!restoringSurface.targetedRenderedFrameNotificationDemand.isActive)
     }
 
-    @Test func missingRenderedFrameDeadlineReleasesDemandWithoutDiscardingRestore() {
+    @Test func missingRenderedFrameDeadlineCancelsRestoreWithoutLateJump() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)
@@ -134,7 +134,7 @@ struct NotificationScrollRestoreRecoveryTests {
 
         hostedView.expireNotificationScrollRestoreFrameDeadline()
 
-        #expect(hostedView.hasPendingNotificationScrollRestore)
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
         #expect(hostedView.notificationScrollRestoreRenderedFrameObserver == nil)
         #expect(hostedView.releaseNotificationScrollRestoreFrameDemand == nil)
         #expect(hostedView.notificationScrollRestoreFrameDeadlineTimer == nil)
@@ -142,11 +142,11 @@ struct NotificationScrollRestoreRecoveryTests {
 
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(surfaceView.performedBindingActions.isEmpty)
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func missingTerminalBindingAtReplayBoundaryKeepsRestorePending() {
+    @Test func missingTerminalBindingAtReplayBoundaryCancelsAtDeadline() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
@@ -165,13 +165,13 @@ struct NotificationScrollRestoreRecoveryTests {
 
         hostedView.expireNotificationScrollRestoreFrameDeadline()
 
-        #expect(hostedView.hasPendingNotificationScrollRestore)
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
         #expect(hostedView.notificationScrollRestoreRenderedFrameObserver == nil)
         #expect(hostedView.releaseNotificationScrollRestoreFrameDemand == nil)
 
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(surfaceView.performedBindingActions.isEmpty)
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 

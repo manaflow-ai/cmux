@@ -323,9 +323,7 @@ extension GhosttySurfaceScrollView {
             return
         }
         cancelNotificationScrollRestoreFrameWait()
-        if notificationScrollRestoreState.pendingPosition == nil {
-            notificationScrollRestoreState = .inactive
-        }
+        notificationScrollRestoreState = .inactive
     }
 
     func cancelNotificationScrollRestoreFrameWait() {
