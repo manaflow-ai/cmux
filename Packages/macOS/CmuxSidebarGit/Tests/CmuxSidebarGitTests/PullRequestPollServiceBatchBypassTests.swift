@@ -27,14 +27,6 @@ struct PullRequestPollServiceBatchBypassTests {
         return repository.path
     }
 
-    private func waitUntil(maxYields: Int = 10_000, _ predicate: () -> Bool) async -> Bool {
-        for _ in 0..<maxYields {
-            if predicate() { return true }
-            await Task.yield()
-        }
-        return predicate()
-    }
-
     /// A fresh-event burst can span more panels than one refresh batch. Every
     /// batch must reject stale repo cache data, including the timer-driven tail.
     @Test(.timeLimit(.minutes(1)))
@@ -88,21 +80,27 @@ struct PullRequestPollServiceBatchBypassTests {
 
         let headKeys = keys.prefix(PullRequestPollService.workspacePullRequestRefreshBatchLimit)
         let tailKey = try #require(keys.last)
-        #expect(await waitUntil {
-            service.workspacePullRequestRefreshTask == nil
-                && headKeys.allSatisfy {
-                    service.workspacePullRequestNextPollAtByKey[$0].map { $0 > Date() } == true
-                }
-                && service.workspacePullRequestNextPollAtByKey[tailKey] == .distantPast
+        let planningTask = try #require(service.workspacePullRequestScheduledRefreshTask)
+        await planningTask.value
+        if let refreshTask = service.workspacePullRequestRefreshTask {
+            await refreshTask.value
+        }
+        #expect(service.workspacePullRequestRefreshTask == nil)
+        #expect(headKeys.allSatisfy {
+            service.workspacePullRequestNextPollAtByKey[$0].map { $0 > Date() } == true
         })
+        #expect(service.workspacePullRequestNextPollAtByKey[tailKey] == .distantPast)
         #expect(service.workspacePullRequestBypassRepoCacheKeys == [tailKey])
 
         await clock.waitForSleeper()
+        let pollTask = try #require(service.workspacePullRequestPollTask)
         await clock.resumeNext()
-        #expect(await waitUntil {
-            service.workspacePullRequestRefreshTask == nil
-                && service.workspacePullRequestNextPollAtByKey[tailKey].map { $0 > Date() } == true
-        })
+        await pollTask.value
+        if let refreshTask = service.workspacePullRequestRefreshTask {
+            await refreshTask.value
+        }
+        #expect(service.workspacePullRequestRefreshTask == nil)
+        #expect(service.workspacePullRequestNextPollAtByKey[tailKey].map { $0 > Date() } == true)
 
         let tailPanel = try #require(host.workspaces.last?.state.panels[tailKey.panelId])
         #expect(tailPanel.badge == nil)
