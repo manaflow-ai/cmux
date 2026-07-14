@@ -4669,6 +4669,99 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         }
     }
 
+    // Everything a test creates that can outlive it is tracked here and torn
+    // down deterministically. All ~20 tests share one app host with the tests
+    // that follow them; anything left alive participates in later tests'
+    // layout, display, and teardown passes.
+    var trackedWindows: [NSWindow] = []
+    var trackedPortals: [WindowTerminalPortal] = []
+    var trackedSurfaces: [TerminalSurface] = []
+
+    override func tearDown() {
+        // Global flags first: a failed assertion can skip a test's own reset,
+        // and latched interactive state changes every later test's sync path.
+        WindowTerminalPortal.isWindowLiveResizeActiveForTesting = false
+        TerminalWindowPortalRegistry.resetInteractiveGeometryStateForTesting()
+
+        // Free native runtimes synchronously. The deinit path frees them on a
+        // background coordinator, and a shell still writing output would keep
+        // the io threads (and the tee callback) running into the next test.
+        for surface in trackedSurfaces.reversed() {
+            surface.releaseSurfaceForTesting()
+        }
+        trackedSurfaces.removeAll()
+
+        // Directly-created portals never see willCloseNotification; tear them
+        // down explicitly so their observers, host view, and hosted views go.
+        for portal in trackedPortals {
+            portal.tearDown()
+        }
+        trackedPortals.removeAll()
+
+        // close() posts willCloseNotification, which also prunes any
+        // registry-owned portal for the window.
+        for window in trackedWindows {
+            window.close()
+        }
+        trackedWindows.removeAll()
+
+        // Let queued coalesced portal passes fire as no-ops now rather than
+        // inside a later test's layout pass.
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertLessThanOrEqual(
+            TerminalWindowPortalRegistry.debugPortalCount(),
+            Self.suiteBaselinePortalCount,
+            "This test leaked a registry portal past its window's teardown"
+        )
+        super.tearDown()
+    }
+
+    /// Every window a test creates goes through here. The appearance
+    /// animation from makeKeyAndOrderFront runs as a blocking NSAnimation on
+    /// a background queue thread; leaked ones commit CA transactions
+    /// concurrently with the main thread's display cycle for the rest of the
+    /// run (every wedge sample of this suite carried two such threads).
+    /// Tests don't need the animation, and tearDown needs a reference it can
+    /// close without over-releasing.
+    @discardableResult
+    func trackTestWindow<W: NSWindow>(_ window: W) -> W {
+        window.animationBehavior = .none
+        window.isReleasedWhenClosed = false
+        trackedWindows.append(window)
+        return window
+    }
+
+    func makeTestWindow(
+        contentRect: NSRect,
+        styleMask: NSWindow.StyleMask = [.titled, .closable]
+    ) -> NSWindow {
+        trackTestWindow(NSWindow(
+            contentRect: contentRect,
+            styleMask: styleMask,
+            backing: .buffered,
+            defer: false
+        ))
+    }
+
+    func makeTrackedPortal(window: NSWindow) -> WindowTerminalPortal {
+        let portal = WindowTerminalPortal(window: window)
+        trackedPortals.append(portal)
+        return portal
+    }
+
+    func makeTrackedTerminalSurface() -> TerminalSurface {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        trackedSurfaces.append(surface)
+        return surface
+    }
+
     func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -4708,13 +4801,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testPortalHostInstallsAboveContentViewForVisibility() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240)
         )
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         _ = portal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
         guard let contentView = window.contentView,
@@ -4737,17 +4827,14 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testTerminalPortalHostStaysBelowBrowserPortalHostWhenBothAreInstalled() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320)
         )
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
 
         let browserPortal = WindowBrowserPortal(window: window)
-        let terminalPortal = WindowTerminalPortal(window: window)
+        let terminalPortal = makeTrackedPortal(window: window)
         _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
         _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
@@ -4786,11 +4873,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
     func testRegistryPrunesPortalWhenWindowCloses() {
         let baseline = TerminalWindowPortalRegistry.debugPortalCount()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240)
         )
 
         _ = TerminalWindowPortalRegistry.viewAtWindowPoint(NSPoint(x: 1, y: 1), in: window)
@@ -4801,13 +4885,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testPruneDeadEntriesDetachesAnchorlessHostedView() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300)
         )
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -4862,16 +4943,13 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testDeferredSyncHidesVisibleHostedViewAfterAnchorDisappears() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320)
         )
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
 
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -4934,13 +5012,13 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testSynchronizeReusesInstalledTargetWithoutRepeatedContentViewLookup() {
-        let window = ContentViewCountingWindow(
+        let window = trackTestWindow(ContentViewCountingWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
-        )
-        let portal = WindowTerminalPortal(window: window)
+        ))
+        let portal = makeTrackedPortal(window: window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -4966,13 +5044,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testTerminalViewAtWindowPointResolvesPortalHostedSurface() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300)
         )
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -4995,13 +5070,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testVisibilityTransitionBringsHostedViewToFront() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300)
         )
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -5036,13 +5108,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testPriorityIncreaseBringsHostedViewToFrontWithoutVisibilityToggle() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300)
         )
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -5076,15 +5145,12 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testHiddenPortalDefersRevealUntilFrameHasUsableSize() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
         )
         defer { window.orderOut(nil) }
 
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         realizeWindowLayout(window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
@@ -5133,11 +5199,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testScheduledExternalGeometrySyncRefreshesAncestorLayoutShift() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
@@ -5155,12 +5218,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 24, y: 28, width: 72, height: 56))
         shiftedContainer.addSubview(anchor)
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         let hosted = surface.hostedView
         TerminalWindowPortalRegistry.bind(
             hostedView: hosted,
@@ -5207,23 +5265,15 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testScheduledExternalGeometrySyncWaitsForQueuedLayoutShift() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -5303,23 +5353,15 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testScheduledExternalGeometrySyncKeepsDragDrivenResizeResponsive() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -5387,23 +5429,15 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testDragDrivenSidebarResizeDoesNotScheduleLateSecondTerminalResize() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let surface = makeTrackedTerminalSurface()
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -5470,40 +5504,24 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     }
 
     func testWindowScopedExternalGeometrySyncDoesNotRefreshOtherWindows() {
-        let firstWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let firstWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: firstWindow)
             firstWindow.orderOut(nil)
         }
 
-        let secondWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let secondWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: secondWindow)
             secondWindow.orderOut(nil)
         }
 
-        let firstSurface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let secondSurface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
+        let firstSurface = makeTrackedTerminalSurface()
+        let secondSurface = makeTrackedTerminalSurface()
 
         guard let firstContentView = firstWindow.contentView,
               let secondContentView = secondWindow.contentView else {

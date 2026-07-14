@@ -12,11 +12,8 @@ extension TerminalWindowPortalLifecycleTests {
 
     @MainActor
     func testPortalSkipsSynchronousRefreshForHiddenSurfaces() throws {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
         )
         defer {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
@@ -28,20 +25,14 @@ extension TerminalWindowPortalLifecycleTests {
             return
         }
 
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         let visibleAnchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
         let hiddenAnchor = NSView(frame: NSRect(x: 260, y: 8, width: 240, height: 160))
         contentView.addSubview(visibleAnchor)
         contentView.addSubview(hiddenAnchor)
 
-        let visibleSurface = TerminalSurface(
-            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil, workingDirectory: nil
-        )
-        let hiddenSurface = TerminalSurface(
-            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil, workingDirectory: nil
-        )
+        let visibleSurface = makeTrackedTerminalSurface()
+        let hiddenSurface = makeTrackedTerminalSurface()
         portal.bind(hostedView: visibleSurface.hostedView, to: visibleAnchor, visibleInUI: true)
         portal.bind(hostedView: hiddenSurface.hostedView, to: hiddenAnchor, visibleInUI: false)
         portal.synchronizeHostedViewForAnchor(visibleAnchor)
@@ -70,11 +61,9 @@ extension TerminalWindowPortalLifecycleTests {
 
     @MainActor
     func testWindowLiveResizeCoalescesAnchorSyncsAndDefersRedraws() throws {
-        let window = NSWindow(
+        let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
+            styleMask: [.titled, .closable, .resizable]
         )
         defer {
             WindowTerminalPortal.isWindowLiveResizeActiveForTesting = false
@@ -87,20 +76,14 @@ extension TerminalWindowPortalLifecycleTests {
             return
         }
 
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         let leftAnchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
         let rightAnchor = NSView(frame: NSRect(x: 260, y: 8, width: 240, height: 160))
         contentView.addSubview(leftAnchor)
         contentView.addSubview(rightAnchor)
 
-        let leftSurface = TerminalSurface(
-            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil, workingDirectory: nil
-        )
-        let rightSurface = TerminalSurface(
-            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil, workingDirectory: nil
-        )
+        let leftSurface = makeTrackedTerminalSurface()
+        let rightSurface = makeTrackedTerminalSurface()
         portal.bind(hostedView: leftSurface.hostedView, to: leftAnchor, visibleInUI: true)
         portal.bind(hostedView: rightSurface.hostedView, to: rightAnchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(leftAnchor)

@@ -704,6 +704,22 @@ final class WindowTerminalPortal: NSObject {
     var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
 
+    deinit {
+        // tearDown() removes these when a window closes normally, but a
+        // portal can also die without ever seeing willCloseNotification (its
+        // window is deallocated while open, or a test owns the portal
+        // directly). NotificationCenter retains block observers until they
+        // are removed, so a skipped removal leaks them permanently — and the
+        // object:nil split-view observer among them then runs for every
+        // split-view resize in the process, forever.
+        for observer in geometryObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        for observer in referenceGeometryObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
     init(window: NSWindow, syncLayout: Bool = true) {
         self.window = window
         super.init()
@@ -2372,6 +2388,21 @@ enum TerminalWindowPortalRegistry {
     static func endInteractiveGeometryResize() {
         interactiveGeometryResizeCount = max(0, interactiveGeometryResizeCount - 1)
     }
+
+#if DEBUG
+    /// Test support: clears the interactive-geometry state the production API
+    /// cannot reach. beginInteractiveGeometryResize is refcounted with no
+    /// owner handle, so a test that fails (or wedges) before its balancing
+    /// end call would leave the flag latched for every later test — and a
+    /// latched flag turns each anchor geometry callback into a synchronous
+    /// full-layout pass, which re-dirties layout when it runs inside a
+    /// SwiftUI layout pass. Suites that touch this state call it in tearDown.
+    static func resetInteractiveGeometryStateForTesting() {
+        interactiveGeometryResizeCount = 0
+        clearActiveSplitDividerDrag()
+        isPointerDragActiveForTesting = false
+    }
+#endif
 
     static func scheduleExternalGeometrySynchronizeForAllWindows(forceImmediate: Bool = true) {
         // Same latest-request-wins coalescing for callers that don't have a
