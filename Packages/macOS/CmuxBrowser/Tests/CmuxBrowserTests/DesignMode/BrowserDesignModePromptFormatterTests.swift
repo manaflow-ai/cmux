@@ -53,7 +53,7 @@ import Testing
         let payload = try decodePayload(from: result)
 
         #expect(result.contains("Payload encoding: base64"))
-        #expect(payload.pageURL == "http://localhost:3000/settings")
+        #expect(payload.pageURL == "http://localhost:3000/%3Credacted%3E")
         #expect(payload.snapshot.selection?.selector == #"main > button[data-testid="save"]"#)
         #expect(payload.snapshot.selection?.bounds.width == 120)
         #expect(payload.snapshot.selection?.bounds.height == 39.5)
@@ -129,7 +129,7 @@ import Testing
             screenshotPath: nil
         )
 
-        #expect(context.pageURL.hasPrefix("https://example.com/callback?"))
+        #expect(context.pageURL.hasPrefix("https://example.com/%3Credacted%3E?"))
         #expect(!context.pageURL.contains("user:password@"))
         #expect(!context.pageURL.contains("query-secret"))
         #expect(!context.pageURL.contains("signed-secret"))
@@ -142,6 +142,18 @@ import Testing
         #expect(!context.pageURL.contains("theme=dark"))
         #expect(!context.pageURL.contains("tab=design"))
         #expect(context.pageURL.contains("%3Credacted%3E"))
+    }
+
+    @Test func redactsCredentialsFromPathAndOpaqueFragment() {
+        let pathSecret = "reset-token-very-secret"
+        let fragmentSecret = "invite-token-also-secret"
+        let sanitized = BrowserDesignModePageURL(
+            rawValue: "https://example.com/reset/\(pathSecret)#invite/\(fragmentSecret)"
+        ).sanitizedValue
+
+        #expect(sanitized == "https://example.com/%3Credacted%3E/%3Credacted%3E#%3Credacted%3E/%3Credacted%3E")
+        #expect(!sanitized.contains(pathSecret))
+        #expect(!sanitized.contains(fragmentSecret))
     }
 
     @Test func decodesRuntimeWireSnapshot() throws {

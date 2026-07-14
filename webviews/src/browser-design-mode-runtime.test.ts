@@ -105,6 +105,26 @@ describe("browser design-mode runtime", () => {
     expect(original.textContent).toBe("Original");
   });
 
+  test("reapplies edits when an SPA removes and later reinserts the selected node", async () => {
+    const { dom, runtime } = fixture(`<main><h1 id="hero">Original</h1></main>`);
+    runtime.select("#hero");
+    runtime.applyStyle("font-size", "44px");
+    const original = dom.window.document.querySelector("#hero") as HTMLElement;
+
+    original.remove();
+    await new Promise<void>((resolve) => dom.window.setTimeout(resolve, 0));
+    expect(runtime.snapshot().selection).toBeNull();
+
+    const replacement = dom.window.document.createElement("h1");
+    replacement.id = "hero";
+    replacement.textContent = "Later render";
+    dom.window.document.querySelector("main")?.append(replacement);
+    await new Promise<void>((resolve) => dom.window.setTimeout(resolve, 0));
+
+    expect(runtime.snapshot().selection?.selector).toBe("#hero");
+    expect(replacement.style.getPropertyValue("font-size")).toBe("44px");
+  });
+
   test("fails closed when selection or SPA rebinding is ambiguous", async () => {
     const nested = (label: string) => `<section><div><div><div><div><div><div><div><span class="target">${label}</span></div></div></div></div></div></div></div></section>`;
     const ambiguous = fixture(`<main>${nested("First")}${nested("Second")}</main>`);
