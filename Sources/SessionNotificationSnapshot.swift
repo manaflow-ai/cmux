@@ -196,6 +196,7 @@ extension TerminalNotificationStore {
         key.append(notification.surfaceId?.uuidString ?? "")
         key.append(notification.panelId == nil ? "0" : "1")
         key.append(notification.panelId?.uuidString ?? "")
+        key.append(notification.retargetsToLiveSurfaceOwner ? "1" : "0")
         key.append(contentsOf: [notification.title, notification.subtitle, notification.body])
         key.append(notification.isRead ? "1" : "0")
         key.append(notification.paneFlash ? "1" : "0")
@@ -203,6 +204,8 @@ extension TerminalNotificationStore {
         key.append(notification.scrollPosition.map { String($0.row) } ?? "")
         key.append(notification.scrollPosition?.totalRows == nil ? "0" : "1")
         key.append(notification.scrollPosition?.totalRows.map(String.init) ?? "")
+        key.append(notification.scrollPosition?.rowSpaceRevision == nil ? "0" : "1")
+        key.append(notification.scrollPosition?.rowSpaceRevision.map(String.init) ?? "")
         key.append(contentsOf: clickActionKey)
         return key
     }
