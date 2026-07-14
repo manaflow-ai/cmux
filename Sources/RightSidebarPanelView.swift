@@ -239,14 +239,16 @@ struct RightSidebarPanelView: View {
                         }
                     }
                 }
+                Spacer(minLength: 0)
                 if fileExplorerState.mode.canOpenAsPane {
                     openAsPaneButton(mode: fileExplorerState.mode)
                 }
                 RightSidebarHeaderCloseButton(action: onClose)
-                Spacer(minLength: 0)
-                RightSidebarTitlebarControlReservation(
-                    layoutState: fileExplorerState.titlebarTrailingControlsLayoutState
-                )
+                RightSidebarTitlebarToggleButton(isVisible: true, foregroundColor: .primary) {
+                    _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
+                        preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                    )
+                }
             }
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)

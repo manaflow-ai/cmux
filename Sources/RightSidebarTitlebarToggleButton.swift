@@ -2,16 +2,18 @@ import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
-/// The native title-bar control for showing and hiding the right sidebar.
+/// The built-in title-bar control for showing and hiding the right sidebar.
 struct RightSidebarTitlebarToggleButton: View {
-    let config: TitlebarControlsStyleConfig
     let isVisible: Bool
     let foregroundColor: Color
     let action: () -> Void
+    @AppStorage(TitlebarControlsStyle.storageKey)
+    private var styleRawValue = TitlebarControlsStyle.defaultRawValue
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     var body: some View {
         let _ = keyboardShortcutSettingsObserver.revision
+        let config = TitlebarControlsStyle.stored(rawValue: styleRawValue).config
         TitlebarControlButton(
             config: config,
             foregroundColor: foregroundColor,

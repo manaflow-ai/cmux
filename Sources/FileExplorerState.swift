@@ -14,9 +14,6 @@ final class FileExplorerState: ObservableObject {
         didSet { UserDefaults.standard.set(Double(width), forKey: "fileExplorer.width") }
     }
 
-    /// Runtime-only title-bar geometry kept outside this broadly observed legacy model.
-    @MainActor private(set) lazy var titlebarTrailingControlsLayoutState = TitlebarTrailingControlsLayoutState()
-
     /// Proportion of sidebar height allocated to the tab list (0.0-1.0).
     /// The file explorer gets the remaining space below.
     @Published var dividerPosition: CGFloat {

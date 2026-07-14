@@ -1841,9 +1841,7 @@ struct ContentView: View {
                 #if DEBUG
                 cmuxDebugLog("rightSidebar.closeButton")
                 #endif
-                _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(
-                    preferredWindow: observedWindow
-                )
+                _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
             }
         )
         .frame(width: rightSidebarWidth)
@@ -2075,6 +2073,17 @@ struct ContentView: View {
                         .frame(height: max(1, WindowChromeMetrics.appTitlebarHeight - 2), alignment: .center)
                         .padding(.top, placement.topPadding)
                         .padding(.leading, placement.leadingPadding)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if !rightSidebarVisible {
+                    RightSidebarTitlebarToggleButton(
+                        isVisible: false,
+                        foregroundColor: Color(nsColor: titlebarControlForegroundNSColor(opacity: 1))
+                    ) {
+                        _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
+                    }
+                    .padding(.trailing, 8)
                 }
             }
     }

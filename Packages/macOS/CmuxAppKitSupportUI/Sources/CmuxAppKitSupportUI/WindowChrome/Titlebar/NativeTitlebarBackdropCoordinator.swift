@@ -4,21 +4,6 @@ import ObjectiveC
 /// Coordinates native AppKit titlebar backdrop hiding and restoration.
 @MainActor
 public final class NativeTitlebarBackdropCoordinator {
-    /// Identifier for the leading native titlebar controls accessory.
-    public static let leadingControlsIdentifier = NSUserInterfaceItemIdentifier(
-        "cmux.titlebarControls"
-    )
-
-    /// Identifier for the trailing native titlebar controls accessory.
-    public static let trailingControlsIdentifier = NSUserInterfaceItemIdentifier(
-        "cmux.titlebarTrailingControls"
-    )
-
-    private static let controlsIdentifiers: Set<NSUserInterfaceItemIdentifier> = [
-        leadingControlsIdentifier,
-        trailingControlsIdentifier,
-    ]
-
     private static var unifiedTitlebarLayerAppliedKey: UInt8 = 0
     private static var unifiedTitlebarLayerColorKey: UInt8 = 0
     private static var unifiedTitlebarLayerOpaqueKey: UInt8 = 0
@@ -93,12 +78,11 @@ public final class NativeTitlebarBackdropCoordinator {
         in window: NSWindow,
         isMinimalMode: Bool
     ) {
+        let controlsId = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
         let shouldHide = hidden || isMinimalMode
         for accessory in window.titlebarAccessoryViewControllers {
-            if let identifier = accessory.view.identifier,
-               Self.controlsIdentifiers.contains(identifier) {
+            if accessory.view.identifier == controlsId {
                 accessory.isHidden = shouldHide
-                accessory.view.isHidden = shouldHide
                 accessory.view.alphaValue = shouldHide ? 0 : 1
             }
         }
