@@ -288,11 +288,11 @@ final class SidebarInteractionLifecycleTests {
         }
 
         func closeWorkspaceUnderStationaryPointer() async throws {
-            let workspaceId = try #require(workspaceId(at: NSEvent.mouseLocation))
-            let workspace = try #require(tabManager.tabs.first { $0.id == workspaceId })
+            let targetId = try #require(workspaceId(at: NSEvent.mouseLocation))
+            let workspace = try #require(tabManager.tabs.first { $0.id == targetId })
             tabManager.closeWorkspace(workspace, recordHistory: false)
             await Self.drainMainRunLoop(iterations: 6)
-            #expect(!tabManager.tabs.contains { $0.id == workspaceId })
+            #expect(!tabManager.tabs.contains { $0.id == targetId })
         }
 
         func churn(pass: Int) async throws -> Int {
