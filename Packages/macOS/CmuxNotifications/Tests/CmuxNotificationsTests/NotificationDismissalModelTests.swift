@@ -21,6 +21,8 @@ private final class FakeHost: NotificationDismissalHosting {
     var unreadNotificationSurfaces: Set<UUID> = []
     var workspaceWideUnread: Set<UUID> = []
     var visibleIndicatorSurfaces: Set<UUID> = []
+    var hasDismissibleState = true
+    var detailedLookupCount = 0
 
     var log: [String] = []
 
@@ -37,7 +39,12 @@ private final class FakeHost: NotificationDismissalHosting {
     }
 
     func panelId(forSurfaceOrPanelId surfaceId: UUID, in workspaceId: UUID) -> UUID? {
+        detailedLookupCount += 1
         panelIdsBySurface[surfaceId] ?? surfaceId
+    }
+
+    func storeHasDismissibleState(workspaceId: UUID) -> Bool {
+        hasDismissibleState
     }
 
     func workspaceHasManualPanelUnread(workspaceId: UUID, panelId: UUID) -> Bool {
@@ -248,6 +255,15 @@ struct NotificationDismissalModelTests {
     @Test func noIndicatorsMeansNoMutationsAndFalse() {
         let (model, host, workspaceId, panelId) = makeModel()
         #expect(!model.dismissNotificationOnDirectInteraction(workspaceId: workspaceId, surfaceId: panelId))
+        #expect(host.log.isEmpty)
+    }
+
+    @Test func aggregateEmptyStateSkipsDetailedTerminalInteractionLookups() {
+        let (model, host, workspaceId, panelId) = makeModel()
+        host.hasDismissibleState = false
+
+        #expect(!model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
+        #expect(host.detailedLookupCount == 0)
         #expect(host.log.isEmpty)
     }
 
