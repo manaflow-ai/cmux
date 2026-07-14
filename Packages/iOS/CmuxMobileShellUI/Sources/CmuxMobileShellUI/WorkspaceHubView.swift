@@ -12,9 +12,10 @@ struct WorkspaceHubView: View {
     let previewUpdates: (String) -> AsyncStream<PreviewGridSnapshot>
     let browserPreviewUpdates: (String, MobileBrowserPreviewResolution) -> AsyncStream<MobileBrowserPreviewFrame>
     let chatCards: [PaneChatCardSnapshot]
+    let transitionNamespace: Namespace.ID
     let selectPane: (WorkspaceHubPaneSnapshot) -> Void
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
-    @State private var topologyWidth: CGFloat = 360
+    @State private var topologyAvailableSize = CGSize(width: 360, height: 240)
 
     private var projection: WorkspaceHubProjection {
         WorkspaceHubProjection(
@@ -43,11 +44,15 @@ struct WorkspaceHubView: View {
                     topologyMiniature
                         .padding(16)
                 }
+                .defaultScrollAnchor(.center)
                 .scrollBounceBehavior(.basedOnSize)
-                .onGeometryChange(for: CGFloat.self) { geometry in
-                    max(1, geometry.size.width - 32)
-                } action: { width in
-                    topologyWidth = width
+                .onGeometryChange(for: CGSize.self) { geometry in
+                    CGSize(
+                        width: max(1, geometry.size.width - 32),
+                        height: max(1, geometry.size.height - 32)
+                    )
+                } action: { availableSize in
+                    topologyAvailableSize = availableSize
                 }
             }
         }
@@ -71,14 +76,15 @@ struct WorkspaceHubView: View {
         let size = topologyContentSize
         return ZStack(alignment: .topLeading) {
             ForEach(projection.panes) { pane in
-                let paneWidth = max(44, size.width * pane.frame.width)
-                let paneHeight = max(44, size.height * pane.frame.height)
+                let paneWidth = size.width * pane.frame.width
+                let paneHeight = size.height * pane.frame.height
                 WorkspaceHubPaneView(
                     pane: pane,
                     connectionStatus: connectionStatus,
                     supportsBrowserPreview: workspace.supportsBrowserPreview,
                     previewUpdates: previewUpdates,
                     browserPreviewUpdates: browserPreviewUpdates,
+                    transitionNamespace: transitionNamespace,
                     select: { selectPane(pane) }
                 )
                 .frame(width: paneWidth, height: paneHeight)
@@ -100,6 +106,7 @@ struct WorkspaceHubView: View {
                     supportsBrowserPreview: workspace.supportsBrowserPreview,
                     previewUpdates: previewUpdates,
                     browserPreviewUpdates: browserPreviewUpdates,
+                    transitionNamespace: transitionNamespace,
                     select: { selectPane(pane) }
                 )
                 .frame(maxWidth: .infinity)
@@ -153,12 +160,24 @@ struct WorkspaceHubView: View {
     private var topologyContentSize: CGSize {
         let smallestWidth = projection.panes.map(\.frame.width).filter { $0 > 0 }.min() ?? 1
         let smallestHeight = projection.panes.map(\.frame.height).filter { $0 > 0 }.min() ?? 1
-        let width = max(topologyWidth, 48 / CGFloat(smallestWidth))
-        let height = max(
-            width * 0.66,
-            48 / CGFloat(smallestHeight),
-            CGFloat(projection.panes.count) * 72
+        let aspectRatio: CGFloat = 1.5
+        let fitted: CGSize
+        if topologyAvailableSize.width / topologyAvailableSize.height > aspectRatio {
+            fitted = CGSize(
+                width: topologyAvailableSize.height * aspectRatio,
+                height: topologyAvailableSize.height
+            )
+        } else {
+            fitted = CGSize(
+                width: topologyAvailableSize.width,
+                height: topologyAvailableSize.width / aspectRatio
+            )
+        }
+        let scale = max(
+            1,
+            48 / (fitted.width * CGFloat(smallestWidth)),
+            48 / (fitted.height * CGFloat(smallestHeight))
         )
-        return CGSize(width: width, height: height)
+        return CGSize(width: fitted.width * scale, height: fitted.height * scale)
     }
 }

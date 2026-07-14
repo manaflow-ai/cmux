@@ -18,6 +18,7 @@ struct PaneTabStripView: View {
     let createTerminal: () -> Void
     @State private var frozenCards: [PaneTabStripCardSnapshot]?
     @State private var isTouchingStrip = false
+    @ScaledMetric(relativeTo: .caption2) private var captionLineHeight: CGFloat = 13
 
     var body: some View {
         HStack(spacing: 8) {
@@ -82,6 +83,10 @@ struct PaneTabStripView: View {
                 .scrollTargetLayout()
             }
             .scrollIndicators(.hidden)
+            // Horizontal ScrollView accepts all proposed cross-axis space. Bound
+            // it to the card's measured content so the safe-area inset stays at
+            // the bottom, while the title row still follows Dynamic Type.
+            .frame(height: 56 + 5 + captionLineHeight + 10)
             .onAppear { keepSelectionVisible(proxy: proxy, animated: false) }
             .onChange(of: selectedCardID) { _, _ in
                 keepSelectionVisible(proxy: proxy, animated: true)

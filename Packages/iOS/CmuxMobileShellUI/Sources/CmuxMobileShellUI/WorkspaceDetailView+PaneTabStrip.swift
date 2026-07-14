@@ -82,19 +82,25 @@ extension WorkspaceDetailView {
     }
 
     private func selectTabFromStrip(_ card: PaneTabStripCardSnapshot) {
-        dismissTerminalKeyboardForChrome()
         switch card.kind {
         case .terminal:
+            // A terminal-to-terminal strip switch should preserve the active
+            // keyboard session. `selectTerminalCard` keeps the focused path
+            // autofocusable and suppresses autofocus only when focus was
+            // already elsewhere.
             selectTerminalCard(card.sourceID)
         case .mirroredBrowser:
+            dismissTerminalKeyboardForChrome()
             isChatMode = false
             pinnedChatSessionID = nil
             selectedBrowserSurface = .mirrored(surfaceID: card.sourceID)
         case .localBrowser:
+            dismissTerminalKeyboardForChrome()
             isChatMode = false
             pinnedChatSessionID = nil
             selectedBrowserSurface = .local
         case .agentChat:
+            dismissTerminalKeyboardForChrome()
             guard let session = visibleChatSessions.first(where: { $0.id == card.sourceID }),
                   ensureChatConversationStore(for: session) != nil else { return }
             selectedBrowserSurface = nil

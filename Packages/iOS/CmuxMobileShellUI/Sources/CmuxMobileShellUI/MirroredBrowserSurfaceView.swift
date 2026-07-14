@@ -2,7 +2,7 @@ import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
 #if canImport(UIKit)
-import UIKit
+import CoreGraphics
 #endif
 
 /// Full-pane, explicitly view-only rendering of a Mac browser surface.
@@ -11,7 +11,10 @@ struct MirroredBrowserSurfaceView: View {
     let fallbackTitle: String
     let isPreviewSupported: Bool
     let previewUpdates: (String, MobileBrowserPreviewResolution) -> AsyncStream<MobileBrowserPreviewFrame>
-    @State private var frame: MobileBrowserPreviewFrame?
+    private let imageDecoder = BrowserPreviewImageDecoder()
+    @State private var image: CGImage?
+    @State private var frameTitle: String?
+    @State private var frameURL: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,7 +27,13 @@ struct MirroredBrowserSurfaceView: View {
             guard isPreviewSupported else { return }
             for await update in previewUpdates(surfaceID, .full) {
                 guard !Task.isCancelled else { return }
-                frame = update
+                guard let decoded = await imageDecoder.decode(
+                    update.imageData,
+                    maxPixelDimension: 1_600
+                ), !Task.isCancelled else { continue }
+                image = decoded
+                frameTitle = update.title
+                frameURL = update.url
             }
         }
         .accessibilityIdentifier("MobileMirroredBrowserView-\(surfaceID)")
@@ -32,21 +41,18 @@ struct MirroredBrowserSurfaceView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Image(systemName: "safari.fill")
-                    .foregroundStyle(.tint)
-                Text(resolvedTitle)
-                    .font(.headline)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                Label(
-                    L10n.string("mobile.browser.mirrored.viewing", defaultValue: "Viewing Mac browser"),
-                    systemImage: "eye"
-                )
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    browserTitle
+                    Spacer(minLength: 8)
+                    viewingAffordance
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    browserTitle
+                    viewingAffordance
+                }
             }
-            if let url = frame?.url, !url.isEmpty {
+            if let url = frameURL, !url.isEmpty {
                 Text(url)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
@@ -72,8 +78,8 @@ struct MirroredBrowserSurfaceView: View {
                     )
                 )
             )
-        } else if let frame, let image = UIImage(data: frame.imageData) {
-            Image(uiImage: image)
+        } else if let image {
+            Image(decorative: image, scale: 1)
                 .resizable()
                 .scaledToFit()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -88,8 +94,26 @@ struct MirroredBrowserSurfaceView: View {
         #endif
     }
 
+    private var browserTitle: some View {
+        Label(resolvedTitle, systemImage: "safari.fill")
+            .font(.headline)
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    private var viewingAffordance: some View {
+        Label(
+            L10n.string("mobile.browser.mirrored.viewing", defaultValue: "Viewing Mac browser"),
+            systemImage: "eye"
+        )
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
     private var resolvedTitle: String {
-        guard let title = frame?.title, !title.isEmpty else { return fallbackTitle }
+        guard let title = frameTitle, !title.isEmpty else { return fallbackTitle }
         return title
     }
 }

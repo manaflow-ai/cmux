@@ -4,7 +4,7 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 #if canImport(UIKit)
-import UIKit
+import CoreGraphics
 #endif
 
 /// One snapshot-isolated live card in the in-pane tab strip.
@@ -16,9 +16,10 @@ struct PaneTabStripCardView: View {
     let previewUpdates: (String) -> AsyncStream<PreviewGridSnapshot>
     let browserPreviewUpdates: (String, MobileBrowserPreviewResolution) -> AsyncStream<MobileBrowserPreviewFrame>
     let select: () -> Void
+    private let imageDecoder = BrowserPreviewImageDecoder()
     @State private var isVisible = false
     @State private var snapshot: PreviewGridSnapshot
-    @State private var browserFrame: MobileBrowserPreviewFrame?
+    @State private var browserImage: CGImage?
 
     init(
         card: PaneTabStripCardSnapshot,
@@ -90,9 +91,9 @@ struct PaneTabStripCardView: View {
             case .mirroredBrowser:
                 mirroredBrowserThumbnail
             case .localBrowser:
-                kindPlaceholder(systemImage: "iphone.gen3", badge: localBrowserBadge)
+                kindThumbnail(systemImage: "iphone.gen3", badge: localBrowserBadge)
             case .agentChat:
-                kindPlaceholder(systemImage: "bubble.left.and.bubble.right.fill", badge: agentStateLabel)
+                kindThumbnail(systemImage: "bubble.left.and.bubble.right.fill", badge: agentStateLabel)
             }
         }
             .frame(height: 56)
@@ -104,8 +105,8 @@ struct PaneTabStripCardView: View {
     @ViewBuilder
     private var mirroredBrowserThumbnail: some View {
         #if canImport(UIKit)
-        if let browserFrame, let image = UIImage(data: browserFrame.imageData) {
-            Image(uiImage: image)
+        if let browserImage {
+            Image(decorative: browserImage, scale: 1)
                 .resizable()
                 .scaledToFill()
                 .overlay(alignment: .topTrailing) {
@@ -116,21 +117,23 @@ struct PaneTabStripCardView: View {
                         .padding(4)
                 }
         } else {
-            kindPlaceholder(systemImage: "safari.fill", badge: mirroredBrowserBadge)
+            kindThumbnail(systemImage: "safari.fill", badge: mirroredBrowserBadge)
         }
         #else
-        kindPlaceholder(systemImage: "safari.fill", badge: mirroredBrowserBadge)
+        kindThumbnail(systemImage: "safari.fill", badge: mirroredBrowserBadge)
         #endif
     }
 
-    private func kindPlaceholder(systemImage: String, badge: String) -> some View {
+    private func kindThumbnail(systemImage: String, badge: String) -> some View {
         ZStack {
             Color(uiColor: .tertiarySystemBackground)
             Image(systemName: systemImage)
                 .font(.title2)
                 .foregroundStyle(.secondary)
             Text(badge)
-                .font(.system(size: 8, weight: .bold))
+                .font(.caption2.weight(.bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
                 .background(.thinMaterial, in: Capsule())
@@ -219,7 +222,11 @@ struct PaneTabStripCardView: View {
               isVisible, connectionStatus == .connected else { return }
         for await update in browserPreviewUpdates(card.sourceID, .preview) {
             guard !Task.isCancelled else { return }
-            browserFrame = update
+            guard let decoded = await imageDecoder.decode(
+                update.imageData,
+                maxPixelDimension: 384
+            ), !Task.isCancelled else { continue }
+            browserImage = decoded
         }
     }
 }

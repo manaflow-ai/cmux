@@ -9,6 +9,7 @@ struct WorkspaceHubContainer: View {
     @Bindable var store: CMUXMobileShellStore
     let workspaceID: MobileWorkspacePreview.ID?
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
+    let transitionNamespace: Namespace.ID
     let selectPane: (WorkspaceHubPaneSnapshot) -> Void
     let signOut: (() -> Void)?
     @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
@@ -32,6 +33,7 @@ struct WorkspaceHubContainer: View {
                     previewUpdates: store.previewGridUpdates,
                     browserPreviewUpdates: store.browserPreviewUpdates,
                     chatCards: chatCards,
+                    transitionNamespace: transitionNamespace,
                     selectPane: selectPane,
                     backButtonConfiguration: backButtonConfiguration
                 )

@@ -8,6 +8,7 @@ import SwiftUI
 struct PaneTabRedesignPreviewView: View {
     let mode: String
     @State private var path: [String]
+    @Namespace private var paneTransitionNamespace
 
     init(mode: String) {
         self.mode = mode
@@ -23,6 +24,7 @@ struct PaneTabRedesignPreviewView: View {
                 previewUpdates: previewUpdates,
                 browserPreviewUpdates: browserPreviewUpdates,
                 chatCards: Self.chatCards,
+                transitionNamespace: paneTransitionNamespace,
                 selectPane: { pane in path.append(pane.id) },
                 backButtonConfiguration: nil
             )
@@ -33,6 +35,8 @@ struct PaneTabRedesignPreviewView: View {
                     previewUpdates: previewUpdates,
                     browserPreviewUpdates: browserPreviewUpdates
                 )
+                .navigationTransition(.zoom(sourceID: paneID, in: paneTransitionNamespace))
+                .background(InteractiveSwipeBackEnabler())
             }
         }
         .environment(MobileDisplaySettings(defaults: UserDefaults(suiteName: "PaneTabRedesignPreview")!))
@@ -174,9 +178,16 @@ private struct PaneTabRedesignDetailFixture: View {
     }
 
     var body: some View {
-        TerminalGridThumbnailView(snapshot: PaneTabRedesignPreviewView.snapshot(surfaceID: selectedCardID))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(TerminalPalette.background)
+        GeometryReader { geometry in
+            TerminalGridThumbnailView(snapshot: PaneTabRedesignPreviewView.snapshot(surfaceID: selectedCardID))
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .background(TerminalPalette.background)
+        }
+            // Production terminal content owns its keyboard geometry and opts
+            // out of SwiftUI keyboard avoidance. Mirror that contract here so
+            // stale simulator keyboard state cannot lift the strip off the
+            // physical bottom edge in visual fixtures.
+            .ignoresSafeArea(.keyboard, edges: .bottom)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if stripVisible {
                     PaneTabStripView(

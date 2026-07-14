@@ -47,6 +47,8 @@ extension WorkspaceShellView {
                 initialSurfaceID: surfaceID,
                 createWorkspace: createWorkspaceInCompactStack
             )
+            .navigationTransition(.zoom(sourceID: paneID, in: paneTransitionNamespace))
+            .background(InteractiveSwipeBackEnabler())
         }
     }
 
@@ -75,6 +77,7 @@ extension WorkspaceShellView {
             store: store,
             workspaceID: workspaceID,
             backButtonConfiguration: backButtonConfiguration,
+            transitionNamespace: paneTransitionNamespace,
             selectPane: openPane,
             signOut: signOut
         )

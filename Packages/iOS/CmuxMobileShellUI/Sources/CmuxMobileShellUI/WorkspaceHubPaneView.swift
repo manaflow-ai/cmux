@@ -4,7 +4,7 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 #if canImport(UIKit)
-import UIKit
+import CoreGraphics
 #endif
 
 /// One snapshot-isolated pane card in the live workspace hub.
@@ -14,10 +14,12 @@ struct WorkspaceHubPaneView: View {
     let supportsBrowserPreview: Bool
     let previewUpdates: (String) -> AsyncStream<PreviewGridSnapshot>
     let browserPreviewUpdates: (String, MobileBrowserPreviewResolution) -> AsyncStream<MobileBrowserPreviewFrame>
+    let transitionNamespace: Namespace.ID
     let select: () -> Void
+    private let imageDecoder = BrowserPreviewImageDecoder()
     @State private var isVisible = false
     @State private var snapshot: PreviewGridSnapshot
-    @State private var browserFrame: MobileBrowserPreviewFrame?
+    @State private var browserImage: CGImage?
 
     init(
         pane: WorkspaceHubPaneSnapshot,
@@ -25,6 +27,7 @@ struct WorkspaceHubPaneView: View {
         supportsBrowserPreview: Bool,
         previewUpdates: @escaping (String) -> AsyncStream<PreviewGridSnapshot>,
         browserPreviewUpdates: @escaping (String, MobileBrowserPreviewResolution) -> AsyncStream<MobileBrowserPreviewFrame>,
+        transitionNamespace: Namespace.ID,
         select: @escaping () -> Void
     ) {
         self.pane = pane
@@ -32,6 +35,7 @@ struct WorkspaceHubPaneView: View {
         self.supportsBrowserPreview = supportsBrowserPreview
         self.previewUpdates = previewUpdates
         self.browserPreviewUpdates = browserPreviewUpdates
+        self.transitionNamespace = transitionNamespace
         self.select = select
         _snapshot = State(initialValue: .awaitingBaseline(surfaceID: pane.activeSurfaceID ?? ""))
     }
@@ -46,6 +50,7 @@ struct WorkspaceHubPaneView: View {
         .accessibilityLabel(resolvedTitle)
         .accessibilityValue(accessibilityValue)
         .accessibilityIdentifier("MobileWorkspaceHubPane-\(pane.id)")
+        .matchedTransitionSource(id: pane.id, in: transitionNamespace)
         .onScrollVisibilityChange(threshold: 0.01) { visible in
             isVisible = visible
         }
@@ -67,37 +72,7 @@ struct WorkspaceHubPaneView: View {
             .frame(height: 54)
             .accessibilityHidden(true)
 
-            HStack(spacing: 6) {
-                Text(resolvedTitle)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                Spacer(minLength: 0)
-
-                if pane.tabCount > 1 {
-                    Text("\(pane.tabCount)")
-                        .font(.caption2.monospacedDigit().weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.black.opacity(0.65), in: Capsule())
-                }
-
-                if let statusSymbolName {
-                    Image(systemName: statusSymbolName)
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(statusTint)
-                        .accessibilityHidden(true)
-                }
-                if pane.chatAgentStatus != nil {
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(pane.chatAgentStatus == .needsInput ? .orange : .green)
-                        .accessibilityHidden(true)
-                }
-            }
+            paneCaption
             .padding(8)
 
             if connectionStatus != .connected {
@@ -132,27 +107,72 @@ struct WorkspaceHubPaneView: View {
     private var paneThumbnail: some View {
         if pane.activeKind == .browser {
             #if canImport(UIKit)
-            if let browserFrame, let image = UIImage(data: browserFrame.imageData) {
-                Image(uiImage: image)
+            if let browserImage {
+                Image(decorative: browserImage, scale: 1)
                     .resizable()
                     .scaledToFill()
             } else {
-                browserPlaceholder
+                browserFallback
             }
             #else
-            browserPlaceholder
+            browserFallback
             #endif
         } else {
             TerminalGridThumbnailView(snapshot: snapshot)
         }
     }
 
-    private var browserPlaceholder: some View {
+    private var browserFallback: some View {
         ZStack {
             Color(uiColor: .secondarySystemBackground)
             Image(systemName: "safari.fill")
                 .font(.largeTitle)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var paneCaption: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                captionTitle
+                Spacer(minLength: 0)
+                captionMetadata
+            }
+            captionTitle
+        }
+    }
+
+    private var captionTitle: some View {
+        Text(resolvedTitle)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var captionMetadata: some View {
+        HStack(spacing: 6) {
+            if pane.tabCount > 1 {
+                Text("\(pane.tabCount)")
+                    .font(.caption2.monospacedDigit().weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.black.opacity(0.65), in: Capsule())
+            }
+            if let statusSymbolName {
+                Image(systemName: statusSymbolName)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(statusTint)
+                    .accessibilityHidden(true)
+            }
+            if pane.chatAgentStatus != nil {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(pane.chatAgentStatus == .needsInput ? .orange : .green)
+                    .accessibilityHidden(true)
+            }
         }
     }
 
@@ -247,7 +267,11 @@ struct WorkspaceHubPaneView: View {
               let surfaceID = pane.activeSurfaceID else { return }
         for await update in browserPreviewUpdates(surfaceID, .preview) {
             guard !Task.isCancelled else { return }
-            browserFrame = update
+            guard let decoded = await imageDecoder.decode(
+                update.imageData,
+                maxPixelDimension: 900
+            ), !Task.isCancelled else { continue }
+            browserImage = decoded
         }
     }
 }
