@@ -893,12 +893,17 @@ import Testing
             "the divider bounced back to the pre-drag plan (\(preDragFraction)) during the tmux round trip — the parity re-arm re-imposed a known-stale plan"
         )
 
-        // The reply lands: tmux assigned the dragged span. The settled plan
-        // applies, the EXISTING release path (a reconciled layout assigning
-        // the sent span) ends the hold, and the fixture converges on it.
+        // The reply lands: tmux assigned exactly the span the drag SENT
+        // (read from the hold — the fixture's region is narrower than the
+        // tmux window, so the dragged fraction converts to fewer cells than
+        // the raw tree suggests). The settled plan applies, the EXISTING
+        // release path (a reconciled layout assigning the sent span) ends
+        // the hold, and the fixture converges on it.
+        let sentCells = try #require(mirror.dividerResizeInFlight).targetCells
+        try #require(sentCells > 0 && sentCells < 122)
         let draggedLayout = node(.horizontal([
-            node(.pane(1), w: 92, h: 35, x: 0, y: 0),
-            node(.pane(2), w: 30, h: 35, x: 93, y: 0),
+            node(.pane(1), w: sentCells, h: 35, x: 0, y: 0),
+            node(.pane(2), w: 122 - sentCells, h: 35, x: sentCells + 1, y: 0),
         ]), w: 123, h: 35, x: 0, y: 0)
         mirror.reconcile(layout: draggedLayout)
         try await pump(60, until: {
