@@ -262,6 +262,7 @@ extension GhosttySurfaceScrollView {
         cancelNotificationScrollRestoreFrameWait()
         scheduleNotificationScrollRestoreFrameDeadline()
         releaseNotificationScrollRestoreFrameDemand = surfaceView.retainTargetedRenderedFrameNotifications()
+        notificationScrollRestoreHasPostBoundaryScrollbar = false
         notificationScrollRestoreBoundaryFrameGeneration = surfaceView.currentRenderedFrameSourceGeneration()
         notificationScrollRestoreRenderedFrameObserver = NotificationCenter.default.addObserver(
             forName: .ghosttyDidRenderFrame,
@@ -280,6 +281,12 @@ extension GhosttySurfaceScrollView {
                 // publication. Mark the frame observed, then let that subsequent
                 // scrollbar update provide the authoritative geometry.
                 self.notificationScrollRestoreBoundaryFrameGeneration = nil
+                if self.notificationScrollRestoreHasPostBoundaryScrollbar {
+                    _ = self.restorePendingNotificationScrollPositionIfReady(
+                        isPostReplayGeometryUpdate: true,
+                        isAuthoritativePostReplayFrame: true
+                    )
+                }
             }
         }
         surfaceView.terminalSurface?.forceRefresh(reason: "notificationScrollRestoreReplayBoundary")
@@ -334,6 +341,7 @@ extension GhosttySurfaceScrollView {
         }
         releaseNotificationScrollRestoreFrameDemand?()
         releaseNotificationScrollRestoreFrameDemand = nil
+        notificationScrollRestoreHasPostBoundaryScrollbar = false
         notificationScrollRestoreBoundaryFrameGeneration = nil
     }
 
@@ -361,6 +369,11 @@ extension GhosttySurfaceScrollView {
             isAwaitingPostReplayGeometry = true
         } else {
             isAwaitingPostReplayGeometry = false
+        }
+        if isAwaitingPostReplayGeometry,
+           notificationScrollRestoreRenderedFrameObserver != nil,
+           notificationScrollRestoreBoundaryFrameGeneration != nil {
+            notificationScrollRestoreHasPostBoundaryScrollbar = true
         }
         let isAuthoritativePostReplayFrame = isAwaitingPostReplayGeometry &&
             notificationScrollRestoreBoundaryFrameGeneration == nil

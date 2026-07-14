@@ -27,7 +27,7 @@ struct NotificationScrollRestoreRecoveryTests {
         hostedView.expireNotificationScrollRestoreFrameDeadline()
 
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
-        #expect(hostedView.hasPendingNotificationScrollRestore)
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
     @Test func activationAfterEndBoundaryWaitsForAuthoritativeGeometry() {

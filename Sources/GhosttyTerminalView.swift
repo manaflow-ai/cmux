@@ -8180,10 +8180,10 @@ final class GhosttySurfaceScrollView: NSView {
     private var lastSentRow: Int?
     var notificationScrollRestoreState: NotificationScrollRestoreState = .inactive
     var notificationScrollRestoreBoundaryFrameGeneration: UInt64?
+    var notificationScrollRestoreHasPostBoundaryScrollbar = false
     var notificationScrollRestoreRenderedFrameObserver: NSObjectProtocol?
     var releaseNotificationScrollRestoreFrameDemand: (() -> Void)?
     var notificationScrollRestoreFrameDeadlineTimer: Timer?
-    /// Tracks scrollback review so auto-scroll does not fight the user's position.
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false

@@ -59,7 +59,7 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
     }
 
-    @Test func renderedFrameWaitsForItsFollowingScrollbarPublication() {
+    @Test func renderedFrameUsesScrollbarPublishedAfterBoundary() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
@@ -73,9 +73,6 @@ struct NotificationScrollRestoreLifecycleTests {
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
         postRenderedFrameOnly(to: surfaceView)
-        #expect(surfaceView.performedBindingActions.isEmpty)
-
-        postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
