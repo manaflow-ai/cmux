@@ -30,6 +30,10 @@ final class SidebarInteractionLifecycleTests {
         }
     }
 
+    private final class LifecycleTestWindow: NSPanel {
+        override var canBecomeKey: Bool { true }
+    }
+
     @MainActor
     private final class Heartbeat {
         private(set) var count = 0
@@ -140,8 +144,9 @@ final class SidebarInteractionLifecycleTests {
 
         static func mount(workspaceCount: Int) async throws -> Harness {
             _ = NSApplication.shared
+            _ = NSApp.setActivationPolicy(.regular)
             #expect(
-                NSApp.setActivationPolicy(.regular),
+                NSApp.activationPolicy() == .regular,
                 "The #8004 harness must run as a foreground-capable AppKit host."
             )
 
@@ -197,13 +202,15 @@ final class SidebarInteractionLifecycleTests {
                 )
             }
 
-            let window = NSWindow(
+            let window = LifecycleTestWindow(
                 contentRect: NSRect(x: 80, y: 80, width: 280, height: 640),
-                styleMask: [.titled, .closable, .resizable],
+                styleMask: [.titled, .closable, .resizable, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
             )
             window.isReleasedWhenClosed = false
+            window.becomesKeyOnlyIfNeeded = false
+            window.hidesOnDeactivate = false
             window.title = "Sidebar Interaction Lifecycle Test"
 
             let unread = SidebarUnreadModel()
@@ -336,28 +343,14 @@ final class SidebarInteractionLifecycleTests {
         }
 
         private func firstWorkspaceRowScreenPoint() -> NSPoint? {
-            let x = window.frame.midX
-            for yOffset in stride(from: 50.0, through: 420.0, by: 12.0) {
-                let point = NSPoint(x: x, y: window.frame.maxY - yOffset)
-                guard let hit = window.accessibilityHitTest(point) else { continue }
-                if rowIdentifier(ascendingFrom: hit)?.hasPrefix("sidebarWorkspace.") == true {
-                    return point
-                }
+            guard let scrollView = findScrollView(in: hostingView),
+                  (scrollView.documentView?.bounds.height ?? 0) > scrollView.contentView.bounds.height else {
+                return nil
             }
-            return nil
-        }
-
-        private func rowIdentifier(ascendingFrom element: Any) -> String? {
-            var current: Any? = element
-            for _ in 0..<16 {
-                guard let object = current as? any NSAccessibilityProtocol else { return nil }
-                if let identifier = object.accessibilityIdentifier(),
-                   identifier.hasPrefix("sidebarWorkspace.") || identifier.hasPrefix("sidebarWorkspaceGroup.") {
-                    return identifier
-                }
-                current = object.accessibilityParent()
-            }
-            return nil
+            let clipView = scrollView.contentView
+            let pointInClip = NSPoint(x: clipView.bounds.midX, y: clipView.bounds.midY)
+            let pointInWindow = clipView.convert(pointInClip, to: nil)
+            return window.convertPoint(toScreen: pointInWindow)
         }
 
         private func findScrollView(in view: NSView) -> NSScrollView? {
