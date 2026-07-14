@@ -1680,10 +1680,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// local or Mac choice. Any acknowledgement already in flight belongs to
     /// the previous baseline and must not replace the newly queued user target.
     private func claimUserFontOwnership(_ target: Float32) {
+        invalidateViewportReportOwnership()
+        userBaseFontSize = target
+    }
+
+    /// Ends the current viewport-report transaction and every font grant tied
+    /// to it. Policy handoffs must invalidate both together so a late echo from
+    /// the previous policy cannot reclaim grid or font ownership.
+    private func invalidateViewportReportOwnership() {
         viewportReportAuthority.invalidate()
         viewportFontGrantState.reset()
         viewportFontGrantNeedsReport = false
-        userBaseFontSize = target
     }
 
     /// Set the live zoom to an absolute size (clamped to the font range),
@@ -2997,8 +3004,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func clearEffectiveGrid() -> Bool {
-        viewportFontGrantState.reset()
-        viewportFontGrantNeedsReport = false
+        invalidateViewportReportOwnership()
         guard effectiveGrid != nil else { return false }
         MobileDebugLog.anchormux("zoom.useNaturalViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->nil")
         effectiveGrid = nil
