@@ -218,7 +218,7 @@ extension CMUXCLI {
         let childRunIds = Set(snapshot.edges.compactMap { edge in
             edgeResolver.parentNodeId(for: edge).map { _ in edge.toNodeId }
         })
-        let roots = snapshot.nodes.filter { !childRunIds.contains($0.runId) }
+        let roots = snapshot.nodes.filter { !childRunIds.contains($0.nodeId) }
         var lines: [String] = []
         var visited: Set<String> = []
 
