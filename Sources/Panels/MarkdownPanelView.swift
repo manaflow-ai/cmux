@@ -67,17 +67,48 @@ struct MarkdownPanelView: View {
 
     private var markdownContentView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            filePathHeader
+            if panel.isProjectNote {
+                // Notion-style page: a slim trailing controls strip, then the
+                // large chromeless title at the top of the content column.
+                // No dividers — the whitespace does the separating.
+                noteControlsRow
 
-            Divider()
+                if panel.noteSaveState.hasFailure {
+                    noteSaveFailureBanner
+                }
 
-            if panel.noteSaveState.hasFailure {
-                noteSaveFailureBanner
+                NotePageTitleView(
+                    title: panel.displayTitle,
+                    filePath: panel.filePath,
+                    foregroundColor: themeForegroundColor,
+                    maxContentWidth: panel.maxContentWidth,
+                    onBeginEditing: onRequestPanelFocus,
+                    onRename: { panel.renameNoteTitle($0) }
+                )
+            } else {
+                filePathHeader
+
                 Divider()
+
+                if panel.noteSaveState.hasFailure {
+                    noteSaveFailureBanner
+                    Divider()
+                }
             }
 
             markdownBody
         }
+    }
+
+    /// Notion-style top strip for notes: nothing on the left (the page title
+    /// carries the identity), compact actions on the right.
+    private var noteControlsRow: some View {
+        HStack(spacing: 2) {
+            Spacer(minLength: 8)
+            noteHeaderTrailingControls
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 28)
     }
 
     private var noteSaveFailureBanner: some View {
@@ -139,35 +170,13 @@ struct MarkdownPanelView: View {
         }
     }
 
-    @ViewBuilder
     private var filePathHeader: some View {
-        if panel.isProjectNote {
-            // Project notes live at store-managed paths, so the header leads
-            // with the record title as a Google-Docs-style rename field
-            // instead of the meaningless file path (still available via the
-            // field's tooltip and the external-open menu).
-            HStack(spacing: 8) {
-                NoteTitleRenameField(
-                    title: panel.displayTitle,
-                    filePath: panel.filePath,
-                    foregroundColor: themeForegroundColor,
-                    onBeginEditing: onRequestPanelFocus,
-                    onRename: { panel.renameNoteTitle($0) }
-                )
-                Spacer(minLength: 8)
-                noteHeaderTrailingControls
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 30)
-            .background(Color.clear)
-        } else {
-            PanelFilePathHeader(
-                iconSystemName: nil,
-                filePath: panel.filePath,
-                foregroundColor: themeForegroundColor
-            ) {
-                headerTrailingControls
-            }
+        PanelFilePathHeader(
+            iconSystemName: nil,
+            filePath: panel.filePath,
+            foregroundColor: themeForegroundColor
+        ) {
+            headerTrailingControls
         }
     }
 

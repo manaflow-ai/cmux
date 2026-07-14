@@ -1030,6 +1030,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8B1B2AB6EC6ACDB2CD39A9BB /* NewBrowserWorkspaceShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */; };
 		C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */; };
 		A5FB1400 /* NewWorkspaceMenuModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1401 /* NewWorkspaceMenuModelTests.swift */; };
+		EF03C7AFE7611D1DFD3D82F3 /* NotePageHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1073EFABE5A1C7314E5B7A57 /* NotePageHeader.swift */; };
 		DC13895CA47BEAD2860C3609 /* NoteReuseCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D44B0BA3B9E820679D5FF58 /* NoteReuseCandidate.swift */; };
 		D3B6167DD14289C344DD26E0 /* NoteRPCAttachMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0441942BF1F58D637F9696F5 /* NoteRPCAttachMode.swift */; };
 		0798E8837A19FCD488D930EF /* NoteRPCMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8B6FAA586FD43BAD0E0AD2C /* NoteRPCMessage.swift */; };
@@ -1084,10 +1085,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C5A0FF31B4E74B499CAED9F2 /* NoteSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F276FE96182A8AB096136FB0 /* NoteSupportTests.swift */; };
 		2647FBAC7824567641FD0913 /* NotesWorkspaceMarker.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAEFBE2D522F2C7C27E1BA6A /* NotesWorkspaceMarker.swift */; };
 		F727C1E75CE4CE4CB5F1238E /* NotesWorkspaceSessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB1BD9625B36475E9F0DCBD3 /* NotesWorkspaceSessionRecord.swift */; };
-		07826008216B83DB83848D93 /* NoteTitleNativeTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12372823583E95B516F0C37E /* NoteTitleNativeTextField.swift */; };
-		B5C67B64EC46B058945BE5C9 /* NoteTitleRenameField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 547651206C35A1389F2698EE /* NoteTitleRenameField.swift */; };
-		B3AD41A33A7DCC49979E58CB /* NoteTitleTextFieldCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96F4A7043DC8AA308C4A6B2 /* NoteTitleTextFieldCoordinator.swift */; };
-		7B5D494A685E47BDBECE5396 /* NoteTitleTextFieldRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 487AC2A635F247E67851D278 /* NoteTitleTextFieldRepresentable.swift */; };
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
 		C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552010000000000000004 /* NotificationBurstCoalescer.swift */; };
 		7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */; };
@@ -2964,6 +2961,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewBrowserWorkspaceShortcutUITests.swift; sourceTree = "<group>"; };
 		C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMenuModel.swift; sourceTree = "<group>"; };
 		A5FB1401 /* NewWorkspaceMenuModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMenuModelTests.swift; sourceTree = "<group>"; };
+		1073EFABE5A1C7314E5B7A57 /* NotePageHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NotePageHeader.swift; sourceTree = "<group>"; };
 		4D44B0BA3B9E820679D5FF58 /* NoteReuseCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteReuseCandidate.swift; sourceTree = "<group>"; };
 		0441942BF1F58D637F9696F5 /* NoteRPCAttachMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRPCAttachMode.swift; sourceTree = "<group>"; };
 		E8B6FAA586FD43BAD0E0AD2C /* NoteRPCMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRPCMessage.swift; sourceTree = "<group>"; };
@@ -3018,10 +3016,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F276FE96182A8AB096136FB0 /* NoteSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteSupportTests.swift; sourceTree = "<group>"; };
 		CAEFBE2D522F2C7C27E1BA6A /* NotesWorkspaceMarker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesWorkspaceMarker.swift; sourceTree = "<group>"; };
 		BB1BD9625B36475E9F0DCBD3 /* NotesWorkspaceSessionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesWorkspaceSessionRecord.swift; sourceTree = "<group>"; };
-		12372823583E95B516F0C37E /* NoteTitleNativeTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NoteTitleNativeTextField.swift; sourceTree = "<group>"; };
-		547651206C35A1389F2698EE /* NoteTitleRenameField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NoteTitleRenameField.swift; sourceTree = "<group>"; };
-		B96F4A7043DC8AA308C4A6B2 /* NoteTitleTextFieldCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NoteTitleTextFieldCoordinator.swift; sourceTree = "<group>"; };
-		487AC2A635F247E67851D278 /* NoteTitleTextFieldRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NoteTitleTextFieldRepresentable.swift; sourceTree = "<group>"; };
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
 		C06552010000000000000004 /* NotificationBurstCoalescer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationBurstCoalescer.swift; sourceTree = "<group>"; };
 		7490D00D7490D00D7490D00D /* NotificationCacheMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/NotificationCacheMemoryPressureResponder.swift; sourceTree = "<group>"; };
@@ -4924,6 +4918,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */,
 				F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */,
 				F5168A060000000000000002 /* MarkdownTypographyDefaults.swift */,
+				1073EFABE5A1C7314E5B7A57 /* NotePageHeader.swift */,
 				F5168A020000000000000002 /* MarkdownTypographyControl.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
 				A50014F4 /* MarkdownWebRenderer.swift */,
@@ -5104,10 +5099,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001653 /* CmuxConfigExecutor.swift */,
 				A5001655 /* CmuxActionTrust.swift */,
 				CAFE000000000000000000A1 /* NotesTreeNode.swift */,
-				B96F4A7043DC8AA308C4A6B2 /* NoteTitleTextFieldCoordinator.swift */,
-				487AC2A635F247E67851D278 /* NoteTitleTextFieldRepresentable.swift */,
-				12372823583E95B516F0C37E /* NoteTitleNativeTextField.swift */,
-				547651206C35A1389F2698EE /* NoteTitleRenameField.swift */,
 				490C6FC667BF135FE4DC46DC /* NotesTreePanelCoordinator.swift */,
 				3F109A8AC878B1D21BEF20B8 /* NotesTreeNoteDragWriter.swift */,
 				A3322093640FF936951E00EB /* NotesTreeOutlineView.swift */,
@@ -6904,6 +6895,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,
 				A6AC72030000000000000001 /* NativeSpinner.swift in Sources */,
 				C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */,
+				EF03C7AFE7611D1DFD3D82F3 /* NotePageHeader.swift in Sources */,
 				DC13895CA47BEAD2860C3609 /* NoteReuseCandidate.swift in Sources */,
 				D3B6167DD14289C344DD26E0 /* NoteRPCAttachMode.swift in Sources */,
 				0798E8837A19FCD488D930EF /* NoteRPCMessage.swift in Sources */,
@@ -6949,10 +6941,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				1C0D86420C2ABD1406C3921D /* NoteSupportListEntry.swift in Sources */,
 				2647FBAC7824567641FD0913 /* NotesWorkspaceMarker.swift in Sources */,
 				F727C1E75CE4CE4CB5F1238E /* NotesWorkspaceSessionRecord.swift in Sources */,
-				07826008216B83DB83848D93 /* NoteTitleNativeTextField.swift in Sources */,
-				B5C67B64EC46B058945BE5C9 /* NoteTitleRenameField.swift in Sources */,
-				B3AD41A33A7DCC49979E58CB /* NoteTitleTextFieldCoordinator.swift in Sources */,
-				7B5D494A685E47BDBECE5396 /* NoteTitleTextFieldRepresentable.swift in Sources */,
 				C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */,
 				7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */,
 				D4331000000000000000002A /* NotificationName+NotesTree.swift in Sources */,
