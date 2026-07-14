@@ -82,8 +82,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
         var fileFilter = FileExplorerTreeFilter()
         var fileFilterTreeRevision = -1
         var fileFilterTask: Task<Void, Never>?
+        var fileFilterTaskQuery: String?
+        var fileFilterTaskTreeRevision: Int?
         var fileFilterGeneration = 0
-        var pendingFileFilterActions: [() -> Void] = []
+        var pendingFileFilterAction: (() -> Void)?
         var preFilterTopVisiblePath: String?
 
         init(
@@ -111,7 +113,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     outlineView.indentationPerLevel = style.indentation
                     outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
                     outlineView.reloadData()
-                    self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
+                    self.restoreProjectionExpansionState(in: outlineView)
                     self.applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
                 }
             }
@@ -352,19 +354,23 @@ struct FileExplorerPanelView: NSViewRepresentable {
         func reloadFilteredTree(in outlineView: NSOutlineView) {
             withProgrammaticOutlineUpdate {
                 outlineView.reloadData()
-                if fileFilter.isActive {
-                    var row = 0
-                    while row < outlineView.numberOfRows {
-                        if let node = outlineView.item(atRow: row) as? FileExplorerNode,
-                           fileFilter.hasVisibleChildren(node) {
-                            outlineView.expandItem(node)
-                        }
-                        row += 1
-                    }
-                } else {
-                    restoreExpansionState(store.expandedPaths, in: outlineView)
-                }
+                restoreProjectionExpansionState(in: outlineView)
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: fileFilter.isActive, scroll: false)
+            }
+        }
+
+        private func restoreProjectionExpansionState(in outlineView: NSOutlineView) {
+            guard fileFilter.isActive else {
+                restoreExpansionState(store.expandedPaths, in: outlineView)
+                return
+            }
+            var row = 0
+            while row < outlineView.numberOfRows {
+                if let node = outlineView.item(atRow: row) as? FileExplorerNode,
+                   fileFilter.hasVisibleChildren(node) {
+                    outlineView.expandItem(node)
+                }
+                row += 1
             }
         }
 

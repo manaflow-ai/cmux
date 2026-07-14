@@ -28,12 +28,19 @@ extension FileExplorerPanelView.Coordinator {
             cancelFileFilterTask(discardingPendingActions: true)
         }
         if let action {
-            pendingFileFilterActions.append(action)
+            pendingFileFilterAction = action
         }
 
         let treeChanged = fileFilterTreeRevision != store.treeRevision
         if treeChanged, fileFilter.isActive {
             let treeRevision = store.treeRevision
+            let buildsCurrentIndex = fileFilterTask != nil
+                && fileFilterTaskQuery == fileFilter.query
+                && fileFilterTaskTreeRevision == treeRevision
+            if buildsCurrentIndex {
+                return
+            }
+            cancelFileFilterTask(discardingPendingActions: false)
             let builder = FileExplorerTreeFilterSnapshotBuilder(nodes: store.rootNodes)
             if let captured = builder.buildSynchronously(
                 upTo: FileExplorerTreeFilterSnapshot.synchronousNodeLimit
@@ -80,7 +87,7 @@ extension FileExplorerPanelView.Coordinator {
         let snapshot = fileFilter.snapshot
         if snapshot.nodeCount <= FileExplorerTreeFilterSnapshot.synchronousNodeLimit {
             fileFilterTask?.cancel()
-            fileFilterTask = nil
+            clearFileFilterTask()
             let result = snapshot.filterSynchronously(query: fileFilter.query)
             guard fileFilter.apply(result) else { return }
             reloadFilteredTree(in: outlineView)
@@ -104,9 +111,10 @@ extension FileExplorerPanelView.Coordinator {
         treeRevision: Int,
         outlineView: NSOutlineView
     ) {
-        fileFilterTask?.cancel()
-        fileFilterGeneration &+= 1
+        cancelFileFilterTask(discardingPendingActions: false)
         let generation = fileFilterGeneration
+        fileFilterTaskQuery = query
+        fileFilterTaskTreeRevision = treeRevision
         fileFilterTask = Task { [weak self, weak outlineView] in
             do {
                 var filterSnapshot = snapshot
@@ -116,11 +124,11 @@ extension FileExplorerPanelView.Coordinator {
                     guard let coordinator = self, let outlineView,
                           coordinator.fileFilterGeneration == generation else { return }
                     guard coordinator.containerView?.displayedSearchScope == .names else {
-                        coordinator.fileFilterTask = nil
+                        coordinator.clearFileFilterTask()
                         return
                     }
                     guard treeRevision == coordinator.store.treeRevision else {
-                        coordinator.fileFilterTask = nil
+                        coordinator.clearFileFilterTask()
                         coordinator.setFileFilterQuery(coordinator.fileFilter.query, in: outlineView)
                         return
                     }
@@ -137,7 +145,7 @@ extension FileExplorerPanelView.Coordinator {
                 try Task.checkCancellation()
                 guard let self, let outlineView,
                       self.fileFilterGeneration == generation else { return }
-                self.fileFilterTask = nil
+                self.clearFileFilterTask()
                 guard self.containerView?.displayedSearchScope == .names else { return }
                 guard treeRevision == self.store.treeRevision else {
                     self.setFileFilterQuery(self.fileFilter.query, in: outlineView)
@@ -148,28 +156,32 @@ extension FileExplorerPanelView.Coordinator {
                 self.runPendingFileFilterActions()
             } catch is CancellationError {
                 guard let self, self.fileFilterGeneration == generation else { return }
-                self.fileFilterTask = nil
+                self.clearFileFilterTask()
             } catch {
                 guard let self, self.fileFilterGeneration == generation else { return }
-                self.fileFilterTask = nil
+                self.clearFileFilterTask()
             }
         }
     }
 
     private func cancelFileFilterTask(discardingPendingActions: Bool) {
         fileFilterTask?.cancel()
-        fileFilterTask = nil
+        clearFileFilterTask()
         fileFilterGeneration &+= 1
         if discardingPendingActions {
-            pendingFileFilterActions.removeAll()
+            pendingFileFilterAction = nil
         }
     }
 
     private func runPendingFileFilterActions() {
-        let actions = pendingFileFilterActions
-        pendingFileFilterActions.removeAll()
-        for action in actions {
-            action()
-        }
+        let action = pendingFileFilterAction
+        pendingFileFilterAction = nil
+        action?()
+    }
+
+    private func clearFileFilterTask() {
+        fileFilterTask = nil
+        fileFilterTaskQuery = nil
+        fileFilterTaskTreeRevision = nil
     }
 }
