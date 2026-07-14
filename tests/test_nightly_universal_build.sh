@@ -28,11 +28,22 @@ if ! awk '
   in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path=1 }
   in_cache && /key: xcode-compilation-nightly-/ { saw_key=1 }
   in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain=1 }
-  in_cache && /steps\.compilation-cache-key\.outputs\.utc_day/ { saw_day=1 }
+  in_cache && /steps\.compilation-cache-key\.outputs\.utc_week/ { saw_week=1 }
   in_cache && /restore-keys:/ { saw_restore=1 }
-  END { exit !(saw_path && saw_key && saw_toolchain && saw_day && saw_restore) }
+  END { exit !(saw_path && saw_key && saw_toolchain && saw_week && saw_restore) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must restore a toolchain-scoped, daily Xcode compilation cache"
+  echo "FAIL: nightly workflow must restore a toolchain-scoped, weekly Xcode compilation cache"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Bound Xcode compilation cache size/ { in_bound=1; next }
+  in_bound && /^      - name:/ { in_bound=0 }
+  in_bound && /max_cache_kib=\$\(\(3 \* 1024 \* 1024\)\)/ { saw_limit=1 }
+  in_bound && /rm -rf "\$cache_path"/ { saw_skip_save=1 }
+  END { exit !(saw_limit && saw_skip_save) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must skip saving Xcode compilation caches larger than 3 GiB"
   exit 1
 fi
 

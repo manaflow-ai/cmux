@@ -158,15 +158,16 @@ jobs:
 
       # Xcode 26 compilation caching reuses unchanged Swift/Clang compilation
       # results even though each nightly uses a clean DerivedData directory.
-      # Rotate the immutable Actions cache key daily: the first nightly restores
-      # the newest compatible cache and saves that day's updated snapshot, while
-      # later nightlies avoid uploading another multi-GB copy.
+      # Rotate the immutable Actions cache key weekly: the first nightly restores
+      # the newest compatible cache and saves that week's updated snapshot, while
+      # later nightlies avoid uploading another multi-GB copy. The post-build
+      # size guard below also prevents an unexpectedly large CAS from being saved.
       - name: Compute Xcode compilation cache key
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         id: compilation-cache-key
         run: |
           set -euo pipefail
-          echo "utc_day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "utc_week=$(date -u +%Y-W%W)" >> "$GITHUB_OUTPUT"
           echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Cache Xcode compilation results
@@ -174,7 +175,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: build-universal/CompilationCache.noindex
-          key: xcode-compilation-nightly-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ steps.compilation-cache-key.outputs.utc_day }}
+          key: xcode-compilation-nightly-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ steps.compilation-cache-key.outputs.utc_week }}
           restore-keys: |
             xcode-compilation-nightly-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
@@ -284,6 +285,23 @@ jobs:
           if [ "$HELPER_STATUS" -ne 0 ]; then
             echo "Universal Ghostty CLI helper build failed" >&2
             exit "$HELPER_STATUS"
+          fi
+
+      - name: Bound Xcode compilation cache size
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
+        run: |
+          set -euo pipefail
+          cache_path="build-universal/CompilationCache.noindex"
+          max_cache_kib=$((3 * 1024 * 1024))
+          if [ -d "$cache_path" ]; then
+            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
+          else
+            cache_kib=0
+          fi
+          echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
+          if [ "$cache_kib" -gt "$max_cache_kib" ]; then
+            echo "Xcode compilation cache exceeds 3 GiB; skipping this week's cache save"
+            rm -rf "$cache_path"
           fi
 
       - name: Inject universal Ghostty CLI helper
