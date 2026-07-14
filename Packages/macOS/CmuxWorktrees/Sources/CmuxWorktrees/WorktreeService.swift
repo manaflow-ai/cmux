@@ -24,6 +24,13 @@ public struct WorktreeService: Sendable {
         self.parser = WorktreePorcelainParser()
     }
 
+    /// Returns the repository-local Git config key that records a branch's creation base.
+    /// - Parameter branch: The full local branch name.
+    /// - Returns: A `branch.<name>.base` config key shared by writers and readers.
+    public static func branchBaseConfigKey(for branch: String) -> String {
+        "branch.\(branch).base"
+    }
+
     func ensureAvailable(_ host: any WorktreeExecutionHost) async throws {
         guard await host.isAvailable() else {
             throw WorktreeServiceError.hostUnavailable(host.id)

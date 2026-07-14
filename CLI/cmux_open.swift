@@ -1887,9 +1887,23 @@ extension CMUXCLI {
         (try? gitStdout(["rev-parse", "--verify", "--quiet", "\(ref)^{commit}"], in: repoRoot)) != nil
     }
 
+    private func recordedWorktreeBaseRef(branchName: String, in repoRoot: String) -> String? {
+        let keys = [
+            WorktreeService.branchBaseConfigKey(for: branchName),
+            "branch.\(branchName).cmuxBase",
+        ]
+        for key in keys {
+            if let ref = try? gitSingleLine(["config", "--get", key], in: repoRoot),
+               !ref.isEmpty, gitRefExists(ref, in: repoRoot) {
+                return ref
+            }
+        }
+        return nil
+    }
+
     /// Resolve the smart default diff base for a branch source. When the caller
     /// passed an explicit `--base`, that is honored as a "manual" high-confidence
-    /// choice. Otherwise walk the heuristic order: recorded cmuxBase -> PR base ->
+    /// choice. Otherwise walk the heuristic order: recorded worktree base -> PR base ->
     /// merge-base fork point -> origin/HEAD/main/master fallback.
     private func resolvedDiffBranchBase(_ rawBaseRef: String?, in repoRoot: String) throws -> DiffBranchBase {
         if let rawBaseRef,
@@ -1900,11 +1914,9 @@ extension CMUXCLI {
 
         let branchName = gitCurrentBranchName(in: repoRoot)
 
-        // 1. Recorded creation base written by new-cmux-worktree.sh. Read-only.
+        // 1. Recorded creation base, with the prototype's legacy key as fallback. Read-only.
         if let branchName,
-           let recorded = try? gitSingleLine(["config", "--get", "branch.\(branchName).cmuxBase"], in: repoRoot),
-           !recorded.isEmpty,
-           gitRefExists(recorded, in: repoRoot) {
+           let recorded = recordedWorktreeBaseRef(branchName: branchName, in: repoRoot) {
             return DiffBranchBase(ref: recorded, reason: DiffBranchBaseReason.createdFrom, confidence: "high")
         }
 
@@ -2115,11 +2127,10 @@ extension CMUXCLI {
             appendSuggested(DiffBranchBase(ref: selectedBaseRef, reason: DiffBranchBaseReason.manual, confidence: "high"))
         }
         appendSuggested(try? resolvedDiffBranchBase(nil, in: repoRoot))
-        // Surface each individual heuristic source so cmuxBase and PR base can
+        // Surface each individual heuristic source so the recorded base and PR base can
         // both appear when they disagree (LOCKED DECISION).
         if let branchName = currentBranch,
-           let recorded = try? gitSingleLine(["config", "--get", "branch.\(branchName).cmuxBase"], in: repoRoot),
-           !recorded.isEmpty, gitRefExists(recorded, in: repoRoot) {
+           let recorded = recordedWorktreeBaseRef(branchName: branchName, in: repoRoot) {
             appendSuggested(DiffBranchBase(ref: recorded, reason: DiffBranchBaseReason.createdFrom, confidence: "high"))
         }
         if let prBase = diffBranchBasePRBaseRef(in: repoRoot) {
@@ -4161,7 +4172,7 @@ extension CMUXCLI {
         // diff AND the embedded picker, so the toolbar's advertised base always
         // equals the base the diff was actually computed against. When an explicit
         // `--base` was passed it stays "manual"/high-confidence and is honored
-        // verbatim. With no explicit base, the heuristic resolver (cmuxBase -> PR
+        // verbatim. With no explicit base, the heuristic resolver (recorded base -> PR
         // base -> fork point -> origin/HEAD fallback) picks the ref; the legacy
         // `resolvedGitBranchDiffBaseRef` is only the resolver's own last-resort
         // fallback, so it never independently overrides the smart choice here.
@@ -4506,7 +4517,7 @@ extension CMUXCLI {
                     viewerURL = try mapper.viewerURL(for: url)
                 }
                 // Compute THIS repo's own smart base so a repo-switched Branch page
-                // renders against (and surfaces a picker for) the cmuxBase/PR/
+                // renders against (and surfaces a picker for) the recorded-base/PR/
                 // upstream smart base, mirroring the selected repo page. Without
                 // this, the page fell back to the legacy origin/HEAD resolver and
                 // `deferredDiffViewerBranchPicker` returned nil (no picker). The

@@ -158,4 +158,26 @@ struct WorktreeCreateTests {
         let recordedBase = try await fixture.git(["config", "--get", "branch.child.base"])
         #expect(recordedBase.stdout?.trimmingCharacters(in: .whitespacesAndNewlines) == "caller")
     }
+
+    @Test
+    func recordsDetachedHeadLineageAsStableOID() async throws {
+        let fixture = try await GitTestRepository.make()
+        defer { fixture.cleanup() }
+        let head = try await fixture.git(["rev-parse", "HEAD"])
+        let expectedOID = try #require(head.stdout?.trimmingCharacters(in: .whitespacesAndNewlines))
+        _ = try await fixture.git(["checkout", "--detach", expectedOID])
+
+        _ = try await WorktreeService().create(
+            repoRoot: fixture.repository.path,
+            name: "detached-child",
+            baseRef: "HEAD",
+            options: WorktreeCreateOptions(
+                worktreePath: fixture.path("worktrees/detached-child").path
+            ),
+            on: fixture.host
+        )
+
+        let recordedBase = try await fixture.git(["config", "--get", "branch.detached-child.base"])
+        #expect(recordedBase.stdout?.trimmingCharacters(in: .whitespacesAndNewlines) == expectedOID)
+    }
 }

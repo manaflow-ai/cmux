@@ -169,9 +169,14 @@ extension WorktreeService {
 
     func isStaleAdministrativeError(_ message: String) -> Bool {
         let lowercased = message.lowercased()
-        return lowercased.contains("validation failed") ||
-            lowercased.contains("unable to read gitdir") ||
-            lowercased.contains("gitdir file") ||
-            lowercased.contains("administrative files")
+        let staleMarkers = [
+            "gitdir unreadable",
+            "gitdir incorrect",
+            "unable to read gitdir",
+            "gitdir file",
+            ".git file broken",
+            "administrative files",
+        ]
+        return staleMarkers.contains(where: lowercased.contains)
     }
 }

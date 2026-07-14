@@ -40,6 +40,11 @@ extension WorktreeService {
             override: options.worktreePath,
             homeDirectory: host.homeDirectory
         )
+        let lineageBaseRef = await resolvedLineageBaseRef(
+            baseRef,
+            repoRoot: invokingRepoRoot,
+            on: host
+        )
 
         _ = try await runGit(
             on: host,
@@ -54,7 +59,7 @@ extension WorktreeService {
 
         let warnings = await configureCreatedBranch(
             branch: branch,
-            baseRef: baseRef,
+            baseRef: lineageBaseRef,
             repoRoot: stableRepoRoot,
             on: host
         )
@@ -210,7 +215,7 @@ extension WorktreeService {
         let lineage = await host.run(
             directory: repoRoot,
             executable: "git",
-            arguments: ["config", "--local", "branch.\(branch).base", baseRef],
+            arguments: ["config", "--local", WorktreeService.branchBaseConfigKey(for: branch), baseRef],
             environment: WorktreeService.gitEnvironment,
             timeout: WorktreeService.readTimeout
         )
@@ -218,6 +223,47 @@ extension WorktreeService {
             warnings.append(WorktreeWarning(kind: .branchBase, message: commandMessage(lineage)))
         }
         return warnings
+    }
+
+    func resolvedLineageBaseRef(
+        _ baseRef: String,
+        repoRoot: String,
+        on host: any WorktreeExecutionHost
+    ) async -> String {
+        let symbolic = await host.run(
+            directory: repoRoot,
+            executable: "git",
+            arguments: ["rev-parse", "--symbolic-full-name", "--verify", baseRef],
+            environment: WorktreeService.gitEnvironment,
+            timeout: WorktreeService.readTimeout
+        )
+        if symbolic.executionError == nil,
+           !symbolic.timedOut,
+           symbolic.exitStatus == 0,
+           let ref = symbolic.stdout?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !ref.isEmpty,
+           ref != "HEAD" {
+            for prefix in ["refs/heads/", "refs/remotes/"] where ref.hasPrefix(prefix) {
+                return String(ref.dropFirst(prefix.count))
+            }
+            return ref
+        }
+
+        let commit = await host.run(
+            directory: repoRoot,
+            executable: "git",
+            arguments: ["rev-parse", "--verify", "\(baseRef)^{commit}"],
+            environment: WorktreeService.gitEnvironment,
+            timeout: WorktreeService.readTimeout
+        )
+        if commit.executionError == nil,
+           !commit.timedOut,
+           commit.exitStatus == 0,
+           let oid = commit.stdout?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !oid.isEmpty {
+            return oid
+        }
+        return baseRef
     }
 
     func initializeSubmodulesIfNeeded(

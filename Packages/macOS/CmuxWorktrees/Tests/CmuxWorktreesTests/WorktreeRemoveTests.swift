@@ -158,4 +158,30 @@ struct WorktreeRemoveTests {
         let commands = await host.recordedArguments()
         #expect(!commands.contains(["worktree", "prune", "--verbose"]))
     }
+
+    @Test
+    func staleAdministrativeFailurePrunesOnceAndRetriesRemoval() async throws {
+        let host = ValidationFailureWorktreeExecutionHost(
+            removalError: "fatal: validation failed, cannot remove working tree: unable to read gitdir file"
+        )
+        let identity = WorktreeIdentity(
+            host: host.id,
+            repoPath: "/repo",
+            worktreePath: "/repo/worktrees/feature"
+        )
+
+        do {
+            _ = try await WorktreeService().remove(worktree: identity, on: host)
+            Issue.record("Expected removal to remain failed after one lazy-prune retry")
+        } catch let error as WorktreeServiceError {
+            guard case .commandFailed = error else {
+                Issue.record("Expected Git's stale-administration failure, got \(error)")
+                return
+            }
+        }
+
+        let commands = await host.recordedArguments()
+        #expect(commands.filter { $0 == ["worktree", "prune", "--verbose"] }.count == 1)
+        #expect(commands.filter { $0 == ["worktree", "remove", identity.worktreePath] }.count == 2)
+    }
 }

@@ -6,7 +6,14 @@ actor ValidationFailureWorktreeExecutionHost: WorktreeExecutionHost {
     nonisolated let id = WorktreeHostID(rawValue: "validation-failure")
     nonisolated let homeDirectory = "/home"
 
+    private let removalError: String
     private var arguments: [[String]] = []
+
+    init(
+        removalError: String = "fatal: validation failed, cannot remove working tree: working trees containing submodules cannot be moved or removed"
+    ) {
+        self.removalError = removalError
+    }
 
     func isAvailable() async -> Bool {
         true
@@ -42,7 +49,7 @@ actor ValidationFailureWorktreeExecutionHost: WorktreeExecutionHost {
         case ["worktree", "remove", "/repo/worktrees/feature"]:
             return CommandResult(
                 stdout: nil,
-                stderr: "fatal: validation failed, cannot remove working tree: working trees containing submodules cannot be moved or removed",
+                stderr: removalError,
                 exitStatus: 128,
                 timedOut: false,
                 executionError: nil
