@@ -97,11 +97,13 @@ extension TerminalController {
             workspace.panelIdFromSurfaceId($0.id)
         }
         let terminalIDs = Set(panePanelIDs.filter { workspace.terminalPanel(for: $0) != nil })
-        guard !MobileTerminalReorderIndexResolver.crossesPinnedBoundary(
+        let resolver = MobileTerminalReorderIndexResolver(
             panePanelIDs: panePanelIDs,
             terminalPanelIDs: terminalIDs,
             pinnedPanelIDs: workspace.pinnedPanelIds,
-            movingPanelID: surfaceID,
+            movingPanelID: surfaceID
+        )
+        guard !resolver.crossesPinnedBoundary(
             targetTerminalIndex: targetIndex
         ) else {
             return .err(
@@ -110,11 +112,7 @@ extension TerminalController {
                 data: nil
             )
         }
-        guard let destinationIndex = MobileTerminalReorderIndexResolver.destinationIndex(
-            panePanelIDs: panePanelIDs,
-            terminalPanelIDs: terminalIDs,
-            pinnedPanelIDs: workspace.pinnedPanelIds,
-            movingPanelID: surfaceID,
+        guard let destinationIndex = resolver.destinationIndex(
             targetTerminalIndex: targetIndex
         ) else {
             return .err(code: "invalid_params", message: "Terminal reorder index is out of range", data: nil)

@@ -726,6 +726,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var workspaceListRefreshTask: Task<Void, Never>?
     var foregroundWorkspaceListMutationEpoch: UInt64 = 0
     var foregroundWorkspaceListAppliedMutationEpoch: UInt64 = 0
+    var foregroundWorkspaceListAppliedRevision: UInt64 = 0
     @ObservationIgnored var foregroundCreateSelectionRevision: UInt64 = 0
     @ObservationIgnored var workspaceFocusEventRevision: UInt64 = 0
     @ObservationIgnored var workspaceFocusEventRevisionsByMac: [
@@ -7261,6 +7262,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
+        foregroundWorkspaceListAppliedRevision &+= 1
         let refreshedWorkspaceIDs = Set(response.workspaces.compactMap { remote in
             rowWorkspaceID(
                 forRemoteWorkspaceID: MobileWorkspacePreview.ID(rawValue: remote.id),

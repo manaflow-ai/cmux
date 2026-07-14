@@ -2,11 +2,24 @@ import Foundation
 
 /// Converts a terminal-only final index into Bonsplit's all-panel insertion index.
 struct MobileTerminalReorderIndexResolver {
-    static func crossesPinnedBoundary(
+    let panePanelIDs: [UUID]
+    let terminalPanelIDs: Set<UUID>
+    let pinnedPanelIDs: Set<UUID>
+    let movingPanelID: UUID
+
+    init(
         panePanelIDs: [UUID],
         terminalPanelIDs: Set<UUID>,
-        pinnedPanelIDs: Set<UUID>,
-        movingPanelID: UUID,
+        pinnedPanelIDs: Set<UUID> = [],
+        movingPanelID: UUID
+    ) {
+        self.panePanelIDs = panePanelIDs
+        self.terminalPanelIDs = terminalPanelIDs
+        self.pinnedPanelIDs = pinnedPanelIDs
+        self.movingPanelID = movingPanelID
+    }
+
+    func crossesPinnedBoundary(
         targetTerminalIndex: Int
     ) -> Bool {
         guard terminalPanelIDs.contains(movingPanelID) else { return false }
@@ -20,11 +33,7 @@ struct MobileTerminalReorderIndexResolver {
             : targetTerminalIndex < pinnedTerminalCount
     }
 
-    static func destinationIndex(
-        panePanelIDs: [UUID],
-        terminalPanelIDs: Set<UUID>,
-        pinnedPanelIDs: Set<UUID> = [],
-        movingPanelID: UUID,
+    func destinationIndex(
         targetTerminalIndex: Int
     ) -> Int? {
         guard terminalPanelIDs.contains(movingPanelID),
@@ -34,10 +43,6 @@ struct MobileTerminalReorderIndexResolver {
         let terminalCount = panePanelIDs.lazy.filter(terminalPanelIDs.contains).count
         guard targetTerminalIndex >= 0, targetTerminalIndex < terminalCount else { return nil }
         guard !crossesPinnedBoundary(
-            panePanelIDs: panePanelIDs,
-            terminalPanelIDs: terminalPanelIDs,
-            pinnedPanelIDs: pinnedPanelIDs,
-            movingPanelID: movingPanelID,
             targetTerminalIndex: targetTerminalIndex
         ) else { return nil }
 

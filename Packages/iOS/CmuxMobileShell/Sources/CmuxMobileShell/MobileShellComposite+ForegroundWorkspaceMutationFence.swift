@@ -25,19 +25,22 @@ extension MobileShellComposite {
         revision == foregroundCreateSelectionRevision
     }
 
-    /// Installs a create response only while it still owns the hierarchy epoch.
-    /// A newer mutation or authoritative list invalidates that scoped snapshot;
-    /// in that case a fresh post-mutation list becomes the sole hierarchy writer.
+    /// Installs a create response only while it still owns the hierarchy epoch
+    /// and no newer workspace list has been installed. A mutation or ordinary
+    /// authoritative list invalidates that scoped snapshot; in either case a
+    /// fresh post-mutation list becomes the sole hierarchy writer.
     func applyOrReconcileRemoteCreateResponse(
         _ response: MobileSyncWorkspaceListResponse,
         startedAt mutationEpoch: UInt64,
+        listRevision: UInt64,
         focusRevision: UInt64,
         client: MobileCoreRPCClient,
         generation: UUID
     ) async -> RemoteCreateResponseOutcome {
         guard isCurrentRemoteOperation(client: client, generation: generation),
               !Task.isCancelled else { return .invalidated }
-        if mutationEpoch == foregroundWorkspaceListMutationEpoch {
+        if mutationEpoch == foregroundWorkspaceListMutationEpoch,
+           listRevision == foregroundWorkspaceListAppliedRevision {
             advanceForegroundWorkspaceListMutationEpoch()
             applyRemoteWorkspaceList(
                 response,

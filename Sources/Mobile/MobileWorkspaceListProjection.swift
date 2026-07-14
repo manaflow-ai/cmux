@@ -7,6 +7,26 @@ struct MobileWorkspaceListProjection: Hashable {
     let groups: [GroupValue]
     let workspaces: [MobileWorkspaceHierarchyProjection.ListValue]
 
+    struct DigestIndex {
+        private var values: [UUID: Int] = [:]
+
+        /// Resamples only explicitly invalidated or newly observed workspaces.
+        @MainActor
+        mutating func refresh(
+            tabs: [Workspace],
+            resampling workspaceIDs: Set<UUID>,
+            digest: (Workspace) -> Int
+        ) -> [UUID: Int] {
+            let currentIDs = Set(tabs.map(\.id))
+            values = values.filter { currentIDs.contains($0.key) }
+            for workspace in tabs
+                where values[workspace.id] == nil || workspaceIDs.contains(workspace.id) {
+                values[workspace.id] = digest(workspace)
+            }
+            return values
+        }
+    }
+
     @MainActor
     init(
         tabs: [Workspace],
@@ -44,6 +64,52 @@ struct MobileWorkspaceListProjection: Hashable {
         previewSignatures: [UUID: Int],
         fallbackNeedsConfirmClose: ((Workspace, UUID) -> Bool)? = nil
     ) -> Int {
+        let workspaceDigests = Dictionary(uniqueKeysWithValues: tabs.map { workspace in
+            (
+                workspace.id,
+                workspaceDigest(
+                    workspace: workspace,
+                    previewSignature: previewSignatures[workspace.id],
+                    fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
+                )
+            )
+        })
+        return digest(
+            tabs: tabs,
+            groups: groups,
+            selectedTabID: selectedTabID,
+            workspaceDigests: workspaceDigests
+        )
+    }
+
+    @MainActor
+    static func workspaceDigest(
+        workspace: Workspace,
+        previewSignature: Int?,
+        fallbackNeedsConfirmClose: ((Workspace, UUID) -> Bool)? = nil
+    ) -> Int {
+        var hasher = Hasher()
+        let list = MobileWorkspaceHierarchyProjection.observerListValue(
+            workspace: workspace,
+            previewSignature: previewSignature,
+            fallbackNeedsConfirmClose: { panelID in
+                if let fallbackNeedsConfirmClose {
+                    return fallbackNeedsConfirmClose(workspace, panelID)
+                }
+                return workspace.terminalPanel(for: panelID)?.needsConfirmClose() ?? false
+            }
+        )
+        list.hashObserverIdentity(into: &hasher)
+        return hasher.finalize()
+    }
+
+    @MainActor
+    static func digest(
+        tabs: [Workspace],
+        groups: [WorkspaceGroup],
+        selectedTabID: UUID?,
+        workspaceDigests: [UUID: Int]
+    ) -> Int {
         var hasher = Hasher()
         hasher.combine(MobileWorkspaceHierarchyProjection.schemaVersion)
         hasher.combine(selectedTabID)
@@ -59,17 +125,8 @@ struct MobileWorkspaceListProjection: Hashable {
         }
         hasher.combine(tabs.count)
         for workspace in tabs {
-            let list = MobileWorkspaceHierarchyProjection.observerListValue(
-                workspace: workspace,
-                previewSignature: previewSignatures[workspace.id],
-                fallbackNeedsConfirmClose: { panelID in
-                    if let fallbackNeedsConfirmClose {
-                        return fallbackNeedsConfirmClose(workspace, panelID)
-                    }
-                    return workspace.terminalPanel(for: panelID)?.needsConfirmClose() ?? false
-                }
-            )
-            list.hashObserverIdentity(into: &hasher)
+            hasher.combine(workspace.id)
+            hasher.combine(workspaceDigests[workspace.id])
         }
         return hasher.finalize()
     }

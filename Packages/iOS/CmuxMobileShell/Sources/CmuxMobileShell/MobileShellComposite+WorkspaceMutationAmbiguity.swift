@@ -56,10 +56,10 @@ extension MobileShellComposite {
         case let .rpcError(code, _):
             let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let immediateCodes: Set<String> = [
-                "confirmation_required", "protected", "unauthorized", "forbidden",
+                "confirmation_required", "unauthorized", "forbidden",
                 "invalid_token", "token_expired", "expired_token", "auth_required",
                 "account_mismatch", "invalid_params", "invalid_request", "unsupported",
-                "not_supported", "unimplemented", "method_not_found", "unavailable",
+                "not_supported", "unimplemented", "method_not_found",
             ]
             return normalizedCode.map(immediateCodes.contains) == true
                 ? .immediateRejection

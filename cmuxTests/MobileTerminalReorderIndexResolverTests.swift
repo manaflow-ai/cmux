@@ -41,34 +41,30 @@ struct MobileTerminalReorderIndexResolverTests {
         let secondTerminal = UUID()
         let terminals: Set<UUID> = [firstTerminal, secondTerminal]
 
-        #expect(MobileTerminalReorderIndexResolver.destinationIndex(
+        #expect(MobileTerminalReorderIndexResolver(
             panePanelIDs: [firstTerminal, browser, secondTerminal],
             terminalPanelIDs: terminals,
-            movingPanelID: firstTerminal,
-            targetTerminalIndex: 1
-        ) == 3)
-        #expect(MobileTerminalReorderIndexResolver.destinationIndex(
+            movingPanelID: firstTerminal
+        ).destinationIndex(targetTerminalIndex: 1) == 3)
+        #expect(MobileTerminalReorderIndexResolver(
             panePanelIDs: [firstTerminal, browser, secondTerminal],
             terminalPanelIDs: terminals,
-            movingPanelID: secondTerminal,
-            targetTerminalIndex: 0
-        ) == 0)
+            movingPanelID: secondTerminal
+        ).destinationIndex(targetTerminalIndex: 0) == 0)
     }
 
     @Test func rejectsWrongIdentityAndOutOfRangeTerminalIndex() {
         let terminal = UUID()
-        #expect(MobileTerminalReorderIndexResolver.destinationIndex(
+        #expect(MobileTerminalReorderIndexResolver(
             panePanelIDs: [terminal],
             terminalPanelIDs: [terminal],
-            movingPanelID: UUID(),
-            targetTerminalIndex: 0
-        ) == nil)
-        #expect(MobileTerminalReorderIndexResolver.destinationIndex(
+            movingPanelID: UUID()
+        ).destinationIndex(targetTerminalIndex: 0) == nil)
+        #expect(MobileTerminalReorderIndexResolver(
             panePanelIDs: [terminal],
             terminalPanelIDs: [terminal],
-            movingPanelID: terminal,
-            targetTerminalIndex: 1
-        ) == nil)
+            movingPanelID: terminal
+        ).destinationIndex(targetTerminalIndex: 1) == nil)
     }
 
     @Test func rejectsMoveAcrossPinnedTerminalBoundary() {
@@ -76,48 +72,42 @@ struct MobileTerminalReorderIndexResolverTests {
         let unpinnedTerminal = UUID()
         let terminals: Set<UUID> = [pinnedTerminal, unpinnedTerminal]
 
-        #expect(MobileTerminalReorderIndexResolver.crossesPinnedBoundary(
+        #expect(MobileTerminalReorderIndexResolver(
             panePanelIDs: [pinnedTerminal, unpinnedTerminal],
             terminalPanelIDs: terminals,
             pinnedPanelIDs: [pinnedTerminal],
-            movingPanelID: unpinnedTerminal,
-            targetTerminalIndex: 0
-        ))
-        #expect(MobileTerminalReorderIndexResolver.crossesPinnedBoundary(
+            movingPanelID: unpinnedTerminal
+        ).crossesPinnedBoundary(targetTerminalIndex: 0))
+        #expect(MobileTerminalReorderIndexResolver(
             panePanelIDs: [pinnedTerminal, unpinnedTerminal],
             terminalPanelIDs: terminals,
             pinnedPanelIDs: [pinnedTerminal],
-            movingPanelID: pinnedTerminal,
-            targetTerminalIndex: 1
-        ))
-        #expect(!MobileTerminalReorderIndexResolver.crossesPinnedBoundary(
+            movingPanelID: pinnedTerminal
+        ).crossesPinnedBoundary(targetTerminalIndex: 1))
+        #expect(!MobileTerminalReorderIndexResolver(
             panePanelIDs: [pinnedTerminal, unpinnedTerminal],
             terminalPanelIDs: terminals,
             pinnedPanelIDs: [pinnedTerminal],
-            movingPanelID: pinnedTerminal,
-            targetTerminalIndex: 0
-        ))
-        #expect(!MobileTerminalReorderIndexResolver.crossesPinnedBoundary(
+            movingPanelID: pinnedTerminal
+        ).crossesPinnedBoundary(targetTerminalIndex: 0))
+        #expect(!MobileTerminalReorderIndexResolver(
             panePanelIDs: [pinnedTerminal, unpinnedTerminal],
             terminalPanelIDs: terminals,
             pinnedPanelIDs: [pinnedTerminal],
-            movingPanelID: unpinnedTerminal,
-            targetTerminalIndex: 1
-        ))
+            movingPanelID: unpinnedTerminal
+        ).crossesPinnedBoundary(targetTerminalIndex: 1))
 
-        #expect(MobileTerminalReorderIndexResolver.destinationIndex(
+        #expect(MobileTerminalReorderIndexResolver(
             panePanelIDs: [pinnedTerminal, unpinnedTerminal],
             terminalPanelIDs: terminals,
             pinnedPanelIDs: [pinnedTerminal],
-            movingPanelID: unpinnedTerminal,
-            targetTerminalIndex: 0
-        ) == nil)
-        #expect(MobileTerminalReorderIndexResolver.destinationIndex(
+            movingPanelID: unpinnedTerminal
+        ).destinationIndex(targetTerminalIndex: 0) == nil)
+        #expect(MobileTerminalReorderIndexResolver(
             panePanelIDs: [pinnedTerminal, unpinnedTerminal],
             terminalPanelIDs: terminals,
             pinnedPanelIDs: [pinnedTerminal],
-            movingPanelID: pinnedTerminal,
-            targetTerminalIndex: 1
-        ) == nil)
+            movingPanelID: pinnedTerminal
+        ).destinationIndex(targetTerminalIndex: 1) == nil)
     }
 }

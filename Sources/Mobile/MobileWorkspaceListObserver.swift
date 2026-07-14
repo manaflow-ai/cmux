@@ -27,6 +27,8 @@ final class MobileWorkspaceListObserver {
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var focusedHierarchyProjections: [UUID: MobileWorkspaceHierarchyProjection.FocusValue] = [:]
+    private var workspaceListDigestIndex = MobileWorkspaceListProjection.DigestIndex()
+    private var workspacePreviewSignatures: [UUID: Int] = [:]
     private var lastListDigest: Int?
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
@@ -55,7 +57,8 @@ final class MobileWorkspaceListObserver {
         focusedHierarchyProjections = Dictionary(uniqueKeysWithValues: tabManager.tabs.map {
             ($0.id, MobileWorkspaceHierarchyProjection.FocusValue(workspace: $0))
         })
-        emitIfNeeded(force: true)
+        workspacePreviewSignatures = currentPreviewSignatures(for: tabManager.tabs)
+        emitIfNeeded(force: true, resampling: Set(tabManager.tabs.map(\.id)))
 
         tabsCancellable = tabManager.tabsPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
@@ -65,7 +68,7 @@ final class MobileWorkspaceListObserver {
                 cmuxDebugLog("mobile.observer tabs sink fired count=\(tabManager.tabs.count)")
                 #endif
                 self.refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
-                self.emitIfNeeded(force: false)
+                self.refreshPreviewSignaturesAndEmit()
             }
         // Selection changes (Mac user clicks a different sidebar tab) need
         // to push to iPhone too. iPhone's selectedWorkspaceID drives which
@@ -119,7 +122,7 @@ final class MobileWorkspaceListObserver {
         notificationsCancellable = notificationStore?.$notifications
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.refreshPreviewSignaturesAndEmit()
             }
         // Workspace-level unread indicators (manual mark-unread, panel-derived,
         // session-restored) live in their own published sets, not in
@@ -133,7 +136,7 @@ final class MobileWorkspaceListObserver {
             )
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.refreshPreviewSignaturesAndEmit()
             }
         }
 
@@ -220,10 +223,22 @@ final class MobileWorkspaceListObserver {
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            let workspaceID = workspace.id
             perWorkspaceCancellables[workspace.id] = merged.sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.emitIfNeeded(force: false, resampling: [workspaceID])
             }
         }
+    }
+
+    private func refreshPreviewSignaturesAndEmit() {
+        guard let tabManager else { return }
+        let next = currentPreviewSignatures(for: tabManager.tabs)
+        let candidateIDs = Set(workspacePreviewSignatures.keys).union(next.keys)
+        let changedIDs = Set(candidateIDs.filter {
+            workspacePreviewSignatures[$0] != next[$0]
+        })
+        workspacePreviewSignatures = next
+        emitIfNeeded(force: false, resampling: changedIDs)
     }
 
     private func emitFocusedHierarchyUpdateIfNeeded(for workspace: Workspace) {
@@ -236,14 +251,23 @@ final class MobileWorkspaceListObserver {
         MobileHostService.shared.emitEvent(topic: "workspace.focused", payload: projection.eventPayload)
     }
 
-    private func emitIfNeeded(force: Bool) {
+    private func emitIfNeeded(force: Bool, resampling workspaceIDs: Set<UUID> = []) {
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let tabManager else { return }
-        let digest = Self.summaryHash(
-            for: tabManager.tabs,
+        let workspaceDigests = workspaceListDigestIndex.refresh(
+            tabs: tabManager.tabs,
+            resampling: workspaceIDs
+        ) { [workspacePreviewSignatures] workspace in
+            MobileWorkspaceListProjection.workspaceDigest(
+                workspace: workspace,
+                previewSignature: workspacePreviewSignatures[workspace.id]
+            )
+        }
+        let digest = MobileWorkspaceListProjection.digest(
+            tabs: tabManager.tabs,
             groups: tabManager.workspaceGroups,
             selectedTabID: tabManager.selectedTabId,
-            previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
+            workspaceDigests: workspaceDigests
         )
         if !force, digest == lastListDigest {
             #if DEBUG

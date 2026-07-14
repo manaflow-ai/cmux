@@ -23,6 +23,7 @@ extension MobileShellComposite {
         let generation = connectionGeneration
         let focusRevision = workspaceFocusRevisionSnapshot()
         let responseMutationEpoch = foregroundWorkspaceListMutationEpoch
+        let responseListRevision = foregroundWorkspaceListAppliedRevision
         let createSelectionRevision = claimForegroundCreateSelection()
         do {
             var params: [String: Any] = ["workspace_id": requestedWorkspaceID.rawValue]
@@ -39,6 +40,7 @@ extension MobileShellComposite {
             let responseOutcome = await applyOrReconcileRemoteCreateResponse(
                 response,
                 startedAt: responseMutationEpoch,
+                listRevision: responseListRevision,
                 focusRevision: focusRevision,
                 client: client,
                 generation: generation
