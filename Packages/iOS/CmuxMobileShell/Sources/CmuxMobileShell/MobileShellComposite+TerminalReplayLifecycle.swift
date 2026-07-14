@@ -229,6 +229,34 @@ extension MobileShellComposite {
         return true
     }
 
+    /// Ends a replay request that could not authoritatively replace the local
+    /// terminal. Retained output owns continuity for an active replay episode,
+    /// so release it through fail-open; requests with no retained output keep
+    /// the normal clear path and its missing-baseline budget bookkeeping.
+    @discardableResult
+    func resolveNonAuthoritativeTerminalReplayBarrierExitIfCurrent(
+        surfaceID: String,
+        token: UUID?,
+        reason: String
+    ) -> Bool {
+        guard let token,
+              terminalReplayBarrierTokensBySurfaceID[surfaceID] == token else {
+            return false
+        }
+        if terminalReplayBarrierRetainedOutputBySurfaceID[surfaceID]?.deliveries.isEmpty == false {
+            return failOpenTerminalReplayBarrier(
+                surfaceID: surfaceID,
+                token: token,
+                reason: reason
+            )
+        }
+        return clearTerminalReplayBarrierIfCurrent(
+            surfaceID: surfaceID,
+            token: token,
+            reason: reason
+        )
+    }
+
     @discardableResult
     func preserveTerminalReplayBarrierIfCurrent(
         surfaceID: String,

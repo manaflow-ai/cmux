@@ -6798,7 +6798,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else {
-            clearTerminalReplayBarrierIfCurrent(
+            resolveNonAuthoritativeTerminalReplayBarrierExitIfCurrent(
                 surfaceID: surfaceID,
                 token: replayBarrierTokenForRequest,
                 reason: "workspace_not_found"
@@ -7024,7 +7024,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         surfaceID: surfaceID,
                         reason: "empty"
                     )
-                    self.clearTerminalReplayBarrierIfCurrent(
+                    self.resolveNonAuthoritativeTerminalReplayBarrierExitIfCurrent(
                         surfaceID: surfaceID,
                         token: replayBarrierTokenForRequest,
                         reason: "empty"
