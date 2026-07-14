@@ -14,6 +14,59 @@ import Testing
 @Suite(.serialized)
 struct BrowserWebExtensionSupportLifecycleTests {
     @Test
+    func repeatedReplacementForSameExtensionContextKeepsWebView() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+        let context = NSObject()
+        let contextIdentifier = ObjectIdentifier(context)
+
+        panel.replaceWebViewForWebExtensionNavigation(
+            webViewConfiguration: WKWebViewConfiguration(),
+            contextIdentifier: contextIdentifier
+        )
+        let firstReplacement = panel.webView
+
+        panel.replaceWebViewForWebExtensionNavigation(
+            webViewConfiguration: WKWebViewConfiguration(),
+            contextIdentifier: contextIdentifier
+        )
+
+        #expect(panel.webView === firstReplacement)
+    }
+
+    @Test
+    func extensionContextSwapPreservesLogicalNavigationHistory() throws {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+        let backURL = try #require(URL(string: "https://example.com/back"))
+        let currentURL = try #require(URL(string: "https://example.com/current"))
+        let extensionURL = try #require(URL(string: "webkit-extension://cmux-test/options.html"))
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [backURL.absoluteString],
+            forwardHistoryURLStrings: [],
+            currentURLString: currentURL.absoluteString
+        )
+
+        panel.navigateFromWebExtension(
+            to: extensionURL,
+            webViewConfiguration: WKWebViewConfiguration()
+        )
+
+        #expect(panel.canGoBack)
+        let history = panel.sessionNavigationHistorySnapshot()
+        #expect(history.backHistoryURLStrings == [
+            backURL.absoluteString,
+            currentURL.absoluteString,
+        ])
+    }
+
+    @Test
     @available(macOS 15.4, *)
     func startupRestoreDoesNotWaitForExtensionSettingsReconciliation() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
