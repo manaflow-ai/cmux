@@ -41,8 +41,8 @@ struct UnifiedFileExplorerSearchScopeTests {
         #expect(activatedFilter)
         #expect(!unchangedFilter)
 
-        #expect(filter.visibleNodes(in: [root]).map(\.path) == [root.path])
-        #expect(filter.visibleNodes(in: root.sortedChildren ?? []).map(\.path) == [matchingFile.path])
+        #expect(filter.visibleRootNodes(in: [root]).map(\.path) == [root.path])
+        #expect(filter.visibleChildren(of: root).map(\.path) == [matchingFile.path])
         #expect(unloadedDirectory.children == nil)
     }
 

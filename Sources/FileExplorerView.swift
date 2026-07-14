@@ -185,11 +185,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                if expandedPaths.contains(node.path) && outlineView.isExpandable(node) {
+            var row = 0
+            while row < outlineView.numberOfRows {
+                if let node = outlineView.item(atRow: row) as? FileExplorerNode,
+                   expandedPaths.contains(node.path), outlineView.isExpandable(node) {
                     outlineView.expandItem(node)
                 }
+                row += 1
             }
         }
 
@@ -219,21 +221,20 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
             if item == nil {
-                return fileFilter.visibleNodes(in: store.rootNodes).count
+                return fileFilter.visibleRootNodes(in: store.rootNodes).count
             }
             guard let node = item as? FileExplorerNode else { return 0 }
-            return fileFilter.visibleNodes(in: node.sortedChildren ?? []).count
+            return fileFilter.visibleChildren(of: node).count
         }
 
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
             if item == nil {
-                return fileFilter.visibleNodes(in: store.rootNodes)[index]
+                return fileFilter.visibleRootNodes(in: store.rootNodes)[index]
             }
-            guard let node = item as? FileExplorerNode,
-                  let children = node.sortedChildren else {
+            guard let node = item as? FileExplorerNode else {
                 return FileExplorerNode(name: "", path: "", isDirectory: false)
             }
-            return fileFilter.visibleNodes(in: children)[index]
+            return fileFilter.visibleChildren(of: node)[index]
         }
 
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
