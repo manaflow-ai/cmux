@@ -134,4 +134,28 @@ struct WorktreeRemoveTests {
             ))
         }
     }
+
+    @Test
+    func genericValidationFailureDoesNotPruneUnrelatedRecords() async throws {
+        let host = ValidationFailureWorktreeExecutionHost()
+        let identity = WorktreeIdentity(
+            host: host.id,
+            repoPath: "/repo",
+            worktreePath: "/repo/worktrees/feature"
+        )
+
+        do {
+            _ = try await WorktreeService().remove(worktree: identity, on: host)
+            Issue.record("Expected Git to refuse removing a worktree containing submodules")
+        } catch let error as WorktreeServiceError {
+            guard case let .commandFailed(_, _, message) = error else {
+                Issue.record("Expected Git's validation failure, got \(error)")
+                return
+            }
+            #expect(message.contains("working trees containing submodules"))
+        }
+
+        let commands = await host.recordedArguments()
+        #expect(!commands.contains(["worktree", "prune", "--verbose"]))
+    }
 }

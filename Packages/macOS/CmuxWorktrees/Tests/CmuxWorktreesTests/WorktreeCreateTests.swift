@@ -155,5 +155,7 @@ struct WorktreeCreateTests {
 
         #expect(child.headOID == callerHead.stdout?.trimmingCharacters(in: .whitespacesAndNewlines))
         #expect(child.headOID != mainHead.stdout?.trimmingCharacters(in: .whitespacesAndNewlines))
+        let recordedBase = try await fixture.git(["config", "--get", "branch.child.base"])
+        #expect(recordedBase.stdout?.trimmingCharacters(in: .whitespacesAndNewlines) == "caller")
     }
 }
