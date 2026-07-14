@@ -3362,6 +3362,13 @@ extension TerminalSurface {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
+    private struct PendingInputDemandKeyEvent {
+        let surfaceId: UUID
+        let event: NSEvent
+    }
+
+    private static let maxPendingInputDemandKeyEvents = 256
+
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
             return true
@@ -3429,8 +3436,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _pendingScrollbar: GhosttyScrollbar?
     private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
-    private var _renderedFrameFlushScheduled = false
-    private let _renderedFrameLock = NSLock()
+    var _renderedFrameFlushScheduled = false
+    let _renderedFrameLock = NSLock()
+    let rendererProfilingSignposts = TerminalRendererProfilingSignposts()
+    var rendererProfilingCoalescedUpdateCount = 0
+    var rendererProfilingUpdateState: OSSignpostIntervalState?
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
@@ -3536,33 +3546,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    func enqueueRenderedFrameUpdate() {
-        guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
-        _renderedFrameLock.lock()
-        let needsSchedule = !_renderedFrameFlushScheduled
-        if needsSchedule {
-            _renderedFrameFlushScheduled = true
-        }
-        _renderedFrameLock.unlock()
-
-        guard needsSchedule else { return }
-        DispatchQueue.main.async { [weak self] in
-            self?.flushRenderedFrameUpdate()
-        }
-    }
-
-    private func flushRenderedFrameUpdate() {
-        _renderedFrameLock.lock()
-        _renderedFrameFlushScheduled = false
-        _renderedFrameLock.unlock()
-
-        guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
-        NotificationCenter.default.post(
-            name: .ghosttyDidRenderFrame,
-            object: self
-        )
-    }
-
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
     var tabId: UUID?
@@ -3628,6 +3611,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
+    private var runtimeSurfaceReadyObserver: NSObjectProtocol?
+    private var pendingInputDemandKeyEvents: [PendingInputDemandKeyEvent] = []
+    private var pendingInputDemandKeyEventFlushScheduled = false
     private var lastScrollEventTime: CFTimeInterval = 0
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
@@ -3665,9 +3651,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // Visibility is used for focus gating. Explicit portal visibility transitions
     // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
     // queue a redraw when they become visible again.
-    fileprivate var isVisibleInUI: Bool { visibleInUI }
+    var isVisibleInUI: Bool { visibleInUI }
     fileprivate func setVisibleInUI(_ visible: Bool) {
         visibleInUI = visible
+        updateRendererProfilingState(wakeReason: .visibility)
     }
 
     override init(frame frameRect: NSRect) {
@@ -3703,8 +3690,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         layer?.masksToBounds = true
         setupKeyboardCopyModeCursorOverlay()
         installEventMonitor()
+        installRuntimeSurfaceReadyObserver()
         updateTrackingAreas()
         registerForDraggedTypes(Array(Self.dropTypes))
+    }
+
+    private func installRuntimeSurfaceReadyObserver() {
+        runtimeSurfaceReadyObserver = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let readySurface = notification.object as? TerminalSurface,
+                  readySurface === self.terminalSurface else {
+                return
+            }
+            self.schedulePendingInputDemandKeyEventFlush()
+        }
     }
 
     private func setupKeyboardCopyModeCursorOverlay() {
@@ -3855,12 +3858,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let isSameSurface = terminalSurface === surface
         let isAlreadyAttached = surface.isAttached(to: self)
         if !isSameSurface {
+            pendingInputDemandKeyEvents.removeAll(keepingCapacity: false)
             appliedColorScheme = nil
             // Reset any OSC 22 mouse shape carried over from the previous surface.
             updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
         }
         terminalSurface = surface
         tabId = surface.tabId
+        updateRendererProfilingState(wakeReason: .terminalOutput)
         if !isAlreadyAttached {
             surface.attachToView(self)
         } else {
@@ -4204,7 +4209,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// reallocate Metal drawables when the pixel size is unchanged.
     @discardableResult
     func forceRefreshSurface() -> Bool {
-        updateSurfaceSize()
+        updateRendererProfilingState(wakeReason: .explicitRefresh)
+        return updateSurfaceSize()
     }
 
     private func nearlyEqual(_ lhs: CGFloat, _ rhs: CGFloat, epsilon: CGFloat = 0.0001) -> Bool {
@@ -4280,6 +4286,52 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
     }
+    private func enqueueInputDemandKeyEvent(_ event: NSEvent, reason: String) {
+        guard let surfaceId = terminalSurface?.id else { return }
+        guard pendingInputDemandKeyEvents.count < Self.maxPendingInputDemandKeyEvents else {
+#if DEBUG
+            cmuxDebugLog(
+                "focus.input_recovery.reject surface=\(surfaceId.uuidString.prefix(5)) " +
+                "reason=queueFull type=\(event.type.rawValue)"
+            )
+#endif
+            requestInputRecoveryAfterSurfaceMiss(reason: reason)
+            return
+        }
+        pendingInputDemandKeyEvents.append(
+            PendingInputDemandKeyEvent(surfaceId: surfaceId, event: event)
+        )
+        requestInputRecoveryAfterSurfaceMiss(reason: reason)
+    }
+
+    private func schedulePendingInputDemandKeyEventFlush() {
+        guard !pendingInputDemandKeyEventFlushScheduled else { return }
+        pendingInputDemandKeyEventFlushScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.pendingInputDemandKeyEventFlushScheduled = false
+            self.flushPendingInputDemandKeyEventsIfReady()
+        }
+    }
+
+    private func flushPendingInputDemandKeyEventsIfReady() {
+        guard surface != nil, let surfaceId = terminalSurface?.id else { return }
+        let queued = pendingInputDemandKeyEvents
+        pendingInputDemandKeyEvents.removeAll(keepingCapacity: false)
+        for pending in queued where pending.surfaceId == surfaceId {
+            switch pending.event.type {
+            case .keyDown:
+                keyDown(with: pending.event)
+            case .keyUp:
+                keyUp(with: pending.event)
+            case .flagsChanged:
+                flagsChanged(with: pending.event)
+            default:
+                break
+            }
+        }
+    }
+
     @discardableResult
     func prepareSurfaceForPaste(reason: String) -> Bool {
         terminalSurface?.didReceiveExplicitInput()
@@ -5335,6 +5387,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                    in: window
                ) == false {
                 desiredFocus = false
+                updateRendererProfilingState(wakeReason: .focus)
                 terminalSurface.recordExternalFocusState(false)
                 terminalSurface.hostedView.cancelSuppressedFirstResponderFocusReapply()
 #if DEBUG
@@ -5346,6 +5399,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If we become first responder before the ghostty surface exists (e.g. during
             // split/tab creation while the surface is still being created), record the desired focus.
             desiredFocus = true
+            updateRendererProfilingState(wakeReason: .focus)
 
             // During programmatic splits, SwiftUI reparents the old NSView which triggers
             // becomeFirstResponder. Suppress onFocus + ghostty_surface_set_focus to prevent
@@ -5428,6 +5482,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             imeConsumedKeyUps.removeAll()
             desiredFocus = false
+            updateRendererProfilingState(wakeReason: .focus)
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
         }
@@ -5681,11 +5736,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
 #endif
         guard let surface = ensureSurfaceReadyForInput() else {
-            requestInputRecoveryAfterSurfaceMiss(reason: "keyDown.missingSurface")
+            enqueueInputDemandKeyEvent(event, reason: "keyDown.missingSurface")
 #if DEBUG
             ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
-            super.keyDown(with: event)
             return
         }
         recordDirectAgentHibernationTerminalInput()
@@ -6111,7 +6165,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func keyUp(with event: NSEvent) {
         guard let surface = ensureSurfaceReadyForInput() else {
-            super.keyUp(with: event)
+            enqueueInputDemandKeyEvent(event, reason: "keyUp.missingSurface")
             return
         }
         if event.keyCode != 53 {
@@ -6144,7 +6198,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func flagsChanged(with event: NSEvent) {
         guard let surface = ensureSurfaceReadyForInput() else {
-            super.flagsChanged(with: event)
+            enqueueInputDemandKeyEvent(event, reason: "flagsChanged.missingSurface")
             return
         }
 
@@ -7506,6 +7560,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
+        }
+        if let runtimeSurfaceReadyObserver {
+            NotificationCenter.default.removeObserver(runtimeSurfaceReadyObserver)
         }
         if let trackingArea {
             removeTrackingArea(trackingArea)
@@ -10364,6 +10421,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     func yieldTerminalSurfaceFocusForForeignResponder(reason: String) {
         surfaceView.desiredFocus = false
+        surfaceView.updateRendererProfilingState(wakeReason: .focus)
         pendingSuppressedFirstResponderFocusReapply = false
         guard let terminalSurface = surfaceView.terminalSurface else { return }
         terminalSurface.setFocus(false)

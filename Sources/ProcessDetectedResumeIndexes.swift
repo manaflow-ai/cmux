@@ -6,24 +6,46 @@ struct ProcessDetectedResumeIndexes: Sendable {
 
     static func load(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        snapshotStore: CmuxTopProcessSnapshotStore = .shared
     ) async -> ProcessDetectedResumeIndexes {
-        await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager, maximumSnapshotAge: 5)
+        let processSnapshot = await snapshotStore.snapshot(
+            requirements: [.processDetails, .cmuxScope],
+            maximumAge: 5,
+            consumer: .processDetectedResume
+        )
+        return await Task.detached(priority: .utility) {
+            loadSynchronously(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                processSnapshot: processSnapshot
+            )
         }.value
     }
 
+    /// Termination-only fallback. App shutdown must persist the final restorable
+    /// state before returning to AppKit, so this one raw capture cannot await the
+    /// actor; the compatibility seam records it in the shared proof metrics.
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default,
-        maximumSnapshotAge: TimeInterval? = nil
+        fileManager: FileManager = .default
+    ) -> ProcessDetectedResumeIndexes {
+        let processSnapshot = CmuxTopProcessSnapshot.captureSynchronouslyForCompatibility(
+            includeProcessDetails: true
+        )
+        return loadSynchronously(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            processSnapshot: processSnapshot
+        )
+    }
+
+    static func loadSynchronously(
+        homeDirectory: String,
+        fileManager: FileManager,
+        processSnapshot: CmuxTopProcessSnapshot
     ) -> ProcessDetectedResumeIndexes {
         let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = if let maximumSnapshotAge {
-            CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: maximumSnapshotAge)
-        } else {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        }
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: registry,
