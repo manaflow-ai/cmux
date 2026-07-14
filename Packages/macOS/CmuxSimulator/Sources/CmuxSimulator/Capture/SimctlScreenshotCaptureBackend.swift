@@ -1,46 +1,61 @@
 internal import Foundation
 
-/// The v1 fallback capture backend: periodic `simctl io screenshot` PNGs.
+/// The v1 fallback capture backend: periodic `simctl` screenshot captures.
 ///
 /// Public API only (no private frameworks, no Screen Recording permission, no
 /// Simulator.app requirement — headless-booted devices render too), at the
-/// cost of frame rate: each frame is one full screenshot round-trip, so the
-/// effective rate is a few frames per second. Captures that fail (e.g. while
-/// the device is still booting) are skipped silently and capture resumes on
-/// the next tick; unchanged captures are dropped by
-/// ``SimulatorFrameDeduplicator``.
+/// cost of frame rate: each frame is one full screenshot round-trip (about a
+/// second on current hardware), so the effective rate is roughly 1 fps.
+/// Captures that fail (e.g. while the device is still booting) are skipped
+/// silently and capture resumes on the next tick; unchanged captures are
+/// dropped by ``SimulatorFrameDeduplicator``.
 public struct SimctlScreenshotCaptureBackend: SimulatorDisplayCapturing {
-    private let runner: any SimctlCommandRunning
+    private let source: any SimulatorScreenshotCapturing
     private let frameInterval: Duration
 
-    /// Creates a screenshot-streaming backend.
+    /// Creates a screenshot-streaming backend over a single-capture source.
+    ///
+    /// - Parameters:
+    ///   - source: The single-capture seam.
+    ///   - frameInterval: The pause between captures. Defaults to 250 ms;
+    ///     with capture time included the effective rate is ~1 fps.
+    public init(
+        source: any SimulatorScreenshotCapturing,
+        frameInterval: Duration = .milliseconds(250)
+    ) {
+        self.source = source
+        self.frameInterval = frameInterval
+    }
+
+    /// Creates a screenshot-streaming backend over the file-based `simctl`
+    /// screenshot source.
     ///
     /// - Parameters:
     ///   - runner: The `simctl` seam.
-    ///   - frameInterval: The pause between captures. Defaults to 250 ms,
-    ///     which lands around 2–3 fps once capture time is included.
+    ///   - frameInterval: The pause between captures. Defaults to 250 ms.
     public init(
         runner: any SimctlCommandRunning,
         frameInterval: Duration = .milliseconds(250)
     ) {
-        self.runner = runner
-        self.frameInterval = frameInterval
+        self.init(
+            source: SimctlFileScreenshotSource(runner: runner),
+            frameInterval: frameInterval
+        )
     }
 
-    /// Streams display frames by polling `simctl io <udid> screenshot`.
+    /// Streams display frames by polling the screenshot source.
     ///
     /// - Parameter udid: The device whose display to capture.
     /// - Returns: A stream that finishes when the consumer cancels.
     public func frames(for udid: SimulatorDeviceUDID) -> AsyncStream<SimulatorDisplayFrame> {
-        let runner = runner
+        let source = source
         let frameInterval = frameInterval
         return AsyncStream { continuation in
             let captureTask = Task {
                 var deduplicator = SimulatorFrameDeduplicator()
                 while !Task.isCancelled {
-                    if let capture = try? await runner.run(
-                        ["io", udid.rawValue, "screenshot", "--type=png", "-"]
-                    ), let frame = deduplicator.frame(for: capture) {
+                    if let capture = try? await source.captureScreenshot(of: udid),
+                       let frame = deduplicator.frame(for: capture) {
                         continuation.yield(frame)
                     }
                     // Screenshot streaming is periodic by design: this backend's
