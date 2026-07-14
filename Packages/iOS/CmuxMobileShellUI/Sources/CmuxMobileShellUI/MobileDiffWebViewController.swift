@@ -15,7 +15,6 @@ final class MobileDiffWebViewController {
     private(set) var total: Int
 
     @ObservationIgnored private weak var webView: WKWebView?
-    @ObservationIgnored private var receivedStats = false
     @ObservationIgnored private var pendingScrollPath: String?
     @ObservationIgnored private var desiredLayout: MobileDiffHostPage.Layout
     @ObservationIgnored private var desiredTheme: ColorScheme
@@ -25,16 +24,14 @@ final class MobileDiffWebViewController {
     init(
         initialPath: String,
         initialIndex: Int,
-        total: Int,
-        layout: MobileDiffHostPage.Layout,
-        theme: ColorScheme
+        total: Int
     ) {
         currentPath = initialPath
         currentIndex = initialIndex
         self.total = total
         pendingScrollPath = initialPath
-        desiredLayout = layout
-        desiredTheme = theme
+        desiredLayout = .unified
+        desiredTheme = .light
     }
 
     func attach(_ webView: WKWebView) {
@@ -62,11 +59,9 @@ final class MobileDiffWebViewController {
     }
 
     func didReceiveStats(total: Int?) {
-        receivedStats = true
         if let total, total > 0 {
             self.total = total
         }
-        flushPendingScroll()
     }
 
     func didChangeCurrentFile(path: String, index: Int, total: Int) {
@@ -98,7 +93,6 @@ final class MobileDiffWebViewController {
     func reload() {
         guard let webView else { return }
         isReady = false
-        receivedStats = false
         errorMessage = nil
         sentLayout = nil
         sentTheme = nil
@@ -120,7 +114,7 @@ final class MobileDiffWebViewController {
     }
 
     private func flushPendingScroll() {
-        guard isReady, receivedStats, let path = pendingScrollPath else { return }
+        guard isReady, let path = pendingScrollPath else { return }
         pendingScrollPath = nil
         guard let literal = Self.javaScriptStringLiteral(path) else { return }
         evaluate("window.cmuxMobileDiff?.scrollToFile(\(literal))")

@@ -4,9 +4,9 @@ import Foundation
 public struct WorkspaceGitStatusFile: Equatable, Sendable {
     /// The repository-relative current path.
     public let path: String
-    /// The repository-relative prior path for a rename, otherwise `nil`.
+    /// The repository-relative source path for a rename or copy, otherwise `nil`.
     public let oldPath: String?
-    /// The normalized status code: `M`, `A`, `D`, or `R`.
+    /// The normalized status code: `M`, `A`, `D`, or `R`. Copies map to `A`.
     public let status: String
     /// The number of added lines, or zero for binary files.
     public let additions: Int
@@ -20,7 +20,7 @@ public struct WorkspaceGitStatusFile: Equatable, Sendable {
     /// Creates a normalized workspace Git status entry.
     /// - Parameters:
     ///   - path: The repository-relative current path.
-    ///   - oldPath: The repository-relative prior path for a rename.
+    ///   - oldPath: The repository-relative source path for a rename or copy.
     ///   - status: The normalized status code.
     ///   - additions: The number of added lines.
     ///   - deletions: The number of deleted lines.

@@ -20,9 +20,7 @@ struct MobileDiffTreeBuilder {
     }
 
     private func insert(_ file: MobileDiffFileChange) {
-        let components = file.path
-            .split(separator: "/", omittingEmptySubsequences: true)
-            .map(String.init)
+        let components = MobileDiffPath(file.path).components
         guard components.count > 1 else {
             root.files.append(file)
             return

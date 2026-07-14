@@ -12,7 +12,7 @@ import Testing
             {"path":"new.swift","status":"A","additions":4,"deletions":0,"binary":false,"untracked":true},
             {"path":"renamed.swift","old_path":"old.swift","status":"R","additions":1,"deletions":2,"binary":false,"untracked":false}
           ],
-          "total_additions":5,"total_deletions":2
+          "total_additions":5,"total_deletions":2,"truncated_untracked":true
         }
         """#.utf8)
 
@@ -25,6 +25,18 @@ import Testing
         #expect(response.files[1].oldPath == "old.swift")
         #expect(response.totalAdditions == 5)
         #expect(response.totalDeletions == 2)
+        #expect(response.truncatedUntracked)
+    }
+
+    @Test func statusResponseDefaultsMissingUntrackedTruncationToFalse() throws {
+        let data = Data(#"""
+        {
+          "repo_root":"/repo","baseline":"worktree","files":[],
+          "total_additions":0,"total_deletions":0
+        }
+        """#.utf8)
+
+        #expect(try !MobileSyncGitStatusResponse.decode(data).truncatedUntracked)
     }
 
     @Test func diffResponseDecodesBatchingMetadata() throws {

@@ -72,14 +72,11 @@ struct MobileDiffHeaderView: View {
     }
 
     private var fileName: String {
-        path.split(separator: "/", omittingEmptySubsequences: true).last.map(String.init)
-            ?? path
+        MobileDiffPath(path).fileName
     }
 
     private var directory: String {
-        let components = path.split(separator: "/", omittingEmptySubsequences: true)
-        guard components.count > 1 else { return "" }
-        return components.dropLast().joined(separator: "/")
+        MobileDiffPath(path).directory
     }
 
     private var positionLabel: String {

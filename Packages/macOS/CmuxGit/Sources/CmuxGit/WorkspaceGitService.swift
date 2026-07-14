@@ -15,7 +15,13 @@ public struct WorkspaceGitService: Sendable {
     /// The soft response cap used by mobile diff calls: four mebibytes.
     public static let defaultDiffByteCap = 4 * 1024 * 1024
 
+    /// The maximum number of untracked paths inspected per status response.
+    public static let maximumUntrackedEntries = 2_000
+
     private static let commandTimeout: TimeInterval = 30
+    private static let emptyTreeObject = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+    private static let untrackedReadByteCap = 4 * 1024 * 1024
+    private static let binaryPrefixByteCap = 8 * 1024
     private let commandRunner: any CommandRunning
 
     /// Creates a workspace Git service.
@@ -24,13 +30,14 @@ public struct WorkspaceGitService: Sendable {
         self.commandRunner = commandRunner
     }
 
-    /// Reads all staged, unstaged, and untracked changes relative to `HEAD`.
+    /// Reads staged, unstaged, and bounded untracked changes relative to `HEAD`.
     /// - Parameter directory: A workspace working directory inside the repository.
     /// - Returns: The normalized status and line-count summary.
     /// - Throws: ``WorkspaceGitServiceError`` when the directory is not a repository or Git fails.
     public nonisolated func status(forDirectory directory: String) async throws -> WorkspaceGitStatus {
         let repository = try repository(containing: directory)
         let repoRoot = repository.workTreeRoot
+        let baselineObject = await hasHead(in: repoRoot) ? "HEAD" : Self.emptyTreeObject
         let porcelain = try await runGit(
             in: repoRoot,
             arguments: ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--find-renames"],
@@ -39,7 +46,7 @@ public struct WorkspaceGitService: Sendable {
         )
         let trackedNumstat = try await runGit(
             in: repoRoot,
-            arguments: ["diff", "HEAD", "--numstat", "-z", "-M", "--"],
+            arguments: ["-c", "core.quotepath=off", "diff", baselineObject, "--numstat", "-z", "-M", "--"],
             acceptedExitStatuses: [0],
             operation: "status.numstat"
         )
@@ -52,22 +59,30 @@ public struct WorkspaceGitService: Sendable {
             throw WorkspaceGitServiceError.commandFailed(operation: "status.parse")
         }
 
-        var untrackedNumstatByPath: [String: String] = [:]
-        for entry in porcelainEntries where entry.untracked {
-            untrackedNumstatByPath[entry.path] = try await runGit(
-                in: repoRoot,
-                arguments: ["diff", "--no-index", "--numstat", "--no-color", "--", "/dev/null", entry.path],
-                acceptedExitStatuses: [0, 1],
-                operation: "status.untracked_numstat"
-            )
+        var retainedEntries: [WorkspaceGitPorcelainEntry] = []
+        var untrackedStatsByPath: [String: WorkspaceGitNumstatEntry] = [:]
+        var untrackedCount = 0
+        var truncatedUntracked = false
+        for entry in porcelainEntries {
+            guard entry.untracked else {
+                retainedEntries.append(entry)
+                continue
+            }
+            guard untrackedCount < Self.maximumUntrackedEntries else {
+                truncatedUntracked = true
+                continue
+            }
+            untrackedCount += 1
+            retainedEntries.append(entry)
+            untrackedStatsByPath[entry.path] = Self.untrackedStats(for: entry.path, in: repoRoot)
         }
 
         let files: [WorkspaceGitStatusFile]
         do {
             files = try parser.parse(
-                porcelain: porcelain,
+                porcelainEntries: retainedEntries,
                 trackedNumstat: trackedNumstat,
-                untrackedNumstatByPath: untrackedNumstatByPath
+                untrackedStatsByPath: untrackedStatsByPath
             )
         } catch {
             throw WorkspaceGitServiceError.commandFailed(operation: "status.parse")
@@ -77,27 +92,34 @@ public struct WorkspaceGitService: Sendable {
             baseline: "worktree",
             files: files,
             totalAdditions: files.reduce(0) { $0 + $1.additions },
-            totalDeletions: files.reduce(0) { $0 + $1.deletions }
+            totalDeletions: files.reduce(0) { $0 + $1.deletions },
+            truncatedUntracked: truncatedUntracked
         )
     }
 
     /// Generates per-path unified diffs in request order and enforces a byte cap.
     /// - Parameters:
     ///   - directory: A workspace working directory inside the repository.
-    ///   - paths: Safe repository-relative paths, in client request order.
+    ///   - paths: Safe repository-relative path pairs, in client request order.
     ///   - byteCap: The maximum UTF-8 bytes of concatenated patch content.
     /// - Returns: Included, truncated, and individually oversized path results.
     /// - Throws: ``WorkspaceGitServiceError`` when validation or Git execution fails.
     public nonisolated func diff(
         forDirectory directory: String,
-        paths: [String],
+        paths: [WorkspaceGitDiffPath],
         byteCap: Int = WorkspaceGitService.defaultDiffByteCap
     ) async throws -> WorkspaceGitDiff {
-        for path in paths where !Self.isValidRepoRelativePath(path) {
-            throw WorkspaceGitServiceError.invalidPath(path)
+        for request in paths {
+            guard Self.isValidRepoRelativePath(request.path) else {
+                throw WorkspaceGitServiceError.invalidPath(request.path)
+            }
+            if let oldPath = request.oldPath, !Self.isValidRepoRelativePath(oldPath) {
+                throw WorkspaceGitServiceError.invalidPath(oldPath)
+            }
         }
         let repository = try repository(containing: directory)
         let repoRoot = repository.workTreeRoot
+        let baselineObject = await hasHead(in: repoRoot) ? "HEAD" : Self.emptyTreeObject
         let porcelain = try await runGit(
             in: repoRoot,
             arguments: ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--find-renames"],
@@ -116,10 +138,15 @@ public struct WorkspaceGitService: Sendable {
         }
         var accumulator = WorkspaceGitDiffAccumulator(byteCap: byteCap)
 
-        for (index, path) in paths.enumerated() {
-            let patch = try await patch(for: path, untracked: untrackedPaths.contains(path), in: repoRoot)
-            guard accumulator.append(path: path, patch: patch) else {
-                accumulator.appendTruncated(contentsOf: paths.dropFirst(index + 1))
+        for (index, request) in paths.enumerated() {
+            let patch = try await patch(
+                for: request,
+                baselineObject: baselineObject,
+                untracked: untrackedPaths.contains(request.path),
+                in: repoRoot
+            )
+            guard accumulator.append(path: request.path, patch: patch) else {
+                accumulator.appendTruncated(contentsOf: paths.dropFirst(index + 1).map(\.path))
                 break
             }
         }
@@ -133,18 +160,34 @@ public struct WorkspaceGitService: Sendable {
         return repository
     }
 
-    private nonisolated func patch(for path: String, untracked: Bool, in repoRoot: String) async throws -> String {
+    private nonisolated func patch(
+        for request: WorkspaceGitDiffPath,
+        baselineObject: String,
+        untracked: Bool,
+        in repoRoot: String
+    ) async throws -> String {
         if untracked {
             return try await runGit(
                 in: repoRoot,
-                arguments: ["diff", "--no-index", "--no-color", "--", "/dev/null", path],
+                arguments: [
+                    "-c", "core.quotepath=off", "diff", "--no-index", "--no-color", "--",
+                    "/dev/null", request.path,
+                ],
                 acceptedExitStatuses: [0, 1],
                 operation: "diff.untracked"
             )
         }
+        var pathspecs: [String] = []
+        if let oldPath = request.oldPath {
+            pathspecs.append(oldPath)
+        }
+        pathspecs.append(request.path)
         return try await runGit(
             in: repoRoot,
-            arguments: ["diff", "HEAD", "--no-ext-diff", "--no-color", "-M", "--", path],
+            arguments: [
+                "-c", "core.quotepath=off", "diff", baselineObject,
+                "--no-ext-diff", "--no-color", "-M", "--",
+            ] + pathspecs,
             acceptedExitStatuses: [0],
             operation: "diff.tracked"
         )
@@ -158,8 +201,8 @@ public struct WorkspaceGitService: Sendable {
     ) async throws -> String {
         let result = await commandRunner.run(
             directory: directory,
-            executable: "git",
-            arguments: arguments,
+            executable: "/usr/bin/env",
+            arguments: ["GIT_OPTIONAL_LOCKS=0", "git"] + arguments,
             timeout: Self.commandTimeout
         )
         guard result.executionError == nil,
@@ -170,6 +213,47 @@ public struct WorkspaceGitService: Sendable {
             throw WorkspaceGitServiceError.commandFailed(operation: operation)
         }
         return stdout
+    }
+
+    private nonisolated func hasHead(in directory: String) async -> Bool {
+        let result = await commandRunner.run(
+            directory: directory,
+            executable: "/usr/bin/env",
+            arguments: ["GIT_OPTIONAL_LOCKS=0", "git", "rev-parse", "--verify", "HEAD"],
+            timeout: Self.commandTimeout
+        )
+        return result.executionError == nil && !result.timedOut && result.exitStatus == 0
+    }
+
+    /// Reads at most four MiB per untracked file. Counts are intentionally
+    /// bounded approximations for larger files; unreadable paths stay visible
+    /// with zero counts instead of failing the complete status response.
+    private static func untrackedStats(for path: String, in repoRoot: String) -> WorkspaceGitNumstatEntry {
+        let url = URL(fileURLWithPath: repoRoot, isDirectory: true).appendingPathComponent(path)
+        do {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            let data = try handle.read(upToCount: untrackedReadByteCap) ?? Data()
+            let binary = data.prefix(binaryPrefixByteCap).contains(0)
+            let additions = binary ? 0 : data.reduce(into: 0) { count, byte in
+                if byte == 0x0A { count += 1 }
+            }
+            return WorkspaceGitNumstatEntry(
+                path: path,
+                oldPath: nil,
+                additions: additions,
+                deletions: 0,
+                binary: binary
+            )
+        } catch {
+            return WorkspaceGitNumstatEntry(
+                path: path,
+                oldPath: nil,
+                additions: 0,
+                deletions: 0,
+                binary: false
+            )
+        }
     }
 
     private static func isValidRepoRelativePath(_ path: String) -> Bool {

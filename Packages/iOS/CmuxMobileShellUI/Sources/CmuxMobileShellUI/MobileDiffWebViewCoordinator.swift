@@ -12,19 +12,21 @@ final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate, WKScri
     init(
         controller: MobileDiffWebViewController,
         service: MobileDiffRPCService,
-        paths: [String],
+        files: [MobileDiffFileChange],
         layout: MobileDiffHostPage.Layout,
         title: String,
-        onTooLargePaths: @escaping ([String]) -> Void
+        onTooLargePaths: @escaping ([String]) -> Void,
+        onPartialFailure: @escaping () -> Void
     ) {
         self.controller = controller
         schemeHandler = MobileDiffURLSchemeHandler(
             service: service,
-            paths: paths,
+            files: files,
             layout: layout,
             title: title,
             labels: Self.webLabels,
-            onTooLargePaths: onTooLargePaths
+            onTooLargePaths: onTooLargePaths,
+            onPartialFailure: onPartialFailure
         )
         super.init()
     }

@@ -39,6 +39,7 @@ import { Icon, type IconName } from "./icons";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import {
   createThrottledEmitter,
+  createPendingMobileDiffScroll,
   mobileDiffErrorMessage,
   mobileDiffStatsMessage,
   postMobileDiffMessage,
@@ -287,7 +288,6 @@ export function App({ config, initialStatus }: ConfigProps) {
 
   usePageDataAttributes(state, mobileHost);
   usePendingReplacement(payload, label, dispatch);
-  useRenderDiff(config, label, dispatch, latestState, mobileHost);
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
   useOptionsDismiss(state.optionsOpen, dispatch);
 
@@ -338,24 +338,27 @@ export function App({ config, initialStatus }: ConfigProps) {
   };
 
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
-  const scrollToItem = useCallback((itemId: string) => {
+  const scrollToItem = useCallback((itemId: string): boolean => {
     const current = latestState.current;
     const target = scrollTargetForItem(itemId, current.items);
-    if (!target) {
-      return;
+    const codeView = codeViewRef.current;
+    if (!target || !codeView) {
+      return false;
     }
-    codeViewRef.current?.scrollTo({ type: "item", id: target, align: "start", behavior: "smooth-auto" });
+    codeView.scrollTo({ type: "item", id: target, align: "start", behavior: "smooth-auto" });
     dispatch({
       type: "set-active-item",
       itemId: target,
       treePath: current.treeSource?.treePathByItemId.get(target),
     });
+    return true;
   }, [latestState]);
-  const scrollToFile = useCallback((path: string) => {
+  const scrollToFile = useCallback((path: string): boolean => {
     const target = latestState.current.items.find((item) => fileName(item.fileDiff, item.id) === path);
     if (target) {
-      scrollToItem(target.id);
+      return scrollToItem(target.id);
     }
+    return false;
   }, [latestState, scrollToItem]);
   const jumpAdjacentFile = useCallback((direction: -1 | 1) => {
     const current = latestState.current;
@@ -376,8 +379,27 @@ export function App({ config, initialStatus }: ConfigProps) {
   const setThemeMode = useCallback((mode: MobileDiffThemeMode) => {
     dispatch({ type: "set-theme-mode", mode });
   }, [dispatch]);
+  const currentFileMessage = useCallback((): MobileDiffCurrentFileMessage | null => {
+    const current = latestState.current;
+    const itemId = visibleItemId(
+      current.items,
+      codeViewScrollTopRef.current,
+      (id) => codeViewRef.current?.getInstance()?.getTopForItem(id),
+    );
+    const index = current.items.findIndex((item) => item.id === itemId);
+    if (index < 0) {
+      return null;
+    }
+    return {
+      type: "currentFile",
+      path: fileName(current.items[index].fileDiff, current.items[index].id),
+      index,
+      total: current.items.length,
+    };
+  }, [latestState]);
   const mobileBridge = useMobileDiffBridge({
     enabled: mobileHost,
+    currentFileMessage,
     nextFile: () => jumpAdjacentFile(1),
     prevFile: () => jumpAdjacentFile(-1),
     scrollToFile,
@@ -389,34 +411,13 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (!mobileHost) {
       return;
     }
-    const current = latestState.current;
-    const itemId = visibleItemId(
-      current.items,
-      scrollTop,
-      (id) => codeViewRef.current?.getInstance()?.getTopForItem(id),
-    );
-    const index = current.items.findIndex((item) => item.id === itemId);
-    if (index >= 0) {
-      mobileBridge.reportCurrentFile({
-        type: "currentFile",
-        path: fileName(current.items[index].fileDiff, current.items[index].id),
-        index,
-        total: current.items.length,
-      });
+    const message = currentFileMessage();
+    if (message) {
+      mobileBridge.reportCurrentFile(message);
     }
-  }, [latestState, mobileBridge, mobileHost]);
+  }, [currentFileMessage, mobileBridge, mobileHost]);
+  useRenderDiff(config, label, dispatch, latestState, mobileHost, mobileBridge);
   useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile);
-  useEffect(() => {
-    if (!mobileHost || state.items.length === 0) {
-      return;
-    }
-    if (typeof window.requestAnimationFrame !== "function") {
-      handleCodeViewScroll(codeViewScrollTopRef.current);
-      return;
-    }
-    const frame = window.requestAnimationFrame(() => handleCodeViewScroll(codeViewScrollTopRef.current));
-    return () => window.cancelAnimationFrame(frame);
-  }, [handleCodeViewScroll, mobileHost, state.items.length, state.options.layout]);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
@@ -1422,6 +1423,7 @@ function useRenderDiff(
   dispatch: React.Dispatch<AppAction>,
   latestState: React.MutableRefObject<AppState>,
   mobileHost: boolean,
+  mobileBridge: MobileDiffBridge,
 ) {
   const started = useRef(false);
   useEffect(() => {
@@ -1446,12 +1448,16 @@ function useRenderDiff(
       onBatch: (items) => {
         streamedItems.push(...items);
         dispatch({ type: "append-items", items });
+        if (mobileHost) {
+          mobileBridge.didAppendItems(items);
+        }
       },
       onComplete: (metrics) => {
         dispatch({ type: "set-metrics", metrics });
         const items = streamedItems;
         if (mobileHost) {
           postMobileDiffMessage(mobileDiffStatsMessage(items));
+          mobileBridge.didComplete();
         }
         if (items.length === 0) {
           dispatch({ type: "set-status", status: createDiffViewerStatus(label("noFileDiffs"), { error: true, loading: false, statusOnly: true }) });
@@ -1478,7 +1484,7 @@ function useRenderDiff(
       }
       dispatch({ type: "set-status", status: createDiffViewerStatus(label("renderFailed"), { error: true, loading: false, statusOnly: true }) });
     });
-  }, [config, dispatch, label, latestState, mobileHost]);
+  }, [config, dispatch, label, latestState, mobileBridge, mobileHost]);
 }
 
 function resolveDiffItemLanguage(item: DiffItem): void {
@@ -1588,6 +1594,7 @@ function usePageDataAttributes(state: AppState, mobileHost: boolean) {
 
 function useMobileDiffBridge({
   enabled,
+  currentFileMessage,
   nextFile,
   prevFile,
   scrollToFile,
@@ -1595,14 +1602,49 @@ function useMobileDiffBridge({
   setThemeMode,
 }: {
   enabled: boolean;
+  currentFileMessage: () => MobileDiffCurrentFileMessage | null;
   nextFile: () => void;
   prevFile: () => void;
-  scrollToFile: (path: string) => void;
+  scrollToFile: (path: string) => boolean;
   setLayout: (mode: DiffViewerLayout) => void;
   setThemeMode: (mode: MobileDiffThemeMode) => void;
-}): { reportCurrentFile: (message: MobileDiffCurrentFileMessage) => void } {
-  const callbacks = useSyncedRef({ nextFile, prevFile, scrollToFile, setLayout, setThemeMode });
+}): MobileDiffBridge {
+  const callbacks = useSyncedRef({ currentFileMessage, nextFile, prevFile, scrollToFile, setLayout, setThemeMode });
   const reporter = useRef<ThrottledEmitter<MobileDiffCurrentFileMessage> | null>(null);
+  const pendingScroll = useRef(createPendingMobileDiffScroll(
+    (path) => callbacks.current.scrollToFile(path),
+  ));
+  const scheduledFrame = useRef<number | null>(null);
+  const retryPendingScrollOnFrame = useRef(false);
+
+  const refreshAfterRender = useCallback((retryPendingScroll = false) => {
+    retryPendingScrollOnFrame.current ||= retryPendingScroll;
+    if (scheduledFrame.current != null) {
+      return;
+    }
+    const refresh = () => {
+      scheduledFrame.current = null;
+      if (retryPendingScrollOnFrame.current) {
+        retryPendingScrollOnFrame.current = false;
+        pendingScroll.current.retry();
+      }
+      const message = callbacks.current.currentFileMessage();
+      if (message) {
+        reporter.current?.push(message);
+      }
+    };
+    if (typeof window.requestAnimationFrame === "function") {
+      scheduledFrame.current = window.requestAnimationFrame(refresh);
+    } else {
+      refresh();
+    }
+  }, [callbacks]);
+  const cancelScheduledRefresh = useCallback(() => {
+    if (scheduledFrame.current != null) {
+      window.cancelAnimationFrame(scheduledFrame.current);
+      scheduledFrame.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
@@ -1613,11 +1655,17 @@ function useMobileDiffBridge({
       250,
       sameCurrentFileMessage,
     );
+    const ownedPendingScroll = pendingScroll.current;
     const api = {
       nextFile: () => callbacks.current.nextFile(),
       prevFile: () => callbacks.current.prevFile(),
-      scrollToFile: (path: string) => callbacks.current.scrollToFile(path),
-      setLayout: (mode: DiffViewerLayout) => callbacks.current.setLayout(mode),
+      scrollToFile: (path: string) => {
+        ownedPendingScroll.request(path);
+      },
+      setLayout: (mode: DiffViewerLayout) => {
+        callbacks.current.setLayout(mode);
+        refreshAfterRender();
+      },
       setThemeMode: (mode: MobileDiffThemeMode) => callbacks.current.setThemeMode(mode),
     };
     window.cmuxMobileDiff = api;
@@ -1636,18 +1684,34 @@ function useMobileDiffBridge({
       document.removeEventListener("cmux-diff-viewer-navigation-readiness-change", sendReadyWhenInteractive);
       reporter.current?.dispose();
       reporter.current = null;
+      ownedPendingScroll.clear();
+      retryPendingScrollOnFrame.current = false;
+      cancelScheduledRefresh();
       if (window.cmuxMobileDiff === api) {
         delete window.cmuxMobileDiff;
       }
     };
-  }, [callbacks, enabled]);
+  }, [callbacks, cancelScheduledRefresh, enabled, refreshAfterRender]);
 
   return useMemo(() => ({
+    didAppendItems(items: readonly DiffItem[]) {
+      const appendedPaths = items.map((item) => fileName(item.fileDiff, item.id));
+      refreshAfterRender(pendingScroll.current.hasPendingPath(appendedPaths));
+    },
+    didComplete() {
+      refreshAfterRender(true);
+    },
     reportCurrentFile(message: MobileDiffCurrentFileMessage) {
       reporter.current?.push(message);
     },
-  }), []);
+  }), [refreshAfterRender]);
 }
+
+type MobileDiffBridge = {
+  didAppendItems(items: readonly DiffItem[]): void;
+  didComplete(): void;
+  reportCurrentFile(message: MobileDiffCurrentFileMessage): void;
+};
 
 function useNativeViewerNavigation(
   viewerRef: React.MutableRefObject<HTMLDivElement | null>,

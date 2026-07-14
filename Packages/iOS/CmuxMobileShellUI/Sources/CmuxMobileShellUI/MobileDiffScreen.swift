@@ -30,9 +30,7 @@ struct MobileDiffScreen: View {
         _controller = State(initialValue: MobileDiffWebViewController(
             initialPath: initialPath,
             initialIndex: index,
-            total: snapshot.files.count,
-            layout: .unified,
-            theme: .light
+            total: snapshot.files.count
         ))
     }
 
@@ -57,14 +55,18 @@ struct MobileDiffScreen: View {
                     MobileDiffWebView(
                         controller: controller,
                         service: model.service,
-                        paths: snapshot.files.map(\.path),
+                        files: snapshot.files,
                         layout: layout,
                         theme: colorScheme,
                         title: workspaceTitle,
-                        onTooLargePaths: model.markTooLarge
+                        onTooLargePaths: model.markTooLarge,
+                        onPartialFailure: model.markPartialDiffFailure
                     )
                     if let errorMessage = controller.errorMessage {
                         diffError(errorMessage)
+                    }
+                    if let message = model.partialDiffErrorMessage {
+                        partialDiffError(message)
                     }
                 }
                 .overlay(alignment: .top) {
@@ -134,6 +136,26 @@ struct MobileDiffScreen: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.regularMaterial)
+    }
+
+    private func partialDiffError(_ message: String) -> some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 12) {
+                Text(message)
+                    .font(.subheadline)
+                Spacer(minLength: 8)
+                Button(L10n.string("mobile.diff.retry", defaultValue: "Retry")) {
+                    model.clearPartialDiffFailure()
+                    controller.reload()
+                }
+                .font(.subheadline.weight(.semibold))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding()
+        }
     }
 }
 #endif

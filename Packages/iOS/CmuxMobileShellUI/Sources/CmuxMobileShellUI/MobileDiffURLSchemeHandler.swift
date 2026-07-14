@@ -9,24 +9,26 @@ final class MobileDiffURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
     let origin: URL
     private let service: MobileDiffRPCService
-    private let paths: [String]
+    private let files: [MobileDiffFileChange]
     private let hostPage: MobileDiffHostPage
     private let onTooLargePaths: ([String]) -> Void
+    private let onPartialFailure: () -> Void
     private let bundleRoot: URL?
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
 
     init(
         service: MobileDiffRPCService,
-        paths: [String],
+        files: [MobileDiffFileChange],
         layout: MobileDiffHostPage.Layout,
         title: String,
         labels: [String: String],
-        onTooLargePaths: @escaping ([String]) -> Void
+        onTooLargePaths: @escaping ([String]) -> Void,
+        onPartialFailure: @escaping () -> Void
     ) {
         let host = UUID().uuidString.lowercased()
         origin = URL(string: "\(Self.scheme)://\(host)")!
         self.service = service
-        self.paths = paths
+        self.files = files
         hostPage = MobileDiffHostPage(
             origin: origin,
             layout: layout,
@@ -34,6 +36,7 @@ final class MobileDiffURLSchemeHandler: NSObject, WKURLSchemeHandler {
             labels: labels
         )
         self.onTooLargePaths = onTooLargePaths
+        self.onPartialFailure = onPartialFailure
         bundleRoot = Bundle.main.resourceURL?
             .appendingPathComponent("markdown-viewer", isDirectory: true)
             .standardizedFileURL
@@ -99,15 +102,24 @@ final class MobileDiffURLSchemeHandler: NSObject, WKURLSchemeHandler {
             expectedContentLength: -1,
             textEncodingName: "utf-8"
         ))
-        for try await chunk in service.patchStream(paths: paths) {
-            try Task.checkCancellation()
-            guard isLive(identifier) else { throw CancellationError() }
-            if !chunk.tooLargePaths.isEmpty {
-                onTooLargePaths(chunk.tooLargePaths)
+        var deliveredPatchData = false
+        do {
+            for try await chunk in service.patchStream(files: files) {
+                try Task.checkCancellation()
+                guard isLive(identifier) else { throw CancellationError() }
+                if !chunk.tooLargePaths.isEmpty {
+                    onTooLargePaths(chunk.tooLargePaths)
+                }
+                if !chunk.data.isEmpty {
+                    task.didReceive(chunk.data)
+                    deliveredPatchData = true
+                }
             }
-            if !chunk.data.isEmpty {
-                task.didReceive(chunk.data)
-            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            guard deliveredPatchData, isLive(identifier) else { throw error }
+            onPartialFailure()
         }
         guard isLive(identifier) else { throw CancellationError() }
         task.didFinish()

@@ -5,31 +5,29 @@ struct WorkspaceGitStatusParser: Sendable {
     func parse(
         porcelain: String,
         trackedNumstat: String,
-        untrackedNumstatByPath: [String: String]
+        untrackedStatsByPath: [String: WorkspaceGitNumstatEntry]
     ) throws -> [WorkspaceGitStatusFile] {
-        let porcelainEntries = try parsePorcelain(porcelain)
+        try parse(
+            porcelainEntries: parsePorcelain(porcelain),
+            trackedNumstat: trackedNumstat,
+            untrackedStatsByPath: untrackedStatsByPath
+        )
+    }
+
+    func parse(
+        porcelainEntries: [WorkspaceGitPorcelainEntry],
+        trackedNumstat: String,
+        untrackedStatsByPath: [String: WorkspaceGitNumstatEntry]
+    ) throws -> [WorkspaceGitStatusFile] {
         let trackedEntries = try parseNumstat(trackedNumstat)
         var numstatByPath = Dictionary(uniqueKeysWithValues: trackedEntries.map { ($0.path, $0) })
-
-        for (path, output) in untrackedNumstatByPath {
-            let entries = try parseNumstat(output)
-            // An untracked empty file has no content difference from /dev/null,
-            // so `git diff --no-index --numstat` succeeds with no record. Its
-            // porcelain entry still belongs in the response with zero counts.
-            guard !entries.isEmpty else {
-                continue
-            }
-            guard let entry = entries.first(where: { $0.path == path }) else {
-                throw WorkspaceGitParseError.malformedNumstat
-            }
-            numstatByPath[path] = entry
-        }
+        numstatByPath.merge(untrackedStatsByPath) { _, untracked in untracked }
 
         return porcelainEntries.map { entry in
             let stats = numstatByPath[entry.path]
             return WorkspaceGitStatusFile(
                 path: entry.path,
-                oldPath: entry.status == "R" ? (entry.oldPath ?? stats?.oldPath) : nil,
+                oldPath: entry.oldPath ?? stats?.oldPath,
                 status: entry.status,
                 additions: stats?.additions ?? 0,
                 deletions: stats?.deletions ?? 0,
@@ -64,8 +62,9 @@ struct WorkspaceGitStatusParser: Sendable {
 
             let untracked = x == "?" && y == "?"
             let renamed = x == "R" || y == "R"
+            let copied = x == "C" || y == "C"
             let oldPath: String?
-            if renamed {
+            if renamed || copied {
                 index += 1
                 guard index < records.count, !records[index].isEmpty else {
                     throw WorkspaceGitParseError.malformedPorcelain
@@ -80,6 +79,10 @@ struct WorkspaceGitStatusParser: Sendable {
                 status = "A"
             } else if renamed {
                 status = "R"
+            } else if copied {
+                // Match GitStatusProvider: a copy is a newly added destination,
+                // while oldPath preserves its source for display and diagnostics.
+                status = "A"
             } else if x == "A" {
                 status = "A"
             } else if x == "D" || y == "D" {

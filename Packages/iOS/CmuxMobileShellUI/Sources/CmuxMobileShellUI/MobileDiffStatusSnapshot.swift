@@ -6,6 +6,7 @@ import Foundation
 struct MobileDiffStatusSnapshot: Equatable, Sendable {
     let repoRoot: String
     let files: [MobileDiffFileChange]
+    let tree: MobileDiffTree
     let totalAdditions: Int
     let totalDeletions: Int
 
@@ -17,6 +18,7 @@ struct MobileDiffStatusSnapshot: Equatable, Sendable {
     ) {
         self.repoRoot = repoRoot
         self.files = files
+        tree = MobileDiffTree(files: files)
         self.totalAdditions = totalAdditions
         self.totalDeletions = totalDeletions
     }

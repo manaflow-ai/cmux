@@ -12,8 +12,7 @@ struct MobileDiffTreeView: View {
     let selectFile: (String) -> Void
 
     var body: some View {
-        let rows = MobileDiffTree(files: snapshot.files)
-            .visibleRows(collapsedDirectories: collapsedDirectories)
+        let rows = snapshot.tree.visibleRows(collapsedDirectories: collapsedDirectories)
         ScrollViewReader { proxy in
             List {
                 Section {

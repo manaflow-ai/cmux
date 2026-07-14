@@ -16,24 +16,26 @@ struct MobileDiffRPCService: Sendable {
         return try MobileDiffStatusSnapshot(MobileSyncGitStatusResponse.decode(data))
     }
 
-    func patchStream(paths: [String]) -> AsyncThrowingStream<MobileDiffPatchChunk, any Error> {
+    func patchStream(files: [MobileDiffFileChange]) -> AsyncThrowingStream<MobileDiffPatchChunk, any Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     let planner = MobileDiffBatchPlanner()
-                    for batch in planner.initialBatches(paths: paths) {
-                        try Task.checkCancellation()
-                        let response = try await loadDiff(paths: batch)
-                        continuation.yield(Self.chunk(response))
-
-                        let retries = planner.truncatedRetryBatches(
-                            truncated: response.truncated,
-                            requestedOrder: batch
-                        )
-                        for retry in retries {
+                    let requests = files.map(MobileDiffRequestPath.init)
+                    for batch in planner.initialBatches(paths: requests) {
+                        var remainder = batch
+                        while !remainder.isEmpty {
                             try Task.checkCancellation()
-                            let retryResponse = try await loadDiff(paths: retry)
-                            continuation.yield(Self.chunk(retryResponse))
+                            let response = try await loadDiff(paths: remainder)
+                            continuation.yield(Self.chunk(response))
+                            let next = planner.truncatedRemainder(
+                                truncated: response.truncated,
+                                requestedOrder: remainder
+                            )
+                            guard next != remainder else {
+                                throw MobileDiffRPCServiceError.nonProgressingTruncation
+                            }
+                            remainder = next
                         }
                     }
                     continuation.finish()
@@ -51,10 +53,11 @@ struct MobileDiffRPCService: Sendable {
         await client.disconnect()
     }
 
-    private func loadDiff(paths: [String]) async throws -> MobileSyncGitDiffResponse {
+    private func loadDiff(paths: [MobileDiffRequestPath]) async throws -> MobileSyncGitDiffResponse {
+        let wirePaths = paths.map(\.wireValue)
         let request = try MobileCoreRPCClient.requestData(
             method: "mobile.workspace.git.diff",
-            params: ["workspace_id": workspaceID, "baseline": "worktree", "paths": paths]
+            params: ["workspace_id": workspaceID, "baseline": "worktree", "paths": wirePaths]
         )
         let data = try await client.sendRequest(request, timeoutNanoseconds: nil)
         return try MobileSyncGitDiffResponse.decode(data)

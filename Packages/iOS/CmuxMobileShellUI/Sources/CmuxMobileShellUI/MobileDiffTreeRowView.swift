@@ -73,15 +73,13 @@ struct MobileDiffTreeRowView: View {
     }
 
     private func pathLabel(_ path: String) -> some View {
-        let url = URL(fileURLWithPath: path)
-        let filename = url.lastPathComponent
-        let directory = String(path.dropLast(filename.count))
+        let repoPath = MobileDiffPath(path)
         return HStack(spacing: 0) {
-            if !directory.isEmpty {
-                Text(directory)
+            if !repoPath.directory.isEmpty {
+                Text(repoPath.directory + "/")
                     .foregroundStyle(.secondary)
             }
-            Text(filename)
+            Text(repoPath.fileName)
                 .foregroundStyle(.primary)
         }
         .font(.subheadline)

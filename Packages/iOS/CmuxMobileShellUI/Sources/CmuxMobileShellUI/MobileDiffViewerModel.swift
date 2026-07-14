@@ -9,12 +9,10 @@ import Observation
 @MainActor
 @Observable
 final class MobileDiffViewerModel {
-    /// DEBUG-only UserDefaults key shared by Settings and the workspace toolbar.
-    static let debugSettingKey = "cmux.mobile.debug.diffViewerChangesEnabled"
-
     private(set) var snapshot: MobileDiffStatusSnapshot?
     private(set) var isLoading = false
     private(set) var errorMessage: String?
+    private(set) var partialDiffErrorMessage: String?
     private(set) var tooLargePaths: Set<String> = []
     var collapsedDirectories: Set<String> = []
 
@@ -27,6 +25,7 @@ final class MobileDiffViewerModel {
     func load() async {
         isLoading = true
         errorMessage = nil
+        partialDiffErrorMessage = nil
         defer { isLoading = false }
         do {
             snapshot = try await service.loadStatus()
@@ -51,13 +50,20 @@ final class MobileDiffViewerModel {
         tooLargePaths.formUnion(paths)
     }
 
+    func markPartialDiffFailure() {
+        partialDiffErrorMessage = L10n.string(
+            "mobile.diff.error.partial",
+            defaultValue: "Some files failed to load."
+        )
+    }
+
+    func clearPartialDiffFailure() {
+        partialDiffErrorMessage = nil
+    }
+
     func expandDirectories(containing filePath: String) {
-        let components = filePath.split(separator: "/", omittingEmptySubsequences: true)
-        guard components.count > 1 else { return }
-        var ancestors: [String] = []
-        for component in components.dropLast() {
-            ancestors.append(String(component))
-            collapsedDirectories.remove(ancestors.joined(separator: "/"))
+        for directory in MobileDiffPath(filePath).ancestorDirectories {
+            collapsedDirectories.remove(directory)
         }
     }
 

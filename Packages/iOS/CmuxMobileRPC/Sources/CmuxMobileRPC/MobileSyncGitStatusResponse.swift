@@ -12,6 +12,8 @@ public struct MobileSyncGitStatusResponse: Decodable, Sendable {
     public let totalAdditions: Int
     /// Deleted lines summed across non-binary files.
     public let totalDeletions: Int
+    /// Whether the host omitted untracked files beyond its processing cap.
+    public let truncatedUntracked: Bool
 
     private enum CodingKeys: String, CodingKey {
         case repoRoot = "repo_root"
@@ -19,6 +21,19 @@ public struct MobileSyncGitStatusResponse: Decodable, Sendable {
         case files
         case totalAdditions = "total_additions"
         case totalDeletions = "total_deletions"
+        case truncatedUntracked = "truncated_untracked"
+    }
+
+    /// Decodes the status response, treating the additive truncation field as
+    /// false when connected to an older host.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        repoRoot = try container.decode(String.self, forKey: .repoRoot)
+        baseline = try container.decode(String.self, forKey: .baseline)
+        files = try container.decode([MobileSyncGitStatusFile].self, forKey: .files)
+        totalAdditions = try container.decode(Int.self, forKey: .totalAdditions)
+        totalDeletions = try container.decode(Int.self, forKey: .totalDeletions)
+        truncatedUntracked = try container.decodeIfPresent(Bool.self, forKey: .truncatedUntracked) ?? false
     }
 
     /// Decodes a workspace Git status response from raw JSON data.

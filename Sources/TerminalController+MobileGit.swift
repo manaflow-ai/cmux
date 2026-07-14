@@ -42,6 +42,7 @@ extension TerminalController {
                 "files": files,
                 "total_additions": status.totalAdditions,
                 "total_deletions": status.totalDeletions,
+                "truncated_untracked": status.truncatedUntracked,
             ])
         } catch {
             return mobileWorkspaceGitError(error)
@@ -56,8 +57,27 @@ extension TerminalController {
                 data: ["supported_baselines": ["worktree"]]
             )
         }
-        guard let paths = params["paths"] as? [String] else {
-            return .err(code: "invalid_params", message: "paths must be an array of repository-relative strings", data: nil)
+        // Keep rename pairing explicit on the wire: each status entry's
+        // old_path travels with path through iOS batching, so the host can pass
+        // both pathspecs to one `git diff -M` without running status again.
+        guard let rawPaths = params["paths"] as? [[String: Any]] else {
+            return .err(code: "invalid_params", message: "paths must be an array of path objects", data: nil)
+        }
+        var paths: [WorkspaceGitDiffPath] = []
+        for value in rawPaths {
+            guard let path = value["path"] as? String else {
+                return .err(code: "invalid_params", message: "each path must contain path and an optional old_path string", data: nil)
+            }
+            let oldPath: String?
+            if let value = value["old_path"] {
+                guard let string = value as? String else {
+                    return .err(code: "invalid_params", message: "each path must contain path and an optional old_path string", data: nil)
+                }
+                oldPath = string
+            } else {
+                oldPath = nil
+            }
+            paths.append(WorkspaceGitDiffPath(path: path, oldPath: oldPath))
         }
         guard !paths.isEmpty else {
             return .err(code: "invalid_params", message: "paths must contain at least one path", data: ["maximum": 20])

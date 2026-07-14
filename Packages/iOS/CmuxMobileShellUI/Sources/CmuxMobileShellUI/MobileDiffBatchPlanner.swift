@@ -4,19 +4,22 @@ import Foundation
 struct MobileDiffBatchPlanner: Sendable {
     private let maximumBatchSize = 20
 
-    func initialBatches(paths: [String]) -> [[String]] {
+    func initialBatches(paths: [MobileDiffRequestPath]) -> [[MobileDiffRequestPath]] {
         stride(from: 0, to: paths.count, by: maximumBatchSize).map { offset in
             Array(paths[offset..<min(offset + maximumBatchSize, paths.count)])
         }
     }
 
-    /// Plans one-path follow-up calls in original status order, without duplicates.
-    func truncatedRetryBatches(truncated: [String], requestedOrder: [String]) -> [[String]] {
+    /// Preserves the truncated remainder as one ordered follow-up request.
+    func truncatedRemainder(
+        truncated: [String],
+        requestedOrder: [MobileDiffRequestPath]
+    ) -> [MobileDiffRequestPath] {
         let truncatedSet = Set(truncated)
         var seen: Set<String> = []
         return requestedOrder.compactMap { path in
-            guard truncatedSet.contains(path), seen.insert(path).inserted else { return nil }
-            return [path]
+            guard truncatedSet.contains(path.path), seen.insert(path.path).inserted else { return nil }
+            return path
         }
     }
 }

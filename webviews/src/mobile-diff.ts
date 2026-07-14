@@ -167,6 +167,38 @@ export function sameCurrentFileMessage(
   return left.path === right.path && left.index === right.index && left.total === right.total;
 }
 
+export type PendingMobileDiffScroll = {
+  clear(): void;
+  hasPendingPath(paths: readonly string[]): boolean;
+  request(path: string): void;
+  retry(): void;
+};
+
+/** Keeps one native scroll target pending until its streamed item exists. */
+export function createPendingMobileDiffScroll(
+  tryScroll: (path: string) => boolean,
+): PendingMobileDiffScroll {
+  let pendingPath: string | null = null;
+  const attempt = () => {
+    if (pendingPath != null && tryScroll(pendingPath)) {
+      pendingPath = null;
+    }
+  };
+  return {
+    clear() {
+      pendingPath = null;
+    },
+    hasPendingPath(paths) {
+      return pendingPath != null && paths.includes(pendingPath);
+    },
+    request(path) {
+      pendingPath = path;
+      attempt();
+    },
+    retry: attempt,
+  };
+}
+
 function isBinaryDiff(diff: any): boolean {
   return diff.binary === true || diff.isBinary === true || diff.cmuxBinary === true;
 }

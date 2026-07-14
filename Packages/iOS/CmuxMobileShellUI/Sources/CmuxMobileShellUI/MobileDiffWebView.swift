@@ -7,20 +7,22 @@ import SwiftUI
 struct MobileDiffWebView: UIViewRepresentable {
     let controller: MobileDiffWebViewController
     let service: MobileDiffRPCService
-    let paths: [String]
+    let files: [MobileDiffFileChange]
     let layout: MobileDiffHostPage.Layout
     let theme: ColorScheme
     let title: String
     let onTooLargePaths: ([String]) -> Void
+    let onPartialFailure: () -> Void
 
     func makeCoordinator() -> MobileDiffWebViewCoordinator {
         MobileDiffWebViewCoordinator(
             controller: controller,
             service: service,
-            paths: paths,
+            files: files,
             layout: layout,
             title: title,
-            onTooLargePaths: onTooLargePaths
+            onTooLargePaths: onTooLargePaths,
+            onPartialFailure: onPartialFailure
         )
     }
 

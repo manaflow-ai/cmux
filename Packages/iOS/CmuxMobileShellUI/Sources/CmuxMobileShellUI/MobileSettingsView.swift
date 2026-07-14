@@ -25,7 +25,7 @@ struct MobileSettingsView: View {
     var store: CMUXMobileShellStore?
     @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
     #if DEBUG
-    @AppStorage(MobileDiffViewerModel.debugSettingKey) private var isDiffViewerEnabled = true
+    private var diffViewerFeature = MobileDiffViewerFeature()
     #endif
 
     @Environment(\.dismiss) private var dismiss
@@ -157,7 +157,7 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
-                    Toggle(isOn: $isDiffViewerEnabled) {
+                    Toggle(isOn: diffViewerFeature.$isEnabled) {
                         Text(L10n.string(
                             "mobile.settings.diffViewerChanges",
                             defaultValue: "Diff viewer (Changes)"

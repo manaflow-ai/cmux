@@ -2468,6 +2468,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "このワークスペースは Git リポジトリではありません。" } }
       }
     },
+    "mobile.diff.error.partial": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Some files failed to load." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一部のファイルを読み込めませんでした。" } }
+      }
+    },
     "mobile.diff.error.render": {
       "extractionState": "manual",
       "localizations": {

@@ -3,7 +3,7 @@ import Testing
 
 @Suite struct MobileDiffBatchPlannerTests {
     @Test func chunksInOrderAtTwentyPaths() {
-        let paths = (0..<43).map { "file-\($0)" }
+        let paths = (0..<43).map { request("file-\($0)") }
         let batches = MobileDiffBatchPlanner().initialBatches(paths: paths)
 
         #expect(batches.map(\.count) == [20, 20, 3])
@@ -14,13 +14,32 @@ import Testing
         #expect(MobileDiffBatchPlanner().initialBatches(paths: []).isEmpty)
     }
 
-    @Test func retriesTruncatedPathsIndividuallyInRequestedOrder() {
+    @Test func retriesTruncatedRemainderAsOneOrderedBatch() {
         let planner = MobileDiffBatchPlanner()
-        let retries = planner.truncatedRetryBatches(
+        let retries = planner.truncatedRemainder(
             truncated: ["c", "unknown", "a", "c"],
-            requestedOrder: ["a", "b", "c", "d"]
+            requestedOrder: [request("a"), request("b"), request("c"), request("d")]
         )
 
-        #expect(retries == [["a"], ["c"]])
+        #expect(retries == [request("a"), request("c")])
+    }
+
+    @Test func preservesRenameSourceAcrossInitialAndRetryBatches() {
+        let renamed = MobileDiffRequestPath(path: "new.swift", oldPath: "old.swift")
+        let planner = MobileDiffBatchPlanner()
+
+        #expect(planner.initialBatches(paths: [renamed]) == [[renamed]])
+        #expect(planner.truncatedRemainder(
+            truncated: ["new.swift"],
+            requestedOrder: [renamed]
+        ) == [renamed])
+        #expect(renamed.wireValue == [
+            "path": "new.swift",
+            "old_path": "old.swift",
+        ])
+    }
+
+    private func request(_ path: String) -> MobileDiffRequestPath {
+        MobileDiffRequestPath(path: path, oldPath: nil)
     }
 }

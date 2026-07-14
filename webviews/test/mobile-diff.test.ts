@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   createThrottledEmitter,
+  createPendingMobileDiffScroll,
   mobileDiffStatsMessage,
   sameCurrentFileMessage,
   type MobileDiffCurrentFileMessage,
@@ -104,6 +105,25 @@ test("current-file reporting emits immediately and coalesces a fast flick to fou
       due[1].callback();
     }
   }
+});
+
+test("pending native scroll retries only when the streamed target is appended", () => {
+  const loaded = new Set<string>();
+  const attempts: string[] = [];
+  const pending = createPendingMobileDiffScroll((path) => {
+    attempts.push(path);
+    return loaded.has(path);
+  });
+
+  pending.request("Sources/Later.swift");
+  expect(attempts).toEqual(["Sources/Later.swift"]);
+  expect(pending.hasPendingPath(["README.md"])).toBe(false);
+
+  loaded.add("Sources/Later.swift");
+  expect(pending.hasPendingPath(["Sources/Later.swift"])).toBe(true);
+  pending.retry();
+  expect(attempts).toEqual(["Sources/Later.swift", "Sources/Later.swift"]);
+  expect(pending.hasPendingPath(["Sources/Later.swift"])).toBe(false);
 });
 
 function item(

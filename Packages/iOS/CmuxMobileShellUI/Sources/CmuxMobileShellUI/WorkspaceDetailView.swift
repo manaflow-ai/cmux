@@ -36,7 +36,7 @@ struct WorkspaceDetailView: View {
     @Environment(MobileDisplaySettings.self) private var displaySettings
     #if os(iOS) && DEBUG
     @Environment(\.mobileDiffRPCClientFactory) private var mobileDiffRPCClientFactory
-    @AppStorage(MobileDiffViewerModel.debugSettingKey) private var isDiffViewerEnabled = true
+    private var diffViewerFeature = MobileDiffViewerFeature()
     @State private var isDiffViewerPresented = false
     @State private var diffViewerModel: MobileDiffViewerModel?
     #endif
@@ -168,7 +168,7 @@ struct WorkspaceDetailView: View {
             }
         }
         #if DEBUG
-        if isDiffViewerEnabled {
+        if diffViewerFeature.isEnabled {
             ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
                 changesToolbarButton
             }

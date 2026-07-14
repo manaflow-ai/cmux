@@ -27,8 +27,11 @@ import Testing
         let files = try WorkspaceGitStatusParser().parse(
             porcelain: porcelain,
             trackedNumstat: trackedNumstat,
-            untrackedNumstatByPath: [
-                "untracked.txt": "5\t0\t\0/dev/null\0untracked.txt\0",
+            untrackedStatsByPath: [
+                "untracked.txt": WorkspaceGitNumstatEntry(
+                    path: "untracked.txt", oldPath: nil,
+                    additions: 5, deletions: 0, binary: false
+                ),
             ]
         )
 
@@ -66,13 +69,36 @@ import Testing
         let files = try WorkspaceGitStatusParser().parse(
             porcelain: "?? empty.txt\0",
             trackedNumstat: "",
-            untrackedNumstatByPath: ["empty.txt": ""]
+            untrackedStatsByPath: [:]
         )
 
         #expect(files == [
             WorkspaceGitStatusFile(
                 path: "empty.txt", oldPath: nil, status: "A",
                 additions: 0, deletions: 0, binary: false, untracked: true
+            ),
+        ])
+    }
+
+    @Test func copiedPorcelainEntryConsumesSourcePathAndMapsToAdded() throws {
+        // `--porcelain=v1 -z` emits the destination in the status record and
+        // the copy source as the immediately following NUL record.
+        let entries = try WorkspaceGitStatusParser().parsePorcelain(
+            "C  copied.swift\0original.swift\0 M later.swift\0"
+        )
+
+        #expect(entries == [
+            WorkspaceGitPorcelainEntry(
+                path: "copied.swift",
+                oldPath: "original.swift",
+                status: "A",
+                untracked: false
+            ),
+            WorkspaceGitPorcelainEntry(
+                path: "later.swift",
+                oldPath: nil,
+                status: "M",
+                untracked: false
             ),
         ])
     }

@@ -23,8 +23,9 @@ dependencies, fully testable against temp directories.
   to know when that metadata goes stale (including submodule gitlinks).
 - `repositorySlugs(forDirectory:)` — the GitHub `owner/name` remotes, ordered
   `upstream`, `origin`, then the rest.
-- `WorkspaceGitService.status(forDirectory:)` — staged, unstaged, and untracked
-  files relative to `HEAD`, with rename-aware numstat counts.
+- `WorkspaceGitService.status(forDirectory:)` — staged, unstaged, and up to
+  2,000 untracked files relative to `HEAD` (or the empty tree for an unborn
+  repository), with rename-aware numstat counts and an untracked truncation flag.
 - `WorkspaceGitService.diff(forDirectory:paths:byteCap:)` — per-path unified
   patches with deterministic truncation and individually oversized-path metadata.
 
@@ -50,7 +51,9 @@ let mobileGit = WorkspaceGitService()
 let status = try await mobileGit.status(forDirectory: checkoutPath)
 let diff = try await mobileGit.diff(
     forDirectory: checkoutPath,
-    paths: status.files.map(\.path)
+    paths: status.files.map {
+        WorkspaceGitDiffPath(path: $0.path, oldPath: $0.oldPath)
+    }
 )
 ```
 
@@ -66,10 +69,11 @@ tests run against real temp directories with hand-written git metadata (no
 `index` for versions 2 and 4, including path prefix-compression). Internal
 parsing helpers are exercised via `@testable import CmuxGit`.
 
-`WorkspaceGitService` takes `any CommandRunning` in its initializer so service
-tests can inject captured porcelain, numstat, and patch output without spawning
-Git. The NUL-delimited parser and diff-cap accumulator are pure internal types
-covered directly by the package test target.
+`WorkspaceGitService` takes `any CommandRunning` in its initializer. Its
+integration tests drive the system Git executable in disposable repositories so
+porcelain, numstat, unborn-HEAD, and rename fixtures match the exact production
+flags. The NUL-delimited parser and diff-cap accumulator remain pure internal
+types covered directly by the package test target.
 
 ```swift
 let fixture = try GitRepositoryFixture()

@@ -35,6 +35,15 @@ import Testing
         #expect(visible[1].id == "directory:Sources")
     }
 
+    @Test func sharedPathSplitProvidesFileDirectoryAndAncestors() {
+        let path = MobileDiffPath("Sources//Models/User.swift")
+
+        #expect(path.components == ["Sources", "Models", "User.swift"])
+        #expect(path.fileName == "User.swift")
+        #expect(path.directory == "Sources/Models")
+        #expect(path.ancestorDirectories == ["Sources", "Sources/Models"])
+    }
+
     private func change(_ path: String) -> MobileDiffFileChange {
         MobileDiffFileChange(path: path, status: "M", additions: 1, deletions: 1)
     }
