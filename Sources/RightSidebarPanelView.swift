@@ -244,7 +244,6 @@ struct RightSidebarPanelView: View {
                     openAsPaneButton(mode: fileExplorerState.mode)
                 }
                 RightSidebarHeaderCloseButton(action: onClose)
-                RightSidebarTitlebarToggleReservation()
             }
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
