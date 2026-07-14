@@ -1,7 +1,10 @@
 name: CI
 
 on:
-  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
+  push:
+    branches:
+      - main
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -13,7 +16,29 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  paused-required-checks:
+    name: ${{ matrix.check }}
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - workflow-guard-tests
+          - remote-daemon-tests
+          - web-typecheck
+          - react-apps-check
+          - web-db-migrations
+          - linux-preflight
+          - tests
+          - tests-build-and-lag
+          - release-build
+    steps:
+      - run: echo "Automatic CI is temporarily paused."
+
   changes:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
@@ -79,6 +104,8 @@ jobs:
             --head-sha "$HEAD_SHA"
 
   workflow-guard-tests:
+    name: workflow-guard-tests (manual full)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Checkout
@@ -270,6 +297,7 @@ jobs:
         run: python3 scripts/check-test-determinism.py --strict
 
   remote-daemon-tests:
+    name: remote-daemon-tests (manual full)
     needs: changes
     if: ${{ needs.changes.outputs.go == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -291,6 +319,7 @@ jobs:
         run: ./tests/test_remote_daemon_release_assets.sh
 
   web-typecheck:
+    name: web-typecheck (manual full)
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -320,6 +349,7 @@ jobs:
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
   react-apps-check:
+    name: react-apps-check (manual full)
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -353,6 +383,7 @@ jobs:
         run: bun run react-doctor:ci
 
   web-db-migrations:
+    name: web-db-migrations (manual full)
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -857,7 +888,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
 
   tests:
-    name: tests
+    name: tests (manual full)
     # Aggregate gate for the test/build suites in this workflow. Required by
     # branch protection under the stable name "tests", and references each suite
     # by its job KEY via needs:, so renaming/sharding a job's display name never
@@ -869,7 +900,7 @@ jobs:
       - app-host-unit-tests
       - swift-package-tests
       - agent-session-web-resources
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
@@ -1160,7 +1191,7 @@ jobs:
           git diff --exit-code -- Resources/agent-session-react Resources/agent-session-solid
 
   linux-preflight:
-    name: linux-preflight
+    name: linux-preflight (manual full)
     needs:
       - changes
       - workflow-guard-tests
@@ -1169,7 +1200,7 @@ jobs:
       - react-apps-check
       - web-db-migrations
       - agent-session-web-resources
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
@@ -1232,6 +1263,7 @@ jobs:
           PY
 
   tests-build-and-lag:
+    name: tests-build-and-lag (manual full)
     needs:
       - changes
       - linux-preflight
@@ -1572,6 +1604,7 @@ jobs:
           rm -f "${VDISPLAY_HELPER_PATH:-}" "${VDISPLAY_READY:-}" "${VDISPLAY_ID_PATH:-}" "${VDISPLAY_LOG:-}"
 
   release-build:
+    name: release-build (manual full)
     needs:
       - changes
       - linux-preflight
@@ -1719,7 +1752,7 @@ jobs:
       - agent-session-web-resources
       - tests-build-and-lag
       - release-build
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Check routed CI jobs
