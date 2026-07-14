@@ -37,6 +37,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.titlebarLayoutDebug",
     "cmux.devWindowDisplay",
     "cmux.mobilePairingWindow",
+    "cmux.hiveViewerWindow",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -44,9 +45,5 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
 /// panel-close behavior.
 func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
     guard let identifier = window?.identifier?.rawValue else { return false }
-    // Hive viewer windows carry a per-computer suffix, so match the prefix.
-    if identifier.hasPrefix(HiveViewerWindowController.windowIdentifierPrefix) {
-        return true
-    }
     return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
 }
