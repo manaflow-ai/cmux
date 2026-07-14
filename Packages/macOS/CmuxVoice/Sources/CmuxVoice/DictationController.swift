@@ -134,14 +134,19 @@ public final class DictationController {
         activeTranscriber = transcriber
         do {
             let events = try await transcriber.transcribe(locale: localeProvider())
-            if sessionGeneration == generation, phase == .preparing {
+            if sessionGeneration == generation, phase == .stopping {
+                // Stop raced engine startup; finish again so the engine the
+                // first finish could not see yet is torn down and the
+                // stream ends.
+                await transcriber.finishTranscribing()
+            } else if sessionGeneration == generation, phase == .preparing {
                 phase = .listening
             }
             for try await event in events {
-                guard sessionGeneration == generation else { return }
+                guard sessionGeneration == generation, isActive else { break }
                 handle(event, generation: generation)
             }
-            guard sessionGeneration == generation else { return }
+            guard sessionGeneration == generation, isActive else { return }
             if let delta = transcript.commitTrailingVolatileText() {
                 _ = inserter.insertFinalizedText(delta)
             }
@@ -186,14 +191,17 @@ public final class DictationController {
     }
 
     private func settle(generation: Int) {
-        guard sessionGeneration == generation else { return }
+        guard sessionGeneration == generation, isActive else { return }
         inserter.endSession()
         activeTranscriber = nil
         phase = .idle
     }
 
     private func fail(_ failure: DictationFailure, generation: Int) {
-        guard sessionGeneration == generation else { return }
+        // The isActive guard makes failure terminal for the session: a
+        // late stream end can neither clobber .failed back to .idle nor
+        // re-fire the failure handler.
+        guard sessionGeneration == generation, isActive else { return }
         inserter.endSession()
         activeTranscriber = nil
         phase = .failed(failure)

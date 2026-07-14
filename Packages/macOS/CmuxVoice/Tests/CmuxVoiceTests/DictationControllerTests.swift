@@ -81,6 +81,38 @@ private final class ScriptedTranscriber: SpeechTranscribing, @unchecked Sendable
     }
 }
 
+/// A transcriber whose startup blocks until the test releases it, to
+/// exercise stop-races-startup paths. Single-session, driven from the
+/// main actor like ScriptedTranscriber.
+private final class GatedTranscriber: SpeechTranscribing, @unchecked Sendable {
+    private var continuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
+    private var finishRequested = false
+    private let gate: (stream: AsyncStream<Void>, continuation: AsyncStream<Void>.Continuation)
+        = AsyncStream<Void>.makeStream()
+
+    func releaseStart() {
+        gate.continuation.finish()
+    }
+
+    func transcribe(
+        locale: Locale
+    ) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
+        for await _ in gate.stream {}
+        let (stream, continuation) = AsyncThrowingStream<DictationTranscriptionEvent, any Error>.makeStream()
+        self.continuation = continuation
+        if finishRequested {
+            continuation.finish()
+        }
+        return stream
+    }
+
+    func finishTranscribing() async {
+        finishRequested = true
+        continuation?.finish()
+        continuation = nil
+    }
+}
+
 @MainActor
 private final class FailureRecorder {
     private(set) var failures: [DictationFailure] = []
@@ -254,6 +286,47 @@ struct DictationControllerTests {
         controller.toggle()
         #expect(await waitUntil { controller.phase == .listening })
         #expect(inserter.began == 2)
+    }
+
+    @Test func failureIsTerminalForTheSession() async {
+        let inserter = RecordingInserter()
+        inserter.insertionSucceedsAfter = 0
+        let (controller, _, transcriber, recorder) = makeController(inserter: inserter)
+        controller.toggle()
+        #expect(await waitUntil { controller.phase == .listening })
+
+        transcriber.send(.final("lost"))
+        #expect(await waitUntil { controller.phase == .failed(.insertionTargetUnavailable) })
+
+        // The engine stream ends after the failure; the session must stay
+        // failed (no settle-to-idle clobber, no second failure callback).
+        for _ in 0..<200 { await Task.yield() }
+        #expect(controller.phase == .failed(.insertionTargetUnavailable))
+        #expect(recorder.failures == [.insertionTargetUnavailable])
+    }
+
+    @Test func stopWhilePreparingUnwindsToIdle() async {
+        let transcriber = GatedTranscriber()
+        let inserter = RecordingInserter()
+        let recorder = FailureRecorder()
+        let controller = DictationController(
+            authorizer: FakeAuthorizer(),
+            inserter: inserter,
+            makeTranscriber: { transcriber },
+            localeProvider: { Locale(identifier: "en_US") }
+        )
+        controller.failureHandler = { recorder.record($0) }
+
+        controller.toggle()
+        #expect(await waitUntil { controller.phase == .preparing })
+
+        controller.stop()
+        #expect(controller.phase == .stopping)
+
+        transcriber.releaseStart()
+        #expect(await waitUntil { controller.phase == .idle })
+        #expect(inserter.ended == 1)
+        #expect(recorder.failures.isEmpty)
     }
 
     @Test func startWhileActiveIsIgnored() async {

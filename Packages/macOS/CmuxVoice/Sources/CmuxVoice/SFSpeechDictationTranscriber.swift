@@ -82,7 +82,9 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     }
 
     public func finishTranscribing() async {
-        guard !isFinishing else { return }
+        // Deliberately idempotent (no isFinishing guard): a stop that races
+        // transcribe() calls this again after startup completes to tear
+        // down the engine the first call could not see yet.
         isFinishing = true
         stopAudioEngine()
         // endAudio() lets the recognizer deliver its final result, which
