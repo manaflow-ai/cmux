@@ -215,7 +215,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var mobileViewportFontFitState = MobileViewportFontFitState()
     let mobileViewportMetricsReapplyState = MobileViewportMetricsReapplyState()
     var mobileViewportConfiguredFontPointSize: Float?
-    var pendingMobileViewportFontFitReloadLease: MobileViewportFontFitReloadLease?
+    var mobileViewportFontFitReloadLeaseState = MobileViewportFontFitReloadLeaseState()
     // Debug metadata is read from debug/CLI paths off the main thread; the
     // lock is the sanctioned carve-out for tiny values shared with
     // synchronous off-isolation readers.

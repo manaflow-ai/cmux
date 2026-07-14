@@ -2842,13 +2842,21 @@ class GhosttyApp {
             surfaceView.enqueueScrollbarUpdate(scrollbar)
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
+            guard let callbackContext,
+                  let callbackTerminalSurface = callbackContext.terminalSurface else {
+                return true
+            }
+            let callbackOriginSurface = target.target.surface
             let cellSize = CGSize(
                 width: CGFloat(action.action.cell_size.width),
                 height: CGFloat(action.action.cell_size.height)
             )
             DispatchQueue.main.async {
+                guard callbackContext.isCurrentOrigin(runtimeSurface: callbackOriginSurface) else {
+                    return
+                }
                 surfaceView.cellSize = cellSize
-                surfaceView.terminalSurface?.mobileViewportFontMetricsDidChange()
+                callbackTerminalSurface.mobileViewportFontMetricsDidChange()
                 NotificationCenter.default.post(
                     name: .ghosttyDidUpdateCellSize,
                     object: surfaceView, userInfo: [GhosttyNotificationKey.cellSize: cellSize]
@@ -2967,10 +2975,30 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_CONFIG_CHANGE:
+            guard let callbackContext else { return true }
+            let callbackOriginSurface = target.target.surface
             let resolvedFontPointSize = configuredFontPointSize(from: action.action.config_change.config)
-            let terminalSurface = surfaceView.terminalSurface
-            Task { @MainActor in guard surfaceView.terminalSurface === terminalSurface else { return }; terminalSurface?.completeMobileViewportFontFitConfigurationReload(configuredFontPointSize: resolvedFontPointSize, reason: "surface.configChange") }
+            let reloadCompletion = performOnMain {
+                guard callbackContext.isCurrentOrigin(runtimeSurface: callbackOriginSurface),
+                      let terminalSurface = callbackContext.terminalSurface,
+                      let generation = terminalSurface.pendingMobileViewportFontFitReloadGeneration else {
+                    return nil as (surface: TerminalSurface, generation: UInt64)?
+                }
+                return (terminalSurface, generation)
+            }
+            Task { @MainActor in
+                guard callbackContext.isCurrentOrigin(runtimeSurface: callbackOriginSurface),
+                      let reloadCompletion else { return }
+                reloadCompletion.surface.completeMobileViewportFontFitConfigurationReload(
+                    configuredFontPointSize: resolvedFontPointSize,
+                    reloadGeneration: reloadCompletion.generation,
+                    reason: "surface.configChange"
+                )
+            }
             DispatchQueue.main.async { [self] in
+                guard callbackContext.isCurrentOrigin(runtimeSurface: callbackOriginSurface) else {
+                    return
+                }
                 if let staleOverride = surfaceView.backgroundColor {
                     surfaceView.backgroundColor = nil
                     if backgroundLogEnabled {
@@ -2986,6 +3014,9 @@ class GhosttyApp {
             let effectiveConfigChangeColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveConfigChangeColorScheme, source: "action.config_change.surface:resolved")
             DispatchQueue.main.async {
+                guard callbackContext.isCurrentOrigin(runtimeSurface: callbackOriginSurface) else {
+                    return
+                }
                 surfaceView.applySurfaceColorScheme(
                     force: true,
                     preferredColorScheme: effectiveConfigChangeColorScheme

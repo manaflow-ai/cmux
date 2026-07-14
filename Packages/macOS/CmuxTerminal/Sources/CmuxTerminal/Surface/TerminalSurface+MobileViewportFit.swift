@@ -201,7 +201,7 @@ extension TerminalSurface {
     @discardableResult
     @MainActor
     public func clearMobileViewportLimit(reason: String) -> Bool {
-        pendingMobileViewportFontFitReloadLease = nil
+        mobileViewportFontFitReloadLeaseState.discardLease()
         mobileViewportCellLimit = nil
         paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
 

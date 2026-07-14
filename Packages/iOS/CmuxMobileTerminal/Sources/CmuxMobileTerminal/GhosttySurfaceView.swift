@@ -342,6 +342,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the natural grid would be unchanged afterwards, nothing would ever
     /// re-report, and the letterbox gap above the terminal would be permanent.
     private var viewportReportID: UInt64 = 0
+    /// Holds a larger row-fit font behind the exact viewport report that makes
+    /// it horizontally safe. Failed signatures remain blocked until geometry
+    /// produces a different request.
+    var viewportFontGrantState = TerminalViewportFontGrantState()
+    var viewportFontGrantNeedsReport = false
     /// Frames of "no zoom in progress" required before the natural grid is
     /// reported to the Mac. Active zoom is already gated separately
     /// (`zoomSettleFrames != nil` holds the report during a pinch), so this is
@@ -2572,6 +2577,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     pendingViewportReport = nil
                     viewportReportSettleFrames = 0
                     viewportReportID &+= 1
+                    viewportFontGrantState.bindPendingRequest(
+                        toReportID: viewportReportID,
+                        columns: pending.columns,
+                        rows: pending.rows
+                    )
                     MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
                     delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
                 }
@@ -2824,9 +2834,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// to a stale effective grid (the "stuck letterbox" freeze). Bounded and
     /// display-link driven (the existing settle machinery re-fires it); a
     /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
-    public func retryViewportReport() {
-        guard viewportReportRetries < Self.maxViewportReportRetries,
-              let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
+    public func retryViewportReport(reportID: UInt64) {
+        let canRetry = viewportReportRetries < Self.maxViewportReportRetries &&
+            lastReportedSize.map { $0.columns > 0 && $0.rows > 0 } == true
+        viewportFontGrantState.noteReportFailure(reportID: reportID, willRetry: canRetry)
+        guard canRetry, let pending = lastReportedSize else { return }
         viewportReportRetries += 1
         MobileDebugLog.anchormux(
             "zoom.viewport.retry \(viewportReportRetries)/\(Self.maxViewportReportRetries) "
@@ -2871,6 +2883,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 "zoom.viewport.staleEcho id=\(reportID) latest=\(viewportReportID) grid=\(cols)x\(rows)"
             )
             return
+        }
+        let awaitedFontGrant = viewportFontGrantState.isAwaitingAcknowledgement(reportID: reportID)
+        if let fontSize = viewportFontGrantState.consumeAcknowledgement(
+            reportID: reportID,
+            columns: cols,
+            rows: rows
+        ) {
+            MobileDebugLog.anchormux(
+                "zoom.viewport.fontGrant id=\(reportID) grid=\(cols)x\(rows) font=\(fontSize)"
+            )
+            applyAbsoluteFontSize(fontSize)
+        } else if awaitedFontGrant {
+            MobileDebugLog.anchormux(
+                "zoom.viewport.fontGrantRejected id=\(reportID) grid=\(cols)x\(rows)"
+            )
+            viewportFontGrantState.noteReportFailure(reportID: reportID, willRetry: false)
         }
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: true)
     }
@@ -2919,6 +2947,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func clearEffectiveGrid() -> Bool {
+        viewportFontGrantState.reset()
+        viewportFontGrantNeedsReport = false
         guard effectiveGrid != nil else { return false }
         MobileDebugLog.anchormux("zoom.useNaturalViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->nil")
         effectiveGrid = nil
@@ -3200,8 +3230,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
         let shouldReportNaturalSize = reportGrid != lastReportedSize ||
+            viewportFontGrantNeedsReport ||
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
         guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else { return }
+        viewportFontGrantNeedsReport = false
         lastReportedSize = reportGrid
         // Debounce the actual report (a PTY resize on the Mac) until the grid
         // settles; the display link fires it once it stops changing.

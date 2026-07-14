@@ -432,7 +432,8 @@ struct MobileViewportFitGeometryTests {
         #expect(state.consume(generation: first.generation) == nil)
         #expect(state.pendingGeneration == second.generation)
 
-        let consumed = try #require(state.consume(generation: second.generation))
+        let completedLease = state.consume(generation: second.generation)
+        let consumed = try #require(completedLease)
         #expect(consumed.columns == 100)
         #expect(consumed.rows == 30)
         #expect(consumed.userAdjustedBaseFontPointSize == 14)

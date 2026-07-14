@@ -355,11 +355,12 @@ struct TerminalViewportSpacingTests {
         harness.view.setKeyboardHeightForTesting(0)
         let closeReport = try #require(await harness.waitForReport(after: beforeClose))
         #expect(closeReport.rows > openReport.rows)
+        let closeReportID = try #require(harness.delegate.reportIDs[closeReport])
 
         // The Mac never answers the close report; the coordinator's nil-result
         // path re-arms the report.
         let beforeRetry = harness.delegate.reports.count
-        harness.view.retryViewportReport()
+        harness.view.retryViewportReport(reportID: closeReportID)
         let retried = try #require(
             await harness.waitForReport(after: beforeRetry),
             "retryViewportReport never re-emitted the natural grid"

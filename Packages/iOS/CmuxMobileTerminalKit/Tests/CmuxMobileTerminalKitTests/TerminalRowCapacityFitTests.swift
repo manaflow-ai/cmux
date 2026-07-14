@@ -171,6 +171,15 @@ struct TerminalRowCapacityFitTests {
         #expect(state.consumeAcknowledgement(reportID: 7, columns: 68, rows: 50) == nil)
         #expect(state.consumeAcknowledgement(reportID: 7, columns: 67, rows: 49) == nil)
         #expect(state.consumeAcknowledgement(reportID: 7, columns: 67, rows: 50) == 24)
+
+        var narrowerGrantState = TerminalViewportFontGrantState()
+        #expect(narrowerGrantState.decision(for: request) == .wait(requestNewReport: true))
+        narrowerGrantState.bindPendingRequest(toReportID: 8, columns: 67, rows: 66)
+        #expect(narrowerGrantState.consumeAcknowledgement(
+            reportID: 8,
+            columns: 66,
+            rows: 50
+        ) == 24)
     }
 
     @Test("retry exhaustion keeps the safe font until geometry changes")

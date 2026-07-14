@@ -52,4 +52,16 @@ public final class GhosttySurfaceCallbackContext {
         surfaceController?.runtimeSurfacePointer
             ?? surfaceHost?.attachedSurfaceController?.runtimeSurfacePointer
     }
+
+    /// Returns whether delayed work still belongs to this context's original
+    /// controller, host attachment, and libghostty runtime surface.
+    public func isCurrentOrigin(runtimeSurface: ghostty_surface_t?) -> Bool {
+        guard let runtimeSurface,
+              let surfaceController,
+              surfaceController.runtimeSurfacePointer == runtimeSurface,
+              let attachedController = surfaceHost?.attachedSurfaceController else {
+            return false
+        }
+        return (attachedController as AnyObject) === (surfaceController as AnyObject)
+    }
 }

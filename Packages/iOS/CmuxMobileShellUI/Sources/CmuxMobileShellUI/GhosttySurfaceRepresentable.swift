@@ -189,16 +189,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         MobileDebugLog.anchormux(
                             "zoom.viewport.noEffective grid=\(report.columns)x\(report.rows)"
                         )
-                        surfaceView.retryViewportReport()
+                        surfaceView.retryViewportReport(reportID: report.id)
                         return
                     }
-                    surfaceView.markViewportReportConfirmed()
                     if case .remoteGrid = self.activeViewportPolicy {
                         surfaceView.applyConfirmedViewSize(
                             cols: effectiveGrid.columns,
                             rows: effectiveGrid.rows,
                             reportID: report.id
                         )
+                    } else {
+                        surfaceView.markViewportReportConfirmed()
                     }
                 }
             )

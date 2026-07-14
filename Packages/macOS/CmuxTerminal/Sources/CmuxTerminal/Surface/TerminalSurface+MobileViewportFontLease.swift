@@ -5,10 +5,84 @@ internal import GhosttyKit
 /// Opaque token pairing a synchronous configuration reload with its active
 /// mobile viewport font lease.
 nonisolated public struct MobileViewportFontFitReloadLease {
+    let generation: UInt64
     let columns: Int
     let rows: Int
     let surrendered: Bool
     let userAdjustedBaseFontPointSize: Float?
+}
+
+nonisolated struct MobileViewportFontFitReloadLeaseCompletion {
+    let lease: MobileViewportFontFitReloadLease?
+}
+
+/// Serializes configuration reload preparation and completion. The generation
+/// belongs to the reload even when no mobile font lease is active, allowing a
+/// delayed callback to record configuration only for its own preparation.
+nonisolated struct MobileViewportFontFitReloadLeaseState {
+    private var nextGeneration: UInt64 = 0
+    private(set) var pendingGeneration: UInt64?
+    private var pendingLease: MobileViewportFontFitReloadLease?
+
+    mutating func beginPreparation() -> UInt64 {
+        nextGeneration &+= 1
+        pendingGeneration = nextGeneration
+        pendingLease = nil
+        return nextGeneration
+    }
+
+    mutating func prepare(
+        columns: Int,
+        rows: Int,
+        surrendered: Bool,
+        userAdjustedBaseFontPointSize: Float?
+    ) -> MobileViewportFontFitReloadLease {
+        let generation = beginPreparation()
+        return install(
+            generation: generation,
+            columns: columns,
+            rows: rows,
+            surrendered: surrendered,
+            userAdjustedBaseFontPointSize: userAdjustedBaseFontPointSize
+        )
+    }
+
+    mutating func install(
+        generation: UInt64,
+        columns: Int,
+        rows: Int,
+        surrendered: Bool,
+        userAdjustedBaseFontPointSize: Float?
+    ) -> MobileViewportFontFitReloadLease {
+        precondition(pendingGeneration == generation)
+        let lease = MobileViewportFontFitReloadLease(
+            generation: generation,
+            columns: columns,
+            rows: rows,
+            surrendered: surrendered,
+            userAdjustedBaseFontPointSize: userAdjustedBaseFontPointSize
+        )
+        pendingLease = lease
+        return lease
+    }
+
+    mutating func consumeReload(
+        generation: UInt64
+    ) -> MobileViewportFontFitReloadLeaseCompletion? {
+        guard pendingGeneration == generation else { return nil }
+        let completion = MobileViewportFontFitReloadLeaseCompletion(lease: pendingLease)
+        pendingGeneration = nil
+        pendingLease = nil
+        return completion
+    }
+
+    mutating func consume(generation: UInt64) -> MobileViewportFontFitReloadLease? {
+        consumeReload(generation: generation)?.lease
+    }
+
+    mutating func discardLease() {
+        pendingLease = nil
+    }
 }
 
 nonisolated struct MobileViewportResetFontPointSize {
@@ -89,7 +163,7 @@ extension TerminalSurface {
     public func prepareMobileViewportFontFitForConfigurationReload(
         reason: String
     ) -> MobileViewportFontFitReloadLease? {
-        pendingMobileViewportFontFitReloadLease = nil
+        let reloadGeneration = mobileViewportFontFitReloadLeaseState.beginPreparation()
         guard !manualIO,
               let limit = mobileViewportCellLimit,
               let surface = liveSurfaceForGhosttyAccess(reason: reason) else {
@@ -108,25 +182,32 @@ extension TerminalSurface {
             : nil
         let surrendered = !hadAutomaticFit ||
             restoreMobileViewportFitFontIfNeeded().surrenderedAutomaticFit
-        let lease = MobileViewportFontFitReloadLease(
+        return mobileViewportFontFitReloadLeaseState.install(
+            generation: reloadGeneration,
             columns: limit.columns,
             rows: limit.rows,
             surrendered: surrendered,
             userAdjustedBaseFontPointSize: userAdjustedBaseFontPointSize
         )
-        pendingMobileViewportFontFitReloadLease = lease
-        return lease
+    }
+
+    @MainActor
+    public var pendingMobileViewportFontFitReloadGeneration: UInt64? {
+        mobileViewportFontFitReloadLeaseState.pendingGeneration
     }
 
     /// Completes a pending reload from Ghostty's resolved surface config signal.
     @MainActor
     public func completeMobileViewportFontFitConfigurationReload(
         configuredFontPointSize: Float?,
+        reloadGeneration: UInt64,
         reason: String
     ) {
+        guard let completion = mobileViewportFontFitReloadLeaseState.consumeReload(
+            generation: reloadGeneration
+        ) else { return }
         recordMobileViewportConfiguredFontPointSize(configuredFontPointSize)
-        guard let lease = pendingMobileViewportFontFitReloadLease else { return }
-        pendingMobileViewportFontFitReloadLease = nil
+        guard let lease = completion.lease else { return }
         guard liveSurfaceForGhosttyAccess(reason: "\(reason).refit") != nil else {
             mobileViewportFontFitState.clear()
             return
