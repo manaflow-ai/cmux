@@ -363,9 +363,10 @@ final class WorktreeSidebarModel {
             if listingWatcher?.watchedPaths == paths { return }
             listingWatcherTask?.cancel()
             listingWatcherTask = nil
-            if let listingWatcher { await listingWatcher.stop() }
-            guard !Task.isCancelled, lifecyclePhase == .running else { return }
+            let previousWatcher = listingWatcher
             listingWatcher = nil
+            if let previousWatcher { await previousWatcher.stop() }
+            guard !Task.isCancelled, lifecyclePhase == .running else { return }
             guard let watcher = RecursivePathWatcher(paths: paths) else { return }
             listingWatcher = watcher
             listingWatcherTask = Task { @MainActor [weak self] in
