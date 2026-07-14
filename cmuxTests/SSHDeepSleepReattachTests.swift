@@ -76,7 +76,8 @@ struct SSHDeepSleepReattachTests {
     }
 
     @MainActor
-    @Test func contextMenuReconnectReattachesFailedPersistentPTY() throws {
+    @Test(arguments: [false, true])
+    func contextMenuReconnectReattachesFailedPersistentPTY(pendingChildExit: Bool) throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         let tabManager = TabManager()
@@ -95,7 +96,11 @@ struct SSHDeepSleepReattachTests {
             detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64007",
             target: "cmux-macmini"
         )
-        workspace.markPersistentRemotePTYAttachFailed(surfaceId: panel.id)
+        if pendingChildExit {
+            workspace.pendingRemoteTerminalChildExitSurfaceIds.insert(panel.id)
+        } else {
+            workspace.markPersistentRemotePTYAttachFailed(surfaceId: panel.id)
+        }
 
         let menu = NSMenu()
         panel.hostedView.surfaceView.appendReconnectRemotePaneMenuItem(to: menu)
@@ -109,6 +114,7 @@ struct SSHDeepSleepReattachTests {
         #expect(command.contains("--require-existing"))
         #expect(command.contains(Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panel.id)))
         #expect(!workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
+        #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
     }
 
     @MainActor
