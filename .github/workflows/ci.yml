@@ -741,6 +741,24 @@ jobs:
             -only-testing:cmuxTests/SocketACLReloadRegressionTests \
             test
 
+      - name: Run notification scroll restoration regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/NotificationRowSnapshotBoundaryTests \
+            -only-testing:cmuxTests/NotificationScrollRestoreLifecycleTests \
+            -only-testing:cmuxTests/NotificationScrollRestoreRecoveryTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail
@@ -1115,6 +1133,7 @@ jobs:
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
             CmuxRemoteSession
+            CmuxAgentChat
             CmuxAuthRuntime
             CmuxCommandPalette
             CmuxControlSocket

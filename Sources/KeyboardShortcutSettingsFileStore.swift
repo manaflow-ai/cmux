@@ -686,6 +686,9 @@ final class CmuxSettingsFileStore {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
         }
+        if let rawBeta = section["beta"], let beta = rawBeta as? [String: Any] {
+            parseSidebarWorkspaceTodosBeta(beta, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if section.keys.contains("beta") { logInvalid("sidebar.beta", sourcePath: sourcePath) }
         if let value = jsonInt(section["notificationMessageLineLimit"]), SidebarCatalogSection.notificationMessageLineLimitRange.contains(value) {
             snapshot.managedUserDefaults[SidebarCatalogSection().notificationMessageLineLimit.userDefaultsKey] = .int(value)
         } else if section.keys.contains("notificationMessageLineLimit") { logInvalid("sidebar.notificationMessageLineLimit", sourcePath: sourcePath) }
@@ -1026,14 +1029,12 @@ final class CmuxSettingsFileStore {
                     allowBareFirstStroke: action.allowsBareFirstStroke
                 )
             }
-            // Object form written by the CmuxSettings package recorder (the
-            // in-app Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
-            // The package serializes StoredShortcut as nested stroke objects, so
-            // a rebinding made in Settings only reaches this store in that shape.
-            // Decode it here so every action resolved through this store — most
-            // visibly the system-wide Carbon hotkeys (globalSearch,
-            // showHideAllWindows) — honors the rebinding instead of silently
-            // dropping it and falling back to the built-in default.
+            // Object form written by the CmuxSettings package recorder (in-app
+            // Settings UI): { "first": { key, command, ... }, "second": { ... }? }.
+            // A Settings rebinding only reaches this store in that shape; decode it
+            // so every action resolved here — most visibly the system-wide Carbon
+            // hotkeys (globalSearch, showHideAllWindows) — honors the rebinding
+            // instead of silently falling back to the built-in default.
             if let object = rawValue as? [String: Any] {
                 return parseShortcutObjectForm(object, action: action)
             }
@@ -1051,9 +1052,8 @@ final class CmuxSettingsFileStore {
     /// ``StoredShortcut``. An empty primary key is the package's explicit
     /// "unbound" marker. Returns `nil` when `first` is missing or malformed —
     /// and, to stay consistent with the string parser, when a present `second`
-    /// stroke is malformed (a chord must not silently degrade to a single
-    /// stroke) or when a bare first stroke is used by an action that requires a
-    /// modifier.
+    /// stroke is malformed (a chord must not silently degrade to a single stroke)
+    /// or when a bare first stroke is used by an action that requires a modifier.
     private func parseShortcutObjectForm(
         _ object: [String: Any],
         action: KeyboardShortcutSettings.Action
