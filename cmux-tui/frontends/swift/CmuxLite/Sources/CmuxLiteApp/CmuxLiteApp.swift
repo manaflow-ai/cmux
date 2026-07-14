@@ -24,9 +24,9 @@ final class CmuxLiteApp: NSObject, NSApplicationDelegate {
                     try String(contentsOfFile: path, encoding: .utf8)
                 }
             )
-            let transport = URLSessionWebSocketTransport(url: configuration.url)
+            let transport = FallbackWebSocketTransport(url: configuration.url)
             let client = CmuxProtocolClient(transport: transport)
-            let attachmentClientFactory = URLSessionCmuxProtocolClientFactory(
+            let attachmentClientFactory = FallbackCmuxProtocolClientFactory(
                 url: configuration.url
             )
             let frontend = CmuxFrontendSession(

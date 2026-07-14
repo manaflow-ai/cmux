@@ -13,6 +13,14 @@ public protocol CmuxTransport: Sendable {
     /// - Returns: The encoded JSON object.
     func receive() async throws -> Data
 
+    /// Wakes a peer whose asynchronous outbound queue is drained between inbound frames.
+    func wakePeer() async throws
+
     /// Closes the transport and releases its resources.
     func close() async
+}
+
+public extension CmuxTransport {
+    /// Leaves transports without a protocol-level wake mechanism unchanged.
+    func wakePeer() async throws {}
 }

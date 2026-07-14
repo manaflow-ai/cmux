@@ -4,14 +4,23 @@ import Foundation
 struct SmokeRunner: Sendable {
     private let configuration: CmuxConnectionConfiguration
     private let surface: UInt64?
+    private let benchmarkIterations: Int?
+    private let useURLSession: Bool
 
     init(arguments: [String]) throws {
         var connectionArguments: [String] = []
         var parsedSurface: UInt64?
+        var parsedBenchmarkIterations: Int?
+        var parsedUseURLSession = false
         var index = 0
 
         while index < arguments.count {
             let option = arguments[index]
+            if option == "--benchmark" {
+                parsedBenchmarkIterations = parsedBenchmarkIterations ?? 200
+                index += 1
+                continue
+            }
             guard index + 1 < arguments.count else {
                 throw CmuxProtocolError.invalidArgument("missing value for \(option)")
             }
@@ -21,6 +30,18 @@ struct SmokeRunner: Sendable {
                     throw CmuxProtocolError.invalidArgument("invalid surface id")
                 }
                 parsedSurface = value
+            } else if option == "--iterations" {
+                guard let value = Int(value), value > 0 else {
+                    throw CmuxProtocolError.invalidArgument("iterations must be positive")
+                }
+                parsedBenchmarkIterations = value
+            } else if option == "--transport" {
+                guard value == "network" || value == "urlsession" else {
+                    throw CmuxProtocolError.invalidArgument(
+                        "transport must be network or urlsession"
+                    )
+                }
+                parsedUseURLSession = value == "urlsession"
             } else {
                 connectionArguments.append(contentsOf: [option, value])
             }
@@ -32,14 +53,17 @@ struct SmokeRunner: Sendable {
             readFile: { path in try String(contentsOfFile: path, encoding: .utf8) }
         )
         surface = parsedSurface
+        benchmarkIterations = parsedBenchmarkIterations
+        useURLSession = parsedUseURLSession
     }
 
     func runWithDeadline() async throws {
+        let deadline: Duration = benchmarkIterations == nil ? .seconds(20) : .seconds(60)
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask { try await runProtocolFlow() }
             group.addTask {
                 // This is a genuine smoke-test deadline, not state polling.
-                try await ContinuousClock().sleep(for: .seconds(20))
+                try await ContinuousClock().sleep(for: deadline)
                 throw CmuxProtocolError.timedOut("live WebSocket smoke")
             }
             _ = try await group.next()
@@ -48,11 +72,13 @@ struct SmokeRunner: Sendable {
     }
 
     private func runProtocolFlow() async throws {
-        let transport = URLSessionWebSocketTransport(url: configuration.url)
+        let transport: any CmuxTransport = useURLSession
+            ? URLSessionWebSocketTransport(url: configuration.url)
+            : NetworkWebSocketTransport(url: configuration.url)
         let client = CmuxProtocolClient(transport: transport)
-        let attachmentClientFactory = URLSessionCmuxProtocolClientFactory(
-            url: configuration.url
-        )
+        let attachmentClientFactory: any CmuxProtocolClientFactory = useURLSession
+            ? URLSessionCmuxProtocolClientFactory(url: configuration.url)
+            : NetworkCmuxProtocolClientFactory(url: configuration.url)
         let frontend = CmuxFrontendSession(
             client: client,
             attachmentClientFactory: attachmentClientFactory,
@@ -65,6 +91,15 @@ struct SmokeRunner: Sendable {
             hostname: ProcessInfo.processInfo.hostName,
             preferredSurface: surface
         )
+        if let benchmarkIterations {
+            try await runLatencyBenchmark(
+                frontend: frontend,
+                events: events,
+                startup: startup,
+                iterations: benchmarkIterations
+            )
+            return
+        }
         print("identify app=cmux-tui protocol=\(startup.protocolVersion) surface=\(startup.surface)")
 
         var receivedReplay = false
@@ -109,5 +144,114 @@ struct SmokeRunner: Sendable {
         }
 
         throw CmuxProtocolError.transportState("event stream ended during smoke")
+    }
+
+    private func runLatencyBenchmark(
+        frontend: CmuxFrontendSession,
+        events: AsyncStream<CmuxFrontendEvent>,
+        startup: CmuxFrontendStartup,
+        iterations: Int
+    ) async throws {
+        var iterator = events.makeAsyncIterator()
+        try await waitForInitialReplay(from: &iterator)
+
+        let marker = Data("cmux-lite-benchmark-ready".utf8)
+        try await frontend.sendText(
+            "\u{3}bash -c 'printf \"\\143\\155\\165\\170\\055\\154\\151\\164\\145\\055\\142\\145\\156\\143\\150\\155\\141\\162\\153\\055\\162\\145\\141\\144\\171\\012\"; exec cat'\r"
+        )
+        try await waitForMarker(marker, occurrences: 1, from: &iterator)
+
+        let clock = ContinuousClock()
+        let characters = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".utf8)
+        var samples: [Double] = []
+        samples.reserveCapacity(iterations)
+
+        do {
+            for index in 0..<iterations {
+                let byte = characters[index % characters.count]
+                let payload = Data([byte])
+                let start = clock.now
+                let sendTask = Task {
+                    await frontend.sendInput(payload)
+                }
+                try await waitForEcho(byte, from: &iterator)
+                let elapsed = start.duration(to: clock.now)
+                await sendTask.value
+                samples.append(Self.milliseconds(elapsed))
+            }
+        } catch {
+            await frontend.sendInput(Data([3]))
+            throw error
+        }
+
+        await frontend.sendInput(Data([3]))
+        samples.sort()
+        print(
+            String(
+                format: "latency transport=%@ iterations=%d p50=%.3fms p95=%.3fms max=%.3fms surface=%llu",
+                useURLSession ? "urlsession" : "network",
+                iterations,
+                Self.percentile(50, samples: samples),
+                Self.percentile(95, samples: samples),
+                samples.last ?? 0,
+                startup.surface
+            )
+        )
+    }
+
+    private func waitForInitialReplay(
+        from iterator: inout AsyncStream<CmuxFrontendEvent>.AsyncIterator
+    ) async throws {
+        while let event = await iterator.next() {
+            if case .terminal(.initialReplay) = event {
+                return
+            }
+        }
+        throw CmuxProtocolError.transportState("event stream ended before initial replay")
+    }
+
+    private func waitForMarker(
+        _ marker: Data,
+        occurrences: Int,
+        from iterator: inout AsyncStream<CmuxFrontendEvent>.AsyncIterator
+    ) async throws {
+        var remaining = occurrences
+        var buffer = Data()
+        while let event = await iterator.next() {
+            guard case let .terminal(.output(_, bytes)) = event else { continue }
+            buffer.append(bytes)
+            while let range = buffer.range(of: marker) {
+                remaining -= 1
+                buffer.removeSubrange(buffer.startIndex..<range.upperBound)
+                if remaining == 0 { return }
+            }
+            if buffer.count > marker.count * 2 {
+                buffer.removeFirst(buffer.count - marker.count * 2)
+            }
+        }
+        throw CmuxProtocolError.transportState("event stream ended before benchmark marker")
+    }
+
+    private func waitForEcho(
+        _ byte: UInt8,
+        from iterator: inout AsyncStream<CmuxFrontendEvent>.AsyncIterator
+    ) async throws {
+        while let event = await iterator.next() {
+            guard case let .terminal(.output(_, bytes)) = event else { continue }
+            if bytes.contains(byte) { return }
+        }
+        throw CmuxProtocolError.transportState("event stream ended before benchmark echo")
+    }
+
+    private static func percentile(_ value: Int, samples: [Double]) -> Double {
+        guard !samples.isEmpty else { return 0 }
+        let rank = Int(ceil(Double(value) / 100 * Double(samples.count))) - 1
+        return samples[max(0, min(rank, samples.count - 1))]
+    }
+
+    private static func milliseconds(_ duration: Duration) -> Double {
+        let components = duration.components
+        return Double(components.seconds) * 1_000
+            + Double(components.attoseconds) / 1_000_000_000_000_000
     }
 }
