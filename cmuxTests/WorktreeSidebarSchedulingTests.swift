@@ -88,18 +88,16 @@ struct WorktreeSidebarSchedulingTests {
         try runGit(["worktree", "add", "-b", "child", child.path, "HEAD"], in: repository)
 
         let service = WorktreeSidebarGitService(commandTimeout: 10)
-        await #expect {
-            try await service.inspectDeletion(
+        do {
+            _ = try await service.inspectDeletion(
                 projectRootPath: repository.path,
                 worktreePath: parent.path
             )
-        } throws: { error in
-            if case WorktreeSidebarGitError.containsRegisteredWorktrees = error {
-                return true
-            }
-            return false
+        } catch WorktreeSidebarGitError.containsRegisteredWorktrees {
+            #expect(FileManager.default.fileExists(atPath: child.path))
+            return
         }
-        #expect(FileManager.default.fileExists(atPath: child.path))
+        throw WorktreeSidebarSchedulingTestError.descendantDeletionWasAllowed
     }
 
     private func runGit(_ arguments: [String], in directory: URL) throws {
@@ -123,4 +121,8 @@ struct WorktreeSidebarSchedulingTests {
             )
         }
     }
+}
+
+private enum WorktreeSidebarSchedulingTestError: Error {
+    case descendantDeletionWasAllowed
 }
