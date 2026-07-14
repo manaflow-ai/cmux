@@ -2,12 +2,6 @@ import Darwin
 import Foundation
 import XCTest
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
 final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
     func testWrapperSuppressesPersistentCmuxHooksAndOwnsInjectedHooks() throws {
         let root = FileManager.default.temporaryDirectory
@@ -88,22 +82,32 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let currentBody = "current-owner-gated-body"
-        let olderBody = "older-path-fallback-body"
-        let currentPath = try XCTUnwrap(CMUXCLI.writeCodexHookScript(
-            subcommand: "session-start",
-            body: currentBody,
-            in: root
-        ))
-        let olderPath = try XCTUnwrap(CMUXCLI.writeCodexHookScript(
-            subcommand: "session-start",
-            body: olderBody,
-            in: root
-        ))
+        let result = runCodexInjectArgsProcess(
+            executablePath: try bundledCLIPath(),
+            homeDirectory: root.path
+        )
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let arguments = result.stdout.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
+        let sessionStart = try XCTUnwrap(arguments.first { $0.hasPrefix("hooks.SessionStart=") })
+        let marker = "command='''"
+        let commandStart = try XCTUnwrap(sessionStart.range(of: marker)?.upperBound)
+        let commandEnd = try XCTUnwrap(sessionStart.range(
+            of: "'''",
+            range: commandStart..<sessionStart.endIndex
+        )?.lowerBound)
+        let currentPath = String(sessionStart[commandStart..<commandEnd])
+        let currentBody = try String(contentsOfFile: currentPath, encoding: .utf8)
+        let legacyPath = root
+            .appendingPathComponent(".cmux/hooks/cmux-codex-hook-session-start.sh")
+            .path
 
-        XCTAssertNotEqual(currentPath, olderPath)
-        XCTAssertEqual(try String(contentsOfFile: currentPath, encoding: .utf8), "#!/bin/sh\n\(currentBody)\n")
-        XCTAssertEqual(try String(contentsOfFile: olderPath, encoding: .utf8), "#!/bin/sh\n\(olderBody)\n")
+        XCTAssertNotEqual(currentPath, legacyPath)
+        try "#!/bin/sh\nolder-path-fallback-body\n".write(
+            toFile: legacyPath,
+            atomically: true,
+            encoding: .utf8
+        )
+        XCTAssertEqual(try String(contentsOfFile: currentPath, encoding: .utf8), currentBody)
     }
 
     func testSetupPrunesLegacyProjectDispatcherButPreservesUserHook() throws {
@@ -142,14 +146,17 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
         XCTAssertEqual(promptHooks.filter { $0.body.contains("hooks codex prompt-submit") }.count, 1)
     }
 
-    private func runCodexInjectArgsProcess(executablePath: String) -> (status: Int32, stdout: Data, stderr: String) {
+    private func runCodexInjectArgsProcess(
+        executablePath: String,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> (status: Int32, stdout: Data, stderr: String) {
         let process = Process()
         let stdout = Pipe()
         let stderr = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = ["hooks", "codex", "inject-args"]
         process.environment = [
-            "HOME": NSHomeDirectory(),
+            "HOME": homeDirectory,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
