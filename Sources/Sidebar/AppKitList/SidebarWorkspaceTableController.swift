@@ -305,7 +305,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func configure(cell: SidebarWorkspaceTableCellView, at row: Int) {
         let configuration = rows[row]
         let rowId = configuration.id
-        let didReconfigure = cell.configure(
+#if DEBUG
+        cell.reconfigurationProbe = reconfigurationProbe
+#endif
+        cell.configure(
             row: configuration,
             isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,
             contextMenuDidOpen: { [weak self] in
@@ -315,11 +318,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 self?.contextMenuDidClose(rowId: rowId)
             }
         )
-#if DEBUG
-        if didReconfigure {
-            reconfigurationProbe?()
-        }
-#endif
     }
 
     private func scrollSelectedRowToVisibleIfNeeded() {

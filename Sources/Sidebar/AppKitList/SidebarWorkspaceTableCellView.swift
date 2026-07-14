@@ -6,12 +6,28 @@ import SwiftUI
 final class SidebarWorkspaceTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarWorkspaceTableCellView")
 
-    private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
-    private(set) var representedRowId: SidebarWorkspaceRenderItemID?
-    private var representedRow: SidebarWorkspaceTableRowConfiguration?
-    private var representedPointerHovering = false
+    private let model: SidebarWorkspaceTableCellModel
+    private let hostingView: NSHostingView<SidebarWorkspaceTableCellRootView>
+
+#if DEBUG
+    var reconfigurationProbe: (() -> Void)?
+    var hostingViewIdentity: ObjectIdentifier { ObjectIdentifier(hostingView) }
+    var hostedRootIdentity: UUID { hostingView.rootView.identity }
+#endif
+
+    var representedRowId: SidebarWorkspaceRenderItemID? {
+        model.state?.row.id
+    }
 
     override init(frame frameRect: NSRect) {
+        let model = SidebarWorkspaceTableCellModel()
+        self.model = model
+        self.hostingView = NSHostingView(
+            rootView: SidebarWorkspaceTableCellRootView(
+                identity: UUID(),
+                model: model
+            )
+        )
         super.init(frame: frameRect)
         identifier = Self.reuseIdentifier
         wantsLayer = true
@@ -39,22 +55,19 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
     ) -> Bool {
-        if let representedRow,
-           representedRow.id == row.id,
-           representedRow.hasEquivalentContent(to: row),
-           representedPointerHovering == isPointerHovering {
-            return false
-        }
-        representedRowId = row.id
-        representedRow = row
-        representedPointerHovering = isPointerHovering
-        hostingView.rootView = row.makeContent(
-            isPointerHovering,
-            SidebarWorkspaceTableContextMenuActions(
+        let didReconfigure = model.configure(
+            row: row,
+            isPointerHovering: isPointerHovering,
+            contextMenuActions: SidebarWorkspaceTableContextMenuActions(
                 didOpen: contextMenuDidOpen,
                 didClose: contextMenuDidClose
             )
         )
-        return true
+#if DEBUG
+        if didReconfigure {
+            reconfigurationProbe?()
+        }
+#endif
+        return didReconfigure
     }
 }

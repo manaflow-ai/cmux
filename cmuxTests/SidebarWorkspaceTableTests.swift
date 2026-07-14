@@ -147,6 +147,60 @@ struct SidebarWorkspaceTableTests {
         #expect(measurementCount == 1)
     }
 
+#if DEBUG
+    @Test
+    @MainActor
+    func equivalentCellConfigurationDoesNotRenderAgain() {
+        let cell = SidebarWorkspaceTableCellView()
+        let workspaceId = UUID()
+        var renders = 0
+        cell.reconfigurationProbe = { renders += 1 }
+
+        configure(cell, row: makeRowConfiguration(workspaceId: workspaceId))
+        configure(cell, row: makeRowConfiguration(workspaceId: workspaceId))
+
+        #expect(renders == 1)
+    }
+
+    @Test
+    @MainActor
+    func hoverFlipRendersOnlyTheAffectedCell() {
+        let firstCell = SidebarWorkspaceTableCellView()
+        let secondCell = SidebarWorkspaceTableCellView()
+        let firstRow = makeRowConfiguration()
+        let secondRow = makeRowConfiguration()
+        var firstRenders = 0
+        var secondRenders = 0
+        firstCell.reconfigurationProbe = { firstRenders += 1 }
+        secondCell.reconfigurationProbe = { secondRenders += 1 }
+
+        configure(firstCell, row: firstRow)
+        configure(secondCell, row: secondRow)
+        configure(firstCell, row: firstRow, isPointerHovering: true)
+        configure(firstCell, row: firstRow, isPointerHovering: true)
+
+        #expect(firstRenders == 2)
+        #expect(secondRenders == 1)
+    }
+
+    @Test
+    @MainActor
+    func cellReusePreservesOneHostingViewAndStableRootIdentity() {
+        let cell = SidebarWorkspaceTableCellView()
+        let hostingIdentity = cell.hostingViewIdentity
+        let rootIdentity = cell.hostedRootIdentity
+        let reusedWorkspaceId = UUID()
+
+        configure(cell, row: makeRowConfiguration())
+        configure(cell, row: makeRowConfiguration(workspaceId: reusedWorkspaceId))
+
+        #expect(cell.subviews.count == 1)
+        #expect(cell.hostingViewIdentity == hostingIdentity)
+        #expect(cell.hostedRootIdentity == rootIdentity)
+        #expect(cell.representedRowId == .workspace(reusedWorkspaceId))
+    }
+#endif
+
     @Test
     func hoverRecomputesFromStationaryWindowPointAfterScrollAndReorder() throws {
         let resolver = SidebarWorkspaceTableHoverResolver()
@@ -202,6 +256,22 @@ struct SidebarWorkspaceTableTests {
             AnyView(TestRowContent(token: contentToken))
         }
     }
+
+#if DEBUG
+    @MainActor
+    private func configure(
+        _ cell: SidebarWorkspaceTableCellView,
+        row: SidebarWorkspaceTableRowConfiguration,
+        isPointerHovering: Bool = false
+    ) {
+        cell.configure(
+            row: row,
+            isPointerHovering: isPointerHovering,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+    }
+#endif
 
     private struct TestRowContent: View, Equatable {
         let token: Int
