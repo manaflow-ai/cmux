@@ -66,6 +66,9 @@ final class VerifiedTerminalReplayStateMachine {
               frame.renderRevision > 0 else {
             return rejectFrame()
         }
+        guard phase != .recovering || frame.full else {
+            return rejectFrame()
+        }
 
         let startsNewEpoch = activeRenderEpoch != frame.renderEpoch
         if startsNewEpoch {

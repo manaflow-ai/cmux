@@ -255,6 +255,10 @@ extension MobileShellComposite {
                     token: replayBarrierToken,
                     reason: "dropped_output_cap"
                 )
+                let isPartialVerifiedRenderGrid = terminalOutputTransport == .renderGrid
+                    && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
+                    && delivery.sourceRenderGridFrame?.full == false
+                guard !isPartialVerifiedRenderGrid else { return false }
                 return deliverTerminalOutput(delivery, surfaceID: surfaceID, bypassReplayBarrier: true)
             }
             if remoteClient != nil,
