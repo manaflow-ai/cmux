@@ -92,7 +92,7 @@ type AppAction =
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
   | { type: "set-active-item"; itemId: string; treePath?: string }
-  | { type: "set-comments"; comments: DiffCommentRecord[] }
+  | { type: "replace-comments"; comments: DiffCommentRecord[] }
   | { type: "set-copy-feedback"; message: string }
   | { type: "set-draft"; draft: CommentDraft | null }
   | { type: "set-file-search-open"; open: boolean }
@@ -199,11 +199,12 @@ function reducer(state: AppState, action: AppAction): AppState {
       activeItemId: action.itemId,
       activeTreePath: action.treePath ?? state.activeTreePath,
     };
-  case "set-comments":
+  case "replace-comments":
     return {
       ...state,
       comments: action.comments,
-      items: applyCommentAnnotations(state.items, action.comments, state.draft),
+      draft: null,
+      items: applyCommentAnnotations(state.items, action.comments, null),
     };
   case "set-copy-feedback":
     return { ...state, copyFeedback: action.message };
@@ -288,14 +289,15 @@ export function App({ config, initialStatus }: ConfigProps) {
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
-  const repoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
-  const bridgeAvailable = diffCommentsBridgeAvailable() && repoRoot != null;
+  const payloadRepoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
+  const commentRepoRoot = diffSourceRepoRoot(resolvedSessionSource ?? activeSessionSource) ?? payloadRepoRoot;
+  const bridgeAvailable = diffCommentsBridgeAvailable() && commentRepoRoot != null;
   const commentLabels = resolveCommentLabels(payload);
   const comments = useDiffComments({
     bridgeAvailable,
     dispatch,
     latestState,
-    repoRoot,
+    repoRoot: commentRepoRoot,
   });
   const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
   renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
@@ -331,7 +333,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     activeSessionSource,
     setResolvedSessionSource,
   );
-  useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
+  useCommentsBootstrap(bridgeAvailable ? commentRepoRoot : null, comments.onLoaded);
   useOptionsDismiss(state.optionsOpen, dispatch);
   useFileSearchDismiss(state.fileSearchOpen, dispatch);
 
@@ -558,8 +560,9 @@ function useDiffComments({
   latestState: React.MutableRefObject<AppState>;
   repoRoot: string | null;
 }) {
+  const activeRepoRoot = useSyncedRef(repoRoot);
   const onLoaded = useCallback(
-    (comments: DiffCommentRecord[]) => dispatch({ type: "set-comments", comments }),
+    (comments: DiffCommentRecord[]) => dispatch({ type: "replace-comments", comments }),
     [dispatch],
   );
 
@@ -595,6 +598,9 @@ function useDiffComments({
       : Promise.resolve(localCommentRecord(record));
     save
       .then((saved) => {
+        if (activeRepoRoot.current !== repoRoot) {
+          return;
+        }
         dispatch({ type: "upsert-comment", comment: saved });
         dispatch({ type: "set-draft", draft: null });
       })
@@ -615,16 +621,23 @@ function useDiffComments({
       ? bridgeSaveComment(repoRoot, updated)
       : Promise.resolve(updated);
     save
-      .then((saved) => dispatch({ type: "upsert-comment", comment: saved }))
+      .then((saved) => {
+        if (activeRepoRoot.current === repoRoot) {
+          dispatch({ type: "upsert-comment", comment: saved });
+        }
+      })
       .catch((error) => console.warn("cmux diff comment edit failed", error));
   };
 
   const remove = (comment: DiffCommentRecord) => {
+    const targetRepoRoot = repoRoot;
     if (bridgeAvailable && repoRoot != null) {
       bridgeDeleteComment(repoRoot, comment.id)
         .catch((error) => console.warn("cmux diff comment delete failed", error));
     }
-    dispatch({ type: "remove-comment", id: comment.id });
+    if (activeRepoRoot.current === targetRepoRoot) {
+      dispatch({ type: "remove-comment", id: comment.id });
+    }
   };
 
   return { editMessage, onGutterUtilityClick, onLoaded, remove, saveDraft };

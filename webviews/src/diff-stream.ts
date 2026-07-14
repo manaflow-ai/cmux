@@ -494,16 +494,18 @@ function createFileTreeSourceFromModel(model: StreamingDiffModel): FileTreeSourc
   model.treeRevision += 1;
   const source: FileTreeSource = {
     diffStats: { ...model.diffStats },
-    gitStatus: model.gitStatusEntries,
+    gitStatus: model.gitStatusEntries.map((entry) => ({ ...entry })),
     gitStatusPatch: buildGitStatusPatch(model),
     pathCount: model.paths.length,
-    paths: model.paths,
-    pathToItemId: model.pathToItemId,
+    paths: [...model.paths],
+    pathToItemId: new Map(model.pathToItemId),
     previousRevision,
     revision: model.treeRevision,
     statsChanged: model.pendingStatsChanged,
-    statsByPath: model.statsByPath,
-    treePathByItemId: model.treePathByItemId,
+    statsByPath: new Map(
+      Array.from(model.statsByPath, ([path, stats]) => [path, { ...stats }]),
+    ),
+    treePathByItemId: new Map(model.treePathByItemId),
   };
   model.pendingStatsChanged = false;
   return source;

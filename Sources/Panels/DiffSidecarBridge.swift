@@ -24,8 +24,11 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     private static var handlerInstalledKey: UInt8 = 0
     private static let maximumRequestBytes = 1024 * 1024
     private nonisolated static let maximumResponseBytes = 32 * 1024 * 1024
+    private nonisolated static let processPool = DiffSidecarProcessPool(limit: 4)
     // Longer than the sidecar's 120-second branch regeneration limit.
     private nonisolated static let requestTimeout: TimeInterval = 130
+    private var invocations: [UUID: Task<Void, Never>] = [:]
+    private var sessionInvocationByViewerToken: [String: UUID] = [:]
 
     /// Faults the Rust executable and its dynamic dependencies into the OS cache
     /// during app startup. The handshake uses stdio and exits; it never binds a
@@ -33,7 +36,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     nonisolated static func prewarm() {
         Task.detached(priority: .utility) {
             let request = Data(#"{"id":"prewarm","version":1,"method":"protocolHandshake"}"#.utf8)
-            _ = try? await runSidecar(request: request)
+            _ = try? await processPool.run(request: request)
         }
     }
 
@@ -72,24 +75,45 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             return
         }
 
-        Task {
-            let result = await Task.detached(priority: .userInitiated) {
-                do {
-                    return Result<Data, Error>.success(try await Self.runSidecar(request: request))
-                } catch {
-                    return Result<Data, Error>.failure(error)
-                }
-            }.value
+        let invocationID = UUID()
+        let method = (message.body as? [String: Any])?["method"] as? String
+        let viewerToken = DiffCommentsBridge.diffViewerToken(from: message.frameInfo.request.url)
+        if method == "sessionOpen", let viewerToken,
+           let previousID = sessionInvocationByViewerToken[viewerToken] {
+            invocations[previousID]?.cancel()
+        }
+
+        let task = Task { [weak self] in
+            let result: Result<Data, Error>
+            do {
+                result = .success(try await Self.processPool.run(request: request))
+            } catch {
+                result = .failure(error)
+            }
+            guard let self else { return }
             switch result {
             case .success(let responseData):
                 guard let response = try? JSONSerialization.jsonObject(with: responseData) else {
                     replyHandler(Self.failureResponse(body: message.body, code: "invalidResponse", message: "Diff sidecar returned invalid JSON"), nil)
+                    self.finishInvocation(invocationID, viewerToken: viewerToken)
                     return
                 }
                 replyHandler(response, nil)
             case .failure:
                 replyHandler(Self.failureResponse(body: message.body, code: "sidecarUnavailable", message: "Diff sidecar is unavailable"), nil)
             }
+            self.finishInvocation(invocationID, viewerToken: viewerToken)
+        }
+        invocations[invocationID] = task
+        if method == "sessionOpen", let viewerToken {
+            sessionInvocationByViewerToken[viewerToken] = invocationID
+        }
+    }
+
+    private func finishInvocation(_ invocationID: UUID, viewerToken: String?) {
+        invocations.removeValue(forKey: invocationID)
+        if let viewerToken, sessionInvocationByViewerToken[viewerToken] == invocationID {
+            sessionInvocationByViewerToken.removeValue(forKey: viewerToken)
         }
     }
 
@@ -107,7 +131,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     #else
     @Sendable
     #endif
-    nonisolated private static func runSidecar(request: Data) async throws -> Data {
+    nonisolated fileprivate static func runSidecar(request: Data) async throws -> Data {
         let resources = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/bin", isDirectory: true)
         let sidecar = resources.appendingPathComponent("cmux-diff-sidecar", isDirectory: false)
@@ -134,70 +158,80 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
                 continuation.finish()
             }
         }
-        try process.run()
-        do {
-            try input.fileHandleForWriting.write(contentsOf: request)
-            try input.fileHandleForWriting.close()
-        } catch {
+        return try await withTaskCancellationHandler {
+            try process.run()
+            do {
+                try input.fileHandleForWriting.write(contentsOf: request)
+                try input.fileHandleForWriting.close()
+            } catch {
+                terminate(process: process, input: input, output: output)
+                process.waitUntilExit()
+                throw error
+            }
+
+            let outputTask = Task.detached(priority: .userInitiated) {
+                output.fileHandleForReading.readDataToEndOfFile()
+            }
+
+            let completion = await withTaskGroup(of: InvocationCompletion.self) { group in
+                group.addTask {
+                    for await status in termination {
+                        return .terminated(status)
+                    }
+                    return Task.isCancelled ? .cancelled : .missingTermination
+                }
+                group.addTask {
+                    do {
+                        try await ContinuousClock().sleep(for: .seconds(requestTimeout))
+                        return .timedOut
+                    } catch {
+                        return .cancelled
+                    }
+                }
+                guard let completion = await group.next() else {
+                    return InvocationCompletion.missingTermination
+                }
+                group.cancelAll()
+                return completion
+            }
+            switch completion {
+            case .timedOut, .cancelled:
+                terminate(process: process, input: input, output: output)
+                process.waitUntilExit()
+            case .terminated, .missingTermination:
+                break
+            }
+            let outputData = await outputTask.value
+
+            let status: Int32
+            switch completion {
+            case .terminated(let terminationStatus):
+                status = terminationStatus
+            case .timedOut:
+                throw InvocationError.timedOut
+            case .missingTermination:
+                throw InvocationError.missingTermination
+            case .cancelled:
+                throw CancellationError()
+            }
+
+            guard status == 0,
+                  !outputData.isEmpty,
+                  outputData.count <= maximumResponseBytes else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            return outputData
+        } onCancel: {
+            terminate(process: process, input: input, output: output)
+        }
+    }
+
+    nonisolated private static func terminate(process: Process, input: Pipe, output: Pipe) {
+        try? input.fileHandleForWriting.close()
+        try? output.fileHandleForReading.close()
+        if process.isRunning {
             process.terminate()
-            throw error
         }
-
-        let outputTask = Task.detached(priority: .userInitiated) {
-            output.fileHandleForReading.readDataToEndOfFile()
-        }
-
-        let completion = await withTaskGroup(of: InvocationCompletion.self) { group in
-            group.addTask {
-                for await status in termination {
-                    return .terminated(status)
-                }
-                return Task.isCancelled ? .cancelled : .missingTermination
-            }
-            group.addTask {
-                do {
-                    try await ContinuousClock().sleep(for: .seconds(requestTimeout))
-                    return .timedOut
-                } catch {
-                    return .cancelled
-                }
-            }
-            guard let completion = await group.next() else {
-                return InvocationCompletion.missingTermination
-            }
-            if case .timedOut = completion {
-                if process.isRunning {
-                    process.terminate()
-                }
-            }
-            group.cancelAll()
-            return completion
-        }
-        if case .cancelled = completion {
-            if process.isRunning {
-                process.terminate()
-            }
-        }
-        let outputData = await outputTask.value
-
-        let status: Int32
-        switch completion {
-        case .terminated(let terminationStatus):
-            status = terminationStatus
-        case .timedOut:
-            throw InvocationError.timedOut
-        case .missingTermination:
-            throw InvocationError.missingTermination
-        case .cancelled:
-            throw CancellationError()
-        }
-
-        guard status == 0,
-              !outputData.isEmpty,
-              outputData.count <= maximumResponseBytes else {
-            throw CocoaError(.fileReadCorruptFile)
-        }
-        return outputData
     }
 
     nonisolated private static func prepareRootDirectory() throws -> URL {
@@ -220,5 +254,74 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             "result": NSNull(),
             "error": ["code": code, "message": message],
         ]
+    }
+}
+
+actor DiffSidecarProcessPool {
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
+    private let limit: Int
+    private var activeCount = 0
+    private var waiters: [Waiter] = []
+
+    init(limit: Int) {
+        precondition(limit > 0)
+        self.limit = limit
+    }
+
+    func run(request: Data) async throws -> Data {
+        try await withPermit {
+            try await DiffSidecarBridge.runSidecar(request: request)
+        }
+    }
+
+    func withPermit<T: Sendable>(
+        _ operation: @Sendable () async throws -> T
+    ) async throws -> T {
+        try await acquire()
+        defer { release() }
+        return try await operation()
+    }
+
+    private func acquire() async throws {
+        try Task.checkCancellation()
+        if activeCount < limit {
+            activeCount += 1
+            return
+        }
+
+        let waiterID = UUID()
+        let granted = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                waiters.append(Waiter(id: waiterID, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(waiterID) }
+        }
+        guard granted else {
+            throw CancellationError()
+        }
+        if Task.isCancelled {
+            release()
+            throw CancellationError()
+        }
+    }
+
+    private func cancelWaiter(_ waiterID: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == waiterID }) else { return }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume(returning: false)
+    }
+
+    private func release() {
+        if waiters.isEmpty {
+            activeCount -= 1
+            return
+        }
+        let waiter = waiters.removeFirst()
+        waiter.continuation.resume(returning: true)
     }
 }
