@@ -178,6 +178,22 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(textTree.status == 0, Comment(rawValue: textTree.stdout))
         #expect(textTree.stdout.contains("└── codex fork-session"))
 
+        let filteredTree = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree", "--all", "--surface", "surface-b", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!filteredTree.timedOut, Comment(rawValue: filteredTree.stdout))
+        #expect(filteredTree.status == 0, Comment(rawValue: filteredTree.stdout))
+        let filteredTreeOutput = try #require(
+            JSONSerialization.jsonObject(with: Data(filteredTree.stdout.utf8)) as? [String: Any]
+        )
+        let filteredTreeNodes = try #require(filteredTreeOutput["nodes"] as? [[String: Any]])
+        let filteredTreeEdges = try #require(filteredTreeOutput["edges"] as? [[String: Any]])
+        #expect(filteredTreeNodes.compactMap { $0["run_id"] as? String } == ["fork-run"])
+        #expect(filteredTreeEdges.isEmpty)
+
         let monitoring = runProcess(
             executablePath: cliPath,
             arguments: ["agents", "list", "--all", "--activity", "busy", "--work-kind", "monitor", "--json"],
