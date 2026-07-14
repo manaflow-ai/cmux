@@ -1444,40 +1444,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         scrollMechanicsIsRecentering = false
     }
 
-    private func enqueueScrollMechanicsDelta(_ deltaY: CGFloat, touchPoint: CGPoint) {
-        // The transparent UIScrollView supplies native iOS tracking,
-        // deceleration, and momentum. The Mac still owns terminal semantics:
-        // normal-screen scrollback and alt-screen mouse-wheel delivery.
-        guard deltaY != 0 else { return }
-        let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
-        let primaryDivisor = max(Double(cellHeightPt), 1)
-        scrollInputAccumulator.accumulate(
-            primaryRows: -Double(deltaY) / primaryDivisor,
-            alternateScreenLines: -Double(deltaY) / (primaryDivisor * 3)
-        )
-        pendingScrollCell = scrollCell(at: touchPoint)
-    }
-
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     var scrollInputAccumulator = MobileTerminalScrollInputAccumulator()
-    private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
-
-    /// Map a touch point to a grid cell (shared effective grid with the Mac), so
-    /// alt-screen mouse-wheel reports at the cell under the finger.
-    private func scrollCell(at point: CGPoint) -> (col: Int, row: Int) {
-        let scale = max(preferredScreenScale, 1)
-        let cellW = max(cellPixelSize.width / scale, 1)
-        let cellH = max(cellPixelSize.height / scale, 1)
-        let col = max(0, Int((point.x - lastRenderRect.minX) / cellW))
-        let row = max(0, Int((point.y - lastRenderRect.minY) / cellH))
-        return (col, row)
-    }
-
-    private func flushPendingScrollIfNeeded() {
-        let cell = pendingScrollCell
-        guard let run = scrollInputAccumulator.drain(col: cell.col, row: cell.row) else { return }
-        delegate?.ghosttySurfaceView(self, didScroll: run)
-    }
+    var pendingScrollCell: (col: Int, row: Int) = (0, 0)
+    var pendingUnmeasuredScrollDeltaY: CGFloat = 0
+    var pendingUnmeasuredScrollTouchPoint: CGPoint?
 
     /// A tap both raises the software keyboard (so the user can type) and
     /// forwards a left click at the tapped cell to the Mac. The Mac's libghostty
@@ -2395,7 +2366,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private var preferredScreenScale: CGFloat {
+    var preferredScreenScale: CGFloat {
         if let screen = window?.windowScene?.screen {
             return screen.scale
         }
@@ -3098,6 +3069,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ) {
         if result.cellPixelSize.width > 0, result.cellPixelSize.height > 0 {
             cellPixelSize = result.cellPixelSize
+            if pendingUnmeasuredScrollDeltaY != 0 {
+                let deltaY = pendingUnmeasuredScrollDeltaY
+                let touchPoint = pendingUnmeasuredScrollTouchPoint
+                    ?? CGPoint(x: bounds.midX, y: bounds.midY)
+                pendingUnmeasuredScrollDeltaY = 0
+                pendingUnmeasuredScrollTouchPoint = nil
+                enqueueScrollMechanicsDelta(deltaY, touchPoint: touchPoint)
+            }
         }
         // Size the render layer to the EXACT pixel size libghostty rendered
         // (grid-aligned: cols×cellW × rows×cellH), not the raw container. The

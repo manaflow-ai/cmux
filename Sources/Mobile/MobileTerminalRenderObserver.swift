@@ -71,7 +71,6 @@ final class MobileTerminalRenderObserver {
         releaseTickDemand = nil
         pendingSurfaceIDs.removeAll()
         hasPendingGlobalUpdate = false
-        isEmitFlushScheduled = false
         renderGridStatesBySurfaceID.removeAll()
     }
 
@@ -114,7 +113,6 @@ final class MobileTerminalRenderObserver {
             releaseTickDemand = nil
             pendingSurfaceIDs.removeAll()
             hasPendingGlobalUpdate = false
-            isEmitFlushScheduled = false
             renderGridStatesBySurfaceID.removeAll()
         }
     }
@@ -129,15 +127,26 @@ final class MobileTerminalRenderObserver {
         } else {
             hasPendingGlobalUpdate = true
         }
-        guard !isEmitFlushScheduled else { return }
+        scheduleFlushIfNeeded()
+    }
+
+    private func scheduleFlushIfNeeded() {
+        guard hasAnyRenderEventSubscribers,
+              !isEmitFlushScheduled,
+              (!pendingSurfaceIDs.isEmpty || hasPendingGlobalUpdate) else {
+            return
+        }
         isEmitFlushScheduled = true
         Task { @MainActor [weak self] in
-            self?.flushTerminalUpdates()
+            await self?.flushTerminalUpdates()
         }
     }
 
-    private func flushTerminalUpdates() {
-        isEmitFlushScheduled = false
+    private func flushTerminalUpdates() async {
+        defer {
+            isEmitFlushScheduled = false
+            scheduleFlushIfNeeded()
+        }
         guard hasAnyRenderEventSubscribers else {
             refreshNotificationDemand()
             return
@@ -168,14 +177,14 @@ final class MobileTerminalRenderObserver {
             renderSurfaceIDs = surfaceIDs
         }
         for surfaceID in renderSurfaceIDs {
-            emitRenderGrid(surfaceID: surfaceID)
+            await emitRenderGrid(surfaceID: surfaceID)
         }
     }
 
-    private func emitRenderGrid(surfaceID: UUID) {
+    private func emitRenderGrid(surfaceID: UUID) async {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
-              let snapshot = surface.mobileRenderGridFrame(stateSeq: stateSeq, full: true) else {
+              let snapshot = await surface.mobileRenderGridFrame(stateSeq: stateSeq, full: true) else {
             renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
             return
         }

@@ -10,6 +10,19 @@ public import Foundation
 /// internal) instead of `MobileShellComposite.swift` to respect that file's
 /// length budget.
 extension MobileShellComposite {
+    func claimTerminalReplayBarrierFollowUp(surfaceID: String) -> Bool {
+        let count = terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] ?? 0
+        guard count < Self.maxTerminalReplayBarrierFollowUps else {
+            MobileDebugLog.anchormux(
+                "terminal.output.replay_followup_cap_reached surface=\(surfaceID) attempts=\(count)"
+            )
+            terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
+            return false
+        }
+        terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] = count + 1
+        return true
+    }
+
     func markTerminalBytesDelivered(
         surfaceID: String,
         endSeq: UInt64,

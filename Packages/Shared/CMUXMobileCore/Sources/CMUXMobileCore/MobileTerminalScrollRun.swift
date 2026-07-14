@@ -50,6 +50,14 @@ public struct MobileTerminalScrollRun: Codable, Equatable, Sendable {
         (primaryRows.map { $0 != 0 } ?? false) || lines != 0
     }
 
+    /// Drops exact-row semantics for hosts that predate ordered scroll runs.
+    /// The returned run matches the scalar wheel-distance behavior those hosts
+    /// execute, so local optimistic rendering cannot diverge from the Mac.
+    public var legacyCompatible: Self {
+        guard primaryRows != nil else { return self }
+        return Self(lines: lines, col: col, row: row)
+    }
+
     /// Combines two already-validated, direction-compatible runs.
     public mutating func merge(_ newer: Self) {
         lines += newer.lines

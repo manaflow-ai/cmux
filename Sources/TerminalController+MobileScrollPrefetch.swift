@@ -14,16 +14,23 @@ extension TerminalController {
         seq: UInt64,
         scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget,
         scrollForwardLines: Int = 0
-    ) -> MobileTerminalRenderGridFrame? {
+    ) async -> MobileTerminalRenderGridFrame? {
         guard surfaceID == terminalPanel.id else { return nil }
-        guard let frame = terminalPanel.surface.mobileRenderGridFrame(
-            stateSeq: seq,
-            scrollbackLines: scrollbackLines,
-            scrollForwardLines: scrollForwardLines
-        )?.frame else {
-            return nil
+        var beforeRows = max(0, scrollbackLines)
+        var afterRows = max(0, scrollForwardLines)
+        while true {
+            if let frame = await terminalPanel.surface.mobileRenderGridFrame(
+                stateSeq: seq,
+                scrollbackLines: beforeRows,
+                scrollForwardLines: afterRows
+            )?.frame {
+                return stampMobileRenderGridFrame(frame, surfaceID: surfaceID)
+            }
+            guard terminalPanel.surface.hasLiveSurface else { return nil }
+            guard beforeRows > 0 || afterRows > 0 else { return nil }
+            beforeRows /= 2
+            afterRows /= 2
         }
-        return stampMobileRenderGridFrame(frame, surfaceID: surfaceID)
     }
 
     func stampMobileRenderGridFrame(
@@ -47,7 +54,7 @@ extension TerminalController {
         terminalPanel: TerminalPanel,
         surfaceID: UUID,
         params: [String: Any]
-    ) -> [String: Any]? {
+    ) async -> [String: Any]? {
         var payload: [String: Any] = [
             "workspace_id": workspaceID.uuidString,
             "surface_id": surfaceID.uuidString,
@@ -65,7 +72,7 @@ extension TerminalController {
             return payload
         }
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
-        guard let renderGrid = mobileTerminalRenderGridFrame(
+        guard let renderGrid = await mobileTerminalRenderGridFrame(
             terminalPanel: terminalPanel,
             surfaceID: surfaceID,
             seq: stateSeq,
@@ -189,7 +196,7 @@ extension TerminalController {
     /// in the alt screen). The producer already exports the live `vp_top`, so
     /// the resulting viewport mirrors back to the phone; nudge an emit since a
     /// pure scroll with no PTY output may not fire a render/tick on its own.
-    func v2MobileTerminalScroll(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalScroll(params: [String: Any]) async -> V2CallResult {
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -252,7 +259,7 @@ extension TerminalController {
             }
             MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
         }
-        guard let payload = mobileTerminalScrollResponsePayload(
+        guard let payload = await mobileTerminalScrollResponsePayload(
             workspaceID: resolved.workspace.id,
             terminalPanel: terminalPanel,
             surfaceID: surfaceId,

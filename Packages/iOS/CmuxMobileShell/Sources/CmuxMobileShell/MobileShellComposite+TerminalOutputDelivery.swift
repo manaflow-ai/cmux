@@ -4,19 +4,6 @@ import CmuxMobileShellModel
 public import Foundation
 
 extension MobileShellComposite {
-    func claimTerminalReplayBarrierFollowUp(surfaceID: String) -> Bool {
-        let followUpCount = terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] ?? 0
-        guard followUpCount < Self.maxTerminalReplayBarrierFollowUps else {
-            MobileDebugLog.anchormux(
-                "terminal.output.replay_followup_cap_reached surface=\(surfaceID) attempts=\(followUpCount)"
-            )
-            terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
-            return false
-        }
-        terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] = followUpCount + 1
-        return true
-    }
-
     func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
         // The toolbar observes this dictionary via `isAlternateScreen`; same-value
         // writes would re-fire observers for every delivered render-grid frame.
@@ -51,6 +38,7 @@ extension MobileShellComposite {
         expectedSurfaceID: String? = nil,
         source: String,
         bypassReplayBarrier: Bool = false,
+        preparedBytes: Data? = nil,
         scrollReconciliation: TerminalScrollReconciliation? = nil,
         followingScrollRuns: [MobileTerminalScrollRun] = []
     ) -> Bool {
@@ -60,7 +48,7 @@ extension MobileShellComposite {
         }
         if source == "event",
            terminalScrollSessionsBySurfaceID[renderGrid.surfaceID]?.shouldDeferLiveRenderGrid == true {
-            deferTerminalRenderGridEvent(renderGrid)
+            deferTerminalRenderGridEvent(renderGrid, preparedBytes: preparedBytes)
             MobileDebugLog.anchormux(
                 "sync.render_grid_wait_scroll surface=\(renderGrid.surfaceID) revision=\(renderGrid.renderRevision ?? 0)"
             )
@@ -147,7 +135,11 @@ extension MobileShellComposite {
             }
             MobileDebugLog.anchormux("sync.render_grid_waiting_for_baseline source=\(source) surface=\(renderGrid.surfaceID) seq=\(renderGrid.stateSeq)")
             if terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] != nil {
-                _ = deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
+                _ = deliverTerminalRenderGrid(
+                    renderGrid,
+                    surfaceID: renderGrid.surfaceID,
+                    preparedBytes: preparedBytes
+                )
             } else {
                 requestTerminalReplayForMissingRenderGridBaseline(surfaceID: renderGrid.surfaceID)
             }
@@ -203,6 +195,7 @@ extension MobileShellComposite {
             renderGrid,
             surfaceID: renderGrid.surfaceID,
             bypassReplayBarrier: shouldBypassReplayBarrier,
+            preparedBytes: preparedBytes,
             scrollReconciliation: scrollReconciliation,
             followingScrollRuns: followingScrollRuns
         ) else { return false }
@@ -245,12 +238,14 @@ extension MobileShellComposite {
         _ frame: MobileTerminalRenderGridFrame,
         surfaceID: String,
         bypassReplayBarrier: Bool = false,
+        preparedBytes: Data? = nil,
         scrollReconciliation: TerminalScrollReconciliation? = nil,
         followingScrollRuns: [MobileTerminalScrollRun] = []
     ) -> Bool {
         return deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,
+                preparedBytes: preparedBytes,
                 replaceable: scrollReconciliation == nil
                     && frame.isReplaceableViewportPatchForMobileDelivery,
                 viewportPolicy: frame.mobileViewportPolicy,
@@ -316,7 +311,7 @@ extension MobileShellComposite {
         }
         var queue = terminalOutputQueuesBySurfaceID[surfaceID] ?? TerminalOutputDeliveryQueue()
         let immediate = queue.enqueue(delivery)
-        let rawBacklogOverflowed = queue.consumeRawBacklogOverflow()
+        let outputBacklogOverflowed = queue.consumeOutputBacklogOverflow()
         let pendingCount = queue.pendingCount
         let superseded = queue.takeScrollReconciliationSupersessions()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
@@ -324,9 +319,9 @@ extension MobileShellComposite {
             superseded,
             surfaceID: surfaceID
         )
-        if rawBacklogOverflowed {
+        if outputBacklogOverflowed {
             let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
-            MobileDebugLog.anchormux("terminal.output.raw_backlog_overflow surface=\(surfaceID)")
+            MobileDebugLog.anchormux("terminal.output.backlog_overflow surface=\(surfaceID)")
             requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
             return false
         }

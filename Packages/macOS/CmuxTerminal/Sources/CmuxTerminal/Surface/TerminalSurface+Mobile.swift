@@ -76,36 +76,21 @@ extension TerminalSurface {
         changedRows: Set<Int>? = nil,
         scrollbackLines: Int = 0,
         scrollForwardLines: Int = 0
-    ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
+    ) async -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
-        let exported = surfaceID.withCString { ptr in
-            ghostty_surface_render_grid_json_bounded(
-                surface,
-                ptr,
-                UInt(surfaceID.utf8.count),
-                stateSeq,
-                UInt(max(0, scrollbackLines)),
-                UInt(max(0, scrollForwardLines))
+        let result = await runtimeTeardown.readRenderGrid(
+            TerminalSurfaceRuntimeRenderGridRequest(
+                surface: surface,
+                surfaceID: surfaceID,
+                stateSeq: stateSeq,
+                full: full,
+                changedRows: changedRows,
+                scrollbackLines: scrollbackLines,
+                scrollForwardLines: scrollForwardLines
             )
-        }
-        defer { ghostty_string_free(exported) }
-        guard let ptr = exported.ptr, exported.len > 0 else { return nil }
-
-        let data = Data(bytes: ptr, count: Int(exported.len))
-        guard let fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
-            return nil
-        }
-        let frame: MobileTerminalRenderGridFrame
-        if full, changedRows == nil {
-            frame = fullFrame
-        } else {
-            let includedRows = changedRows ?? Set(0..<fullFrame.rows)
-            guard let filtered = try? fullFrame.filteredRows(includedRows, full: full) else {
-                return nil
-            }
-            frame = filtered
-        }
-        return (frame, frame.plainRows())
+        )
+        guard self.surface == surface, hasLiveSurface else { return nil }
+        return result
     }
 }

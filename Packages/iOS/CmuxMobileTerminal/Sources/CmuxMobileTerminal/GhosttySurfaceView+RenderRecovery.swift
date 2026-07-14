@@ -224,6 +224,7 @@ extension GhosttySurfaceView {
         needsAnotherRender = false
         needsDraw = true
         cellPixelSize = .zero
+        resetPendingScrollInput()
         lastRenderRect = .zero
         lastRenderLayoutViewportHeight = nil
         lastRenderHasSourceLayoutViewport = false

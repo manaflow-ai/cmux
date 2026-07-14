@@ -32,6 +32,8 @@ struct TerminalOutputDeliveryQueue: Sendable {
     private static let maximumQueuedInteractionCount = 64
     static let maximumQueuedRawByteCount = 1_048_576
     static let maximumQueuedRawDeliveryCount = 129
+    static let maximumRetainedOutputByteCount = 16 * 1_024 * 1_024
+    static let maximumRetainedRenderGridCount = 3
     private var inFlight: TerminalOutputDelivery?
     private var inFlightClaimed = false
     private var pending: [PendingEntry] = []
@@ -39,10 +41,12 @@ struct TerminalOutputDeliveryQueue: Sendable {
     private var queuedInteractionCount = 0
     private var queuedRawByteCount = 0
     private var queuedRawDeliveryCount = 0
+    private var retainedOutputByteCount = 0
+    private var retainedRenderGridCount = 0
     private var barrierInteractions: [TerminalOutputDelivery] = []
     private var claimedReplayInteractions: [ClaimedReplayInteraction] = []
     private var barrierInteractionReleaseRequested = false
-    private var rawBacklogOverflowed = false
+    private var outputBacklogOverflowed = false
     private var reconciliationSupersessions: [TerminalScrollReconciliationSupersession] = []
     private var reconciliationInvalidationGeneration: UInt64 = 0
 
@@ -62,7 +66,17 @@ struct TerminalOutputDeliveryQueue: Sendable {
         if let byteCount = delivery.nonreplaceableRawByteCount,
            queuedRawDeliveryCount >= Self.maximumQueuedRawDeliveryCount
             || byteCount > Self.maximumQueuedRawByteCount - queuedRawByteCount {
-            rawBacklogOverflowed = true
+            outputBacklogOverflowed = true
+            return nil
+        }
+        let replacedDelivery = pendingReplacement(for: delivery)
+        let replacedByteCount = replacedDelivery?.retainedOutputByteCount ?? 0
+        let replacedRenderGridCount = replacedDelivery?.isRenderGrid == true ? 1 : 0
+        if delivery.retainedOutputByteCount
+                > Self.maximumRetainedOutputByteCount - retainedOutputByteCount + replacedByteCount
+            || (delivery.isRenderGrid ? 1 : 0)
+                > Self.maximumRetainedRenderGridCount - retainedRenderGridCount + replacedRenderGridCount {
+            outputBacklogOverflowed = true
             return nil
         }
         if delivery.isInteractionMutation,
@@ -73,6 +87,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
         guard inFlight != nil else {
             if delivery.isInteractionMutation { queuedInteractionCount += 1 }
             accountRawDeliveryAdded(delivery)
+            accountOutputDeliveryAdded(delivery)
             inFlight = delivery
             inFlightClaimed = false
             return delivery
@@ -80,6 +95,12 @@ struct TerminalOutputDeliveryQueue: Sendable {
         let appended = appendPending(delivery, mergeLocalScroll: false)
         if delivery.isInteractionMutation, appended { queuedInteractionCount += 1 }
         if appended { accountRawDeliveryAdded(delivery) }
+        if let replacedDelivery {
+            accountOutputDeliveryRemoved(replacedDelivery)
+        }
+        if appended || replacedDelivery != nil {
+            accountOutputDeliveryAdded(delivery)
+        }
         return nil
     }
 
@@ -138,9 +159,9 @@ struct TerminalOutputDeliveryQueue: Sendable {
         return immediate
     }
 
-    mutating func consumeRawBacklogOverflow() -> Bool {
-        defer { rawBacklogOverflowed = false }
-        return rawBacklogOverflowed
+    mutating func consumeOutputBacklogOverflow() -> Bool {
+        defer { outputBacklogOverflowed = false }
+        return outputBacklogOverflowed
     }
 
     /// Inserts local scroll behind every existing mutation in one main-actor
@@ -174,6 +195,10 @@ struct TerminalOutputDeliveryQueue: Sendable {
         guard inFlight != nil else {
             pending.removeAll(keepingCapacity: false)
             pendingHeadIndex = 0
+            queuedRawByteCount = 0
+            queuedRawDeliveryCount = 0
+            retainedOutputByteCount = 0
+            retainedRenderGridCount = 0
             return nil
         }
         if let inFlight {
@@ -182,6 +207,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
                 queuedInteractionCount -= 1
             }
             accountRawDeliveryRemoved(inFlight)
+            accountOutputDeliveryRemoved(inFlight)
         }
         guard let next = popPending() else {
             inFlight = nil
@@ -216,6 +242,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
         guard !inFlightClaimed else { return .claimed }
         if let inFlight {
             recordSupersededReconciliation(from: inFlight, reason: .policyInvalidation)
+            accountOutputDeliveryRemoved(inFlight)
         }
         inFlight = popPending()
         inFlightClaimed = false
@@ -246,10 +273,12 @@ struct TerminalOutputDeliveryQueue: Sendable {
         queuedInteractionCount = 0
         queuedRawByteCount = 0
         queuedRawDeliveryCount = 0
+        retainedOutputByteCount = 0
+        retainedRenderGridCount = 0
         barrierInteractions.removeAll(keepingCapacity: false)
         claimedReplayInteractions.removeAll(keepingCapacity: false)
         barrierInteractionReleaseRequested = false
-        rawBacklogOverflowed = false
+        outputBacklogOverflowed = false
         reconciliationSupersessions.removeAll(keepingCapacity: false)
         reconciliationInvalidationGeneration = 0
     }
@@ -289,9 +318,11 @@ struct TerminalOutputDeliveryQueue: Sendable {
         queuedInteractionCount = 0
         queuedRawByteCount = 0
         queuedRawDeliveryCount = 0
+        retainedOutputByteCount = 0
+        retainedRenderGridCount = 0
         barrierInteractions = retained
         barrierInteractionReleaseRequested = false
-        rawBacklogOverflowed = false
+        outputBacklogOverflowed = false
         reconciliationSupersessions.removeAll(keepingCapacity: false)
         reconciliationInvalidationGeneration = 0
     }
@@ -310,6 +341,26 @@ struct TerminalOutputDeliveryQueue: Sendable {
         guard let byteCount = delivery.nonreplaceableRawByteCount else { return }
         queuedRawByteCount -= byteCount
         queuedRawDeliveryCount -= 1
+    }
+
+    private mutating func accountOutputDeliveryAdded(_ delivery: TerminalOutputDelivery) {
+        retainedOutputByteCount += delivery.retainedOutputByteCount
+        if delivery.isRenderGrid { retainedRenderGridCount += 1 }
+    }
+
+    private mutating func accountOutputDeliveryRemoved(_ delivery: TerminalOutputDelivery) {
+        retainedOutputByteCount -= delivery.retainedOutputByteCount
+        if delivery.isRenderGrid { retainedRenderGridCount -= 1 }
+    }
+
+    private func pendingReplacement(for delivery: TerminalOutputDelivery) -> TerminalOutputDelivery? {
+        guard let replacementScope = delivery.replacementScope,
+              let lastIndex = pending.indices.last,
+              lastIndex >= pendingHeadIndex,
+              pending[lastIndex].delivery.replacementScope == replacementScope else {
+            return nil
+        }
+        return pending[lastIndex].delivery
     }
 
     private func canMergePendingTail(with delivery: TerminalOutputDelivery) -> Bool {
@@ -369,6 +420,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
             if entry.reconciliationGeneration != reconciliationInvalidationGeneration,
                entry.delivery.scrollReconciliation != nil {
                 recordSupersededReconciliation(from: entry.delivery, reason: .policyInvalidation)
+                accountOutputDeliveryRemoved(entry.delivery)
                 continue
             }
             return entry.delivery

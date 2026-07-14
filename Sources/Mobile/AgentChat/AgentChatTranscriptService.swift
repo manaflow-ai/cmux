@@ -61,7 +61,7 @@ final class AgentChatTranscriptService {
         }
         self.proseStreamer = AgentChatProseStreamer(
             emit: { [weak self] frame in self?.emit(frame: frame) },
-            snapshot: { surfaceID in Self.screenRows(surfaceID: surfaceID) },
+            snapshot: { surfaceID in await Self.screenRows(surfaceID: surfaceID) },
             hasSubscribers: { [weak self] in self?.hasEventSubscribers() ?? false }
         )
     }
@@ -69,11 +69,11 @@ final class AgentChatTranscriptService {
     /// Rendered screen rows (top to bottom) for a surface, the source the prose
     /// streamer scrapes. Mirrors the render-grid observer's surface lookup.
     @MainActor
-    private static func screenRows(surfaceID: UUID) -> [String]? {
+    private static func screenRows(surfaceID: UUID) async -> [String]? {
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
             return nil
         }
-        return surface.mobileRenderGridFrame(stateSeq: 0, full: true)?.rows
+        return await surface.mobileRenderGridFrame(stateSeq: 0, full: true)?.rows
     }
 
     /// A `(session, surface)` resume re-bind cmux authored during session

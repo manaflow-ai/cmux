@@ -313,6 +313,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// A truthful released-Mac-update recommendation for the connected host.
     public internal(set) var macUpdateHint: MobileMacUpdateHint?
     @ObservationIgnored var macUpdateHintSessionState = MacUpdateHintSessionState()
+    @ObservationIgnored let terminalRenderGridProcessor = TerminalRenderGridProcessor()
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.
@@ -5258,6 +5259,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deferredTerminalRenderGridEventsBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
         supportedHostCapabilities = []
+        updateTerminalOrderedRunSupport()
         clearMacUpdateHint()
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
@@ -6011,6 +6013,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // guards; returning the fallback here is inert.
             guard remoteClient === client else { return fallback }
             supportedHostCapabilities = Set(payload.capabilities)
+            updateTerminalOrderedRunSupport()
             // Adopt the Mac's resolved terminal theme. Older Macs omit the
             // field (`payload.theme == nil`), which the store resolves to the
             // built-in Monokai default. This funnels through the same
@@ -6137,7 +6140,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 } else if event.topic == "terminal.render_grid" {
-                    self.handleTerminalRenderGridEvent(event)
+                    await self.handleTerminalRenderGridEvent(event)
                 } else if event.topic == "terminal.set_font" {
                     self.handleTerminalSetFontEvent(event)
                 } else if event.topic == "terminal.bytes" {
@@ -6676,8 +6679,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ?? currentTerminalInteractionEpoch(surfaceID: surfaceID)
         let interactionClientID = clientID
         let interactionSessionIDForRequest = interactionSessionID
+        let renderGridProcessor = terminalRenderGridProcessor
         let replayTask = Task { @MainActor [weak self] in
-            let replayResult: Result<Data, any Error>
+            let replayResult: Result<TerminalPreparedReplayResponse, any Error>
             do {
                 var params: [String: Any] = [
                     "workspace_id": remoteWorkspaceID.rawValue,
@@ -6708,7 +6712,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     method: "mobile.terminal.replay",
                     params: params
                 )
-                replayResult = .success(try await client.sendRequest(request))
+                let data = try await client.sendRequest(request)
+                replayResult = .success(await renderGridProcessor.processReplayResponse(
+                    data: data,
+                    expectedSurfaceID: surfaceID
+                ))
             } catch {
                 replayResult = .failure(error)
             }
@@ -6723,7 +6731,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
             switch replayResult {
-            case .success(let data):
+            case .success(let payload):
                 guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_request surface=\(surfaceID)")
                     return
@@ -6779,12 +6787,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     return
                 }
-                let payload = try? MobileTerminalReplayResponse.decode(data)
-                let bytes = payload?.dataBase64.flatMap { Data(base64Encoded: $0) }
-                let snapshotBytes = payload?.snapshotBase64.flatMap { Data(base64Encoded: $0) }
-                let decodedRenderGrid = payload?.renderGrid
-                let renderGrid = decodedRenderGrid?.surfaceID == surfaceID ? decodedRenderGrid : nil
-                let replaySeq = renderGrid?.stateSeq ?? payload?.sequence
+                let bytes = payload.bytes
+                let snapshotBytes = payload.snapshotBytes
+                let preparedRenderGrid = payload.renderGrid
+                let renderGrid = preparedRenderGrid?.frame
+                let replaySeq = renderGrid?.stateSeq ?? payload.sequence
                 if let replayBarrierTokenForRequest {
                     guard self.terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierTokenForRequest else {
                         MobileDebugLog.anchormux("CMUX_REPLAY barrier_stale surface=\(surfaceID)")
@@ -6793,8 +6800,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 #if DEBUG
                 let seq = replaySeq ?? 0
-                let cols = payload?.columns ?? -1
-                let rows = payload?.rows ?? -1
+                let cols = payload.columns ?? -1
+                let rows = payload.rows ?? -1
                 mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) snapshotBytes=\(snapshotBytes?.count ?? -1, privacy: .public) renderGrid=\(renderGrid != nil, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.hasTerminalOutputSink(surfaceID: surfaceID), privacy: .public)")
                 #endif
                 if let replaySeq {
@@ -6853,7 +6860,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         renderGrid,
                         expectedSurfaceID: surfaceID,
                         source: "replay",
-                        bypassReplayBarrier: replayBarrierTokenForRequest != nil
+                        bypassReplayBarrier: replayBarrierTokenForRequest != nil,
+                        preparedBytes: preparedRenderGrid?.bytes
                     )
                     guard accepted else {
                         transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
@@ -7007,21 +7015,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
-    private func handleTerminalRenderGridEvent(_ event: MobileEventEnvelope) {
+    private func handleTerminalRenderGridEvent(_ event: MobileEventEnvelope) async {
         guard let json = event.payloadJSON else {
             return
         }
-        // The frame may arrive nested under `render_grid` or as the bare payload;
-        // try the wrapper first, then fall back to decoding the whole payload.
-        let renderGridDTO = try? MobileTerminalRenderGridEvent.decode(json)
-        guard let renderGrid = renderGridDTO?.frame ?? (try? MobileTerminalRenderGridFrame.decode(json)),
-              hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
+        guard let preparedRenderGrid = await terminalRenderGridProcessor.processRenderGridEvent(data: json),
+              hasTerminalOutputSink(surfaceID: preparedRenderGrid.frame.surfaceID) else {
             return
         }
+        let renderGrid = preparedRenderGrid.frame
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
-        deliverAuthoritativeTerminalRenderGrid(renderGrid, source: "event")
+        deliverAuthoritativeTerminalRenderGrid(
+            renderGrid,
+            source: "event",
+            preparedBytes: preparedRenderGrid.bytes
+        )
     }
 
     private func handleTerminalSetFontEvent(_ event: MobileEventEnvelope) {

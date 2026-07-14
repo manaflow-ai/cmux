@@ -33,7 +33,7 @@ final class AgentChatProseStreamer {
     private var tasks: [String: Task<Void, Never>] = [:]
 
     private let emit: @MainActor (ChatSessionEventFrame) -> Void
-    private let snapshot: @MainActor (UUID) -> [String]?
+    private let snapshot: @MainActor (UUID) async -> [String]?
     private let hasSubscribers: @MainActor () -> Bool
     private let now: @MainActor () -> Date
     private let pollInterval: Duration
@@ -51,7 +51,7 @@ final class AgentChatProseStreamer {
     ///   - sleep: Cancellable sleep seam for the poll loop.
     init(
         emit: @escaping @MainActor (ChatSessionEventFrame) -> Void,
-        snapshot: @escaping @MainActor (UUID) -> [String]?,
+        snapshot: @escaping @MainActor (UUID) async -> [String]?,
         hasSubscribers: @escaping @MainActor () -> Bool,
         now: @escaping @MainActor () -> Date = { Date() },
         pollInterval: Duration = .milliseconds(150),
@@ -107,15 +107,15 @@ final class AgentChatProseStreamer {
 
     private func runLoop(sessionID: String) async {
         while !Task.isCancelled {
-            emitPreviewIfChanged(sessionID: sessionID)
+            await emitPreviewIfChanged(sessionID: sessionID)
             await sleep(pollInterval)
         }
     }
 
-    private func emitPreviewIfChanged(sessionID: String) {
+    private func emitPreviewIfChanged(sessionID: String) async {
         guard let turn = turns[sessionID], !turn.settled else { return }
         guard hasSubscribers() else { return }
-        guard let lines = snapshot(turn.surfaceID) else { return }
+        guard let lines = await snapshot(turn.surfaceID) else { return }
         guard let prose = extractor.extract(lines: lines, agentKind: turn.agentKind) else { return }
         guard prose != turn.lastEmitted else { return }
         turns[sessionID]?.lastEmitted = prose

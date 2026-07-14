@@ -10,6 +10,15 @@ private let terminalScrollDeliveryLog = Logger(
 )
 
 extension MobileShellComposite {
+    func updateTerminalOrderedRunSupport() {
+        let supportsOrderedRuns = supportedHostCapabilities.contains(
+            MobileTerminalScrollRun.orderedRunsCapability
+        )
+        for session in terminalScrollSessionsBySurfaceID.values {
+            session.updateSupportsOrderedRemoteRuns(supportsOrderedRuns)
+        }
+    }
+
     /// Mounts the single optimistic-scroll owner for a rendered surface. The
     /// closures are the only bridge into the UIKit/Ghostty view; RPC ordering,
     /// prefetch policy, input epochs, and authoritative reconciliation remain
@@ -75,18 +84,19 @@ extension MobileShellComposite {
                     pendingByteCount: pendingByteCount
                 )
             },
-            supportsOrderedRemoteRuns: { [weak self] in
-                self?.supportedHostCapabilities.contains(MobileTerminalScrollRun.orderedRunsCapability) == true
-            },
+            supportsOrderedRemoteRuns: supportedHostCapabilities.contains(
+                MobileTerminalScrollRun.orderedRunsCapability
+            ),
             prepareIntent: {},
             prepareInput: { [weak self] in
                 self?.invalidateQueuedTerminalScrollReconciliations(surfaceID: surfaceID)
             },
-            deliverAuthoritative: { [weak self] frame, epoch, revision, followingRuns in
+            deliverAuthoritative: { [weak self] renderGrid, epoch, revision, followingRuns in
                 self?.deliverAuthoritativeTerminalRenderGrid(
-                    frame,
+                    renderGrid.frame,
                     expectedSurfaceID: surfaceID,
                     source: "scroll_reconcile",
+                    preparedBytes: renderGrid.bytes,
                     scrollReconciliation: TerminalScrollReconciliation(
                         interactionEpoch: epoch,
                         clientRevision: revision
@@ -273,14 +283,13 @@ extension MobileShellComposite {
                 timeoutNanoseconds: TerminalRPCDeadlinePolicy.interaction.timeoutNanoseconds
             )
             guard remoteClient === client else { return nil }
-            let payload = try MobileTerminalScrollResponse.decode(data)
-            return TerminalScrollResponse(
-                accepted: payload.accepted ?? true,
-                interactionEpoch: payload.interactionEpoch ?? request.interactionEpoch,
-                clientRevision: payload.clientScrollRevision ?? request.clientRevision,
-                renderRevision: payload.renderRevision ?? payload.renderGrid?.renderRevision,
-                renderGrid: payload.renderGrid
+            let response = try await terminalRenderGridProcessor.processScrollResponse(
+                data: data,
+                fallbackInteractionEpoch: request.interactionEpoch,
+                fallbackClientRevision: request.clientRevision
             )
+            guard remoteClient === client else { return nil }
+            return response
         } catch {
             terminalScrollDeliveryLog.error("scroll transaction failed surface=\(request.surfaceID, privacy: .public) epoch=\(request.interactionEpoch, privacy: .public) revision=\(request.clientRevision, privacy: .public) error=\(String(describing: error), privacy: .public)")
             return nil

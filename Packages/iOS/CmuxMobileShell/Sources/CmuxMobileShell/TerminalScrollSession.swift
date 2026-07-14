@@ -26,11 +26,10 @@ final class TerminalScrollSession {
         _ input: TerminalInputIntent
     ) async -> Bool
     typealias InputBufferDidReject = @MainActor @Sendable (_ pendingByteCount: Int) -> Void
-    typealias SupportsOrderedRemoteRuns = @MainActor @Sendable () -> Bool
     typealias InteractionDeadline = @MainActor @Sendable (_ budget: Duration) async -> Void
     typealias PrepareIntent = @MainActor @Sendable () -> Void
     typealias DeliverAuthoritative = @MainActor @Sendable (
-        _ frame: MobileTerminalRenderGridFrame,
+        _ renderGrid: TerminalPreparedRenderGrid,
         _ interactionEpoch: UInt64,
         _ clientRevision: UInt64,
         _ followingScrollRuns: [MobileTerminalScrollRun]
@@ -139,7 +138,8 @@ final class TerminalScrollSession {
     let sendClick: SendClick
     let sendInput: SendInput
     let inputBufferDidReject: InputBufferDidReject
-    let supportsOrderedRemoteRuns: SupportsOrderedRemoteRuns
+    private(set) var supportsOrderedRemoteRuns: Bool
+    private var pendingSupportsOrderedRemoteRuns: Bool?
     let interactionDeadline: InteractionDeadline
     let prepareIntent: PrepareIntent
     let prepareInput: PrepareIntent
@@ -191,7 +191,7 @@ final class TerminalScrollSession {
         sendClick: @escaping SendClick = { _, _, _, _ in false },
         sendInput: @escaping SendInput = { _, _, _ in false },
         inputBufferDidReject: @escaping InputBufferDidReject = { _ in },
-        supportsOrderedRemoteRuns: @escaping SupportsOrderedRemoteRuns = { false },
+        supportsOrderedRemoteRuns: Bool = false,
         interactionDeadline: @escaping InteractionDeadline = { budget in
             try? await ContinuousClock().sleep(for: budget)
         },
@@ -237,8 +237,26 @@ final class TerminalScrollSession {
         submit(MobileTerminalScrollRun(lines: lines, col: col, row: row))
     }
 
+    func updateSupportsOrderedRemoteRuns(_ supportsOrderedRuns: Bool) {
+        if case .idle = phase, intents.count == 0 {
+            supportsOrderedRemoteRuns = supportsOrderedRuns
+            pendingSupportsOrderedRemoteRuns = nil
+        } else {
+            pendingSupportsOrderedRemoteRuns = supportsOrderedRuns
+        }
+    }
+
+    func applyPendingOrderedRunSupportIfIdle() {
+        guard case .idle = phase,
+              intents.count == 0,
+              let pendingSupportsOrderedRemoteRuns else { return }
+        supportsOrderedRemoteRuns = pendingSupportsOrderedRemoteRuns
+        self.pendingSupportsOrderedRemoteRuns = nil
+    }
+
     func submit(_ run: MobileTerminalScrollRun) {
         guard run.hasEffect else { return }
+        let admittedRun = supportsOrderedRemoteRuns ? run : run.legacyCompatible
         markBottomSnapNeeded()
         hasUnsettledScroll = true
         let mayApplyOptimistically: Bool
@@ -248,12 +266,12 @@ final class TerminalScrollSession {
         } else {
             mayApplyOptimistically = false
         }
-        let localReceipt = mayApplyOptimistically ? enqueueLocal([run]) : nil
+        let localReceipt = mayApplyOptimistically ? enqueueLocal([admittedRun]) : nil
         var matchedScroll = false
         let merged = intents.mutateLast { intent in
             guard case .scroll(var scroll) = intent else { return false }
             matchedScroll = true
-            guard scroll.append(run) else { return false }
+            guard scroll.append(admittedRun) else { return false }
             if let localReceipt,
                !scroll.localReceipts.contains(where: { $0 === localReceipt }) {
                 scroll.localReceipts.append(localReceipt)
@@ -269,7 +287,7 @@ final class TerminalScrollSession {
         } else {
             guard reserveQueuedInteraction() else { return }
             guard intents.append(.scroll(ScrollIntent(
-                runs: [run],
+                runs: [admittedRun],
                 submissionCount: 1,
                 localReceipts: localReceipt.map { [$0] } ?? []
             ))) else {

@@ -1,6 +1,7 @@
 public import Foundation
 public import GhosttyKit
 public import CmuxTerminalCore
+internal import CMUXMobileCore
 #if DEBUG
 internal import CMUXDebugLog
 #endif
@@ -27,6 +28,13 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// actor serialization therefore makes the read and a later free mutually
     /// exclusive.
     func readScreenTailVT(_ request: TerminalSurfaceRuntimeScreenTailRequest) -> String? {
+        request.read()
+    }
+
+    /// Captures and decodes one bounded render grid without occupying the main actor.
+    func readRenderGrid(
+        _ request: TerminalSurfaceRuntimeRenderGridRequest
+    ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
         request.read()
     }
 

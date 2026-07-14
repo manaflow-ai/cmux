@@ -4,7 +4,8 @@
 /// This domain serves the `mobile.*` / `terminal.*` methods the Mac exposes to
 /// the paired iOS client through the v2 control socket: host status, the
 /// mobile-shaped workspace/terminal list, terminal create, and the terminal
-/// input / replay / viewport / scroll / mouse data-plane verbs.
+/// input / viewport / mouse data-plane verbs. Replay and scroll use the
+/// asynchronous app-side worker path because they capture and encode render grids.
 ///
 /// Unlike the window domain, these bodies build deeply nested,
 /// app-state-derived payloads (render grids, per-workspace terminal lists,
@@ -26,19 +27,18 @@
 /// package bundle, which lacks those keys, and silently drop the non-English
 /// translations (a wire change).
 ///
-/// Every method is `@MainActor` because its conformer and the coordinator both
+/// Every seam method is `@MainActor` because its conformer and the coordinator both
 /// live on the main actor, so these are plain in-isolation calls — the per-read
 /// `v2MainSync` hops the legacy command bodies used disappear once the domain
 /// moves onto the coordinator.
 ///
 /// ## One entrypoint: the v2 control socket
 ///
-/// This seam serves only the v2 control socket (`processV2Command`, sync,
-/// main-actor), dispatched by ``ControlCommandCoordinator/handleMobileHost(_:)``:
-/// the eight shared verbs plus `mobile.terminal.paste` / `terminal.paste` and the
-/// local debug `chat.sessions.dump`. Every method is a thin pass-through; the app
-/// conformance runs the EXACT legacy body and bridges its Foundation payload to a
-/// ``JSONValue``.
+/// This seam serves the synchronous mobile-host subset of the v2 control socket,
+/// dispatched by ``ControlCommandCoordinator/handleMobileHost(_:)``. Replay and
+/// scroll remain app-side so their native capture can suspend without blocking
+/// the main actor. Every seam method is a thin pass-through; the app conformance
+/// runs the EXACT legacy body and bridges its Foundation payload to a ``JSONValue``.
 ///
 /// The mobile data-plane RPC (`TerminalController.mobileHostHandleRPC`) does NOT
 /// transit this seam. It speaks `MobileHostRPCRequest` / `MobileHostRPCResult`
@@ -81,13 +81,6 @@ public protocol ControlMobileHostContext: AnyObject {
     /// - Returns: The fully-built command result.
     func controlMobileTerminalInput(params: [String: JSONValue]) -> ControlCallResult
 
-    /// `mobile.terminal.replay` / `terminal.replay` — the cold-attach replay
-    /// anchor (render-grid frame or VT/byte snapshot) for the resolved surface.
-    ///
-    /// - Parameter params: The decoded request params.
-    /// - Returns: The fully-built command result.
-    func controlMobileTerminalReplay(params: [String: JSONValue]) -> ControlCallResult
-
     /// `mobile.terminal.viewport` / `terminal.viewport` — record or clear a
     /// device's reported grid, recompute the shared minimum, cap the surface,
     /// and echo the effective grid.
@@ -95,13 +88,6 @@ public protocol ControlMobileHostContext: AnyObject {
     /// - Parameter params: The decoded request params.
     /// - Returns: The fully-built command result.
     func controlMobileTerminalViewport(params: [String: JSONValue]) -> ControlCallResult
-
-    /// `mobile.terminal.scroll` / `terminal.scroll` — forward a phone scroll
-    /// gesture to the resolved surface.
-    ///
-    /// - Parameter params: The decoded request params.
-    /// - Returns: The fully-built command result.
-    func controlMobileTerminalScroll(params: [String: JSONValue]) -> ControlCallResult
 
     /// `mobile.terminal.mouse` / `terminal.mouse` — forward a phone tap to the
     /// resolved surface as a click at the given cell.

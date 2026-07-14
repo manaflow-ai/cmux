@@ -190,14 +190,18 @@ extension MobileShellComposite {
         }
     }
 
-    func deferTerminalRenderGridEvent(_ frame: MobileTerminalRenderGridFrame) {
+    func deferTerminalRenderGridEvent(
+        _ frame: MobileTerminalRenderGridFrame,
+        preparedBytes: Data? = nil
+    ) {
         guard var deferred = deferredTerminalRenderGridEventsBySurfaceID[frame.surfaceID] else {
             deferredTerminalRenderGridEventsBySurfaceID[frame.surfaceID] = DeferredTerminalRenderGridEvent(
-                frame: frame
+                frame: frame,
+                preparedBytes: preparedBytes
             )
             return
         }
-        deferred.append(frame)
+        deferred.append(frame, preparedBytes: preparedBytes)
         deferredTerminalRenderGridEventsBySurfaceID[frame.surfaceID] = deferred
     }
 
@@ -214,7 +218,8 @@ extension MobileShellComposite {
         _ = deliverAuthoritativeTerminalRenderGrid(
             frame,
             expectedSurfaceID: surfaceID,
-            source: "event"
+            source: "event",
+            preparedBytes: deferred.preparedBytes
         )
     }
 
@@ -252,7 +257,8 @@ extension MobileShellComposite {
                 guard deliverAuthoritativeTerminalRenderGrid(
                     frame,
                     expectedSurfaceID: surfaceID,
-                    source: "scroll_gridless_reconcile"
+                    source: "scroll_gridless_reconcile",
+                    preparedBytes: deferred.preparedBytes
                 ) else {
                     deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
                     MobileDebugLog.anchormux("sync.render_grid_deferred_delivery_failed surface=\(surfaceID)")

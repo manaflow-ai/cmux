@@ -89,6 +89,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        // Replay and scroll may capture and encode hundreds of styled rows.
+        // Their UI/model mutation stays on MainActor, while native capture and
+        // response encoding run asynchronously from the socket worker.
+        "mobile.terminal.replay",
+        "terminal.replay",
+        "mobile.terminal.scroll",
+        "terminal.scroll",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy

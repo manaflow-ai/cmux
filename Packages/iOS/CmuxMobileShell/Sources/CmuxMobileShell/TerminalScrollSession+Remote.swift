@@ -3,7 +3,11 @@ import Foundation
 
 extension TerminalScrollSession {
     func startNextIntentIfIdle() {
-        guard case .idle = phase, let intent = removeNextIntent() else { return }
+        guard case .idle = phase else { return }
+        guard let intent = removeNextIntent() else {
+            applyPendingOrderedRunSupportIfIdle()
+            return
+        }
         switch intent {
         case .scroll(let scroll): startScroll(scroll)
         case .settlement: startSettlement()
@@ -89,7 +93,7 @@ extension TerminalScrollSession {
             localApplied: !requiresLocalApply
         ))
         let plannedRequestChunks = request.plannedRPCRequestChunks(
-            supportsOrderedRuns: supportsOrderedRemoteRuns()
+            supportsOrderedRuns: supportsOrderedRemoteRuns
         )
         if requiresLocalApply {
             let receipts: [TerminalSurfaceMutationReceipt]
@@ -188,7 +192,7 @@ extension TerminalScrollSession {
               transaction.localApplied,
               transaction.remoteCompleted,
               let response = transaction.response else { return }
-        if let frame = response.renderGrid {
+        if let renderGrid = response.preparedRenderGrid {
             let followingScrollRuns: [MobileTerminalScrollRun]
             if case .scroll(let queuedScroll) = intents.first,
                !queuedScroll.localReceipts.isEmpty {
@@ -199,7 +203,7 @@ extension TerminalScrollSession {
             transaction.awaitingAuthoritative = true
             phase = .scroll(transaction)
             guard deliverAuthoritative(
-                frame,
+                renderGrid,
                 response.interactionEpoch,
                 response.clientRevision,
                 followingScrollRuns

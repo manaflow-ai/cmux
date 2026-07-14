@@ -134,7 +134,7 @@ extension GhosttySurfaceView {
     /// Stops UIKit drag/deceleration without mutating Ghostty. The shell then
     /// inserts the bottom snap into its causal surface mutation stream.
     public func cancelScrollMomentum() {
-        scrollInputAccumulator.reset()
+        resetPendingScrollInput()
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
     }
 

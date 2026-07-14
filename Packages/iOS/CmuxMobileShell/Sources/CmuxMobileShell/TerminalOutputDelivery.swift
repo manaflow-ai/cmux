@@ -52,7 +52,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 
     private enum Payload: Equatable, Sendable {
         case bytes(Data)
-        case renderGrid(MobileTerminalRenderGridFrame)
+        case renderGrid(TerminalPreparedRenderGrid)
         case localScroll([MobileTerminalScrollRun])
         case scrollToBottom
         case barrier
@@ -94,6 +94,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     init(
         deliveryID: UUID = UUID(),
         renderGrid frame: MobileTerminalRenderGridFrame,
+        preparedBytes: Data? = nil,
         replaceable: Bool,
         replacementScope: ReplacementScope? = nil,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
@@ -101,7 +102,10 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         followingScrollRuns: [MobileTerminalScrollRun] = []
     ) {
         self.deliveryID = deliveryID
-        self.payload = .renderGrid(frame)
+        self.payload = .renderGrid(TerminalPreparedRenderGrid(
+            frame: frame,
+            bytes: preparedBytes
+        ))
         self.receipts = []
         self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
@@ -165,16 +169,16 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     }
 
     var renderGridFrame: MobileTerminalRenderGridFrame? {
-        guard case .renderGrid(let frame) = payload else { return nil }
-        return frame
+        guard case .renderGrid(let renderGrid) = payload else { return nil }
+        return renderGrid.frame
     }
 
     var bytes: Data {
         switch payload {
         case .bytes(let bytes):
             bytes
-        case .renderGrid(let frame):
-            frame.vtPatchBytes()
+        case .renderGrid(let renderGrid):
+            renderGrid.bytes
         case .localScroll, .scrollToBottom, .barrier:
             Data()
         }
@@ -210,6 +214,19 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     var nonreplaceableRawByteCount: Int? {
         guard replacementScope == nil, case .bytes(let data) = payload else { return nil }
         return data.count
+    }
+
+    var retainedOutputByteCount: Int {
+        switch payload {
+        case .bytes(let data): data.count
+        case .renderGrid(let renderGrid): renderGrid.bytes.count
+        case .localScroll, .scrollToBottom, .barrier: 0
+        }
+    }
+
+    var isRenderGrid: Bool {
+        if case .renderGrid = payload { return true }
+        return false
     }
 
     @MainActor
@@ -249,21 +266,24 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 /// deltas; otherwise a replay sentinel avoids both data loss and queue growth.
 struct DeferredTerminalRenderGridEvent: Equatable, Sendable {
     private(set) var frame: MobileTerminalRenderGridFrame?
+    private(set) var preparedBytes: Data?
     private(set) var requiresReplay: Bool
     private var latestRevision: UInt64?
 
-    init(frame: MobileTerminalRenderGridFrame) {
+    init(frame: MobileTerminalRenderGridFrame, preparedBytes: Data? = nil) {
         latestRevision = frame.renderRevision
         if frame.full || frame.isReplaceableViewportPatchForMobileDelivery {
             self.frame = frame
+            self.preparedBytes = preparedBytes
             requiresReplay = false
         } else {
             self.frame = nil
+            self.preparedBytes = nil
             requiresReplay = true
         }
     }
 
-    mutating func append(_ newer: MobileTerminalRenderGridFrame) {
+    mutating func append(_ newer: MobileTerminalRenderGridFrame, preparedBytes: Data? = nil) {
         if let currentRevision = latestRevision,
            let newerRevision = newer.renderRevision,
            currentRevision > newerRevision {
@@ -274,10 +294,12 @@ struct DeferredTerminalRenderGridEvent: Equatable, Sendable {
         }
         if newer.full || newer.isReplaceableViewportPatchForMobileDelivery {
             frame = newer
+            self.preparedBytes = preparedBytes
             requiresReplay = false
             return
         }
         frame = nil
+        self.preparedBytes = nil
         requiresReplay = true
     }
 }

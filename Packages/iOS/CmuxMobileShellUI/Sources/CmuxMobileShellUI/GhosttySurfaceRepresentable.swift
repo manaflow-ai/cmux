@@ -129,7 +129,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         coordinator.detach()
     }
 
-    final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
+    final class Coordinator: NSObject {
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
@@ -151,7 +151,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// report resolve after the newer keyboard-down echo, permanently
         /// re-pinning the phone to the stale smaller grid (empty space above
         /// the terminal). Built on attach, torn down on detach.
-        private var viewportReportScheduler: TerminalViewportReportScheduler?
+        var viewportReportScheduler: TerminalViewportReportScheduler?
         /// Bumped on every mount/unmount transition so a deferred close completion
         /// can tell whether it is still the latest transition. Guards the
         /// close-then-quickly-reopen race: an interrupted close animation still runs
@@ -165,6 +165,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             super.init()
         }
 
+        @MainActor
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
             guard let store else { return }
@@ -285,6 +286,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
+        @MainActor
         func detach() {
             if let terminalScrollSessionToken, let store {
                 store.unmountTerminalScrollSession(
@@ -413,121 +415,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             composerMounted = false
         }
 
-        // MARK: - GhosttySurfaceViewDelegate
-
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {
-            // Bytes the iPhone wants to send TO the PTY (typing, paste,
-            // mouse reports). Forward to the Mac sync server which
-            // writes them into the Mac's libghostty surface, which in
-            // turn writes them down the PTY.
-            Task { @MainActor [weak store] in
-                await store?.submitTerminalRawInput(data, surfaceID: self.surfaceID)
-            }
-        }
-
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {
-            // An image the user pasted on the phone. Upload it to the Mac, which
-            // writes a temp file and injects its path into the terminal so the
-            // running TUI (e.g. Claude Code) attaches it.
-            Task { @MainActor [weak store] in
-                await store?.submitTerminalPasteImage(data, format: format)
-            }
-        }
-
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
-            // Report our natural grid to the Mac. The output stream decides
-            // whether the phone should keep that natural grid (primary screen)
-            // or pin to the Mac grid (alternate-screen render-grid replay).
-            // The scheduler serializes the RPCs (send order = report order,
-            // so the PTY settles on the NEWEST grid) and drops echoes whose
-            // report was superseded while in flight; the surface additionally
-            // rejects any echo whose reportID is no longer the newest.
-            guard size.columns > 0, size.rows > 0 else { return }
-            viewportReportScheduler?.submit(
-                .init(id: reportID, columns: size.columns, rows: size.rows)
-            )
-        }
-
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScroll run: MobileTerminalScrollRun) {
-            // Forward to the Mac's real surface; libghostty scrolls scrollback
-            // (normal screen) or sends mouse-wheel to the program (alt screen).
-            store?.scrollTerminal(surfaceID: surfaceID, run: run)
-        }
-
-        func ghosttySurfaceViewDidBeginScrollInteraction(_ surfaceView: GhosttySurfaceView) {
-            store?.terminalScrollInteractionDidBegin(surfaceID: surfaceID)
-        }
-
-        func ghosttySurfaceViewDidEndScrollInteraction(_ surfaceView: GhosttySurfaceView) {
-            store?.terminalScrollInteractionDidEnd(surfaceID: surfaceID)
-        }
-
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {
-            // Forward to the Mac's real surface as a left click; libghostty
-            // reports it to a TUI with mouse mode, or no-ops on a normal screen.
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.store?.clickTerminal(surfaceID: self.surfaceID, col: col, row: row)
-            }
-        }
-
-        func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {
-            // The "customize" button on the keyboard toolbar. The editor view
-            // lives in this UI package, so present it here (the terminal package
-            // that owns the bar can't reach up to it) from the surface's owning
-            // view controller.
-            guard let presenter = presentingController(for: surfaceView) else { return }
-            let editor = UIHostingController(rootView: TerminalShortcutsSettingsView())
-            presenter.present(editor, animated: true)
-        }
-
-        func ghosttySurfaceViewDidRequestComposerToggle(_ surfaceView: GhosttySurfaceView) {
-            // The composer button on the docked accessory bar was tapped AND the
-            // surface resolved (from the dock state) that this is a genuine open/close
-            // toggle. Flip the store flag; the terminal screen observes it and
-            // presents/dismisses the iMessage-style composer. The reveal-and-focus
-            // case routes through `...DidRequestComposerFocus` instead, so this never
-            // closes a still-presented-but-suppressed composer.
-            Task { @MainActor [weak store, surfaceID] in
-                store?.toggleComposer(forTerminalID: surfaceID)
-            }
-        }
-
-        func ghosttySurfaceViewDidRequestComposerFocus(_ surfaceView: GhosttySurfaceView) {
-            // The surface needs the composer presented (if not already) and its field
-            // re-focused, without dismissing it — the reveal-after-hide and
-            // present-while-suppressed paths. Ensure-present + bump the focus token the
-            // composer view observes, so the draft and its focus return together.
-            Task { @MainActor [weak store, surfaceID] in
-                store?.presentAndFocusComposer(forTerminalID: surfaceID)
-            }
-        }
-
-        func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
-            Task { @MainActor [weak self, weak store, surfaceID] in
-                guard let self, self.surfaceView === surfaceView else { return }
-                store?.terminalOutputNeedsReplay(surfaceID: surfaceID)
-            }
-        }
-
-        /// Walk up from `view` to the nearest owning `UIViewController`, then to
-        /// its top-most presented controller, so a sheet presents above whatever
-        /// is already on screen.
-        @MainActor
-        private func presentingController(for view: UIView) -> UIViewController? {
-            var responder: UIResponder? = view
-            while let current = responder {
-                if let controller = current as? UIViewController {
-                    var top = controller
-                    while let presented = top.presentedViewController {
-                        top = presented
-                    }
-                    return top
-                }
-                responder = current.next
-            }
-            return view.window?.rootViewController
-        }
     }
 }
 #endif

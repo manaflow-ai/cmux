@@ -312,6 +312,12 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         MobileTerminalRenderGridReplay(self).patchBytes()
     }
 
+    /// Total styled spans retained by this frame across every history window.
+    public var totalSpanCount: Int {
+        rowSpans.count + scrollbackSpans.count
+            + scrollForwardSpans.count + primaryActiveSpans.count
+    }
+
     enum CodingKeys: String, CodingKey {
         case format
         case surfaceID = "surface_id"
