@@ -875,7 +875,6 @@ class TerminalController {
     }
 
     private func restartSocketListenerIfPathMissing(path: String, generation: UInt64) {
-        guard let tabManager else { return }
         let restartMode = socketServer.accessMode
         guard socketServer.shouldRestartForMissingPath(path: path, generation: generation) else { return }
 
@@ -890,7 +889,10 @@ class TerminalController {
             ]
         )
         stop()
-        start(tabManager: tabManager, socketPath: path, accessMode: restartMode)
+        startSocketTransport(
+            SocketControlServerConfiguration(accessMode: restartMode, preferredSocketPath: path),
+            socketPath: path
+        )
     }
 
     private nonisolated func writeSocketResponse(_ response: String, to socket: Int32) -> Bool {

@@ -15,11 +15,8 @@ extension AppDelegate {
     }
 
     private func resolvedSocketListenerConfiguration() -> SocketControlServerConfiguration {
-        let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
-            ?? SocketControlSettings.defaultMode.rawValue
-        let userMode = SocketControlSettings.migrateMode(raw)
         return SocketControlServerConfiguration(
-            accessMode: SocketControlSettings.effectiveMode(userMode: userMode),
+            accessMode: CmuxSettingsFileStore.liveSocketAccessMode(),
             preferredSocketPath: SocketControlSettings.socketPath()
         )
     }
@@ -91,9 +88,9 @@ extension AppDelegate {
             TerminalController.shared.stop()
             return
         }
-        guard let manager = tabManager
+        let manager = tabManager
             ?? preferredRegisteredMainWindowContext()?.tabManager
-            ?? mainWindowContexts.values.first?.tabManager else { return }
+            ?? mainWindowContexts.values.first?.tabManager
         let restartPath = TerminalController.shared.activeSocketPath(
             preferredPath: config.preferredSocketPath
         )
@@ -103,10 +100,10 @@ extension AppDelegate {
             "source": source,
         ])
         TerminalController.shared.stop()
-        TerminalController.shared.start(
-            tabManager: manager,
+        TerminalController.shared.startSocketTransport(
+            config,
             socketPath: restartPath,
-            accessMode: config.accessMode
+            preferredTabManager: manager,
         )
     }
 }

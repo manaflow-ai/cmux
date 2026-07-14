@@ -29,8 +29,9 @@ extension TerminalController {
     ///
     /// Every config mutation entrypoint delegates here. An active listener keeps
     /// its descriptor when only policy changes, while path changes rebind it.
-    /// An inactive listener starts from the complete configuration when a tab
-    /// manager is available; otherwise startup is deferred with the mode saved.
+    /// An inactive listener starts from the complete configuration even before
+    /// a tab manager is available; window-scoped commands remain unavailable
+    /// until normal window registration supplies their routing target.
     func reconcileSocketConfiguration(
         _ configuration: SocketControlServerConfiguration,
         preferredTabManager: TabManager? = nil,
@@ -46,32 +47,26 @@ extension TerminalController {
             socketServer.reconfigure(accessMode: .off)
         } else if pathChanged {
             socketServer.stop()
-            if let tabManager = preferredTabManager ?? tabManager {
-                start(
-                    tabManager: tabManager,
-                    socketPath: configuration.preferredSocketPath,
-                    accessMode: configuration.accessMode
-                )
-            } else {
-                socketServer.reconfigure(accessMode: configuration.accessMode)
-            }
+            startSocketTransport(
+                configuration,
+                socketPath: configuration.preferredSocketPath,
+                preferredTabManager: preferredTabManager
+            )
         } else if wasRunning {
             let reconfigured = socketServer.reconfigure(accessMode: configuration.accessMode)
-            if !reconfigured, let tabManager = preferredTabManager ?? tabManager {
-                start(
-                    tabManager: tabManager,
+            if !reconfigured {
+                startSocketTransport(
+                    configuration,
                     socketPath: configuration.preferredSocketPath,
-                    accessMode: configuration.accessMode
+                    preferredTabManager: preferredTabManager
                 )
             }
-        } else if let tabManager = preferredTabManager ?? tabManager {
-            start(
-                tabManager: tabManager,
-                socketPath: activeSocketPath(preferredPath: configuration.preferredSocketPath),
-                accessMode: configuration.accessMode
-            )
         } else {
-            socketServer.reconfigure(accessMode: configuration.accessMode)
+            startSocketTransport(
+                configuration,
+                socketPath: activeSocketPath(preferredPath: configuration.preferredSocketPath),
+                preferredTabManager: preferredTabManager
+            )
         }
 
         sentryBreadcrumb(
@@ -85,6 +80,29 @@ extension TerminalController {
                 "isRunning": socketServer.isRunning ? 1 : 0,
                 "source": source,
             ]
+        )
+    }
+
+    /// Starts listener transport now and attaches window routing only when one exists.
+    func startSocketTransport(
+        _ configuration: SocketControlServerConfiguration,
+        socketPath: String,
+        preferredTabManager: TabManager? = nil,
+        preserveAcceptFailureStreak: Bool = false
+    ) {
+        if let manager = preferredTabManager ?? tabManager {
+            start(
+                tabManager: manager,
+                socketPath: socketPath,
+                accessMode: configuration.accessMode,
+                preserveAcceptFailureStreak: preserveAcceptFailureStreak
+            )
+            return
+        }
+        socketServer.start(
+            socketPath: socketPath,
+            accessMode: configuration.accessMode,
+            preserveAcceptFailureStreak: preserveAcceptFailureStreak
         )
     }
 

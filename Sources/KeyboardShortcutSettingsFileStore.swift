@@ -111,7 +111,9 @@ final class CmuxSettingsFileStore {
             return Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
+                    let previousSocketAccessMode = Self.liveSocketAccessMode()
                     self.reload()
+                    guard Self.liveSocketAccessMode() != previousSocketAccessMode else { continue }
                     self.onWatchedFileReload("settings.file_watcher")
                 }
             }
@@ -292,26 +294,28 @@ final class CmuxSettingsFileStore {
     }
 
     private func resolveSettings() -> ResolvedSettingsSnapshot {
+        // A transient missing or malformed file must not restore a potentially broader unmanaged policy.
+        let preservedSocketMode = synchronized { activeManagedUserDefaults[SocketControlSettings.appStorageKey] }
+            ?? .string(SocketControlMode.cmuxOnly.rawValue)
         switch loadSettings(at: primaryPath) {
         case .parsed(var snapshot):
             mergeFallbackSettings(into: &snapshot)
             return snapshot
         case .invalid:
-            return ResolvedSettingsSnapshot(path: primaryPath)
-        case .missing:
-            break
+            return ResolvedSettingsSnapshot(path: primaryPath,
+                managedUserDefaults: [SocketControlSettings.appStorageKey: preservedSocketMode])
+        case .missing: break
         }
-
         var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
         mergeFallbackSettings(into: &fallbackSnapshot)
+        fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey] =
+            fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey] ?? preservedSocketMode
         return fallbackSnapshot
     }
 
     private func mergeFallbackSettings(into snapshot: inout ResolvedSettingsSnapshot) {
         for fallbackPath in fallbackPaths {
-            guard case .parsed(let fallbackSnapshot) = loadSettings(at: fallbackPath) else {
-                continue
-            }
+            guard case .parsed(let fallbackSnapshot) = loadSettings(at: fallbackPath) else { continue }
             snapshot.fillMissingSettings(from: fallbackSnapshot)
         }
     }
@@ -839,18 +843,15 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        if let raw = jsonString(section["socketControlMode"]) {
-            let knownModes = Set([
-                "off", "cmuxonly", "automation", "password", "allowall", "openaccess", "fullopenaccess",
-                "notifications", "full",
-            ])
-            let normalizedRaw = raw.replacingOccurrences(of: "-", with: "").lowercased()
-            guard knownModes.contains(normalizedRaw) else {
+        if section.keys.contains("socketControlMode") {
+            let raw = jsonString(section["socketControlMode"])
+            let knownModes = Set(["off", "cmuxonly", "automation", "password", "allowall", "openaccess", "fullopenaccess", "notifications", "full"])
+            let normalizedRaw = raw?.replacingOccurrences(of: "-", with: "").lowercased()
+            if raw == nil || !knownModes.contains(normalizedRaw ?? "") {
                 logInvalid("automation.socketControlMode", sourcePath: sourcePath)
-                return
             }
             snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = .string(
-                SocketControlSettings.migrateMode(raw).rawValue
+                raw.map(SocketControlSettings.migrateMode(_:))?.rawValue ?? SocketControlMode.cmuxOnly.rawValue
             )
         }
         if section.keys.contains("socketPassword") {
