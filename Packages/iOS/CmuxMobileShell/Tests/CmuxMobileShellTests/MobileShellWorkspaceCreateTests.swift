@@ -290,6 +290,7 @@ import Testing
             )
         )
         let workspace = try #require(store.workspaces.first)
+        let originalTerminalID = store.selectedTerminalID
         let paneID = try #require(workspace.resolvedPanes.first?.id)
         let reservation = try #require(store.terminalReorderGate.reserve(
             workspaceID: workspace.id,
@@ -313,7 +314,9 @@ import Testing
         let refreshedWorkspace = store.workspaces.first(where: { $0.id == workspace.id })
         let createdTerminalIDs = refreshedWorkspace?.terminals.map(\.id.rawValue) ?? []
         #expect(createdTerminalIDs.contains("terminal-route-created"))
-        #expect(store.selectedTerminalID?.rawValue == "terminal-route-created")
+        #expect(store.selectedTerminalID == originalTerminalID)
+        #expect(store.connectionError == nil)
+        #expect(store.connectionErrorGuidance == nil)
         #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
     }
 
