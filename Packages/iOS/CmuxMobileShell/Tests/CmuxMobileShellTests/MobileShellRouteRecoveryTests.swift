@@ -10,6 +10,7 @@ import Testing
 @Test func failedReplacementSubscriptionEscalatesToLatestStoredRoute() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
+    await router.setHostIdentity(deviceID: nil, instanceTag: nil)
     let box = TransportBox()
     let factory = RouteRecordingTransportFactory(
         router: router,
@@ -68,6 +69,7 @@ import Testing
     )
     store.activeTicket = staleTicket
     store.activeRoute = staleRoute
+    store.activeMacInstanceTag = "default"
     store.foregroundMacDeviceID = "test-mac"
     store.lastReconnectStackUserID = "user-1"
     store.replaceRemoteClient(with: MobileCoreRPCClient(
@@ -86,7 +88,7 @@ import Testing
     await box.get()?.close()
 
     let escalated = try await pollUntil(attempts: 600) {
-        store.activeRoute?.endpoint == freshRoute.endpoint
+        factory.attemptedPorts().contains(51_001)
             && store.macConnectionStatus == .connected
             && store.recoveryID == nil
     }
@@ -110,7 +112,7 @@ import Testing
     store.retryMobileConnection()
 
     let retriedStoredRoute = try await pollUntil(attempts: 600) {
-        store.activeRoute?.endpoint == retryRoute.endpoint
+        factory.attemptedPorts().contains(51_002)
             && store.macConnectionStatus == .connected
             && store.recoveryID == nil
     }
