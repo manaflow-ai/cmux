@@ -17,15 +17,13 @@ final class CmuxPaneViewController: NSViewController {
     init(
         snapshot: CmuxPaneSnapshot,
         frontend: CmuxFrontendSession,
-        ghosttyViewConfiguration: CmuxGhosttyViewConfiguration,
-        ghosttyConfigPath: String?
+        ghosttyViewConfiguration: CmuxGhosttyViewConfiguration
     ) {
         paneID = snapshot.id
         self.snapshot = snapshot
         terminalHost = CmuxTerminalHostViewController(
             frontend: frontend,
-            ghosttyViewConfiguration: ghosttyViewConfiguration,
-            ghosttyConfigPath: ghosttyConfigPath
+            ghosttyViewConfiguration: ghosttyViewConfiguration
         )
         super.init(nibName: nil, bundle: nil)
     }
@@ -112,6 +110,11 @@ final class CmuxPaneViewController: NSViewController {
 
     func focusTerminal() {
         terminalHost.focusTerminal()
+    }
+
+    func containsTerminal(pointInWindow: NSPoint) -> Bool {
+        let point = view.convert(pointInWindow, from: nil)
+        return terminalHost.view.frame.contains(point)
     }
 
     @objc

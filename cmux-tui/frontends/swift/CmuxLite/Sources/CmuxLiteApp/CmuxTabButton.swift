@@ -63,7 +63,7 @@ final class CmuxTabButton: NSButton {
             ? palette.statusActiveBackground
             : (hovered ? palette.hoverBackground : palette.statusBackground)).cgColor
 
-        let value = "● \(label)"
+        let value = label
         let text = NSMutableAttributedString(
             string: value,
             attributes: [
@@ -72,11 +72,6 @@ final class CmuxTabButton: NSButton {
                     ? palette.activeForeground
                     : palette.tabInactive,
             ]
-        )
-        text.addAttribute(
-            .foregroundColor,
-            value: active ? palette.rail : palette.sidebarDim,
-            range: NSRange(location: 0, length: 1)
         )
         attributedTitle = text
         invalidateIntrinsicContentSize()

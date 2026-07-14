@@ -6,7 +6,6 @@ import GhosttyTerminal
 final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGridResizeDelegate {
     private let frontend: CmuxFrontendSession
     private let ghosttyViewConfiguration: CmuxGhosttyViewConfiguration
-    private let ghosttyConfigPath: String?
     private var terminalView: TerminalView?
     private var terminalSession: InMemoryTerminalSession?
     private var terminalController: TerminalController?
@@ -22,12 +21,10 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
 
     init(
         frontend: CmuxFrontendSession,
-        ghosttyViewConfiguration: CmuxGhosttyViewConfiguration,
-        ghosttyConfigPath: String?
+        ghosttyViewConfiguration: CmuxGhosttyViewConfiguration
     ) {
         self.frontend = frontend
         self.ghosttyViewConfiguration = ghosttyViewConfiguration
-        self.ghosttyConfigPath = ghosttyConfigPath
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -139,13 +136,8 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
             // resize echoes while real container changes still claim sizing.
             resize: { _ in }
         )
-        let configSource: TerminalController.ConfigSource = if let ghosttyConfigPath {
-            .file(ghosttyConfigPath)
-        } else {
-            .none
-        }
         let controller = TerminalController(
-            configSource: configSource,
+            configSource: .none,
             theme: TerminalTheme(),
             terminalConfiguration: effectiveTerminalConfiguration
         )

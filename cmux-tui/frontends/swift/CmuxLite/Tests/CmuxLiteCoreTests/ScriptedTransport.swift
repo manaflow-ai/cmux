@@ -11,7 +11,9 @@ actor ScriptedTransport: CmuxTransport {
     private var controlTree: Data?
     private let treeAfterSelectTab: Data?
     private let treeAfterNewTab: Data?
+    private let treeAfterSplit: Data?
     private let newTabSurface: UInt64
+    private let splitSurface: UInt64
     private var queued: [Data] = []
     private var waiters: [CheckedContinuation<Data, Error>] = []
     private var summaries: [String] = []
@@ -21,7 +23,9 @@ actor ScriptedTransport: CmuxTransport {
         role: Role,
         treeAfterSelectTab: Data? = nil,
         treeAfterNewTab: Data? = nil,
-        newTabSurface: UInt64 = 14
+        newTabSurface: UInt64 = 14,
+        treeAfterSplit: Data? = nil,
+        splitSurface: UInt64 = 14
     ) {
         self.role = role
         if case let .control(tree) = role {
@@ -29,7 +33,9 @@ actor ScriptedTransport: CmuxTransport {
         }
         self.treeAfterSelectTab = treeAfterSelectTab
         self.treeAfterNewTab = treeAfterNewTab
+        self.treeAfterSplit = treeAfterSplit
         self.newTabSurface = newTabSurface
+        self.splitSurface = splitSurface
     }
 
     func connect() async throws {
@@ -85,6 +91,11 @@ actor ScriptedTransport: CmuxTransport {
                 controlTree = treeAfterNewTab
             }
             enqueue(Self.response(id: id, data: ["surface": newTabSurface]))
+        case (.control, "split"):
+            if let treeAfterSplit {
+                controlTree = treeAfterSplit
+            }
+            enqueue(Self.response(id: id, data: ["surface": splitSurface]))
         case (.attachment(let surface), "attach-surface"):
             enqueue(Self.response(id: id, data: [:]))
             enqueue(Self.event([
@@ -163,7 +174,14 @@ actor ScriptedTransport: CmuxTransport {
         case "send":
             return "send:\(request["text"] as? String ?? "bytes")"
         case "new-screen":
-            return "new-screen:\((request["workspace"] as? NSNumber)?.uint64Value ?? 0)"
+            let workspace = (request["workspace"] as? NSNumber)?.uint64Value ?? 0
+            let columns = (request["cols"] as? NSNumber)?.uint16Value ?? 0
+            let rows = (request["rows"] as? NSNumber)?.uint16Value ?? 0
+            return "new-screen:\(workspace):\(columns)x\(rows)"
+        case "new-workspace":
+            let columns = (request["cols"] as? NSNumber)?.uint16Value ?? 0
+            let rows = (request["rows"] as? NSNumber)?.uint16Value ?? 0
+            return "new-workspace:\(columns)x\(rows)"
         case "select-tab":
             let pane = (request["pane"] as? NSNumber)?.uint64Value ?? 0
             let index = (request["index"] as? NSNumber)?.intValue ?? -1
@@ -173,6 +191,12 @@ actor ScriptedTransport: CmuxTransport {
             let columns = (request["cols"] as? NSNumber)?.uint16Value ?? 0
             let rows = (request["rows"] as? NSNumber)?.uint16Value ?? 0
             return "new-tab:\(pane):\(columns)x\(rows)"
+        case "split":
+            let pane = (request["pane"] as? NSNumber)?.uint64Value ?? 0
+            let direction = request["dir"] as? String ?? ""
+            let columns = (request["cols"] as? NSNumber)?.uint16Value ?? 0
+            let rows = (request["rows"] as? NSNumber)?.uint16Value ?? 0
+            return "split:\(pane):\(direction):\(columns)x\(rows)"
         default:
             return command
         }

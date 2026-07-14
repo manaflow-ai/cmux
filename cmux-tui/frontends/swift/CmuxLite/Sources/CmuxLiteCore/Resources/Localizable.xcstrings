@@ -61,6 +61,12 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペイン %lld は利用できません" } }
       }
     },
+    "frontend.error.pane_size_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pane %lld has no terminal grid yet" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペイン %lld にはまだターミナルグリッドがありません" } }
+      }
+    },
     "frontend.error.surface_not_attached" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Surface %lld is not attached" } },
