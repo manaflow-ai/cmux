@@ -219,6 +219,17 @@ import Testing
     #expect(failedOpen, "a failed follow-up replay must fail open")
     #expect(store.terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] == nil)
 
+    let retainedDeltaChunk = try #require(await iterator.next())
+    #expect(
+        String(decoding: retainedDeltaChunk.data, as: UTF8.self).contains("delta-before-ack"),
+        "fail-open must reconcile output retained across the failed follow-up"
+    )
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: retainedDeltaChunk.streamToken
+    )
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 55)
+
     // The next full live frame rebuilds the baseline and resumes delivery.
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,
