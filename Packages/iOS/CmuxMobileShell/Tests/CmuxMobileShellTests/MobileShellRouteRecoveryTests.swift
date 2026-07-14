@@ -36,7 +36,7 @@ import Testing
     try await pairedStore.upsert(
         macDeviceID: "test-mac",
         displayName: "Test Mac",
-        routes: [staleRoute],
+        routes: [freshRoute],
         markActive: true,
         stackUserID: "user-1",
         teamID: nil,
@@ -50,6 +50,7 @@ import Testing
     let store = MobileShellComposite(
         runtime: runtime,
         isSignedIn: true,
+        connectionState: .connected,
         pairedMacStore: pairedStore,
         identityProvider: StaticIdentityProvider(userID: "user-1"),
         reachability: AlwaysOnlineReachability(),
@@ -57,20 +58,25 @@ import Testing
             suiteName: "route-recovery-\(UUID().uuidString)"
         )!
     )
-    await store.loadPairedMacs()
-    #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
-
-    try await pairedStore.upsert(
+    let staleTicket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
         macDeviceID: "test-mac",
-        displayName: "Test Mac",
-        routes: [freshRoute],
-        markActive: true,
-        stackUserID: "user-1",
-        teamID: nil,
-        now: clock.now.addingTimeInterval(1)
+        macDisplayName: "Test Mac",
+        routes: [staleRoute],
+        expiresAt: clock.now.addingTimeInterval(3_600)
     )
-    let replacementSubscribe = await router.count(of: "mobile.events.subscribe") + 1
+    store.activeTicket = staleTicket
+    store.activeRoute = staleRoute
+    store.foregroundMacDeviceID = "test-mac"
+    store.lastReconnectStackUserID = "user-1"
+    store.replaceRemoteClient(with: MobileCoreRPCClient(
+        runtime: runtime,
+        route: staleRoute,
+        ticket: staleTicket,
+        allowsStackAuthFallback: true
+    ))
+    let replacementSubscribe = 1
     await router.holdSubscribeRequest(number: replacementSubscribe)
     store.recoverMobileConnection(trigger: .manual)
     #expect(await router.waitForCount(
@@ -98,7 +104,7 @@ import Testing
         markActive: true,
         stackUserID: "user-1",
         teamID: nil,
-        now: clock.now.addingTimeInterval(2)
+        now: clock.now.addingTimeInterval(1)
     )
     store.markMacConnectionUnavailable()
     store.retryMobileConnection()
