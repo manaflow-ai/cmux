@@ -10,6 +10,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var blockers: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var upsertCount = 0
+    private var upsertedMacDeviceIDs: [String] = []
     private var loadAllCount = 0
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var gatedUpsertIDs: Set<String> = []
@@ -71,6 +72,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
             ))
         }
         upsertCount += 1
+        upsertedMacDeviceIDs.append(macDeviceID)
         resumeUpsertWaiters()
     }
 
@@ -130,6 +132,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
             ))
         }
         upsertCount += 1
+        upsertedMacDeviceIDs.append(macDeviceID)
         resumeUpsertWaiters()
         return true
     }
@@ -237,6 +240,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func currentUpsertCount() -> Int {
         upsertCount
+    }
+
+    func currentUpsertedMacDeviceIDs() -> [String] {
+        upsertedMacDeviceIDs
     }
 
     func resetLoadAllCount() {

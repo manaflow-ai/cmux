@@ -8,13 +8,16 @@ struct MobileConnectionLifecycleTaskOwnership {
     var primaryRetiredGeneration: UInt64 = 0
     var cachedRetiredTask: Task<Void, Never>?
     var cachedRetiredGeneration: UInt64 = 0
-    var pendingCachedReconnectPersistence: (@MainActor @Sendable () async -> Void)?
+    var pendingCachedReconnectPersistence: DeferredStoredMacReconnectPersistence?
+    var deferredPersistenceTasks: [UUID: Task<Void, Never>] = [:]
+    var deferredPersistenceOperations: [UUID: DeferredStoredMacReconnectPersistence] = [:]
 }
 
 @MainActor
 extension MobileShellComposite {
     /// One boundary for explicit user intent to supersede automatic reconnect.
     func supersedeAutomaticReconnectOwnership(clearPairingState: Bool) {
+        invalidateDeferredCachedReconnectPersistence()
         if connectionLifecycle.isRecovering || connectionLifecycle.hasStoredMacReconnectDemand {
             resetConnectionLifecycle()
         }
@@ -48,7 +51,6 @@ extension MobileShellComposite {
         resumeCompletedConnectionLifecycleRequests()
         connectionLifecycleStreamRepairListenerID = nil
         connectionLifecycleReconnectPendingAfterRetirement = false
-        connectionLifecycleTaskOwnership.pendingCachedReconnectPersistence = nil
         invalidateStoredMacReconnectAttempt()
         connectionLifecycleTask = nil
         connectionLifecycleTaskOwnership.activeUsesCachedReconnect = false
@@ -268,14 +270,25 @@ extension MobileShellComposite {
                         reportedInstanceTag: success.hostStatus?.macInstanceTag,
                         resolvedInstanceTag: success.resolvedInstanceTag
                     )
-                    let persist = operation.persistPairedMac
-                    let persistence: @MainActor @Sendable () async -> Void = { [weak self] in
-                        guard let self else { return }
-                        _ = await persist(request)
-                        await self.loadPairedMacs()
+                    let scopedKey = self.pairedMacScopeKey(success.scope)
+                    var forgottenScopeKeys = [scopedKey]
+                    if success.scope.teamID != nil {
+                        forgottenScopeKeys.append(self.pairedMacScopeKey(
+                            self.userWideScope(from: success.scope)
+                        ))
                     }
+                    let persistence = DeferredStoredMacReconnectPersistence(
+                        request: request,
+                        store: operation.store,
+                        forgottenStore: operation.forgottenStore,
+                        forgottenScopeKeys: forgottenScopeKeys,
+                        scope: success.scope,
+                        fence: operation.fence,
+                        fenceGeneration: operation.fenceGeneration,
+                        progress: operation.progress
+                    )
                     if self.connectionLifecycleTaskOwnership.primaryRetiredTask == nil {
-                        await persistence()
+                        self.startDeferredCachedReconnectPersistence(persistence)
                         guard !Task.isCancelled,
                               self.connectionLifecycle.ownsEpisode(episode.id) else { return }
                     } else {
@@ -384,9 +397,8 @@ extension MobileShellComposite {
             self.connectionLifecycleTaskOwnership.primaryRetiredTask = nil
             if let persistence = self.connectionLifecycleTaskOwnership.pendingCachedReconnectPersistence {
                 self.connectionLifecycleTaskOwnership.pendingCachedReconnectPersistence = nil
-                await persistence()
-            }
-            if self.connectionLifecycleReconnectPendingAfterRetirement {
+                self.startDeferredCachedReconnectPersistence(persistence)
+            } else if self.connectionLifecycleReconnectPendingAfterRetirement {
                 self.replayReconnectPendingAfterRetirementIfPossible()
             } else if self.connectionLifecycleTaskOwnership.cachedRetiredTask == nil,
                       self.connectionState == .connected,
@@ -411,25 +423,6 @@ extension MobileShellComposite {
             self.connectionLifecycleTaskOwnership.cachedRetiredTask = nil
             self.replayReconnectPendingAfterRetirementIfPossible()
         }
-    }
-
-    private func replayReconnectPendingAfterRetirementIfPossible() {
-        guard connectionLifecycleTaskOwnership.primaryRetiredTask == nil,
-              connectionLifecycleTaskOwnership.cachedRetiredTask == nil,
-              connectionLifecycleReconnectPendingAfterRetirement else { return }
-        connectionLifecycleReconnectPendingAfterRetirement = false
-        restartStoredMacReconnectAfterScopeChange()
-    }
-
-    func abandonRetiredConnectionLifecycleTasks() {
-        connectionLifecycleTaskOwnership.primaryRetiredGeneration &+= 1
-        connectionLifecycleTaskOwnership.primaryRetiredTask?.cancel()
-        connectionLifecycleTaskOwnership.primaryRetiredTask = nil
-        connectionLifecycleTaskOwnership.cachedRetiredGeneration &+= 1
-        connectionLifecycleTaskOwnership.cachedRetiredTask?.cancel()
-        connectionLifecycleTaskOwnership.cachedRetiredTask = nil
-        connectionLifecycleTaskOwnership.pendingCachedReconnectPersistence = nil
-        connectionLifecycleReconnectPendingAfterRetirement = false
     }
 
     func finishConnectionLifecycleEpisode(id: UInt64, succeeded: Bool = true) {

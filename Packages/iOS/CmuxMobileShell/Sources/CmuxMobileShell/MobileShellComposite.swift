@@ -1462,6 +1462,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // keeps Retry actionable even when an injected store or transport has
         // not returned: the stale episode is invalidated before one replacement
         // episode starts, instead of joining work the user asked to replace.
+        invalidateDeferredCachedReconnectPersistence()
         if connectionLifecycle.isRecovering {
             resetConnectionLifecycle()
         }
@@ -2083,6 +2084,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isScopeCurrent(scope) else {
             return
         }
+        applyLoadedPairedMacs(visibleLoaded)
+    }
+
+    func applyLoadedPairedMacs(_ visibleLoaded: [MobilePairedMac]) {
         storedPairedMacs = visibleLoaded
         let supportedRouteKinds = runtime?.supportedRouteKinds ?? []
         let coalesced = Self.coalescePairedMacsByDialEndpoint(
@@ -3632,14 +3637,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         refreshRoutesFromRegistry(for: mac, scope: scope)
     }
     #endif
-
-    func invalidateStoredMacReconnectAttempt() {
-        connectionLifecycleTaskOwnership.activeReconnectFence?.invalidate()
-        connectionLifecycleTaskOwnership.activeReconnectFence = nil
-        connectionLifecycleTaskOwnership.activeReconnectProgress = nil
-        storedMacReconnectGeneration &+= 1
-        storedMacReconnectTargetDeviceID = nil
-    }
 
     /// Drop the PREVIOUS foreground/anonymous workspace snapshot from the aggregate
     /// after the foreground Mac changes (switch A→B, promotion, or a real connect

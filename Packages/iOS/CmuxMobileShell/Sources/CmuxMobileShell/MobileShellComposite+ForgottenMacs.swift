@@ -158,6 +158,7 @@ extension MobileShellComposite {
     ) async {
         guard !macDeviceIDs.isEmpty else { return }
         let targetIDSet = Set(macDeviceIDs)
+        invalidateDeferredCachedReconnectPersistence(forgetting: targetIDSet)
         let forgetsReconnectTarget = connectionLifecycle.activeEpisode?.kind == .reconnect
             && storedMacReconnectTargetDeviceID.map(targetIDSet.contains) == true
         let forgetsKnownMac = pairedMacsForIdentityMatching.contains {
