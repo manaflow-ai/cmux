@@ -61,6 +61,33 @@ struct SocketConfigurationLifecycleTests {
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.cmuxOnly.rawValue)
     }
 
+    @Test func malformedReloadPreservesExplicitOffWhenFileDoesNotManageMode() throws {
+        let defaults = UserDefaults.standard
+        let originalDefaults = capturedSocketDefaults(defaults)
+        let directory = shortTemporaryDirectory(prefix: "scfo")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let configURL = directory.appendingPathComponent("cmux.json")
+        defer {
+            restoreSocketDefaults(originalDefaults, in: defaults)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        resetSocketDefaults(defaults, unmanagedMode: .off)
+        try "{}".write(to: configURL, atomically: true, encoding: .utf8)
+        let store = CmuxSettingsFileStore(
+            primaryPath: configURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.off.rawValue)
+
+        try "{".write(to: configURL, atomically: true, encoding: .utf8)
+        store.reload()
+
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.off.rawValue)
+    }
+
     @Test func transientMissingPrimaryDoesNotImportBroaderFallbackMode() throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
@@ -90,6 +117,35 @@ struct SocketConfigurationLifecycleTests {
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.cmuxOnly.rawValue)
     }
 
+    @Test func missingPrimaryAcceptsFallbackThatDisablesSocket() throws {
+        let defaults = UserDefaults.standard
+        let originalDefaults = capturedSocketDefaults(defaults)
+        let directory = shortTemporaryDirectory(prefix: "scft")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let primaryURL = directory.appendingPathComponent("cmux.json")
+        let fallbackURL = directory.appendingPathComponent("settings.json")
+        defer {
+            restoreSocketDefaults(originalDefaults, in: defaults)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        resetSocketDefaults(defaults, unmanagedMode: .allowAll)
+        try writeConfig(mode: SocketControlMode.allowAll.rawValue, to: primaryURL)
+        try writeConfig(mode: SocketControlMode.off.rawValue, to: fallbackURL)
+        let store = CmuxSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.allowAll.rawValue)
+
+        try FileManager.default.removeItem(at: primaryURL)
+        store.reload()
+
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.off.rawValue)
+    }
+
     @Test func enabledReconciliationStartsListenerWithoutTabManager() throws {
         let controller = TerminalController.shared
         let originalTabManager = controller.tabManager
@@ -117,6 +173,20 @@ struct SocketConfigurationLifecycleTests {
         #expect(controller.socketServer.currentSocketPath == socketPath)
         #expect(FileManager.default.fileExists(atPath: socketPath))
         #expect(controller.tabManager == nil)
+
+        let listenerIdentity = try #require(controller.socketServer.transport.pathIdentity(at: socketPath))
+        let tabManager = TabManager()
+        controller.reconcileSocketConfiguration(
+            SocketControlServerConfiguration(
+                accessMode: .cmuxOnly,
+                preferredSocketPath: socketPath
+            ),
+            preferredTabManager: tabManager,
+            source: "test.headless_attach"
+        )
+
+        #expect(controller.tabManager === tabManager)
+        #expect(controller.socketServer.transport.pathIdentity(at: socketPath) == listenerIdentity)
     }
 
     private func capturedSocketDefaults(_ defaults: UserDefaults) -> [(String, Any?)] {
