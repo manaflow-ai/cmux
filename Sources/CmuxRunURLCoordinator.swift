@@ -23,7 +23,11 @@ final class CmuxRunURLCoordinator {
 
     @discardableResult
     func handle(_ request: CmuxRunURLRequest) -> Bool {
-        if appDelegate.shouldDeferNavigationURLRequestsForStartupRestore {
+        if Self.shouldDeferForStartupRestore(
+            request: request,
+            didAttemptRestore: appDelegate.didAttemptStartupSessionRestore,
+            isApplyingRestore: appDelegate.isApplyingSessionRestore
+        ) {
             if appDelegate.pendingStartupRunURLRequest == nil {
                 appDelegate.pendingStartupRunURLRequest = request
             } else {
@@ -42,6 +46,14 @@ final class CmuxRunURLCoordinator {
             await resolvePlanConfirmAndExecute(request)
         }
         return true
+    }
+
+    static func shouldDeferForStartupRestore(
+        request: CmuxRunURLRequest,
+        didAttemptRestore: Bool,
+        isApplyingRestore: Bool
+    ) -> Bool {
+        !didAttemptRestore || isApplyingRestore
     }
 
     private func resolvePlanConfirmAndExecute(_ request: CmuxRunURLRequest) async {
