@@ -16,7 +16,7 @@ struct ClaudeChildSessionObserver: Sendable {
               shouldRecord(sessionId: sessionId, store: store, pid: pid, environment: environment) else {
             return
         }
-        try? store.upsert(
+        _ = try? store.upsert(
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
@@ -51,7 +51,7 @@ struct ClaudeChildSessionObserver: Sendable {
         }
         let workloads = ClaudeAgentWorkloadAdapter().workloads(from: input, now: Date().timeIntervalSince1970)
         let busy = workloads?.contains { $0.keepsSessionBusy && $0.phase.isActive } == true
-        try? store.upsert(
+        _ = try? store.upsert(
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
