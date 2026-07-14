@@ -1,0 +1,89 @@
+import AppKit
+
+/// Pane-divider drag support for the browser portal host.
+///
+/// Intersection drags resize two split views at once, which `NSSplitView`
+/// cannot do natively, so a host view must claim the mouseDown and drive
+/// `PortalDividerDragController`. Terminal portals are installed
+/// lazily by terminal binding, so a browser-only window would otherwise show
+/// the four-way cursor and then hand the click to a native `NSSplitView`
+/// that resizes a single axis.
+extension WindowBrowserHostView {
+    /// Classifies the divider under `windowPoint`: a live nested pair becomes
+    /// a `.both` intersection hit; otherwise the topmost region keeps the
+    /// legacy single-axis precedence (no orientation preference).
+    static func dividerHit(
+        at windowPoint: NSPoint,
+        in regions: [PortalSplitDividerRegion],
+        checkLiveness: Bool = true
+    ) -> DividerHit? {
+        let hits = PortalSplitDividerRegion.dividerHits(at: windowPoint, in: regions, checkLiveness: checkLiveness)
+        if hits.intersection != nil {
+            return DividerHit(kind: .both, isInHostedContent: false)
+        }
+        guard let region = hits.first else { return nil }
+        return DividerHit(
+            kind: region.isVertical ? .vertical : .horizontal,
+            isInHostedContent: region.isInHostedContent
+        )
+    }
+
+    /// True when a `.both` divider hit at `point` should claim the mouseDown
+    /// for a two-axis drag. Gated on the same live-intersection predicate
+    /// that `mouseDown` uses to begin the drag (the cursor path skips
+    /// liveness); otherwise a non-live pair would swallow the click.
+    func claimsIntersectionMouseDown(
+        at point: NSPoint,
+        eventType: NSEvent.EventType?,
+        dividerHitKind: PortalDividerCursorKind?
+    ) -> Bool {
+        guard dividerHitKind == .both, eventType == .leftMouseDown else { return false }
+        return PortalSplitDividerRegion.dividerIntersection(
+            at: convert(point, to: nil),
+            in: splitDividerRegions()
+        ) != nil
+    }
+
+    /// Starts a one-axis divider drag or two-axis corner drag.
+    func beginDividerDrag(with event: NSEvent) -> Bool {
+        guard dividerDrag.begin(
+            atWindowPoint: event.locationInWindow,
+            regions: splitDividerRegions(),
+            onRelease: { [weak self] windowPoint in
+                self?.restoreDividerCursorAfterDrag(atWindowPoint: windowPoint)
+            }
+        ) else {
+            return false
+        }
+        window?.invalidateCursorRects(for: self)
+        dividerDrag.cursorKind?.cursor.set()
+        return true
+    }
+
+    /// Forwards a drag sample to the active two-axis drag, if any. An
+    /// aborted drag stays claimed until mouse-up; `mouseUp` runs the release
+    /// handshake and re-resolves the cursor.
+    func updateDividerDragIfActive(with event: NSEvent) -> Bool {
+        guard dividerDrag.isActive else { return false }
+        dividerDrag.update(windowPoint: event.locationInWindow)
+        return true
+    }
+
+    /// Ends the active two-axis drag and re-resolves the cursor from the drop
+    /// point so the forced four-way cursor does not stick when the pointer
+    /// ends away from any divider.
+    func endDividerDragIfActive(with event: NSEvent) -> Bool {
+        guard dividerDrag.isActive else { return false }
+        dividerDrag.end(atWindowPoint: event.locationInWindow)
+        return true
+    }
+
+    private func restoreDividerCursorAfterDrag(atWindowPoint windowPoint: NSPoint?) {
+        window?.invalidateCursorRects(for: self)
+        guard let windowPoint else {
+            clearActiveDividerCursor(restoreArrow: true)
+            return
+        }
+        updateDividerCursor(at: convert(windowPoint, from: nil))
+    }
+}

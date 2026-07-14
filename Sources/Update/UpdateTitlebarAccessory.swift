@@ -1354,9 +1354,13 @@ private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
     func updateNSView(_ nsView: ButtonHitRegionView, context: Context) {
         nsView.config = config
         MinimalModeTitlebarControlHitRegionRegistry.register(nsView)
+        MinimalModeTitlebarControlHitRegionRegistry.geometryDidChange(nsView)
     }
 
-    final class ButtonHitRegionView: NSView, MinimalModeSidebarControlActionHitRegionProviding {
+    final class ButtonHitRegionView: NSView,
+        MinimalModeSidebarControlActionHitRegionProviding,
+        MinimalModeTitlebarControlRectProviding
+    {
         var config = TitlebarControlsStyle.classic.config
 
         override func viewDidMoveToWindow() {
@@ -1376,6 +1380,29 @@ private struct MinimalModeTitlebarButtonHitRegionView: NSViewRepresentable {
 
         func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot? {
             TitlebarControlsHitRegions.sidebarActionSlot(at: localPoint, config: config)
+        }
+
+        func minimalModeTitlebarControlHitRects() -> [NSRect] {
+            TitlebarControlsHitRegions.buttonXRanges(config: config).map { range in
+                NSRect(
+                    x: range.lowerBound,
+                    y: bounds.minY,
+                    width: range.upperBound - range.lowerBound,
+                    height: bounds.height
+                )
+            }
+        }
+
+        override func setFrameOrigin(_ newOrigin: NSPoint) {
+            let changed = frame.origin != newOrigin
+            super.setFrameOrigin(newOrigin)
+            if changed { MinimalModeTitlebarControlHitRegionRegistry.geometryDidChange(self) }
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            let changed = frame.size != newSize
+            super.setFrameSize(newSize)
+            if changed { MinimalModeTitlebarControlHitRegionRegistry.geometryDidChange(self) }
         }
 
         deinit {

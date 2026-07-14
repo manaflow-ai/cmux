@@ -18,6 +18,7 @@ let package = Package(
         .package(path: "../CmuxSwiftRender"),
         .package(path: "../CmuxSettings"),
         .package(path: "../CmuxFoundation"),
+        .package(path: "../CmuxAppKitSupportUI"),
     ],
     targets: [
         .target(
@@ -25,6 +26,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxSwiftRender", package: "CmuxSwiftRender"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+                .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ],
             resources: [

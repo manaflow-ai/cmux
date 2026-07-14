@@ -150,6 +150,47 @@ struct WindowTerminalHostViewTitlebarHitTests {
         )
     }
 
+    @Test func topPaneDividerOutranksEmptyTitlebarDragSpace() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView, "Expected window content view")
+        let container = try #require(contentView.superview, "Expected window content container")
+
+        let splitView = NSSplitView(frame: contentView.bounds)
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        splitView.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 0, width: 210, height: 260)))
+        splitView.addArrangedSubview(NSView(frame: NSRect(x: 211, y: 0, width: 209, height: 260)))
+        contentView.addSubview(splitView)
+        splitView.setPosition(210, ofDividerAt: 0)
+        splitView.adjustSubviews()
+
+        let host = WindowTerminalHostView(frame: container.convert(contentView.bounds, from: contentView))
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let dividerX = splitView.arrangedSubviews[0].frame.maxX + splitView.dividerThickness * 0.5
+        let pointInWindow = splitView.convert(
+            NSPoint(x: dividerX, y: splitView.bounds.maxY - 1),
+            to: nil
+        )
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        let event = try makeMouseEvent(type: .mouseMoved, at: pointInWindow, window: window)
+
+        try #require(
+            pointInWindow.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window),
+            "The divider point must overlap the broad titlebar drag band"
+        )
+        #expect(
+            host.performHitTest(at: pointInHost, currentEvent: event) === host,
+            "A real pane divider must retain hover ownership inside otherwise empty titlebar drag space"
+        )
+    }
+
     private func makeHostedTerminalView(frame: NSRect) -> GhosttySurfaceScrollView {
         let surfaceView = GhosttyNSView(frame: frame)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
@@ -174,6 +215,24 @@ struct WindowTerminalHostViewTitlebarHitTests {
             clickCount: clickCount,
             pressure: 1.0
         ), "Failed to create leftMouseDown event")
+    }
+
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        at locationInWindow: NSPoint,
+        window: NSWindow
+    ) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(
+            with: type,
+            location: locationInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 0,
+            pressure: 0
+        ), "Failed to create pointer event")
     }
 
     private func assertHitFallsInsideHostedTerminal(

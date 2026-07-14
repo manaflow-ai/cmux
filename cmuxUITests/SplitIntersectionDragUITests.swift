@@ -1,0 +1,182 @@
+import XCTest
+
+/// Dragging the corner where a vertical and a horizontal split divider meet
+/// must resize both split views at once (PR: intersection two-axis resize).
+final class SplitIntersectionDragUITests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = false
+    }
+
+    func testIntersectionDragResizesBothAxes() throws {
+        let app = XCUIApplication()
+        // Debug launches outside reload.sh need a tag or XCUIApplication
+        // fails with "does not have a process ID" on CI runners, and UI-test
+        // mode keeps launch activation deterministic (every passing UI test
+        // sets it; without it the app stays Running Background on runners).
+        let launchTag = "ui-tests-intersection-\(UUID().uuidString.prefix(8))"
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        addTeardownBlock {
+            Self.dumpDividerDebugLog(tag: launchTag)
+        }
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 15.0),
+            "Expected the app to reach the foreground after launch"
+        )
+
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 10.0))
+
+        XCTAssertTrue(waitForTerminalPaneCount(app, 1, timeout: 15.0), "Expected the initial terminal pane")
+
+        typeKeyForegrounded(app, "d", modifierFlags: [.command])
+        XCTAssertTrue(waitForTerminalPaneCount(app, 2, timeout: 10.0), "Expected split-right to add a second pane")
+
+        typeKeyForegrounded(app, "d", modifierFlags: [.command, .shift])
+        XCTAssertTrue(waitForTerminalPaneCount(app, 3, timeout: 10.0), "Expected split-down to add a third pane")
+
+        // The corner-drag claim lives in the terminal portal host, which only
+        // installs when the Ghostty renderer realizes (requires Metal). On
+        // software-rendered CI VMs the portal never binds and dividers stay
+        // native single-axis NSSplitView drags, so the feature under test
+        // does not exist there.
+        try skipUnlessPortalHostingActive(tag: launchTag)
+
+        guard let before = paneGeometry(app) else {
+            XCTFail("Could not derive divider geometry from pane frames")
+            return
+        }
+
+        // Start just inside the stacked column so the point sits in both the
+        // vertical and the horizontal divider's hit band (bands are Â±8pt).
+        let startX = before.verticalDividerX + (before.stackedColumnIsTrailing ? 4 : -4)
+        let startY = before.horizontalDividerY
+        let start = window.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(dx: startX - window.frame.minX, dy: startY - window.frame.minY)
+        )
+        reforeground(app)
+        let end = start.withOffset(CGVector(dx: -60, dy: -60))
+        start.press(forDuration: 0.15, thenDragTo: end)
+
+        guard let after = paneGeometry(app) else {
+            XCTFail("Could not derive divider geometry after the drag")
+            return
+        }
+
+        let horizontalDelta = after.verticalDividerX - before.verticalDividerX
+        let verticalDelta = after.horizontalDividerY - before.horizontalDividerY
+
+        XCTAssertLessThanOrEqual(horizontalDelta, -30, "Expected the vertical divider to move left with the drag. delta=\(horizontalDelta)")
+        XCTAssertGreaterThanOrEqual(horizontalDelta, -80, "Vertical divider moved farther than the drag. delta=\(horizontalDelta)")
+        XCTAssertLessThanOrEqual(verticalDelta, -30, "Expected the horizontal divider to move up with the drag. delta=\(verticalDelta)")
+        XCTAssertGreaterThanOrEqual(verticalDelta, -80, "Horizontal divider moved farther than the drag. delta=\(verticalDelta)")
+    }
+
+    private struct PaneGeometry {
+        let verticalDividerX: CGFloat
+        let horizontalDividerY: CGFloat
+        let stackedColumnIsTrailing: Bool
+    }
+
+    /// Terminal surfaces are AX text areas ("Terminal content area"). With a
+    /// left/right split whose one column is split again top/bottom, derive the
+    /// vertical divider x (gap between the columns) and the horizontal divider
+    /// y (gap between the stacked panes).
+    private func paneGeometry(_ app: XCUIApplication) -> PaneGeometry? {
+        let frames = terminalPaneFrames(app)
+        guard frames.count == 3 else { return nil }
+
+        let sortedByX = frames.sorted { $0.minX < $1.minX }
+        let leadingColumnX = sortedByX[0].minX
+        let columns = Dictionary(grouping: frames) { abs($0.minX - leadingColumnX) < 2 }
+        guard let leadingColumn = columns[true], let trailingColumn = columns[false],
+              !leadingColumn.isEmpty, !trailingColumn.isEmpty else { return nil }
+
+        let stacked = leadingColumn.count == 2 ? leadingColumn : trailingColumn
+        guard stacked.count == 2 else { return nil }
+        let stackedColumnIsTrailing = stacked[0].minX > leadingColumnX + 1
+
+        let leadingMaxX = leadingColumn.map(\.maxX).max() ?? 0
+        let trailingMinX = trailingColumn.map(\.minX).min() ?? 0
+        let verticalDividerX = (leadingMaxX + trailingMinX) / 2
+
+        let stackedSorted = stacked.sorted { $0.minY < $1.minY }
+        let horizontalDividerY = (stackedSorted[0].maxY + stackedSorted[1].minY) / 2
+
+        return PaneGeometry(
+            verticalDividerX: verticalDividerX,
+            horizontalDividerY: horizontalDividerY,
+            stackedColumnIsTrailing: stackedColumnIsTrailing
+        )
+    }
+
+    private func terminalPaneFrames(_ app: XCUIApplication) -> [CGRect] {
+        app.windows.firstMatch.descendants(matching: .textView).allElementsBoundByIndex
+            .map { $0.frame }
+            .filter { $0.width >= 100 && $0.height >= 100 }
+    }
+
+    /// Busy UI runners can launch the app backgrounded; activate once and
+    /// re-wait before failing (same recovery as AutomationSocketUITests).
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) { return true }
+        if app.state == .runningBackground {
+            app.activate()
+            return app.wait(for: .runningForeground, timeout: 10.0)
+        }
+        return false
+    }
+
+    /// Busy GUI sessions can deactivate the app between steps; re-activate
+    /// before synthesizing keyboard or pointer events.
+    private func reforeground(_ app: XCUIApplication) {
+        guard app.state != .runningForeground else { return }
+        app.activate()
+        _ = app.wait(for: .runningForeground, timeout: 5.0)
+    }
+
+    private func typeKeyForegrounded(_ app: XCUIApplication, _ key: String, modifierFlags: XCUIElement.KeyModifierFlags) {
+        reforeground(app)
+        app.typeKey(key, modifierFlags: modifierFlags)
+    }
+
+    private func skipUnlessPortalHostingActive(tag: String) throws {
+        let candidates = ["/tmp/cmux-debug-\(tag.uppercased()).log", "/tmp/cmux-debug-\(tag).log"]
+        let deadline = Date().addingTimeInterval(10.0)
+        while Date() < deadline {
+            if let content = candidates.lazy.compactMap({ try? String(contentsOfFile: $0, encoding: .utf8) }).first,
+               content.contains("portal.sync") || content.contains("portal.bind") {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        throw XCTSkip("Terminal portal hosting is inactive (no Metal renderer on this runner); the corner drag claim cannot exist here.")
+    }
+
+    /// CI runners discard the app's tagged debug log; surface the divider
+    /// routing lines in the test output so a corner-drag failure is
+    /// diagnosable from the posted artifacts alone.
+    private static func dumpDividerDebugLog(tag: String) {
+        let candidates = ["/tmp/cmux-debug-\(tag.uppercased()).log", "/tmp/cmux-debug-\(tag).log"]
+        guard let content = candidates.lazy.compactMap({ try? String(contentsOfFile: $0, encoding: .utf8) }).first else {
+            print("[intersection-test] no debug log for tag \(tag)")
+            return
+        }
+        let lines = content.split(separator: "\n").filter {
+            $0.contains("divider.") || $0.contains("portal.divider")
+        }
+        print("[intersection-test] divider log (\(lines.count) lines):")
+        for line in lines.suffix(120) { print("[intersection-test] \(line)") }
+    }
+
+    private func waitForTerminalPaneCount(_ app: XCUIApplication, _ count: Int, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if terminalPaneFrames(app).count == count { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return terminalPaneFrames(app).count == count
+    }
+}

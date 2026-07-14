@@ -1,0 +1,69 @@
+import Foundation
+import XCTest
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+// The app target still declares a legacy duplicate of BrowserThemeMode; pin
+// the app type (see BrowserConfigTests.swift, which does the same).
+private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
+#elseif canImport(cmux)
+@testable import cmux
+private typealias BrowserThemeMode = cmux.BrowserThemeMode
+#endif
+
+final class BrowserThemeSettingsTests: XCTestCase {
+    private func makeIsolatedDefaults() -> UserDefaults {
+        let suiteName = "BrowserThemeSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create defaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
+
+    func testDefaultsMatchConfiguredFallbacks() {
+        let defaults = makeIsolatedDefaults()
+        XCTAssertEqual(
+            BrowserThemeSettings.mode(defaults: defaults),
+            BrowserThemeSettings.defaultMode
+        )
+    }
+
+    func testModeReadsPersistedValue() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(BrowserThemeMode.dark.rawValue, forKey: BrowserThemeSettings.modeKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
+
+        defaults.set(BrowserThemeMode.light.rawValue, forKey: BrowserThemeSettings.modeKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .light)
+    }
+
+    func testModeMigratesLegacyForcedDarkModeFlag() {
+        // `BrowserPanel.bootstrapBrowserDefaultsIfNeeded()` registers a
+        // process-wide fallback for the mode key, and NSRegistrationDomain is
+        // shared by every `UserDefaults` instance, including isolated suites.
+        // Once any earlier test creates a `BrowserPanel`, `mode(defaults:)`
+        // sees the registered value and the legacy-flag migration branch
+        // becomes unreachable. Drop that registered fallback for the duration
+        // of this test so it is order-independent, then restore it.
+        let standard = UserDefaults.standard
+        let registration = standard.volatileDomain(forName: UserDefaults.registrationDomain)
+        var scrubbed = registration
+        scrubbed.removeValue(forKey: BrowserThemeSettings.modeKey)
+        standard.setVolatileDomain(scrubbed, forName: UserDefaults.registrationDomain)
+        defer { standard.setVolatileDomain(registration, forName: UserDefaults.registrationDomain) }
+
+        let defaults = makeIsolatedDefaults()
+        defaults.set(true, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
+        XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.dark.rawValue)
+
+        let otherDefaults = makeIsolatedDefaults()
+        otherDefaults.set(false, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: otherDefaults), .system)
+        XCTAssertEqual(otherDefaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.system.rawValue)
+    }
+}

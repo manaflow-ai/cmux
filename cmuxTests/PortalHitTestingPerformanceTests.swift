@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+@testable import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -23,6 +24,14 @@ struct PortalHitTestingPerformanceTests {
             pointConversionCount += 1
             return super.convert(point, from: view)
         }
+    }
+
+    private final class TabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
+        nonisolated func containsBonsplitTabItemHit(localPoint: NSPoint) -> Bool {
+            MainActor.assumeIsolated { bounds.contains(localPoint) }
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 
     private final class CountingSplitView: NSSplitView {
@@ -95,6 +104,84 @@ struct PortalHitTestingPerformanceTests {
             tabStrip.pointConversionCount == 0,
             "A registry miss during mouseMoved should not recurse into TabBarBackgroundNSView descendants."
         )
+    }
+
+    @Test
+    func horizontalDividerOwnsEmptyTabBarSpaceButYieldsToActions() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try #require(window.contentView)
+        let container = try #require(contentView.superview)
+        let splitView = NSSplitView(frame: contentView.bounds)
+        splitView.isVertical = false
+        splitView.dividerStyle = .thin
+        splitView.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 130)))
+        splitView.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 131, width: 420, height: 129)))
+        contentView.addSubview(splitView)
+        splitView.setPosition(130, ofDividerAt: 0)
+        splitView.adjustSubviews()
+
+        let dividerY = splitView.arrangedSubviews[0].frame.maxY + splitView.dividerThickness * 0.5
+        let tabStrip = NSView(frame: NSRect(x: 0, y: dividerY, width: 420, height: 32))
+        contentView.addSubview(tabStrip)
+        BonsplitTabBarHitRegionRegistry.register(tabStrip)
+        defer { BonsplitTabBarHitRegionRegistry.unregister(tabStrip) }
+
+        let tabBarAction = NSView(frame: NSRect(x: 300, y: dividerY, width: 40, height: 24))
+        contentView.addSubview(tabBarAction)
+        BonsplitTabBarInteractiveHitRegionRegistry.register(tabBarAction)
+        defer { BonsplitTabBarInteractiveHitRegionRegistry.unregister(tabBarAction) }
+
+        let tabItem = TabItemRegionView(frame: NSRect(x: 180, y: dividerY, width: 80, height: 24))
+        contentView.addSubview(tabItem)
+        BonsplitTabItemHitRegionRegistry.register(tabItem)
+        defer { BonsplitTabItemHitRegionRegistry.unregister(tabItem) }
+
+        let host = WindowTerminalHostView(frame: container.convert(contentView.bounds, from: contentView))
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        for offset in [-6.0, 6.0] {
+            let pointInWindow = splitView.convert(NSPoint(x: 100, y: dividerY + offset), to: nil)
+            let pointInHost = host.convert(pointInWindow, from: nil)
+            let event = makeMouseEvent(type: .mouseMoved, at: pointInWindow, window: window)
+
+            #expect(
+                host.performHitTest(at: pointInHost, currentEvent: event) === host,
+                "The portal must own the centered resize band even where one half overlaps pane chrome."
+            )
+        }
+
+        let actionPointInWindow = contentView.convert(
+            NSPoint(x: tabBarAction.frame.midX, y: dividerY + 6),
+            to: nil
+        )
+        let actionPointInHost = host.convert(actionPointInWindow, from: nil)
+        for eventType in [NSEvent.EventType.mouseMoved, .leftMouseDown] {
+            let event = makeMouseEvent(type: eventType, at: actionPointInWindow, window: window)
+            #expect(
+                host.performHitTest(at: actionPointInHost, currentEvent: event) == nil,
+                "A tab-bar action inside the divider band must retain hover and mouse-down ownership."
+            )
+        }
+
+        let tabPointInWindow = contentView.convert(
+            NSPoint(x: tabItem.frame.midX, y: dividerY + 6),
+            to: nil
+        )
+        let tabPointInHost = host.convert(tabPointInWindow, from: nil)
+        for eventType in [NSEvent.EventType.mouseMoved, .leftMouseDown] {
+            let event = makeMouseEvent(type: eventType, at: tabPointInWindow, window: window)
+            #expect(
+                host.performHitTest(at: tabPointInHost, currentEvent: event) == nil,
+                "A tab item inside the divider band must retain hover and mouse-down ownership."
+            )
+        }
     }
 
     @Test

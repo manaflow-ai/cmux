@@ -191,12 +191,12 @@ enum HostedInspectorDockSide {
 final class WindowBrowserHostView: NSView {
     private typealias DividerRegion = PortalSplitDividerRegion
 
-    private struct DividerHit {
-        let kind: DividerCursorKind
+    struct DividerHit {
+        let kind: PortalDividerCursorKind
         let isInHostedContent: Bool
     }
 
-    private struct HostedInspectorDividerHit {
+    struct HostedInspectorDividerHit {
         let slotView: WindowBrowserSlotView
         let containerView: NSView
         let pageView: NSView
@@ -228,14 +228,20 @@ final class WindowBrowserHostView: NSView {
     private var cachedSplitDividerRootSubviewIds: [ObjectIdentifier]?
     private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
     private var splitDividerResizeObserver: NSObjectProtocol?
+    private var tabBarInteractiveHitRegionObserver: NSObjectProtocol?
+    private var titlebarControlHitRegionObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
+    // See BrowserWindowPortal+IntersectionDrag.swift for shared pane-divider dragging.
+    let dividerDrag = PortalDividerDragController()
 
     deinit {
         if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
+        if let tabBarInteractiveHitRegionObserver { NotificationCenter.default.removeObserver(tabBarInteractiveHitRegionObserver) }
+        if let titlebarControlHitRegionObserver { NotificationCenter.default.removeObserver(titlebarControlHitRegionObserver) }
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
@@ -269,7 +275,7 @@ final class WindowBrowserHostView: NSView {
         }()
         let dividerDesc: String = {
             guard let dividerHit else { return "nil" }
-            let kind = dividerHit.kind == .vertical ? "vertical" : "horizontal"
+            let kind = String(describing: dividerHit.kind)
             return "kind=\(kind),hosted=\(dividerHit.isInHostedContent ? 1 : 0)"
         }()
         let windowPoint = convert(point, to: nil)
@@ -287,6 +293,7 @@ final class WindowBrowserHostView: NSView {
         super.viewDidMoveToWindow()
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
+            dividerDrag.end()
         }
         updateSplitDividerResizeObserver()
         invalidateSplitDividerRegionCache()
@@ -336,18 +343,23 @@ final class WindowBrowserHostView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
+        if let activeCursor = dividerDrag.cursorKind {
+            addCursorRect(bounds, cursor: activeCursor.cursor)
+            activeCursor.cursor.set()
+            return
+        }
         invalidateSplitDividerRegionCache()
-        let regions = splitDividerRegions()
-        let expansion = PortalSplitDividerRegion.dividerHitExpansion
-        for region in regions {
-            var rectInHost = convert(region.rectInWindow, from: nil)
-            rectInHost = rectInHost.insetBy(
-                dx: region.isVertical ? -expansion : 0,
-                dy: region.isVertical ? 0 : -expansion
-            )
-            let clipped = rectInHost.intersection(bounds)
+        let plan = PortalSplitDividerRegion.cursorRectPlan(
+            for: splitDividerRegions(),
+            excluding: BonsplitTabBarPassThrough.interactiveControlRects(in: self)
+                + titlebarControlHitRects()
+        )
+        let planned = plan.bands.map { ($0.rect, ($0.isVertical ? PortalDividerCursorKind.vertical : .horizontal).cursor) }
+            + plan.corners.map { ($0, PortalDividerCursorKind.both.cursor) }
+        for (rect, cursor) in planned {
+            let clipped = convert(rect, from: nil).intersection(bounds)
             guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { continue }
-            addCursorRect(clipped, cursor: region.isVertical ? .resizeLeftRight : .resizeUpDown)
+            addCursorRect(clipped, cursor: cursor)
         }
     }
 
@@ -380,6 +392,8 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        // Keep cursor ownership through a claimed drag or mouse-up cannot restore the arrow.
+        guard !dividerDrag.isActive else { return }
         clearActiveDividerCursor(restoreArrow: true)
     }
 
@@ -404,6 +418,58 @@ final class WindowBrowserHostView: NSView {
         )
         let splitPassThrough = dividerHit.map { !$0.isInHostedContent } ?? false
 
+        if isTitlebarInteractiveControl(at: point) {
+#if DEBUG
+            debugLogPointerRouting(
+                stage: "hitTest.titlebarControlPass",
+                point: point,
+                titlebarPassThrough: true,
+                sidebarPassThrough: sidebarPassThrough,
+                dividerHit: dividerHit,
+                hitView: nil
+            )
+#endif
+            return nil
+        }
+
+        if BonsplitTabBarPassThrough.isInteractiveControl(at: point, in: self) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return nil
+        }
+
+        if BonsplitTabBarPassThrough.isTabItem(at: point, in: self) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return nil
+        }
+
+        if sidebarPassThrough {
+#if DEBUG
+            debugLogPointerRouting(
+                stage: "hitTest.sidebarPass",
+                point: point,
+                titlebarPassThrough: false,
+                sidebarPassThrough: true,
+                dividerHit: dividerHit,
+                hitView: nil
+            )
+#endif
+            return nil
+        }
+
+        // An app divider owns its full centered band, including the half that
+        // overlaps the adjacent pane's tab strip. Hosted WebKit dividers keep
+        // their native routing.
+        if splitPassThrough {
+            if eventType == .leftMouseDown,
+               PortalDividerDragController.drag(
+                   atWindowPoint: convert(point, to: nil),
+                   regions: splitDividerRegions()
+               ) != nil {
+                return self
+            }
+            if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
+            return nil
+        }
         if titlebarPassThrough {
 #if DEBUG
             debugLogPointerRouting(
@@ -424,32 +490,6 @@ final class WindowBrowserHostView: NSView {
                 point: point,
                 titlebarPassThrough: false,
                 sidebarPassThrough: sidebarPassThrough,
-                dividerHit: dividerHit,
-                hitView: nil
-            )
-#endif
-            return nil
-        }
-        if sidebarPassThrough {
-#if DEBUG
-            debugLogPointerRouting(
-                stage: "hitTest.sidebarPass",
-                point: point,
-                titlebarPassThrough: false,
-                sidebarPassThrough: true,
-                dividerHit: dividerHit,
-                hitView: nil
-            )
-#endif
-            return nil
-        }
-        if splitPassThrough {
-#if DEBUG
-            debugLogPointerRouting(
-                stage: "hitTest.splitPass",
-                point: point,
-                titlebarPassThrough: false,
-                sidebarPassThrough: false,
                 dividerHit: dividerHit,
                 hitView: nil
             )
@@ -508,7 +548,11 @@ final class WindowBrowserHostView: NSView {
         return hitView === self ? nil : hitView
     }
 
+    // The host is the hit view only for inspector/intersection mouseDowns; without this a click on a non-opaque view can drag the window.
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override func mouseDown(with event: NSEvent) {
+        if beginDividerDrag(with: event) { return }
         let point = convert(event.locationInWindow, from: nil)
         guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) else {
             super.mouseDown(with: event)
@@ -538,6 +582,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if updateDividerDragIfActive(with: event) { return }
         guard let dragState = hostedInspectorDividerDrag else {
             super.mouseDragged(with: event)
             return
@@ -605,6 +650,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if endDividerDragIfActive(with: event) { return }
         if let dragState = hostedInspectorDividerDrag {
             dragState.slotView.isHostedInspectorDividerDragActive = false
 #if DEBUG
@@ -628,6 +674,20 @@ final class WindowBrowserHostView: NSView {
         // we reserve directly under it for window drag/double-click behaviors.
         let windowPoint = convert(point, to: nil)
         return windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
+    }
+
+    private func isTitlebarInteractiveControl(at point: NSPoint) -> Bool {
+        guard let window else { return false }
+        let windowPoint = convert(point, to: nil)
+        guard windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else {
+            return false
+        }
+        return isMinimalModeTitlebarControlHit(window: window, locationInWindow: windowPoint)
+    }
+
+    private func titlebarControlHitRects() -> [NSRect] {
+        guard let window else { return [] }
+        return MinimalModeTitlebarControlHitRegionRegistry.windowRects(in: window)
     }
 
     private func shouldPassThroughToPaneTabBar(
@@ -738,18 +798,62 @@ final class WindowBrowserHostView: NSView {
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: dividerX).contains(point.x)
     }
 
-    private func updateDividerCursor(
+    func updateDividerCursor(
         at point: NSPoint,
         dividerHit: DividerHit? = nil,
         hostedInspectorHit: HostedInspectorDividerHit? = nil
     ) {
+        if dividerDrag.isActive, let latched = dividerDrag.cursorKind {
+            activeDividerCursorKind = latched
+            latched.cursor.set()
+            return
+        }
+        if hostedInspectorDividerDrag != nil {
+            activeDividerCursorKind = .vertical
+            PortalDividerCursorKind.vertical.cursor.set()
+            return
+        }
+
         let resolvedDividerHit = dividerHit ?? splitDividerHit(at: point)
         let resolvedHostedInspectorHit = resolvedDividerHit == nil ? (hostedInspectorHit ?? hostedInspectorDividerHit(at: point)) : nil
+        if isTitlebarInteractiveControl(at: point) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
+        if BonsplitTabBarPassThrough.isInteractiveControl(at: point, in: self) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
+
+        if BonsplitTabBarPassThrough.isTabItem(at: point, in: self) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
+
         if shouldPassThroughToSidebarResizer(
             at: point,
             dividerHit: resolvedDividerHit,
             hostedInspectorHit: resolvedHostedInspectorHit
         ) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
+        // Real titlebar controls win above; app dividers then outrank empty
+        // titlebar drag space and pane tab bars.
+        if let resolvedDividerHit, !resolvedDividerHit.isInHostedContent {
+            guard dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
+                clearActiveDividerCursor(restoreArrow: false)
+                return
+            }
+            activeDividerCursorKind = resolvedDividerHit.kind
+            resolvedDividerHit.kind.cursor.set()
+            return
+        }
+        if shouldPassThroughToTitlebar(at: point) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
+        if shouldPassThroughToPaneTabBar(at: point, eventType: NSApp.currentEvent?.type) {
             clearActiveDividerCursor(restoreArrow: false)
             return
         }
@@ -787,7 +891,7 @@ final class WindowBrowserHostView: NSView {
         return nil
     }
 
-    private func clearActiveDividerCursor(restoreArrow: Bool) {
+    func clearActiveDividerCursor(restoreArrow: Bool) {
         guard activeDividerCursorKind != nil else { return }
         window?.invalidateCursorRects(for: self)
         activeDividerCursorKind = nil
@@ -1032,7 +1136,7 @@ final class WindowBrowserHostView: NSView {
 #endif
         return (pageFrame, inspectorFrame)
     }
-    private func splitDividerRegions() -> [DividerRegion] {
+    func splitDividerRegions() -> [PortalSplitDividerRegion] {
         guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
         let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
         if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
@@ -1061,6 +1165,14 @@ final class WindowBrowserHostView: NSView {
             NotificationCenter.default.removeObserver(splitDividerResizeObserver)
             self.splitDividerResizeObserver = nil
         }
+        if let tabBarInteractiveHitRegionObserver {
+            NotificationCenter.default.removeObserver(tabBarInteractiveHitRegionObserver)
+            self.tabBarInteractiveHitRegionObserver = nil
+        }
+        if let titlebarControlHitRegionObserver {
+            NotificationCenter.default.removeObserver(titlebarControlHitRegionObserver)
+            self.titlebarControlHitRegionObserver = nil
+        }
         guard let window else { return }
         splitDividerResizeObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main) { [weak self, weak window] notification in
             guard let self,
@@ -1070,20 +1182,22 @@ final class WindowBrowserHostView: NSView {
             self.invalidateSplitDividerRegionCache()
             self.window?.invalidateCursorRects(for: self)
         }
-    }
-
-    private static func dividerHit(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerHit? {
-        for region in regions.reversed() {
-            if checkLiveness, !region.isLive { continue }
-            let hitRect = region.hitRectInWindow
-            if !hitRect.isNull, hitRect.contains(windowPoint) {
-                return DividerHit(
-                    kind: region.isVertical ? .vertical : .horizontal,
-                    isInHostedContent: region.isInHostedContent
-                )
-            }
+        tabBarInteractiveHitRegionObserver = NotificationCenter.default.addObserver(
+            forName: BonsplitTabBarPassThrough.interactiveHitRegionsDidChangeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.window?.invalidateCursorRects(for: self)
         }
-        return nil
+        titlebarControlHitRegionObserver = NotificationCenter.default.addObserver(
+            forName: MinimalModeTitlebarControlHitRegionRegistry.didChangeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.window?.invalidateCursorRects(for: self)
+        }
     }
 
     private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {

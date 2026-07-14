@@ -158,6 +158,24 @@ def has_remote_dependency(
     return needs_lockfile
 
 
+def package_url_calls(text: str) -> frozenset[str]:
+    return frozenset(
+        call for call in package_dependency_calls(text)
+        if PACKAGE_URL_ARGUMENT_RE.search(call)
+    )
+
+
+def transitive_url_calls(
+    root: str,
+    graph: dict[str, tuple[bool, list[str]]],
+    url_calls_by_root: dict[str, frozenset[str]],
+) -> frozenset[str]:
+    urls: set[str] = set()
+    for member in package_dependency_closure(root, graph):
+        urls.update(url_calls_by_root.get(member, frozenset()))
+    return frozenset(urls)
+
+
 def package_dependency_closure(
     root: str,
     graph: dict[str, tuple[bool, list[str]]],
@@ -292,6 +310,7 @@ def main() -> int:
     merge_base = merge_base_with_base_ref()
     changed_files = changed_files_since(merge_base)
     changed_dependency_roots: set[str] = set()
+    pin_affecting_roots: set[str] = set()
 
     if merge_base is not None:
         current_remote_memo: dict[str, bool] = {}
@@ -327,6 +346,30 @@ def main() -> int:
                 )
             ):
                 changed_dependency_roots.add(root)
+                # Downstream lockfiles can only change when the edited
+                # package's transitive REMOTE dependency set changed; a new
+                # local path edge whose closure adds no remote pins leaves
+                # dependents' resolutions byte-identical (SwiftPM's originHash
+                # ignores transitive local manifests), so demanding a diff
+                # there is unsatisfiable.
+                current_urls = {
+                    member: package_url_calls(
+                        all_manifests[member].read_text(encoding="utf-8")
+                    )
+                    for member in package_dependency_closure(root, graph)
+                    if member in all_manifests
+                }
+                previous_urls = {
+                    member: package_url_calls(
+                        file_text_at(merge_base, previous_manifests[member].as_posix())
+                    )
+                    for member in package_dependency_closure(root, previous_graph)
+                    if member in previous_manifests
+                }
+                if transitive_url_calls(root, graph, current_urls) != transitive_url_calls(
+                    root, previous_graph, previous_urls
+                ):
+                    pin_affecting_roots.add(root)
 
     if (
         xcode_package_reference_changed(merge_base, changed_files)
@@ -366,9 +409,10 @@ def main() -> int:
         )
         if not has_or_requires_lockfile:
             continue
+        closure = package_dependency_closure(root, graph)
         affected_dependency_roots = (
-            package_dependency_closure(root, graph) & changed_dependency_roots
-        )
+            closure & pin_affecting_roots
+        ) | ({root} & changed_dependency_roots)
         if not affected_dependency_roots:
             continue
         if expected_lockfile in changed_files:

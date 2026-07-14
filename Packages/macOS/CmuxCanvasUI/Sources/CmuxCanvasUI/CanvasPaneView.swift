@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 import CmuxCanvas
 
@@ -392,19 +393,19 @@ final class CanvasPaneView: NSView {
 
         addCursorRect(
             CGRect(x: 0, y: band, width: band, height: height - band * 2),
-            cursor: .resizeLeftRight
+            cursor: NSCursor.cmuxResizeLeftRight
         )
         addCursorRect(
             CGRect(x: width - band, y: band, width: band, height: height - band * 2),
-            cursor: .resizeLeftRight
+            cursor: NSCursor.cmuxResizeLeftRight
         )
         addCursorRect(
             CGRect(x: band, y: 0, width: width - band * 2, height: band),
-            cursor: .resizeUpDown
+            cursor: NSCursor.cmuxResizeUpDown
         )
         addCursorRect(
             CGRect(x: band, y: height - band, width: width - band * 2, height: band),
-            cursor: .resizeUpDown
+            cursor: NSCursor.cmuxResizeUpDown
         )
 
         // Corner bands resize both axes, so they get the diagonal cursors.
@@ -418,20 +419,6 @@ final class CanvasPaneView: NSView {
 
     // MARK: Diagonal resize cursors
 
-    /// AppKit ships no public diagonal resize cursor; the window-resize ones
-    /// are private. Resolve them by selector once, falling back to the
-    /// nearest public cursor so we degrade rather than crash.
-    private static let diagonalCursorNWSE: NSCursor = resolvePrivateCursor(
-        "_windowResizeNorthWestSouthEastCursor", fallback: .resizeLeftRight)
-    private static let diagonalCursorNESW: NSCursor = resolvePrivateCursor(
-        "_windowResizeNorthEastSouthWestCursor", fallback: .resizeUpDown)
-
-    private static func resolvePrivateCursor(_ name: String, fallback: NSCursor) -> NSCursor {
-        let selector = Selector(name)
-        if NSCursor.responds(to: selector),
-           let cursor = NSCursor.perform(selector)?.takeUnretainedValue() as? NSCursor {
-            return cursor
-        }
-        return fallback
-    }
+    private static let diagonalCursorNWSE = NSCursor.cmuxResizeDiagonalNWSE
+    private static let diagonalCursorNESW = NSCursor.cmuxResizeDiagonalNESW
 }
