@@ -4,13 +4,21 @@ import GhosttyTerminal
 import QuartzCore
 
 @MainActor
-final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGridResizeDelegate {
+final class CmuxTerminalHostViewController: NSViewController,
+    TerminalSurfaceGridResizeDelegate,
+    TerminalSurfaceTitleDelegate
+{
     private let frontend: CmuxFrontendSession
     private let ghosttyViewConfiguration: CmuxGhosttyViewConfiguration
     private var terminalView: TerminalView?
     private var terminalSession: InMemoryTerminalSession?
     private var terminalController: TerminalController?
-    private var pendingChunks: [Data] = []
+    private var pendingChunks: [CmuxTerminalChunk] = []
+    private var activeChunk: CmuxTerminalChunk?
+    private var activeSteps: ArraySlice<CmuxTerminalIngestionStep> = []
+    private var waitingBarrierTitle: String?
+    private var nextBarrierID: UInt64 = 1
+    private var drainingChunks = false
     private var ready = false
     private var colors: CmuxTerminalColors?
     private var attachedSurface: UInt64?
@@ -20,6 +28,9 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
     private var lastMeasurement: CmuxTerminalMeasurement?
     private var lastGridMetrics: TerminalGridMetrics?
     private var sharedGrid: CmuxSurfaceSize?
+    private var mirrorGrid: CmuxSurfaceSize?
+    private var waitingForInitialOutput = true
+    private var initialPresentationTask: Task<Void, Never>?
     private var lastRenderingDiagnostic: String?
     private var active = false
     private let foreignSizeHint = NSTextField(labelWithString: "")
@@ -58,27 +69,29 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
         switch event {
         case let .initialReplay(surface, columns, rows, bytes, colors):
             self.colors = colors
-            if attachedSurface != surface {
-                replaceTerminal(for: surface)
-            } else {
-                _ = terminalController?.setTerminalConfiguration(
-                    effectiveTerminalConfiguration
-                )
-            }
-            updateSharedGrid(CmuxSurfaceSize(cols: columns, rows: rows))
+            replaceTerminal(for: surface)
             updateTerminalBackground()
-            applyReplay(bytes, claimAfterReplay: true)
+            applyReplay(
+                bytes,
+                grid: CmuxSurfaceSize(cols: columns, rows: rows),
+                claimAfterReplay: true
+            )
         case let .resizedReplay(surface, columns, rows, bytes):
             guard attachedSurface == surface else { return }
-            updateSharedGrid(CmuxSurfaceSize(cols: columns, rows: rows))
-            applyReplay(bytes, claimAfterReplay: false)
+            replaceTerminal(for: surface)
+            applyReplay(
+                bytes,
+                grid: CmuxSurfaceSize(cols: columns, rows: rows),
+                claimAfterReplay: false
+            )
         case let .output(surface, bytes):
             guard attachedSurface == surface else { return }
-            if ready {
-                terminalSession?.receive(bytes)
-            } else {
-                pendingChunks.append(bytes)
-            }
+            initialPresentationTask?.cancel()
+            pendingChunks.append(.output(
+                bytes: bytes,
+                waitForIngestion: waitingForInitialOutput
+            ))
+            drainPendingChunks()
         case let .colorsChanged(surface, colors):
             guard surface == nil || surface == attachedSurface else { return }
             self.colors = colors
@@ -110,29 +123,33 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
         verifyRenderingMetrics()
     }
 
+    func terminalDidChangeTitle(_ title: String) {
+        guard title == waitingBarrierTitle else { return }
+        waitingBarrierTitle = nil
+        drainPendingChunks()
+    }
+
     private func updateTerminalMeasurement(using size: TerminalGridMetrics) {
         guard let measurement = measurement(for: size) else { return }
+        guard !applyingReplay else {
+            updateForeignSizeHint()
+            return
+        }
         let containerChanged = lastMeasurement != measurement
         lastMeasurement = measurement
         updateForeignSizeHint()
 
         if !ready {
             ready = true
-            let chunks = pendingChunks
-            pendingChunks.removeAll(keepingCapacity: true)
-            applyingReplay = true
-            for chunk in chunks {
-                terminalSession?.receive(chunk)
-            }
-            applyingReplay = false
+            drainPendingChunks()
         }
 
-        let claim = pendingInitialClaim
-            || (hasAppliedReplay && !applyingReplay && containerChanged)
-        if pendingInitialClaim {
+        let claim = !applyingReplay
+            && (pendingInitialClaim || (hasAppliedReplay && containerChanged))
+        if claim && pendingInitialClaim {
             pendingInitialClaim = false
         }
-        submit(measurement, claim: claim && !applyingReplay)
+        submit(measurement, claim: claim)
     }
 
     private func replaceTerminal(for surface: UInt64) {
@@ -143,6 +160,12 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
 
         attachedSurface = surface
         pendingChunks.removeAll(keepingCapacity: true)
+        activeChunk = nil
+        activeSteps = []
+        waitingBarrierTitle = nil
+        drainingChunks = false
+        initialPresentationTask?.cancel()
+        initialPresentationTask = nil
         ready = false
         applyingReplay = false
         hasAppliedReplay = false
@@ -150,6 +173,8 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
         lastMeasurement = nil
         lastGridMetrics = nil
         sharedGrid = nil
+        mirrorGrid = nil
+        waitingForInitialOutput = true
         lastRenderingDiagnostic = nil
 
         let frontend = frontend
@@ -183,6 +208,7 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
             )
         )
         terminal.autoresizingMask = []
+        terminal.alphaValue = 0
 
         // Install ownership before attaching the view because surface creation can synchronously resize.
         terminalSession = session
@@ -200,25 +226,114 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
         return colors?.ghosttyConfiguration(startingFrom: base) ?? base
     }
 
-    private func applyReplay(_ replay: Data, claimAfterReplay: Bool) {
+    private func applyReplay(
+        _ replay: Data,
+        grid: CmuxSurfaceSize,
+        claimAfterReplay: Bool
+    ) {
         guard terminalSession != nil else { return }
         pendingInitialClaim = pendingInitialClaim || claimAfterReplay
         hasAppliedReplay = true
+        let chunk = CmuxTerminalChunk.replay(
+            bytes: replay,
+            grid: grid,
+            claimAfterReplay: claimAfterReplay
+        )
+        pendingChunks.append(chunk)
+        updateSharedGrid(grid)
+        drainPendingChunks()
+    }
 
-        guard ready else {
-            pendingChunks.append(replay)
-            return
+    private func drainPendingChunks() {
+        guard ready, waitingBarrierTitle == nil, !drainingChunks else { return }
+        drainingChunks = true
+        defer { drainingChunks = false }
+
+        while true {
+            if activeSteps.isEmpty {
+                if let activeChunk {
+                    finishIngesting(activeChunk)
+                }
+                activeChunk = nil
+
+                guard !pendingChunks.isEmpty else { return }
+                let chunk = pendingChunks.removeFirst()
+                activeChunk = chunk
+                activeSteps = chunk.ingestionSteps[...]
+                if chunk.replayGrid != nil {
+                    applyingReplay = true
+                }
+            }
+
+            guard let step = activeSteps.popFirst() else { continue }
+            switch step {
+            case .awaitCurrentBytes, .awaitReceivedBytes:
+                beginParserBarrier()
+                return
+            case let .sizeForReplay(grid):
+                sizeMirror(for: grid)
+            case let .receive(bytes):
+                terminalSession?.receive(bytes)
+            case .fitToView:
+                terminalView?.fitToSize()
+            case .claimLocalGrid:
+                applyingReplay = false
+                guard let lastMeasurement else { continue }
+                pendingInitialClaim = false
+                submit(lastMeasurement, claim: true)
+            }
         }
+    }
 
-        applyingReplay = true
+    private func finishIngesting(_ chunk: CmuxTerminalChunk) {
+        if chunk.replayGrid != nil {
+            applyingReplay = false
+            if currentViewport?.hasPresentableInitialOutput == true {
+                presentTerminal()
+            }
+        } else if chunk.waitsForIngestion,
+                  currentViewport?.hasPresentableInitialOutput == true
+        {
+            scheduleInitialPresentation()
+        }
+    }
+
+    private var currentViewport: CmuxTerminalViewport? {
+        terminalSession?.readViewportText().map(CmuxTerminalViewport.init)
+    }
+
+    private func scheduleInitialPresentation() {
+        initialPresentationTask?.cancel()
+        let surface = attachedSurface
+        initialPresentationTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled,
+                  let self,
+                  self.attachedSurface == surface
+            else { return }
+            if let surface,
+               await self.frontend.refreshStartupReplay(surface: surface)
+            {
+                return
+            }
+            self.presentTerminal()
+        }
+    }
+
+    private func presentTerminal() {
+        waitingForInitialOutput = false
+        initialPresentationTask?.cancel()
+        initialPresentationTask = nil
+        terminalView?.alphaValue = 1
         terminalView?.fitToSize()
-        terminalSession?.receive(replay)
-        applyingReplay = false
+    }
 
-        if claimAfterReplay, let lastMeasurement {
-            pendingInitialClaim = false
-            submit(lastMeasurement, claim: true)
-        }
+    private func beginParserBarrier() {
+        guard let terminalSession else { return }
+        let title = "cmux-lite-replay-barrier-\(nextBarrierID)"
+        nextBarrierID &+= 1
+        waitingBarrierTitle = title
+        terminalSession.receive("\u{1B}]2;\(title)\u{7}")
     }
 
     private func measurement(for size: TerminalGridMetrics) -> CmuxTerminalMeasurement? {
@@ -233,7 +348,10 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
             widthPixels: backingBounds.width,
             heightPixels: backingBounds.height,
             cellWidthPixels: size.cellWidthPixels,
-            cellHeightPixels: size.cellHeightPixels
+            cellHeightPixels: size.cellHeightPixels,
+            fittedGrid: terminalView?.frame == view.bounds
+                ? CmuxSurfaceSize(cols: size.columns, rows: size.rows)
+                : nil
         )
     }
 
@@ -263,26 +381,49 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
 
     private func updateSharedGrid(_ grid: CmuxSurfaceSize) {
         sharedGrid = grid
-        layoutTerminalGrid()
         updateForeignSizeHint()
     }
 
     private func layoutTerminalGrid() {
         guard let terminalView else { return }
-        guard let sharedGrid,
+        guard let mirrorGrid,
               let metrics = lastGridMetrics,
-              let geometry = CmuxTerminalGridGeometry(
-                  containerWidthPoints: view.bounds.width,
-                  containerHeightPoints: view.bounds.height,
-                  backingScale: backingScale,
-                  grid: sharedGrid,
-                  cellWidthPixels: metrics.cellWidthPixels,
-                  cellHeightPixels: metrics.cellHeightPixels
-              )
+              let frame = terminalFrame(for: mirrorGrid, metrics: metrics)
         else {
             terminalView.frame = view.bounds
             return
         }
+
+        guard terminalView.frame != frame else { return }
+        terminalView.frame = frame
+    }
+
+    private func sizeMirror(for grid: CmuxSurfaceSize) {
+        guard let terminalView,
+              let metrics = lastGridMetrics,
+              let frame = terminalFrame(for: grid, metrics: metrics)
+        else { return }
+
+        mirrorGrid = grid
+        terminalView.setFrameOrigin(frame.origin)
+        terminalView.setFrameSize(frame.size)
+    }
+
+    private func terminalFrame(
+        for grid: CmuxSurfaceSize,
+        metrics: TerminalGridMetrics
+    ) -> NSRect? {
+        guard let geometry = CmuxTerminalGridGeometry(
+            containerWidthPoints: view.bounds.width,
+            containerHeightPoints: view.bounds.height,
+            backingScale: backingScale,
+            grid: grid,
+            currentGrid: CmuxSurfaceSize(cols: metrics.columns, rows: metrics.rows),
+            currentWidthPixels: metrics.widthPixels,
+            currentHeightPixels: metrics.heightPixels,
+            cellWidthPixels: metrics.cellWidthPixels,
+            cellHeightPixels: metrics.cellHeightPixels
+        ) else { return nil }
 
         let frame = NSRect(
             x: view.bounds.minX + CGFloat(geometry.gridFrame.x),
@@ -290,23 +431,14 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
             width: CGFloat(geometry.gridFrame.width),
             height: CGFloat(geometry.gridFrame.height)
         )
-        guard terminalView.frame != frame else { return }
-        terminalView.frame = frame
+        return frame
     }
 
     private func updateForeignSizeHint() {
         guard let sharedGrid,
               let lastMeasurement,
               let localCapacity = resizePolicy.grid(for: lastMeasurement),
-              let geometry = CmuxTerminalGridGeometry(
-                  containerWidthPoints: view.bounds.width,
-                  containerHeightPoints: view.bounds.height,
-                  backingScale: backingScale,
-                  grid: sharedGrid,
-                  cellWidthPixels: lastMeasurement.cellWidthPixels,
-                  cellHeightPixels: lastMeasurement.cellHeightPixels
-              ),
-              geometry.isForeignSmaller(than: localCapacity)
+              sharedGrid.cols < localCapacity.cols || sharedGrid.rows < localCapacity.rows
         else {
             foreignSizeHint.isHidden = true
             return

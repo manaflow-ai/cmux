@@ -354,6 +354,29 @@ public actor CmuxFrontendSession {
         await sendInput(data, surface: surface)
     }
 
+    /// Replaces a startup mirror from a settled one-shot replay on its attachment connection.
+    /// - Parameter surface: The attached surface whose current state should replace the mirror.
+    /// - Returns: `true` when a valid replay was emitted to the frontend.
+    public func refreshStartupReplay(surface: UInt64) async -> Bool {
+        guard let pane = paneID(for: surface),
+              let attachment = attachments[pane],
+              attachment.surface == surface
+        else { return false }
+        do {
+            let state = try await attachment.client.vtState(surface)
+            guard let replay = state.replay else { return false }
+            eventContinuation.yield(.terminal(.resizedReplay(
+                surface: surface,
+                columns: state.cols,
+                rows: state.rows,
+                bytes: replay
+            )))
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// Sends UTF-8 text to one attached surface and waits for acknowledgement.
     /// - Parameters:
     ///   - text: Text to write to the PTY.
