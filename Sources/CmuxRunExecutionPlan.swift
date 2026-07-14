@@ -2,6 +2,7 @@ import Foundation
 
 struct CmuxRunExecutionPlan: Equatable {
     enum Target: Equatable {
+        case newWindow
         case workspace(windowId: UUID, tabManagerIdentity: ObjectIdentifier)
         case surface(
             windowId: UUID,

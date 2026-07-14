@@ -72,6 +72,7 @@ struct CmuxRunURLCoordinatorTests {
         }
         #expect(plan.command == "true")
         #expect(plan.workingDirectory == "/tmp")
+        #expect(plan.target == .newWindow)
     }
 
     @Test func stableSurfaceAnchorResolvesToCurrentPane() throws {

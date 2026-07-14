@@ -72,11 +72,21 @@ final class CmuxRunURLCoordinator {
         }
 
         appDelegate.prepareForExplicitOpenIntentAtStartup()
-        appDelegate.bootstrapInitialMainWindowAfterAcceptedExternalOpen(
-            debugSource: "runURL.confirmed",
-            suppressWelcome: true
-        )
-        switch await execute(plan) {
+        let executionResult: Result<Void, CmuxRunURLExecutionError>
+        if plan.target == .newWindow {
+            executionResult = await execute(plan)
+            appDelegate.bootstrapInitialMainWindowAfterAcceptedExternalOpen(
+                debugSource: "runURL.confirmed.newWindow",
+                suppressWelcome: true
+            )
+        } else {
+            appDelegate.bootstrapInitialMainWindowAfterAcceptedExternalOpen(
+                debugSource: "runURL.confirmed",
+                suppressWelcome: true
+            )
+            executionResult = await execute(plan)
+        }
+        switch executionResult {
         case .success:
             cmuxDebugLog("runURL.executed")
         case .failure(let error):
@@ -93,7 +103,21 @@ final class CmuxRunURLCoordinator {
         case .workspace:
             guard let context = appDelegate.preferredRegisteredMainWindowContext(),
                   appDelegate.windowForMainWindowId(context.windowId) != nil else {
-                return .failure(.targetNotFound)
+                return .success(
+                    CmuxRunExecutionPlan(
+                        command: request.command,
+                        workingDirectory: workingDirectory,
+                        target: .newWindow,
+                        placementDescription: String(
+                            localized: "dialog.runURL.placement.workspace",
+                            defaultValue: "New workspace"
+                        ),
+                        targetDescription: String(
+                            localized: "menu.file.newWindow",
+                            defaultValue: "New Window"
+                        )
+                    )
+                )
             }
             let selectedWorkspaceTitle = context.tabManager.selectedTabId.flatMap { workspaceId in
                 context.tabManager.resolvedWorkspaceDisplayTitles(for: [workspaceId])[workspaceId]
@@ -257,6 +281,13 @@ final class CmuxRunURLCoordinator {
         }
 
         switch plan.target {
+        case .newWindow:
+            _ = appDelegate.createMainWindow(
+                initialWorkingDirectory: plan.workingDirectory,
+                initialTerminalInput: plan.launchCommand
+            )
+            return .success(())
+
         case .workspace(let windowId, let tabManagerIdentity):
             guard let manager = appDelegate.tabManagerFor(windowId: windowId),
                   ObjectIdentifier(manager) == tabManagerIdentity,
@@ -364,6 +395,7 @@ final class CmuxRunURLCoordinator {
     private func window(for target: CmuxRunExecutionPlan.Target) -> NSWindow? {
         let windowId: UUID
         switch target {
+        case .newWindow: return nil
         case .workspace(let id, _): windowId = id
         case .surface(let id, _, _, _): windowId = id
         case .pane(let id, _, _, _, _): windowId = id

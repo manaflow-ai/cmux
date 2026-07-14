@@ -55,6 +55,10 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
             return .failure(error)
         }
 
+        let limiter = CmuxRunWorkingDirectoryProcessLimiter.shared
+        guard await limiter.acquire() else {
+            return .failure(.busy)
+        }
         let command = commandOverride?(expanded) ?? Self.canonicalDirectoryCommand(for: expanded)
         let process = Process()
         let standardOutput = Pipe()
@@ -67,13 +71,15 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
         process.terminationHandler = { process in
             let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
             Task {
-                await gate.finish(.completed(status: process.terminationStatus, output: output))
+                await limiter.release()
+                await gate.complete(status: process.terminationStatus, output: output)
             }
         }
 
         do {
             try process.run()
         } catch {
+            await limiter.release()
             return .failure(.workingDirectoryNotFound)
         }
 
@@ -85,13 +91,13 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
         let timeoutTask = Task {
             do {
                 try await Task.sleep(for: timeout)
-                if await gate.finish(.timedOut) {
+                if await gate.requestTimeout() {
                     terminate()
                 }
             } catch is CancellationError {
                 return
             } catch {
-                if await gate.finish(.timedOut) {
+                if await gate.requestTimeout() {
                     terminate()
                 }
             }
@@ -100,7 +106,7 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
             await gate.value()
         } onCancel: {
             Task {
-                if await gate.finish(.timedOut) {
+                if await gate.requestTimeout() {
                     terminate()
                 }
             }
@@ -169,11 +175,28 @@ private enum CmuxRunWorkingDirectoryProcessOutcome: Sendable {
     case timedOut
 }
 
+private actor CmuxRunWorkingDirectoryProcessLimiter {
+    static let shared = CmuxRunWorkingDirectoryProcessLimiter()
+
+    private var isResolving = false
+
+    func acquire() -> Bool {
+        guard !isResolving else { return false }
+        isResolving = true
+        return true
+    }
+
+    func release() {
+        isResolving = false
+    }
+}
+
 private actor CmuxRunWorkingDirectoryProcessGate {
     typealias Outcome = CmuxRunWorkingDirectoryProcessOutcome
 
     private var outcome: Outcome?
     private var continuation: CheckedContinuation<Outcome, Never>?
+    private var didRequestTimeout = false
 
     func value() async -> Outcome {
         if let outcome {
@@ -184,12 +207,19 @@ private actor CmuxRunWorkingDirectoryProcessGate {
         }
     }
 
-    @discardableResult
-    func finish(_ outcome: Outcome) -> Bool {
-        guard self.outcome == nil else { return false }
-        self.outcome = outcome
-        continuation?.resume(returning: outcome)
-        continuation = nil
+    func requestTimeout() -> Bool {
+        guard outcome == nil, !didRequestTimeout else { return false }
+        didRequestTimeout = true
         return true
+    }
+
+    func complete(status: Int32, output: Data) {
+        guard outcome == nil else { return }
+        let completedOutcome: Outcome = didRequestTimeout
+            ? .timedOut
+            : .completed(status: status, output: output)
+        outcome = completedOutcome
+        continuation?.resume(returning: completedOutcome)
+        continuation = nil
     }
 }
