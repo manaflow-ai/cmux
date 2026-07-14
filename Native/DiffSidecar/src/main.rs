@@ -37,16 +37,21 @@ async fn run() -> Result<(), String> {
         Some("rpc") => {
             let mut root = None;
             let mut cmux = None;
+            let mut process_group_ready = false;
             while let Some(argument) = args.next() {
                 match argument.as_str() {
                     "--root" => root = args.next().map(PathBuf::from),
                     "--cmux" => cmux = args.next().map(PathBuf::from),
+                    "--process-group-ready" => process_group_ready = true,
                     _ => return Err(format!("unexpected argument: {argument}")),
                 }
             }
             let root = root.ok_or_else(|| "rpc requires --root".to_owned())?;
             let cmux_executable = cmux.ok_or_else(|| "rpc requires --cmux".to_owned())?;
             let executable_path = std::env::current_exe().map_err(|error| error.to_string())?;
+            if process_group_ready {
+                establish_rpc_process_group()?;
+            }
             server::run_rpc(ServerConfig {
                 root,
                 cmux_executable,
@@ -82,6 +87,17 @@ async fn run() -> Result<(), String> {
         }
         _ => Err("usage: cmux-diff-sidecar <serve|rpc|handshake|benchmark>".to_owned()),
     }
+}
+
+fn establish_rpc_process_group() -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        rustix::process::setpgid(None, None).map_err(|error| error.to_string())?;
+        eprintln!("cmux-diff-sidecar-process-group-ready");
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    Err("process groups are unavailable on this platform".to_owned())
 }
 
 fn reject_remaining_arguments(args: &mut impl Iterator<Item = String>) -> Result<(), String> {

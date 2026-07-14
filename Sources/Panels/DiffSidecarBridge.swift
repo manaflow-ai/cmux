@@ -25,6 +25,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     private static let maximumRequestBytes = 1024 * 1024
     private nonisolated static let maximumResponseBytes = 32 * 1024 * 1024
     private nonisolated static let processPool = DiffSidecarProcessPool(limit: 4)
+    private nonisolated static let processGroupReadyMarker = Data("cmux-diff-sidecar-process-group-ready\n".utf8)
     // Longer than the sidecar's 120-second branch regeneration limit.
     private nonisolated static let requestTimeout: TimeInterval = 130
     private var invocations: [UUID: Task<Void, Never>] = [:]
@@ -144,13 +145,14 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         let root = try prepareRootDirectory()
         let process = Process()
         process.executableURL = sidecar
-        process.arguments = ["rpc", "--root", root.path, "--cmux", cmux.path]
-        process.standardError = FileHandle.nullDevice
+        process.arguments = ["rpc", "--root", root.path, "--cmux", cmux.path, "--process-group-ready"]
 
         let input = Pipe()
         let output = Pipe()
+        let readiness = Pipe()
         process.standardInput = input
         process.standardOutput = output
+        process.standardError = readiness
 
         let termination = AsyncStream<Int32> { continuation in
             process.terminationHandler = { process in
@@ -160,13 +162,16 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
         return try await withTaskCancellationHandler {
             try process.run()
-            guard Darwin.setpgid(process.processIdentifier, process.processIdentifier) == 0 else {
-                process.terminate()
+            do {
+                try readProcessGroupReady(from: readiness.fileHandleForReading)
+            } catch {
+                terminate(process: process, input: input, output: output, readiness: readiness)
                 process.waitUntilExit()
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EPERM)
+                killProcessGroup(process, signal: SIGKILL)
+                throw error
             }
             if Task.isCancelled {
-                terminate(process: process, input: input, output: output)
+                terminate(process: process, input: input, output: output, readiness: readiness)
                 process.waitUntilExit()
                 killProcessGroup(process, signal: SIGKILL)
                 throw CancellationError()
@@ -175,7 +180,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
                 try input.fileHandleForWriting.write(contentsOf: request)
                 try input.fileHandleForWriting.close()
             } catch {
-                terminate(process: process, input: input, output: output)
+                terminate(process: process, input: input, output: output, readiness: readiness)
                 process.waitUntilExit()
                 killProcessGroup(process, signal: SIGKILL)
                 throw error
@@ -208,7 +213,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             switch completion {
             case .timedOut, .cancelled:
-                terminate(process: process, input: input, output: output)
+                terminate(process: process, input: input, output: output, readiness: readiness)
                 process.waitUntilExit()
                 killProcessGroup(process, signal: SIGKILL)
             case .terminated, .missingTermination:
@@ -235,15 +240,40 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             return outputData
         } onCancel: {
-            terminate(process: process, input: input, output: output)
+            terminate(process: process, input: input, output: output, readiness: readiness)
         }
     }
 
-    nonisolated private static func terminate(process: Process, input: Pipe, output: Pipe) {
+    nonisolated private static func readProcessGroupReady(from handle: FileHandle) throws {
+        var received = Data()
+        while received.count < processGroupReadyMarker.count {
+            let remaining = processGroupReadyMarker.count - received.count
+            guard let chunk = try handle.read(upToCount: remaining), !chunk.isEmpty else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            received.append(chunk)
+        }
+        guard received == processGroupReadyMarker else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+    }
+
+    nonisolated private static func terminate(
+        process: Process,
+        input: Pipe,
+        output: Pipe,
+        readiness: Pipe
+    ) {
         try? input.fileHandleForWriting.close()
         try? output.fileHandleForReading.close()
+        try? readiness.fileHandleForReading.close()
         if process.isRunning {
-            killProcessGroup(process, signal: SIGTERM)
+            let processID = process.processIdentifier
+            if processID > 0, Darwin.getpgid(processID) == processID {
+                killProcessGroup(process, signal: SIGTERM)
+            } else {
+                process.terminate()
+            }
         }
     }
 
