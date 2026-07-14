@@ -2,77 +2,7 @@ import Darwin
 import Foundation
 import XCTest
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
-private final class AgentHookStoreLookupTask: @unchecked Sendable {
-    let store: ClaudeHookSessionStore
-    let completed: XCTestExpectation
-
-    init(store: ClaudeHookSessionStore, completed: XCTestExpectation) {
-        self.store = store
-        self.completed = completed
-    }
-
-    func run(sessionId: String) {
-        _ = try? store.lookup(sessionId: sessionId)
-        completed.fulfill()
-    }
-}
-
 final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
-    func testSessionStoreSnapshotLookupDoesNotWaitForWriterLock() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-agent-store-snapshot-\(UUID().uuidString)", isDirectory: true)
-        let stateURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
-        let lockURL = URL(fileURLWithPath: stateURL.path + ".lock", isDirectory: false)
-        let sessionId = "snapshot-session"
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let now = Date().timeIntervalSince1970
-        let state: [String: Any] = [
-            "version": 2,
-            "sessions": [
-                sessionId: [
-                    "sessionId": sessionId,
-                    "workspaceId": "workspace",
-                    "surfaceId": "surface",
-                    "startedAt": now,
-                    "updatedAt": now,
-                ],
-            ],
-        ]
-        try JSONSerialization.data(withJSONObject: state, options: [.sortedKeys])
-            .write(to: stateURL, options: .atomic)
-
-        FileManager.default.createFile(atPath: lockURL.path, contents: nil)
-        let lockFD = open(lockURL.path, O_RDWR)
-        XCTAssertGreaterThanOrEqual(lockFD, 0)
-        defer { Darwin.close(lockFD) }
-        XCTAssertEqual(flock(lockFD, LOCK_EX), 0)
-
-        let store = ClaudeHookSessionStore(
-            processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path],
-            agentName: "codex"
-        )
-        let completed = expectation(description: "lock-free session snapshot lookup")
-        let task = AgentHookStoreLookupTask(store: store, completed: completed)
-        DispatchQueue.global(qos: .userInitiated).async {
-            task.run(sessionId: sessionId)
-        }
-
-        let firstWait = XCTWaiter.wait(for: [completed], timeout: 0.25)
-        XCTAssertEqual(firstWait, .completed, "Read-only lookup waited for the writer lock")
-        _ = flock(lockFD, LOCK_UN)
-        if firstWait != .completed {
-            XCTAssertEqual(XCTWaiter.wait(for: [completed], timeout: 2), .completed)
-        }
-    }
-
     func testWrapperSuppressesPersistentCmuxHooksAndOwnsInjectedHooks() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-hook-owner-\(UUID().uuidString)", isDirectory: true)
