@@ -882,6 +882,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670030000000000000002 /* KeyboardShortcutContext.swift */; };
 		C34670050000000000000001 /* KeyboardShortcutContextSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670050000000000000002 /* KeyboardShortcutContextSwiftTests.swift */; };
 		C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670020000000000000002 /* KeyboardShortcutContextTests.swift */; };
+		C07C1C000000000000000001 /* KeyboardShortcutControlCharacterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07C1C000000000000000002 /* KeyboardShortcutControlCharacterTests.swift */; };
 		6042A0026042A0026042A002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */; };
 		A50012F7 /* KeyboardShortcutRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F6 /* KeyboardShortcutRecorder.swift */; };
 		C0DE5A100000000000000001 /* KeyboardShortcutSavedLayoutTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5A100000000000000002 /* KeyboardShortcutSavedLayoutTemplateTests.swift */; };
@@ -2762,6 +2763,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C34670030000000000000002 /* KeyboardShortcutContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContext.swift; sourceTree = "<group>"; };
 		C34670050000000000000002 /* KeyboardShortcutContextSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContextSwiftTests.swift; sourceTree = "<group>"; };
 		C34670020000000000000002 /* KeyboardShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContextTests.swift; sourceTree = "<group>"; };
+		C07C1C000000000000000002 /* KeyboardShortcutControlCharacterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutControlCharacterTests.swift; sourceTree = "<group>"; };
 		6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutModifierHoldHintsSettingsFileTests.swift; sourceTree = "<group>"; };
 		A50012F6 /* KeyboardShortcutRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutRecorder.swift; sourceTree = "<group>"; };
 		C0DE5A100000000000000002 /* KeyboardShortcutSavedLayoutTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSavedLayoutTemplateTests.swift; sourceTree = "<group>"; };
@@ -5465,6 +5467,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE7B3C0000000000000002 /* TextBoxSubmitActionSettingsFileTests.swift */,
 				C0DE7B410000000000000002 /* TextBoxSubmitActionMemoryTests.swift */,
 				C0DE7B360000000000000002 /* TextBoxSubmitActionTests.swift */,
+				C07C1C000000000000000002 /* KeyboardShortcutControlCharacterTests.swift */,
 				C34670020000000000000002 /* KeyboardShortcutContextTests.swift */,
 				C34670050000000000000002 /* KeyboardShortcutContextSwiftTests.swift */,
 				C0DE5A100000000000000002 /* KeyboardShortcutSavedLayoutTemplateTests.swift */,
@@ -7707,6 +7710,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B17C00010000000000000001 /* InvalidationBatchingBehaviorTests.swift in Sources */,
 				C34670050000000000000001 /* KeyboardShortcutContextSwiftTests.swift in Sources */,
 				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
+				C07C1C000000000000000001 /* KeyboardShortcutControlCharacterTests.swift in Sources */,
 				6042A0026042A0026042A002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift in Sources */,
 				C0DE5A100000000000000001 /* KeyboardShortcutSavedLayoutTemplateTests.swift in Sources */,
 				E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */,
