@@ -5184,12 +5184,20 @@ final class Workspace: Identifiable, ObservableObject {
             guard let last = remoteLastHeartbeatAt else { return NSNull() }
             return Self.remoteHeartbeatDateFormatter.string(from: last)
         }()
+        let daemonHealth = WorkspaceRemoteDaemonHealth.evaluate(
+            connectionState: remoteConnectionState,
+            daemon: remoteDaemonStatus,
+            clientDaemonVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
+            ptySessionCount: activeRemoteTerminalSessionCount,
+            lastSeenAt: remoteLastHeartbeatAt
+        )
         var payload: [String: Any] = [
             "enabled": remoteConfiguration != nil,
             "state": remoteConnectionState.rawValue,
             "connected": remoteConnectionState == .connected,
             "active_terminal_sessions": activeRemoteTerminalSessionCount,
             "daemon": remoteDaemonStatus.payload(),
+            "daemon_health": daemonHealth.payload(),
             "detected_ports": remoteDetectedPorts,
             "forwarded_ports": remoteForwardedPorts,
             "conflicted_ports": remotePortConflicts,
@@ -5233,6 +5241,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if let remoteConfiguration {
             payload["transport"] = remoteConfiguration.transport.rawValue
+            payload["mode"] = WorkspaceRemoteConnectionMode(transport: remoteConfiguration.transport).rawValue
             payload["destination"] = remoteConfiguration.destination
             payload["port"] = remoteConfiguration.port ?? NSNull()
             payload["has_identity_file"] = remoteConfiguration.identityFile != nil
@@ -5242,6 +5251,7 @@ final class Workspace: Identifiable, ObservableObject {
             payload["managed_cloud_vm_id"] = remoteConfiguration.managedCloudVMID ?? NSNull()
         } else {
             payload["transport"] = NSNull()
+            payload["mode"] = NSNull()
             payload["destination"] = NSNull()
             payload["port"] = NSNull()
             payload["has_identity_file"] = false

@@ -14284,7 +14284,7 @@ struct TabItemView: View, Equatable {
         let detail = tab.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
         switch tab.remoteConnectionState {
         case .connected:
-            return String(
+            let connected = String(
                 format: String(
                     localized: "sidebar.remote.help.connected",
                     defaultValue: "Remote connected to %@"
@@ -14292,6 +14292,17 @@ struct TabItemView: View, Equatable {
                 locale: .current,
                 target
             )
+            guard let transport = tab.remoteConfiguration?.transport else { return connected }
+            let modeLabel = WorkspaceRemoteConnectionMode(transport: transport) == .direct
+                ? String(
+                    localized: "sidebar.remote.help.modeDirect",
+                    defaultValue: "Direct (no cloud proxy): terminal, agent, and browser traffic flows straight to the host."
+                )
+                : String(
+                    localized: "sidebar.remote.help.modeCloudProxied",
+                    defaultValue: "Cloud-proxied: traffic is relayed through the cmux cloud."
+                )
+            return connected + "\n" + modeLabel
         case .connecting:
             return String(
                 format: String(
