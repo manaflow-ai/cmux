@@ -5,6 +5,7 @@ internal import Foundation
 /// Tracks the credential revision proved by a socket connection.
 public struct SocketPasswordAuthorization: Sendable {
     private var credentialFingerprint: Data?
+    private var nextCredentialRefreshUptimeNanoseconds: UInt64 = 0
 
     /// Creates an unauthenticated capability that may attempt password login.
     public init() {}
@@ -18,6 +19,7 @@ public struct SocketPasswordAuthorization: Sendable {
     /// - Parameter password: The verified password supplied by the client.
     public mutating func authenticate(password: String) {
         credentialFingerprint = Self.fingerprint(password)
+        nextCredentialRefreshUptimeNanoseconds = 0
     }
 
     /// Whether the connection may continue under the current authorization state.
@@ -38,6 +40,40 @@ public struct SocketPasswordAuthorization: Sendable {
         }
         guard let currentPassword else { return false }
         return credentialFingerprint == Self.fingerprint(currentPassword)
+    }
+
+    /// Checks the current credential no more frequently than a caller-defined interval.
+    ///
+    /// This keeps high-volume connection consumers on an in-memory fast path while
+    /// still detecting password files replaced outside cmux at a bounded cadence.
+    ///
+    /// - Parameters:
+    ///   - accessMode: The access mode currently enforced by the listener.
+    ///   - monotonicNowNanoseconds: Current monotonic uptime in nanoseconds.
+    ///   - minimumCredentialRefreshIntervalNanoseconds: Minimum interval between
+    ///     reads from `currentPassword` for an authenticated password connection.
+    ///   - currentPassword: Lazily reads the password from the authoritative store.
+    /// - Returns: Whether the connection may continue.
+    public mutating func permitsConnectionContinuation(
+        accessMode: SocketControlMode,
+        monotonicNowNanoseconds: UInt64,
+        minimumCredentialRefreshIntervalNanoseconds: UInt64,
+        currentPassword: () -> String?
+    ) -> Bool {
+        guard accessMode.requiresPasswordAuth, credentialFingerprint != nil else {
+            return permitsConnectionContinuation(accessMode: accessMode, currentPassword: nil)
+        }
+        guard monotonicNowNanoseconds >= nextCredentialRefreshUptimeNanoseconds else {
+            return true
+        }
+        let (nextRefresh, overflowed) = monotonicNowNanoseconds.addingReportingOverflow(
+            minimumCredentialRefreshIntervalNanoseconds
+        )
+        nextCredentialRefreshUptimeNanoseconds = overflowed ? .max : nextRefresh
+        return permitsConnectionContinuation(
+            accessMode: accessMode,
+            currentPassword: currentPassword()
+        )
     }
 
     private static func fingerprint(_ password: String) -> Data {

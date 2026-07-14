@@ -4,12 +4,9 @@ import Foundation
 
 extension AppDelegate {
     func reconcileSocketListenerConfiguration(source: String) {
-        let activeTabManager = tabManager
-            ?? preferredRegisteredMainWindowContext()?.tabManager
-            ?? mainWindowContexts.values.first?.tabManager
         TerminalController.shared.reconcileSocketConfiguration(
             resolvedSocketListenerConfiguration(),
-            preferredTabManager: activeTabManager,
+            preferredTabManager: activeTabManagerForCommands(),
             source: source
         )
     }
@@ -92,9 +89,7 @@ extension AppDelegate {
             TerminalController.shared.stop()
             return
         }
-        let manager = tabManager
-            ?? preferredRegisteredMainWindowContext()?.tabManager
-            ?? mainWindowContexts.values.first?.tabManager
+        let manager = activeTabManagerForCommands()
         let restartPath = TerminalController.shared.activeSocketPath(
             preferredPath: config.preferredSocketPath
         )

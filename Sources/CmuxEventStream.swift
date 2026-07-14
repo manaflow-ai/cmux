@@ -19,15 +19,16 @@ extension TerminalController {
         authorizationGeneration: UInt64,
         passwordAuthorization: SocketPasswordAuthorization
     ) {
-        guard socketAuthorizationIsCurrent(
+        var streamPasswordAuthorization = passwordAuthorization
+        guard socketEventStreamAuthorizationIsCurrent(
             authorizationGeneration,
-            passwordAuthorization: passwordAuthorization
+            passwordAuthorization: &streamPasswordAuthorization
         ) else { return }
         guard let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            guard socketAuthorizationIsCurrent(
+            guard socketEventStreamAuthorizationIsCurrent(
                 authorizationGeneration,
-                passwordAuthorization: passwordAuthorization
+                passwordAuthorization: &streamPasswordAuthorization
             ) else { return }
             _ = writeEventsStreamLine([
                 "type": "error",
@@ -50,27 +51,27 @@ extension TerminalController {
         )
         defer { CmuxEventBus.shared.unsubscribe(snapshot.subscription) }
 
-        guard socketAuthorizationIsCurrent(
+        guard socketEventStreamAuthorizationIsCurrent(
                   authorizationGeneration,
-                  passwordAuthorization: passwordAuthorization
+                  passwordAuthorization: &streamPasswordAuthorization
               ),
               writeEventsStreamLine(snapshot.ack, socket: socket) else { return }
         for event in snapshot.replay {
-            guard socketAuthorizationIsCurrent(
+            guard socketEventStreamAuthorizationIsCurrent(
                       authorizationGeneration,
-                      passwordAuthorization: passwordAuthorization
+                      passwordAuthorization: &streamPasswordAuthorization
                   ),
                   writeEventsStreamLine(event, socket: socket) else { return }
         }
 
-        while socketAuthorizationIsCurrent(
+        while socketEventStreamAuthorizationIsCurrent(
             authorizationGeneration,
-            passwordAuthorization: passwordAuthorization
+            passwordAuthorization: &streamPasswordAuthorization
         ) {
             let event = snapshot.subscription.next(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds)
-            guard socketAuthorizationIsCurrent(
+            guard socketEventStreamAuthorizationIsCurrent(
                 authorizationGeneration,
-                passwordAuthorization: passwordAuthorization
+                passwordAuthorization: &streamPasswordAuthorization
             ) else { return }
             if let event {
                 guard writeEventsStreamLine(event, socket: socket) else { return }
@@ -88,9 +89,9 @@ extension TerminalController {
                 }
                 return
             } else if includeHeartbeats,
-                      socketAuthorizationIsCurrent(
+                      socketEventStreamAuthorizationIsCurrent(
                           authorizationGeneration,
-                          passwordAuthorization: passwordAuthorization
+                          passwordAuthorization: &streamPasswordAuthorization
                       ) {
                 let heartbeat = CmuxEventBus.shared.heartbeat(subscription: snapshot.subscription)
                 guard writeEventsStreamLine(heartbeat, socket: socket) else { return }

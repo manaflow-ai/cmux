@@ -17,9 +17,9 @@ internal import Foundation
 /// - Lines are split on bare `\n` only. To preserve legacy framing, `\r\n`
 ///   does not terminate a line (clients must frame with bare `\n`). Returned
 ///   lines may be empty or whitespace-only.
-/// - `shouldContinueReading` is consulted before each blocking `read(2)` —
-///   never between lines already buffered — mirroring the legacy per-read
-///   `isRunning` poll.
+/// - `shouldContinueReading` is consulted before each blocking `read(2)` and
+///   periodically while an authorized connection is idle. It is never polled
+///   between lines already buffered.
 /// - EOF, a read error, or a `false` poll ends the stream (`nil`); buffered
 ///   bytes without a trailing newline are discarded, as before.
 /// - While `initialLimits` remain active, raw bytes are counted cumulatively
@@ -34,6 +34,7 @@ public final class ControlClientLineReader {
     private var limitedBytesRead = 0
     private var limits: ControlClientLineReadLimits?
     private var deadlineUptimeNanoseconds: UInt64?
+    private let continuationPollIntervalMilliseconds: Int32
     private let monotonicNowNanoseconds: @Sendable () -> UInt64
 
     /// Creates a reader for `socket`.
@@ -42,15 +43,19 @@ public final class ControlClientLineReader {
     ///   - bufferSize: Read buffer size; the legacy loop read at most
     ///     `bufferSize - 1` bytes per call.
     ///   - initialLimits: Optional resource bounds removed after authorization.
+    ///   - continuationPollIntervalMilliseconds: Maximum idle time before
+    ///     rechecking whether the connection remains authorized.
     ///   - monotonicNowNanoseconds: Monotonic time source used for deadlines.
     public init(
         socket: Int32,
         bufferSize: Int = 4096,
         initialLimits: ControlClientLineReadLimits? = nil,
+        continuationPollIntervalMilliseconds: Int32 = 250,
         monotonicNowNanoseconds: (@Sendable () -> UInt64)? = nil
     ) {
         self.socket = socket
         self.buffer = [UInt8](repeating: 0, count: bufferSize)
+        self.continuationPollIntervalMilliseconds = max(1, continuationPollIntervalMilliseconds)
         self.monotonicNowNanoseconds = monotonicNowNanoseconds ?? {
             DispatchTime.now().uptimeNanoseconds
         }
@@ -74,8 +79,8 @@ public final class ControlClientLineReader {
     /// Returns the next newline-terminated line (without the newline), or
     /// `nil` when the connection ended or `shouldContinueReading` returned
     /// `false` before a blocking read.
-    /// - Parameter shouldContinueReading: Polled before each `read(2)`;
-    ///   typically the listener's `isRunning`.
+    /// - Parameter shouldContinueReading: Polled before each `read(2)` and at
+    ///   the configured continuation interval while the client is idle.
     public func nextLine(shouldContinueReading: () -> Bool) -> String? {
         while true {
             guard deadlineHasNotExpired else { return nil }
@@ -91,8 +96,9 @@ public final class ControlClientLineReader {
                 return line
             }
 
-            guard shouldContinueReading() else { return nil }
-            guard waitForReadReadinessBeforeDeadline() else { return nil }
+            guard waitForReadReadinessBeforeDeadline(
+                shouldContinueReading: shouldContinueReading
+            ) else { return nil }
             let bytesRead = read(socket, &buffer, buffer.count - 1)
             guard bytesRead > 0 else { return nil }
 
@@ -140,24 +146,36 @@ public final class ControlClientLineReader {
         pendingStartIndex = 0
     }
 
-    private func waitForReadReadinessBeforeDeadline() -> Bool {
-        guard let deadlineUptimeNanoseconds else { return true }
+    private func waitForReadReadinessBeforeDeadline(
+        shouldContinueReading: () -> Bool
+    ) -> Bool {
         while true {
-            let now = monotonicNowNanoseconds()
-            guard now < deadlineUptimeNanoseconds else { return false }
-            let remaining = deadlineUptimeNanoseconds - now
-            let milliseconds = remaining / 1_000_000 + (remaining % 1_000_000 == 0 ? 0 : 1)
+            guard shouldContinueReading(),
+                  let timeoutMilliseconds = nextReadinessPollTimeoutMilliseconds() else {
+                return false
+            }
             var descriptor = pollfd(fd: socket, events: Int16(POLLIN), revents: 0)
             let result = poll(
                 &descriptor,
                 1,
-                Int32(min(milliseconds, UInt64(Int32.max)))
+                timeoutMilliseconds
             )
             if result > 0 {
                 return descriptor.revents & Int16(POLLIN | POLLHUP) != 0
             }
-            if result == 0 { return false }
+            if result == 0 { continue }
             guard errno == EINTR else { return false }
         }
+    }
+
+    private func nextReadinessPollTimeoutMilliseconds() -> Int32? {
+        guard let deadlineUptimeNanoseconds else {
+            return continuationPollIntervalMilliseconds
+        }
+        let now = monotonicNowNanoseconds()
+        guard now < deadlineUptimeNanoseconds else { return nil }
+        let remaining = deadlineUptimeNanoseconds - now
+        let milliseconds = remaining / 1_000_000 + (remaining % 1_000_000 == 0 ? 0 : 1)
+        return Int32(min(milliseconds, UInt64(continuationPollIntervalMilliseconds)))
     }
 }
