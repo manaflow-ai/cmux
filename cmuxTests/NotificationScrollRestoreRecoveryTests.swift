@@ -174,6 +174,47 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
+    @Test func liveNotificationAfterReplayUsesCurrentRowSpaceAndRetainsReplayBaseline() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(scrollbar(total: 400, offset: 356, len: 44))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(
+            boundary,
+            authoritativeGeometry: surfaceView.authoritativeGeometry
+        ))
+        surfaceView.setAuthoritativeScrollbar(scrollbar(total: 500, offset: 456, len: 44))
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 500, rowSpaceRevision: 1)
+        ))
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 10_000)
+        ))
+
+        #expect(surfaceView.performedRows == [356, 256])
+    }
+
+    @Test func portableReplayAnchorUsesCurrentViewportHeight() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(scrollbar(total: 400, offset: 356, len: 44))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(
+            boundary,
+            authoritativeGeometry: surfaceView.authoritativeGeometry
+        ))
+        surfaceView.setAuthoritativeScrollbar(scrollbar(total: 400, offset: 340, len: 60))
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+
+        #expect(surfaceView.performedRows == [240])
+    }
+
     @Test func unavailableAtomicRestoreRetriesOnLaterGeometry() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)

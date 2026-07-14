@@ -379,9 +379,12 @@ struct NotificationRowSnapshotBoundaryTests {
         )
         defer { terminal.releaseSurfaceForTesting() }
         let hostedView = terminal.hostedView
-        hostedView.notificationScrollRestoreState = .replaying(
-            expectedBoundary: "test-replay-boundary",
-            pendingPosition: .init(row: 0, totalRows: 400)
+        hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
+            replay: .replaying(expectedEndBoundary: "test-replay-boundary"),
+            request: .waitingForReplay(
+                position: .init(row: 0, totalRows: 400),
+                attemptsRemaining: 2
+            )
         )
         #expect(hostedView.hasPendingNotificationScrollRestore)
         let event = try #require(NSEvent.keyEvent(
@@ -401,9 +404,12 @@ struct NotificationRowSnapshotBoundaryTests {
         )
         defer { terminal.releaseSurfaceForTesting() }
         let hostedView = terminal.hostedView
-        hostedView.notificationScrollRestoreState = .replaying(
-            expectedBoundary: "test-replay-boundary",
-            pendingPosition: .init(row: 0, totalRows: 400)
+        hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
+            replay: .replaying(expectedEndBoundary: "test-replay-boundary"),
+            request: .waitingForReplay(
+                position: .init(row: 0, totalRows: 400),
+                attemptsRemaining: 2
+            )
         )
         #expect(hostedView.hasPendingNotificationScrollRestore)
 
@@ -416,9 +422,12 @@ struct NotificationRowSnapshotBoundaryTests {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
-        panel.hostedView.notificationScrollRestoreState = .replaying(
-            expectedBoundary: "test-replay-boundary",
-            pendingPosition: .init(row: 12, totalRows: 400)
+        panel.hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
+            replay: .replaying(expectedEndBoundary: "test-replay-boundary"),
+            request: .waitingForReplay(
+                position: .init(row: 12, totalRows: 400),
+                attemptsRemaining: 2
+            )
         )
         #expect(panel.hostedView.hasPendingNotificationScrollRestore)
 

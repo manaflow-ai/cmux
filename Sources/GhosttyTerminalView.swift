@@ -8184,7 +8184,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
     private var lastSentRow: Int?
-    var notificationScrollRestoreState: NotificationScrollRestoreState = .inactive
+    var notificationScrollRestoreState = NotificationScrollRestoreState()
     /// Tracks scrollback review so auto-scroll does not fight the user's position.
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false

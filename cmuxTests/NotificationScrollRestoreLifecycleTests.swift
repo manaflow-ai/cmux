@@ -132,8 +132,8 @@ struct NotificationScrollRestoreLifecycleTests {
         ))
         defer { panel.surface.releaseSurfaceForTesting() }
 
-        guard case .armed(let expectedStartBoundary, let expectedEndBoundary, let pendingPosition, _) =
-            panel.hostedView.notificationScrollRestoreState else {
+        guard case .armed(let expectedStartBoundary, let expectedEndBoundary) =
+            panel.hostedView.notificationScrollRestoreState.replay else {
             Issue.record("Replay environment did not arm the in-band boundary")
             return
         }
@@ -144,7 +144,7 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(expectedEndBoundary == SessionScrollbackReplayStore.endBoundaryValue(
             forReplayFilePath: replayFilePath
         ))
-        #expect(pendingPosition == nil)
+        #expect(panel.hostedView.notificationScrollRestoreState.pendingPosition == nil)
     }
 
     @Test func armedReplayWaitsForStartBoundaryBeforeRestoring() {
@@ -283,9 +283,12 @@ struct NotificationScrollRestoreLifecycleTests {
     @Test func anchorlessActivationClearsPendingRestoreWhilePanelIsHibernated() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
-        panel.hostedView.notificationScrollRestoreState = .replaying(
-            expectedBoundary: "expected-end",
-            pendingPosition: TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        panel.hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
+            replay: .replaying(expectedEndBoundary: "expected-end"),
+            request: .waitingForReplay(
+                position: TerminalNotificationScrollPosition(row: 100, totalRows: 400),
+                attemptsRemaining: 2
+            )
         )
         panel.enterAgentHibernation(
             agent: SessionRestorableAgentSnapshot(
@@ -305,9 +308,12 @@ struct NotificationScrollRestoreLifecycleTests {
     @Test func panelBindingActionCancelsPendingRestoreForAutomationEntrypoints() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
-        panel.hostedView.notificationScrollRestoreState = .replaying(
-            expectedBoundary: "expected-end",
-            pendingPosition: TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        panel.hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
+            replay: .replaying(expectedEndBoundary: "expected-end"),
+            request: .waitingForReplay(
+                position: TerminalNotificationScrollPosition(row: 100, totalRows: 400),
+                attemptsRemaining: 2
+            )
         )
 
         _ = panel.performBindingAction("clear_screen")
@@ -360,9 +366,12 @@ struct NotificationScrollRestoreLifecycleTests {
     @Test func internalBindingActionPreservesPendingRestore() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
-        panel.hostedView.notificationScrollRestoreState = .replaying(
-            expectedBoundary: "expected-end",
-            pendingPosition: TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        panel.hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
+            replay: .replaying(expectedEndBoundary: "expected-end"),
+            request: .waitingForReplay(
+                position: TerminalNotificationScrollPosition(row: 100, totalRows: 400),
+                attemptsRemaining: 2
+            )
         )
 
         _ = panel.performInternalBindingAction("write_screen_file:copy,vt")
