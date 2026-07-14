@@ -15,7 +15,7 @@ struct ClosedItemHistoryCoordinatorLifetimeTests {
         let releaseLoad = DispatchSemaphore(value: 0)
         defer { releaseLoad.signal() }
         let store = ClosedItemHistoryStore()
-        let captureTask: Task<Void, Never>?
+        let captureTask: AgentMetadataCapture?
         do {
             let coordinator = SharedLiveAgentIndex(
                 indexLoader: {

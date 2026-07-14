@@ -4,18 +4,18 @@ extension ClosedItemHistoryStore {
     @discardableResult
     func pushPreservingAgentMetadata(
         _ entry: ClosedItemHistoryEntry
-    ) -> Task<Void, Never>? {
+    ) -> AgentMetadataCapture? {
         pushPreservingAgentMetadata(entry, coordinatedBy: .shared)
     }
 
-    /// Records the core close snapshot immediately, then enriches it from an
-    /// off-main capture after terminal runtime teardown. The caller retains
-    /// only the lightweight panel and snapshot state until capture completes.
+    /// Records the core close snapshot immediately, then enriches it off-main.
+    /// The capture boundary lets the caller tear down the terminal once live
+    /// process metadata is immutable, before slower filesystem work completes.
     @discardableResult
     func pushPreservingAgentMetadata(
         _ entry: ClosedItemHistoryEntry,
         coordinatedBy sharedIndex: SharedLiveAgentIndex
-    ) -> Task<Void, Never>? {
+    ) -> AgentMetadataCapture? {
         let record = ClosedItemHistoryRecord(entry: entry)
         guard entry.requiresFreshAgentMetadataCapture() else {
             push(record)
@@ -23,7 +23,7 @@ extension ClosedItemHistoryStore {
         }
         pushPendingEnrichment(record)
         let refreshTask = sharedIndex.indexRefreshTaskForDestructiveClose()
-        return Task { @MainActor [weak self] in
+        let enrichmentTask = Task { @MainActor [weak self] in
             guard let self else { return }
             guard let index = await refreshTask.value else {
                 // Bonsplit has already committed this explicit user close and
@@ -38,6 +38,10 @@ extension ClosedItemHistoryStore {
                 currentEntry.mergingCapturedAgentMetadata(from: capturedEntry)
             }
         }
+        return AgentMetadataCapture(
+            enrichmentTask: enrichmentTask,
+            processMetadataCaptureTask: refreshTask.processMetadataCaptureTask
+        )
     }
 }
 

@@ -16275,7 +16275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    @discardableResult private func recordClosedWindowHistoryIfNeeded(for context: MainWindowContext) -> Task<Void, Never>? {
+    @discardableResult private func recordClosedWindowHistoryIfNeeded(for context: MainWindowContext) -> AgentMetadataCapture? {
         let shouldSuppressClosedWindowHistory = closedWindowHistorySuppressedWindowIds.remove(context.windowId) != nil
         guard !shouldSuppressClosedWindowHistory,
               !isTerminatingApp,

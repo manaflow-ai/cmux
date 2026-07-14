@@ -57,7 +57,9 @@ struct SharedLiveAgentIndexLoader {
         loadResultSynchronously().index
     }
 
-    func loadResultSynchronously() -> LoadResult {
+    func loadResultSynchronously(
+        processMetadataCaptured: @Sendable () -> Void = {}
+    ) -> LoadResult {
         let processSnapshot = processSnapshotProvider()
         let capturedAt = capturedAtProvider()
         let resolvedRegistry = registry ?? registryLoader(homeDirectory, fileManager)
@@ -77,6 +79,9 @@ struct SharedLiveAgentIndexLoader {
             capturedAt: capturedAt,
             processArgumentsProvider: cachedProcessArguments
         )
+        // Process-only session identity must be immutable before terminal teardown.
+        // Hook-store and transcript loading below may continue after the runtime exits.
+        processMetadataCaptured()
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
