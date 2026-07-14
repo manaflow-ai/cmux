@@ -51,7 +51,7 @@ extension TerminalController: ControlSystemContext {
                         continue
                     }
                     let workspace = manager.tabs[workspaceIndex]
-                    let workspaceNode = systemTreeWorkspaceNode(
+                    let workspaceNode = controlSystemTreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
                         selected: workspace.id == manager.selectedTabId
@@ -72,7 +72,7 @@ extension TerminalController: ControlSystemContext {
                 }
 
                 let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    systemTreeWorkspaceNode(
+                    controlSystemTreeWorkspaceNode(
                         workspace: workspace,
                         index: workspaceIndex,
                         selected: workspace.id == manager.selectedTabId
@@ -106,60 +106,32 @@ extension TerminalController: ControlSystemContext {
         )
     }
 
-    /// The byte-faithful twin of the former `v2TreeWorkspaceNode`, producing
-    /// Sendable nodes instead of payload dictionaries.
-    private func systemTreeWorkspaceNode(
+    /// Projects the authoritative control-plane workspace topology shared by
+    /// `system.tree`, `system.top`, and the task-manager snapshot.
+    func controlSystemTreeWorkspaceNode(
         workspace: Workspace,
         index: Int,
         selected: Bool
     ) -> ControlSystemTreeWorkspaceNode {
-        var paneByPanelId: [UUID: UUID] = [:]
-        var indexInPaneByPanelId: [UUID: Int] = [:]
-        var selectedInPaneByPanelId: [UUID: Bool] = [:]
-
-        let paneIds = workspace.bonsplitController.allPaneIds
-        for paneId in paneIds {
-            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
-            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
-            for (tabIndex, tab) in tabs.enumerated() {
-                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-                paneByPanelId[panelId] = paneId.id
-                indexInPaneByPanelId[panelId] = tabIndex
-                selectedInPaneByPanelId[panelId] = (tab.id == selectedTab?.id)
-            }
-        }
-
         var surfacesByPane: [UUID: [ControlSystemTreeSurfaceNode]] = [:]
-        let focusedSurfaceId = workspace.focusedPanelId
-        for (surfaceIndex, panel) in orderedPanels(in: workspace).enumerated() {
-            let paneUUID = paneByPanelId[panel.id]
-            let selectedInPane = selectedInPaneByPanelId[panel.id] ?? false
-
-            let isBrowser: Bool
-            let url: String?
-            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
-                isBrowser = true
-                url = browserPanel.currentURL?.absoluteString
-            } else {
-                isBrowser = false
-                url = nil
-            }
-
+        for (surfaceIndex, surface) in controlSurfaceSummaries(workspace: workspace).enumerated() {
+            let panel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel
+            let browserPanel = panel as? BrowserPanel
             let node = ControlSystemTreeSurfaceNode(
-                surfaceID: panel.id,
+                surfaceID: surface.surfaceID,
                 index: surfaceIndex,
-                typeRawValue: panel.panelType.rawValue,
-                title: workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
-                isFocused: panel.id == focusedSurfaceId,
-                isSelected: selectedInPane,
-                selectedInPane: selectedInPaneByPanelId[panel.id],
-                paneID: paneUUID,
-                indexInPane: indexInPaneByPanelId[panel.id],
-                tty: workspace.surfaceTTYNames[panel.id],
-                isBrowser: isBrowser,
-                url: url
+                typeRawValue: surface.typeRawValue,
+                title: surface.title,
+                isFocused: surface.isFocused,
+                isSelected: surface.selectedInPane ?? false,
+                selectedInPane: surface.selectedInPane,
+                paneID: surface.paneID,
+                indexInPane: surface.indexInPane,
+                tty: workspace.surfaceTTYNames[surface.surfaceID],
+                isBrowser: browserPanel != nil,
+                url: browserPanel?.currentURL?.absoluteString
             )
-            if let paneUUID {
+            if let paneUUID = surface.paneID {
                 surfacesByPane[paneUUID, default: []].append(node)
             }
         }
@@ -170,20 +142,18 @@ extension TerminalController: ControlSystemContext {
             }
         }
 
-        let focusedPaneId = workspace.bonsplitController.focusedPaneId
-        let panes: [ControlSystemTreePaneNode] = paneIds.enumerated().map { paneIndex, paneId in
-            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
-            let surfaceUUIDs: [UUID] = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
-            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
-            let selectedSurfaceUUID = selectedTab.flatMap { workspace.panelIdFromSurfaceId($0.id) }
-
-            return ControlSystemTreePaneNode(
-                paneID: paneId.id,
+        let paneSummaries = controlPaneSummaries(
+            workspace: workspace,
+            snapshot: workspace.bonsplitController.layoutSnapshot()
+        )
+        let panes: [ControlSystemTreePaneNode] = paneSummaries.enumerated().map { paneIndex, pane in
+            ControlSystemTreePaneNode(
+                paneID: pane.paneID,
                 index: paneIndex,
-                isFocused: paneId == focusedPaneId,
-                surfaceIDs: surfaceUUIDs,
-                selectedSurfaceID: selectedSurfaceUUID,
-                surfaces: surfacesByPane[paneId.id] ?? []
+                isFocused: pane.isFocused,
+                surfaceIDs: pane.surfaceIDs,
+                selectedSurfaceID: pane.selectedSurfaceID,
+                surfaces: surfacesByPane[pane.paneID] ?? []
             )
         }
 
@@ -228,14 +198,19 @@ extension TerminalController: ControlSystemContext {
             navigationTarget = nil
         }
 
-        DispatchQueue.main.async {
-            if shouldActivate {
-                AppDelegate.presentPreferencesWindow(navigationTarget: navigationTarget)
-            } else {
-                SettingsWindowPresenter.show(navigationTarget: navigationTarget)
-            }
+        // Present synchronously (this context is @MainActor) so the reply
+        // reflects reality: `opened` if-and-only-if a window materialized.
+        // "OK but nothing happened" was the #7775 failure shape.
+        let result = SettingsWindowPresenter.show(
+            navigationTarget: navigationTarget,
+            activateApp: shouldActivate
+        )
+        switch result {
+        case .presented, .orderedWhileAppHidden:
+            return .opened(target: navigationTarget?.rawValue ?? "general")
+        case .failed(let reason):
+            return .failed(message: reason)
         }
-        return .opened(target: navigationTarget?.rawValue ?? "general")
     }
 
     func controlFeedbackOpen(workspaceID: UUID?, windowID: UUID?, requestedActivate: Bool) {

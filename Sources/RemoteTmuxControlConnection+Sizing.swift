@@ -2,6 +2,62 @@ import Foundation
 
 extension RemoteTmuxControlConnection {
 
+    @discardableResult
+    func recordWindowSizeClaim(
+        windowId: Int,
+        columns: Int,
+        rows: Int
+    ) -> (columns: Int, rows: Int) {
+        let previous = lastWindowSizes.updateValue((columns, rows), forKey: windowId)
+        if previous?.0 == maximumWindowClaimColumns, columns < maximumWindowClaimColumns {
+            maximumWindowClaimColumns = lastWindowSizes.values.reduce(0) { max($0, $1.0) }
+        } else {
+            maximumWindowClaimColumns = max(maximumWindowClaimColumns, columns)
+        }
+        if previous?.1 == maximumWindowClaimRows, rows < maximumWindowClaimRows {
+            maximumWindowClaimRows = lastWindowSizes.values.reduce(0) { max($0, $1.1) }
+        } else {
+            maximumWindowClaimRows = max(maximumWindowClaimRows, rows)
+        }
+        return (maximumWindowClaimColumns, maximumWindowClaimRows)
+    }
+
+    func removeWindowSizeClaim(windowId: Int) {
+        guard let removed = lastWindowSizes.removeValue(forKey: windowId) else {
+            sentWindowSizes.removeValue(forKey: windowId)
+            return
+        }
+        sentWindowSizes.removeValue(forKey: windowId)
+        if removed.0 == maximumWindowClaimColumns {
+            maximumWindowClaimColumns = lastWindowSizes.values.reduce(0) { max($0, $1.0) }
+        }
+        if removed.1 == maximumWindowClaimRows {
+            maximumWindowClaimRows = lastWindowSizes.values.reduce(0) { max($0, $1.1) }
+        }
+        synchronizeClientSizeToWindowClaims()
+    }
+
+    func retainWindowSizeClaims(for liveWindowIDs: Set<Int>) {
+        lastWindowSizes = lastWindowSizes.filter { liveWindowIDs.contains($0.key) }
+        sentWindowSizes = sentWindowSizes.filter { liveWindowIDs.contains($0.key) }
+        maximumWindowClaimColumns = lastWindowSizes.values.reduce(0) { max($0, $1.0) }
+        maximumWindowClaimRows = lastWindowSizes.values.reduce(0) { max($0, $1.1) }
+        synchronizeClientSizeToWindowClaims()
+    }
+
+    /// Keeps the control client's envelope equal to the largest live per-window claims.
+    private func synchronizeClientSizeToWindowClaims() {
+        guard supportsPerWindowSize,
+              maximumWindowClaimColumns > 0,
+              maximumWindowClaimRows > 0,
+              lastClientSize?.columns != maximumWindowClaimColumns
+                || lastClientSize?.rows != maximumWindowClaimRows
+        else { return }
+        setClientSize(
+            columns: maximumWindowClaimColumns,
+            rows: maximumWindowClaimRows
+        )
+    }
 
     /// Sizes the tmux control client to `columns`×`rows` cells (tmux
     /// `refresh-client -C`) so the remote windows/panes reflow to the rendered
@@ -73,27 +129,34 @@ extension RemoteTmuxControlConnection {
     /// method either way.
     func setWindowSize(windowId: Int, columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
-        // Dedup only while per-window sizing is live: on the session-wide
-        // fallback the server holds ONE size, so a window's own last request
-        // being unchanged does not mean the server still has it (another
-        // window may have re-sized the session since).
-        if supportsPerWindowSize, let last = lastWindowSizes[windowId], last == (columns, rows),
-           connectionState == .connected {
-            return
-        }
-        #if DEBUG
-        cmuxDebugLog("remote.rects.claim @\(windowId) \(columns)x\(rows)")
-        #endif
-        // Record BEFORE the old-server fallback branch: the table is also the
-        // hidden-mirror claim ledger (updateClientSize's write-once gate) and
-        // the per-window dedup baseline — skipping it on the fallback would
-        // let every hidden mirror re-push a session-wide size forever.
-        lastWindowSizes[windowId] = (columns, rows)
+        // Record desired state before dedup. If a different debounced size is
+        // pending and the user returns to the size already on the server, an
+        // early return must cancel that stale task instead of letting it win.
+        _ = recordWindowSizeClaim(windowId: windowId, columns: columns, rows: rows)
         lastSizeRequestWindowId = windowId
         guard supportsPerWindowSize else {
             setClientSize(columns: columns, rows: rows)
             return
         }
+        // The CLIENT's own size must cover the largest window claim: tmux
+        // derives window sizes from client sizes, and per-window pins do
+        // not carry against a client still sitting at its 80-column
+        // default. Track the exact live envelope upward or downward before
+        // per-window dedup, because a claim change can leave this pin intact.
+        synchronizeClientSizeToWindowClaims()
+        // Dedup only while per-window sizing is live: on the session-wide
+        // fallback the server holds ONE size, so a window's own last request
+        // being unchanged does not mean the server still has it (another
+        // window may have re-sized the session since).
+        if supportsPerWindowSize, let sent = sentWindowSizes[windowId], sent == (columns, rows),
+           connectionState == .connected {
+            windowSizeDebounceTasks[windowId]?.cancel()
+            windowSizeDebounceTasks[windowId] = nil
+            return
+        }
+        #if DEBUG
+        cmuxDebugLog("remote.rects.claim @\(windowId) \(columns)x\(rows)")
+        #endif
         lastSizingSendAt = .now
         guard connectionState == .connected else { return }
         windowSizeDebounceTasks[windowId]?.cancel()
@@ -114,10 +177,17 @@ extension RemoteTmuxControlConnection {
     /// Sends the per-window form, tagging the command so an `%error` reply
     /// can flip the capability off and replay via the session-wide path.
     func sendPerWindowSize(windowId: Int, columns: Int, rows: Int) {
-        _ = sendInternal(
+        // Record AFTER the send reports success: a send attempted while the
+        // transport is down returns false, and recording it anyway makes
+        // the ledger claim the server has a size it never received — dedup
+        // then suppresses the retry and the claim wedges exactly the way
+        // this ledger exists to prevent.
+        if sendInternal(
             "refresh-client -C '@\(windowId):\(columns)x\(rows)'",
             kind: .perWindowSize(windowId)
-        )
+        ) {
+            sentWindowSizes[windowId] = (columns, rows)
+        }
     }
 
 
@@ -165,10 +235,9 @@ extension RemoteTmuxControlConnection {
         // Not ready yet (no grid computed / topology not drained): keep the one-shot
         // armed for the next size apply instead of consuming it uselessly.
         guard connectionState == .connected, !windowsByID.isEmpty else { return }
-        // The size the attach applied: the session-wide client size, or — on
-        // the per-window path, which never sets lastClientSize — the pushed
-        // size of a window that already matches it (the no-op-push case this
-        // kick exists for).
+        // The size the attach applied. Per-window sizing also maintains a
+        // session-wide envelope, so capability — not `lastClientSize` presence —
+        // decides which kick can remain effective through tmux coalescing.
         let sessionSize = lastClientSize
         let perWindowNoOps: [(windowId: Int, columns: Int, rows: Int)] = lastWindowSizes
             .compactMap { id, size -> (windowId: Int, columns: Int, rows: Int)? in
@@ -178,12 +247,10 @@ extension RemoteTmuxControlConnection {
             }
             .sorted { $0.windowId < $1.windowId }
         guard sessionSize != nil || !perWindowNoOps.isEmpty else { return }
-        if let size = sessionSize {
+        if !supportsPerWindowSize, let size = sessionSize {
             if size.rows <= 2 {
-                if perWindowNoOps.isEmpty {
-                    pendingAttachRedrawKick = false
-                    return
-                }
+                pendingAttachRedrawKick = false
+                return
             } else {
                 // Only kick when some mirrored window ALREADY has the target size — i.e. the
                 // size apply above cannot produce a SIGWINCH for it. (window-size latest makes
@@ -195,7 +262,8 @@ extension RemoteTmuxControlConnection {
                     #if DEBUG
                     cmuxDebugLog("remote.size.kick skip=windowSizeDiffers target=\(size.columns)x\(size.rows)")
                     #endif
-                    if perWindowNoOps.isEmpty { pendingAttachRedrawKick = false }
+                    pendingAttachRedrawKick = false
+                    return
                 } else {
                     pendingAttachRedrawKick = false
                     #if DEBUG
@@ -226,6 +294,10 @@ extension RemoteTmuxControlConnection {
                     return
                 }
             }
+        }
+        guard supportsPerWindowSize else {
+            pendingAttachRedrawKick = false
+            return
         }
         let kicks = perWindowNoOps.filter { $0.rows > 2 }
         guard !kicks.isEmpty else {

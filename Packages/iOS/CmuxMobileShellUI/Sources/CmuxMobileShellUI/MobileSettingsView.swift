@@ -10,6 +10,10 @@ import SwiftUI
 /// Mac it pairs with), plus terminal shortcuts, agent notifications, and the
 /// paired Mac. Presented as a sheet from the workspace list.
 struct MobileSettingsView: View {
+    /// Shared with `UserDefaultsAnalyticsConsentProvider`; keep the string stable
+    /// so Settings controls the same gate used by analytics and crash reporting.
+    private static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
+
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
@@ -19,6 +23,7 @@ struct MobileSettingsView: View {
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
     /// where the "Switch Mac" entry is hidden.
     var store: CMUXMobileShellStore?
+    @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
@@ -39,36 +44,7 @@ struct MobileSettingsView: View {
         @Bindable var displaySettings = displaySettings
         return NavigationStack {
             Form {
-                Section {
-                    LabeledContent {
-                        Text(accountEmail)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    } label: {
-                        Label(accountDisplayName, systemImage: "person.crop.circle")
-                    }
-                    .accessibilityIdentifier("MobileSettingsAccountRow")
-
-                    if let signOut {
-                        Button(role: .destructive) {
-                            signOut()
-                            dismiss()
-                        } label: {
-                            Label(
-                                L10n.string("mobile.signOut", defaultValue: "Sign Out"),
-                                systemImage: "rectangle.portrait.and.arrow.right"
-                            )
-                        }
-                        .accessibilityIdentifier("MobileSettingsSignOut")
-                    }
-                } header: {
-                    Text(L10n.string("mobile.settings.account", defaultValue: "Account"))
-                } footer: {
-                    Text(L10n.string(
-                        "mobile.settings.accountFooter",
-                        defaultValue: "This device must be signed in to the same cmux account as the computer you pair with."
-                    ))
-                }
+                MobileSettingsAccountSection(signOut: signOut)
 
                 // Stack team switcher. Only shown when the user belongs to more than
                 // one team. Rendered as an INLINE picker — each team is a row with a
@@ -265,6 +241,33 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsNotifications")
                 }
 
+                Section {
+                    Toggle(isOn: $sendAnonymousTelemetry) {
+                        Text(L10n.string(
+                            Self.crashReportingEnabled
+                                ? "mobile.settings.telemetry"
+                                : "mobile.settings.telemetryAnalyticsOnly",
+                            defaultValue: Self.crashReportingEnabled
+                                ? "Share Analytics and Crash Reports"
+                                : "Share Anonymous Analytics"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTelemetryToggle")
+                } header: {
+                    Text(L10n.string("mobile.settings.privacy", defaultValue: "Privacy"))
+                } footer: {
+                    Text(L10n.string(
+                        Self.crashReportingEnabled
+                            ? "mobile.settings.telemetryFooter"
+                            : "mobile.settings.telemetryAnalyticsOnlyFooter",
+                        defaultValue: Self.crashReportingEnabled
+                            ? "When off, cmux does not send iPhone or iPad product analytics or crash reports."
+                            : "When off, cmux does not send iPhone or iPad product analytics."
+                    ))
+                }
+
+                MobileSettingsLegalSupportSection()
+
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
                     LabeledContent {
                         Text(AppVersionInfo.current().displayString)
@@ -327,6 +330,17 @@ struct MobileSettingsView: View {
         .accessibilityIdentifier("MobileSettingsView")
     }
 
+    private static var crashReportingEnabled: Bool {
+        switch Bundle.main.object(forInfoDictionaryKey: "CMUXCrashReportingEnabled") {
+        case let enabled as Bool:
+            enabled
+        case let enabled as String:
+            enabled.caseInsensitiveCompare("NO") != .orderedSame
+        default:
+            true
+        }
+    }
+
     /// Which setup gate to mark as the user's current blocker. Settings is reached
     /// only from the connected workspace list, so the user has cleared every gate
     /// and there is no "You are here" step; the help is a plain reference. `nil`
@@ -357,18 +371,6 @@ struct MobileSettingsView: View {
         )
     }
 
-    private var accountEmail: String {
-        let email = authManager.currentUser?.primaryEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let email, !email.isEmpty { return email }
-        return L10n.string("mobile.settings.notSignedIn", defaultValue: "Not signed in")
-    }
-
-    private var accountDisplayName: String {
-        let name = authManager.currentUser?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let name, !name.isEmpty { return name }
-        return L10n.string("mobile.settings.account", defaultValue: "Account")
-    }
-
     #if DEBUG
     private func debugLayoutSlider(
         title: String,
@@ -396,6 +398,5 @@ struct MobileSettingsView: View {
         )
     }
     #endif
-
 }
 #endif

@@ -87,6 +87,16 @@ import Testing
         #expect(view.connectionChrome == .macStatusRow)
     }
 
+    @Test
+    func macUpdateHintIndicatorShowsOnlyWithoutConnectionChrome() {
+        #expect(chrome(connectionStatus: .connected).showsMacUpdateHintIndicator)
+        #expect(!chrome(connectionRequiresReauth: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
+        #expect(!chrome(isRecoveringConnection: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
+        #expect(!chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
+        #expect(!chrome(connectionStatus: .unavailable).showsMacUpdateHintIndicator)
+        #expect(!chrome(connectionStatus: .reconnecting).showsMacUpdateHintIndicator)
+    }
+
     private func chrome(
         hasStore: Bool = true,
         connectionRequiresReauth: Bool = false,

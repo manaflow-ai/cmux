@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxWorkspaces
 import Darwin
 import CmuxNotifications
 import CmuxSidebar
@@ -37,6 +38,8 @@ extension Workspace {
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
+        let restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration?
+        let shellActivityState: PanelShellActivityState?
         let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
         /// The panel's persistent note anchor (`Workspace.noteAnchorIdsByPanelId`),
@@ -71,6 +74,8 @@ extension Workspace {
                 restoredUnreadIndicator: restoredUnreadIndicator,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
+                shellActivityState: shellActivityState,
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
                 noteAnchorId: noteAnchorId,

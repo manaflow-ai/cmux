@@ -79,6 +79,9 @@ public protocol SidebarGitHosting: AnyObject {
     func updatePanelPullRequest(workspaceId: UUID, panelId: UUID, badge: SidebarPullRequestBadge)
     /// Clears the panel's pull-request badge.
     func clearPanelPullRequest(workspaceId: UUID, panelId: UUID)
+    /// Asks the host to re-probe the panel's local git metadata because the
+    /// pull-request branch disagrees with the current sidebar branch projection.
+    func schedulePanelGitMetadataProbe(workspaceId: UUID, panelId: UUID, reason: String)
     /// Clears every workspace's sidebar git metadata (branches and badges).
     func clearAllSidebarGitMetadata()
     /// Clears every workspace's sidebar pull-request badges.

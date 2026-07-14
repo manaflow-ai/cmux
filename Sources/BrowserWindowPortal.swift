@@ -215,17 +215,7 @@ final class WindowBrowserHostView: NSView {
         let initialInspectorFrame: NSRect
     }
 
-    private enum DividerCursorKind: Equatable {
-        case vertical
-        case horizontal
-
-        var cursor: NSCursor {
-            switch self {
-            case .vertical: return .resizeLeftRight
-            case .horizontal: return .resizeUpDown
-            }
-        }
-    }
+    private typealias DividerCursorKind = PortalDividerCursorKind
 
     override var isOpaque: Bool { false }
     private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
@@ -240,6 +230,7 @@ final class WindowBrowserHostView: NSView {
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
+    private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
@@ -347,7 +338,7 @@ final class WindowBrowserHostView: NSView {
         super.resetCursorRects()
         invalidateSplitDividerRegionCache()
         let regions = splitDividerRegions()
-        let expansion: CGFloat = 4
+        let expansion = PortalSplitDividerRegion.dividerHitExpansion
         for region in regions {
             var rectInHost = convert(region.rectInWindow, from: nil)
             rectInHost = rectInHost.insetBy(
@@ -766,6 +757,10 @@ final class WindowBrowserHostView: NSView {
         let nextKind = resolvedDividerHit?.kind ?? (resolvedHostedInspectorHit == nil ? nil : .vertical)
         guard let nextKind else {
             clearActiveDividerCursor(restoreArrow: true)
+            return
+        }
+        guard dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
+            clearActiveDividerCursor(restoreArrow: false)
             return
         }
         activeDividerCursorKind = nextKind
@@ -1518,7 +1513,7 @@ final class WindowBrowserSlotView: NSView {
     func pinHostedWebView(_ webView: WKWebView) {
         guard webView.superview === self else { return }
 
-        let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(in: self, primaryWebView: webView)
+        let hasCompanionWKSubviews = browserPortalHasVisibleWebKitCompanionSubview(for: webView)
         let needsPlainWebViewFrameReset =
             !hasCompanionWKSubviews &&
             Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
@@ -1554,28 +1549,6 @@ final class WindowBrowserSlotView: NSView {
             abs(frame.minY - bounds.minY) > epsilon ||
             abs(frame.width - bounds.width) > epsilon ||
             abs(frame.height - bounds.height) > epsilon
-    }
-
-    private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
-        var stack = host.subviews.filter { $0 !== primaryWebView }
-        while let current = stack.popLast() {
-            if current.isDescendant(of: primaryWebView) {
-                continue
-            }
-            if current.isHidden || current.alphaValue <= 0 {
-                continue
-            }
-            if String(describing: type(of: current)).contains("WK") {
-                let width = max(current.frame.width, current.bounds.width)
-                let height = max(current.frame.height, current.bounds.height)
-                if width > 1, height > 1 {
-                    return true
-                }
-                continue
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {
@@ -2404,6 +2377,13 @@ final class WindowBrowserPortal: NSObject {
             if reattachRenderingState {
                 webKitSubview.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
             }
+            if webKitSubview === webView {
+                webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+                    reason: "\(reason):\(phase)",
+                    companionSearchRoot: containerView,
+                    relativeTo: window
+                )
+            }
             webKitSubview.displayIfNeeded()
         }
         containerView.displayIfNeeded()
@@ -2531,6 +2511,7 @@ final class WindowBrowserPortal: NSObject {
             "reveal",
             "transientRecovery",
             "anchor",
+            "firstSizedReveal",
         ]
 
         static func resolve(reasons: [String]) -> Self {
@@ -3537,6 +3518,9 @@ final class WindowBrowserPortal: NSObject {
         }
         if forcePresentationRefresh {
             refreshReasons.append("anchor")
+        }
+        if webView.browserPortalNeedsFirstSizedRevealNudge {
+            refreshReasons.append("firstSizedReveal")
         }
         if transientRecoveryReason == nil {
             resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)

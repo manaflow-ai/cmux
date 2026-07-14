@@ -186,13 +186,21 @@ extension GhosttySurfaceView {
         if let oldSurface {
             GhosttySurfaceView.unregister(surface: oldSurface)
             pendingSurfaceFreeCount += 1
-            enqueueSurfaceFree(oldSurface, bridge: oldBridge, on: oldQueue) { [weak self] in
+            enqueueSurfaceFree(
+                oldSurface,
+                bridge: oldBridge,
+                generation: surfaceGeneration,
+                on: oldQueue
+            ) { [weak self] in
                 guard let self else { return }
                 self.pendingSurfaceFreeCount = max(0, self.pendingSurfaceFreeCount - 1)
                 MobileDebugLog.anchormux(
                     "render.recover.free_drained pendingFrees=\(self.pendingSurfaceFreeCount)"
                 )
                 self.resumePausedRenderPipelineRecoveryIfPossible()
+                #if DEBUG
+                GhosttySurfaceView.RecoveryStressObservers.notifyFreeDrain(self)
+                #endif
             }
         }
 

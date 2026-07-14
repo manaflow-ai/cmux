@@ -3194,8 +3194,8 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             manuallyUnread: false,
             restoredUnreadIndicator: nil,
             restorableAgent: nil,
-            restorableAgentResumeState: nil,
-            restoredResumeSessionWorkingDirectory: nil,
+            restorableAgentResumeState: nil, restoredAgentCompletedGeneration: nil,
+            shellActivityState: nil, restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: resumeBinding,
             noteAnchorId: nil,
             agentRuntime: nil,
@@ -4463,24 +4463,22 @@ final class WorkspaceNotificationReorderTests: XCTestCase {
 
 @MainActor
 final class WorkspaceTeardownTests: XCTestCase {
-    func testTeardownAllPanelsClearsPanelMetadataCaches() {
+    func testTeardownAllPanelsClearsPanelMetadataCaches() throws {
         let workspace = Workspace()
-        guard let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected focused panel in new workspace")
-            return
-        }
+        let initialPanelId = try XCTUnwrap(workspace.focusedPanelId)
 
         workspace.setPanelCustomTitle(panelId: initialPanelId, title: "Initial custom title")
         workspace.setPanelPinned(panelId: initialPanelId, pinned: true)
 
-        guard let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal) else {
-            XCTFail("Expected split panel to be created")
-            return
-        }
+        let splitPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal)
+        )
 
         workspace.setPanelCustomTitle(panelId: splitPanel.id, title: "Split custom title")
         workspace.setPanelPinned(panelId: splitPanel.id, pinned: true)
         workspace.markPanelUnread(initialPanelId)
+        workspace.agentListeningPorts = [4200]
+        workspace.recomputeListeningPorts()
 
         XCTAssertFalse(workspace.panels.isEmpty)
         XCTAssertFalse(workspace.panelTitles.isEmpty)
@@ -4495,6 +4493,8 @@ final class WorkspaceTeardownTests: XCTestCase {
         XCTAssertTrue(workspace.panelCustomTitles.isEmpty)
         XCTAssertTrue(workspace.pinnedPanelIds.isEmpty)
         XCTAssertTrue(workspace.manualUnreadPanelIds.isEmpty)
+        XCTAssertTrue(workspace.agentListeningPorts.isEmpty)
+        XCTAssertFalse(workspace.listeningPorts.contains(4200))
     }
 
     func testDisabledPortalRenderingDoesNotRestoreTerminalVisibility() throws {

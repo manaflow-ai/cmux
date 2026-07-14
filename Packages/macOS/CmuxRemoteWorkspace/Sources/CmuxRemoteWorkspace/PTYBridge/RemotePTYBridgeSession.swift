@@ -30,6 +30,7 @@ extension RemotePTYBridgeServer {
         private let command: String?
         private let requireExisting: Bool
         private let token: String
+        private let onAuthenticated: () -> Void
         let queue: DispatchQueue
         let rpcQueue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.rpc.\(UUID().uuidString)", qos: .userInitiated)
         let strings: any RemotePTYBridgeStrings
@@ -65,6 +66,7 @@ extension RemotePTYBridgeServer {
             queue: DispatchQueue,
             strings: any RemotePTYBridgeStrings,
             clock: any RemoteProxyRetryClock,
+            onAuthenticated: @escaping () -> Void,
             onClose: @escaping () -> Void
         ) {
             self.connection = connection
@@ -77,6 +79,7 @@ extension RemotePTYBridgeServer {
             self.queue = queue
             self.strings = strings
             self.clock = clock
+            self.onAuthenticated = onAuthenticated
             self.onClose = onClose
             // One-time seq-ack decision: the attach opt-in and the input
             // window accounting must read the same value, or the daemon and
@@ -169,6 +172,7 @@ extension RemotePTYBridgeServer {
                 close(detach: false)
                 return
             }
+            onAuthenticated()
             let cols = Self.strictInt(payload["cols"]) ?? 80
             let rows = Self.strictInt(payload["rows"]) ?? 24
             clientPID = Self.strictPositivePID(payload["client_pid"])
@@ -206,13 +210,14 @@ extension RemotePTYBridgeServer {
         }
 
         private func finishAttach(_ result: Result<RemotePTYBridgeAttachment, any Error>) {
+            isAttaching = false
             guard !isClosed else {
                 if case .success(let remoteAttachment) = result {
                     detachRemoteAttachment(remoteAttachment)
                 }
+                onClose()
                 return
             }
-            isAttaching = false
             do {
                 let remoteAttachment = try result.get()
                 self.remoteAttachment = remoteAttachment
@@ -402,7 +407,6 @@ extension RemotePTYBridgeServer {
             isClosed = true
             handshakeTimeoutTask?.cancel()
             handshakeTimeoutTask = nil
-            isAttaching = false
             pendingInputBeforeAttach.removeAll(keepingCapacity: false)
             inputFlow.reset()
             pendingPTYEventsBeforeReady.removeAll(keepingCapacity: false)
@@ -428,6 +432,9 @@ extension RemotePTYBridgeServer {
                 return
             }
             connection.cancel()
+            if isAttaching {
+                return
+            }
             onClose()
         }
 

@@ -261,11 +261,11 @@ private struct AgentIconImage: View, Equatable {
 
     var body: some View {
         if let assetName = agent.assetName {
-            Image(assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: size, height: size)
+            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                source: .asset(name: assetName, bundle: .main),
+                size: NSSize(width: size, height: size)
+            ))
+            .frame(width: size, height: size)
         } else {
             Image(systemName: agent.systemImageName ?? "person.crop.circle")
                 .cmuxFont(size: max(size - 2, 10), weight: .regular)

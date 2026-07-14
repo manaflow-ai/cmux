@@ -1,6 +1,25 @@
 import Foundation
 
 extension RemoteTmuxControlConnection {
+    /// Subscribes to live changes of `paneId`'s expanded `pane-border-format`
+    /// (see ``headerSubscriptionPrefix``). The pane-rects fetch seeds the
+    /// initial label; this keeps it current between layout events. Quoting is
+    /// load-bearing — see ``panePathSubscriptionCommand(paneId:)``.
+    func subscribePaneHeader(paneId: Int) {
+        send("refresh-client -B \"\(Self.headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\"")
+    }
+
+    func unsubscribePaneHeader(paneId: Int) {
+        send("refresh-client -B \(Self.headerSubscriptionPrefix)\(paneId)")
+    }
+
+    /// Format for close-time activity queries: the pane id (for cache refresh and
+    /// multi-pane correlation) plus the same `alternate_on`/`pane_current_command`
+    /// pair the reflow subscription streams. Quoted by the command builders — see
+    /// ``panePathSubscriptionCommand(paneId:)`` for why the quoting is load-bearing.
+    static let activityQueryFormat = "#{pane_id}\(PaneForegroundState.fieldSeparator)"
+        + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}"
+
 
 
     /// One-shot query of a pane's working directory (`pane_current_path`),
@@ -104,6 +123,22 @@ extension RemoteTmuxControlConnection {
     /// handling for the parse, and ``PaneForegroundState/plainShellCommands`` for the policy.
     func subscribePaneReflow(paneId: Int) {
         send(Self.paneReflowSubscriptionCommand(paneId: paneId))
+    }
+
+    /// All three live subscriptions (reflow, cwd, header) for a pane in ONE
+    /// `refresh-client`. tmux accepts multiple `-B` directives per command,
+    /// so this is exactly equivalent to the three separate sends but costs
+    /// one FIFO slot instead of three. Under rapid pane churn the per-pane
+    /// subscription sends dominate the command stream, and collapsing 3→1
+    /// keeps the FIFO from backing up faster than tmux drains it.
+    func subscribePaneAll(paneId: Int) {
+        send(
+            "refresh-client"
+                + " -B \"\(Self.reflowSubscriptionPrefix)\(paneId):%\(paneId):"
+                + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}\""
+                + " -B \"\(Self.cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}\""
+                + " -B \"\(Self.headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\""
+        )
     }
 
 

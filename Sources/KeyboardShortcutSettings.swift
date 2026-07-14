@@ -183,9 +183,12 @@ enum KeyboardShortcutSettings {
         case openDiffViewer
         case diffViewerScrollDown
         case diffViewerScrollUp
+        case diffViewerScrollHalfPageDown, diffViewerScrollHalfPageUp
+        case diffViewerScrollDownEmacs, diffViewerScrollUpEmacs
         case diffViewerScrollToBottom
         case diffViewerScrollToTop
         case diffViewerOpenFileSearch
+        case diffViewerNextFile, diffViewerPreviousFile
 
         var id: String { rawValue }
 
@@ -301,11 +304,17 @@ enum KeyboardShortcutSettings {
             case .toggleBrowserFocusMode: return String(localized: "shortcut.toggleBrowserFocusMode.label", defaultValue: "Enter Browser Focus Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
             case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
-            case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
-            case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
-            case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
-            case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Diff Viewer: Scroll to Top")
+            case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Viewers: Scroll Down")
+            case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Viewers: Scroll Up")
+            case .diffViewerScrollHalfPageDown: return String(localized: "shortcut.diffViewerScrollHalfPageDown.label", defaultValue: "Viewers: Scroll Half Page Down")
+            case .diffViewerScrollHalfPageUp: return String(localized: "shortcut.diffViewerScrollHalfPageUp.label", defaultValue: "Viewers: Scroll Half Page Up")
+            case .diffViewerScrollDownEmacs: return String(localized: "shortcut.diffViewerScrollDownEmacs.label", defaultValue: "Viewers: Scroll Down (Emacs)")
+            case .diffViewerScrollUpEmacs: return String(localized: "shortcut.diffViewerScrollUpEmacs.label", defaultValue: "Viewers: Scroll Up (Emacs)")
+            case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Viewers: Scroll to Bottom")
+            case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Viewers: Scroll to Top")
             case .diffViewerOpenFileSearch: return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
+            case .diffViewerNextFile: return String(localized: "shortcut.diffViewerNextFile.label", defaultValue: "Diff Viewer: Next File")
+            case .diffViewerPreviousFile: return String(localized: "shortcut.diffViewerPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
             }
         }
 
@@ -579,6 +588,14 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
             case .diffViewerScrollUp:
                 return StoredShortcut(key: "k", command: false, shift: false, option: false, control: false)
+            case .diffViewerScrollHalfPageDown:
+                return StoredShortcut(key: "d", command: false, shift: false, option: false, control: true)
+            case .diffViewerScrollHalfPageUp:
+                return StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
+            case .diffViewerScrollDownEmacs:
+                return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
+            case .diffViewerScrollUpEmacs:
+                return StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)
             case .diffViewerScrollToBottom:
                 return StoredShortcut(key: "g", command: false, shift: true, option: false, control: false)
             case .diffViewerScrollToTop:
@@ -588,6 +605,16 @@ enum KeyboardShortcutSettings {
                 )
             case .diffViewerOpenFileSearch:
                 return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
+            case .diffViewerNextFile:
+                return StoredShortcut(
+                    first: ShortcutStroke(key: "]", command: false, shift: false, option: false, control: false),
+                    second: ShortcutStroke(key: "f", command: false, shift: false, option: false, control: false)
+                )
+            case .diffViewerPreviousFile:
+                return StoredShortcut(
+                    first: ShortcutStroke(key: "[", command: false, shift: false, option: false, control: false),
+                    second: ShortcutStroke(key: "f", command: false, shift: false, option: false, control: false)
+                )
             }
         }
 
@@ -604,36 +631,8 @@ enum KeyboardShortcutSettings {
             }
         }
 
-        var allowsBareFirstStroke: Bool {
-            switch self {
-            case .diffViewerScrollDown,
-                 .diffViewerScrollUp,
-                 .diffViewerScrollToBottom,
-                 .diffViewerScrollToTop,
-                 .diffViewerOpenFileSearch,
-                 .fileExplorerOpenSelection,
-                 .fileExplorerOpenSelectionFinderAlias:
-                return true
-            default:
-                return false
-            }
-        }
-
         var allowsChordShortcut: Bool {
             self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias && self != .cycleTextBoxSubmitAction
-        }
-
-        var isBrowserContentShortcut: Bool {
-            switch self {
-            case .diffViewerScrollDown,
-                 .diffViewerScrollUp,
-                 .diffViewerScrollToBottom,
-                 .diffViewerScrollToTop,
-                 .diffViewerOpenFileSearch:
-                return true
-            default:
-                return false
-            }
         }
 
         func displayedShortcutString(for shortcut: StoredShortcut) -> String {
@@ -801,58 +800,6 @@ enum KeyboardShortcutSettings {
             )
         }
     }
-
-    private static func reservedSystemWideHotkeyShortcuts(excluding currentAction: Action) -> [StoredShortcut] {
-        var reserved: [StoredShortcut] = []
-
-        for action in Action.allCases where action != currentAction {
-            let shortcut = systemWideConflictShortcut(for: action)
-            guard !shortcut.isUnbound else { continue }
-            if shortcut.hasChord {
-                reserved.append(StoredShortcut(first: shortcut.firstStroke))
-                continue
-            }
-            if action.usesNumberedDigitMatching {
-                let stroke = shortcut.firstStroke
-                reserved.append(
-                    contentsOf: (1...9).map { digit in
-                        StoredShortcut(
-                            key: String(digit),
-                            command: stroke.command,
-                            shift: stroke.shift,
-                            option: stroke.option,
-                            control: stroke.control
-                        )
-                    }
-                )
-                continue
-            }
-            reserved.append(shortcut)
-        }
-
-        reserved.append(contentsOf: hardcodedSystemWideHotkeyConflicts.filter { currentAction != .showHideAllWindows || $0.key != "`" || !$0.command || $0.option || $0.control })
-        return reserved
-    }
-
-    private static func systemWideConflictShortcut(for action: Action) -> StoredShortcut {
-        switch action {
-        case .showHideAllWindows:
-            return SystemWideHotkeySettings.shortcut()
-        default:
-            return KeyboardShortcutSettings.shortcut(for: action)
-        }
-    }
-
-    private static let hardcodedSystemWideHotkeyConflicts: [StoredShortcut] = [
-        StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true),
-        StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true),
-        StoredShortcut(key: "`", command: true, shift: false, option: false, control: false),
-        StoredShortcut(key: "`", command: true, shift: true, option: false, control: false),
-        // Cmd+. is AppKit's standard cancel keystroke for modal alerts and
-        // open/save panels. Refuse to register it as the global hotkey so the
-        // first instinctive "cancel" press never hides the whole app.
-        StoredShortcut(key: ".", command: true, shift: false, option: false, control: false),
-    ]
 
     private static func conflictingAction(
         for proposedShortcut: StoredShortcut,
