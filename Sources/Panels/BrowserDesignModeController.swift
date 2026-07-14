@@ -28,7 +28,11 @@ final class BrowserDesignModeController {
     @ObservationIgnored private let screenshotStore: BrowserDesignModeScreenshotStore
     @ObservationIgnored private let javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator
     @ObservationIgnored private let canEnable: @MainActor @Sendable () -> Bool
-    @ObservationIgnored private let promptSender: @MainActor @Sendable (String, Bool) async throws -> Void
+    @ObservationIgnored private let promptSender: @MainActor @Sendable (
+        String,
+        Bool,
+        @MainActor @Sendable () -> Bool
+    ) async throws -> Void
     @ObservationIgnored private let onActivityChanged: @MainActor @Sendable () -> Void
     @ObservationIgnored private weak var webView: WKWebView?
     @ObservationIgnored private var messageHandler: BrowserDesignModeMessageHandler?
@@ -53,7 +57,11 @@ final class BrowserDesignModeController {
         screenshotStore: BrowserDesignModeScreenshotStore,
         javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator,
         canEnable: @escaping @MainActor @Sendable () -> Bool,
-        promptSender: @escaping @MainActor @Sendable (String, Bool) async throws -> Void,
+        promptSender: @escaping @MainActor @Sendable (
+            String,
+            Bool,
+            @MainActor @Sendable () -> Bool
+        ) async throws -> Void,
         onActivityChanged: @escaping @MainActor @Sendable () -> Void
     ) {
         self.surfaceID = surfaceID
@@ -264,7 +272,9 @@ final class BrowserDesignModeController {
                 )
             )
             guard !prompt.isEmpty else { throw BrowserDesignModeSendError.invalidRuntimeResponse }
-            try await promptSender(prompt, replacingUnknownDraft)
+            try await promptSender(prompt, replacingUnknownDraft) { [weak self] in
+                self?.operationRevision == operation
+            }
             guard operation == operationRevision else { return }
             handoffState = .sent
         } catch let sendError {

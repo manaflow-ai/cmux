@@ -6,7 +6,8 @@ extension TerminalController {
     func sendDesignModePrompt(
         _ prompt: String,
         in workspace: Workspace,
-        replacingUnknownDraft: Bool
+        replacingUnknownDraft: Bool,
+        operationIsCurrent: @MainActor @Sendable () -> Bool
     ) async throws {
         guard let service = agentChatTranscriptService else {
             throw BrowserDesignModeSendError.terminalUnavailable
@@ -18,6 +19,7 @@ extension TerminalController {
             surfaceIDs: terminalSurfaceIDs,
             waitUpTo: .milliseconds(750)
         )
+        guard operationIsCurrent() else { throw CancellationError() }
         let targets = service.sessionRecords(workspaceID: nil).compactMap { record -> (
             record: AgentChatSessionRecord,
             terminal: TerminalPanel

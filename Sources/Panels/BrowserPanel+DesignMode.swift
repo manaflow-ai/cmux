@@ -3,7 +3,8 @@ import Foundation
 extension BrowserPanel {
     func sendDesignModePromptToAgent(
         _ prompt: String,
-        replacingUnknownDraft: Bool
+        replacingUnknownDraft: Bool,
+        operationIsCurrent: @MainActor @Sendable () -> Bool
     ) async throws {
         guard let workspace = AppDelegate.shared?.workspaceContainingPanel(
             panelId: id,
@@ -14,7 +15,8 @@ extension BrowserPanel {
         try await TerminalController.shared.sendDesignModePrompt(
             prompt,
             in: workspace,
-            replacingUnknownDraft: replacingUnknownDraft
+            replacingUnknownDraft: replacingUnknownDraft,
+            operationIsCurrent: operationIsCurrent
         )
     }
 }
