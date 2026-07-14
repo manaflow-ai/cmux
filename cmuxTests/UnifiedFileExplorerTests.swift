@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Unified Files and Find sidebar")
+@Suite("Unified Files and Find sidebar", .serialized)
 struct UnifiedFileExplorerTests {
     @Test("Find remains an activation alias instead of a registered sidebar tool")
     func findIsAnActivationAlias() {
@@ -47,6 +47,65 @@ struct UnifiedFileExplorerTests {
             )
         )
         #expect(cell.accessibilityValue() as? String == result.preview)
+    }
+
+    @Test("Interleaved matches are grouped by file")
+    func interleavedMatchesAreGroupedByFile() {
+        let firstMatch = FileSearchResult(
+            path: "/tmp/a.swift",
+            relativePath: "a.swift",
+            lineNumber: 1,
+            columnNumber: 1,
+            preview: "first"
+        )
+        let otherFileMatch = FileSearchResult(
+            path: "/tmp/b.swift",
+            relativePath: "b.swift",
+            lineNumber: 2,
+            columnNumber: 1,
+            preview: "other"
+        )
+        let secondMatch = FileSearchResult(
+            path: "/tmp/a.swift",
+            relativePath: "a.swift",
+            lineNumber: 3,
+            columnNumber: 1,
+            preview: "second"
+        )
+        let snapshot = FileSearchSnapshot(
+            query: "match",
+            results: [firstMatch, otherFileMatch, secondMatch],
+            status: .matches,
+            isSearching: false
+        )
+
+        #expect(snapshot.groupingMatchesByFile().results == [firstMatch, secondMatch, otherFileMatch])
+    }
+
+    @Test("Hidden unified search chrome stays collapsed after font changes")
+    func hiddenUnifiedSearchChromeStaysCollapsedAfterFontChanges() throws {
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: FileExplorerStore(),
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: SearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateVisibility(hasContent: false, isLoading: false, statusMessage: nil)
+        container.layoutSubtreeIfNeeded()
+        let searchField = try #require(Self.searchField(in: container))
+        let searchBar = try #require(searchField.superview)
+        #expect(searchBar.isHidden)
+        #expect(searchBar.frame.height == 0)
+
+        NotificationCenter.default.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
+        container.layoutSubtreeIfNeeded()
+
+        #expect(searchBar.frame.height == 0)
     }
 
     @Test("Typing in the persistent search field restores Find activation")
