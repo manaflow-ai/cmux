@@ -17,6 +17,10 @@ public struct ComputersSection: View {
     @State private var pairResult: ComputersPairResult?
     /// Guards overlapping link-pair submissions.
     @State private var isPairingLink = false
+    /// Result of the most recent copy-link action, shown under its row.
+    @State private var copyLinkResult: ComputersCopyLinkResult?
+    /// Guards overlapping copy-link mints.
+    @State private var isCopyingLink = false
 
     private let hostActions: SettingsHostActions
 
@@ -49,7 +53,8 @@ public struct ComputersSection: View {
                 pairingLinkRow
                 pairResultCaption
                 SettingsCardDivider()
-                showPairingCodeRow
+                pairThisMacRow
+                copyLinkResultCaption
             }
         }
         .task {
@@ -150,22 +155,48 @@ public struct ComputersSection: View {
     }
 
     @ViewBuilder
-    private var showPairingCodeRow: some View {
+    private var pairThisMacRow: some View {
         SettingsCardRow(
             configurationReview: .action,
             searchAnchorID: "setting:computers:showPairingCode",
             String(localized: "settings.computers.showPairingCode", defaultValue: "Pair This Mac"),
             subtitle: String(
                 localized: "settings.computers.showPairingCode.subtitle",
-                defaultValue: "Show this Mac's pairing code for another Mac or an iPhone to add it."
-            )
+                defaultValue: "Copy a pairing link to paste on another Mac, or show a QR code for an iPhone."
+            ),
+            controlWidth: 320
         ) {
-            Button(String(localized: "settings.computers.showPairingCode.button", defaultValue: "Show Pairing Code…")) {
-                hostActions.openMobilePairingWindow()
+            HStack(spacing: 8) {
+                Button(String(localized: "settings.computers.copyLink.button", defaultValue: "Copy Pairing Link")) {
+                    copyPairingLink()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(isCopyingLink)
+                .accessibilityIdentifier("SettingsComputersCopyPairingLinkButton")
+
+                Button(String(localized: "settings.computers.showPairingCode.button", defaultValue: "Show Pairing Code…")) {
+                    hostActions.openMobilePairingWindow()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsComputersShowPairingCodeButton")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .accessibilityIdentifier("SettingsComputersShowPairingCodeButton")
+        }
+    }
+
+    @ViewBuilder
+    private var copyLinkResultCaption: some View {
+        if let copyLinkResult, let text = Self.copyLinkText(copyLinkResult) {
+            Label(
+                text,
+                systemImage: copyLinkResult == .copied ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+            )
+            .foregroundStyle(copyLinkResult == .copied ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+            .cmuxFont(.caption)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 8)
         }
     }
 
@@ -187,6 +218,16 @@ public struct ComputersSection: View {
         }
     }
 
+    private func copyPairingLink() {
+        guard !isCopyingLink else { return }
+        isCopyingLink = true
+        copyLinkResult = nil
+        Task {
+            copyLinkResult = await hostActions.copyComputerPairingLink()
+            isCopyingLink = false
+        }
+    }
+
     private func pairFromLink() {
         let link = pairingLink.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !isPairingLink, !link.isEmpty else { return }
@@ -197,6 +238,31 @@ public struct ComputersSection: View {
             pairResult = result
             if result == .paired { pairingLink = "" }
             isPairingLink = false
+        }
+    }
+
+    private static func copyLinkText(_ result: ComputersCopyLinkResult) -> String? {
+        switch result {
+        case .copied:
+            return String(
+                localized: "settings.computers.copyLink.copied",
+                defaultValue: "Link copied. Paste it into “Add by Pairing Link” on the other Mac."
+            )
+        case .needsTailscale:
+            return String(
+                localized: "settings.computers.copyLink.needsTailscale",
+                defaultValue: "No reachable address. Install and sign in to Tailscale on both Macs, then try again."
+            )
+        case .signedOut:
+            return String(
+                localized: "settings.computers.copyLink.signedOut",
+                defaultValue: "Sign in to cmux first, then copy the pairing link."
+            )
+        case .failed:
+            return String(
+                localized: "settings.computers.copyLink.failed",
+                defaultValue: "Couldn't create a pairing link. Try again."
+            )
         }
     }
 

@@ -97,3 +97,15 @@ public enum ComputersPairResult: Sendable, Equatable {
     /// The pairing could not be saved.
     case failed
 }
+
+/// Result of minting + copying this Mac's pairing link, rendered inline.
+public enum ComputersCopyLinkResult: Sendable, Equatable {
+    /// The link is on the clipboard, ready to paste on the other Mac.
+    case copied
+    /// This Mac has no Tailscale route another Mac could dial.
+    case needsTailscale
+    /// Pairing requires the Mac to be signed in.
+    case signedOut
+    /// The pairing listener or ticket mint failed.
+    case failed
+}

@@ -1,3 +1,4 @@
+import AppKit
 import CmuxHive
 import CmuxSettingsUI
 import Foundation
@@ -59,6 +60,61 @@ extension HostSettingsActions {
     func unpairComputer(deviceID: String) async {
         guard let directory = computersDirectory else { return }
         await directory.unpair(deviceID: deviceID)
+    }
+
+    /// Mints this Mac's attach link (the same payload the pairing window's QR
+    /// encodes) and copies it to the clipboard for pasting on another Mac.
+    ///
+    /// Prefers the Tailscale-only v2 grammar (works across machines). Dev
+    /// builds fall back to an all-routes ticket when no Tailscale route
+    /// exists, so two tagged builds on one machine can pair over loopback.
+    func copyComputerPairingLink() async -> ComputersCopyLinkResult {
+        guard let coordinator = AppDelegate.shared?.auth?.coordinator else { return .failed }
+        await coordinator.awaitBootstrapped()
+        guard coordinator.isAuthenticated else { return .signedOut }
+        UserDefaults.standard.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+        let host = MobileHostService.shared
+        let status = await host.ensureListeningAndReady()
+        guard status.isRunning else { return .failed }
+        do {
+            return copyLinkToPasteboard(try await host.createAttachTicket(
+                workspaceID: "",
+                terminalID: nil,
+                ttl: 600,
+                target: .physicalDevice
+            ))
+        } catch MobileAttachTicketStoreError.noRoutes,
+                MobileAttachTicketStoreError.routeUnavailable,
+                MobileAttachTicketStoreError.invalidAttachURL {
+            #if DEBUG
+            // Same-machine dogfood: no Tailscale route, but the dev loopback
+            // route lets a second tagged build on this Mac pair.
+            do {
+                return copyLinkToPasteboard(try await host.createAttachTicket(
+                    workspaceID: "",
+                    terminalID: nil,
+                    ttl: 600,
+                    target: .ticketOnly
+                ))
+            } catch {
+                return .needsTailscale
+            }
+            #else
+            return .needsTailscale
+            #endif
+        } catch {
+            return .failed
+        }
+    }
+
+    private func copyLinkToPasteboard(_ payload: [String: Any]) -> ComputersCopyLinkResult {
+        guard let attachURL = payload["attach_url"] as? String, !attachURL.isEmpty else {
+            return .failed
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(attachURL, forType: .string)
+        return .copied
     }
 
     // MARK: - Mapping (pure)

@@ -169,6 +169,11 @@ public protocol SettingsHostActions: AnyObject {
     /// Removes the local pairing for a computer. The registry row remains.
     func unpairComputer(deviceID: String) async
 
+    /// Mints this Mac's pairing link (the same payload the pairing window's
+    /// QR encodes) and puts it on the clipboard, so another Mac can pair by
+    /// pasting it — no camera involved.
+    func copyComputerPairingLink() async -> ComputersCopyLinkResult
+
     /// Applies an explicitly-requested iOS pairing port, checking availability
     /// first so a port already in use leaves the running listener untouched. The
     /// Mobile section calls this from its **Apply** button and renders the
@@ -255,6 +260,9 @@ public extension SettingsHostActions {
 
     /// Default no-op unpair for previews/tests.
     func unpairComputer(deviceID: String) async {}
+
+    /// Default failure for hosts without a pairing listener (previews/tests).
+    func copyComputerPairingLink() async -> ComputersCopyLinkResult { .failed }
 
     /// Default: save-for-later, for hosts without a live mobile service (previews/tests).
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {
