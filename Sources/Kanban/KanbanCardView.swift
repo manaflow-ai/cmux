@@ -35,6 +35,11 @@ struct KanbanCardSnapshot: Identifiable, Equatable {
 /// `otherColumns`/`isInArchiveColumn` are plain data, so they ARE compared.
 struct KanbanCardView: View, Equatable {
     let card: KanbanCardSnapshot
+    /// Whether this card is the board's keyboard-focused card (Stage 5 board
+    /// navigation), passed down as a plain value from `KanbanBoardView`
+    /// through `KanbanColumnView` — never the `KanbanFocusState` store
+    /// itself, per the snapshot-boundary rule.
+    let isFocused: Bool
     let onTap: () -> Void
     /// Non-archive columns other than this card's own, for the "Move to
     /// Column" submenu. Passed as a value snapshot (not the board's
@@ -49,6 +54,7 @@ struct KanbanCardView: View, Equatable {
 
     static func == (lhs: KanbanCardView, rhs: KanbanCardView) -> Bool {
         lhs.card == rhs.card &&
+        lhs.isFocused == rhs.isFocused &&
         lhs.otherColumns == rhs.otherColumns &&
         lhs.isInArchiveColumn == rhs.isInArchiveColumn
     }
@@ -68,6 +74,10 @@ struct KanbanCardView: View, Equatable {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.accentColor, lineWidth: isFocused ? 2 : 0)
+        )
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .onDrag {

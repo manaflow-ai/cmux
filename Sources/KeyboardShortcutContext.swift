@@ -110,6 +110,10 @@ extension AppDelegate {
         if let mode = window.flatMap({ keyboardFocusCoordinator(for: $0)?.activeRightSidebarMode }) {
             context.setString(ShortcutContextKnownKey.sidebarMode.rawValue, mode.rawValue)
         }
+        context.setBool(
+            ShortcutContextKnownKey.boardVisible.rawValue,
+            shortcutMainWindowContext(in: window)?.sidebarSelectionState.selection == .board
+        )
         return context
     }
 

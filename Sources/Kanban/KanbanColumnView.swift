@@ -74,6 +74,11 @@ struct KanbanColumnView: View, Equatable {
     /// snapshot array, not the board's live `[KanbanColumn]` — stays below
     /// the snapshot boundary.
     let allColumns: [KanbanColumnSnapshot]
+    /// The board's keyboard-focused card id (Stage 5 board navigation), or
+    /// `nil` when nothing is focused. Passed down as a plain value from
+    /// `KanbanBoardView.body` — never the `KanbanFocusState` store itself —
+    /// to keep the snapshot boundary below the column `ForEach`.
+    let focusedCardId: UUID?
     let actions: KanbanColumnActions
 
     @State private var isDropTargeted = false
@@ -89,7 +94,10 @@ struct KanbanColumnView: View, Equatable {
     /// across the board's re-renders, so it's excluded here — the same
     /// tradeoff `IndexSectionView.==` makes for its `actions` bundle.
     static func == (lhs: KanbanColumnView, rhs: KanbanColumnView) -> Bool {
-        lhs.column == rhs.column && lhs.cards == rhs.cards && lhs.allColumns == rhs.allColumns
+        lhs.column == rhs.column
+            && lhs.cards == rhs.cards
+            && lhs.allColumns == rhs.allColumns
+            && lhs.focusedCardId == rhs.focusedCardId
     }
 
     /// Keep >=1 real column: refuse deleting the Archive column (checked
@@ -196,6 +204,7 @@ struct KanbanColumnView: View, Equatable {
                 ForEach(cards) { card in
                     KanbanCardView(
                         card: card,
+                        isFocused: card.id == focusedCardId,
                         onTap: { actions.onCardTap(card.id) },
                         otherColumns: allColumns.filter { $0.id != column.id && !$0.isArchive },
                         isInArchiveColumn: column.isArchive,

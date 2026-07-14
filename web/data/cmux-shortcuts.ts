@@ -82,6 +82,10 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle left sidebar", ja: "左サイドバーを切り替え" } },
       { id: "toggleFileExplorer", combos: [["⌘", "⌥", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
       { id: "toggleBoardView", combos: [["⌘", "⇧", "B"]], description: { en: "Toggle kanban board view", ja: "カンバンボード表示を切り替え" } },
+      { id: "openFocusedBoardCard", combos: [["↩"]], description: { en: "Board: open focused card", ja: "ボード: フォーカス中のカードを開く" } },
+      { id: "moveFocusedBoardCardToPrevColumn", combos: [["⌃", "⌥", "←"]], description: { en: "Board: move focused card to previous column", ja: "ボード: フォーカス中のカードを前の列へ移動" } },
+      { id: "moveFocusedBoardCardToNextColumn", combos: [["⌃", "⌥", "→"]], description: { en: "Board: move focused card to next column", ja: "ボード: フォーカス中のカードを次の列へ移動" } },
+      { id: "archiveFocusedBoardCard", combos: [["⌥", "⌫"]], description: { en: "Board: archive focused card", ja: "ボード: フォーカス中のカードをアーカイブ" } },
       { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
       {
         id: "newBrowserWorkspace",

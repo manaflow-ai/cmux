@@ -96,6 +96,10 @@ enum KeyboardShortcutSettings {
         case switchRightSidebarToDock
         case triggerFlash
         case toggleBoardView
+        case openFocusedBoardCard
+        case moveFocusedBoardCardToPrevColumn
+        case moveFocusedBoardCardToNextColumn
+        case archiveFocusedBoardCard
 
         // Navigation
         case nextSurface
@@ -222,6 +226,10 @@ enum KeyboardShortcutSettings {
             case .switchRightSidebarToDock: return String(localized: "shortcut.switchRightSidebarToDock.label", defaultValue: "Show Sidebar Dock")
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .toggleBoardView: return String(localized: "shortcut.toggleBoardView.label", defaultValue: "Toggle Board View")
+            case .openFocusedBoardCard: return String(localized: "shortcut.openFocusedBoardCard.label", defaultValue: "Board: Open Focused Card")
+            case .moveFocusedBoardCardToPrevColumn: return String(localized: "shortcut.moveFocusedBoardCardToPrevColumn.label", defaultValue: "Board: Move Focused Card to Previous Column")
+            case .moveFocusedBoardCardToNextColumn: return String(localized: "shortcut.moveFocusedBoardCardToNextColumn.label", defaultValue: "Board: Move Focused Card to Next Column")
+            case .archiveFocusedBoardCard: return String(localized: "shortcut.archiveFocusedBoardCard.label", defaultValue: "Board: Archive Focused Card")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
             case .selectSurfaceByNumber: return String(localized: "shortcut.selectSurfaceByNumber.label", defaultValue: "Select Surface 1…9")
@@ -393,6 +401,14 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .toggleBoardView:
                 return StoredShortcut(key: "b", command: true, shift: true, option: false, control: false)
+            case .openFocusedBoardCard:
+                return StoredShortcut(key: "\r", command: false, shift: false, option: false, control: false)
+            case .moveFocusedBoardCardToPrevColumn:
+                return StoredShortcut(key: "←", command: false, shift: false, option: true, control: true)
+            case .moveFocusedBoardCardToNextColumn:
+                return StoredShortcut(key: "→", command: false, shift: false, option: true, control: true)
+            case .archiveFocusedBoardCard:
+                return StoredShortcut(key: "⌫", command: false, shift: false, option: true, control: false)
             case .nextSidebarTab:
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
             case .prevSidebarTab:
@@ -607,7 +623,8 @@ enum KeyboardShortcutSettings {
                  .diffViewerScrollToTop,
                  .diffViewerOpenFileSearch,
                  .fileExplorerOpenSelection,
-                 .fileExplorerOpenSelectionFinderAlias:
+                 .fileExplorerOpenSelectionFinderAlias,
+                 .openFocusedBoardCard:
                 return true
             default:
                 return false
@@ -1798,6 +1815,7 @@ struct ShortcutStroke: Equatable, Hashable {
         case 48: return "\t" // tab
         case 49: return "space" // kVK_Space
         case 36, 76: return "\r" // return, keypad enter
+        case 51: return "⌫" // delete (backspace)
         case 33: return "["  // kVK_ANSI_LeftBracket
         case 30: return "]"  // kVK_ANSI_RightBracket
         case 27: return "-"  // kVK_ANSI_Minus
@@ -2030,13 +2048,14 @@ struct ShortcutStroke: Equatable, Hashable {
         case "→": return 124
         case "↓": return 125
         case "↑": return 126
+        case "⌫": return 51
         default:
             return nil
         }
     }
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
-        key == "\t" || key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+        key == "\t" || key == "space" || key == "⌫" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
     }
 
     private static func functionKeyDisplayString(for key: String) -> String? {

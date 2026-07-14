@@ -1594,6 +1594,10 @@
               "switchRightSidebarToDock",
               "triggerFlash",
               "toggleBoardView",
+              "openFocusedBoardCard",
+              "moveFocusedBoardCardToPrevColumn",
+              "moveFocusedBoardCardToNextColumn",
+              "archiveFocusedBoardCard",
               "nextSurface",
               "prevSurface",
               "selectSurfaceByNumber",
@@ -1698,6 +1702,9 @@
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerOpenFileSearch": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "openFocusedBoardCard": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },

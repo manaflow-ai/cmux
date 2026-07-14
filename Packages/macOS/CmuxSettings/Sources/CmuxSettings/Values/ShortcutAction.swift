@@ -46,6 +46,14 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case triggerFlash
     /// Toggles the main content between the kanban board and the terminal view.
     case toggleBoardView
+    /// Opens the keyboard-focused card on the kanban board (same as clicking it).
+    case openFocusedBoardCard
+    /// Moves the keyboard-focused board card to the previous column.
+    case moveFocusedBoardCardToPrevColumn
+    /// Moves the keyboard-focused board card to the next column.
+    case moveFocusedBoardCardToNextColumn
+    /// Archives the keyboard-focused board card.
+    case archiveFocusedBoardCard
 
     // MARK: Navigation
     case nextSurface
@@ -183,7 +191,9 @@ extension ShortcutAction {
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
-             .switchRightSidebarToDock, .triggerFlash, .toggleBoardView:
+             .switchRightSidebarToDock, .triggerFlash, .toggleBoardView,
+             .openFocusedBoardCard, .moveFocusedBoardCardToPrevColumn,
+             .moveFocusedBoardCardToNextColumn, .archiveFocusedBoardCard:
             return .workspace
         case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
              .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
@@ -247,7 +257,8 @@ extension ShortcutAction {
              .diffViewerScrollToTop,
              .diffViewerOpenFileSearch,
              .fileExplorerOpenSelection,
-             .fileExplorerOpenSelectionFinderAlias:
+             .fileExplorerOpenSelectionFinderAlias,
+             .openFocusedBoardCard:
             return true
         default:
             return false
@@ -275,6 +286,9 @@ extension ShortcutAction {
             return .atom(.sidebarFocus)
         case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
             return .atom(.sidebarFocus)
+        case .openFocusedBoardCard, .moveFocusedBoardCardToPrevColumn,
+             .moveFocusedBoardCardToNextColumn, .archiveFocusedBoardCard:
+            return .key(ShortcutContextKnownKey.boardVisible.rawValue)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
@@ -365,6 +379,14 @@ extension ShortcutAction {
         case .triggerFlash: return "Flash Focused Panel"
         case .toggleBoardView:
             return String(localized: "shortcut.toggleBoardView.label", defaultValue: "Toggle Board View")
+        case .openFocusedBoardCard:
+            return String(localized: "shortcut.openFocusedBoardCard.label", defaultValue: "Board: Open Focused Card")
+        case .moveFocusedBoardCardToPrevColumn:
+            return String(localized: "shortcut.moveFocusedBoardCardToPrevColumn.label", defaultValue: "Board: Move Focused Card to Previous Column")
+        case .moveFocusedBoardCardToNextColumn:
+            return String(localized: "shortcut.moveFocusedBoardCardToNextColumn.label", defaultValue: "Board: Move Focused Card to Next Column")
+        case .archiveFocusedBoardCard:
+            return String(localized: "shortcut.archiveFocusedBoardCard.label", defaultValue: "Board: Archive Focused Card")
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
         case .selectSurfaceByNumber: return "Select Surface 1…9"

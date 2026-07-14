@@ -90,6 +90,14 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.markOldestUnreadAndJumpNext`
 - `shortcuts.bindings.triggerFlash`
 
+## Board
+
+- `shortcuts.bindings.toggleBoardView`
+- `shortcuts.bindings.openFocusedBoardCard`
+- `shortcuts.bindings.moveFocusedBoardCardToPrevColumn`
+- `shortcuts.bindings.moveFocusedBoardCardToNextColumn`
+- `shortcuts.bindings.archiveFocusedBoardCard`
+
 ## Right sidebar
 
 - `shortcuts.bindings.toggleSidebar`

@@ -810,6 +810,7 @@ struct ContentView: View {
     var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
+    @EnvironmentObject var kanbanFocusState: KanbanFocusState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
@@ -1740,7 +1741,10 @@ struct ContentView: View {
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
 
-            KanbanBoardView(selection: $sidebarSelectionState.selection)
+            KanbanBoardView(
+                selection: $sidebarSelectionState.selection,
+                isInitialBoardLanding: $sidebarSelectionState.isInitialBoardLanding
+            )
                 .opacity(sidebarSelectionState.selection == .board ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .board)
                 .accessibilityHidden(sidebarSelectionState.selection != .board)
@@ -2610,6 +2614,17 @@ struct ContentView: View {
         }.onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in scheduleTitlebarThemeRefresh(reason: "systemAppearanceChanged") })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
+            // The initial workspace auto-focuses at launch, which would otherwise
+            // immediately steal the cold-launch board landing (#board-landing).
+            // Consume that first post-launch focus without leaving the board;
+            // every later focus event behaves as before.
+            if sidebarSelectionState.isInitialBoardLanding {
+                sidebarSelectionState.isInitialBoardLanding = false
+                if sidebarSelectionState.selection == .board {
+                    scheduleTitlebarTextRefresh()
+                    return
+                }
+            }
             sidebarSelectionState.selection = .tabs
             scheduleTitlebarTextRefresh()
         })
@@ -3188,6 +3203,7 @@ struct ContentView: View {
             tabManager: tabManager,
             sidebarState: sidebarState,
             sidebarSelectionState: sidebarSelectionState,
+            kanbanFocusState: kanbanFocusState,
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )

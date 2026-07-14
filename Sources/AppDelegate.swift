@@ -545,6 +545,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let tabManager: TabManager
         let sidebarState: SidebarState
         let sidebarSelectionState: SidebarSelectionState
+        /// Per-window keyboard-focus cursor for the kanban board (Stage 5
+        /// board navigation shortcuts). Created once alongside
+        /// `sidebarSelectionState` and never swapped on re-registration,
+        /// mirroring that property.
+        let kanbanFocusState: KanbanFocusState
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
@@ -558,6 +563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager: TabManager,
             sidebarState: SidebarState,
             sidebarSelectionState: SidebarSelectionState,
+            kanbanFocusState: KanbanFocusState = KanbanFocusState(),
             fileExplorerState: FileExplorerState?,
             cmuxConfigStore: CmuxConfigStore?,
             window: NSWindow?
@@ -566,6 +572,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.tabManager = tabManager
             self.sidebarState = sidebarState
             self.sidebarSelectionState = sidebarSelectionState
+            self.kanbanFocusState = kanbanFocusState
             self.fileExplorerState = fileExplorerState
             self.cmuxConfigStore = cmuxConfigStore
             self.window = window
@@ -3467,7 +3474,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         context.sidebarState.persistedWidth = CGFloat(
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
-        context.sidebarSelectionState.selection = snapshot.sidebar.selection.sidebarSelection
+        // Every cold launch lands on the board, regardless of the restored
+        // window's persisted selection (`snapshot.sidebar.selection`), which
+        // is intentionally ignored here — matches the fresh-window default in
+        // `createMainWindow`. `isInitialBoardLanding` lets the initial
+        // workspace auto-focus (`.ghosttyDidFocusTab`) fire without stealing
+        // the board back to `.tabs`.
+        context.sidebarSelectionState.selection = .board
+        context.sidebarSelectionState.isInitialBoardLanding = true
 
         if let restoredFrame = resolvedWindowFrame(from: snapshot), let window {
             window.setFrame(restoredFrame, display: true)
@@ -4563,6 +4577,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager: TabManager,
         sidebarState: SidebarState,
         sidebarSelectionState: SidebarSelectionState,
+        kanbanFocusState: KanbanFocusState = KanbanFocusState(),
         fileExplorerState: FileExplorerState? = nil,
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
@@ -4634,6 +4649,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: tabManager,
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState,
+                kanbanFocusState: kanbanFocusState,
                 fileExplorerState: fileExplorerState,
                 cmuxConfigStore: cmuxConfigStore,
                 window: window
@@ -6598,6 +6614,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
         context.sidebarSelectionState.selection = context.sidebarSelectionState.selection == .board ? .tabs : .board
+        return true
+    }
+
+    // MARK: - Board keyboard navigation (Stage 5)
+    //
+    // These three dispatch the board's keyboard shortcuts (all scoped to the
+    // `.board` shortcut context, so they only fire while the board is shown)
+    // against the active window's `KanbanFocusState.focusedCardId`. Board
+    // arrow-key navigation itself is handled in SwiftUI via `.onKeyPress` on
+    // `KanbanBoardView` (bare arrows have no modifier, so they can't be bound
+    // as cmux shortcuts) — only the modifier-bearing open/move/archive actions
+    // are real shortcuts here.
+
+    /// Opens the board's keyboard-focused card: the same effect as clicking
+    /// it (`KanbanBoardView.selectWorkspace`).
+    @discardableResult
+    func openFocusedBoardCardInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow),
+              let focusedCardId = context.kanbanFocusState.focusedCardId,
+              let workspace = context.tabManager.workspacesById[focusedCardId] else {
+            return false
+        }
+        context.tabManager.selectWorkspace(workspace)
+        context.sidebarSelectionState.selection = .tabs
+        context.sidebarSelectionState.isInitialBoardLanding = false
+        return true
+    }
+
+    /// Moves the board's keyboard-focused card to the previous (`direction:
+    /// -1`) or next (`direction: 1`) column in `kanban.columns` order —
+    /// INCLUDING the Archive column, so ⌥⌃→ from the last real column
+    /// archives the card and ⌥⌃← from Archive un-archives it. Focus stays on
+    /// the moved card (its id doesn't change).
+    @discardableResult
+    func moveFocusedBoardCardInActiveMainWindow(direction: Int, preferredWindow: NSWindow? = nil) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow),
+              let focusedCardId = context.kanbanFocusState.focusedCardId,
+              let workspace = context.tabManager.workspacesById[focusedCardId] else {
+            return false
+        }
+        let columns = context.tabManager.currentKanbanColumns().sorted { $0.order < $1.order }
+        let currentColumnId = workspace.kanbanColumnId ?? KanbanColumnMutations.firstNonArchiveColumnId(columns)
+        guard let currentIndex = columns.firstIndex(where: { $0.id == currentColumnId }) else {
+            return false
+        }
+        let targetIndex = currentIndex + direction
+        guard columns.indices.contains(targetIndex) else { return false }
+        context.tabManager.moveWorkspace(tabId: focusedCardId, toColumn: columns[targetIndex].id)
+        return true
+    }
+
+    /// Archives the board's keyboard-focused card. Focus stays on the
+    /// archived card; the next arrow-key press re-focuses away from it since
+    /// a collapsed Archive column is excluded from keyboard navigation
+    /// (`KanbanBoardView`'s navigable-columns filter).
+    @discardableResult
+    func archiveFocusedBoardCardInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow),
+              let focusedCardId = context.kanbanFocusState.focusedCardId else {
+            return false
+        }
+        context.tabManager.archiveWorkspace(tabId: focusedCardId)
         return true
     }
 
@@ -8682,9 +8760,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 : (sessionWindowSnapshot?.sidebar.isVisible ?? true),
             persistedWidth: CGFloat(sidebarWidth)
         )
-        let sidebarSelectionState = SidebarSelectionState(
-            selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
-        )
+        // Every cold launch lands on the board, regardless of the persisted
+        // selection — `SidebarSelectionState`'s default (`.board`,
+        // `isInitialBoardLanding: true`) already gives that, so the session
+        // snapshot's `sidebar.selection` is intentionally NOT read here. See
+        // the matching restore-path fix in `applySessionWindowSnapshot`.
+        let sidebarSelectionState = SidebarSelectionState()
+        let kanbanFocusState = KanbanFocusState()
 
         // Seed the per-window Bonsplit tab-bar leading inset before ContentView first
         // renders. The initial workspace is created inside TabManager.init, at which
@@ -8719,6 +8801,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(notificationStore.sidebarUnread)
             .environmentObject(sidebarState)
             .environmentObject(sidebarSelectionState)
+            .environmentObject(kanbanFocusState)
             .environmentObject(fileExplorerState)
             .environmentObject(cmuxConfigStore)
             // AppKit hosts this ContentView in its own NSHostingView, which does
@@ -8854,6 +8937,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager: tabManager,
             sidebarState: sidebarState,
             sidebarSelectionState: sidebarSelectionState,
+            kanbanFocusState: kanbanFocusState,
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
@@ -13493,6 +13577,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .toggleBoardView) {
             _ = toggleBoardViewInActiveMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .openFocusedBoardCard) {
+            _ = openFocusedBoardCardInActiveMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .moveFocusedBoardCardToPrevColumn) {
+            _ = moveFocusedBoardCardInActiveMainWindow(direction: -1, preferredWindow: mainWindowForShortcutEvent(event))
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .moveFocusedBoardCardToNextColumn) {
+            _ = moveFocusedBoardCardInActiveMainWindow(direction: 1, preferredWindow: mainWindowForShortcutEvent(event))
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .archiveFocusedBoardCard) {
+            _ = archiveFocusedBoardCardInActiveMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
             return true
         }
 

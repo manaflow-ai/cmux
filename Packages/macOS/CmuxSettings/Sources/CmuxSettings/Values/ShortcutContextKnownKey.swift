@@ -33,6 +33,8 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     case terminalFindVisible
     /// The focused workspace is using the freeform canvas layout.
     case workspaceCanvasLayout
+    /// The kanban board is the main content view (`SidebarSelection.board`).
+    case boardVisible
     /// The right sidebar's active mode (`files`, `find`, `sessions`, `feed`, `dock`).
     case sidebarMode
     /// The number of panes in the focused workspace.
@@ -44,7 +46,7 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     public var valueType: ShortcutContextValueType {
         switch self {
         case .sidebarFocus, .browserFocus, .markdownFocus, .filePreviewTextEditorFocus, .terminalFocus,
-             .commandPaletteVisible, .terminalFindVisible, .workspaceCanvasLayout:
+             .commandPaletteVisible, .terminalFindVisible, .workspaceCanvasLayout, .boardVisible:
             return .bool
         case .sidebarMode:
             return .string

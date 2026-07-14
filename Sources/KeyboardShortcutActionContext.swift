@@ -11,6 +11,8 @@ extension KeyboardShortcutSettings.Action {
         case rightSidebarFocus
         case canvasLayout
         case canvasLayoutOutsideFocusedContent
+        /// The kanban board is the main content view (`SidebarSelection.board`).
+        case board
 
         var isAlwaysAvailable: Bool { self == .application }
 
@@ -28,7 +30,8 @@ extension KeyboardShortcutSettings.Action {
             focusedMarkdownPanel: Bool,
             focusedFilePreviewTextEditor: Bool = false,
             rightSidebarFocused: Bool,
-            workspaceCanvasLayout: Bool = false
+            workspaceCanvasLayout: Bool = false,
+            boardVisible: Bool = false
         ) -> Bool {
             switch self {
             case .application: return true
@@ -43,6 +46,7 @@ extension KeyboardShortcutSettings.Action {
                     && !focusedBrowserPanel
                     && !focusedMarkdownPanel
                     && !focusedFilePreviewTextEditor
+            case .board: return boardVisible
             }
         }
 
@@ -52,7 +56,8 @@ extension KeyboardShortcutSettings.Action {
                 focusedMarkdownPanel: context.markdownPanel != nil,
                 focusedFilePreviewTextEditor: context.filePreviewTextEditorFocused,
                 rightSidebarFocused: context.rightSidebarFocused,
-                workspaceCanvasLayout: context.shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
+                workspaceCanvasLayout: context.shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue),
+                boardVisible: context.shortcutContext.bool(ShortcutContextKnownKey.boardVisible.rawValue)
             )
         }
 
@@ -62,7 +67,8 @@ extension KeyboardShortcutSettings.Action {
                 focusedMarkdownPanel: context.bool(CommandPaletteContextKeys.panelIsMarkdown),
                 focusedFilePreviewTextEditor: context.bool(CommandPaletteContextKeys.panelIsFilePreviewTextEditor),
                 rightSidebarFocused: false,
-                workspaceCanvasLayout: context.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
+                workspaceCanvasLayout: context.bool(CommandPaletteContextKeys.workspaceCanvasLayout),
+                boardVisible: false
             )
         }
 
@@ -84,6 +90,7 @@ extension KeyboardShortcutSettings.Action {
                         .and(.not(.atom(.markdownFocus)), .not(.atom(.filePreviewTextEditorFocus)))
                     )
                 )
+            case .board: return .key(ShortcutContextKnownKey.boardVisible.rawValue)
             }
         }
 
@@ -156,6 +163,9 @@ extension KeyboardShortcutSettings.Action {
             return .canvasLayout
         case .saveLayoutTemplate:
             return .application
+        case .openFocusedBoardCard, .moveFocusedBoardCardToPrevColumn,
+             .moveFocusedBoardCardToNextColumn, .archiveFocusedBoardCard:
+            return .board
         default:
             return .application
         }

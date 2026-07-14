@@ -828,6 +828,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8290D26533B789EAF071E516 /* KanbanCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86B0011AACF9FC14B2CD0822 /* KanbanCardView.swift */; };
 		352BD1EC2A2EE809462AD495 /* KanbanColumnAssignmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53EA9212E0CA29AC414C26D2 /* KanbanColumnAssignmentTests.swift */; };
 		50D23A13B244A0D9E02E3BF4 /* KanbanColumnView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B74F3843A539D946ECE122E /* KanbanColumnView.swift */; };
+		4C864505B5BE16BE0056D80C /* KanbanFocusState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C50E72CB8168BCBD90B1C11 /* KanbanFocusState.swift */; };
 		A50012F5 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F4 /* KeyboardLayout.swift */; };
 		C4A570020000000000000001 /* KeyboardShortcutActionContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570020000000000000002 /* KeyboardShortcutActionContext.swift */; };
 		C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670030000000000000002 /* KeyboardShortcutContext.swift */; };
@@ -2582,6 +2583,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		86B0011AACF9FC14B2CD0822 /* KanbanCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kanban/KanbanCardView.swift; sourceTree = "<group>"; };
 		53EA9212E0CA29AC414C26D2 /* KanbanColumnAssignmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanbanColumnAssignmentTests.swift; sourceTree = "<group>"; };
 		2B74F3843A539D946ECE122E /* KanbanColumnView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kanban/KanbanColumnView.swift; sourceTree = "<group>"; };
+		4C50E72CB8168BCBD90B1C11 /* KanbanFocusState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Kanban/KanbanFocusState.swift; sourceTree = "<group>"; };
 		A50012F4 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
 		C4A570020000000000000002 /* KeyboardShortcutActionContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutActionContext.swift; sourceTree = "<group>"; };
 		C34670030000000000000002 /* KeyboardShortcutContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContext.swift; sourceTree = "<group>"; };
@@ -4006,6 +4008,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F582CE26362425687EA896CE /* KanbanBoardView.swift */,
 				2B74F3843A539D946ECE122E /* KanbanColumnView.swift */,
 				86B0011AACF9FC14B2CD0822 /* KanbanCardView.swift */,
+				4C50E72CB8168BCBD90B1C11 /* KanbanFocusState.swift */,
 				A50012F2 /* KeyboardShortcutSettings.swift */,
 				63F0CD0E /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift */,
 				C0DE7B330000000000000002 /* TextBoxAgentDetection.swift */,
@@ -6224,6 +6227,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				BF8D5911E5BA4D1645763E3A /* KanbanBoardView.swift in Sources */,
 				8290D26533B789EAF071E516 /* KanbanCardView.swift in Sources */,
 				50D23A13B244A0D9E02E3BF4 /* KanbanColumnView.swift in Sources */,
+				4C864505B5BE16BE0056D80C /* KanbanFocusState.swift in Sources */,
 				A50012F5 /* KeyboardLayout.swift in Sources */,
 				C4A570020000000000000001 /* KeyboardShortcutActionContext.swift in Sources */,
 				C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */,
