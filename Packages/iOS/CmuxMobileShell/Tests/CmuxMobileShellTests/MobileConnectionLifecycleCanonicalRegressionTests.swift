@@ -43,6 +43,39 @@ import Testing
         })
     }
 
+    @Test func teamChangePreservesDemandOwnedByRetiredReconnect() async throws {
+        let team = MutableTeamID("team-a")
+        let deadline = ControlledStoredMacReconnectDeadline()
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [:],
+            blockedTeams: ["team-a"]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await team.value },
+            storedMacReconnectDeadline: { await deadline.wait() }
+        )
+        let reconnect = Task { @MainActor in
+            await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        await pairedMacStore.waitUntilLoadStarted(teamID: "team-a")
+        await deadline.waitUntilArmed()
+        await deadline.expire()
+        #expect(await reconnect.value == false)
+        #expect(store.connectionResourceSnapshotForTesting().retiredLifecycleTaskCount == 1)
+
+        await team.set("team-b")
+        store.currentTeamDidChange()
+
+        #expect(store.hasStoredMacReconnectDemand)
+        await pairedMacStore.release(teamID: "team-a")
+        #expect(try await pollUntil {
+            await pairedMacStore.currentLoadStartCount(teamID: "team-b") == 1
+        })
+    }
+
     @Test func cachedRetryArmsOverallDeadlineWhilePrimaryStoreReadIsRetired() async throws {
         let deadline = ControlledStoredMacReconnectDeadline()
         let route = try loopbackRoute(id: "held", port: 51_000)
