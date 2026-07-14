@@ -8,6 +8,7 @@ extension TerminalNotification {
             tabId: tabId,
             surfaceId: surfaceId,
             panelId: panelId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             isRead: isRead,
             clickAction: clickAction?.notificationNavigationAction,
             scrollRow: scrollPosition?.row,

@@ -8,6 +8,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var createdAt: TimeInterval
     var isRead: Bool
     var paneFlash: Bool?
+    var retargetsToLiveSurfaceOwner: Bool?
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
 
@@ -19,6 +20,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         createdAt: TimeInterval,
         isRead: Bool,
         paneFlash: Bool? = nil,
+        retargetsToLiveSurfaceOwner: Bool? = nil,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
@@ -29,6 +31,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.createdAt = createdAt
         self.isRead = isRead
         self.paneFlash = paneFlash
+        self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
     }
@@ -45,6 +48,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             createdAt: notification.createdAt.timeIntervalSince1970,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
+            retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
             scrollPosition: persistedScrollPosition,
             clickAction: notification.clickAction
         )
@@ -59,6 +63,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             tabId: tabId,
             surfaceId: surfaceId,
             panelId: panelId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner ?? true,
             title: title,
             subtitle: subtitle,
             body: body,
