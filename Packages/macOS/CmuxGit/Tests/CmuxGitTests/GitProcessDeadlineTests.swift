@@ -5,6 +5,44 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitProcessDeadlineTests {
+    @Test func subprocessClosesUnspecifiedInheritedDescriptors() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let sentinel = repo.appendingPathComponent("parent-only-descriptor")
+        try Data().write(to: sentinel)
+        let inheritedDescriptor = open(sentinel.path, O_RDONLY)
+        try #require(inheritedDescriptor > STDERR_FILENO)
+        defer { close(inheritedDescriptor) }
+        let descriptorFlags = fcntl(inheritedDescriptor, F_GETFD)
+        try #require(descriptorFlags >= 0)
+        try #require(fcntl(inheritedDescriptor, F_SETFD, descriptorFlags & ~FD_CLOEXEC) == 0)
+
+        let marker = repo.appendingPathComponent("inherited-descriptor-marker")
+        let checkingGit = repo.appendingPathComponent("checking-descriptor-git.sh")
+        let script = """
+        #!/bin/sh
+        if [ -e "/dev/fd/$CMUX_TEST_DESCRIPTOR" ]; then
+            : > "$CMUX_TEST_MARKER"
+        fi
+        printf '%s\\n' "$2"
+        """
+        try Data(script.utf8).write(to: checkingGit)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: checkingGit.path
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_TEST_DESCRIPTOR"] = String(inheritedDescriptor)
+        environment["CMUX_TEST_MARKER"] = marker.path
+
+        let root = GitDiffService(
+            gitExecutableURL: checkingGit,
+            environment: environment
+        ).repositoryRoot(for: repo.path)
+
+        #expect(root == repo.path)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @Test func deadlineEscalatesWhenGitIgnoresTerminationAndChildKeepsPipeOpen() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
