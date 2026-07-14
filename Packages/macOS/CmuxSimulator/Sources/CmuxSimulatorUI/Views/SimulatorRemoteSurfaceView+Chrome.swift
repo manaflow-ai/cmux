@@ -110,47 +110,7 @@ extension SimulatorRemoteSurfaceView {
                 )
             )
         }
-        if profile.isTablet {
-            drawTabletDetails(profile, body: body)
-        }
         drawButtons(profile.buttons.filter(\.onTop))
-    }
-
-    private func drawTabletDetails(_ profile: SimulatorDeviceChromeProfile, body: CGRect) {
-        let rimRadius = min(profile.cornerRadius, min(body.width, body.height) * 0.04)
-        let outerRim = NSBezierPath(
-            roundedRect: body.insetBy(dx: 0.75, dy: 0.75),
-            xRadius: max(rimRadius - 0.75, 0),
-            yRadius: max(rimRadius - 0.75, 0)
-        )
-        NSColor(calibratedWhite: 0.48, alpha: 0.72).setStroke()
-        outerRim.lineWidth = 1.5
-        outerRim.stroke()
-
-        let innerRim = NSBezierPath(
-            roundedRect: body.insetBy(dx: 2.25, dy: 2.25),
-            xRadius: max(rimRadius - 2.25, 0),
-            yRadius: max(rimRadius - 2.25, 0)
-        )
-        NSColor(calibratedWhite: 0.92, alpha: 0.16).setStroke()
-        innerRim.lineWidth = 0.75
-        innerRim.stroke()
-
-        let topBezel = profile.bezelInsets.top
-        guard topBezel >= 8 else { return }
-        let lensDiameter = min(max(topBezel * 0.22, 2.4), 4.2)
-        let lensRect = CGRect(
-            x: body.midX - lensDiameter / 2,
-            y: body.maxY - topBezel / 2 - lensDiameter / 2,
-            width: lensDiameter,
-            height: lensDiameter
-        )
-        NSColor(calibratedRed: 0.035, green: 0.05, blue: 0.065, alpha: 1).setFill()
-        NSBezierPath(ovalIn: lensRect).fill()
-        NSColor(calibratedRed: 0.18, green: 0.27, blue: 0.34, alpha: 0.72).setStroke()
-        let lensHighlight = NSBezierPath(ovalIn: lensRect.insetBy(dx: 0.45, dy: 0.45))
-        lensHighlight.lineWidth = 0.45
-        lensHighlight.stroke()
     }
 
     private func drawButtons(_ buttons: [SimulatorDeviceChromeProfile.Button]) {

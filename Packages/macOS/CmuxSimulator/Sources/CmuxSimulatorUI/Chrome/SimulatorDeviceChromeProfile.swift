@@ -17,7 +17,6 @@ struct SimulatorDeviceChromeProfile: Equatable, Sendable {
 
     var portraitWidth: Double { screenWidth + insets.leading + insets.trailing }
     var portraitHeight: Double { screenHeight + insets.top + insets.bottom }
-    var isTablet: Bool { min(screenWidth, screenHeight) / max(screenWidth, screenHeight) > 0.7 }
 
     var bezelInsets: Insets {
         Insets(

@@ -75,11 +75,7 @@ struct SimulatorDeviceStage: View {
             contentMode: .fit
         )
         .clipShape(.rect(cornerRadius: coordinator.chromeProfile == nil ? deviceCornerRadius : 0))
-        .shadow(
-            color: .black.opacity(selectedFamily == .iPad ? 0.22 : 0.28),
-            radius: selectedFamily == .iPad ? 12 : 18,
-            y: selectedFamily == .iPad ? 4 : 8
-        )
+        .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
         .padding(SimulatorDeviceStageMetrics.devicePadding)
         .accessibilityLabel(simulatorStrings.simulator)
     }
