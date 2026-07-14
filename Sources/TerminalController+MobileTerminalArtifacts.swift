@@ -92,7 +92,7 @@ extension TerminalController {
             }.value
             return .ok(TerminalArtifactWire.payload(stat) ?? [:])
         } catch TerminalArtifactReadContext.Error.forbidden {
-            cmuxDebugLog("mobile.terminal.artifact.forbidden op=stat path=\(context.requestedPath ?? "nil")")
+            debugLogMobileTerminalArtifactDenial(op: "stat", path: context.requestedPath)
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
@@ -119,7 +119,7 @@ extension TerminalController {
             }.value
             return .ok(TerminalArtifactWire.payload(chunk) ?? [:])
         } catch TerminalArtifactReadContext.Error.forbidden {
-            cmuxDebugLog("mobile.terminal.artifact.forbidden op=fetch path=\(context.requestedPath ?? "nil")")
+            debugLogMobileTerminalArtifactDenial(op: "fetch", path: context.requestedPath)
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
@@ -142,7 +142,7 @@ extension TerminalController {
             }.value
             return .ok(TerminalArtifactWire.payload(thumbnail) ?? [:])
         } catch TerminalArtifactReadContext.Error.forbidden {
-            cmuxDebugLog("mobile.terminal.artifact.forbidden op=thumbnail path=\(context.requestedPath ?? "nil")")
+            debugLogMobileTerminalArtifactDenial(op: "thumbnail", path: context.requestedPath)
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
         } catch ArtifactByteReader.Error.fileNotFound {
             return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
@@ -206,6 +206,12 @@ extension TerminalController {
         case forbidden
         case fileNotFound
         case unsupportedMedia
+    }
+
+    private func debugLogMobileTerminalArtifactDenial(op: String, path: String?) {
+        #if DEBUG
+        cmuxDebugLog("mobile.terminal.artifact.forbidden op=\(op) path=\(path ?? "nil")")
+        #endif
     }
 
     private func mobileTerminalArtifactError(
