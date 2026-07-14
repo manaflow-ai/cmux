@@ -1774,7 +1774,7 @@ class GhosttyApp {
             }
         }
         let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
-        guard let app else {
+        guard app != nil else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
         }
