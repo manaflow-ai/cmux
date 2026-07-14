@@ -58,6 +58,17 @@ describe("client config env validation", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("CMUX_ANALYTICS_RATE_LIMIT_ID is required");
   });
+
+  test("allows Vercel development without the analytics limiter id", () => {
+    const result = importEnv({
+      ...requiredEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "development",
+      CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+    });
+
+    expect(result.exitCode).toBe(0);
+  });
 });
 
 function importEnv(env: Record<string, string>): { exitCode: number; stderr: string } {
