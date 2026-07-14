@@ -4175,6 +4175,10 @@ private struct InertPushRegistration: PushRegistering {
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+    #expect(
+        store.deeplinkWorkspaceNavigationRequest?.terminalID
+            == MobileTerminalPreview.ID(rawValue: "terminal-notes")
+    )
 }
 
 /// Tap lands while the store is bound but the Mac attach has not delivered
@@ -4275,7 +4279,9 @@ private struct InertPushRegistration: PushRegistering {
 
     let target = MobileWorkspacePreview.ID(rawValue: "workspace-docs")
     #expect(store.deeplinkWorkspaceNavigationRequest?.workspaceID == target)
-    #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == target)
+    let request = store.consumeDeeplinkWorkspaceNavigationRequest()
+    #expect(request?.workspaceID == target)
+    #expect(request?.terminalID == nil)
     // One-shot: a later layout remount cannot replay a stale push.
     #expect(store.deeplinkWorkspaceNavigationRequest == nil)
     #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == nil)

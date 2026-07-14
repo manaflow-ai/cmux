@@ -281,10 +281,10 @@ public final class MobilePushCoordinator {
             return
         }
 
-        store.navigateToWorkspaceForDeeplink(workspaceTarget)
-        if let surfaceId = pending.surfaceId {
-            store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
-        }
+        store.navigateToWorkspaceForDeeplink(
+            workspaceTarget,
+            terminalID: pending.surfaceId.map(MobileTerminalPreview.ID.init(rawValue:))
+        )
         pendingDeeplink = nil
         analytics.capture("ios_push_deeplink_resolved", [
             "resolved_workspace": .bool(pending.workspaceId != nil),

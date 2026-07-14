@@ -11,27 +11,38 @@ public import Foundation
 /// this explicit request, which the shell consumes exactly once. The token
 /// makes repeated taps on the same workspace distinguishable.
 public struct DeeplinkWorkspaceNavigationRequest: Equatable, Sendable {
+    /// A token that distinguishes repeated taps on the same target.
     public let token: UUID
+    /// The workspace that must be present as the hub level.
     public let workspaceID: MobileWorkspacePreview.ID
+    /// The terminal to push above the hub, or `nil` for a workspace-only link.
+    public let terminalID: MobileTerminalPreview.ID?
 }
 
 extension CMUXMobileShellStore {
     /// Select `id` and ask the shell to navigate to it (push the compact
     /// stack). Called by the push coordinator when a parked notification tap
     /// resolves; the workspace is expected to exist in ``workspaces``.
-    public func navigateToWorkspaceForDeeplink(_ id: MobileWorkspacePreview.ID) {
+    public func navigateToWorkspaceForDeeplink(
+        _ id: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID? = nil
+    ) {
         selectedWorkspaceID = id
+        if let terminalID {
+            selectedTerminalID = terminalID
+        }
         deeplinkWorkspaceNavigationRequest = DeeplinkWorkspaceNavigationRequest(
             token: UUID(),
-            workspaceID: id
+            workspaceID: id,
+            terminalID: terminalID
         )
     }
 
     /// Hand the pending deep-link navigation intent to the shell and clear it
     /// so a later layout remount cannot replay a stale push.
-    public func consumeDeeplinkWorkspaceNavigationRequest() -> MobileWorkspacePreview.ID? {
+    public func consumeDeeplinkWorkspaceNavigationRequest() -> DeeplinkWorkspaceNavigationRequest? {
         defer { deeplinkWorkspaceNavigationRequest = nil }
-        return deeplinkWorkspaceNavigationRequest?.workspaceID
+        return deeplinkWorkspaceNavigationRequest
     }
 
     /// The current UI row id for a Mac-local workspace id, if that workspace is

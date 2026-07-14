@@ -18,12 +18,12 @@ struct WorkspaceShellView: View {
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
-    let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
-    @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State var compactNavigationPath: [WorkspaceShellRoute] = []
+    @State var splitDetailPath: [WorkspaceShellRoute] = []
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     @State private var hasPresentedSplitDetail = false
-    @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
+    @State var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var macSelection: WorkspaceMacSelection = .all
     @State var workspaceActionToast: WorkspaceActionToastContent?
     @State private var pendingMacSwitchID: String?
@@ -34,7 +34,7 @@ struct WorkspaceShellView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     #endif
 
-    private var usesCompactStack: Bool {
+    var usesCompactStack: Bool {
         #if os(iOS)
         MobileWorkspaceShellLayoutPolicy.usesCompactStack(
             horizontalSizeClass: horizontalSizeClass,
@@ -85,7 +85,16 @@ struct WorkspaceShellView: View {
             guard isCompact, hasPresentedSplitDetail, let selectedWorkspaceID = store.selectedWorkspaceID else {
                 return
             }
-            compactNavigationPath = [selectedWorkspaceID]
+            let hub = WorkspaceShellRoute.hub(workspaceID: selectedWorkspaceID)
+            if let splitRoute = splitDetailPath.last,
+               case let .pane(_, paneID, surfaceID) = splitRoute {
+                compactNavigationPath = [
+                    hub,
+                    .pane(workspaceID: selectedWorkspaceID, paneID: paneID, surfaceID: surfaceID),
+                ]
+            } else {
+                compactNavigationPath = [hub]
+            }
         }
         // A notification-tap deep link must actually navigate, not just mark a
         // selection: on the compact stack an empty path ignores selection
@@ -151,45 +160,34 @@ struct WorkspaceShellView: View {
                 initialConnectionTimedOut: initialConnectionTimedOut,
                 retryInitialConnection: retryInitialConnection
             )
-            .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                workspaceDestination(
-                    for: workspaceID,
-                    createWorkspace: createWorkspaceInCompactStack,
-                    backButtonConfiguration: WorkspaceBackButtonConfiguration(
-                        unreadCount: unreadWorkspaceCount(excluding: workspaceID),
-                        badgeContrast: .darkBackground,
-                        action: popCompactStack
-                    )
-                )
-                    // Only on the pushed compact stack (where a back button
-                    // exists): replace the system back button with a custom one
-                    // that folds the unread-workspace count INTO the same button
-                    // ("‹ 3"). Hiding the system button disables the interactive
-                    // swipe-back, so re-enable it via InteractiveSwipeBackEnabler.
-                    .navigationBarBackButtonHidden(true)
-                    .background(InteractiveSwipeBackEnabler())
+            .navigationDestination(for: WorkspaceShellRoute.self) { route in
+                compactDestination(for: route)
             }
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
-            if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
-                currentPath: compactNavigationPath,
-                selectedWorkspaceID: selectedWorkspaceID,
-                existingWorkspaceIDs: pendingCompactCreateNavigationWorkspaceIDs
-            ) {
+            if let existingWorkspaceIDs = pendingCompactCreateNavigationWorkspaceIDs,
+               let selectedWorkspaceID,
+               !existingWorkspaceIDs.contains(selectedWorkspaceID) {
                 pendingCompactCreateNavigationWorkspaceIDs = nil
-                compactNavigationPath = createdPath
+                compactNavigationPath = [.hub(workspaceID: selectedWorkspaceID)]
                 autoOpenSelectedWorkspaceForSoakIfNeeded()
                 return
             }
-            compactNavigationPath = compactNavigationPolicy.pathForSelectionChange(
-                currentPath: compactNavigationPath,
-                selectedWorkspaceID: selectedWorkspaceID,
-                visibleWorkspaceIDs: Set(store.workspaces.map(\.id))
-            )
+            guard !compactNavigationPath.isEmpty else {
+                autoOpenSelectedWorkspaceForSoakIfNeeded()
+                return
+            }
+            guard let selectedWorkspaceID else {
+                compactNavigationPath = []
+                return
+            }
+            if compactNavigationPath.last?.workspaceID != selectedWorkspaceID {
+                compactNavigationPath = [.hub(workspaceID: selectedWorkspaceID)]
+            }
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onChange(of: compactNavigationPath) { _, path in
-            guard let selectedWorkspaceID = path.last else {
+            guard let selectedWorkspaceID = path.last?.workspaceID else {
                 return
             }
             pendingCompactCreateNavigationWorkspaceIDs = nil
@@ -199,11 +197,7 @@ struct WorkspaceShellView: View {
             store.selectedWorkspaceID = selectedWorkspaceID
         }
         .onChange(of: store.workspaces.map(\.id)) { _, workspaceIDs in
-            compactNavigationPath = compactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
-                currentPath: compactNavigationPath,
-                visibleWorkspaceIDs: Set(workspaceIDs),
-                selectedWorkspaceID: store.selectedWorkspaceID
-            )
+            reconcileCompactPath(with: Set(workspaceIDs))
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
         .onAppear {
@@ -260,36 +254,59 @@ struct WorkspaceShellView: View {
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
-            workspaceDestination(
-                for: store.selectedWorkspaceID,
-                createWorkspace: createWorkspaceIfConnected,
-                safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
-            )
+            NavigationStack(path: $splitDetailPath) {
+                workspaceHubDestination(
+                    for: store.selectedWorkspaceID,
+                    backButtonConfiguration: nil
+                )
+                .navigationDestination(for: WorkspaceShellRoute.self) { route in
+                    splitDestination(for: route)
+                }
+            }
         }
         .navigationSplitViewStyle(.balanced)
         .onAppear {
             hasPresentedSplitDetail = true
         }
+        .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
+            if splitDetailPath.last?.workspaceID != selectedWorkspaceID {
+                splitDetailPath = []
+            }
+        }
     }
 
     /// Apply (and clear) a pending deep-link navigation intent. On the compact
-    /// stack this pushes the workspace; on the split layout the store's
-    /// selection already presents the detail column, so consuming just clears
-    /// the request so a later size-class change cannot replay a stale push.
+    /// stack this pushes hub then pane. On split layouts the hub is the detail
+    /// root, so a terminal target pushes only the pane level.
     private func consumeDeeplinkNavigationRequestIfNeeded() {
         guard store.deeplinkWorkspaceNavigationRequest != nil else { return }
-        guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
-        guard usesCompactStack else { return }
-        if compactNavigationPath.last != workspaceID {
-            compactNavigationPath = [workspaceID]
+        guard let request = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
+        let hub = WorkspaceShellRoute.hub(workspaceID: request.workspaceID)
+        if usesCompactStack {
+            compactNavigationPath = [hub]
+            if let terminalID = request.terminalID {
+                compactNavigationPath.append(.pane(
+                    workspaceID: request.workspaceID,
+                    paneID: "deeplink:\(terminalID.rawValue)",
+                    surfaceID: terminalID.rawValue
+                ))
+            }
+        } else if let terminalID = request.terminalID {
+            splitDetailPath = [.pane(
+                workspaceID: request.workspaceID,
+                paneID: "deeplink:\(terminalID.rawValue)",
+                surfaceID: terminalID.rawValue
+            )]
         }
     }
 
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
         store.selectedWorkspaceID = id
-        if usesCompactStack, compactNavigationPath.last != id {
-            compactNavigationPath = [id]
+        if usesCompactStack, compactNavigationPath.last?.workspaceID != id {
+            compactNavigationPath = [.hub(workspaceID: id)]
+        } else if !usesCompactStack {
+            splitDetailPath = []
         }
     }
 
@@ -366,44 +383,10 @@ struct WorkspaceShellView: View {
               store.workspaces.contains(where: { $0.id == selectedWorkspaceID }) else {
             return
         }
-        compactNavigationPath = [selectedWorkspaceID]
+        compactNavigationPath = [.hub(workspaceID: selectedWorkspaceID)]
         #endif
     }
 
-    /// Count of workspaces with unread activity, excluding the one currently
-    /// open (you are looking at it, so it should not count toward "waiting back
-    /// in the list"). Drives the back-button unread count.
-    private func unreadWorkspaceCount(excluding workspaceID: MobileWorkspacePreview.ID?) -> Int {
-        store.workspaces.filter { $0.hasUnread && $0.id != workspaceID }.count
-    }
-
-    /// Pop the pushed workspace detail back to the list — the action behind the
-    /// custom back button (which replaces the system one to carry the count).
-    private func popCompactStack() {
-        guard !compactNavigationPath.isEmpty else { return }
-        compactNavigationPath.removeLast()
-    }
-
-    @ViewBuilder
-    private func workspaceDestination(
-        for workspaceID: MobileWorkspacePreview.ID?,
-        createWorkspace: @escaping () -> Void,
-        safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
-        backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil
-    ) -> some View {
-        WorkspaceDetailContainer(
-            store: store,
-            workspaceID: workspaceID,
-            createWorkspace: createWorkspace,
-            canCreateWorkspace: canCreateWorkspaceForMacSelection,
-            renameWorkspace: renameWorkspaceClosure,
-            setWorkspaceUnread: setWorkspaceUnreadClosure,
-            closeWorkspace: closeWorkspaceClosure,
-            safeAreaContext: safeAreaContext,
-            backButtonConfiguration: backButtonConfiguration,
-            signOut: signOut
-        )
-    }
 }
 
 #if os(iOS)
