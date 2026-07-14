@@ -3,7 +3,7 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::time::{Duration, SystemTime};
 
 use axum::body::Body;
@@ -23,7 +23,7 @@ use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::{Mutex, RwLock, Semaphore};
 use tokio_util::io::ReaderStream;
 
 use crate::manifest::{
@@ -49,6 +49,7 @@ struct AppState {
     port: u16,
     manifests: Arc<RwLock<HashMap<String, CachedManifest>>>,
     child_processes: Arc<Semaphore>,
+    session_open_locks: Arc<StdMutex<HashMap<String, Weak<Mutex<()>>>>>,
 }
 
 #[derive(Clone)]
@@ -153,6 +154,7 @@ fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
         port,
         manifests: Arc::new(RwLock::new(HashMap::new())),
         child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
+        session_open_locks: Arc::new(StdMutex::new(HashMap::new())),
     })
 }
 
@@ -514,6 +516,10 @@ async fn open_session(
             source: params.source,
         });
     }
+    let session_lock = session_open_lock(state, &params.capability_token)?;
+    let _session_guard = session_lock
+        .try_lock()
+        .map_err(|_| SessionOpenError::Failed)?;
     let _permit = state
         .child_processes
         .try_acquire()
@@ -536,7 +542,8 @@ async fn open_session(
     let request_path = format!("/{file_name}");
     let final_path = state.config.root.join(&file_name);
     let temporary_path = state.config.root.join(format!(".{file_name}.tmp"));
-    let mut temporary_file = TemporaryPatchFile::new(temporary_path.clone());
+    let mut temporary_file =
+        TemporaryPatchFile::new(state.config.root.clone(), temporary_path.clone());
     register_session_temp(&state.config.root, &temporary_path)
         .map_err(|_| SessionOpenError::Failed)?;
 
@@ -588,13 +595,18 @@ async fn open_session(
 }
 
 struct TemporaryPatchFile {
+    root: PathBuf,
     path: PathBuf,
     armed: bool,
 }
 
 impl TemporaryPatchFile {
-    fn new(path: PathBuf) -> Self {
-        Self { path, armed: true }
+    fn new(root: PathBuf, path: PathBuf) -> Self {
+        Self {
+            root,
+            path,
+            armed: true,
+        }
     }
 
     fn disarm(&mut self) {
@@ -610,8 +622,23 @@ impl Drop for TemporaryPatchFile {
     fn drop(&mut self) {
         if self.armed {
             let _ = std::fs::remove_file(&self.path);
+            let _ = unregister_session_temp(&self.root, &self.path);
         }
     }
+}
+
+fn session_open_lock(state: &AppState, token: &str) -> Result<Arc<Mutex<()>>, SessionOpenError> {
+    let mut locks = state
+        .session_open_locks
+        .lock()
+        .map_err(|_| SessionOpenError::Failed)?;
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(token).and_then(Weak::upgrade) {
+        return Ok(lock);
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(token.to_owned(), Arc::downgrade(&lock));
+    Ok(lock)
 }
 
 async fn resolve_session_source(
@@ -1604,9 +1631,10 @@ mod tests {
     use crate::protocol::{DiffCommand, DiffRequest, DiffResult};
 
     use super::{
-        DiffSource, RpcRequestRead, SessionOpenError, TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID,
-        handle_protocol_request, prune_orphaned_session_temp_files, read_rpc_request,
-        register_session_temp, run_git_patch_with_limit, valid_group_id,
+        DiffSource, RpcRequestRead, ServerConfig, SessionOpenError, TemporaryPatchFile,
+        UNTRUSTED_RPC_REQUEST_ID, app_state, handle_protocol_request,
+        prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
+        run_git_patch_with_limit, session_open_lock, valid_group_id,
     };
 
     #[tokio::test]
@@ -1657,13 +1685,40 @@ mod tests {
         std::fs::write(&temporary, b"private diff").expect("write temporary patch");
 
         {
-            let mut guard = TemporaryPatchFile::new(temporary.clone());
+            let mut guard = TemporaryPatchFile::new(root.clone(), temporary.clone());
             std::fs::rename(&temporary, &final_path).expect("rename patch");
             guard.retarget(final_path.clone());
         }
 
         assert!(!temporary.exists());
         assert!(!final_path.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn concurrent_session_opens_for_one_token_are_rejected() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-session-lock-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create root");
+        let state = app_state(
+            ServerConfig {
+                root: root.clone(),
+                cmux_executable: root.join("cmux"),
+                executable_path: root.join("cmux-diff-sidecar"),
+            },
+            0,
+        )
+        .expect("create state");
+        let first = session_open_lock(&state, "0123456789abcdef").expect("first lock");
+        let first_guard = first.try_lock().expect("acquire first lock");
+        let second = session_open_lock(&state, "0123456789abcdef").expect("second lock");
+        assert!(second.try_lock().is_err());
+        drop(first_guard);
+        assert!(second.try_lock().is_ok());
         let _ = std::fs::remove_dir_all(root);
     }
 
