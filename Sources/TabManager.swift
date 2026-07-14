@@ -1250,7 +1250,7 @@ class TabManager: ObservableObject {
     }
 
     func retainBackgroundWorkspaceMount(for workspaceId: UUID) {
-        guard !mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
+        guard shouldRetainBackgroundWorkspaceMount(for: workspaceId) else { return }
         var updated = mountedBackgroundWorkspaceLoadIds
         updated.insert(workspaceId)
         mountedBackgroundWorkspaceLoadIds = updated
