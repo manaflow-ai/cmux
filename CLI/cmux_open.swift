@@ -7729,12 +7729,24 @@ extension CMUXCLI {
         }
 
         let now = Date()
+        func typedSessionLeaseIsActive(token: String) -> Bool {
+            let leaseURL = directory.appendingPathComponent(".session-lease-\(token).lock")
+            let descriptor = Darwin.open(leaseURL.path, O_RDWR)
+            guard descriptor >= 0 else { return false }
+            defer { Darwin.close(descriptor) }
+            if Darwin.flock(descriptor, LOCK_EX | LOCK_NB) == 0 {
+                _ = Darwin.flock(descriptor, LOCK_UN)
+                return false
+            }
+            return errno == EWOULDBLOCK
+        }
         let activeTypedSessionTokens = Set(entries.compactMap { manifestURL -> String? in
             let name = manifestURL.lastPathComponent
             guard name.hasPrefix(".manifest-"), manifestURL.pathExtension == "json",
                   let data = try? Data(contentsOf: manifestURL),
                   let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let token = manifest["token"] as? String,
+                  typedSessionLeaseIsActive(token: token),
                   let files = manifest["files"] as? [[String: Any]],
                   files.contains(where: { file in
                       guard file["remote_url"] == nil || file["remote_url"] is NSNull,

@@ -1865,6 +1865,25 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         let token: String
         let filesByPath: [String: RegisteredFile]
         let createdAt: Date
+        let lease: SessionLease
+    }
+
+    private final class SessionLease {
+        let fileDescriptor: Int32
+
+        init(root: URL, token: String) throws {
+            let path = root.appendingPathComponent(".session-lease-\(token).lock").path
+            fileDescriptor = Darwin.open(path, O_CREAT | O_RDWR, mode_t(0o600))
+            guard fileDescriptor >= 0, Darwin.flock(fileDescriptor, LOCK_SH | LOCK_NB) == 0 else {
+                if fileDescriptor >= 0 { Darwin.close(fileDescriptor) }
+                throw POSIXError(.EWOULDBLOCK)
+            }
+        }
+
+        deinit {
+            _ = Darwin.flock(fileDescriptor, LOCK_UN)
+            Darwin.close(fileDescriptor)
+        }
     }
 
     private final class SchemeTaskState: @unchecked Sendable {
@@ -1938,9 +1957,10 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             )
         }
 
+        let lease = try SessionLease(root: trustedRootURL, token: token)
         lock.lock()
         pruneExpiredSessionsLocked(now: now)
-        sessions[token] = Session(token: token, filesByPath: byPath, createdAt: now)
+        sessions[token] = Session(token: token, filesByPath: byPath, createdAt: now, lease: lease)
         lock.unlock()
     }
 

@@ -543,7 +543,7 @@ async fn open_session(
     let request_path = format!("/{file_name}");
     let final_path = state.config.root.join(&file_name);
     let temporary_path = state.config.root.join(format!(".{file_name}.tmp"));
-    register_session_temp(&state.config.root, &temporary_path)
+    reserve_session_temp(&state.config.root, &temporary_path)
         .map_err(|_| SessionOpenError::Failed)?;
     let mut temporary_file =
         TemporaryPatchFile::new(state.config.root.clone(), temporary_path.clone());
@@ -906,10 +906,27 @@ fn final_patch_is_manifest_owned(root: &Path, patch_path: &Path) -> bool {
             .iter()
             .any(|file| file.remote_url.is_none() && Path::new(&file.file_path) == patch_path)
         {
-            return true;
+            return session_lease_is_active(root, token);
         }
     }
     false
+}
+
+fn session_lease_is_active(root: &Path, token: &str) -> bool {
+    let Ok(lock) = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(root.join(format!(".session-lease-{token}.lock")))
+    else {
+        return false;
+    };
+    match lock.try_lock_exclusive() {
+        Ok(()) => {
+            let _ = FileExt::unlock(&lock);
+            false
+        }
+        Err(error) => error.kind() == std::io::ErrorKind::WouldBlock,
+    }
 }
 
 fn valid_session_temp_name(name: &str) -> bool {
@@ -927,6 +944,7 @@ fn session_temp_id(name: &str) -> Option<&str> {
         })
 }
 
+#[cfg(test)]
 fn register_session_temp(root: &Path, path: &Path) -> Result<(), String> {
     let name = path
         .file_name()
@@ -949,6 +967,36 @@ fn register_session_temp(root: &Path, path: &Path) -> Result<(), String> {
         entries.push(name.to_owned());
         Ok(())
     })
+}
+
+fn reserve_session_temp(root: &Path, path: &Path) -> Result<(), String> {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or("invalid temp name")?;
+    let session_id = session_temp_id(name).ok_or("invalid temp name")?;
+    let mut created = false;
+    let result = mutate_temp_index(root, |entries| {
+        if entries.len() >= MAX_TEMP_INDEX_ENTRIES
+            || entries
+                .iter()
+                .any(|entry| session_temp_id(entry) == Some(session_id))
+        {
+            return Err("session id already reserved".to_owned());
+        }
+        OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(path)
+            .map_err(|error| error.to_string())?;
+        created = true;
+        entries.push(name.to_owned());
+        Ok(())
+    });
+    if result.is_err() && created {
+        let _ = std::fs::remove_file(path);
+    }
+    result
 }
 
 fn unregister_session_temp(root: &Path, path: &Path) -> Result<(), String> {
@@ -1667,9 +1715,10 @@ mod tests {
     use crate::protocol::{DiffCommand, DiffRequest, DiffResult};
 
     use super::{
-        AllowedFile, DiffSource, Manifest, RpcRequestRead, SessionOpenError, TemporaryPatchFile,
-        UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request, prune_orphaned_session_temp_files,
-        read_rpc_request, register_session_temp, run_git_patch_with_limit, valid_group_id,
+        AllowedFile, DiffSource, FileExt, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
+        TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
+        prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
+        run_git_patch_with_limit, valid_group_id,
     };
 
     #[tokio::test]
@@ -1786,6 +1835,14 @@ mod tests {
             serde_json::to_vec(&active_manifest).expect("encode active manifest"),
         )
         .expect("write active manifest");
+        let active_lease = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(root.join(format!(".session-lease-{active_token}.lock")))
+            .expect("open active lease");
+        FileExt::lock_shared(&active_lease).expect("hold active lease");
         std::fs::write(&unrelated, b"keep").expect("write unrelated file");
 
         for _ in 0..6 {
@@ -1795,6 +1852,9 @@ mod tests {
         assert!(orphans.iter().all(|orphan| !orphan.exists()));
         assert!(!final_orphan.exists());
         assert!(active_final.exists());
+        FileExt::unlock(&active_lease).expect("release active lease");
+        prune_orphaned_session_temp_files(&root, Duration::ZERO, Duration::ZERO, 16).await;
+        assert!(!active_final.exists());
         assert!(unrelated.exists());
         let _ = std::fs::remove_dir_all(root);
     }
