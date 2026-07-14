@@ -151,12 +151,9 @@ struct BrowserWebExtensionInitialPermissionTests {
         )
         weak var supportForReentrantApply: BrowserWebExtensionSupport?
         let support = BrowserWebExtensionSupport(permissionConfirmation: { _ in
-            guard let support = supportForReentrantApply else { return true }
-            Task { @MainActor in
-                await support.apply(entries: [])
-                CFRunLoopStop(CFRunLoopGetCurrent())
+            MainActor.assumeIsolated {
+                supportForReentrantApply?.settingsLoadGeneration &+= 1
             }
-            CFRunLoopRun()
             return true
         })
         supportForReentrantApply = support
