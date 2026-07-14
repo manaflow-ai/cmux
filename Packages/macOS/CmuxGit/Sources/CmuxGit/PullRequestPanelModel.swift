@@ -47,6 +47,7 @@ public final class PullRequestPanelModel {
             scheduleMergeabilityRefreshIfNeeded()
         } else {
             generation &+= 1
+            if actionPhase.isBusy { actionPhase = .idle }
             switch phase {
             case .loading:
                 phase = .idle

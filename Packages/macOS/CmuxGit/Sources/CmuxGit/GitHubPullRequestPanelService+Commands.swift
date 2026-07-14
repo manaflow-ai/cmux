@@ -10,6 +10,7 @@ extension GitHubPullRequestPanelService {
         method: PullRequestMergeMethod,
         whenReady: Bool
     ) async throws {
+        try await revalidate(context, failure: .mergeFailed)
         var arguments = ["pr", "merge", String(number)]
         if whenReady { arguments.append("--auto") }
         arguments.append(method.commandFlag)
@@ -32,6 +33,7 @@ extension GitHubPullRequestPanelService {
         context: PullRequestPanelContext,
         headRefOid: String
     ) async throws {
+        try await revalidate(context, failure: .mergeFailed)
         let result = await commandRunner.run(
             directory: context.repositoryRoot,
             executable: "gh",
@@ -47,12 +49,7 @@ extension GitHubPullRequestPanelService {
 
     /// Opens GitHub's web-based pull-request creation flow.
     public func createPullRequest(context: PullRequestPanelContext) async throws {
-        guard let currentContext = try? await resolvedContext(for: PullRequestWorkspaceInput(
-            directory: context.repositoryRoot,
-            branchHint: context.branch
-        )), currentContext == context else {
-            throw PullRequestPanelServiceError.createFailed
-        }
+        try await revalidate(context, failure: .createFailed)
         let result = await commandRunner.run(
             directory: context.repositoryRoot,
             executable: "gh",
@@ -63,5 +60,17 @@ extension GitHubPullRequestPanelService {
             timeout: 30
         )
         _ = try requiredOutput(from: result, failure: .createFailed, allowsEmptyOutput: true)
+    }
+
+    private func revalidate(
+        _ context: PullRequestPanelContext,
+        failure: PullRequestPanelServiceError
+    ) async throws {
+        guard let currentContext = try? await resolvedContext(for: PullRequestWorkspaceInput(
+            directory: context.repositoryRoot,
+            branchHint: context.branch
+        )), currentContext == context else {
+            throw failure
+        }
     }
 }
