@@ -260,6 +260,19 @@ extension BrowserWebExtensionSupport {
             guard canApplyWebExtensionLoad(generation: generation) else { return }
             let standardizedPath = BrowserWebExtensionReconciliationPlanner.standardizedResourceRootPath(for: entry)
             let context = try load(webExtension, entryID: entry.id, standardizedPath: standardizedPath)
+            guard canApplyWebExtensionLoad(generation: generation) else {
+                if !discardStaleLoadedContext(
+                    context,
+                    entry: entry,
+                    standardizedPath: standardizedPath
+                ) {
+                    await apply(
+                        entries: configuredSettingsEntries,
+                        generation: settingsLoadGeneration
+                    )
+                }
+                return
+            }
             loadedByEntryID[entry.id] = BrowserWebExtensionLoadedRecord(
                 entry: entry,
                 standardizedPath: standardizedPath,
@@ -283,6 +296,34 @@ extension BrowserWebExtensionSupport {
 #if DEBUG
             cmuxDebugLog("browser.webext.loadFailed url=\(entry.path) error=\(error.localizedDescription)")
 #endif
+        }
+    }
+
+    private func discardStaleLoadedContext(
+        _ context: WKWebExtensionContext,
+        entry: BrowserWebExtensionEntry,
+        standardizedPath: String
+    ) -> Bool {
+        do {
+            try controller.unload(context)
+            removePermissionStateObservers(entryID: entry.id)
+            return true
+        } catch {
+            loadedByEntryID[entry.id] = BrowserWebExtensionLoadedRecord(
+                entry: entry,
+                standardizedPath: standardizedPath,
+                context: context
+            )
+            if !loadedEntryIDsInOrder.contains(entry.id) {
+                loadedEntryIDsInOrder.append(entry.id)
+            }
+            recordLoadError(error.localizedDescription, entryID: entry.id)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.webext.staleUnloadFailed id=\(entry.id) error=\(error.localizedDescription)"
+            )
+#endif
+            return false
         }
     }
 
