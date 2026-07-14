@@ -52,6 +52,7 @@ enum SettingsWindowFactory {
         window.titlebarSeparatorStyle = .none
 
         let toolbar = NSToolbar(identifier: toolbarIdentifier)
+        toolbar.delegate = window
         toolbar.allowsUserCustomization = false
         toolbar.autosavesConfiguration = false
         toolbar.displayMode = .iconOnly
@@ -91,13 +92,31 @@ extension SettingsWindowPresenter {
 /// window even when a foreign `willClose` observer re-enters `show()` before
 /// the presenter's own observer runs (notification-observer order is not a
 /// lifecycle invariant).
-class SettingsHostWindow: NSWindow {
+class SettingsHostWindow: NSWindow, NSToolbarDelegate {
     private(set) var isClosingSettingsWindow = false
 
     /// Receives the standard AppKit toolbar item's `toggleSidebar:` action and
     /// forwards it through the same route as the app menu command.
     @objc func toggleSidebar(_ sender: Any?) {
         SettingsWindowPresenter.requestSidebarToggle()
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.toggleSidebar]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.toggleSidebar]
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        // AppKit creates its standard toggle-sidebar item itself and does not
+        // ask the delegate for it. No custom identifiers are allowed here.
+        nil
     }
 
     override func close() {

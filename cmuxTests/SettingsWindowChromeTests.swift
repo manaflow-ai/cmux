@@ -29,6 +29,7 @@ extension SettingsWindowSharedStateSuites {
             #expect(window.titlebarSeparatorStyle == .none)
 
             let toolbar = try #require(window.toolbar)
+            #expect(toolbar.delegate === window)
             #expect(!toolbar.allowsUserCustomization)
             #expect(!toolbar.autosavesConfiguration)
             #expect(toolbar.displayMode == .iconOnly)
