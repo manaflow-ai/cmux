@@ -143,15 +143,36 @@ import Testing
     let followUpSettled = try await pollUntil { await router.replayResponsesServed() >= 2 }
     #expect(followUpSettled, "dropped racing output should trigger and settle one catch-up replay")
 
+    let retainedRawDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("racing-raw") }
+            && store.deliveredTerminalByteEndSeqBySurfaceID["live-terminal"] == 16
+    }
+    #expect(
+        retainedRawDelivered,
+        "an empty catch-up replay must release the retained raw bytes after the authoritative base"
+    )
+    let replayEpisodeSettled = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID["live-terminal"] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains("live-terminal")
+    }
+    #expect(replayEpisodeSettled)
+
     await transport.deliver(try terminalBytesEventFrame(
         surfaceID: "live-terminal",
-        seq: 5,
+        seq: 16,
         text: "post-raw"
     ))
     let postSettleDelivered = try await pollUntil {
         collector.lines.contains { $0.contains("post-raw") }
     }
     #expect(postSettleDelivered, "live raw output must resume after the cold barrier settles")
+    let baseIndex = collector.lines.firstIndex { $0.contains("authoritative-base") }
+    let retainedIndex = collector.lines.firstIndex { $0.contains("racing-raw") }
+    let postIndex = collector.lines.firstIndex { $0.contains("post-raw") }
+    #expect(baseIndex != nil && retainedIndex != nil && postIndex != nil)
+    if let baseIndex, let retainedIndex, let postIndex {
+        #expect(baseIndex < retainedIndex && retainedIndex < postIndex)
+    }
     collector.unmount()
 }
 
