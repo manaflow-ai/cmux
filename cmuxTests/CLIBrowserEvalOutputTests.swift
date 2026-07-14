@@ -2,7 +2,7 @@ import Foundation
 import Testing
 
 @Suite(.serialized)
-struct CLIBrowserEvalOutputTests {
+final class CLIBrowserEvalOutputTests {
     private struct Case {
         let name: String
         let wireValue: String
