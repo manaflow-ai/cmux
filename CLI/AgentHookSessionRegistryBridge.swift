@@ -5,6 +5,10 @@ import Foundation
 /// The bridge keeps legacy JSON as a compatibility projection while making the
 /// registry authoritative for any row written by this schema generation.
 struct AgentHookSessionRegistryBridge {
+    enum MutationError: Error {
+        case newerWriterGeneration
+    }
+
     let provider: String
     let statePath: String
     let environment: [String: String]
@@ -96,7 +100,7 @@ struct AgentHookSessionRegistryBridge {
                         || previous.sessions[sessionID] == nil else { continue }
                 if let existing = recordsByID[sessionID],
                    existing.writerGeneration > CmuxAgentSessionRegistry.currentWriterGeneration {
-                    continue
+                    throw MutationError.newerWriterGeneration
                 }
                 recordsByID[sessionID] = CmuxAgentSessionRegistry.Record(
                     provider: provider,
@@ -107,7 +111,9 @@ struct AgentHookSessionRegistryBridge {
             }
             for sessionID in Set(previous.sessions.keys).subtracting(state.sessions.keys) {
                 guard recordsByID[sessionID]?.writerGeneration ?? 0
-                        <= CmuxAgentSessionRegistry.currentWriterGeneration else { continue }
+                        <= CmuxAgentSessionRegistry.currentWriterGeneration else {
+                    throw MutationError.newerWriterGeneration
+                }
                 recordsByID.removeValue(forKey: sessionID)
             }
             snapshot.records = Array(recordsByID.values)
@@ -124,7 +130,7 @@ struct AgentHookSessionRegistryBridge {
                         || old?.record.turnId != slot.record.turnId else { continue }
                 if let existing = slotsByKey[key],
                    existing.writerGeneration > CmuxAgentSessionRegistry.currentWriterGeneration {
-                    continue
+                    throw MutationError.newerWriterGeneration
                 }
                 slotsByKey[key] = CmuxAgentSessionRegistry.ActiveSlot(
                     provider: provider,
@@ -137,7 +143,9 @@ struct AgentHookSessionRegistryBridge {
             }
             for key in Set(previousSlots.keys).subtracting(currentSlots.keys) {
                 guard slotsByKey[key]?.writerGeneration ?? 0
-                        <= CmuxAgentSessionRegistry.currentWriterGeneration else { continue }
+                        <= CmuxAgentSessionRegistry.currentWriterGeneration else {
+                    throw MutationError.newerWriterGeneration
+                }
                 slotsByKey.removeValue(forKey: key)
             }
             snapshot.activeSlots = Array(slotsByKey.values)

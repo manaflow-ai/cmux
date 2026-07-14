@@ -254,8 +254,7 @@ exec_real_codex_passthrough() {
 }
 
 # Opt-out, outside cmux, or stale/dead socket: pass straight through.
-if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" \
-      && "${CMUX_CODEX_WRAPPER_HOOK_OWNER:-}" != "1" ]]; then
+if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
     exec_real_codex_passthrough "$@"
 fi
 if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
@@ -275,8 +274,8 @@ fi
 # always call the same cmux version that launched Codex. Older cmux instances
 # may still update their compatibility JSON projection concurrently, but the
 # generation-fenced SQLite registry is authoritative and cannot be downgraded.
-# Explicitly reset the disable marker because a nested Codex can inherit it from
-# an older wrapper; the opt-out case already returned through passthrough above.
+# Explicit opt-out already returned through passthrough above. Normal nested
+# Codex launches inherit this wrapper's zero value and remain instrumented.
 export CMUX_CODEX_HOOKS_DISABLED=0
 export CMUX_CODEX_WRAPPER_HOOK_OWNER=1
 export CMUX_CODEX_PID=$$
