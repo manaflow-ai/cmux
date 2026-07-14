@@ -127,6 +127,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         func noteKeyboardFocus(mode: RightSidebarMode, in window: NSWindow?) {
             switch placement {
             case .rightSidebar:
+                state.mode = mode
                 guard let window else { return }
                 AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: mode, in: window)
             case .pane:
@@ -932,7 +933,6 @@ final class FileExplorerContainerView: NSView {
             refreshSearchAfterContentRevisionIfNeeded()
         }
     }
-
     func representedRightSidebarMode() -> RightSidebarMode {
         presentation.rightSidebarMode
     }
@@ -1486,6 +1486,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     func controlTextDidChange(_ notification: Notification) {
         guard notification.object as? NSTextField === searchField else { return }
         if presentation == .unified {
+            coordinator.noteKeyboardFocus(mode: .find, in: window)
             isSearchVisible = hasSearchQuery
             updateSearchLayout()
             if !isSearchVisible {
@@ -1550,7 +1551,6 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     func numberOfRows(in tableView: NSTableView) -> Int {
         searchSnapshot.results.count
     }
-
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard row >= 0, row < searchSnapshot.results.count else { return nil }
         let result = searchSnapshot.results[row]
