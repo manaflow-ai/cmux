@@ -30,6 +30,8 @@ final class AgentHibernationController {
     private let timerQueue = DispatchQueue(label: "com.cmux.agent-hibernation", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
+    var evaluationTask: Task<Void, Never>?
+    var evaluationTaskID: UUID?
     var activityByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
@@ -66,6 +68,7 @@ final class AgentHibernationController {
     func stop() {
         timer?.cancel()
         timer = nil
+        cancelEvaluationTask()
         AgentHibernationTrackingGate.setEnabled(false)
         clearTrackingState()
         if let settingsObserver {
@@ -135,20 +138,15 @@ final class AgentHibernationController {
         timer.schedule(deadline: .now() + 5, repeating: 30)
         timer.setEventHandler {
             let now = Date()
-            Task.detached(priority: .utility) {
-                let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-                await MainActor.run {
-                    let settings = AgentHibernationSettings.values()
-                    guard settings.enabled else { return }
-                    AgentHibernationController.shared.evaluate(index: index, settings: settings, now: now)
-                }
+            Task { @MainActor in
+                AgentHibernationController.shared.scheduleEvaluation(now: now)
             }
         }
         timer.resume()
         self.timer = timer
     }
 
-    private func evaluate(
+    func evaluate(
         index: RestorableAgentSessionIndex,
         settings: AgentHibernationSettings.Values,
         now: Date
@@ -415,6 +413,7 @@ final class AgentHibernationController {
     }
 
     private func clearTrackingState() {
+        cancelEvaluationTask()
         cancelPostTeardownRestoreTasks()
         teardownValidationGeneration = teardownValidationGeneration &+ 1
         activityByPanel.removeAll(keepingCapacity: false)

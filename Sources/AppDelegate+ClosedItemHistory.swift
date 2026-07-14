@@ -27,8 +27,8 @@ extension AppDelegate {
         shouldActivate: Bool = true
     ) -> Bool {
         var failedStoreRecordIds: Set<UUID> = []
-        let restoreStoreItem: (Date?) -> Bool = { cutoff in
-            ClosedItemHistoryStore.shared.restoreFirstRestorable(
+        let restoreStoreItem: (Date?) -> ClosedItemHistoryRestoreResult = { cutoff in
+            ClosedItemHistoryStore.shared.restoreFirstRestorableResult(
                 newerThan: cutoff,
                 excluding: failedStoreRecordIds,
                 onFailure: { failedStoreRecordIds.insert($0) },
@@ -46,15 +46,20 @@ extension AppDelegate {
             guard let closedAt = manager.mostRecentLegacyClosedBrowserPanelClosedAt() else {
                 continue
             }
-            if restoreStoreItem(closedAt) {
+            switch restoreStoreItem(closedAt) {
+            case .restored:
                 return true
+            case .blockedByPendingEnrichment:
+                return false
+            case .unavailable:
+                break
             }
             if manager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
                 return true
             }
         }
 
-        return restoreStoreItem(nil)
+        return restoreStoreItem(nil) == .restored
     }
 
     private func recentlyClosedLegacyBrowserManagers(preferredTabManager: TabManager?) -> [TabManager] {
@@ -137,8 +142,7 @@ extension AppDelegate {
                 }
             )
             let hasLivePanels = restoredTabManager?.tabs.contains { !$0.panels.isEmpty } == true
-            guard ClosedWindowRestoreValidation.hasUsableRestoredContent(
-                snapshot: windowEntry.snapshot,
+            guard windowEntry.snapshot.hasUsableRestoredContent(
                 restoredPanelIdsByWorkspaceIndex: restoredPanelIdsByWorkspaceIndex,
                 hasLivePanels: hasLivePanels
             ) else {

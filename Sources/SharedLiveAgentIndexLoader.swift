@@ -4,6 +4,7 @@ import Foundation
 struct SharedLiveAgentIndexLoader {
     typealias LoadResult = (
         index: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex,
         liveAgentProcessFingerprint: Set<String>,
         processScopeFingerprint: Set<String>,
         forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
@@ -12,6 +13,7 @@ struct SharedLiveAgentIndexLoader {
     private let homeDirectory: String
     private let fileManager: FileManager
     private let registry: CmuxVaultAgentRegistry?
+    private let registryLoader: (String, FileManager) -> CmuxVaultAgentRegistry
     private let processSnapshotProvider: () -> CmuxTopProcessSnapshot
     private let capturedAtProvider: () -> TimeInterval
     private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
@@ -22,6 +24,9 @@ struct SharedLiveAgentIndexLoader {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         registry: CmuxVaultAgentRegistry? = nil,
+        registryLoader: @escaping (String, FileManager) -> CmuxVaultAgentRegistry = { homeDirectory, fileManager in
+            CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        },
         processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot = {
             CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         },
@@ -40,6 +45,7 @@ struct SharedLiveAgentIndexLoader {
         self.homeDirectory = homeDirectory
         self.fileManager = fileManager
         self.registry = registry
+        self.registryLoader = registryLoader
         self.processSnapshotProvider = processSnapshotProvider
         self.capturedAtProvider = capturedAtProvider
         self.processArgumentsProvider = processArgumentsProvider
@@ -52,46 +58,169 @@ struct SharedLiveAgentIndexLoader {
     }
 
     func loadResultSynchronously() -> LoadResult {
-        let resolvedRegistry = registry
-            ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()
+        let capturedAt = capturedAtProvider()
+        let resolvedRegistry = registry ?? registryLoader(homeDirectory, fileManager)
+        var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
+        func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
+            if let cached = processArgumentsByPID[processID] {
+                return cached
+            }
+            let resolved = processArgumentsProvider(processID)
+            processArgumentsByPID.updateValue(resolved, forKey: processID)
+            return resolved
+        }
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: resolvedRegistry,
             fileManager: fileManager,
             processSnapshot: processSnapshot,
-            capturedAt: capturedAtProvider(),
-            processArgumentsProvider: processArgumentsProvider
+            capturedAt: capturedAt,
+            processArgumentsProvider: cachedProcessArguments
         )
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: resolvedRegistry,
             detectedSnapshots: detectedSnapshots,
-            processArgumentsProvider: processArgumentsProvider,
+            processArgumentsProvider: cachedProcessArguments,
             processIdentityProvider: processIdentityProvider
+        )
+        let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            processArgumentsProvider: cachedProcessArguments
         )
         return (
             index: index,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(
+                bindingsByPanel: detectedBindings.mapValues(\.binding)
+            ),
             liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
-            processScopeFingerprint: Self.processScopeFingerprint(from: processSnapshot),
+            processScopeFingerprint: Self.cacheValidationFingerprint(
+                from: processSnapshot,
+                registry: resolvedRegistry,
+                fileManager: fileManager,
+                processArgumentsProvider: cachedProcessArguments
+            ),
             forkValidatedPanels: Self.forkValidatedPanels(
                 in: index,
-                processArgumentsProvider: processArgumentsProvider,
+                processArgumentsProvider: cachedProcessArguments,
                 processIdentityProvider: processIdentityProvider,
                 validator: cachedAgentProcessValidator
             )
         )
     }
 
-    static func processScopeFingerprint(from snapshot: CmuxTopProcessSnapshot) -> Set<String> {
-        Set(snapshot.cmuxScopedProcesses().map { process in
-            [
+    static func currentCacheValidationFingerprint(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> Set<String> {
+        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        let registry = CmuxVaultAgentRegistry.load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
+        var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
+        func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
+            if let cached = processArgumentsByPID[processID] {
+                return cached
+            }
+            let resolved = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: processID)
+            processArgumentsByPID.updateValue(resolved, forKey: processID)
+            return resolved
+        }
+        return cacheValidationFingerprint(
+            from: snapshot,
+            registry: registry,
+            fileManager: fileManager,
+            processArgumentsProvider: cachedProcessArguments
+        )
+    }
+
+    static func cacheValidationFingerprint(
+        from snapshot: CmuxTopProcessSnapshot,
+        registry: CmuxVaultAgentRegistry,
+        fileManager: FileManager,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    ) -> Set<String> {
+        var fingerprints = processScopeFingerprint(
+            from: snapshot,
+            processArgumentsProvider: processArgumentsProvider
+        )
+        fingerprints.insert(registryFingerprint(registry, workingDirectory: ""))
+
+        var visitedWorkingDirectories = Set<String>()
+        for process in snapshot.cmuxScopedProcesses() {
+            guard let environment = processArgumentsProvider(process.pid)?.environment,
+                  let rawWorkingDirectory = environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"] else {
+                continue
+            }
+            let trimmedWorkingDirectory = rawWorkingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedWorkingDirectory.isEmpty else { continue }
+            let workingDirectory = (trimmedWorkingDirectory as NSString).standardizingPath
+            guard visitedWorkingDirectories.insert(workingDirectory).inserted else {
+                continue
+            }
+            let effectiveRegistry = registry.mergingProjectConfig(
+                workingDirectory: workingDirectory,
+                fileManager: fileManager
+            )
+            fingerprints.insert(
+                registryFingerprint(effectiveRegistry, workingDirectory: workingDirectory)
+            )
+        }
+
+        return fingerprints
+    }
+
+    static func processScopeFingerprint(
+        from snapshot: CmuxTopProcessSnapshot,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
+    ) -> Set<String> {
+        let processes: [CmuxTopProcessInfo] = snapshot.cmuxScopedProcesses()
+        var fingerprints = Set<String>()
+        fingerprints.reserveCapacity(processes.count)
+
+        for process in processes {
+            let arguments: [String] = processArgumentsProvider(process.pid)?.arguments ?? []
+            var components: [String] = [
                 process.cmuxWorkspaceID?.uuidString ?? "",
                 process.cmuxSurfaceID?.uuidString ?? "",
                 String(process.pid),
-                String(process.parentPID)
-            ].joined(separator: "|")
-        })
+                String(process.processIdentity.startSeconds),
+                String(process.processIdentity.startMicroseconds),
+                String(process.parentPID),
+                String(process.processGroupID ?? 0),
+                String(process.terminalProcessGroupID ?? 0),
+                process.name,
+                process.path ?? "",
+                String(arguments.count)
+            ]
+            components.append(contentsOf: arguments)
+            fingerprints.insert(encodedFingerprintComponents(components))
+        }
+
+        return fingerprints
+    }
+
+    private static func registryFingerprint(
+        _ registry: CmuxVaultAgentRegistry,
+        workingDirectory: String
+    ) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let encodedRegistry = (try? encoder.encode(registry.registrations))?.base64EncodedString()
+            ?? String(reflecting: registry.registrations)
+        return "registry:" + encodedFingerprintComponents([workingDirectory, encodedRegistry])
+    }
+
+    private static func encodedFingerprintComponents(_ components: [String]) -> String {
+        components.map { component in
+            "\(component.utf8.count):\(component)"
+        }.joined()
     }
 
     private static func forkValidatedPanels(

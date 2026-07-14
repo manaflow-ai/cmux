@@ -47,6 +47,9 @@ private struct WorkspacePanelContentHostView: View {
             customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: hasUnreadNotification,
             terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+            terminalPortalPresentationResolver: {
+                workspace.terminalPortalPresentation(panelId: panel.id, paneId: paneId)
+            },
             onFocus: onFocus,
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,
@@ -139,6 +142,7 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
+    @State private var visibilityHostId = UUID()
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
@@ -223,6 +227,12 @@ struct WorkspaceContentView: View {
                         isOuterFocused: isFocused,
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
+                        outerPortalPresentation: {
+                            workspace.terminalPortalPresentation(
+                                panelId: panel.id,
+                                paneId: paneId
+                            )
+                        },
                         onOuterFocus: {
                             workspace.bonsplitController.focusPane(paneId)
                         }
@@ -294,20 +304,8 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
-        }
-        .onChange(of: isWorkspaceVisible) { _, isVisible in
-            updateAgentHibernationPresentationVisibility()
-            guard isVisible else { return }
-            flushDeferredThemeRefreshIfNeeded()
-        }
-        .onChange(of: isWorkspaceInputActive) { _, _ in
-            updateAgentHibernationPresentationVisibility()
-        }
-        .onDisappear {
-            workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
@@ -342,9 +340,7 @@ struct WorkspaceContentView: View {
             logTheme(
                 "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) payloadFg=\(foregroundHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appFg=\(GhosttyApp.shared.defaultForegroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
             )
-            // Payload ordering can lag across rapid config/theme updates.
-            // Resolve from GhosttyApp.shared.defaultBackgroundColor to keep tabs aligned
-            // with Ghostty's current runtime theme.
+            // Resolve from Ghostty's runtime state because notification payload ordering can lag.
             refreshGhosttyAppearanceConfig(
                 reason: "ghosttyDefaultBackgroundDidChange",
                 backgroundEventId: eventId,
@@ -353,7 +349,7 @@ struct WorkspaceContentView: View {
             )
         }
 
-        Group {
+        ZStack {
             if workspace.layoutMode == .canvas {
                 WorkspaceCanvasHostView(
                     workspace: workspace,
@@ -367,6 +363,27 @@ struct WorkspaceContentView: View {
             }
         }
         .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
+        // A workspace is a page: accept the parent proposal instead of
+        // contributing a hidden child's content-derived ideal to its ZStack.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            updateWorkspacePresentationVisibility()
+        }
+        .onChange(of: isWorkspaceVisible) { _, isVisible in
+            updateWorkspacePresentationVisibility()
+            guard isVisible else { return }
+            flushDeferredThemeRefreshIfNeeded()
+        }
+        .onChange(of: isWorkspaceInputActive) { _, _ in
+            updateWorkspacePresentationVisibility()
+        }
+        .onDisappear {
+            workspace.setContentViewPresentationVisibility(
+                isVisible: false,
+                isInputActive: false,
+                hostId: visibilityHostId
+            )
+        }
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -532,8 +549,12 @@ struct WorkspaceContentView: View {
         )
     }
 
-    private func updateAgentHibernationPresentationVisibility() {
-        workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
+    private func updateWorkspacePresentationVisibility() {
+        workspace.setContentViewPresentationVisibility(
+            isVisible: isWorkspaceVisible,
+            isInputActive: isWorkspaceInputActive,
+            hostId: visibilityHostId
+        )
     }
 
     private func refreshGhosttyAppearanceConfig(

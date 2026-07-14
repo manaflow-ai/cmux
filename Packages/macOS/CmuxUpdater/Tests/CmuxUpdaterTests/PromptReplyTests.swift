@@ -267,4 +267,136 @@ import Testing
 
         #expect(model.state.isIdle)
     }
+
+    @Test func readyToInstallWaitsForHostRelaunchPreparation() async {
+        let driver = UpdateDriver(
+            model: UpdateStateModel(),
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        let events = RelaunchPreparationEventQueue()
+        let delegate = SuspendedRelaunchPreparationDelegate(events: events)
+        let received = PromptReplyChoiceBox()
+        driver.actionDelegate = delegate
+
+        driver.showReady { choice in
+            MainActor.assumeIsolated {
+                received.append(choice)
+                events.send(.installReplied)
+            }
+        }
+        guard await events.next() == .preparationBegan else {
+            Issue.record("Sparkle received install permission before host relaunch preparation began")
+            return
+        }
+        #expect(received.choices.isEmpty)
+
+        delegate.finishPreparation()
+        #expect(await events.next() == .installReplied)
+        #expect(received.choices == [.install])
+    }
+
+    @Test func retryingFailedTerminationWaitsForFreshHostPreparation() async {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        let events = RelaunchPreparationEventQueue()
+        let delegate = SuspendedRelaunchPreparationDelegate(events: events)
+        driver.actionDelegate = delegate
+
+        driver.showReady { _ in
+            MainActor.assumeIsolated { events.send(.installReplied) }
+        }
+        #expect(await events.next() == .preparationBegan)
+        delegate.finishPreparation()
+        #expect(await events.next() == .installReplied)
+
+        driver.showInstallingUpdate(withApplicationTerminated: false) {
+            MainActor.assumeIsolated { events.send(.terminationRetryInvoked) }
+        }
+        guard case .installing(let installing) = model.state else {
+            Issue.record("failed termination did not expose retry controls")
+            return
+        }
+        #expect(delegate.relaunchInvalidationCount == 0)
+
+        installing.retryTerminatingApplication()
+        guard await events.next() == .preparationBegan else {
+            Issue.record("Sparkle retry ran before a fresh host preparation")
+            return
+        }
+        #expect(delegate.relaunchInvalidationCount == 1)
+        delegate.finishPreparation()
+        #expect(await events.next() == .terminationRetryInvoked)
+    }
+
+    @Test func dismissingFailedTerminationInvalidatesHostPreparation() async {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        let events = RelaunchPreparationEventQueue()
+        let delegate = SuspendedRelaunchPreparationDelegate(events: events)
+        driver.actionDelegate = delegate
+
+        driver.showReady { _ in
+            MainActor.assumeIsolated { events.send(.installReplied) }
+        }
+        #expect(await events.next() == .preparationBegan)
+        delegate.finishPreparation()
+        #expect(await events.next() == .installReplied)
+
+        driver.showInstallingUpdate(withApplicationTerminated: false, retryTerminatingApplication: {})
+        guard case .installing(let installing) = model.state else {
+            Issue.record("failed termination did not expose dismiss controls")
+            return
+        }
+        #expect(delegate.relaunchInvalidationCount == 0)
+        installing.dismiss()
+
+        #expect(delegate.relaunchInvalidationCount == 1)
+        #expect(model.state.isIdle)
+    }
+
+    @Test func automaticInstallRetryWaitsForHostPreparationAndDismissInvalidatesIt() async {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        let events = RelaunchPreparationEventQueue()
+        let delegate = SuspendedRelaunchPreparationDelegate(events: events)
+        driver.actionDelegate = delegate
+
+        driver.showAutomaticInstallOnQuit {
+            MainActor.assumeIsolated { events.send(.terminationRetryInvoked) }
+        }
+        guard case .installing(let installing) = model.state else {
+            Issue.record("automatic install-on-quit did not expose retry controls")
+            return
+        }
+
+        installing.retryTerminatingApplication()
+        guard await events.next() == .preparationBegan else {
+            Issue.record("automatic install retry ran before host preparation")
+            return
+        }
+        #expect(delegate.relaunchInvalidationCount == 0)
+        delegate.finishPreparation()
+        #expect(await events.next() == .terminationRetryInvoked)
+
+        installing.dismiss()
+        #expect(delegate.relaunchInvalidationCount == 1)
+        #expect(model.state.isIdle)
+    }
 }

@@ -183,12 +183,17 @@ extension Workspace {
     }
 
     func clearAllAgentPIDs(refreshPorts: Bool = true) {
-        let hadAgentPIDs = !agentPIDs.isEmpty
         agentPIDs.removeAll()
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
-        if hadAgentPIDs, refreshPorts { refreshTrackedAgentPorts() }
+        if refreshPorts {
+            refreshTrackedAgentPorts()
+        } else {
+            agentListeningPorts.removeAll()
+            recomputeListeningPorts()
+            PortScanner.shared.unregisterAgentWorkspace(workspaceId: id)
+        }
     }
 
     private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
@@ -292,10 +297,27 @@ extension Workspace {
     }
 
     func refreshTrackedAgentPorts() {
-        agentListeningPorts.removeAll(keepingCapacity: false)
-        let remainingAgentPIDs = Set(agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-        PortScanner.shared.refreshAgentPorts(workspaceId: id, agentPIDs: remainingAgentPIDs)
-        recomputeListeningPorts()
+        // Preserve the published snapshot until PortScanner reconciles the new
+        // process tree; eagerly clearing here made every PID refresh flicker.
+        let remainingAgentRoots = Set(agentPIDs.compactMap { key, pid -> AgentPortRootIdentity? in
+            guard pid > 0 else { return nil }
+            return AgentPortRootIdentity(
+                pid: Int(pid),
+                processIdentity: agentPIDProcessIdentitiesByKey[key]
+            )
+        })
+        PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
+    }
+
+    func recomputeListeningPorts() {
+        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
+            .union(agentListeningPorts)
+            .union(remoteDetectedPorts)
+            .union(remoteForwardedPorts)
+        let next = unique.sorted()
+        if listeningPorts != next {
+            listeningPorts = next
+        }
     }
 
     @discardableResult
@@ -334,6 +356,36 @@ extension Workspace {
         }
     }
 
+    @discardableResult
+    func deferPanelCloseUntilAgentMetadataCaptured(
+        panelId: UUID,
+        captureTask: Task<Void, Never>?
+    ) -> Task<Void, Never>? {
+        guard let captureTask,
+              let panel = panels[panelId] as? TerminalPanel else {
+            return nil
+        }
+        panel.retireFromUIForDeferredClose()
+        return agentMetadataCloseDeferrer.deferClose(
+            id: panelId,
+            until: captureTask
+        ) { [panel] in
+            panel.close()
+        }
+    }
+
+    func deferAllPanelClosesUntilAgentMetadataCaptured(
+        _ captureTask: Task<Void, Never>?
+    ) {
+        guard let captureTask else { return }
+        for panelId in panels.keys {
+            deferPanelCloseUntilAgentMetadataCaptured(
+                panelId: panelId,
+                captureTask: captureTask
+            )
+        }
+    }
+
     /// Discard every Workspace-owned contribution for a surface whose tab,
     /// pane, or workspace has already been accepted for closure.
     @discardableResult
@@ -363,7 +415,7 @@ extension Workspace {
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })
         }
-        if closePanel {
+        if closePanel, !agentMetadataCloseDeferrer.isDeferringClose(id: panelId) {
             panel?.close()
         }
 
@@ -378,9 +430,13 @@ extension Workspace {
             shouldPreserveRemoteDisconnectOnClose &&
             remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
             panels.count == 1
+        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         if shouldRefreshRemoteDisconnectPlaceholder,
            let remoteConfiguration {
-            rememberPendingRemoteDisconnectReplacement(configuration: remoteConfiguration)
+            rememberPendingRemoteDisconnectReplacement(
+                surfaceId: panelId,
+                configuration: remoteConfiguration
+            )
         }
 
         panels.removeValue(forKey: panelId)

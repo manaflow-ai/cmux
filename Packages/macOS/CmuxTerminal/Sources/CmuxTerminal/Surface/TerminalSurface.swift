@@ -211,6 +211,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var lastXScale: CGFloat = 0
     var lastYScale: CGFloat = 0
     var mobileViewportCellLimit: (columns: Int, rows: Int)?
+    /// Runtime font size to restore when mobile viewport fitting clears.
+    var mobileFitBaseFontPointSize: Float?
+    /// Last runtime font size applied by mobile viewport fitting.
+    var mobileFittedFontPointSize: Float?
     // Debug metadata is read from debug/CLI paths off the main thread; the
     // lock is the sanctioned carve-out for tiny values shared with
     // synchronous off-isolation readers.
@@ -270,8 +274,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #endif
     var portalLifecycleState: PortalLifecycleState = .live
     var portalLifecycleGeneration: UInt64 = 1
+    var portalHostOwnershipGeneration: UInt64 = 1
     var activePortalHostLease: PortalHostLease?
-
+    var portalHostAuthority: TerminalPortalHostAuthority?
+    var pendingPortalHostRetries: [ObjectIdentifier: PendingTerminalPortalHostRetry] = [:]
     /// The live find session, or nil when find is closed. Setting it arms the
     /// debounced needle pipeline; clearing it ends the runtime search.
     /// Main-actor isolated: the observer cancels pane focus requests on the
@@ -463,6 +469,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Rebinds the surface (and its views) to a new owning workspace id.
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
+        if tabId != newTabId {
+            portalHostOwnershipGeneration &+= 1
+        }
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId

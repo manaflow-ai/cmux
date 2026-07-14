@@ -80,50 +80,6 @@ struct ClosedItemHistoryRecord: Identifiable, Codable {
     }
 }
 
-struct ClosedItemHistoryMenuItem: Identifiable {
-    let id: UUID
-    let title: String
-    let detail: String
-    let closedAt: Date
-
-    var menuSubtitle: String {
-        let closed = String(
-            format: String(localized: "historyPane.closedAtFormat", defaultValue: "Closed %@"),
-            closedAt.formatted(date: .omitted, time: .shortened)
-        )
-        return String(
-            format: String(localized: "menu.history.menuItemSubtitleFormat", defaultValue: "%1$@, %2$@"),
-            detail,
-            closed
-        )
-    }
-
-    var menuTitle: String {
-        HistoryMenuLineFormatter.titleWithSubtitle(
-            title: title,
-            subtitle: menuSubtitle
-        )
-    }
-}
-
-struct ClosedItemHistoryMenuSnapshot {
-    let items: [ClosedItemHistoryMenuItem]
-    let totalItemCount: Int
-    let isLimited: Bool
-}
-
-enum ClosedWindowRestoreValidation {
-    static func hasUsableRestoredContent(
-        snapshot: SessionWindowSnapshot,
-        restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]],
-        hasLivePanels: Bool
-    ) -> Bool {
-        guard hasLivePanels else { return false }
-        guard snapshot.hasRestorablePanels else { return true }
-        return restoredPanelIdsByWorkspaceIndex.contains { !$0.isEmpty }
-    }
-}
-
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
     static let shared = ClosedItemHistoryStore(
@@ -133,6 +89,8 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []
+    // Kept as a strict subset of `records` so eligible history count is O(1).
+    private var pendingEnrichmentRecordIDs = Set<UUID>()
     private let capacity: Int?
     private let fileURL: URL?
     private let persistsRecordsSynchronously: Bool
@@ -175,7 +133,12 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     var canReopen: Bool {
-        !records.isEmpty
+        guard let newestRecord = records.enumerated().max(by: {
+            $0.element.closedAt == $1.element.closedAt
+                ? $0.offset < $1.offset
+                : $0.element.closedAt < $1.element.closedAt
+        })?.element else { return false }
+        return !pendingEnrichmentRecordIDs.contains(newestRecord.id)
     }
 
     func push(_ entry: ClosedItemHistoryEntry) {
@@ -189,9 +152,29 @@ final class ClosedItemHistoryStore: ObservableObject {
         persistRecords()
     }
 
+    func pushPendingEnrichment(_ record: ClosedItemHistoryRecord) {
+        pendingEnrichmentRecordIDs.insert(record.id)
+        push(record)
+    }
+
+    @discardableResult
+    func resolvePendingEnrichment(
+        recordID: UUID,
+        transform: (ClosedItemHistoryEntry) -> ClosedItemHistoryEntry?
+    ) -> Bool {
+        guard pendingEnrichmentRecordIDs.remove(recordID) != nil,
+              let index = records.firstIndex(where: { $0.id == recordID }) else { return false }
+        if let entry = transform(records[index].entry) {
+            records[index].entry = entry
+        } else { records.remove(at: index) }
+        revision &+= 1
+        persistRecords()
+        return true
+    }
+
     @discardableResult
     func restoreFirstRestorable(using restore: (ClosedItemHistoryEntry) -> Bool) -> Bool {
-        restoreFirstRestorable(newerThan: nil, using: restore)
+        restoreFirstRestorableResult(newerThan: nil, using: restore) == .restored
     }
 
     @discardableResult
@@ -201,20 +184,37 @@ final class ClosedItemHistoryStore: ObservableObject {
         onFailure: ((UUID) -> Void)? = nil,
         using restore: (ClosedItemHistoryEntry) -> Bool
     ) -> Bool {
-        let candidates = records.enumerated()
-            .filter { _, record in
-                guard !excludedRecordIds.contains(record.id) else { return false }
-                guard let cutoff else { return true }
-                return record.closedAt >= cutoff
-            }
-            .sorted { lhs, rhs in
-                if lhs.element.closedAt != rhs.element.closedAt {
-                    return lhs.element.closedAt > rhs.element.closedAt
-                }
-                return lhs.offset > rhs.offset
-            }
-            .map { _, record in (id: record.id, entry: record.entry) }
+        restoreFirstRestorableResult(
+            newerThan: cutoff,
+            excluding: excludedRecordIds,
+            onFailure: onFailure,
+            using: restore
+        ) == .restored
+    }
+
+    func restoreFirstRestorableResult(
+        using restore: (ClosedItemHistoryEntry) -> Bool
+    ) -> ClosedItemHistoryRestoreResult {
+        restoreFirstRestorableResult(newerThan: nil, using: restore)
+    }
+
+    func restoreFirstRestorableResult(
+        newerThan cutoff: Date?,
+        excluding excludedRecordIds: Set<UUID> = [],
+        onFailure: ((UUID) -> Void)? = nil,
+        using restore: (ClosedItemHistoryEntry) -> Bool
+    ) -> ClosedItemHistoryRestoreResult {
+        let candidates = orderedRestoreCandidates(
+            newerThan: cutoff,
+            excluding: excludedRecordIds
+        )
+        guard candidates.first.map({ !pendingEnrichmentRecordIDs.contains($0.id) }) ?? true else {
+            return .blockedByPendingEnrichment
+        }
         for candidate in candidates {
+            guard !pendingEnrichmentRecordIDs.contains(candidate.id) else {
+                return .blockedByPendingEnrichment
+            }
             guard restore(candidate.entry) else {
                 onFailure?(candidate.id)
                 continue
@@ -224,12 +224,13 @@ final class ClosedItemHistoryStore: ObservableObject {
                 revision &+= 1
                 persistRecords()
             }
-            return true
+            return .restored
         }
-        return false
+        return .unavailable
     }
 
     func removeRecord(id: UUID) -> (record: ClosedItemHistoryRecord, index: Int)? {
+        guard !pendingEnrichmentRecordIDs.contains(id) else { return nil }
         guard let index = records.firstIndex(where: { $0.id == id }) else {
             return nil
         }
@@ -251,27 +252,25 @@ final class ClosedItemHistoryStore: ObservableObject {
                 }
                 records.remove(at: removalIndex)
             }
+            discardPendingEnrichmentIDsWithoutRecords()
         }
         revision &+= 1
         persistRecords()
     }
 
     func menuSnapshot(maxItemCount: Int? = nil) -> ClosedItemHistoryMenuSnapshot {
-        // Build items only for the records the menu will show — this runs in
-        // the App commands body on every menu rebuild, and `records` is
-        // unbounded persisted history.
-        if let maxItemCount, maxItemCount >= 0, records.count > maxItemCount {
-            return ClosedItemHistoryMenuSnapshot(
-                items: records.suffix(maxItemCount).reversed().map(Self.menuItem(for:)),
-                totalItemCount: records.count,
-                isLimited: true
-            )
-        }
-
+        let eligibleItemCount = records.count - pendingEnrichmentRecordIDs.count
+        let projection: ClosedItemHistoryMenuProjection<ClosedItemHistoryMenuItem> = .project(
+            newestFirst: records.reversed(),
+            eligibleItemCount: eligibleItemCount,
+            maxItemCount: maxItemCount,
+            isEligible: { !pendingEnrichmentRecordIDs.contains($0.id) },
+            transform: Self.menuItem(for:)
+        )
         return ClosedItemHistoryMenuSnapshot(
-            items: records.reversed().map(Self.menuItem(for:)),
-            totalItemCount: records.count,
-            isLimited: false
+            items: projection.items,
+            totalItemCount: eligibleItemCount,
+            isLimited: projection.isLimited
         )
     }
 
@@ -333,17 +332,19 @@ final class ClosedItemHistoryStore: ObservableObject {
         let result = Self.recordsByRemovingPanelRecords(records, forWorkspaceIds: workspaceIds)
         if result.didUpdate {
             records = result.records
+            discardPendingEnrichmentIDsWithoutRecords()
             revision &+= 1
             persistRecords()
         }
     }
 
     func removeAll() {
-        guard !records.isEmpty || !didFinishPersistedRecordsLoad else { return }
+        guard !records.isEmpty || !pendingEnrichmentRecordIDs.isEmpty || !didFinishPersistedRecordsLoad else { return }
         if !didFinishPersistedRecordsLoad {
             shouldDiscardPersistedRecordsOnLoad = true
         }
         records.removeAll(keepingCapacity: false)
+        pendingEnrichmentRecordIDs.removeAll(keepingCapacity: false)
         revision &+= 1
         persistRecords()
     }
@@ -351,6 +352,30 @@ final class ClosedItemHistoryStore: ObservableObject {
     private func trimToCapacityIfNeeded() {
         guard let capacity, records.count > capacity else { return }
         records.removeFirst(records.count - capacity)
+        discardPendingEnrichmentIDsWithoutRecords()
+    }
+
+    private func discardPendingEnrichmentIDsWithoutRecords() {
+        pendingEnrichmentRecordIDs.formIntersection(records.map(\.id))
+    }
+
+    private func orderedRestoreCandidates(
+        newerThan cutoff: Date? = nil,
+        excluding excludedRecordIDs: Set<UUID> = []
+    ) -> [(id: UUID, entry: ClosedItemHistoryEntry)] {
+        records.enumerated()
+            .filter { _, record in
+                guard !excludedRecordIDs.contains(record.id) else { return false }
+                guard let cutoff else { return true }
+                return record.closedAt >= cutoff
+            }
+            .sorted { lhs, rhs in
+                if lhs.element.closedAt != rhs.element.closedAt {
+                    return lhs.element.closedAt > rhs.element.closedAt
+                }
+                return lhs.offset > rhs.offset
+            }
+            .map { _, record in (id: record.id, entry: record.entry) }
     }
 
     private func persistRecords() {

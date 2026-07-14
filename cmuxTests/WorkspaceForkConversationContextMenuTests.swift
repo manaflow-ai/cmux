@@ -193,7 +193,14 @@ struct WorkspaceForkConversationContextMenuTests {
                     capturedAtProvider: { snapshot.sampledAt.timeIntervalSince1970 },
                     processArgumentsProvider: { pid in
                         pid == processId
-                            ? CmuxTopProcessArguments(arguments: [executable, "--session", sessionId], environment: ["PWD": cwd.path])
+                            ? CmuxTopProcessArguments(
+                                arguments: [executable, "--session", sessionId],
+                                environment: [
+                                    "PWD": cwd.path,
+                                    "CMUX_WORKSPACE_ID": liveWorkspaceId.uuidString,
+                                    "CMUX_SURFACE_ID": livePanelId.uuidString,
+                                ]
+                            )
                             : nil
                     },
                     processIdentityProvider: { $0 == processId ? processIdentity : nil }
@@ -469,31 +476,4 @@ struct WorkspaceForkConversationContextMenuTests {
         )
     }
 
-    private func customAgentHookRecord(
-        agentId: String,
-        sessionId: String,
-        workspaceId: UUID,
-        panelId: UUID,
-        cwd: String,
-        executable: String,
-        updatedAt: TimeInterval
-    ) -> [String: Any] {
-        [
-            "sessionId": sessionId,
-            "workspaceId": workspaceId.uuidString,
-            "surfaceId": panelId.uuidString,
-            "cwd": cwd,
-            "pid": NSNull(),
-            "isRestorable": true,
-            "updatedAt": updatedAt,
-            "launchCommand": [
-                "launcher": agentId,
-                "executablePath": executable,
-                "arguments": [executable, "--session", sessionId],
-                "workingDirectory": cwd,
-                "capturedAt": updatedAt,
-                "source": "test",
-            ],
-        ]
-    }
 }

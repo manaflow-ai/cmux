@@ -11,6 +11,30 @@ import Testing
 @MainActor
 struct CompletedRestoredAgentForkAvailabilityTests {
     @Test
+    func unavailableAuthoritativeForkProbeRejectsRestoredFallback() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let fallback = forkableClaudeSnapshot()
+
+        #expect(
+            ContentView.commandPaletteForkProbeSnapshot(
+                authoritativeIndex: nil,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: fallback
+            ) == nil
+        )
+        #expect(
+            ContentView.commandPaletteForkProbeSnapshot(
+                authoritativeIndex: .empty,
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: fallback
+            )?.sessionId == fallback.sessionId
+        )
+    }
+
+    @Test
     func completedRestoredAgentCannotDriveForkActions() throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)

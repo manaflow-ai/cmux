@@ -3843,6 +3843,244 @@
         }
       }
     },
+    "mobile.macUpdateHint.bodyFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is on cmux %2$@. Updating to %3$@ or later adds: %4$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@はcmux %2$@を実行中です。%3$@以降に更新すると次の機能が使えます：%4$@"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.bodyFormatUnknownVersion" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating %1$@ to cmux %2$@ or later adds: %3$@."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@をcmux %2$@以降に更新すると次の機能が使えます：%3$@。"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.button.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show what a Mac update adds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの更新で追加される機能を表示"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't Show Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再表示しない"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename and pin workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの名前変更とピン留め"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceClose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceCreateInGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create workspaces inside groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内にワークスペースを作成"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceGroupActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move and group workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの移動とグループ化"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceGroupCreate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create workspace groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループの作成"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループ"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceMove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reorder workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの並べ替え"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceReadState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark workspaces read or unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの既読・未読の切り替え"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.genericMacName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お使いのMac"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac update adds features"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの更新で機能が追加されます"
+          }
+        }
+      }
+    },
     "mobile.recovery.accountMismatch": {
       "extractionState": "manual",
       "localizations": {
@@ -4404,6 +4642,23 @@
         }
       }
     },
+    "mobile.settings.privacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライバシー"
+          }
+        }
+      }
+    },
     "mobile.settings.privacyPolicy": {
       "extractionState": "manual",
       "localizations": {
@@ -4638,6 +4893,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアプリに表示する Stack チームのコンピュータとデバイスを切り替えます。"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Analytics and Crash Reports"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分析とクラッシュレポートを共有"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetryAnalyticsOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Anonymous Analytics"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名の分析情報を共有"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetryAnalyticsOnlyFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, cmux does not send iPhone or iPad product analytics."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフの場合、cmux は iPhone または iPad の製品分析を送信しません。"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetryFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, cmux does not send iPhone or iPad product analytics or crash reports."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフの場合、cmux は iPhone または iPad の製品分析やクラッシュレポートを送信しません。"
           }
         }
       }
@@ -8280,6 +8603,23 @@
         }
       }
     },
+    "terminal.shortcut.name.ollama": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        }
+      }
+    },
     "terminal.shortcut.name.pageDown": {
       "extractionState": "manual",
       "localizations": {
@@ -8722,6 +9062,23 @@
         }
       }
     },
+    "mobile.workspaceGroup.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースグループ"
+          }
+        }
+      }
+    },
     "mobile.workspaceGroup.newWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -9074,6 +9431,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "create workspace in group" } },
         "ja": { "stringUnit": { "state": "translated", "value": "グループ内にワークスペースを作成" } }
+      }
+    },
+    "mobile.workspaceAction.failure.action.createWorkspaceGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "create workspace group" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースグループを作成" } }
       }
     },
     "mobile.workspaceAction.failure.action.moveWorkspace": {

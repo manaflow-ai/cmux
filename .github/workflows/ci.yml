@@ -98,6 +98,18 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate Claude launch environment policy generation
+        run: python3 scripts/generate-claude-launch-environment-policy.py --check
+
+      - name: Set up Bun for Claude launch environment policy test
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.6"
+
+      - name: Validate Claude launch environment policy behavior
+        working-directory: agent-chat
+        run: bun test/claude-environment.test.ts
+
       - name: Set up Python 3.9 for nightly prune compatibility
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
@@ -182,6 +194,12 @@ jobs:
 
       - name: Validate release-build timeout guard
         run: ./tests/test_ci_release_build_timeout.sh
+
+      - name: Validate markdown viewer asset compression
+        run: ./tests/test_compress_markdown_viewer_assets.sh
+
+      - name: Validate release bundle stripping
+        run: ./tests/test_strip_release_bundle.sh
 
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
@@ -540,6 +558,26 @@ jobs:
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
 
+      - name: Run remote tmux mirror detach and placement regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Closing a mirrored workspace must never kill the remote tmux session,
+          # and --new-window must consolidate mirrors moved across source windows.
+          # Keep these destructive/topology regressions outside the tolerant full
+          # suite so an ordinary assertion failure cannot be accepted as expected.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests \
+            test
+
       - name: Run browser system proxy mirror regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -576,6 +614,30 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
+            test
+
+      - name: Run ssh-session-attach anchor regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Focused gate for https://github.com/manaflow-ai/cmux/issues/7367.
+          # The full "Run unit tests" step tolerates any xcodebuild failure
+          # whose last test summary reports "(0 unexpected)", and test
+          # assertion failures never increment the unexpected count on these
+          # runners — so a failing regression assertion in the sharded run
+          # cannot turn the shard red. Keep this targeted only-testing
+          # invocation as a non-tolerant guard for the ssh-session-attach
+          # split-anchor regression.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/CLISSHSessionAttachAnchorTests \
             test
 
       - name: Run omnibar suggestion click regression
@@ -616,6 +678,89 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/RemoteTmuxWindowMirrorFocusSeedTests \
+            test
+
+      - name: Run remote tmux mirror layout identity regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step may accept expected failures or stop
+          # after an app-host crash. Keep #7833's identity suite non-tolerant
+          # so a missing incremental-reconcile regression cannot pass the shard.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests \
+            test
+
+      - name: Run terminal portal anchor reuse regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step can accept an earlier XCTest summary
+          # after Swift Testing failures. Keep portal authority regressions in a
+          # non-tolerant invocation so host-reuse failures cannot be skipped.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/TerminalWindowPortalAnchorReuseTests \
+            test
+
+      - name: Run agent index and close enrichment regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step can accept an earlier XCTest summary
+          # after Swift Testing failures. Keep this safety-critical stale-cache
+          # regression in a non-tolerant focused invocation.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/SharedLiveAgentIndexFingerprintInvalidationTests \
+            -only-testing:cmuxTests/SharedLiveAgentIndexGenerationAuthorityTests \
+            -only-testing:cmuxTests/SharedLiveAgentIndexHookStoreInvalidationTests \
+            -only-testing:cmuxTests/TerminationResumeIndexCoordinatorInvalidationTests \
+            -only-testing:cmuxTests/ClosedItemHistoryAgentEnrichmentTests \
+            -only-testing:cmuxTests/ClosedItemHistoryPendingEnrichmentTests \
+            -only-testing:cmuxTests/AgentHibernationPlannerSwiftTests \
+            test
+
+      - name: Run process-detected resume index regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Keep these semaphore-driven suites in a separate process. Running them
+          # concurrently with the shared-index gate can exhaust the cooperative
+          # executor and let five-second production deadlines beat queued loaders.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/ProcessDetectedResumeIndexCoordinationTests \
+            -only-testing:cmuxTests/ProcessDetectedResumeIndexPersistenceFallbackTests \
             test
 
       - name: Run unit tests

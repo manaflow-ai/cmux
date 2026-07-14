@@ -151,6 +151,18 @@ extension ContentView {
         let usedFallbackSnapshot: Bool
     }
 
+    static func commandPaletteForkProbeSnapshot(
+        authoritativeIndex: RestorableAgentSessionIndex?,
+        workspaceId: UUID,
+        panelId: UUID,
+        fallbackSnapshot: SessionRestorableAgentSnapshot?
+    ) -> SessionRestorableAgentSnapshot? {
+        // A missing index means the bounded capture was unavailable, not that it
+        // confirmed the live session missing. Only a completed capture may fall back.
+        guard let authoritativeIndex else { return nil }
+        return authoritativeIndex.snapshot(workspaceId: workspaceId, panelId: panelId) ?? fallbackSnapshot
+    }
+
     static func commandPalettePanelHasForkableAgent(
         workspaceId: UUID,
         panelId: UUID,

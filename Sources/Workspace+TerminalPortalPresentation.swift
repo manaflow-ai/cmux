@@ -1,0 +1,53 @@
+import Bonsplit
+import Foundation
+
+extension Workspace {
+    func setPortalPresentationVisible(_ visible: Bool) {
+        guard portalPresentationVisible != visible else { return }
+        portalPresentationVisible = visible
+        guard !visible else { return }
+        hideAllTerminalPortalViews()
+        hideAllBrowserPortalViews()
+    }
+
+    func terminalPortalPresentation(
+        panelId: UUID,
+        paneId: PaneID
+    ) -> TerminalPortalPresentation {
+        guard panels[panelId] != nil,
+              let tabId = surfaceIdFromPanelId(panelId),
+              bonsplitController.paneId(containing: tabId) == paneId else {
+            return .detached
+        }
+        guard portalPresentationVisible else { return .hidden }
+
+        let manager = owningTabManager
+        guard manager?.selectedTabId == id else {
+            return .retained(zPriority: 1)
+        }
+        if let manager,
+           let context = AppDelegate.shared?.mainWindowContext(for: manager),
+           context.sidebarSelectionState.selection != .tabs {
+            return .hidden
+        }
+
+        let paneIsRendered = bonsplitController.zoomedPaneId.map { $0.id == paneId.id } ?? true
+        let panelIsSelected = bonsplitController.selectedTabId(inPane: paneId) == tabId
+        let workspaceFocusedPanelId = focusedPanelId
+        let panelIsRendered: Bool
+        if layoutMode == .canvas {
+            panelIsRendered = canvasModel.layout.panes.contains {
+                $0.selectedPanelId.rawValue == panelId
+            }
+        } else {
+            panelIsRendered = panelIsSelected || workspaceFocusedPanelId == panelId
+        }
+        guard paneIsRendered, panelIsRendered else { return .hidden }
+
+        let rightSidebarOwnsFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
+        return .visible(
+            isActive: workspaceFocusedPanelId == panelId && !rightSidebarOwnsFocus,
+            zPriority: 2
+        )
+    }
+}

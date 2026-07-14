@@ -24,9 +24,16 @@ extension AgentHibernationController {
     /// SIGTERM / pty-close can trigger Claude's interrupted-exit transcript rewrite,
     /// so the teardown is sequenced after it rather than racing it; the re-validation
     /// below covers disable/stop and anything else that changed during the brief I/O hop.
-    func beginConfirmedTeardowns(_ requests: [ConfirmedTeardownRequest]) {
-        guard !requests.isEmpty else { return }
-        Task { @MainActor in
+    @discardableResult
+    func beginConfirmedTeardowns(
+        _ requests: [ConfirmedTeardownRequest],
+        postSnapshotIndexLoader: @escaping @Sendable () async -> RestorableAgentSessionIndex? = {
+            await SharedLiveAgentIndex.shared.scopedIndexCapturedAfterRequest()
+        },
+        runtimeObservationProvider: ConfirmedTeardownRuntimeObservationProvider? = nil
+    ) -> Task<Void, Never> {
+        guard !requests.isEmpty else { return Task {} }
+        return Task { @MainActor in
             defer {
                 for request in requests {
                     self.clearInFlightTeardown(request.record.key, requestID: request.requestID)
@@ -81,48 +88,77 @@ extension AgentHibernationController {
             }
 
             let postSnapshotSequence = markPostSnapshotValidationPoint()
-            let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask(
-                minimumStartSequence: postSnapshotSequence
-            ).value
-
+            guard let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask(
+                minimumStartSequence: postSnapshotSequence,
+                loader: postSnapshotIndexLoader
+            ).value else {
+                // A timeout or capacity rejection is an unknown process state.
+                // Abort the batch rather than treating it as an empty live-process index.
+                return
+            }
+            // Quiesce every otherwise-qualified prior monitor before one shared
+            // post-quiescence capture. Final validation may narrow this set, but
+            // it cannot admit a request whose prior monitor was never quiesced.
+            var postSnapshotQualifiedKeys = Set<AgentHibernationPanelKey>()
+            var quiescedMonitorKeys = Set<AgentHibernationPanelKey>()
             for request in requests {
                 let record = request.record
-                guard let snapshotOutcome = snapshotOutcomes[record.key] else { continue }
-                let currentAgent = record.workspace.restorableAgentForHibernation(
-                    panelId: record.key.panelId,
-                    index: postSnapshotIndex
-                )
-                let currentLifecycle = postSnapshotLifecycle(for: record, index: postSnapshotIndex)
-                let currentEffectiveLastActivityAt = postSnapshotEffectiveLastActivityAt(
-                    for: record,
-                    index: postSnapshotIndex
-                )
+                guard let snapshotOutcome = snapshotOutcomes[record.key],
+                      confirmedTeardownStillQualifies(
+                        request,
+                        index: postSnapshotIndex,
+                        runtimeObservation: runtimeObservationProvider?(record)
+                ) else {
+                    continue
+                }
+                postSnapshotQualifiedKeys.insert(record.key)
+                guard case .snapshot(let snapshot) = snapshotOutcome else { continue }
+                if await cancelPostTeardownRestoreTaskForReplacement(
+                    transcriptPath: snapshot.transcriptPath
+                ) {
+                    quiescedMonitorKeys.insert(record.key)
+                }
+            }
+            let finalValidationIndex: RestorableAgentSessionIndex
+            if quiescedMonitorKeys.isEmpty {
+                finalValidationIndex = postSnapshotIndex
+            } else {
+                let postQuiescenceSequence = markPostSnapshotValidationPoint()
+                guard let capturedIndex = await sharedPostSnapshotValidationIndexTask(
+                    minimumStartSequence: postQuiescenceSequence,
+                    loader: postSnapshotIndexLoader
+                ).value else {
+                    for request in requests where quiescedMonitorKeys.contains(request.record.key) {
+                        guard let snapshotOutcome = snapshotOutcomes[request.record.key],
+                              case .snapshot(let snapshot) = snapshotOutcome else {
+                            continue
+                        }
+                        // The previous monitor is quiesced and the fresh process
+                        // capture failed, so its PID set is unknown. Reusing the
+                        // pre-quiescence record could wait on a recycled PID and
+                        // later restore into an unrelated live session.
+                        AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
+                            snapshot,
+                            sessionId: request.record.agent.sessionId
+                        )
+                    }
+                    return
+                }
+                finalValidationIndex = capturedIndex
+            }
+            for request in requests {
+                let record = request.record
+                guard postSnapshotQualifiedKeys.contains(record.key),
+                      let snapshotOutcome = snapshotOutcomes[record.key] else { continue }
                 // Re-validate: the pane must still be exactly as confirmed. Any activity,
                 // scrollback change, visibility/protection change, hibernation disable,
                 // hibernation, or surface loss during the hop aborts; the regular 30s
                 // tick will re-arm if still idle.
-                guard AgentHibernationTrackingGate.isEnabled(),
-                      record.isStillOwnedByOriginalWorkspace,
-                      !postSnapshotIndex.hasLiveProcess(workspaceId: record.key.workspaceId, panelId: record.key.panelId),
-                      TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
-                          TabManager.restorableAgentSnapshotFingerprint(record.agent),
-                      !record.terminalPanel.isAgentHibernated,
-                      record.terminalPanel.surface.hasLiveSurface,
-                      AppDelegate.shared?.agentHibernationPanelIsProtected(
-                          workspace: record.workspace,
-                          panelId: record.key.panelId
-                      ) == false,
-                      currentLifecycle.allowsHibernation,
-                      (self.terminalInputByPanel[record.key] ?? 0) <=
-                          (self.lifecycleChangeByPanel[record.key] ?? 0),
-                      self.teardownValidationGeneration == request.generation,
-                      (self.teardownValidationEpochByPanel[record.key] ?? 0) == request.epoch,
-                      let currentFingerprint = self.hibernationFingerprint(for: record),
-                      currentFingerprint == request.confirmationFingerprint,
-                      currentEffectiveLastActivityAt <= request.effectiveLastActivityAt else {
-                    continue
-                }
-
+                let stillQualifies = confirmedTeardownStillQualifies(
+                    request,
+                    index: finalValidationIndex,
+                    runtimeObservation: runtimeObservationProvider?(record)
+                )
                 let snapshot: AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot?
                 switch snapshotOutcome {
                 case .snapshot(let value):
@@ -130,6 +166,7 @@ extension AgentHibernationController {
                 case .nothingToProtect:
                     snapshot = nil
                 case .unableToProtect:
+                    guard stillQualifies else { continue }
                     // Forfeit hibernation rather than risk issue #6565 transcript loss.
                     self.unableToProtectByPanel[record.key] = UnableToProtectMarker(
                         fingerprint: request.confirmationFingerprint,
@@ -138,16 +175,14 @@ extension AgentHibernationController {
                     )
                     continue
                 }
-
                 if let snapshot {
-                    // An armed monitor for this transcript (a prior hibernation's,
-                    // or one stored earlier in this batch) hands off here: quiesce
-                    // it only now that this request is otherwise committed, and
-                    // re-check the path version. Nothing may suspend between the
-                    // check and SIGTERM, or a rewrite can invalidate the snapshot.
-                    await cancelPostTeardownRestoreTaskForReplacement(
-                        transcriptPath: snapshot.transcriptPath
+                    let finalProcessIDs = record.processIDs.union(
+                        finalValidationIndex.processIDs(
+                            workspaceId: record.key.workspaceId,
+                            panelId: record.key.panelId
+                        )
                     )
+                    // Nothing may suspend after these checks and before SIGTERM.
                     guard AgentHibernationTranscriptGuard.liveFileVersionStillMatches(snapshot) else {
                         self.unableToProtectByPanel[record.key] = UnableToProtectMarker(
                             fingerprint: request.confirmationFingerprint,
@@ -159,7 +194,7 @@ extension AgentHibernationController {
                         // its restore checks fail closed if the live file has turns.
                         if self.armPostTeardownRestoreMonitor(
                             snapshot: snapshot,
-                            processIDs: record.processIDs,
+                            processIDs: finalProcessIDs,
                             snapshotDisposal: .retainForRecovery(sessionId: record.agent.sessionId)
                         ) {
                             restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
@@ -171,6 +206,19 @@ extension AgentHibernationController {
                         }
                         continue
                     }
+                    guard stillQualifies else {
+                        // The older monitor was quiesced, so keep the fresh snapshot
+                        // armed while this now-active pane continues running.
+                        if self.armPostTeardownRestoreMonitor(
+                            snapshot: snapshot,
+                            processIDs: finalProcessIDs
+                        ) {
+                            restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
+                        }
+                        continue
+                    }
+                } else if !stillQualifies {
+                    continue
                 }
                 self.terminateScopedProcessesForHibernation(record: record)
                 record.workspace.enterAgentHibernation(
@@ -185,7 +233,6 @@ extension AgentHibernationController {
             }
         }
     }
-
     private static func snapshotOutcomes(
         for requests: [ConfirmedTeardownRequest]
     ) async -> [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome] {
@@ -287,6 +334,49 @@ extension AgentHibernationController {
         return max(indexActivity, localActivity, createdAt)
     }
 
+    func confirmedTeardownStillQualifies(
+        _ request: ConfirmedTeardownRequest,
+        index: RestorableAgentSessionIndex,
+        runtimeObservation: ConfirmedTeardownRuntimeObservation? = nil
+    ) -> Bool {
+        let record = request.record
+        let runtimeObservation = runtimeObservation ?? ConfirmedTeardownRuntimeObservation(
+            hasLiveSurface: record.terminalPanel.surface.hasLiveSurface,
+            fingerprint: hibernationFingerprint(for: record)
+        )
+        let currentAgent = record.workspace.restorableAgentForHibernation(
+            panelId: record.key.panelId,
+            index: index
+        )
+        let currentLifecycle = postSnapshotLifecycle(for: record, index: index)
+        let currentEffectiveLastActivityAt = postSnapshotEffectiveLastActivityAt(
+            for: record,
+            index: index
+        )
+        guard AgentHibernationTrackingGate.isEnabled(),
+              record.isStillOwnedByOriginalWorkspace,
+              !index.hasLiveProcess(workspaceId: record.key.workspaceId, panelId: record.key.panelId),
+              TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
+                  TabManager.restorableAgentSnapshotFingerprint(record.agent),
+              !record.terminalPanel.isAgentHibernated,
+              runtimeObservation.hasLiveSurface,
+              AppDelegate.shared?.agentHibernationPanelIsProtected(
+                  workspace: record.workspace,
+                  panelId: record.key.panelId
+              ) == false,
+              currentLifecycle.allowsHibernation,
+              (terminalInputByPanel[record.key] ?? 0) <=
+                  (lifecycleChangeByPanel[record.key] ?? 0),
+              teardownValidationGeneration == request.generation,
+              (teardownValidationEpochByPanel[record.key] ?? 0) == request.epoch,
+              let currentFingerprint = runtimeObservation.fingerprint,
+              currentFingerprint == request.confirmationFingerprint,
+              currentEffectiveLastActivityAt <= request.effectiveLastActivityAt else {
+            return false
+        }
+        return true
+    }
+
     /// Builds and registers a restore monitor guarding the snapshot's transcript
     /// path. Returns false without any restore side effects when another monitor
     /// already guards that path — the existing monitor keeps its protection.
@@ -354,42 +444,14 @@ extension AgentHibernationController {
         return true
     }
 
-    func markPostSnapshotValidationPoint() -> UInt64 {
-        postSnapshotValidationIndexSequence = postSnapshotValidationIndexSequence &+ 1
-        return postSnapshotValidationIndexSequence
-    }
-
-    func sharedPostSnapshotValidationIndexTask(minimumStartSequence: UInt64) -> Task<RestorableAgentSessionIndex, Never> {
-        if let inFlight = postSnapshotValidationIndexTask {
-            if inFlight.startSequence >= minimumStartSequence {
-                return inFlight.task
-            }
-            inFlight.task.cancel()
-        }
-        let requestID = UUID()
-        let startSequence = postSnapshotValidationIndexSequence
-        let task = Task.detached(priority: .utility) {
-            await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-        }
-        postSnapshotValidationIndexTask = PostSnapshotValidationIndexTask(
-            requestID: requestID,
-            startSequence: startSequence,
-            task: task
-        )
-        Task { @MainActor in
-            _ = await task.value
-            guard self.postSnapshotValidationIndexTask?.requestID == requestID else { return }
-            self.postSnapshotValidationIndexTask = nil
-        }
-        return task
-    }
-
-    func cancelPostTeardownRestoreTaskForReplacement(transcriptPath: String) async {
+    @discardableResult
+    func cancelPostTeardownRestoreTaskForReplacement(transcriptPath: String) async -> Bool {
         let key = Self.postTeardownRestoreTaskKey(transcriptPath: transcriptPath)
-        guard let entry = postTeardownRestoreTasksByTranscriptPath.removeValue(forKey: key) else { return }
+        guard let entry = postTeardownRestoreTasksByTranscriptPath.removeValue(forKey: key) else { return false }
         entry.cancellationState.restoresSnapshotOnCancellation = false
         entry.task.cancel()
         await entry.task.value
+        return true
     }
 
     func cancelPostTeardownRestoreTasks() {

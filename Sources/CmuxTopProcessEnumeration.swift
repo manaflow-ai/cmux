@@ -135,6 +135,11 @@ nonisolated extension CmuxTopProcessSnapshot {
 
         return (CmuxTopProcessInfo(
             pid: pid,
+            processIdentity: AgentPIDProcessIdentity(
+                pid: pid_t(bsdInfo.pbi_pid),
+                startSeconds: Int64(bsdInfo.pbi_start_tvsec),
+                startMicroseconds: Int64(bsdInfo.pbi_start_tvusec)
+            ),
             parentPID: Int(bsdInfo.pbi_ppid),
             name: name.isEmpty ? "pid-\(pid)" : name,
             path: path,

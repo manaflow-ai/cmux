@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -267,12 +268,12 @@ struct AgentHibernationPlannerSwiftTests {
 
     @MainActor
     @Test
-    func postSnapshotValidationDoesNotReuseTaskStartedBeforeSnapshotPoint() {
+    func postSnapshotValidationDoesNotReuseTaskStartedBeforeSnapshotPoint() async {
         let controller = AgentHibernationController.shared
         defer { resetSharedHibernationState(controller) }
 
         let staleRequestID = UUID()
-        let staleTask = Task<RestorableAgentSessionIndex, Never> {
+        let staleTask = Task<RestorableAgentSessionIndex?, Never> {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
@@ -286,11 +287,79 @@ struct AgentHibernationPlannerSwiftTests {
         )
         controller.postSnapshotValidationIndexSequence = 2
 
-        _ = controller.sharedPostSnapshotValidationIndexTask(minimumStartSequence: 2)
+        let replacementTask = controller.sharedPostSnapshotValidationIndexTask(
+            minimumStartSequence: 2,
+            loader: { .empty }
+        )
 
         #expect(controller.postSnapshotValidationIndexTask?.requestID != staleRequestID)
         #expect(controller.postSnapshotValidationIndexTask?.startSequence == 2)
-        #expect(staleTask.isCancelled)
+        #expect(!staleTask.isCancelled)
+        staleTask.cancel()
+        _ = await replacementTask.value
+    }
+
+    @MainActor
+    @Test
+    func postSnapshotValidationQueuesReplacementBehindOlderLoad() async {
+        let controller = AgentHibernationController.shared
+        defer { resetSharedHibernationState(controller) }
+        let olderLoadStarted = DispatchSemaphore(value: 0)
+        let releaseOlderLoad = DispatchSemaphore(value: 0)
+        let replacementLoadStarted = DispatchSemaphore(value: 0)
+        let redundantLoadStarted = DispatchSemaphore(value: 0)
+        defer { releaseOlderLoad.signal() }
+        let olderTask = Task.detached { () -> RestorableAgentSessionIndex? in
+            olderLoadStarted.signal()
+            releaseOlderLoad.wait()
+            return .empty
+        }
+        #expect(await Self.wait(for: olderLoadStarted))
+        controller.postSnapshotValidationIndexSequence = 1
+        controller.postSnapshotValidationIndexTask = AgentHibernationController.PostSnapshotValidationIndexTask(
+            requestID: UUID(),
+            startSequence: 1,
+            task: olderTask
+        )
+        controller.postSnapshotValidationIndexSequence = 2
+
+        let replacementTask = controller.sharedPostSnapshotValidationIndexTask(
+            minimumStartSequence: 2,
+            loader: {
+                replacementLoadStarted.signal()
+                return .empty
+            }
+        )
+        let queuedRequestID = controller.postSnapshotValidationIndexTask?.requestID
+        controller.postSnapshotValidationIndexSequence = 3
+        let joinedReplacementTask = controller.sharedPostSnapshotValidationIndexTask(
+            minimumStartSequence: 3,
+            loader: {
+                redundantLoadStarted.signal()
+                return .empty
+            }
+        )
+        #expect(controller.postSnapshotValidationIndexTask?.requestID == queuedRequestID)
+        #expect(controller.postSnapshotValidationIndexTask?.startSequence == 3)
+        #expect(controller.postSnapshotValidationIndexTask?.hasStartedCapture == false)
+        let replacementStartedBeforeOlderLoadFinished = await Self.wait(
+            for: replacementLoadStarted,
+            timeout: 0.2
+        )
+        #expect(
+            !replacementStartedBeforeOlderLoadFinished,
+            "A newer validation boundary must serialize behind an older full index load instead of adding CPU fanout."
+        )
+        #expect(!olderTask.isCancelled)
+
+        releaseOlderLoad.signal()
+        #expect(await Self.wait(for: replacementLoadStarted))
+        #expect(
+            !(await Self.wait(for: redundantLoadStarted, timeout: 0.2)),
+            "Later boundaries must join the one queued successor instead of adding a serial backlog."
+        )
+        _ = await replacementTask.value
+        _ = await joinedReplacementTask.value
     }
 
     @MainActor
@@ -300,10 +369,16 @@ struct AgentHibernationPlannerSwiftTests {
         defer { resetSharedHibernationState(controller) }
 
         let boundary = controller.markPostSnapshotValidationPoint()
-        _ = controller.sharedPostSnapshotValidationIndexTask(minimumStartSequence: boundary)
+        _ = controller.sharedPostSnapshotValidationIndexTask(
+            minimumStartSequence: boundary,
+            loader: { .empty }
+        )
         let firstRequestID = controller.postSnapshotValidationIndexTask?.requestID
 
-        _ = controller.sharedPostSnapshotValidationIndexTask(minimumStartSequence: boundary)
+        _ = controller.sharedPostSnapshotValidationIndexTask(
+            minimumStartSequence: boundary,
+            loader: { .empty }
+        )
 
         #expect(controller.postSnapshotValidationIndexTask?.requestID == firstRequestID)
         #expect(controller.postSnapshotValidationIndexTask?.startSequence == boundary)
@@ -379,7 +454,8 @@ struct AgentHibernationPlannerSwiftTests {
     }
 
     @MainActor
-    private func resetSharedHibernationState(_ controller: AgentHibernationController) {
+    func resetSharedHibernationState(_ controller: AgentHibernationController) {
+        controller.cancelEvaluationTask()
         controller.activityByPanel.removeAll(keepingCapacity: false)
         controller.terminalInputByPanel.removeAll(keepingCapacity: false)
         controller.lifecycleChangeByPanel.removeAll(keepingCapacity: false)
@@ -393,4 +469,14 @@ struct AgentHibernationPlannerSwiftTests {
         controller.postSnapshotValidationIndexSequence = 0
         controller.postSnapshotValidationIndexTask = nil
     }
+
+    nonisolated static func wait(
+        for semaphore: DispatchSemaphore,
+        timeout: TimeInterval = 10
+    ) async -> Bool {
+        await Task.detached {
+            semaphore.wait(timeout: .now() + timeout) == .success
+        }.value
+    }
+
 }

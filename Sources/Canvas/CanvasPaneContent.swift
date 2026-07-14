@@ -26,6 +26,11 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     private let content: CanvasPaneContent
     private weak var container: NSView?
     private var onFocusPanel: ((UUID) -> Void)?
+    private let directHostIdentity = NSObject()
+
+    private var directHostId: ObjectIdentifier {
+        ObjectIdentifier(directHostIdentity)
+    }
 
     /// Mounts panel content into the pane's content container.
     ///
@@ -55,11 +60,15 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             // terminal at the viewport edge. Detach and parent directly so
             // the clip view crops instead.
             TerminalWindowPortalRegistry.detach(hostedView: hostedView)
-            hostedView.setVisibleInUI(true)
-            hostedView.setFocusHandler { [weak self] in
-                guard let self else { return }
-                self.onFocusPanel?(self.panelId)
-            }
+            hostedView.setVisibleInUI(true, refreshPolicy: .immediate)
+            hostedView.setDirectHostHandlers(
+                ownerHostId: directHostId,
+                focusHandler: { [weak self] in
+                    guard let self else { return }
+                    self.onFocusPanel?(self.panelId)
+                },
+                triggerFlashHandler: nil
+            )
             view = hostedView
         case .hosted(let panel, let hostedView):
             view = hostedView
@@ -111,6 +120,9 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         switch content {
         case .terminal(let panel):
             let hostedView = panel.hostedView
+            guard let container,
+                  hostedView.superview === container,
+                  hostedView.isHostHandlerOwner(ownerHostId: directHostId) else { return }
             hostedView.setActive(isFocused)
             hostedView.setInactiveOverlay(
                 color: inactiveOverlayColor,
@@ -128,6 +140,12 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     func setRendering(_ rendering: Bool) {
         switch content {
         case .terminal(let panel):
+            guard let container,
+                  panel.hostedView.superview === container,
+                  panel.hostedView.isHostHandlerOwner(ownerHostId: directHostId) else { return }
+            if rendering {
+                panel.hostedView.setVisibleInUI(true, refreshPolicy: .immediate)
+            }
             panel.surface.setOcclusion(rendering)
         case .hosted(let panel, _):
             // Offscreen browsers may hidden-discard their webview; coming
@@ -145,8 +163,10 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
         switch content {
         case .terminal(let panel):
             let hostedView = panel.hostedView
+            guard let container,
+                  hostedView.superview === container,
+                  hostedView.clearDirectHostHandlersIfOwned(ownerHostId: directHostId) else { break }
             hostedView.setActive(false)
-            hostedView.setFocusHandler(nil)
             hostedView.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
             panel.surface.setOcclusion(true)
             hostedView.removeFromSuperview()

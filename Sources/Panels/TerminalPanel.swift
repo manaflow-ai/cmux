@@ -51,6 +51,7 @@ final class TerminalPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    var ownedSessionScrollbackReplayFileURL: URL? = nil
     /// The workspace-env key/value pairs this panel inherited from its workspace's
     /// `workspaceEnvironment` at creation. The same panel travels when a surface is
     /// moved between workspaces, so a respawn uses these to drop the (possibly
@@ -80,8 +81,9 @@ final class TerminalPanel: Panel, ObservableObject {
     private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
     private var preservedTextBoxAttributedContent: NSAttributedString?
     private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
-    private var isClosingPanel = false
+    var isClosingPanel = false
     private var didDiscardTextBoxContentForClose = false
+    var didTeardownRuntimeForClose = false
 #if DEBUG
     private struct DebugTextBoxInlineFixture {
         let localURL: URL?
@@ -174,7 +176,6 @@ final class TerminalPanel: Panel, ObservableObject {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
-
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -429,7 +430,7 @@ final class TerminalPanel: Panel, ObservableObject {
         self.textBoxInputView = nil
     }
 
-    private func discardTextBoxContentForClose(from textBoxInputView: TextBoxInputTextView? = nil) {
+    func discardTextBoxContentForClose(from textBoxInputView: TextBoxInputTextView? = nil) {
         didDiscardTextBoxContentForClose = true
         let currentTextView = textBoxInputView ?? self.textBoxInputView
         let attachmentsToCleanup = currentTextView?.inlineAttachments() ?? textBoxAttachments
@@ -455,6 +456,7 @@ final class TerminalPanel: Panel, ObservableObject {
         if self.textBoxInputView === currentTextView {
             self.textBoxInputView = nil
         }
+        removeOwnedSessionScrollbackReplayArtifact()
     }
 
     func sessionTextBoxDraftSnapshot() -> SessionTextBoxInputDraftSnapshot? {
@@ -589,18 +591,20 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 #endif
 
-    func focus() {
+    func focus() { focus(refreshPolicy: .immediate) }
+
+    func focus(refreshPolicy: TerminalPortalVisibilityRefreshPolicy) {
         if isAgentHibernated {
             _ = requestAgentHibernationResume(focus: true)
             return
         }
-        focusTerminalSurface(respectForeignFirstResponder: true)
+        focusTerminalSurface(respectForeignFirstResponder: true, refreshPolicy: refreshPolicy)
     }
 
     @discardableResult
     private func focusTerminalSurface(
-        respectForeignFirstResponder: Bool,
-        clearTextBoxHideArm: Bool = true
+        respectForeignFirstResponder: Bool, clearTextBoxHideArm: Bool = true,
+        refreshPolicy: TerminalPortalVisibilityRefreshPolicy = .immediate
     ) -> Bool {
         if clearTextBoxHideArm {
             shouldHideTextBoxOnNextEscape = false
@@ -608,7 +612,7 @@ final class TerminalPanel: Panel, ObservableObject {
         if isTextBoxActive,
            respectForeignFirstResponder,
            textBoxInputFocusIntent == .textBox {
-            hostedView.yieldTerminalSurfaceFocusForForeignResponder(reason: "textbox.preserveFocusIntent")
+            hostedView.yieldTerminalSurfaceFocusForForeignResponder(reason: "textbox.preserveFocusIntent", refreshPolicy: refreshPolicy)
             hostedView.setActive(false)
             return true
         }
@@ -634,11 +638,9 @@ final class TerminalPanel: Panel, ObservableObject {
             return false
         }
         surface.setFocus(true)
-        hostedView.ensureFocus(
-            for: workspaceId,
-            surfaceId: id,
-            respectForeignFirstResponder: respectForeignFirstResponder
-        )
+        hostedView.ensureFocus(for: workspaceId, surfaceId: id,
+                               respectForeignFirstResponder: respectForeignFirstResponder,
+                               refreshPolicy: refreshPolicy)
         return true
     }
 
@@ -656,36 +658,6 @@ final class TerminalPanel: Panel, ObservableObject {
         hostedView.setActive(false)
     }
 
-    func close() {
-        isClosingPanel = true
-        discardTextBoxContentForClose()
-        // The surface will be cleaned up by its deinit
-        // Detach from the window portal on real close so stale hosted views
-        // cannot remain above browser panes after split close.
-        surface.beginPortalCloseLifecycle(reason: "panel.close")
-#if DEBUG
-        let frame = String(format: "%.1fx%.1f", hostedView.frame.width, hostedView.frame.height)
-        let bounds = String(format: "%.1fx%.1f", hostedView.bounds.width, hostedView.bounds.height)
-        cmuxDebugLog(
-            "surface.panel.close.begin panel=\(id.uuidString.prefix(5)) " +
-            "workspace=\(workspaceId.uuidString.prefix(5)) runtimeSurface=\(surface.surface != nil ? 1 : 0) " +
-            "inWindow=\(surface.isViewInWindow ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
-            "hidden=\(hostedView.isHidden ? 1 : 0) frame=\(frame) bounds=\(bounds)"
-        )
-#endif
-        unfocus()
-        hostedView.setVisibleInUI(false)
-        TerminalWindowPortalRegistry.detach(hostedView: hostedView)
-#if DEBUG
-        cmuxDebugLog(
-            "surface.panel.close.end panel=\(id.uuidString.prefix(5)) " +
-            "inWindow=\(surface.isViewInWindow ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
-            "hidden=\(hostedView.isHidden ? 1 : 0)"
-        )
-#endif
-        surface.teardownSurface()
-    }
-
     func enterAgentHibernation(
         agent: SessionRestorableAgentSnapshot,
         lastActivityAt: Date,
@@ -698,7 +670,7 @@ final class TerminalPanel: Panel, ObservableObject {
         )
         unfocus()
         searchState = nil
-        hostedView.setVisibleInUI(false)
+        hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
         TerminalWindowPortalRegistry.detach(hostedView: hostedView)
         surface.suspendRuntimeSurfaceForAgentHibernation(reason: "agentHibernation")
         requestViewReattach()
