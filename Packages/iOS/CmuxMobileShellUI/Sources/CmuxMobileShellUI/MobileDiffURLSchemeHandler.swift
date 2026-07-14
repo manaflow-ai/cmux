@@ -99,12 +99,12 @@ final class MobileDiffURLSchemeHandler: NSObject, WKURLSchemeHandler {
         task: any WKURLSchemeTask
     ) async throws {
         guard isLive(identifier) else { throw CancellationError() }
-        task.didReceive(URLResponse(
+        guard let response = MobileDiffHTTPResponseFactory().response(
             url: url,
             mimeType: "text/x-diff",
-            expectedContentLength: -1,
-            textEncodingName: "utf-8"
-        ))
+            contentLength: nil
+        ) else { throw Self.responseConstructionError }
+        task.didReceive(response)
         var deliveredPatchData = false
         var deliveredByteCount = 0
         diffSchemeLog.info("patch stream start: \(self.files.count, privacy: .public) files")
@@ -159,12 +159,12 @@ final class MobileDiffURLSchemeHandler: NSObject, WKURLSchemeHandler {
         task: any WKURLSchemeTask
     ) throws {
         guard isLive(identifier) else { throw CancellationError() }
-        task.didReceive(URLResponse(
+        guard let response = MobileDiffHTTPResponseFactory().response(
             url: url,
             mimeType: mimeType,
-            expectedContentLength: data.count,
-            textEncodingName: mimeType.hasPrefix("text/") ? "utf-8" : nil
-        ))
+            contentLength: data.count
+        ) else { throw Self.responseConstructionError }
+        task.didReceive(response)
         if !data.isEmpty {
             task.didReceive(data)
         }
@@ -194,6 +194,10 @@ final class MobileDiffURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
     private static var notFoundError: NSError {
         NSError(domain: NSURLErrorDomain, code: NSURLErrorFileDoesNotExist)
+    }
+
+    private static var responseConstructionError: NSError {
+        NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotParseResponse)
     }
 }
 #endif
