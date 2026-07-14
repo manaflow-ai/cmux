@@ -125,6 +125,10 @@ import Testing
     #expect(failureSettled)
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
 
+    let retainedChunk = try #require(await iterator.next())
+    #expect(String(data: retainedChunk.data, encoding: .utf8) == "live-during-cold-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retainedChunk.streamToken)
+
     let accepted = store.deliverTerminalBytes(
         Data("live-after-follow-up-failure".utf8),
         surfaceID: surfaceID
