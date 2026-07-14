@@ -3419,6 +3419,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
+    nonisolated let currentDirectoryActionDispatcher = GhosttyCurrentDirectoryActionDispatcher()
     var scrollbar: GhosttyScrollbar?
     /// Pending scrollbar value written from the action callback thread;
     /// read and cleared on the main thread by `flushPendingScrollbar()`.
@@ -7491,6 +7492,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
     deinit {
+        cancelNotificationScrollReplayBoundaryRegistration()
         selectionAccessibilitySignal.finish()
 #if DEBUG
         cmuxDebugLog(

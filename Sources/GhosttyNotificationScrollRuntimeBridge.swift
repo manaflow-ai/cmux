@@ -9,34 +9,39 @@ extension TerminalPanel {
 }
 
 extension GhosttyApp {
-    /// Runs PTY-ordered PWD replay markers synchronously so later input cannot overtake the boundary.
-    private func performNotificationScrollOnMain(_ work: @MainActor () -> Void) { performOnMain(work) }
-
     func handleCurrentDirectoryAction(
         _ directory: String,
         authoritativeGeometry: NotificationScrollRestoreGeometry?,
         surfaceView: GhosttyNSView
     ) {
         let terminalSurface = surfaceView.terminalSurface
-        performNotificationScrollOnMain {
-            if terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(
-                directory,
-                authoritativeGeometry: authoritativeGeometry
-            ) == true {
-                return
-            }
-            guard let tabId = surfaceView.tabId,
-                  let surfaceId = terminalSurface?.id else { return }
-            AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
-                tabId: tabId,
-                surfaceId: surfaceId,
-                directory: directory
-            )
-        }
+        // A bounded per-surface AsyncStream drives one MainActor consumer.
+        // Ordinary PWD actions coalesce; registered replay markers
+        // remain ordered and cannot be displaced by terminal output floods.
+        surfaceView.currentDirectoryActionDispatcher.enqueue(
+            directory: directory,
+            authoritativeGeometry: authoritativeGeometry,
+            surfaceView: surfaceView,
+            terminalSurface: terminalSurface
+        )
     }
 }
 
 extension GhosttyNSView {
+    func registerNotificationScrollReplayBoundaries(
+        startBoundary: String,
+        endBoundary: String
+    ) {
+        currentDirectoryActionDispatcher.registerReplayBoundaries(
+            startBoundary: startBoundary,
+            endBoundary: endBoundary
+        )
+    }
+
+    nonisolated func cancelNotificationScrollReplayBoundaryRegistration() {
+        currentDirectoryActionDispatcher.cancelReplayBoundaries()
+    }
+
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.
         let retention = GhosttyApp.renderedFrameNotificationDemand.retain()
