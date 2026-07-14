@@ -17,6 +17,7 @@ struct SharedLiveAgentIndexLoader {
     private let processSnapshotProvider: () -> CmuxTopProcessSnapshot
     private let capturedAtProvider: () -> TimeInterval
     private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    private let injectedProcessArgumentsProvider: ((Int) -> CmuxTopProcessArguments?)?
     private let processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
     private let cachedAgentProcessValidator: CachedAgentProcessIdentityValidator
 
@@ -27,15 +28,11 @@ struct SharedLiveAgentIndexLoader {
         registryLoader: @escaping (String, FileManager) -> CmuxVaultAgentRegistry = { homeDirectory, fileManager in
             CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         },
-        processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot = {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        },
+        processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot,
         capturedAtProvider: @escaping () -> TimeInterval = {
             Date().timeIntervalSince1970
         },
-        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
-            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
-        },
+        processArgumentsProvider: ((Int) -> CmuxTopProcessArguments?)? = nil,
         processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -48,7 +45,10 @@ struct SharedLiveAgentIndexLoader {
         self.registryLoader = registryLoader
         self.processSnapshotProvider = processSnapshotProvider
         self.capturedAtProvider = capturedAtProvider
-        self.processArgumentsProvider = processArgumentsProvider
+        self.injectedProcessArgumentsProvider = processArgumentsProvider
+        self.processArgumentsProvider = processArgumentsProvider ?? {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        }
         self.processIdentityProvider = processIdentityProvider
         self.cachedAgentProcessValidator = cachedAgentProcessValidator
     }
@@ -72,12 +72,18 @@ struct SharedLiveAgentIndexLoader {
             processArgumentsByPID.updateValue(resolved, forKey: processID)
             return resolved
         }
+#if DEBUG
+        let loadMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+            .restorableLoad,
+            inputCount: processSnapshot.processesByPID.count
+        )
+#endif
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: resolvedRegistry,
             fileManager: fileManager,
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
-            processArgumentsProvider: cachedProcessArguments
+            processArgumentsProvider: injectedProcessArgumentsProvider
         )
         // Process-only session identity must be immutable before terminal teardown.
         // Hook-store and transcript loading below may continue after the runtime exits.
@@ -96,6 +102,12 @@ struct SharedLiveAgentIndexLoader {
             capturedAt: capturedAt,
             processArgumentsProvider: cachedProcessArguments
         )
+#if DEBUG
+        ProcessPerformanceMetrics.shared.operationCompleted(
+            loadMetricsToken,
+            outputCount: index.forkValidationEntries().count
+        )
+#endif
         return (
             index: index,
             surfaceResumeBindingIndex: SurfaceResumeBindingIndex(
@@ -122,6 +134,18 @@ struct SharedLiveAgentIndexLoader {
         fileManager: FileManager = .default
     ) -> Set<String> {
         let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        return cacheValidationFingerprint(
+            from: snapshot,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
+    }
+
+    static func cacheValidationFingerprint(
+        from snapshot: CmuxTopProcessSnapshot,
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> Set<String> {
         let registry = CmuxVaultAgentRegistry.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager

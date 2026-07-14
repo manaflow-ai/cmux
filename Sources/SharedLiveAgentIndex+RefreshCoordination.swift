@@ -232,20 +232,16 @@ extension SharedLiveAgentIndex {
     ) async -> Bool {
         guard let cachedResult else { return false }
         let processScopeFingerprintProvider = self.processScopeFingerprintProvider
-        let currentProcessScopeFingerprint = await Task.detached(priority: .utility) {
-            processScopeFingerprintProvider()
-        }.value
+        let currentProcessScopeFingerprint = await processScopeFingerprintProvider()
         return cachedResult.processScopeFingerprint == currentProcessScopeFingerprint
     }
 
     private func loadIndex(generationID: UUID) async -> LoadResult {
         let indexLoader = self.indexLoader
         let processMetadataCapture = processMetadataCaptureByGenerationID[generationID]
-        let result = await Task.detached(priority: .utility) {
-            indexLoader {
-                processMetadataCapture?.resolve(captured: true)
-            }
-        }.value
+        let result = await indexLoader {
+            processMetadataCapture?.resolve(captured: true)
+        }
         return result
     }
 

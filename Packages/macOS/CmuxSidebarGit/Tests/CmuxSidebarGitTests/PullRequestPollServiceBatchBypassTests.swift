@@ -71,16 +71,18 @@ struct PullRequestPollServiceBatchBypassTests {
                     ),
                 ]
             )
-            service.scheduleWorkspacePullRequestRefresh(
+            service.seedWorkspacePullRequestRefreshIfNeeded(
                 workspaceId: key.workspaceId,
                 panelId: key.panelId,
+                directory: host.workspaces[index].state.panels[key.panelId]?.directory ?? "",
+                branch: "feature/x",
                 reason: "localGitProbe"
             )
         }
 
         let headKeys = keys.prefix(PullRequestPollService.workspacePullRequestRefreshBatchLimit)
         let tailKey = try #require(keys.last)
-        let planningTask = try #require(service.workspacePullRequestScheduledRefreshTask)
+        let planningTask = try #require(service.workspacePullRequestSeedRefreshTask)
         await planningTask.value
         if let refreshTask = service.workspacePullRequestRefreshTask {
             await refreshTask.value
@@ -121,9 +123,11 @@ struct PullRequestPollServiceBatchBypassTests {
         )
         service.attach(host: host)
 
-        service.scheduleWorkspacePullRequestRefresh(
+        service.seedWorkspacePullRequestRefreshIfNeeded(
             workspaceId: workspaceId,
             panelId: panelId,
+            directory: "/tmp/repo",
+            branch: "feature/x",
             reason: "localGitProbe"
         )
         #expect(service.workspacePullRequestBypassRepoCacheKeys == [
@@ -133,6 +137,6 @@ struct PullRequestPollServiceBatchBypassTests {
         service.resetWorkspacePullRequestRefreshState()
 
         #expect(service.workspacePullRequestBypassRepoCacheKeys.isEmpty)
-        #expect(service.workspacePullRequestScheduledRefreshTask == nil)
+        #expect(service.workspacePullRequestSeedRefreshTask == nil)
     }
 }

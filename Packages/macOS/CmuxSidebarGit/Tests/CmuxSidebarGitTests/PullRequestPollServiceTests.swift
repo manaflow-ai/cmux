@@ -41,9 +41,9 @@ import CmuxGit
         return predicate()
     }
 
-    /// A synchronous burst of per-panel requests plans one whole-window pass.
+    /// A synchronous burst of local-git source seeds plans one whole-window pass.
     /// The planner still marks every panel due, while avoiding one full scan per request.
-    @Test func synchronousScheduleBurstCoalescesGlobalPlanning() async throws {
+    @Test func synchronousSourceSeedBurstCoalescesGlobalPlanning() async throws {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
         var keys: [WorkspaceGitProbeKey] = []
@@ -56,15 +56,17 @@ import CmuxGit
         let service = makeService(host: host, clock: ManualGitPollClock())
 
         for key in keys {
-            service.scheduleWorkspacePullRequestRefresh(
+            service.seedWorkspacePullRequestRefreshIfNeeded(
                 workspaceId: key.workspaceId,
                 panelId: key.panelId,
+                directory: "/tmp/repo",
+                branch: "feature/x",
                 reason: "localGitProbe"
             )
         }
 
-        #expect(await waitUntil { host.orderedWorkspaceIdsCallCount >= 1 })
-        #expect(host.orderedWorkspaceIdsCallCount == 1)
+        #expect(await waitUntil { host.orderedWorkspaceIdsReadCount >= 1 })
+        #expect(host.orderedWorkspaceIdsReadCount == 1)
         #expect(keys.allSatisfy {
             service.workspacePullRequestNextPollAtByKey[$0] == .distantPast
         })
@@ -260,6 +262,86 @@ import CmuxGit
             return false
         })
         #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
+    }
+
+    /// A local source change can arrive after a refresh has started but before
+    /// its stale result applies. The queued source seed and stale-result rerun
+    /// must collapse into one global traversal.
+    @Test(.timeLimit(.minutes(1)))
+    func staleApplyAndQueuedSourceSeedRunOneFollowUpTraversal() async throws {
+        let directory = "/tmp/repo"
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/a",
+            isDirty: false
+        )
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let sourceA = PullRequestPollService.SourceIdentity(
+            directory: directory,
+            branch: "feature/a"
+        )
+
+        service.workspacePullRequestSourceByKey[key] = sourceA
+        service.workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: false)
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/b",
+            isDirty: false
+        )
+        service.seedWorkspacePullRequestRefreshIfNeeded(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            directory: directory,
+            branch: "feature/b",
+            reason: "localGitProbe"
+        )
+        #expect(service.workspacePullRequestSeedRefreshTask != nil)
+
+        let workspaceReadsBeforeApply = host.orderedWorkspaceIdsReadCount
+        let branchReadsBeforeApply = host.panelGitBranchPanelIdsReadCount
+        let badgeReadsBeforeApply = host.panelPullRequestPanelIdsReadCount
+        service.applyWorkspacePullRequestRefreshResults(
+            [],
+            repoResults: [:],
+            requestedKeys: [key],
+            requestedSourceByKey: [key: sourceA],
+            now: Date(),
+            reason: "localGitProbe"
+        )
+
+        while service.workspacePullRequestSeedRefreshTask != nil {
+            await Task.yield()
+        }
+        while service.workspacePullRequestRefreshTask != nil {
+            await Task.yield()
+        }
+
+        #expect(host.orderedWorkspaceIdsReadCount == workspaceReadsBeforeApply + 1)
+        #expect(host.panelGitBranchPanelIdsReadCount == branchReadsBeforeApply + 1)
+        #expect(host.panelPullRequestPanelIdsReadCount == badgeReadsBeforeApply + 1)
+
+        let workspaceReadsBeforeUnchangedSeed = host.orderedWorkspaceIdsReadCount
+        service.seedWorkspacePullRequestRefreshIfNeeded(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            directory: directory,
+            branch: " feature/b ",
+            reason: "localGitProbe"
+        )
+        await Task.yield()
+        #expect(host.orderedWorkspaceIdsReadCount == workspaceReadsBeforeUnchangedSeed)
+
+        let workspaceReadsBeforeCommandHint = host.orderedWorkspaceIdsReadCount
+        service.handleWorkspacePullRequestCommandHint(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            action: "merge",
+            target: nil
+        )
+        #expect(host.orderedWorkspaceIdsReadCount == workspaceReadsBeforeCommandHint + 1)
+        service.resetWorkspacePullRequestRefreshState()
     }
 
     @Test func resolvedBadgeWithMismatchedBranchSchedulesGitMetadataProbe() throws {

@@ -43,13 +43,27 @@ final class SharedLiveAgentIndex {
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
+    private static let maxEventReloadInterval: TimeInterval = 30.0
+    private static let liveAgentsPerReloadIntervalStep = 8
+
+    static func hookEventReloadInterval(liveAgentCount: Int) -> TimeInterval {
+        let clampedAgentCount = max(0, liveAgentCount)
+        let intervalSteps = max(
+            1,
+            (clampedAgentCount + liveAgentsPerReloadIntervalStep - 1) / liveAgentsPerReloadIntervalStep
+        )
+        return min(
+            maxEventReloadInterval,
+            TimeInterval(intervalSteps) * minEventReloadInterval
+        )
+    }
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    let indexLoader: @Sendable (@Sendable () -> Void) -> SharedLiveAgentIndexLoader.LoadResult
-    let processScopeFingerprintProvider: @Sendable () -> Set<String>
+    let indexLoader: @Sendable (@Sendable () -> Void) async -> SharedLiveAgentIndexLoader.LoadResult
+    let processScopeFingerprintProvider: @Sendable () async -> Set<String>
     let generationTimeoutWaiter: GenerationTimeoutWaiter
     private let hookStoreDirectoryProvider: @MainActor () -> String
     let dateProvider: @MainActor () -> Date
@@ -57,9 +71,7 @@ final class SharedLiveAgentIndex {
     init(
         indexLoader: (@Sendable () -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
         capturingIndexLoader: (@Sendable (@Sendable () -> Void) -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
-        processScopeFingerprintProvider: @escaping @Sendable () -> Set<String> = {
-            SharedLiveAgentIndexLoader.currentCacheValidationFingerprint()
-        },
+        processScopeFingerprintProvider: (@Sendable () -> Set<String>)? = nil,
         generationTimeoutWaiter: @escaping @Sendable () async -> Bool = {
             do {
                 try await ContinuousClock().sleep(
@@ -80,20 +92,52 @@ final class SharedLiveAgentIndex {
         }
     ) {
         if let capturingIndexLoader {
-            self.indexLoader = capturingIndexLoader
+            self.indexLoader = { didCaptureProcessMetadata in
+                await Task.detached(priority: .utility) {
+                    capturingIndexLoader(didCaptureProcessMetadata)
+                }.value
+            }
         } else if let indexLoader {
             self.indexLoader = { didCaptureProcessMetadata in
-                didCaptureProcessMetadata()
-                return indexLoader()
+                await Task.detached(priority: .utility) {
+                    didCaptureProcessMetadata()
+                    return indexLoader()
+                }.value
             }
         } else {
             self.indexLoader = { didCaptureProcessMetadata in
-                SharedLiveAgentIndexLoader().loadResultSynchronously(
-                    processMetadataCaptured: didCaptureProcessMetadata
+                let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+                    requirements: [.processDetails, .cmuxScope],
+                    maximumAge: 3,
+                    consumer: .sharedLiveAgentIndex
                 )
+                return await Task.detached(priority: .utility) {
+                    SharedLiveAgentIndexLoader(
+                        processSnapshotProvider: { processSnapshot }
+                    ).loadResultSynchronously(
+                        processMetadataCaptured: didCaptureProcessMetadata
+                    )
+                }.value
             }
         }
-        self.processScopeFingerprintProvider = processScopeFingerprintProvider
+        if let processScopeFingerprintProvider {
+            self.processScopeFingerprintProvider = {
+                await Task.detached(priority: .utility) {
+                    processScopeFingerprintProvider()
+                }.value
+            }
+        } else {
+            self.processScopeFingerprintProvider = {
+                let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+                    requirements: [.processDetails, .cmuxScope],
+                    maximumAge: 3,
+                    consumer: .sharedLiveAgentIndex
+                )
+                return await Task.detached(priority: .utility) {
+                    SharedLiveAgentIndexLoader.cacheValidationFingerprint(from: processSnapshot)
+                }.value
+            }
+        }
         self.generationTimeoutWaiter = generationTimeoutWaiter
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
@@ -330,6 +374,12 @@ final class SharedLiveAgentIndex {
         processScopeFingerprint: Set<String>,
         forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
     ) {
+#if DEBUG
+        let applyMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+            .restorableApply,
+            inputCount: newIndex.forkValidationEntries().count
+        )
+#endif
         index = newIndex
         self.loadedAt = loadedAt
         validatedForkPanels = forkValidatedPanels
@@ -340,6 +390,12 @@ final class SharedLiveAgentIndex {
         validatedMissingForkPanels.removeAll()
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
+#if DEBUG
+        ProcessPerformanceMetrics.shared.operationCompleted(
+            applyMetricsToken,
+            outputCount: newIndex.forkValidationEntries().count
+        )
+#endif
     }
 
     private func applyForkValidations(
@@ -391,13 +447,16 @@ final class SharedLiveAgentIndex {
     }
 
     func scheduleHookStoreRefresh() {
+        let reloadInterval = Self.hookEventReloadInterval(
+            liveAgentCount: liveAgentProcessFingerprint.count
+        )
         let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
-        if elapsed >= Self.minEventReloadInterval {
+        if elapsed >= reloadInterval {
             startBackgroundRefresh()
         } else if deferredReloadTimer == nil {
             // DispatchSourceTimer coalesces hook-store event bursts without Task.sleep in runtime code.
             let timer = DispatchSource.makeTimerSource(queue: watchQueue)
-            timer.schedule(deadline: .now() + (Self.minEventReloadInterval - elapsed))
+            timer.schedule(deadline: .now() + (reloadInterval - elapsed))
             timer.setEventHandler { [weak self] in
                 Task { @MainActor in
                     guard let self else { return }

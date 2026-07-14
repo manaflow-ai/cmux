@@ -32,16 +32,19 @@ public final class PullRequestPollService: PullRequestProbing {
 
     // MARK: Dependencies
 
-    // Resolves slugs for candidate seeds (stateless CmuxGit reader).
-    let gitMetadataService: GitMetadataService
-    // Fetches and matches GitHub PRs (stateless CmuxGit pipeline).
-    let probeService: PullRequestProbeService
+    // Runs slug resolution and GitHub fetches off-main. The production
+    // executor wraps the stateless CmuxGit services; tests inject a gated
+    // executor at this exact remote-fetch boundary.
+    let refreshExecutor: any PullRequestRefreshExecuting
     // Drives the poll deadline and mobile-host deferral sleeps.
     let clock: any GitPollClock
     // Mobile-host background-work deferral intervals.
     let mobileHostDeferral: MobileHostDeferralPolicy
     // Debug diagnostics sink (the app injects its debug logger in DEBUG).
     let debugLog: @Sendable (String) -> Void
+    // Defaults to the process-wide opt-in recorder. Focused tests replace it
+    // with an isolated enabled instance so causal counts stay deterministic.
+    var runtimeMetricsRecorder = SidebarGitMetadataService.runtimeMetrics
     // The window-side seam; set once via attach(host:). Weak: the host owns
     // this service.
     weak var host: (any SidebarGitHosting)?
@@ -55,10 +58,13 @@ public final class PullRequestPollService: PullRequestProbing {
     var workspacePullRequestRepoCacheBySlug: [String: WorkspacePullRequestRepoCacheEntry] = [:]
     var workspacePullRequestPollTask: Task<Void, Never>?
     var workspacePullRequestRefreshTask: Task<Void, Never>?
-    var workspacePullRequestScheduledRefreshTask: Task<Void, Never>?
-    var workspacePullRequestScheduledRefreshReason: String?
+    var workspacePullRequestRefreshAuthority: DetachedCompletionAuthority?
+    var workspacePullRequestRefreshGeneration: UInt64 = 0
+    var workspacePullRequestPendingRefreshRequest: PendingRefreshRequest?
+    var workspacePullRequestSourceByKey: [WorkspaceGitProbeKey: SourceIdentity] = [:]
     var workspacePullRequestBypassRepoCacheKeys: Set<WorkspaceGitProbeKey> = []
-    var workspacePullRequestFollowUpRequested = false
+    var workspacePullRequestSeedRefreshTask: Task<Void, Never>?
+    var workspacePullRequestPendingSeedRefresh: PendingSeedRefresh?
     var lastSidebarPullRequestPollingEnabled = false
 
     /// Creates the poll service.
@@ -76,17 +82,32 @@ public final class PullRequestPollService: PullRequestProbing {
         mobileHostDeferral: MobileHostDeferralPolicy = .standard,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
-        self.gitMetadataService = gitMetadataService
-        self.probeService = probeService
+        self.refreshExecutor = LivePullRequestRefreshExecutor(
+            gitMetadataService: gitMetadataService,
+            probeService: probeService
+        )
+        self.clock = clock
+        self.mobileHostDeferral = mobileHostDeferral
+        self.debugLog = debugLog
+    }
+
+    init(
+        refreshExecutor: any PullRequestRefreshExecuting,
+        clock: any GitPollClock = SystemGitPollClock(),
+        mobileHostDeferral: MobileHostDeferralPolicy = .standard,
+        debugLog: @escaping @Sendable (String) -> Void = { _ in }
+    ) {
+        self.refreshExecutor = refreshExecutor
         self.clock = clock
         self.mobileHostDeferral = mobileHostDeferral
         self.debugLog = debugLog
     }
 
     deinit {
+        workspacePullRequestRefreshAuthority?.invalidate()
         workspacePullRequestPollTask?.cancel()
         workspacePullRequestRefreshTask?.cancel()
-        workspacePullRequestScheduledRefreshTask?.cancel()
+        workspacePullRequestSeedRefreshTask?.cancel()
     }
 
     /// Wires the host and captures the initial polling-setting value
@@ -155,21 +176,47 @@ public final class PullRequestPollService: PullRequestProbing {
     // MARK: Refresh pass
 
     public func refreshTrackedWorkspacePullRequestsIfNeeded(reason: String) {
-        refreshTrackedWorkspacePullRequestsIfNeeded(reason: reason, allowCachedResultsOverride: nil)
+        // Equivalent periodic requests join the active fetch in O(1). A
+        // source seed or cache-bypassing request must still traverse so it can
+        // invalidate stale authority and own the single follow-up.
+        if workspacePullRequestRefreshTask != nil,
+           sidebarPullRequestPollingEnabled,
+           host?.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) != true,
+           workspacePullRequestPendingSeedRefresh == nil {
+            if !PullRequestProbeService.refreshAllowsRepoCache(reason: reason) {
+                queueWorkspacePullRequestRefreshFollowUp(
+                    reason: reason,
+                    shouldBypassRepoCache: true
+                )
+            }
+            runtimeMetricsRecorder.recordPullRequestRefreshRequest()
+            runtimeMetricsRecorder.recordPullRequestTaskJoined()
+            return
+        }
+        // If another refresh is already running, its apply owns the pending
+        // seed and the one follow-up pass. Consuming it here would lose a seed
+        // for a panel outside the current request batch when this traversal
+        // reaches the in-flight-task guard below.
+        let pendingSeedRefresh = workspacePullRequestRefreshTask == nil
+            ? takePendingSeedRefresh()
+            : workspacePullRequestPendingSeedRefresh
+        let pendingRefreshRequest = workspacePullRequestRefreshTask == nil
+            ? takePendingRefreshRequest()
+            : workspacePullRequestPendingRefreshRequest
+        refreshTrackedWorkspacePullRequestsIfNeeded(
+            reason: pendingRefreshRequest?.reason ?? reason,
+            allowCachedResultsOverride: (
+                pendingSeedRefresh?.shouldBypassRepoCache == true ||
+                    pendingRefreshRequest?.shouldBypassRepoCache == true
+            ) ? false : nil
+        )
     }
 
     func refreshTrackedWorkspacePullRequestsIfNeeded(
         reason: String,
         allowCachedResultsOverride: Bool?
     ) {
-        if let scheduledTask = workspacePullRequestScheduledRefreshTask {
-            scheduledTask.cancel()
-            workspacePullRequestScheduledRefreshTask = nil
-            workspacePullRequestScheduledRefreshReason = nil
-        }
-        let requestShouldBypassRepoCache = allowCachedResultsOverride == false
-            || (allowCachedResultsOverride == nil
-                && !PullRequestProbeService.refreshAllowsRepoCache(reason: reason))
+        runtimeMetricsRecorder.recordPullRequestRefreshRequest()
         guard let host else { return }
         guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
             deferWorkspacePullRequestRefreshForMobileHost()
@@ -180,10 +227,12 @@ public final class PullRequestPollService: PullRequestProbing {
             host.clearAllSidebarPullRequestMetadata()
             return
         }
+        runtimeMetricsRecorder.recordPullRequestTraversal()
 
         let now = Date()
         var candidateSeeds: [WorkspacePullRequestCandidateSeed] = []
         var requestedKeys: [WorkspaceGitProbeKey] = []
+        var requestedSourceByKey: [WorkspaceGitProbeKey: SourceIdentity] = [:]
         var validKeys: Set<WorkspaceGitProbeKey> = []
 
         for workspaceId in host.orderedWorkspaceIds() {
@@ -198,13 +247,34 @@ public final class PullRequestPollService: PullRequestProbing {
                         ?? host.panelPullRequestBadge(workspaceId: workspaceId, panelId: panelId)?.branch
                 )
                 guard let branch else {
+                    workspacePullRequestSourceByKey.removeValue(forKey: key)
                     clearWorkspacePullRequestTracking(for: key)
                     continue
                 }
 
+                let source = SourceIdentity(
+                    directory: host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId)?
+                        .normalizedGitProbeDirectory ?? "",
+                    branch: branch
+                )
+                let previousSource = workspacePullRequestSourceByKey[key]
+                workspacePullRequestSourceByKey[key] = source
+
                 if PullRequestProbeService.shouldSkipLookup(branch: branch) {
-                    host.clearPanelPullRequest(workspaceId: workspaceId, panelId: panelId)
-                    clearWorkspacePullRequestTracking(for: key)
+                    if host.panelPullRequestBadge(workspaceId: workspaceId, panelId: panelId) != nil {
+                        host.clearPanelPullRequest(workspaceId: workspaceId, panelId: panelId)
+                    }
+                    clearWorkspacePullRequestTracking(for: key, preservingSource: true)
+                    continue
+                }
+
+                if case .inFlight = workspacePullRequestProbeStateByKey[key],
+                   previousSource != source {
+                    markWorkspacePullRequestProbeRerunPending(
+                        for: key,
+                        reason: reason,
+                        bypassRepoCache: !PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
+                    )
                     continue
                 }
 
@@ -216,15 +286,15 @@ public final class PullRequestPollService: PullRequestProbing {
                     continue
                 }
 
-                if requestShouldBypassRepoCache {
-                    workspacePullRequestBypassRepoCacheKeys.insert(key)
-                }
-
                 if case .inFlight = workspacePullRequestProbeStateByKey[key] {
-                    markWorkspacePullRequestProbeRerunPending(
-                        for: key,
-                        bypassRepoCache: requestShouldBypassRepoCache
-                    )
+                    let bypassesRepoCache = !PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
+                    if bypassesRepoCache {
+                        markWorkspacePullRequestProbeRerunPending(
+                            for: key,
+                            reason: reason,
+                            bypassRepoCache: bypassesRepoCache
+                        )
+                    }
                     continue
                 }
 
@@ -236,6 +306,7 @@ public final class PullRequestPollService: PullRequestProbing {
                 )
                 candidateSeeds.append(candidateSeed)
                 requestedKeys.append(key)
+                requestedSourceByKey[key] = source
             }
         }
 
@@ -257,50 +328,25 @@ public final class PullRequestPollService: PullRequestProbing {
         for key in requestedKeys {
             workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: false)
         }
-
-        let cacheBySlug = workspacePullRequestRepoCacheBySlug
-        let shouldBypassRepoCache = requestedKeys.contains {
+        let requestedKeysBypassRepoCache = requestedKeys.contains {
             workspacePullRequestBypassRepoCacheKeys.contains($0)
         }
         workspacePullRequestBypassRepoCacheKeys.subtract(requestedKeys)
-        let allowCachedResults = shouldBypassRepoCache
-            ? false
-            : (allowCachedResultsOverride ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason))
-        let gitMetadataService = gitMetadataService
-        let probeService = probeService
-        let seeds = candidateSeeds
-        let keys = requestedKeys
-        workspacePullRequestRefreshTask = Task.detached(priority: .utility) { [weak self] in
-            let candidateResolution = await probeService.resolveCandidateSeeds(
-                seeds,
-                gitMetadata: gitMetadataService
-            )
-            guard !Task.isCancelled else { return }
-            let repoResults = await probeService.fetchRepoResults(
-                repoDirectoriesBySlug: candidateResolution.repoDirectoriesBySlug,
-                candidateBranchesByRepo: candidateResolution.candidateBranchesByRepo,
-                cacheBySlug: cacheBySlug,
+
+        startWorkspacePullRequestRefresh(
+            RefreshRequest(
+                seeds: candidateSeeds,
+                keys: requestedKeys,
+                sources: requestedSourceByKey,
+                cacheBySlug: workspacePullRequestRepoCacheBySlug,
                 now: now,
-                allowCachedResults: allowCachedResults
+                allowCachedResults: requestedKeysBypassRepoCache
+                    ? false
+                    : (allowCachedResultsOverride
+                        ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason)),
+                reason: reason
             )
-            let results = PullRequestProbeService.resolveRefreshResults(
-                candidates: candidateResolution.candidates,
-                repoResults: repoResults
-            )
-            guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                guard !Task.isCancelled else { return }
-                self.workspacePullRequestRefreshTask = nil
-                self.applyWorkspacePullRequestRefreshResults(
-                    results,
-                    repoResults: repoResults,
-                    requestedKeys: keys,
-                    now: Date(),
-                    reason: reason
-                )
-            }
-        }
+        )
     }
 
     func shouldRefreshWorkspacePullRequest(
@@ -330,9 +376,16 @@ public final class PullRequestPollService: PullRequestProbing {
         if shouldBypassRepoCache {
             workspacePullRequestBypassRepoCacheKeys.insert(key)
         }
+        if workspacePullRequestRefreshTask != nil {
+            queueWorkspacePullRequestRefreshFollowUp(
+                reason: reason,
+                shouldBypassRepoCache: shouldBypassRepoCache
+            )
+        }
         if case .inFlight = workspacePullRequestProbeStateByKey[key] {
             markWorkspacePullRequestProbeRerunPending(
                 for: key,
+                reason: reason,
                 bypassRepoCache: shouldBypassRepoCache
             )
         } else {
@@ -344,33 +397,6 @@ public final class PullRequestPollService: PullRequestProbing {
             "panel=\(panelId.uuidString.prefix(5)) reason=\(reason)"
         )
 #endif
-        if workspacePullRequestRefreshTask != nil {
-            workspacePullRequestFollowUpRequested = true
-            return
-        }
-        scheduleWorkspacePullRequestPlanning(
-            reason: reason
-        )
-    }
-
-    private func scheduleWorkspacePullRequestPlanning(
-        reason: String
-    ) {
-        workspacePullRequestScheduledRefreshReason = reason
-        guard workspacePullRequestScheduledRefreshTask == nil else { return }
-
-        // A task on the same actor starts after this synchronous event turn, so every
-        // per-panel request from one git snapshot shares one whole-window planning pass.
-        workspacePullRequestScheduledRefreshTask = Task { @MainActor [weak self] in
-            guard let self, !Task.isCancelled else { return }
-            self.runScheduledWorkspacePullRequestPlanning()
-        }
-    }
-
-    private func runScheduledWorkspacePullRequestPlanning() {
-        workspacePullRequestScheduledRefreshTask = nil
-        let reason = workspacePullRequestScheduledRefreshReason ?? "scheduled"
-        workspacePullRequestScheduledRefreshReason = nil
         refreshTrackedWorkspacePullRequestsIfNeeded(reason: reason)
     }
 }
