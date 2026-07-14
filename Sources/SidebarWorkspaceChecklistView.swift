@@ -129,7 +129,14 @@ struct SidebarWorkspaceChecklistSection: View {
         // bounds regardless of whether this VStack has any content.
         .modifier(ChecklistSummaryPopoverModifier(
             isPresented: presentsPopover
-                ? Binding(get: { isPopoverPresented }, set: { onPopoverPresentedChange($0) })
+                ? Binding(get: { isPopoverPresented }, set: { presented in
+                    onPopoverPresentedChange(presented)
+                    // Any close consumes a pending add-field activation: a
+                    // dismissed first-item popover must not leave the
+                    // workspace in stale "add requested" state (which also
+                    // keeps the empty section mounted invisibly).
+                    if !presented { onConsumeAddFieldActivation() }
+                })
                 : .constant(false),
             model: SidebarWorkspaceChecklistPopoverModel(
                 workspaceTitle: workspaceTitle,

@@ -10544,7 +10544,6 @@ struct VerticalTabsSidebar: View {
         .onReceive(NotificationCenter.default.publisher(for: .workspaceChecklistAddItemRequested)) { notification in
             guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
                   tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
-            // Popover style always routes the add request into the popover (anchor overlay exists with zero items).
             if WorkspaceTodoFeature.checklistStyle == .popover {
                 statusPopoverWorkspaceId = nil
                 checklistPopoverWorkspaceId = workspaceId
@@ -10649,6 +10648,7 @@ struct VerticalTabsSidebar: View {
             .onChange(of: tabManager.selectedTabId) { _, _ in
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
                 // Workspace switches produce no outside click for .transient auto-dismiss; close popovers explicitly.
+                if let dismissed = checklistPopoverWorkspaceId { checklistAddFieldActivationTokens[dismissed] = nil }
                 checklistPopoverWorkspaceId = nil
                 statusPopoverWorkspaceId = nil
             }
