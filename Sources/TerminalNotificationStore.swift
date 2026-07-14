@@ -261,6 +261,18 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
+    private func removeDismissTombstones(ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        loadDismissedTombstonesIfNeeded()
+        let removedIds = Set(ids.filter { dismissedTombstoneIDs.remove($0) != nil })
+        guard !removedIds.isEmpty else { return }
+        dismissedTombstoneOrder.removeAll { removedIds.contains($0) }
+        UserDefaults.standard.set(
+            dismissedTombstoneOrder.map(\.uuidString),
+            forKey: Self.dismissedTombstoneDefaultsKey
+        )
+    }
+
     /// Drop the in-memory tombstone copy so the next use re-reads the persisted
     /// ring — the behavior-test analogue of a process restart.
     func reloadDismissedTombstonesForTesting() {
@@ -288,9 +300,10 @@ final class TerminalNotificationStore: ObservableObject {
     /// Classify which of the phone's delivered banner ids have been handled on
     /// this Mac: still in the store and read, or recently removed (tombstoned).
     /// Ids this Mac has never seen are NOT reported handled — they may belong to
-    /// a different paired Mac — so the phone leaves those banners alone. An id
-    /// that is currently unread is never handled, even if an older tombstone
-    /// exists (markUnread after a dismiss resurrects it).
+    /// a different paired Mac — so the phone leaves those banners alone. A
+    /// retained unread row with a tombstone represents superseded history, so
+    /// its older phone banner is handled. Explicitly marking a row unread
+    /// removes its tombstone and resurrects that banner identity.
     func reconcileHandledNotificationIDs(deliveredIDs: [UUID]) -> [String] {
         guard !deliveredIDs.isEmpty else { return [] }
         loadDismissedTombstonesIfNeeded()
@@ -302,7 +315,9 @@ final class TerminalNotificationStore: ObservableObject {
         }
         return deliveredIDs
             .filter { id in
-                if knownIDs.contains(id) { return readIDs.contains(id) }
+                if knownIDs.contains(id) {
+                    return readIDs.contains(id) || dismissedTombstoneIDs.contains(id)
+                }
                 return dismissedTombstoneIDs.contains(id)
             }
             .map(\.uuidString)
@@ -1103,8 +1118,11 @@ final class TerminalNotificationStore: ObservableObject {
         clickAction: TerminalNotificationClickAction?,
         policyRequestId: UUID? = nil
     ) {
-        guard inFlightPolicyRequests.claim(policyRequestId) else { return }
-        guard let request = notificationPolicyRequestAtLiveOwner(request) else {
+        guard let claimedRequest = inFlightPolicyRequests.claim(
+            policyRequestId,
+            applying: request
+        ) else { return }
+        guard let request = notificationPolicyRequestAtLiveOwner(claimedRequest) else {
             restoreCooldownReservation(cooldownReservation)
             return
         }
@@ -1391,6 +1409,7 @@ final class TerminalNotificationStore: ObservableObject {
         guard updated[index].isRead else { return }
         let tabId = updated[index].tabId
         updated[index].isRead = false
+        removeDismissTombstones(ids: [id])
         deferredUnreadNavigationIds.removeAll { $0 == id }
         notifications = updated
         // The notification itself now provides the workspace unread indicator. Clear any
@@ -1486,6 +1505,7 @@ final class TerminalNotificationStore: ObservableObject {
 
         updated[index].isRead = false
         let notificationId = updated[index].id
+        removeDismissTombstones(ids: [notificationId])
         deferredUnreadNavigationIds.removeAll { $0 == notificationId }
         deferredUnreadNavigationIds.append(notificationId)
         setWorkspaceManualUnread(false, forTabId: tabId)
@@ -1583,6 +1603,11 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func transferSessionNotificationState(fromTabId: UUID, toTabId: UUID, panelIdMap: [UUID: UUID]) {
+        inFlightPolicyRequests.transfer(
+            fromTabId: fromTabId,
+            toTabId: toTabId,
+            panelIdMap: panelIdMap
+        )
         let manual = Self.replacingWorkspaceId(in: manualUnreadWorkspaceIds, from: fromTabId, to: toTabId)
         if manual != manualUnreadWorkspaceIds { manualUnreadWorkspaceIds = manual }
         let panel = Self.replacingWorkspaceId(in: panelDerivedUnreadWorkspaceIds, from: fromTabId, to: toTabId)
@@ -1714,8 +1739,10 @@ final class TerminalNotificationStore: ObservableObject {
         guard sourceTabId != destinationTabId else { return }
 
         var didMoveNotification = false
-        let hasSourceConfinedNotification = notifications.contains {
-            !$0.retargetsToLiveSurfaceOwner && $0.matches(tabId: sourceTabId, surfaceId: surfaceId)
+        let hasUnreadSourceConfinedNotification = notifications.contains {
+            !$0.isRead &&
+                !$0.retargetsToLiveSurfaceOwner &&
+                $0.matches(tabId: sourceTabId, surfaceId: surfaceId)
         }
         let updated = notifications.map { notification -> TerminalNotification in
             guard notification.retargetsToLiveSurfaceOwner,
@@ -1753,7 +1780,8 @@ final class TerminalNotificationStore: ObservableObject {
             notifications = updated
         }
 
-        if !hasSourceConfinedNotification, focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
+        if !hasUnreadSourceConfinedNotification,
+           focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
             focusedReadIndicatorByTabId.removeValue(forKey: sourceTabId)
             if focusedReadIndicatorByTabId[destinationTabId] == nil {
                 focusedReadIndicatorByTabId[destinationTabId] = surfaceId

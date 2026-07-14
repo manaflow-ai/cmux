@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 final class TerminalNotificationPolicyInFlightStore {
     private struct Entry {
-        let request: TerminalNotificationPolicyRequest
+        var request: TerminalNotificationPolicyRequest
         let generation: UInt64
         let onDiscard: @MainActor @Sendable () -> Void
         var task: Task<Void, Never>?
@@ -38,9 +38,32 @@ final class TerminalNotificationPolicyInFlightStore {
         requests[id] = entry
     }
 
-    func claim(_ id: UUID?) -> Bool {
-        guard let id else { return true }
-        return requests.removeValue(forKey: id) != nil
+    func claim(
+        _ id: UUID?,
+        applying request: TerminalNotificationPolicyRequest
+    ) -> TerminalNotificationPolicyRequest? {
+        guard let id else { return request }
+        guard let entry = requests.removeValue(forKey: id) else { return nil }
+        return request.replacingLocation(
+            tabId: entry.request.tabId,
+            surfaceId: entry.request.surfaceId,
+            panelId: entry.request.panelId
+        )
+    }
+
+    func transfer(fromTabId: UUID, toTabId: UUID, panelIdMap: [UUID: UUID]) {
+        let ids = requests.compactMap { id, entry in
+            entry.request.tabId == fromTabId ? id : nil
+        }
+        for id in ids {
+            guard var entry = requests[id] else { continue }
+            entry.request = entry.request.replacingLocation(
+                tabId: toTabId,
+                surfaceId: entry.request.surfaceId.map { panelIdMap[$0] ?? $0 },
+                panelId: entry.request.panelId.map { panelIdMap[$0] ?? $0 }
+            )
+            requests[id] = entry
+        }
     }
 
     func discardAll(through generation: UInt64? = nil) {

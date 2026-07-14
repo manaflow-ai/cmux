@@ -104,7 +104,14 @@ final class TerminalMutationBus: @unchecked Sendable {
     ) async -> Bool {
         await withCheckedContinuation { continuation in
             Self.reliableSubmissionLock.lock()
-            let admissionToken = captureNotificationAdmissionToken(tabId: tabId, surfaceId: surfaceId)
+            guard let admissionToken = captureNotificationAdmissionToken(
+                tabId: tabId,
+                surfaceId: surfaceId
+            ) else {
+                Self.reliableSubmissionLock.unlock()
+                continuation.resume(returning: false)
+                return
+            }
             Self.reliableAdmissionQueue.async { [self] in
                 continuation.resume(returning: enqueueCapturedNotificationReliably(
                     admissionToken: admissionToken,
@@ -117,8 +124,15 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
-    private nonisolated func captureNotificationAdmissionToken(tabId: UUID, surfaceId: UUID?) -> TerminalNotificationAdmissionToken {
+    private nonisolated func captureNotificationAdmissionToken(
+        tabId: UUID,
+        surfaceId: UUID?
+    ) -> TerminalNotificationAdmissionToken? {
         lock.lock()
+        guard reliableAdmissionsById.count < Self.maximumWaitingNotificationProducerCount else {
+            lock.unlock()
+            return nil
+        }
         let registered = ReliableTerminalNotificationAdmission(
             id: UUID(),
             acceptedAt: Date(),

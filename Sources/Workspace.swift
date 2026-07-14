@@ -119,6 +119,7 @@ extension Workspace {
             (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
             (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
         let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
+            + orphanedNotificationSnapshots(persistedPanelIds: persistedPanelIds)
         var snapshot = SessionWorkspaceSnapshot(
             workspaceId: id,
             stableId: stableId,
@@ -1778,6 +1779,28 @@ extension Workspace {
     private func notificationSnapshots(surfaceId: UUID?) -> [SessionNotificationSnapshot] {
         AppDelegate.shared?.notificationStore?
             .notifications(forTabId: id, surfaceId: surfaceId)
+            .map(SessionNotificationSnapshot.init(notification:)) ?? []
+    }
+
+    private func orphanedNotificationSnapshots(
+        persistedPanelIds: Set<UUID>
+    ) -> [SessionNotificationSnapshot] {
+        AppDelegate.shared?.notificationStore?.notifications
+            .filter { notification in
+                guard notification.tabId == id,
+                      notification.surfaceId != nil || notification.panelId != nil else {
+                    return false
+                }
+                if let surfaceId = notification.surfaceId,
+                   persistedPanelIds.contains(surfaceId) {
+                    return false
+                }
+                if let panelId = notification.panelId,
+                   persistedPanelIds.contains(panelId) {
+                    return false
+                }
+                return true
+            }
             .map(SessionNotificationSnapshot.init(notification:)) ?? []
     }
 

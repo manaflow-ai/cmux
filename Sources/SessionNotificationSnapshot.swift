@@ -11,6 +11,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var retargetsToLiveSurfaceOwner: Bool?
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
+    var surfaceId: UUID?
+    var panelId: UUID?
 
     init(
         id: UUID,
@@ -22,7 +24,9 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         paneFlash: Bool? = nil,
         retargetsToLiveSurfaceOwner: Bool? = nil,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: TerminalNotificationClickAction? = nil,
+        surfaceId: UUID? = nil,
+        panelId: UUID? = nil
     ) {
         self.id = id
         self.title = title
@@ -34,6 +38,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
+        self.surfaceId = surfaceId
+        self.panelId = panelId
     }
 
     init(notification: TerminalNotification) {
@@ -50,7 +56,9 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             paneFlash: notification.paneFlash,
             retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
             scrollPosition: persistedScrollPosition,
-            clickAction: notification.clickAction
+            clickAction: notification.clickAction,
+            surfaceId: notification.surfaceId,
+            panelId: notification.panelId
         )
     }
 
@@ -61,8 +69,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         return TerminalNotification(
             id: id,
             tabId: tabId,
-            surfaceId: surfaceId,
-            panelId: panelId,
+            surfaceId: surfaceId ?? self.surfaceId,
+            panelId: panelId ?? self.panelId,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner ?? true,
             title: title,
             subtitle: subtitle,
