@@ -257,6 +257,74 @@ import Testing
 }
 
 @MainActor
+@Test func stalePaneCloseReservationRejectsBeforeRPC() async throws {
+    let router = RoutingHostRouter()
+    let capabilities = MobileWorkspaceActionCapabilities(
+        supportsTerminalCloseActions: true
+    )
+    let store = try await makeRoutingConnectedStore(
+        router: router,
+        connectionState: .connected,
+        workspaceActionCapabilities: capabilities
+    )
+    let workspaceID = MobileWorkspacePreview.ID(rawValue: RoutingHostRouter.workspaceID)
+    let terminalID = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA)
+    let originalPaneID = MobilePanePreview.ID(rawValue: "pane-original")
+    let currentPaneID = MobilePanePreview.ID(rawValue: "pane-current")
+    let reservation = try #require(store.terminalReorderGate.reserve(
+        workspaceID: workspaceID,
+        paneID: originalPaneID
+    ))
+    var movedWorkspace = MobileWorkspacePreview(
+        id: workspaceID,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        name: "Moved terminal",
+        terminals: [
+            MobileTerminalPreview(
+                id: terminalID,
+                name: "Moved",
+                paneID: currentPaneID
+            ),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: currentPaneID,
+                spatialIndex: 0,
+                terminalIDs: [terminalID]
+            ),
+        ]
+    )
+    movedWorkspace.actionCapabilities = capabilities
+    store.setWorkspaceStatesForTesting(
+        [
+            "test-mac": MacWorkspaceState(
+                macDeviceID: "test-mac",
+                displayName: "Test Mac",
+                workspaces: [movedWorkspace],
+                status: .connected,
+                actionCapabilities: capabilities
+            ),
+        ],
+        foregroundMacDeviceID: "test-mac"
+    )
+
+    let result = await store.closeTerminal(
+        workspaceID: workspaceID,
+        terminalID: terminalID,
+        confirmed: false,
+        reservation: reservation
+    )
+
+    guard case .failure(.busy) = result else {
+        Issue.record("Expected stale pane reservation rejection, got \(result)")
+        return
+    }
+    #expect(await router.recordedTerminalCloseCount() == 0)
+    #expect(store.terminalReorderGate.canMutate(workspaceID: workspaceID))
+}
+
+@MainActor
 @Test func closeFallbackUsesReportedPaneMembershipWhenTerminalPaneIDIsMissing() async throws {
     let router = RoutingHostRouter()
     await router.setUsesNilPaneIDCloseFallbackFixture(true)
