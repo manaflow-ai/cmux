@@ -61,6 +61,35 @@ struct SocketConfigurationLifecycleTests {
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.cmuxOnly.rawValue)
     }
 
+    @Test func transientMissingPrimaryDoesNotImportBroaderFallbackMode() throws {
+        let defaults = UserDefaults.standard
+        let originalDefaults = capturedSocketDefaults(defaults)
+        let directory = shortTemporaryDirectory(prefix: "scff")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let primaryURL = directory.appendingPathComponent("cmux.json")
+        let fallbackURL = directory.appendingPathComponent("settings.json")
+        defer {
+            restoreSocketDefaults(originalDefaults, in: defaults)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        resetSocketDefaults(defaults, unmanagedMode: .allowAll)
+        try writeConfig(mode: SocketControlMode.cmuxOnly.rawValue, to: primaryURL)
+        try writeConfig(mode: SocketControlMode.allowAll.rawValue, to: fallbackURL)
+        let store = CmuxSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.cmuxOnly.rawValue)
+
+        try FileManager.default.removeItem(at: primaryURL)
+        store.reload()
+
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.cmuxOnly.rawValue)
+    }
+
     @Test func enabledReconciliationStartsListenerWithoutTabManager() throws {
         let controller = TerminalController.shared
         let originalTabManager = controller.tabManager
