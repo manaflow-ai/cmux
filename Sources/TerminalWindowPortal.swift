@@ -1613,11 +1613,13 @@ final class WindowTerminalPortal: NSObject {
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
         synchronizeAllHostedViews(excluding: primaryHostedId, syncLayout: syncLayout)
-        reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.anchorGeometrySync")
+        reconcileVisibleHostedViewsAfterGeometrySync(
+            reason: "portal.anchorGeometrySync", syncLayout: syncLayout
+        )
         scheduleDeferredFullSynchronizeAll()
     }
 
-    private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String) {
+    private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String, syncLayout: Bool = true) {
         // During a live window resize this pass would re-reconcile every
         // visible surface once per resize tick, right after
         // synchronizeHostedView already reconciled the ones whose geometry
@@ -1626,10 +1628,18 @@ final class WindowTerminalPortal: NSObject {
         // scheduleExternalGeometrySynchronize) runs it unconditionally once
         // live resize is over.
         guard !isWindowLiveResizeActive else { return }
-        for entry in entriesByHostedId.values {
+        for (hostedId, entry) in entriesByHostedId {
             guard entry.visibleInUI, let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
             if hostedView.reconcileGeometryNow() {
-                hostedView.refreshSurfaceNow(reason: reason)
+                // Same rule as the primary sync: when this pass runs inside a
+                // layout callback (syncLayout == false, every divider or
+                // sidebar drag tick), a synchronous display here wedges in
+                // Metal. Defer to the next main-queue turn.
+                if syncLayout {
+                    hostedView.refreshSurfaceNow(reason: reason)
+                } else {
+                    deferSurfaceRefresh(forHostedId: hostedId, reason: reason + ".deferred")
+                }
             }
         }
     }
