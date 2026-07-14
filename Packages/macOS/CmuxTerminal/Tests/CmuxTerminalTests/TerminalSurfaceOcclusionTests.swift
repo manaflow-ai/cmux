@@ -42,6 +42,21 @@ struct TerminalSurfaceOcclusionTests {
         #expect(!cmux_test_ghostty_surface_last_occlusion_visible())
     }
 
+    @Test func hibernationSuspendClearsOcclusionDedupSoNextRuntimeReapplies() throws {
+        let surface = makeSurface()
+        surface.setOcclusion(false)
+        surface.installRuntimeSurfaceForTesting(
+            try #require(ghostty_surface_t(bitPattern: 0x1))
+        )
+        #expect(cmux_test_ghostty_surface_set_occlusion_call_count() == 1)
+
+        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.hibernate")
+
+        // Suspend must clear the dedup so the recreated runtime re-applies the
+        // retained hidden state instead of rendering at Ghostty's default.
+        #expect(surface.lastAppliedOcclusionVisible == nil)
+    }
+
     private func makeSurface() -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView()
         return TerminalSurface(

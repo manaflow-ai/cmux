@@ -266,6 +266,9 @@ extension TerminalSurface {
 
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            // Transport manualIOContext and teeLease through the request too:
+            // the coordinator releases all callback userdata only after the
+            // native free, which is what joins ghostty's IO threads.
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
@@ -276,7 +279,6 @@ extension TerminalSurface {
                 byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The coordinator releases every callback owner after free returns.
             return
         }
 #endif
@@ -335,6 +337,9 @@ extension TerminalSurface {
 
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            // Transport manualIOContext and teeLease through the request too:
+            // the coordinator releases all callback userdata only after the
+            // native free, which is what joins ghostty's IO threads.
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
@@ -345,7 +350,6 @@ extension TerminalSurface {
                 byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The coordinator releases every callback owner after free returns.
             return
         }
 #endif
@@ -616,7 +620,7 @@ extension TerminalSurface {
             }()
             if shouldReapply {
                 let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
-                _ = performInternalBindingAction(action)
+                _ = performBindingAction(action)
             }
         }
 
