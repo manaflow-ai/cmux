@@ -3180,9 +3180,9 @@ struct ContentView: View {
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
+        SidebarCollectionStressHarness.installIfRequested(window: window, tabManager: tabManager)
         installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
     }
-
     private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
         let currentTabs = tabs ?? tabManager.tabs
         let orderedTabIds = currentTabs.map { $0.id }
