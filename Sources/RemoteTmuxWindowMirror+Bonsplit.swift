@@ -521,6 +521,26 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
 
     func splitTabBarDividerDragDidBegin(_ controller: BonsplitController) {
         dividerResizeSentSinceDragBegan = false
+        // An imposition that moved a divider parks its baseline at nil,
+        // waiting for a post-layout geometry callback to record the clamped
+        // outcome — but that callback can never arrive: the deferred apply
+        // runs under the programmatic-sync guard (didResize returns before
+        // onGeometryChange fires), and once the drag is live the drag guard
+        // eats every callback. By drag begin the deferred apply HAS landed,
+        // so the model fraction IS the outcome the nil was waiting for.
+        // Seed it now; otherwise drag end has no pre-drag fraction to diff
+        // against, sends nothing, and re-imposes the pre-drag extent — the
+        // divider snaps back in the user's hand.
+        seedMissingDividerBaselines(from: controller.treeSnapshot())
+    }
+
+    private func seedMissingDividerBaselines(from treeNode: ExternalTreeNode) {
+        guard case .split(let split) = treeNode else { return }
+        if let splitId = UUID(uuidString: split.id), lastDividerPositions[splitId] == nil {
+            lastDividerPositions[splitId] = CGFloat(split.dividerPosition)
+        }
+        seedMissingDividerBaselines(from: split.first)
+        seedMissingDividerBaselines(from: split.second)
     }
 
     func splitTabBarDividerDragDidEnd(_ controller: BonsplitController) {
@@ -535,8 +555,12 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
         }
         // Bonsplit's final drag geometry notification lands just before this
         // callback and usually does the send; the re-sync here is the
-        // fallback for a host that suppressed it. Either path counts.
-        let sent = syncChangedDividerPositions() || dividerResizeSentSinceDragBegan
+        // fallback for a host that suppressed it. Either path counts. The
+        // fraction here is the user's committed move, so a missing baseline
+        // must not gate the send — the cells-versus-assigned check is the
+        // real no-op detector.
+        let sent = syncChangedDividerPositions(sendWithoutBaseline: true)
+            || dividerResizeSentSinceDragBegan
         dividerResizeSentSinceDragBegan = false
         #if DEBUG
         cmuxDebugLog("remote.divider.dragEnd @\(windowId) sent=\(sent ? 1 : 0)")

@@ -21,8 +21,16 @@ extension RemoteTmuxWindowMirror {
     /// carrying each split's actual local point extent from the root container.
     /// Returns whether any `resize-pane` was requested, so drag-end can tell
     /// "tmux's reply will settle this" apart from "nothing changed in cells".
+    ///
+    /// `sendWithoutBaseline` is drag-end's belt: a missing baseline (an
+    /// imposition parked it nil and nothing reseeded it) normally routes to
+    /// seed-only, because outside a drag an unbaselined fraction is our own
+    /// imposition echoing back. A drag END is different — the fraction is
+    /// the user's, and the cells-versus-assigned check below is the true
+    /// no-op detector — so drag end converts and sends even with no
+    /// baseline rather than swallowing the user's move.
     @discardableResult
-    func syncChangedDividerPositions() -> Bool {
+    func syncChangedDividerPositions(sendWithoutBaseline: Bool = false) -> Bool {
         guard let containerSizePt,
               let metrics = nativeLayoutMetrics() else { return false }
         let splitTree = RemoteTmuxNativeSplitTree(layout: renderedLayout)
@@ -36,7 +44,8 @@ extension RemoteTmuxWindowMirror {
             // relative to it — reading them against the whole region would
             // convert cells with the wrong denominator.
             parentSize: renderFrameSize ?? containerSizePt,
-            metrics: metrics
+            metrics: metrics,
+            sendWithoutBaseline: sendWithoutBaseline
         )
     }
 
@@ -44,7 +53,8 @@ extension RemoteTmuxWindowMirror {
         treeNode: ExternalTreeNode,
         tmuxTree: RemoteTmuxNativeMeasuredSplitTree,
         parentSize: CGSize,
-        metrics: RemoteTmuxNativeLayoutMetrics
+        metrics: RemoteTmuxNativeLayoutMetrics,
+        sendWithoutBaseline: Bool
     ) -> Bool {
         guard case .split(let split) = treeNode,
               case .split(_, _, _, let orientation, let firstTree, let secondTree) = tmuxTree,
@@ -68,44 +78,34 @@ extension RemoteTmuxWindowMirror {
         } else if let previous = lastDividerPositions[splitID],
                   abs(position - previous) > 0.005 {
             lastDividerPositions[splitID] = position
-            let parentExtent = orientation == .horizontal
-                ? parentSize.width
-                : parentSize.height
-            let requested = metrics.requestedTmuxSpan(
-                first: firstTree,
+            sentResize = requestResizeForDividerPosition(
+                position,
+                parentSize: parentSize,
                 orientation: orientation,
-                parentExtent: parentExtent,
-                dividerPosition: position
+                firstTree: firstTree,
+                secondTree: secondTree,
+                first: first,
+                metrics: metrics
             )
-            // Grid-feasible, not just cell-aware. A sub-cell nudge rounds to
-            // the span tmux already holds, and a drag past the sibling's
-            // minimum converts to a span tmux cannot assign; both produce a
-            // resize-pane that changes no layout, and a no-op command never
-            // gets the layout reply drag-end would wait for — the divider
-            // would park off-grid while later passes early-return on
-            // unchanged inputs. Clamp the request to the split's feasible
-            // range first; only a real, achievable cell change goes to tmux,
-            // and anything else routes drag-end to the immediate re-impose.
-            let cells = RemoteTmuxNativeMeasuredSplitTree.clampToFeasibleFirstSpan(
-                requested,
-                first: firstTree,
-                second: secondTree,
-                orientation: orientation
-            )
-            let assigned = orientation == .horizontal ? first.width : first.height
-            if cells != assigned, let targetPaneID = first.paneIDsInOrder.first {
-                sentResize = requestResizePane(
-                    targetPaneID,
-                    absoluteAxis: orientation.treeName,
-                    targetCells: cells
-                )
-                if sentResize { dividerResizeSentSinceDragBegan = true }
-            }
         } else if lastDividerPositions[splitID] == nil {
             // A changed imposition with no post-layout callback has no
             // trustworthy pre-drag fraction. Seed once; subsequent drag
             // callbacks carry only the user's delta and route normally.
+            // At drag END the fraction is the user's move, not an echo, so
+            // the belt converts and sends instead of swallowing it — the
+            // cells-versus-assigned check inside is the real no-op filter.
             lastDividerPositions[splitID] = position
+            if sendWithoutBaseline {
+                sentResize = requestResizeForDividerPosition(
+                    position,
+                    parentSize: parentSize,
+                    orientation: orientation,
+                    firstTree: firstTree,
+                    secondTree: secondTree,
+                    first: first,
+                    metrics: metrics
+                )
+            }
         }
 
         let parentExtent = orientation == .horizontal
@@ -126,14 +126,65 @@ extension RemoteTmuxWindowMirror {
             treeNode: split.first,
             tmuxTree: firstTree,
             parentSize: firstSize,
-            metrics: metrics
+            metrics: metrics,
+            sendWithoutBaseline: sendWithoutBaseline
         )
         let sentInSecond = syncChangedDividerPositions(
             treeNode: split.second,
             tmuxTree: secondTree,
             parentSize: secondSize,
-            metrics: metrics
+            metrics: metrics,
+            sendWithoutBaseline: sendWithoutBaseline
         )
         return sentResize || sentInFirst || sentInSecond
+    }
+
+    /// Converts one divider fraction to a grid-feasible first-subtree span
+    /// and requests it from tmux when it differs from the assignment.
+    ///
+    /// Grid-feasible, not just cell-aware. A sub-cell nudge rounds to the
+    /// span tmux already holds, and a drag past the sibling's minimum
+    /// converts to a span tmux cannot assign; both produce a resize-pane
+    /// that changes no layout, and a no-op command never gets the layout
+    /// reply drag-end would wait for — the divider would park off-grid
+    /// while later passes early-return on unchanged inputs. Clamp the
+    /// request to the split's feasible range first; only a real, achievable
+    /// cell change goes to tmux, and anything else routes drag-end to the
+    /// immediate re-impose.
+    private func requestResizeForDividerPosition(
+        _ position: CGFloat,
+        parentSize: CGSize,
+        orientation: RemoteTmuxSplitOrientation,
+        firstTree: RemoteTmuxNativeMeasuredSplitTree,
+        secondTree: RemoteTmuxNativeMeasuredSplitTree,
+        first: RemoteTmuxLayoutNode,
+        metrics: RemoteTmuxNativeLayoutMetrics
+    ) -> Bool {
+        let parentExtent = orientation == .horizontal
+            ? parentSize.width
+            : parentSize.height
+        let requested = metrics.requestedTmuxSpan(
+            first: firstTree,
+            orientation: orientation,
+            parentExtent: parentExtent,
+            dividerPosition: position
+        )
+        let cells = RemoteTmuxNativeMeasuredSplitTree.clampToFeasibleFirstSpan(
+            requested,
+            first: firstTree,
+            second: secondTree,
+            orientation: orientation
+        )
+        let assigned = orientation == .horizontal ? first.width : first.height
+        guard cells != assigned, let targetPaneID = first.paneIDsInOrder.first else {
+            return false
+        }
+        let sent = requestResizePane(
+            targetPaneID,
+            absoluteAxis: orientation.treeName,
+            targetCells: cells
+        )
+        if sent { dividerResizeSentSinceDragBegan = true }
+        return sent
     }
 }

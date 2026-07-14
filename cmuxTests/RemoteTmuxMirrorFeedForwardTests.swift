@@ -813,6 +813,92 @@ import Testing
         mirror.bonsplitController.noteDividerDragSession(false)
     }
 
+    /// The first drag after a non-continuing imposition must still reach
+    /// tmux. Imposing a changed extent parks the split's baseline at nil,
+    /// waiting for a post-layout geometry callback to record the clamped
+    /// outcome — but that callback can never arrive: the deferred apply runs
+    /// under the programmatic-sync guard (didResize returns before
+    /// onGeometryChange fires), and once the user grabs the divider the drag
+    /// guard eats every mid-drag callback. Drag end then found no baseline,
+    /// seeded it from the post-drag fraction, sent nothing (sent=0 in five
+    /// of six live drags), and re-imposed the pre-drag extent — the divider
+    /// snapped back in the user's hand. Drag begin is the correct seeding
+    /// edge: by then the deferred apply HAS landed, so the model fraction is
+    /// exactly the outcome the nil was waiting for.
+    @Test func firstDragAfterANonContinuingImpositionStillSendsResizePane() throws {
+        let starved = node(.horizontal([
+            node(.pane(1), w: 97, h: 34, x: 0, y: 0),
+            node(.pane(2), w: 1, h: 34, x: 98, y: 0),
+        ]), w: 99, h: 34, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "drag-baseline-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-drag-baseline-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        let geometry = calibratedGeometry
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: starved,
+            geometrySource: { geometry },
+            hostingContentSizeSource: { CGSize(width: 800, height: 620) },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.containerSizePt = CGSize(width: 800, height: 620)
+        mirror.containerScale = 2
+        mirror.reconcile(layout: starved)
+        mirror.performSizingPassNow()
+        guard case .split(let split) = mirror.bonsplitController.treeSnapshot(),
+              let splitId = UUID(uuidString: split.id) else {
+            Issue.record("the reconciled tree holds no split")
+            return
+        }
+        let imposedBeforeDrag = try #require(
+            split.imposedFirstExtent, "the sizing pass must impose the plan"
+        )
+        // The live pre-drag state this pins: the imposition parked the
+        // baseline at nil and no geometry callback ever reseeded it.
+        try #require(
+            mirror.lastDividerPositions[splitId] == nil,
+            "precondition: the non-continuing imposition must park the baseline at nil"
+        )
+
+        // The user's drag, delivered through the same hooks bonsplit drives
+        // live: session begin, one committed feasible fraction several cells
+        // away (setDividerPosition clears the imposition exactly like a live
+        // grab), session end.
+        let pendingBefore = connection.pendingCommandKindsForTesting.count
+        mirror.bonsplitController.noteDividerDragSession(true)
+        _ = mirror.bonsplitController.setDividerPosition(0.3, forSplit: splitId)
+        mirror.bonsplitController.noteDividerDragSession(false)
+
+        #expect(
+            connection.pendingCommandKindsForTesting.count == pendingBefore + 1,
+            "a multi-cell drag must produce exactly one resize-pane request, not be swallowed by a missing baseline"
+        )
+        // The sent branch defers to tmux's layout reply: no local re-impose
+        // of the pre-drag extent may fire from unchanged inputs.
+        mirror.performSizingPassNow()
+        let reimposed = Self.imposedExtents(
+            of: mirror.bonsplitController.treeSnapshot()
+        )[split.id]
+        #expect(
+            reimposed != Double(imposedBeforeDrag),
+            "drag end re-imposed the pre-drag extent (\(imposedBeforeDrag)pt) — the snap-back"
+        )
+    }
+
     /// The session counter is authoritative and survives imbalance: an
     /// unmatched end clamps at zero instead of going negative, so the next
     /// begin still reads as an active drag.
