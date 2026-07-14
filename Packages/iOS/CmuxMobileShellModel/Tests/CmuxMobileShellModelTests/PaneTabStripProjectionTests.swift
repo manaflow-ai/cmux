@@ -103,6 +103,30 @@ import Testing
         #expect(PaneTabAttentionPredicate.needsAttention(projection.cards[1]))
     }
 
+    @Test func manyChatsRemainAdjacentToTheirBoundTerminal() {
+        let tabs = (0..<100).map { tab("terminal-\($0)") }
+        let chats = (0..<100).reversed().map { index in
+            PaneChatCardSnapshot(
+                id: "chat-\(index)",
+                terminalID: "terminal-\(index)",
+                title: "Chat \(index)",
+                agentStatus: .running
+            )
+        }
+        let projection = PaneTabStripProjection(
+            layout: layout(tabs),
+            paneID: "pane",
+            fallbackTerminals: [],
+            chatCards: chats,
+            attentionFirst: false
+        )
+
+        #expect(projection.cards.count == 200)
+        #expect(projection.cards.prefix(4).map(\.id) == [
+            "terminal-0", "chat:chat-0", "terminal-1", "chat:chat-1",
+        ])
+    }
+
     @Test func browserKindsRemainDistinctAndOnlyTerminalsRequestGridDemand() {
         let projection = PaneTabStripProjection(
             layout: layout([tab("terminal"), tab("mac-browser", kind: .browser)]),

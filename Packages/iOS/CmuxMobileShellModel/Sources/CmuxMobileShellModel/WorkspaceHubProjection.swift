@@ -28,11 +28,12 @@ public struct WorkspaceHubProjection: Equatable, Sendable {
             isDegraded = !supportsLayout
             return
         }
+        let chatStatusesByTerminalID = Self.chatStatusesByTerminalID(chatCards)
         panes = Self.layoutPanes(
             node: layout.root,
             frame: .unit,
             activePaneID: layout.activePaneID,
-            chatCards: chatCards
+            chatStatusesByTerminalID: chatStatusesByTerminalID
         )
         isDegraded = false
     }
@@ -41,7 +42,7 @@ public struct WorkspaceHubProjection: Equatable, Sendable {
         node: MobileWorkspaceLayoutNode,
         frame: WorkspaceHubPaneFrame,
         activePaneID: String?,
-        chatCards: [PaneChatCardSnapshot]
+        chatStatusesByTerminalID: [String: MobileWorkspaceAgentStatus]
     ) -> [WorkspaceHubPaneSnapshot] {
         switch node {
         case .pane(let pane):
@@ -56,7 +57,7 @@ public struct WorkspaceHubProjection: Equatable, Sendable {
                 agentStatus: activeTab?.agentStatus,
                 hasUnread: activeTab?.hasUnread ?? false,
                 chatAgentStatus: chatStatus(
-                    chatCards.filter { chat in pane.tabs.contains(where: { $0.id == chat.terminalID }) }
+                    pane.tabs.compactMap { chatStatusesByTerminalID[$0.id] }
                 ),
                 focusState: WorkspaceHubFocusState(paneID: pane.id, activePaneID: activePaneID),
                 isFallback: false
@@ -64,8 +65,17 @@ public struct WorkspaceHubProjection: Equatable, Sendable {
         case .split(let split):
             let ratio = min(1, max(0, split.ratio))
             let childFrames = splitFrames(frame: frame, orientation: split.orientation, ratio: ratio)
-            return layoutPanes(node: split.first, frame: childFrames.first, activePaneID: activePaneID, chatCards: chatCards)
-                + layoutPanes(node: split.second, frame: childFrames.second, activePaneID: activePaneID, chatCards: chatCards)
+            return layoutPanes(
+                node: split.first,
+                frame: childFrames.first,
+                activePaneID: activePaneID,
+                chatStatusesByTerminalID: chatStatusesByTerminalID
+            ) + layoutPanes(
+                node: split.second,
+                frame: childFrames.second,
+                activePaneID: activePaneID,
+                chatStatusesByTerminalID: chatStatusesByTerminalID
+            )
         }
     }
 
@@ -126,10 +136,15 @@ public struct WorkspaceHubProjection: Equatable, Sendable {
         }
     }
 
-    private static func chatStatus(
+    private static func chatStatusesByTerminalID(
         _ chats: [PaneChatCardSnapshot]
+    ) -> [String: MobileWorkspaceAgentStatus] {
+        Dictionary(grouping: chats, by: \.terminalID).mapValues { chatStatus($0.map(\.agentStatus)) ?? .unknown }
+    }
+
+    private static func chatStatus(
+        _ statuses: [MobileWorkspaceAgentStatus]
     ) -> MobileWorkspaceAgentStatus? {
-        let statuses = chats.map(\.agentStatus)
         if statuses.contains(.needsInput) { return .needsInput }
         if statuses.contains(.running) { return .running }
         if statuses.contains(.idle) { return .idle }

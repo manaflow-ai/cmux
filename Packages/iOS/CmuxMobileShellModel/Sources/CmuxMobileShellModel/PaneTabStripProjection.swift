@@ -64,8 +64,9 @@ public struct PaneTabStripProjection: Equatable, Sendable {
         tabs: [MobileWorkspaceTab],
         chatCards: [PaneChatCardSnapshot]
     ) -> [PaneTabStripCardSnapshot] {
-        tabs.flatMap { tab in
-            [card(from: tab)] + chatCards.filter { $0.terminalID == tab.id }.map(card(from:))
+        let chatsByTerminalID = Dictionary(grouping: chatCards, by: \.terminalID)
+        return tabs.flatMap { tab in
+            [card(from: tab)] + (chatsByTerminalID[tab.id] ?? []).map(card(from:))
         }
     }
 
@@ -73,8 +74,9 @@ public struct PaneTabStripProjection: Equatable, Sendable {
         terminals: [MobileTerminalPreview],
         chatCards: [PaneChatCardSnapshot]
     ) -> [PaneTabStripCardSnapshot] {
-        terminals.flatMap { terminal in
-            [card(from: terminal)] + chatCards.filter { $0.terminalID == terminal.id.rawValue }.map(card(from:))
+        let chatsByTerminalID = Dictionary(grouping: chatCards, by: \.terminalID)
+        return terminals.flatMap { terminal in
+            [card(from: terminal)] + (chatsByTerminalID[terminal.id.rawValue] ?? []).map(card(from:))
         }
     }
 

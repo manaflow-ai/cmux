@@ -34,8 +34,9 @@ final class BrowserPreviewStore {
         let demandChanged = state.continuations.isEmpty || previousResolution != state.requestedResolution
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             state.continuations[token] = continuation
-            if let latestFrame = state.latestFrame,
-               latestFrame.resolution == .full || resolution == .preview {
+            // A cached card-size frame is meaningful first-frame content for a
+            // full-screen consumer while the Mac renders the requested full frame.
+            if let latestFrame = state.latestFrame {
                 continuation.yield(latestFrame)
             }
             if demandChanged { onDemandChanged() }

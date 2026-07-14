@@ -158,6 +158,44 @@ import Testing
         #expect(WorkspaceHubPreviewDemand(panes: [pane], visiblePaneIDs: ["pane"]).surfaceIDs.isEmpty)
     }
 
+    @Test func ignoresUnboundChatsAndKeepsUrgencyPerPane() throws {
+        let layout = MobileWorkspaceLayout(
+            workspaceID: "workspace",
+            root: .split(MobileWorkspaceSplit(
+                id: "split",
+                orientation: .horizontal,
+                ratio: 0.5,
+                first: paneNode(id: "left", tabID: "left-terminal"),
+                second: paneNode(id: "right", tabID: "right-terminal")
+            )),
+            activePaneID: "left"
+        )
+        let chats = (0..<100).map { index in
+            PaneChatCardSnapshot(
+                id: "unbound-\(index)",
+                terminalID: "other-\(index)",
+                title: "Other",
+                agentStatus: .needsInput
+            )
+        } + [
+            PaneChatCardSnapshot(
+                id: "left-chat",
+                terminalID: "left-terminal",
+                title: "Left",
+                agentStatus: .running
+            ),
+        ]
+        let projection = WorkspaceHubProjection(
+            layout: layout,
+            fallbackTerminals: [],
+            supportsLayout: true,
+            chatCards: chats
+        )
+
+        #expect(try #require(projection.panes.first { $0.id == "left" }).chatAgentStatus == .running)
+        #expect(try #require(projection.panes.first { $0.id == "right" }).chatAgentStatus == nil)
+    }
+
     private func paneNode(id: String, tabID: String) -> MobileWorkspaceLayoutNode {
         .pane(MobileWorkspacePane(
             id: id,
