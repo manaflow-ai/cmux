@@ -913,6 +913,7 @@ def computer_use_sandbox(
     group_writable_override: bool = False,
     group_writable_ancestor: bool = False,
     disabled: bool = False,
+    managed_sideload_disabled: bool = False,
     path_helper_trap: bool = False,
 ):
     def setup(tmp: Path, env: dict) -> None:
@@ -950,6 +951,12 @@ def computer_use_sandbox(
             env["PATH"] = f"{helper_dir}:{env['PATH']}"
         if disabled:
             env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
+        if managed_sideload_disabled:
+            managed = tmp / "managed-settings.json"
+            managed.write_text(
+                '{"disableSideloadFlags": true}\n', encoding="utf-8"
+            )
+            env["CMUX_CLAUDE_MANAGED_SETTINGS_FILE"] = str(managed)
 
     return setup
 
@@ -1156,6 +1163,28 @@ def test_stale_socket_still_attaches_cua_driver(failures: list[str]) -> None:
     expect("hello" in real_argv, f"computer use stale-socket: prompt must survive, got {real_argv}", failures)
     config = extract_injected_mcp_config(real_argv)
     expect_cua_driver_config(config, failures, "computer use stale-socket", "cmux-cua-driver")
+
+
+def test_computer_use_skipped_under_managed_sideload_policy(failures: list[str]) -> None:
+    # Claude Code managed policy disableSideloadFlags makes claude refuse to
+    # start when a non-SDK --mcp-config flag is passed; the wrapper must not
+    # inject computer use under that policy (hooks via --settings still work).
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(managed_sideload_disabled=True),
+    )
+    expect(code == 0, f"managed sideload: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"managed sideload: expected no --mcp-config injection, got {real_argv}",
+        failures,
+    )
+    expect(
+        "--settings" in real_argv,
+        f"managed sideload: hook injection must survive (policy blocks --mcp-config only), got {real_argv}",
+        failures,
+    )
 
 
 def test_computer_use_rejects_group_writable_ancestor(failures: list[str]) -> None:
@@ -2203,6 +2232,7 @@ def main() -> int:
     test_computer_use_driver_skipped_when_no_driver_available(failures)
     test_hooks_disabled_still_attaches_cua_driver(failures)
     test_stale_socket_still_attaches_cua_driver(failures)
+    test_computer_use_skipped_under_managed_sideload_policy(failures)
     test_computer_use_rejects_group_writable_ancestor(failures)
     test_computer_use_rejects_group_writable_override(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)

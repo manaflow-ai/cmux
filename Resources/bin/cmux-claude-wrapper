@@ -858,8 +858,22 @@ cmux_computer_use_resolve_driver() {
     printf '%s' "$driver_real"
 }
 
+# Claude Code managed policy (v2.1.193+) supports disableSideloadFlags, which
+# makes claude REFUSE TO START when a non-SDK --mcp-config flag is passed.
+# Injecting computer use under that policy would break every cmux Claude
+# session on managed machines, so detect it and skip injection. A grep false
+# positive only skips computer use, which is the safe direction. The env
+# override exists so tests can exercise this without root-owned fixtures.
+cmux_claude_sideload_flags_disabled() {
+    local managed_settings
+    managed_settings="${CMUX_CLAUDE_MANAGED_SETTINGS_FILE:-/Library/Application Support/ClaudeCode/managed-settings.json}"
+    [[ -r "$managed_settings" ]] || return 1
+    LC_ALL=C /usr/bin/grep -Eq '"disableSideloadFlags"[[:space:]]*:[[:space:]]*true' "$managed_settings" 2>/dev/null
+}
+
 cmux_computer_use_config() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
+    cmux_claude_sideload_flags_disabled && return 1
     local arg
     for arg in "$@"; do
         case "$arg" in

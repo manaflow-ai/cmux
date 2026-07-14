@@ -182,8 +182,12 @@ else
   for old_src in "$CACHE_DIR"/src-*; do
     [[ -d "$old_src" ]] || continue
     [[ "$old_src" == "$SRC_ROOT" || "$old_src" == *.lock ]] && continue
+    # Only delete directories cmux itself created: the stamp is written by
+    # this script on every build. CACHE_DIR is caller-controlled
+    # (--cache-dir / CMUX_CUA_CACHE_DIR), so an unmarked src-* dir may be an
+    # unrelated source tree and must never be pruned automatically.
     stamp="$old_src/.cmux-last-used"
-    [[ -e "$stamp" ]] || stamp="$old_src"
+    [[ -e "$stamp" ]] || continue
     [[ -n "$(find "$stamp" -maxdepth 0 -mtime +7 2>/dev/null)" ]] || continue
     if mkdir "$old_src.lock" 2>/dev/null; then
       rm -rf "$old_src"
@@ -258,6 +262,10 @@ else
 fi
 chmod 0755 "$OUTPUT"
 
+# Strip debug and local symbols before signing: the release cua-driver is
+# ~12MB with ~29k symbols unstripped, which otherwise ships in the DMG and
+# the installed app for no runtime benefit.
+/usr/bin/strip -Sx "$OUTPUT"
 /usr/bin/codesign --force --sign - --timestamp=none "$OUTPUT"
 /usr/bin/codesign --verify --strict "$OUTPUT"
 # Launchability probe. Deliberately NOT `doctor --json`: doctor's macOS
