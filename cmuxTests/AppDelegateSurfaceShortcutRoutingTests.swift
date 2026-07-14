@@ -13,7 +13,7 @@ private final class ShortcutUnrelatedResponderView: NSView {
 }
 
 @MainActor
-final class CanvasViewportSpy: CanvasViewportControlling {
+private final class CanvasViewportSpy: CanvasViewportControlling {
     var revealedPanelIds: [UUID] = []
     var overviewToggleCount = 0
     var modelDidChangeCount = 0

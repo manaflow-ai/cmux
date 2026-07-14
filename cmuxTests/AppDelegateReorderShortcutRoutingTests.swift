@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCanvasUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -6,6 +7,23 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@MainActor
+private final class ReorderCanvasViewportSpy: CanvasViewportControlling {
+    var revealedPanelIds: [UUID] = []
+    var overviewToggleCount = 0
+    var modelDidChangeCount = 0
+    var resetZoomCount = 0
+    var currentMagnification: CGFloat = 1
+    var currentCenterInCanvas: CGPoint = .zero
+
+    func revealPane(_ panelId: UUID, animated: Bool) { revealedPanelIds.append(panelId) }
+    func toggleOverview() { overviewToggleCount += 1 }
+    func zoom(by factor: CGFloat) {}
+    func resetZoom() { resetZoomCount += 1 }
+    func setViewport(center: CGPoint, magnification: CGFloat?) {}
+    func modelDidChangeExternally(animated: Bool) { modelDidChangeCount += 1 }
+}
 
 extension AppDelegateSurfaceShortcutRoutingTests {
     @Test func surfaceMoveShortcutsReorderSelectedSurfaceAndPreserveFocus() throws {
@@ -91,7 +109,7 @@ extension AppDelegateSurfaceShortcutRoutingTests {
             thirdPanelId,
         ])
 
-        let viewport = CanvasViewportSpy()
+        let viewport = ReorderCanvasViewportSpy()
         workspace.canvasModel.viewport = viewport
         let moveLeft = StoredShortcut(key: "h", command: true, shift: true, option: true, control: true)
         let moveLeftEvent = try #require(makeKeyDownEvent(
