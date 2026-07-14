@@ -47,6 +47,35 @@ import Testing
         #expect(presentation.metadataLines == metadata)
     }
 
+    @Test func renamedFileWithTextHunkShowsSourceAndDestination() throws {
+        let file = DiffFileSummary(
+            path: "New.swift",
+            oldPath: "Old.swift",
+            status: .renamed,
+            additions: 1,
+            deletions: 1
+        )
+        let hunk = DiffHunk(
+            id: 0,
+            header: "@@ -1 +1 @@",
+            oldStart: 1,
+            oldCount: 1,
+            newStart: 1,
+            newCount: 1,
+            lines: []
+        )
+
+        let presentation = DiffReviewContentPresentation(
+            file: file,
+            hunks: [hunk],
+            metadataLines: []
+        )
+
+        let rename = try #require(presentation.rename)
+        #expect(rename.text.contains("Old.swift"))
+        #expect(rename.text.contains("New.swift"))
+    }
+
     @Test func binaryRenameRetainsBinaryMetadata() throws {
         let file = DiffFileSummary(
             path: "New.bin",

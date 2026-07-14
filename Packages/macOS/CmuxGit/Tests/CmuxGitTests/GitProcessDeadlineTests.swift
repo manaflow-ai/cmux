@@ -145,6 +145,35 @@ import Testing
         #expect(start.duration(to: clock.now) < .seconds(5))
     }
 
+    @Test func cancellationWakesStalledSubprocessWait() async throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let startedMarker = repo.appendingPathComponent("started")
+        let stalledGit = repo.appendingPathComponent("cancelled-git.sh")
+        try Data(
+            "#!/bin/sh\n: > \(startedMarker.path.debugDescription)\nsleep 30\n".utf8
+        ).write(to: stalledGit)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: stalledGit.path
+        )
+
+        let service = GitDiffService(
+            gitExecutableURL: stalledGit,
+            processDeadlineSeconds: 3
+        )
+        let task = Task.detached {
+            service.repositoryRoot(for: repo.path)
+        }
+        try await requireFile(startedMarker, within: .seconds(2))
+
+        let clock = ContinuousClock()
+        let cancellationStart = clock.now
+        task.cancel()
+        _ = await task.value
+
+        #expect(cancellationStart.duration(to: clock.now) < .seconds(1))
+    }
+
     @Test func failureWinsWhenSupervisedResultIsAlsoCapped() {
         let result = processRunner.translateSupervisedResult(
             GitProcessResult(
@@ -319,6 +348,22 @@ import Testing
         try process.run()
         process.waitUntilExit()
         try #require(process.terminationStatus == 0)
+    }
+
+    private func requireFile(
+        _ url: URL,
+        within timeout: Duration
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !FileManager.default.fileExists(atPath: url.path) {
+            try Task.checkCancellation()
+            guard clock.now < deadline else {
+                Issue.record("Timed out waiting for \(url.lastPathComponent)")
+                return
+            }
+            await Task.yield()
+        }
     }
 
     private func isExecutingProcess(_ processIdentifier: pid_t) -> Bool {
