@@ -248,6 +248,36 @@ struct NotificationRestoreBannerOwnershipTests {
         )
     }
 
+    @Test func readSourceConfinedHistoryDoesNotPinFocusedIndicatorAtSource() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        let readSourceConfinedHistory = notification(
+            id: UUID(), tabId: sourceTabId, surfaceId: surfaceId,
+            title: "Read source history", createdAt: Date(timeIntervalSince1970: 10),
+            retargetsToLiveSurfaceOwner: false,
+            isRead: true
+        )
+        let movingUnread = notification(
+            id: UUID(), tabId: sourceTabId, surfaceId: surfaceId,
+            title: "Moving unread", createdAt: Date(timeIntervalSince1970: 20)
+        )
+        defer { store.replaceNotificationsForTesting(previousNotifications) }
+
+        store.replaceNotificationsForTesting([movingUnread, readSourceConfinedHistory])
+        store.setFocusedReadIndicator(forTabId: sourceTabId, surfaceId: surfaceId)
+        store.rebindSurfaceNotifications(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            surfaceId: surfaceId
+        )
+
+        #expect(store.focusedReadIndicatorSurfaceId(forTabId: sourceTabId) == nil)
+        #expect(store.focusedReadIndicatorSurfaceId(forTabId: destinationTabId) == surfaceId)
+    }
+
     @Test func restoredNewerRowDoesNotOwnLiveBannerRowActions() {
         let store = TerminalNotificationStore.shared
         let previousNotifications = store.notifications
@@ -336,13 +366,14 @@ struct NotificationRestoreBannerOwnershipTests {
         surfaceId: UUID?,
         title: String,
         createdAt: Date,
-        retargetsToLiveSurfaceOwner: Bool = true
+        retargetsToLiveSurfaceOwner: Bool = true,
+        isRead: Bool = false
     ) -> TerminalNotification {
         TerminalNotification(
             id: id, tabId: tabId, surfaceId: surfaceId,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             title: title, subtitle: "", body: "",
-            createdAt: createdAt, isRead: false
+            createdAt: createdAt, isRead: isRead
         )
     }
 }

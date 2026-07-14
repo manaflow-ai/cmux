@@ -128,4 +128,54 @@ final class NotificationSessionReplacementIdentityTests: XCTestCase {
         XCTAssertEqual(queued.3, unmappedSurfaceId)
         XCTAssertEqual(store.focusedReadIndicatorSurfaceId(forTabId: newTabId), unmappedSurfaceId)
     }
+
+    func testReplacementPersistsUnmappedNotificationLocationInNextSnapshot() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let previousNotifications = store.notifications
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        let source = manager.addWorkspace(select: true)
+        let destination = manager.addWorkspace(select: false)
+        let unmappedSurfaceId = UUID()
+        let unmappedPanelId = UUID()
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: source.id,
+            surfaceId: unmappedSurfaceId,
+            panelId: unmappedPanelId,
+            title: "Unmapped persisted row",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 1),
+            isRead: false
+        )
+        defer {
+            store.replaceNotificationsForTesting(previousNotifications)
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        store.replaceNotificationsForTesting([notification])
+        store.transferSessionNotifications(
+            fromTabId: source.id,
+            toTabId: destination.id,
+            panelIdMap: [:]
+        )
+
+        let snapshot = destination.sessionSnapshot(includeScrollback: false)
+        let allSnapshots = (snapshot.notifications ?? [])
+            + snapshot.panels.flatMap { $0.notifications ?? [] }
+        let persisted = try XCTUnwrap(allSnapshots.first { $0.id == notification.id })
+        let restored = persisted.terminalNotification(
+            tabId: destination.id,
+            surfaceId: nil,
+            panelId: nil
+        )
+        XCTAssertEqual(restored.surfaceId, unmappedSurfaceId)
+        XCTAssertEqual(restored.panelId, unmappedPanelId)
+    }
 }

@@ -287,6 +287,61 @@ struct NotificationDismissSyncTests {
         #expect(store.reconcileHandledNotificationIDs(deliveredIDs: [notification.id]) == [])
     }
 
+    /// Superseding a desktop/phone banner keeps the older unread row in the
+    /// chronological feed, but the phone must still learn that its old banner
+    /// was handled. Explicitly marking that row unread later resurrects it.
+    @Test func reconcileHandlesRetainedSupersededRowUntilExplicitlyMarkedUnread() throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let older = TerminalNotification(
+            id: UUID(), tabId: tabId, surfaceId: surfaceId,
+            title: "Older", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_000), isRead: false
+        )
+        defer {
+            store.replaceNotificationsForTesting(previousNotifications)
+            store.resetNotificationDeliveryHandlerForTesting()
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
+        }
+
+        UserDefaults.standard.removeObject(forKey: tombstoneKey)
+        store.reloadDismissedTombstonesForTesting()
+        store.replaceNotificationsForTesting([older])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        AppFocusState.overrideIsFocused = false
+
+        store.addNotification(
+            acceptedAt: Date(timeIntervalSince1970: 1_778_000_001),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Replacement",
+            subtitle: "",
+            body: "body",
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        #expect(store.notifications.contains { $0.id == older.id && !$0.isRead })
+        #expect(
+            store.reconcileHandledNotificationIDs(deliveredIDs: [older.id])
+                == [older.id.uuidString]
+        )
+
+        store.markRead(id: older.id)
+        store.markUnread(id: older.id)
+        #expect(store.reconcileHandledNotificationIDs(deliveredIDs: [older.id]) == [])
+    }
+
     /// Dismiss tombstones are write-through persisted: a notification dismissed
     /// and fully removed before a Mac relaunch must still reconcile as handled
     /// afterwards, or a phone whose silent dismiss push was dropped would keep

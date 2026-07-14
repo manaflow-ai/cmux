@@ -234,6 +234,32 @@ struct AgentNotificationRegressionTests {
         #expect(recorded.first?.surfaceId == fixture.panelId)
     }
 
+    @Test("Session replacement remaps a policy evaluation already in flight")
+    func sessionReplacementRemapsInFlightPolicyDelivery() async throws {
+        let fixture = try makeFixture(policyHookCommand: "cat")
+        defer { fixture.restore() }
+
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: nil,
+            title: "Policy in flight",
+            subtitle: "Completed",
+            body: "Must follow replacement workspace"
+        )
+
+        // The policy task cannot run until this MainActor test yields, so this
+        // transfer deterministically crosses the in-flight evaluation.
+        fixture.store.transferSessionNotifications(
+            fromTabId: fixture.source.id,
+            toTabId: fixture.destination.id,
+            panelIdMap: [:]
+        )
+        await waitForNotification(in: fixture.store)
+
+        let recorded = fixture.store.notifications.filter { $0.title == "Policy in flight" }
+        #expect(recorded.map(\.tabId) == [fixture.destination.id])
+    }
+
     @Test("Policy-delayed relay delivery stays in its authorized workspace")
     func policyDelayedRelayDeliveryDoesNotCrossWorkspaceBoundary() async throws {
         let fixture = try makeFixture(policyHookCommand: "cat")

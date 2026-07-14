@@ -156,6 +156,44 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         XCTAssertEqual(identity.3, unmappedSurfaceId)
     }
 
+    func testReliableAdmissionBacklogIsBounded() async {
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer { reset(bus) }
+        for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
+            XCTAssertTrue(bus.enqueueNotification(
+                tabId: UUID(), surfaceId: nil, title: "Seed \(index)", subtitle: "", body: ""
+            ))
+        }
+
+        let deliveries = (0...TerminalMutationBus.maximumWaitingNotificationProducerCount).map { index in
+            Task { @MainActor in
+                await AgentNotificationDelivery().enqueueReliably(
+                    workspaceID: UUID(), surfaceID: UUID(), title: "Bounded \(index)",
+                    subtitle: "", body: "", category: nil, pending: false
+                )
+            }
+        }
+        await waitForReliableAdmissionBlock(bus)
+        for _ in 0..<10_000 { await Task.yield() }
+
+        bus.lock.lock()
+        let admissionCount = bus.reliableAdmissionsById.count
+        bus.lock.unlock()
+        XCTAssertLessThanOrEqual(
+            admissionCount,
+            TerminalMutationBus.maximumWaitingNotificationProducerCount
+        )
+
+        bus.drainForBackpressure()
+        bus.drainForBackpressure()
+        var results: [AgentNotificationDeliveryResult] = []
+        for delivery in deliveries { results.append(await delivery.value) }
+        XCTAssertEqual(results.filter { $0 == .accepted }.count, 16)
+        XCTAssertEqual(results.filter { $0 == .cancelled }.count, 1)
+    }
+
     private func waitForReliableAdmissionBlock(_ bus: TerminalMutationBus) async {
         for _ in 0..<10_000 {
             if bus.reliablyWaitingNotificationProducerCountForTesting() == 1 { return }
