@@ -246,7 +246,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         reachabilityProbeGeneration &+= 1
         cancelReverseRelayRestartLocked()
         cancelRemotePortScanCoalesceLocked()
-        stopReverseRelayLocked()
+        stopReverseRelayLocked(cleanupScope: .persistentSlot)
         remotePortScanGeneration &+= 1
         remotePortScanBurstTask?.cancel()
         remotePortScanBurstTask = nil

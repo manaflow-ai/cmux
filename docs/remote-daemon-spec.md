@@ -42,6 +42,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` bootstrap installs `~/.cmux/bin/cmux` wrapper (also tries `/usr/local/bin/cmux`) so `cmux` is available in PATH on the remote.
 - `DONE` normal `cmux ssh` launches `cmuxd-remote serve --stdio --persistent --slot <slot>`, where the stdio process proxies to a long-lived authenticated daemon with slot credentials under `~/.cmux/daemon/<version>/<slot>/` and a short per-user socket path under `/tmp/cmuxd-remote-<uid>/`.
 - `DONE` persistent daemon slots advertise `pty.session.persistent_daemon`; cmux requires that capability before preserving a saved remote PTY session ID across app relaunch.
+- `DONE` clean workspace teardown sends an authenticated per-slot shutdown, waits for daemon ownership to release, removes relay shell state, and reaps disconnected daemons whose previously observed relay slot lease disappears.
 
 ### 3.5 CLI Relay (Running cmux Commands From Remote)
 - `DONE` `cmuxd-remote` includes a table-driven CLI relay (`cli` subcommand) that maps CLI args to v1 text or v2 JSON-RPC messages.

@@ -219,7 +219,7 @@ extension RemoteSessionCoordinator {
         reverseRelayRestartToken = nil
     }
 
-    func stopReverseRelayLocked() {
+    func stopReverseRelayLocked(cleanupScope: RemoteRelayCleanupScope = .transport) {
         reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
         if let reverseRelayProcess, reverseRelayProcess.isRunning {
             reverseRelayProcess.terminate()
@@ -230,7 +230,7 @@ extension RemoteSessionCoordinator {
         reverseRelayStderrBuffer = ""
         cliRelayServer?.stop()
         cliRelayServer = nil
-        removeRemoteRelayMetadataLocked()
+        removeRemoteRelayMetadataLocked(cleanupScope: cleanupScope)
     }
 
     func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
@@ -393,7 +393,7 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    private func removeRemoteRelayMetadataLocked() {
+    private func removeRemoteRelayMetadataLocked(cleanupScope: RemoteRelayCleanupScope) {
         guard let relayPort = configuration.relayPort, relayPort > 0 else { return }
         // VM workspaces never installed relay metadata (the reverse-relay path is gated off),
         // and the ssh-exec the cleanup would issue hangs on Freestyle's russh gateway.
@@ -401,7 +401,12 @@ extension RemoteSessionCoordinator {
             debugLog("remote.relay.cleanup.skipped reason=vm-baked relayPort=\(relayPort)")
             return
         }
-        let script = Self.remoteRelayMetadataCleanupScript(relayPort: relayPort)
+        let script = switch cleanupScope {
+        case .transport:
+            Self.remoteRelayTransportMetadataCleanupScript(relayPort: relayPort)
+        case .persistentSlot:
+            Self.remoteRelayMetadataCleanupScript(relayPort: relayPort)
+        }
         let command = "sh -c \(script.shellSingleQuoted)"
         do {
             _ = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)

@@ -1,3 +1,6 @@
+import CmuxCore
+import CmuxRemoteDaemon
+import CmuxRemoteWorkspace
 import Foundation
 import Testing
 
@@ -74,5 +77,93 @@ struct RemoteRelaySlotTeardownTests {
         #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64008.daemon_path").path))
         #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64008.slot").path))
         #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64008.tty").path))
+    }
+
+    @Test
+    func transportCleanupPreservesPersistentSlotAndShellState() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-relay-transport-cleanup-\(UUID().uuidString)")
+        let relayDirectory = home.appendingPathComponent(".cmux/relay")
+        let shellDirectory = relayDirectory.appendingPathComponent("64009.shell")
+        let socketAddressURL = home.appendingPathComponent(".cmux/socket_addr")
+        defer { try? fileManager.removeItem(at: home) }
+
+        try fileManager.createDirectory(at: shellDirectory, withIntermediateDirectories: true)
+        try "127.0.0.1:64009".write(to: socketAddressURL, atomically: true, encoding: .utf8)
+        for suffix in ["auth", "daemon_path", "slot", "tty"] {
+            try suffix.write(
+                to: relayDirectory.appendingPathComponent("64009.\(suffix)"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            RemoteSessionCoordinator.remoteRelayTransportMetadataCleanupScript(relayPort: 64009),
+        ]
+        process.environment = [
+            "HOME": home.path,
+            "PATH": "/usr/bin:/bin",
+        ]
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(!fileManager.fileExists(atPath: socketAddressURL.path))
+        #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64009.auth").path))
+        #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64009.daemon_path").path))
+        #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64009.tty").path))
+        #expect(fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64009.slot").path))
+        #expect(fileManager.fileExists(atPath: shellDirectory.path))
+    }
+
+    @Test
+    func coordinatorStopUsesFinalPersistentSlotTeardown() throws {
+        let runner = SpyProcessRunner()
+        let provider = IntentionalCleanupTestTunnelProvider()
+        let coordinator = RemoteSessionCoordinator(
+            host: IntentionalCleanupTestHost(),
+            configuration: WorkspaceRemoteConfiguration(
+                destination: "user@example.test",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64_010,
+                relayID: "relay-id",
+                relayToken: "relay-token",
+                localSocketPath: "/tmp/cmux-test.sock",
+                terminalStartupCommand: nil,
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "ssh-test-slot"
+            ),
+            proxyBroker: RemoteProxyBroker(tunnelProvider: provider),
+            manifestRepository: RemoteDaemonManifestRepository(
+                homeDirectory: FileManager.default.temporaryDirectory
+            ),
+            processRunner: runner,
+            reachabilityProbe: IntentionalCleanupNoopReachabilityProbe(),
+            relayCommandRewriter: IntentionalCleanupRelayCommandRewriter(),
+            buildInfo: IntentionalCleanupBuildInfo(),
+            daemonStrings: RemoteDaemonStrings(
+                missingPersistentPTYCapability: "",
+                missingRequiredFunctionality: ""
+            ),
+            strings: RemoteSessionStrings(
+                connectedVMNoProxyFormat: "%@",
+                suspendedDetailFormat: "%@"
+            )
+        )
+
+        coordinator.stop()
+        coordinator.queue.sync {}
+
+        let cleanupCommand = try #require(runner.requests.last?.arguments.last)
+        #expect(cleanupCommand.contains("serve --persistent-stop --slot"))
+        #expect(cleanupCommand.contains("64010.shell"))
     }
 }

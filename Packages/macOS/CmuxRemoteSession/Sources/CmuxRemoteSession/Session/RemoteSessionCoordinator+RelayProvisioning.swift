@@ -5,16 +5,45 @@ public import Foundation
 // (the CmuxCore SSH-option-normalization precedent); the script text is
 // wire/process behavior pinned by tests — do not alter.
 extension RemoteSessionCoordinator {
-    /// Script that removes the relay metadata files for `relayPort` and the
-    /// `socket_addr` pointer when it still points at that relay.
+    /// Script that stops the relay's persistent daemon slot, removes its shell
+    /// state and metadata, and clears `socket_addr` when it points at the relay.
     public static func remoteRelayMetadataCleanupScript(relayPort: Int) -> String {
+        """
+        relay_socket='127.0.0.1:\(relayPort)'
+        relay_directory="$HOME/.cmux/relay"
+        daemon_path_file="$relay_directory/\(relayPort).daemon_path"
+        slot_file="$relay_directory/\(relayPort).slot"
+        if [ -r "$daemon_path_file" ] && [ -r "$slot_file" ]; then
+          daemon_path="$(tr -d '\\r\\n' < "$daemon_path_file")"
+          persistent_slot="$(tr -d '\\r\\n' < "$slot_file")"
+          case "$persistent_slot" in
+            ''|.|..|*[!A-Za-z0-9._-]*) ;;
+            *)
+              if [ -x "$daemon_path" ]; then
+                "$daemon_path" serve --persistent-stop --slot "$persistent_slot" >/dev/null 2>&1 || true
+              fi
+              ;;
+          esac
+        fi
+        socket_addr_file="$HOME/.cmux/socket_addr"
+        if [ -r "$socket_addr_file" ] && [ "$(tr -d '\\r\\n' < "$socket_addr_file")" = "$relay_socket" ]; then
+          rm -f "$socket_addr_file"
+        fi
+        rm -f "$relay_directory/\(relayPort).auth" "$daemon_path_file" "$slot_file" "$relay_directory/\(relayPort).tty"
+        rm -rf "$relay_directory/\(relayPort).shell"
+        """
+    }
+
+    /// Removes transport-scoped relay metadata while preserving the persistent
+    /// daemon slot and shell state across reconnect and system-sleep churn.
+    static func remoteRelayTransportMetadataCleanupScript(relayPort: Int) -> String {
         """
         relay_socket='127.0.0.1:\(relayPort)'
         socket_addr_file="$HOME/.cmux/socket_addr"
         if [ -r "$socket_addr_file" ] && [ "$(tr -d '\\r\\n' < "$socket_addr_file")" = "$relay_socket" ]; then
           rm -f "$socket_addr_file"
         fi
-        rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).daemon_path" "$HOME/.cmux/relay/\(relayPort).slot" "$HOME/.cmux/relay/\(relayPort).tty"
+        rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).daemon_path" "$HOME/.cmux/relay/\(relayPort).tty"
         """
     }
 
