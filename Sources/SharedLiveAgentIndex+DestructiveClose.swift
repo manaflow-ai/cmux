@@ -13,7 +13,7 @@ extension SharedLiveAgentIndex {
             publication: .scoped,
             validating: nil
         )
-        let indexTask = Task { @MainActor [self] in
+        let indexTask = Task { @MainActor [self] () -> RestorableAgentSessionIndex? in
             // The returned operation owns its coordinator until the requested
             // generation resolves, including for injected non-singleton indexes.
             defer {
