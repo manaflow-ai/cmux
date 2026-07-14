@@ -451,7 +451,7 @@ func omnibarSuggestionDisplayText(forPrefixing completion: String, query: String
     return stripHTTPSchemeAndWWWPrefix(completion)
 }
 
-private func stripHTTPSchemePrefix(_ raw: String) -> String {
+func stripHTTPSchemePrefix(_ raw: String) -> String {
     var normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     if normalized.hasPrefix("https://") {
         normalized.removeFirst("https://".count)
@@ -461,11 +461,10 @@ private func stripHTTPSchemePrefix(_ raw: String) -> String {
     return normalized
 }
 
-private func stripHTTPSchemeAndWWWPrefix(_ raw: String) -> String {
+func stripHTTPSchemeAndWWWPrefix(_ raw: String) -> String {
     var normalized = stripHTTPSchemePrefix(raw)
     if normalized.hasPrefix("www.") {
         normalized.removeFirst("www.".count)
     }
     return normalized
 }
-

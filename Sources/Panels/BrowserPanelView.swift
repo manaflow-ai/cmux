@@ -631,7 +631,7 @@ struct BrowserPanelView: View {
         panel.setBrowserThemeMode(browserThemeMode)
         syncWebViewResponderPolicyWithViewState(reason: "onAppear")
 #if DEBUG
-        logBrowserFocusState(event: "view.onAppear")
+        logBrowserPanelFocusState(event: "view.onAppear")
 #endif
         startFocusModeShortcutHintMonitorIfNeeded()
     }
@@ -737,7 +737,7 @@ struct BrowserPanelView: View {
 
     private func handlePanelFocusChange(_ focused: Bool) {
 #if DEBUG
-        logBrowserFocusState(
+        logBrowserPanelFocusState(
             event: "panelFocus.onChange",
             detail: "next=\(focused ? 1 : 0)"
         )
@@ -759,6 +759,22 @@ struct BrowserPanelView: View {
             isPanelFocusedOverride: focused
         )
     }
+
+#if DEBUG
+    private func logBrowserPanelFocusState(event: String, detail: String = "") {
+        var line =
+            "browser.focus.trace event=\(event) panel=\(panel.id.uuidString.prefix(5)) " +
+            "panelFocused=\(isFocused ? 1 : 0) addrFocused=\(sharedAddressBarFocused ? 1 : 0) " +
+            "suppressContent=\(panel.shouldSuppressWebViewFocus() ? 1 : 0)"
+        if let pending = panel.pendingAddressBarFocusRequestId {
+            line += " pending=\(pending.uuidString.prefix(8))"
+        }
+        if !detail.isEmpty {
+            line += " \(detail)"
+        }
+        cmuxDebugLog(line)
+    }
+#endif
 
     @ViewBuilder
     private var browserFindOverlayView: some View {
