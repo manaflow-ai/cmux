@@ -109,18 +109,22 @@ extension CMUXCLI {
         }
     }
 
-    /// Writes (idempotently) a `#!/bin/sh` hook script for one event into `dir`
-    /// and returns its absolute path, or nil on any failure. The body is the
-    /// same env-driven fire-and-forget snippet used inline; as a real executable
-    /// file it runs under any runtime, including ones that exec the hook command
-    /// directly rather than through a shell. Content is identical across
-    /// invocations, so the file is only rewritten when missing or changed.
+    /// Writes an immutable, content-addressed `#!/bin/sh` hook script for one
+    /// event and returns its absolute path, or nil on failure. Stable event-only
+    /// filenames let an older Nightly overwrite a newer tagged build's ownership
+    /// gate while both are running. Including the content hash gives every cmux
+    /// version its own executable and keeps already-launched Codex processes on
+    /// the exact script they were configured to call.
     static func writeCodexHookScript(subcommand: String, body: String, in dir: URL) -> String? {
         let safeName = subcommand.replacingOccurrences(
             of: "[^A-Za-z0-9_-]", with: "-", options: .regularExpression
         )
-        let url = dir.appendingPathComponent("cmux-codex-hook-\(safeName).sh", isDirectory: false)
         let contents = "#!/bin/sh\n\(body)\n"
+        let contentHash = codexHookStableContentHash(contents)
+        let url = dir.appendingPathComponent(
+            "cmux-codex-hook-\(safeName)-\(contentHash).sh",
+            isDirectory: false
+        )
         let fileManager = FileManager.default
         if let existing = try? String(contentsOf: url, encoding: .utf8), existing == contents {
             // Ensure it stays executable, then reuse.
@@ -134,6 +138,15 @@ extension CMUXCLI {
         } catch {
             return nil
         }
+    }
+
+    private static func codexHookStableContentHash(_ contents: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in contents.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(format: "%016llx", hash)
     }
 
     static func codexFireAndForgetAgentHookShellCommand(
