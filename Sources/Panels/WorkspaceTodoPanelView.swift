@@ -24,7 +24,8 @@ struct WorkspaceTodoPanelView: View {
                 WorkspaceTodoPaneContent(
                     workspace: workspace,
                     todoState: workspace.todoState,
-                    isFocused: isFocused
+                    isFocused: isFocused,
+                    addFieldArmToken: panel.addFieldArmToken
                 )
             } else {
                 Text(String(
@@ -50,6 +51,8 @@ private struct WorkspaceTodoPaneContent: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var todoState: WorkspaceTodoState
     let isFocused: Bool
+    /// Open-or-focus bump; re-arms the add field when `isFocused` doesn't transition.
+    let addFieldArmToken: Int
 
     @State private var isStatusPopoverPresented = false
     @State private var pendingItemText = ""
@@ -89,30 +92,40 @@ private struct WorkspaceTodoPaneContent: View {
             .padding(.vertical, 10)
             Divider()
             let ordered = SidebarWorkspaceChecklistDisplayPolicy.orderedItems(todoState.checklist)
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 3) {
-                    if ordered.isEmpty {
-                        Text(String(
-                            localized: "workspaceTodoPane.emptyChecklist",
-                            defaultValue: "No checklist items yet."
-                        ))
-                        .font(.system(size: Self.itemFontSize))
-                        .foregroundColor(.secondary)
-                        .padding(.vertical, 4)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        if ordered.isEmpty {
+                            Text(String(
+                                localized: "workspaceTodoPane.emptyChecklist",
+                                defaultValue: "No checklist items yet."
+                            ))
+                            .font(.system(size: Self.itemFontSize))
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 4)
+                        }
+                        ForEach(Array(ordered.enumerated()), id: \.element.id) { index, item in
+                            itemRow(item, displayIndex: index)
+                                .id(item.id)
+                        }
                     }
-                    ForEach(Array(ordered.enumerated()), id: \.element.id) { index, item in
-                        itemRow(item, displayIndex: index)
-                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .focusable(!ordered.isEmpty)
+                .focused($itemsFocused)
+                .onKeyPress(.upArrow) { moveHighlight(-1, in: ordered) }
+                .onKeyPress(.downArrow) { moveHighlight(1, in: ordered) }
+                .onKeyPress { press in handleItemsKeyPress(press, ordered: ordered) }
+                // `anchor: nil` scrolls the minimal distance needed to bring
+                // the highlighted row fully into view — a no-op if it's
+                // already visible.
+                .onChange(of: highlightedItemId) { _, newValue in
+                    guard let newValue else { return }
+                    proxy.scrollTo(newValue, anchor: nil)
+                }
             }
-            .focusable(!ordered.isEmpty)
-            .focused($itemsFocused)
-            .onKeyPress(.upArrow) { moveHighlight(-1, in: ordered) }
-            .onKeyPress(.downArrow) { moveHighlight(1, in: ordered) }
-            .onKeyPress { press in handleItemsKeyPress(press, ordered: ordered) }
             Divider()
             addItemRow
                 .padding(.horizontal, 14)
@@ -124,6 +137,7 @@ private struct WorkspaceTodoPaneContent: View {
         .onChange(of: isFocused) { _, focused in
             if focused, editingItemId == nil { addFieldFocused = true }
         }
+        .onChange(of: addFieldArmToken) { _, _ in if editingItemId == nil { addFieldFocused = true } }
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
         }
@@ -382,6 +396,16 @@ private struct WorkspaceTodoPaneItemRow: View {
 
     private var isCompleted: Bool { item.state == .completed }
 
+    /// Distance above a text line's baseline to its optical vertical center
+    /// (`(ascender + descender) / 2`), so the checkbox's
+    /// `.alignmentGuide(.firstTextBaseline)` centers on the item text's FIRST
+    /// line specifically — not the whole multi-line block, and not the
+    /// baseline itself.
+    private var firstLineCenterOffset: CGFloat {
+        let font = NSFont.systemFont(ofSize: itemFontSize)
+        return (font.ascender + font.descender) / 2
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Button {
@@ -395,6 +419,7 @@ private struct WorkspaceTodoPaneItemRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
             .safeHelp(
                 isCompleted
                     ? String(localized: "sidebar.checklist.uncheckTooltip", defaultValue: "Mark as pending")
@@ -413,11 +438,22 @@ private struct WorkspaceTodoPaneItemRow: View {
                 .onExitCommand(perform: actions.cancelEdit)
                 .accessibilityIdentifier("WorkspaceTodoPaneEditItemField")
             } else {
+                // No `lineLimit` — items wrap across multiple lines. Without
+                // `.fixedSize(horizontal: false, ...)` Text can report its
+                // ideal (unwrapped) single-line width as accepted inside this
+                // HStack + Spacer + ScrollView nesting, so long items overflow
+                // past the pane's edge instead of wrapping (see the sidebar's
+                // matching fix in SidebarWorkspaceChecklistView.swift /
+                // SidebarWorkspaceChecklistPopover.swift). The checkbox above
+                // aligns to this Text's FIRST line only (`.firstTextBaseline`,
+                // offset by `firstLineCenterOffset`), not the whole block.
                 Text(item.text)
                     .font(.system(size: itemFontSize))
                     .foregroundColor(isCompleted ? .secondary : .primary)
                     .strikethrough(isCompleted)
                     .opacity(isCompleted ? 0.6 : 1)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
                     .onTapGesture { actions.beginEdit() }
             }

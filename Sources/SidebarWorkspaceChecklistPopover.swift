@@ -1,3 +1,4 @@
+import AppKit
 import CmuxWorkspaces
 import SwiftUI
 
@@ -16,17 +17,17 @@ struct SidebarWorkspaceChecklistPopoverModel: Equatable {
 /// The checklist popover anchored to a workspace row's summary line
 /// (`sidebar.beta.workspaceTodos.checklistStyle` = `popover`): header with
 /// the workspace title and progress, the ordered item rows (completed sink
-/// below unchecked, clamped at 7 with an in-place "… N more"), a ghost add
-/// row whose TextField commits on Enter and re-arms, and an "Open as Pane"
-/// footer. Hosted in a real NSPopover so the TextField can take first
-/// responder (see `SidebarWorkspaceTodoPopoverHost`).
+/// below unchecked, viewport capped at ``visibleRowCount`` rows and
+/// scrollable beyond that), a ghost add row whose TextField commits on
+/// Enter and re-arms, and an "Open as Pane" footer. Hosted in a real
+/// NSPopover so the TextField can take first responder (see
+/// `SidebarWorkspaceTodoPopoverHost`).
 struct SidebarWorkspaceChecklistPopover: View {
     let model: SidebarWorkspaceChecklistPopoverModel
     let actions: SidebarWorkspaceChecklistActions
     let onConsumeAddFieldActivation: () -> Void
     let onClose: @MainActor () -> Void
 
-    @State private var showsAllItems = false
     @State private var pendingItemText = ""
     @FocusState private var addFieldFocused: Bool
     @State private var editingItemId: UUID?
@@ -36,41 +37,127 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// Return toggles it when the add field is empty, and Cmd+Return always
     /// toggles it between completed and pending.
     @State private var highlightedItemId: UUID?
+    /// Pointer position in ``Self/pointerSpaceName`` space (nil = outside).
+    /// A REFERENCE box, not `@State` value storage: mouse-moved arrives per
+    /// pixel, and a CGPoint state write per event would rebuild every
+    /// non-lazy row at mouse frequency. Mutating the box invalidates
+    /// nothing; only `hoveredItemId` (row-granular) drives renders.
+    private final class PointerLocationBox {
+        var location: CGPoint?
+    }
+
+    @State private var pointerLocation = PointerLocationBox()
+    /// Item under the pointer (reveals the trailing delete button). Derived
+    /// from pointer position + row geometry — never from per-row hover
+    /// events, which die when content recreates or rows reflow under a
+    /// resting pointer. Written only when the hovered ROW changes.
+    @State private var hoveredItemId: UUID?
+    /// Row frames in ``Self/pointerSpaceName`` space (via preference); update
+    /// on scroll/reflow so hover self-corrects under a resting pointer.
+    @State private var itemRowFrames: [UUID: CGRect] = [:]
+
+    private static let pointerSpaceName = "checklistPopoverPointerSpace"
+
+    private func rederiveHover(frames: [UUID: CGRect]) {
+        let hovered = pointerLocation.location.flatMap { point in
+            frames.first { $0.value.contains(point) }?.key
+        }
+        if hovered != hoveredItemId {
+            hoveredItemId = hovered
+        }
+    }
 
     private static let itemFontSize: CGFloat = 13
     /// Checkbox glyphs draw at 13pt (the inline row's base is 8pt·scale).
     private static let checkboxPointSize: CGFloat = 13
 
+    /// Single-line row height estimate (`itemFontSize` plus the row's own
+    /// `.padding(.vertical, 2)` on both edges plus a little line-height
+    /// headroom), used to cap the item list's scrollable viewport at
+    /// ``visibleRowCount`` rows instead of the previous flat 460pt cap
+    /// (≈23 rows).
+    private static let itemRowHeightEstimate: CGFloat = itemFontSize + 6
+    private static let visibleRowCount = 6
+    private static let rowSpacing: CGFloat = 2
+
+    /// Distance above a text line's baseline to its optical vertical center
+    /// (`(ascender + descender) / 2`), so the checkbox/remove button
+    /// `.alignmentGuide(.firstTextBaseline)` centers on the item text's
+    /// FIRST line specifically — not the whole multi-line block, and not the
+    /// baseline itself.
+    private var firstLineCenterOffset: CGFloat {
+        let font = NSFont.systemFont(ofSize: Self.itemFontSize)
+        return (font.ascender + font.descender) / 2
+    }
+
+    /// Content height for `count` rows, capped at ``visibleRowCount`` rows —
+    /// short lists get exactly their own height (no dead space), longer
+    /// lists get the 6-row cap and scroll for the rest.
+    private func scrollViewportHeight(forItemCount count: Int) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let visibleCount = min(count, Self.visibleRowCount)
+        return Self.itemRowHeightEstimate * CGFloat(visibleCount)
+            + Self.rowSpacing * CGFloat(visibleCount - 1)
+    }
+
     var body: some View {
         let ordered = SidebarWorkspaceChecklistDisplayPolicy.orderedItems(model.items)
-        let clamped = SidebarWorkspaceChecklistDisplayPolicy.clampedItems(
-            ordered,
-            showsAllItems: showsAllItems
-        )
         VStack(alignment: .leading, spacing: 0) {
             header
                 .padding(.horizontal, 12)
                 .padding(.top, 10)
                 .padding(.bottom, 6)
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(clamped.visible) { item in
-                        itemRow(item)
+            if !ordered.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(ordered) { item in
+                                itemRow(item)
+                                    .id(item.id)
+                            }
+                        }
+                        .padding(.horizontal, 8)
                     }
-                    if clamped.hiddenCount > 0 {
-                        moreRow(hiddenCount: clamped.hiddenCount)
+                    .frame(height: scrollViewportHeight(forItemCount: ordered.count))
+                    // `anchor: nil` scrolls the minimal distance needed to
+                    // bring the highlighted row fully into view — a no-op if
+                    // it's already visible, matching arrow-key nav that
+                    // should only move the viewport when it must.
+                    .onChange(of: highlightedItemId) { _, newValue in
+                        guard let newValue else { return }
+                        proxy.scrollTo(newValue, anchor: nil)
                     }
-                    addItemRow(visible: clamped.visible)
                 }
+            }
+            addItemRow(visible: ordered)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 6)
-            }
-            .frame(maxHeight: 460)
             Divider()
             footer
         }
         .frame(width: 320, alignment: .leading)
-        .background(toggleHighlightedShortcutButton(visible: clamped.visible))
+        .coordinateSpace(name: Self.pointerSpaceName)
+        // AppKit-owned pointer tracking (see PopoverPointerTracker's doc for
+        // why SwiftUI hover modifiers can't be used here: their tracking
+        // areas churn with content updates and drop the first post-mutation
+        // event as a spurious "ended").
+        .background(PopoverPointerTracker { location in
+            pointerLocation.location = location
+            rederiveHover(frames: itemRowFrames)
+        })
+        .onPreferenceChange(ChecklistPopoverRowFramesKey.self) { frames in
+            itemRowFrames = frames
+            rederiveHover(frames: frames)
+        }
+        .background(toggleHighlightedShortcutButton(visible: ordered))
+        // Without this, the popover's window only gets promoted to key once,
+        // at `popoverDidShow` — if the terminal-backed pane grabs key window
+        // status back afterward (see `PopoverKeyWindowElevator`'s doc
+        // comment), `.onContinuousHover`'s tracking areas stop firing
+        // (SwiftUI hover tracking is gated on `.activeInKeyWindow`), so the
+        // remove-item "x" stops revealing on hover. `SidebarWorkspaceStatusPopover`
+        // already carries this same fix for its own popover.
+        .background(PopoverKeyWindowElevator())
         .onAppear { addFieldFocused = true }
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
@@ -117,6 +204,7 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
             .safeHelp(
                 isCompleted
                     ? String(localized: "sidebar.checklist.uncheckTooltip", defaultValue: "Mark as pending")
@@ -135,17 +223,23 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .onExitCommand(perform: cancelItemEdit)
                 .accessibilityIdentifier("SidebarChecklistPopoverEditItemField")
             } else {
+                // No `lineLimit` — items wrap across multiple lines. The
+                // checkbox/remove button align to this Text's FIRST line
+                // only (`.firstTextBaseline`, offset by
+                // `firstLineCenterOffset`), not the whole wrapped block.
                 Text(item.text)
                     .font(.system(size: Self.itemFontSize))
                     .foregroundColor(isCompleted ? .secondary : .primary)
                     .strikethrough(isCompleted)
                     .opacity(isCompleted ? 0.6 : 1)
-                    .lineLimit(3)
-                    .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
                     .onTapGesture { beginItemEdit(item) }
             }
             Spacer(minLength: 0)
+            removeItemButton(for: item)
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
@@ -154,7 +248,26 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .fill(highlightedItemId == item.id ? Color.primary.opacity(0.08) : Color.clear)
         )
         .contentShape(Rectangle())
-        .onTapGesture { highlightedItemId = item.id }
+        .onTapGesture {
+            // Highlighting a row while the add field holds an in-progress
+            // draft would leave both a "focused" item and a "focused" field
+            // on screen at once, making Return's outcome ambiguous — only
+            // set the highlight when there is no draft to disambiguate.
+            guard pendingItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            highlightedItemId = item.id
+        }
+        // Hover is derived at the container level from pointer position +
+        // this row's reported frame (see `hoveredItemId`'s doc comment) —
+        // per-row hover callbacks die when the backing view is recreated
+        // while the pointer rests in place.
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ChecklistPopoverRowFramesKey.self,
+                    value: [item.id: proxy.frame(in: .named(Self.pointerSpaceName))]
+                )
+            }
+        )
         .contextMenu {
             Button(String(localized: "sidebar.checklist.editItem", defaultValue: "Edit")) {
                 beginItemEdit(item)
@@ -179,28 +292,26 @@ struct SidebarWorkspaceChecklistPopover: View {
         }
     }
 
-    private func moreRow(hiddenCount: Int) -> some View {
-        Button {
-            showsAllItems = true
+    /// Trailing hover-reveal delete affordance, in addition to the row's
+    /// context-menu "Remove" entry. Always laid out at a fixed size (only
+    /// `.opacity`/`.allowsHitTesting` toggle) so the row's height never jumps
+    /// when the pointer enters/leaves.
+    private func removeItemButton(for item: WorkspaceChecklistItem) -> some View {
+        let isHovered = hoveredItemId == item.id
+        return Button {
+            actions.removeItem(item.id)
         } label: {
-            Text(
-                String(
-                    format: String(
-                        localized: "sidebar.checklist.moreItems",
-                        defaultValue: "… %lld more"
-                    ),
-                    locale: .current,
-                    hiddenCount
-                )
-            )
-            .font(.system(size: Self.itemFontSize))
-            .foregroundColor(.secondary)
-            .contentShape(Rectangle())
+            CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: Self.checkboxPointSize - 2)
+                .foregroundColor(.secondary)
+                .frame(width: Self.checkboxPointSize + 6, height: Self.checkboxPointSize + 6, alignment: .center)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
-        .accessibilityIdentifier("SidebarChecklistPopoverMoreRow")
+        .safeHelp(String(localized: "sidebar.checklist.removeItemTooltip", defaultValue: "Remove item"))
+        .opacity(isHovered ? 1 : 0)
+        .allowsHitTesting(isHovered)
+        .accessibilityHidden(!isHovered)
+        .accessibilityIdentifier("SidebarChecklistPopoverRemoveItemButton")
     }
 
     // MARK: Add-item row (always armed — typing needs zero extra clicks)
@@ -226,8 +337,16 @@ struct SidebarWorkspaceChecklistPopover: View {
             .onKeyPress(.upArrow) { moveHighlight(-1, in: visible) }
             .onKeyPress(.downArrow) { moveHighlight(1, in: visible) }
             .onKeyPress(.return) { handleAddFieldReturn(visible: visible) }
+            .onKeyPress(.delete) { handleAddFieldDelete(visible: visible) }
             .onSubmit(commitPendingItem)
             .onExitCommand(perform: cancelPendingItem)
+            .onChange(of: pendingItemText) { _, newValue in
+                // A highlighted item plus live typed text is the ambiguous
+                // dual-focus state Return can't resolve visually — as soon
+                // as the draft becomes non-empty, drop the highlight.
+                guard !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                highlightedItemId = nil
+            }
             .accessibilityIdentifier("SidebarChecklistPopoverAddItemField")
         }
         .padding(.horizontal, 4)
@@ -239,6 +358,12 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// Moves the highlight up/down through the visible items, clamping at the
     /// ends.
     private func moveHighlight(_ delta: Int, in visible: [WorkspaceChecklistItem]) -> KeyPress.Result {
+        // Browsing (arrow-key highlight) and typing a new item are mutually
+        // exclusive: only move the highlight while the draft is empty, so a
+        // highlighted item and live typed text never coexist.
+        guard pendingItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .ignored
+        }
         guard !visible.isEmpty else { return .ignored }
         let currentIndex = visible.firstIndex(where: { $0.id == highlightedItemId })
             ?? (delta > 0 ? -1 : visible.count)
@@ -254,6 +379,19 @@ struct SidebarWorkspaceChecklistPopover: View {
         guard let id = highlightedItemId,
               visible.contains(where: { $0.id == id }) else { return .ignored }
         toggleHighlighted(in: visible)
+        return .handled
+    }
+
+    /// Backspace with an empty draft removes the highlighted item — a
+    /// keyboard-driven delete alongside the row's hover "x" and context-menu
+    /// "Remove", for browsing-mode (Up/Down-highlighted) deletion without
+    /// reaching for the mouse.
+    private func handleAddFieldDelete(visible: [WorkspaceChecklistItem]) -> KeyPress.Result {
+        guard pendingItemText.isEmpty else { return .ignored }
+        guard let id = highlightedItemId,
+              visible.contains(where: { $0.id == id }) else { return .ignored }
+        actions.removeItem(id)
+        highlightedItemId = nil
         return .handled
     }
 
@@ -337,8 +475,11 @@ struct SidebarWorkspaceChecklistPopover: View {
 
     private var footer: some View {
         Button {
-            actions.openPane()
+            // Close FIRST: NSPopover teardown restores the parent window's
+            // previous first responder, which would clobber the pane focus /
+            // armed add field that openPane() sets up.
             onClose()
+            actions.openPane()
         } label: {
             HStack(spacing: 6) {
                 CmuxSystemSymbolImage(systemName: "rectangle.split.2x1", pointSize: 11)

@@ -10543,12 +10543,8 @@ struct VerticalTabsSidebar: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .workspaceChecklistAddItemRequested)) { notification in
             guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
-                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-            // Popover style routes the add request into the checklist popover
-            // (armed add field); empty checklists keep the inline ghost row
-            // because there is no summary line to anchor a popover to.
-            if WorkspaceTodoFeature.checklistStyle == .popover,
-               !workspace.todoState.checklist.isEmpty {
+                  tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
+            if WorkspaceTodoFeature.checklistStyle == .popover {
                 statusPopoverWorkspaceId = nil
                 checklistPopoverWorkspaceId = workspaceId
             } else {
@@ -10651,6 +10647,10 @@ struct VerticalTabsSidebar: View {
             }
             .onChange(of: tabManager.selectedTabId) { _, _ in
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
+                // Workspace switches produce no outside click for .transient auto-dismiss; close popovers explicitly.
+                if let dismissed = checklistPopoverWorkspaceId { checklistAddFieldActivationTokens[dismissed] = nil }
+                checklistPopoverWorkspaceId = nil
+                statusPopoverWorkspaceId = nil
             }
             .onChange(of: renderContext.workspaceIds) { oldWorkspaceIds, newWorkspaceIds in
                 guard shouldRequestSelectedWorkspaceScrollAfterWorkspaceIdsChange(
@@ -13836,12 +13836,10 @@ struct TabItemView: View, Equatable {
                 .lineLimit(1)
             }
 
-            // Checklist summary line + inline expansion. Rendered while the
-            // workspace-todos feature is on and there is either content or a
-            // pending "Add Checklist Item…" request (which needs the add
-            // field visible on an empty checklist).
-            if workspaceSnapshot.taskStatus != nil,
-               !workspaceSnapshot.checklistItems.isEmpty || checklistAddFieldActivationToken > 0 {
+            // Rendered whenever there is content, a pending add request, or an OPEN
+            // popover — unmounting dismantles the popover's anchor mid-presentation.
+            if !workspaceSnapshot.checklistItems.isEmpty || checklistAddFieldActivationToken > 0
+                || isChecklistPopoverPresented {
                 SidebarWorkspaceChecklistSection(
                     items: workspaceSnapshot.checklistItems,
                     completedCount: workspaceSnapshot.checklistCompletedCount,

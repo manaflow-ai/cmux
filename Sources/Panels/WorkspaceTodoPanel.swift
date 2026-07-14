@@ -31,6 +31,15 @@ final class WorkspaceTodoPanel: Panel, ObservableObject {
     /// Token incremented to trigger the focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// Bumped when an open-or-focus entry point (checklist popover footer,
+    /// palette, CLI) lands on this pane, so the add field re-arms even when
+    /// the pane was ALREADY focused and `isFocused` never transitions.
+    @Published private(set) var addFieldArmToken: Int = 0
+
+    func armAddField() {
+        addFieldArmToken += 1
+    }
+
     init(workspace: Workspace) {
         self.id = UUID()
         self.workspace = workspace

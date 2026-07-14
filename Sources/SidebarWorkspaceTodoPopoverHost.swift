@@ -139,6 +139,12 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
     var minWidth: CGFloat = 200
     var maxHeight: CGFloat = 480
     var preferredEdge: NSRectEdge = .maxX
+    /// Explicit "user asked for this popover" signal (e.g. the checklist
+    /// add-field activation token). A change clears the external-dismissal
+    /// latch below, so a context-menu/palette request can always re-present
+    /// even while the latch is waiting for the container to acknowledge an
+    /// AppKit-side close.
+    var presentationRequestToken: Int = 0
     /// Builds the popover body from the latest model; the second argument
     /// closes the popover (footer buttons, Return/Esc handling).
     let content: (Model, @escaping @MainActor () -> Void) -> PopoverContent
@@ -147,9 +153,36 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         Coordinator(isPresented: $isPresented)
     }
 
+    // NOTE: the coordinator's `isPresented` binding is REFRESHED on every
+    // `updateNSView` (see below). The section builds that binding from its
+    // per-render value snapshot, so a binding captured only at
+    // `makeCoordinator` time reads a frozen value forever — a coordinator
+    // created while the popover was hidden then saw `isPresented == false`
+    // at `popoverDidClose` even when the container still said shown, skipped
+    // the `false` write-back, and left the container state stuck `true`.
+    // Every later model change then re-presented the popover with no user
+    // action (the "popover opens while typing in the todo pane" bug).
+
+    /// Anchor view for the popover. Retries a pending `present()` once it
+    /// actually attaches to a window: a same-transaction "open immediately"
+    /// request (e.g. a zero-item workspace's first Add Checklist Item, where
+    /// the anchor is mounted in the very same SwiftUI update that also asks
+    /// to present) can find `window == nil` on the first `present()` call,
+    /// since AppKit view attachment can lag the SwiftUI commit that inserted
+    /// it. Without this retry the request was silently dropped.
+    final class AnchorView: NSView {
+        weak var coordinator: Coordinator?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            coordinator?.anchorViewDidMoveToWindow()
+        }
+    }
+
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = AnchorView()
         view.translatesAutoresizingMaskIntoConstraints = false
+        view.coordinator = context.coordinator
         context.coordinator.anchorView = view
         return view
     }
@@ -160,6 +193,8 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         coordinator.minWidth = minWidth
         coordinator.maxHeight = maxHeight
         coordinator.preferredEdge = preferredEdge
+        coordinator.isPresentedBinding = $isPresented
+        coordinator.acknowledge(isPresented: isPresented, requestToken: presentationRequestToken)
         coordinator.update(model: model) { model, close in
             AnyView(content(model, close))
         }
@@ -176,7 +211,15 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
 
     @MainActor
     final class Coordinator: NSObject, NSPopoverDelegate {
-        @Binding var isPresented: Bool
+        /// Refreshed by every `updateNSView` tick so reads and write-backs
+        /// target the CURRENT container state, not the value snapshot from
+        /// whichever render created this coordinator (see the note on
+        /// `makeCoordinator`).
+        var isPresentedBinding: Binding<Bool>
+        private var isPresented: Bool {
+            get { isPresentedBinding.wrappedValue }
+            set { isPresentedBinding.wrappedValue = newValue }
+        }
         weak var anchorView: NSView?
         var minWidth: CGFloat = 200
         var maxHeight: CGFloat = 480
@@ -194,9 +237,38 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         /// Bumped on every hidden-to-shown transition; used as the SwiftUI
         /// view identity so each open gets fresh view-local state.
         private var presentationCount = 0
+        /// Set when AppKit closed the popover out from under SwiftUI (app
+        /// deactivation, transient click-away) while the container still said
+        /// `isPresented == true`. The container's `isPresented = false` write
+        /// lands asynchronously, so an unrelated re-render can deliver a
+        /// stale `isPresented == true` to `updateNSView` first — without this
+        /// latch that stale tick re-presents the popover the user just
+        /// dismissed, producing a close/reopen churn loop (observed live:
+        /// five `didShow`s in 18s with zero user actions). Cleared when the
+        /// container acknowledges `false`, or when an explicit presentation
+        /// request token changes.
+        private var awaitingDismissAck = false
+        private var lastRequestToken = 0
 
         init(isPresented: Binding<Bool>) {
-            _isPresented = isPresented
+            isPresentedBinding = isPresented
+        }
+
+        /// Called on every `updateNSView` tick, before `present()`/`dismiss()`.
+        func acknowledge(isPresented: Bool, requestToken: Int) {
+            if !isPresented {
+                awaitingDismissAck = false
+            }
+            if requestToken != lastRequestToken {
+                lastRequestToken = requestToken
+                // Only a real request unlatches. Token zero is the CONSUMED
+                // state (the container resets the activation token after the
+                // add field arms) — treating that reset as a fresh request
+                // re-presented a popover the user had just dismissed.
+                if requestToken != 0 {
+                    awaitingDismissAck = false
+                }
+            }
         }
 
         func update(
@@ -228,21 +300,50 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
             updateContentSize()
         }
 
+        /// Retries a pending open once the anchor finishes attaching to its
+        /// window (see `AnchorView`). Without this, a `present()` call that
+        /// hit a detached anchor had no way to recover except an unrelated
+        /// later SwiftUI re-render happening to land after attachment.
+        func anchorViewDidMoveToWindow() {
+            guard isPresented, popover?.isShown != true else { return }
+            present()
+        }
+
         func present() {
-            guard let anchorView, anchorView.window != nil else {
-                isPresented = false
+            // After an AppKit-side close, wait for the container to confirm
+            // the matching `isPresented = false` before honoring any further
+            // present ticks — see `awaitingDismissAck`.
+            guard !awaitingDismissAck else { return }
+            guard let anchorView, let window = anchorView.window else {
+                // No window yet — don't clobber isPresented. AnchorView's
+                // viewDidMoveToWindow() retries once it actually attaches.
                 return
             }
-            anchorView.superview?.layoutSubtreeIfNeeded()
             let popover = popover ?? makePopover()
-            // Only bump identity on a hidden-to-shown transition; bumping on
-            // every updateNSView would reset view-local state on every tick.
-            if !popover.isShown {
-                presentationCount += 1
-                refreshContent()
-            }
-            updateContentSize()
+            // Everything below happens ONLY on the hidden-to-shown
+            // transition: `present()` is re-entered on every parent update
+            // tick while shown, and a window-wide layout flush (or an
+            // identity bump) on those ticks would widen row-scoped checklist
+            // churn into an app-wide synchronous layout pass per update.
+            // While shown, content and size updates flow through
+            // `update(model:builder:)` -> `refreshContent()` instead.
             guard !popover.isShown else { return }
+            // Lay out from the window's root, not just the anchor's
+            // immediate superview: `layoutSubtreeIfNeeded()` only resolves
+            // the subtree it's called on, not ancestors above it. A
+            // same-transaction "open immediately" anchor (a zero-item
+            // workspace's first Add Checklist Item — see the AnchorView doc
+            // comment) is freshly inserted into the sidebar's lazy list, so
+            // the row containers above `anchorView.superview` may not have
+            // an up-to-date frame yet. `popover.show(relativeTo:of:)`
+            // resolves the anchor's window-coordinate position by walking
+            // that whole ancestor chain, so a stale frame anywhere above the
+            // immediate superview anchors the popover to the wrong spot.
+            window.contentView?.layoutSubtreeIfNeeded()
+            anchorView.superview?.layoutSubtreeIfNeeded()
+            presentationCount += 1
+            refreshContent()
+            updateContentSize()
             popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: preferredEdge)
         }
 
@@ -258,8 +359,16 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         func popoverDidClose(_ notification: Notification) {
             popover = nil
             if isPresented {
+                // AppKit closed us (transient click-away / app deactivation)
+                // while SwiftUI still thinks we're shown: latch until the
+                // container acknowledges the write below, so stale re-render
+                // ticks can't instantly re-present (churn loop).
+                awaitingDismissAck = true
                 isPresented = false
             }
+#if DEBUG
+            cmuxDebugLog("focus.todoPopover.didClose awaitingAck=\(awaitingDismissAck)")
+#endif
         }
 
         func popoverDidShow(_ notification: Notification) {

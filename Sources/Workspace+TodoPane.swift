@@ -74,9 +74,17 @@ extension Workspace {
             guard let todoPanel = panel as? WorkspaceTodoPanel else { continue }
             if focus {
                 focusPanel(existingId)
+                // Re-arm even when the pane was already focused: `isFocused`
+                // never transitions then, so the pane's own focus-driven arm
+                // doesn't fire and "Open as Pane" would visibly do nothing.
+                todoPanel.armAddField()
             }
             return todoPanel
         }
-        return newWorkspaceTodoSurface(inPane: paneId, focus: focus)
+        let created = newWorkspaceTodoSurface(inPane: paneId, focus: focus)
+        if focus {
+            created?.armAddField()
+        }
+        return created
     }
 }
