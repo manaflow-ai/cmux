@@ -266,6 +266,8 @@ import Testing
     )
     var deferred = DeferredTerminalRenderGridEvent(frame: first)
 
+    #expect(deferred.requiresReplay)
+    #expect(deferred.frame == nil)
     deferred.append(second)
 
     #expect(deferred.requiresReplay)
@@ -334,13 +336,11 @@ func gridlessAcknowledgementDeliversSameOrNewerDeferredFrameBeforeAdvancingFloor
 }
 
 @MainActor
-@Test func gridlessAcknowledgementReplaysInsteadOfPaintingOlderDeferredFrame() async throws {
-    let router = LivenessHostRouter()
-    let box = TransportBox()
-    let clock = TestClock()
-    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+@Test func gridlessAcknowledgementAllowsOwedEqualRevisionReplay() async throws {
+    let store = MobileShellComposite.preview()
     let surfaceID = "live-terminal"
-    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let deferred = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: surfaceID,
         stateSeq: 1,
         renderRevision: 11,
@@ -350,8 +350,7 @@ func gridlessAcknowledgementDeliversSameOrNewerDeferredFrameBeforeAdvancingFloor
         full: false,
         changedRows: [0, 1]
     )
-    store.deferTerminalRenderGridEvent(frame)
-    let replayCount = await router.count(of: "mobile.terminal.replay")
+    store.deferTerminalRenderGridEvent(deferred)
 
     let completed = store.completeGridlessTerminalScrollReconciliation(
         surfaceID: surfaceID,
@@ -359,10 +358,20 @@ func gridlessAcknowledgementDeliversSameOrNewerDeferredFrameBeforeAdvancingFloor
     )
 
     #expect(completed)
-    let replayRequested = try await pollUntil {
-        await router.count(of: "mobile.terminal.replay") == replayCount + 1
-    }
-    #expect(replayRequested)
     #expect(store.acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] == 12)
     #expect(store.deferredTerminalRenderGridEventsBySurfaceID[surfaceID] == nil)
+    let replay = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 2,
+        renderRevision: 12,
+        columns: 12,
+        rows: 2,
+        text: "recovered\nviewport",
+        full: true
+    )
+
+    #expect(store.deliverAuthoritativeTerminalRenderGrid(replay, source: "replay"))
+    let delivered = try #require(await iterator.next())
+    #expect(delivered.data == replay.vtPatchBytes())
+    #expect(store.equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID] == nil)
 }

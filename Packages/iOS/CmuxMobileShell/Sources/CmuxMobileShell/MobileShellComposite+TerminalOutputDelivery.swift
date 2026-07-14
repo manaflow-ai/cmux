@@ -67,7 +67,9 @@ extension MobileShellComposite {
         }
         if let renderRevision = renderGrid.renderRevision,
            let acceptedRevision = acceptedTerminalRenderRevisionsBySurfaceID[renderGrid.surfaceID],
-           renderRevision <= acceptedRevision {
+           renderRevision <= acceptedRevision,
+           !(source == "replay"
+               && equalRevisionTerminalRecoveryReplaysBySurfaceID[renderGrid.surfaceID] == renderRevision) {
             MobileDebugLog.anchormux(
                 "sync.render_grid_stale_revision source=\(source) surface=\(renderGrid.surfaceID) accepted=\(acceptedRevision) frame=\(renderRevision)"
             )

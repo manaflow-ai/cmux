@@ -244,21 +244,32 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 /// deltas; otherwise a replay sentinel avoids both data loss and queue growth.
 struct DeferredTerminalRenderGridEvent: Equatable, Sendable {
     private(set) var frame: MobileTerminalRenderGridFrame?
-    private(set) var requiresReplay = false
+    private(set) var requiresReplay: Bool
+    private var latestRevision: UInt64?
 
     init(frame: MobileTerminalRenderGridFrame) {
-        self.frame = frame
+        latestRevision = frame.renderRevision
+        if frame.full || frame.isReplaceableViewportPatchForMobileDelivery {
+            self.frame = frame
+            requiresReplay = false
+        } else {
+            self.frame = nil
+            requiresReplay = true
+        }
     }
 
     mutating func append(_ newer: MobileTerminalRenderGridFrame) {
-        guard !requiresReplay, let current = frame else { return }
-        if let currentRevision = current.renderRevision,
+        if let currentRevision = latestRevision,
            let newerRevision = newer.renderRevision,
            currentRevision > newerRevision {
             return
         }
+        if let newerRevision = newer.renderRevision {
+            latestRevision = max(latestRevision ?? 0, newerRevision)
+        }
         if newer.full || newer.isReplaceableViewportPatchForMobileDelivery {
             frame = newer
+            requiresReplay = false
             return
         }
         frame = nil

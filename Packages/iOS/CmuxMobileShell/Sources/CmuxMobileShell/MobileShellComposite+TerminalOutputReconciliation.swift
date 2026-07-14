@@ -31,11 +31,11 @@ extension MobileShellComposite {
             return enqueueTerminalBarrierInteraction(delivery, surfaceID: surfaceID)
         }
         guard let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
-              let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID],
-              var queue = terminalOutputQueuesBySurfaceID[surfaceID] else {
+              let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else {
             receipt.resolve(false)
             return receipt
         }
+        var queue = terminalOutputQueuesBySurfaceID[surfaceID] ?? TerminalOutputDeliveryQueue()
         let enqueueResult = queue.enqueueOptimisticScroll(delivery)
         let superseded = queue.takeScrollReconciliationSupersessions()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
@@ -184,6 +184,10 @@ extension MobileShellComposite {
             acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] ?? 0,
             revision
         )
+        if let allowedRevision = equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID],
+           revision >= allowedRevision {
+            equalRevisionTerminalRecoveryReplaysBySurfaceID.removeValue(forKey: surfaceID)
+        }
     }
 
     func deferTerminalRenderGridEvent(_ frame: MobileTerminalRenderGridFrame) {
@@ -227,6 +231,7 @@ extension MobileShellComposite {
                 deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
                 if let renderRevision {
                     acceptTerminalRenderRevision(renderRevision, surfaceID: surfaceID)
+                    equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID] = renderRevision
                 }
                 MobileDebugLog.anchormux("sync.render_grid_deferred_replay surface=\(surfaceID)")
                 requestTerminalReplay(surfaceID: surfaceID)
@@ -237,6 +242,7 @@ extension MobileShellComposite {
                    frame.renderRevision.map({ $0 < renderRevision }) ?? true {
                     deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
                     acceptTerminalRenderRevision(renderRevision, surfaceID: surfaceID)
+                    equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID] = renderRevision
                     MobileDebugLog.anchormux(
                         "sync.render_grid_deferred_behind_ack surface=\(surfaceID) ack=\(renderRevision) deferred=\(frame.renderRevision ?? 0)"
                     )

@@ -808,6 +808,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollSessionsBySurfaceID: [String: TerminalScrollSession]
     var terminalInteractionEpochsBySurfaceID: [String: UInt64]
     var acceptedTerminalRenderRevisionsBySurfaceID: [String: UInt64]
+    var equalRevisionTerminalRecoveryReplaysBySurfaceID: [String: UInt64]
     var deferredTerminalRenderGridEventsBySurfaceID: [String: DeferredTerminalRenderGridEvent]
     /// Per-surface continuations for the Mac-pushed live font-size signal. A
     /// mounted surface obtains ``terminalLiveFontStream(surfaceID:)`` and applies
@@ -1028,6 +1029,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalScrollSessionsBySurfaceID = [:]
         self.terminalInteractionEpochsBySurfaceID = [:]
         self.acceptedTerminalRenderRevisionsBySurfaceID = [:]
+        self.equalRevisionTerminalRecoveryReplaysBySurfaceID = [:]
         self.deferredTerminalRenderGridEventsBySurfaceID = [:]
         self.terminalLiveFontContinuationsBySurfaceID = [:]
         self.terminalLiveFontTokensBySurfaceID = [:]
@@ -5252,6 +5254,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalScrollSessionsBySurfaceID[$0.key] != nil
         }
         acceptedTerminalRenderRevisionsBySurfaceID = [:]
+        equalRevisionTerminalRecoveryReplaysBySurfaceID = [:]
         deferredTerminalRenderGridEventsBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
         supportedHostCapabilities = []
@@ -6540,6 +6543,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputMountTokensBySurfaceID[surfaceID] = mountToken
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         resetTerminalMutationQueue(surfaceID: surfaceID)
+        equalRevisionTerminalRecoveryReplaysBySurfaceID.removeValue(forKey: surfaceID)
         deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)

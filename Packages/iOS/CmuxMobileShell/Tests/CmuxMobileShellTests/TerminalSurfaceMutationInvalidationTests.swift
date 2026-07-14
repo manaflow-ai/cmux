@@ -31,6 +31,33 @@ struct TerminalSurfaceMutationInvalidationTests {
         store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: chunk.streamToken)
     }
 
+    @Test("mounted output recreates its queue for the first scroll after reset")
+    func mountedOutputRecreatesMissingQueue() async throws {
+        let store = MobileShellComposite.preview()
+        let surfaceID = "reset-scroll"
+        var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+        store.terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
+
+        let receipt = store.enqueueTerminalLocalScrollMutation(
+            surfaceID: surfaceID,
+            runs: [MobileTerminalScrollRun(lines: -3, col: 2, row: 1)]
+        )
+
+        let chunk = try #require(await iterator.next())
+        guard case .localScroll(let runs) = chunk.mutation else {
+            Issue.record("expected a local scroll after queue recreation")
+            return
+        }
+        #expect(runs.map(\.lines) == [-3])
+        #expect(store.terminalOutputWillProcess(
+            surfaceID: surfaceID,
+            streamToken: chunk.streamToken,
+            deliveryID: chunk.deliveryID
+        ))
+        store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: chunk.streamToken)
+        #expect(await receipt.value)
+    }
+
     @Test("optimistic scroll skips stale viewport but preserves causal barriers")
     func atomicInvalidationPreservesRequiredOutput() throws {
         var queue = TerminalOutputDeliveryQueue()

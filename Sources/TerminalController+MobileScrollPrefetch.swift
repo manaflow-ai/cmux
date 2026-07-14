@@ -183,7 +183,14 @@ extension TerminalController {
             ))
         }
         guard let directionalRuns = mobileScrollDirectionalRuns(params: params) else {
-            return .err(code: "invalid_params", message: "Invalid terminal scroll runs", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.mobileTerminal.invalidScrollRuns",
+                    defaultValue: "Invalid terminal scroll runs"
+                ),
+                data: nil
+            )
         }
         if directionalRuns.isEmpty {
             guard terminalPanel.surface.mobileScroll(deltaLines: 0, col: 0, row: 0) else {

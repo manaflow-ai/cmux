@@ -48,7 +48,6 @@ struct TerminalOutputDeliveryQueue: Sendable {
     private var reconciliationSupersessions: [TerminalScrollReconciliationSupersession] = []
     private(set) var optimisticInvalidationGeneration: UInt64 = 0
     private var reconciliationInvalidationGeneration: UInt64 = 0
-    private(set) var pendingTraversalCount = 0
 
     var isIdle: Bool {
         inFlight == nil && pendingCount == 0
@@ -267,7 +266,6 @@ struct TerminalOutputDeliveryQueue: Sendable {
         reconciliationSupersessions.removeAll(keepingCapacity: false)
         optimisticInvalidationGeneration = 0
         reconciliationInvalidationGeneration = 0
-        pendingTraversalCount = 0
     }
 
     mutating func resetForReplayBarrier(claimedStreamToken: UUID? = nil) {
@@ -311,7 +309,6 @@ struct TerminalOutputDeliveryQueue: Sendable {
         reconciliationSupersessions.removeAll(keepingCapacity: false)
         optimisticInvalidationGeneration = 0
         reconciliationInvalidationGeneration = 0
-        pendingTraversalCount = 0
     }
 
     private var retainedReplayInteractionCount: Int {
@@ -386,7 +383,6 @@ struct TerminalOutputDeliveryQueue: Sendable {
         while pendingHeadIndex < pending.count {
             let entry = pending[pendingHeadIndex]
             pendingHeadIndex += 1
-            pendingTraversalCount += 1
             compactPendingStorageIfNeeded()
             if entry.optimisticGeneration != optimisticInvalidationGeneration,
                entry.delivery.isSupersededByOptimisticScroll {
