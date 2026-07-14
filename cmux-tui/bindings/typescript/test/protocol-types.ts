@@ -1,8 +1,15 @@
 import type {
+  CmuxClient,
   CmuxEvent,
   CmuxRequest,
   CmuxResponseData,
+  CmuxStream,
+  DecodedAttachEvent,
   KnownCmuxEvent,
+  RenderAttachEvent,
+  RenderDeltaEvent,
+  RenderStateEvent,
+  TreeDeltaEvent,
 } from "../src/browser.js";
 
 const requests = [
@@ -18,7 +25,9 @@ const requests = [
   { cmd: "export-layout", screen: 1 },
   { cmd: "apply-layout", layout: { type: "leaf" } },
   { cmd: "send", surface: 1, text: "ls\r" },
+  { cmd: "send", surface: 1, bytes: "AAEC", paste: true },
   { cmd: "read-screen", surface: 1 },
+  { cmd: "read-scrollback", surface: 1, start: 0, count: 100 },
   { cmd: "sidebar-plugin", cols: 20, rows: 40, relaunch: true },
   { cmd: "vt-state", surface: 1 },
   { cmd: "new-tab", pane: 1 },
@@ -49,8 +58,9 @@ const requests = [
   { cmd: "move-tab", surface: 1, pane: 2, index: 0 },
   { cmd: "move-workspace", workspace: 1, index: 0 },
   { cmd: "scroll-surface", surface: 1, delta: -10 },
-  { cmd: "subscribe", events: ["bell"] },
+  { cmd: "subscribe", tree_events: "deltas" },
   { cmd: "attach-surface", surface: 1 },
+  { cmd: "attach-surface", surface: 1, mode: "render" },
   { cmd: "wait-for", surface: "a8f3k2", pattern: "ready", timeout_ms: 5000 },
   { cmd: "run", argv: ["echo", "ok"] },
   { cmd: "send-key", surface: 1, keys: ["ctrl+c"] },
@@ -87,6 +97,7 @@ function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
 
 const colorsChanged: KnownCmuxEvent = {
   event: "colors-changed",
+  surface: 1,
   fg: "#d8d9da",
   bg: "#131415",
   cursor: null,
@@ -106,6 +117,54 @@ void surfaceFromKnownEvent;
 void colorsChanged;
 void futureEvent;
 void clientEvents;
+
+const renderState: RenderStateEvent = {
+  event: "render-state",
+  surface: 1,
+  size: { cols: 3, rows: 1 },
+  cursor: { x: 2, y: 0, style: "block", blink: true, visible: true, color: null },
+  default_fg: "#d8d9da",
+  default_bg: "#131415",
+  scrollback_rows: 42,
+  rows: [{
+    row: 0,
+    runs: [{ text: "$ x", fg: null, bg: null, attrs: 1, underline: "curly", width_hint: 3 }],
+  }],
+};
+const renderDelta: RenderDeltaEvent = {
+  event: "render-delta",
+  surface: 1,
+  cursor: renderState.cursor,
+  full: false,
+  rows: [],
+};
+const treeDelta: TreeDeltaEvent = {
+  event: "tab-renamed",
+  workspace: 1,
+  screen: 2,
+  pane: 3,
+  surface: 4,
+  entity: {
+    surface: 4,
+    kind: "pty",
+    browser_source: null,
+    name: "shell",
+    title: "shell",
+    size: { cols: 80, rows: 24 },
+    dead: false,
+  },
+};
+void renderState;
+void renderDelta;
+void treeDelta;
+
+async function typedAttachModes(client: CmuxClient): Promise<void> {
+  const bytes: CmuxStream<DecodedAttachEvent> = await client.attachSurface(1);
+  const render: CmuxStream<RenderAttachEvent> = await client.attachSurface(1, { mode: "render" });
+  bytes.close();
+  render.close();
+}
+void typedAttachModes;
 
 // @ts-expect-error `read-screen` requires a surface id.
 const invalidRequest: CmuxRequest = { cmd: "read-screen" };

@@ -13,6 +13,7 @@ import type {
   SplitDirection,
 } from "./common.js";
 import type { DeclarativeLayout, Layout, Tree } from "./tree.js";
+import type { RenderRow } from "./render.js";
 
 export interface IdentifyRequest extends CmuxRequestBase { cmd: "identify" }
 export interface IdentifyResult { app: "cmux-tui"; version: string; protocol: number; session: string; pid: number }
@@ -77,10 +78,24 @@ export interface SendRequest extends CmuxRequestBase {
   /** When both are supplied, `text` is written before `bytes`. */
   text?: string | null;
   bytes?: Base64 | null;
+  /** Protocol v7 bracketed-paste request. */
+  paste?: boolean;
 }
 
 export interface ReadScreenRequest extends CmuxRequestBase { cmd: "read-screen"; surface: Id }
 export interface ReadScreenResult { text: string }
+
+export interface ReadScrollbackRequest extends CmuxRequestBase {
+  cmd: "read-scrollback";
+  surface: Id;
+  start: number;
+  count: number;
+}
+export interface ReadScrollbackResult {
+  rows: RenderRow[];
+  start: number;
+  total: number;
+}
 
 export interface SidebarPluginRequest extends CmuxRequestBase {
   cmd: "sidebar-plugin";
@@ -224,13 +239,15 @@ export interface ScrollSurfaceRequest extends CmuxRequestBase { cmd: "scroll-sur
 
 export interface SubscribeRequest extends CmuxRequestBase {
   cmd: "subscribe";
-  /** Proposed protocol v6 event-name filter. */
-  events?: string[] | null;
-  /** Proposed protocol v6 surface filter. */
-  surfaces?: IdRef[] | null;
+  /** Protocol v7 tree lifecycle delivery mode. */
+  tree_events?: "coarse" | "deltas";
 }
 
-export interface AttachSurfaceRequest extends CmuxRequestBase { cmd: "attach-surface"; surface: Id }
+export interface AttachSurfaceRequest extends CmuxRequestBase {
+  cmd: "attach-surface";
+  surface: Id;
+  mode?: "bytes" | "render";
+}
 
 export interface WaitForRequest extends CmuxRequestBase {
   cmd: "wait-for";
@@ -311,6 +328,7 @@ export type CmuxRequest =
   | ApplyLayoutRequest
   | SendRequest
   | ReadScreenRequest
+  | ReadScrollbackRequest
   | SidebarPluginRequest
   | VtStateRequest
   | NewTabRequest
@@ -367,6 +385,7 @@ export interface CmuxResponseDataMap {
   "apply-layout": ApplyLayoutResult;
   send: EmptyResult;
   "read-screen": ReadScreenResult;
+  "read-scrollback": ReadScrollbackResult;
   "sidebar-plugin": SidebarPluginResult;
   "vt-state": VtStateResult;
   "new-tab": SurfaceResult;
