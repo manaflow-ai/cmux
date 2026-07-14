@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 
 /// Close-confirmation resolution for terminal surfaces. Extracted from
