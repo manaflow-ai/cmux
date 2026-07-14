@@ -722,26 +722,31 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # The tolerant full-suite step can accept an earlier XCTest summary
-          # after Swift Testing failures. Keep this safety-critical stale-cache
-          # regression in a non-tolerant focused invocation.
+          # after Swift Testing failures. These suites mutate process-global
+          # shared-index state, so keep each suite in its own sequential process.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/SharedLiveAgentIndexFingerprintInvalidationTests \
-            -only-testing:cmuxTests/SharedLiveAgentIndexGenerationAuthorityTests \
-            -only-testing:cmuxTests/SharedLiveAgentIndexHookStoreInvalidationTests \
-            -only-testing:cmuxTests/TerminationResumeIndexCoordinatorInvalidationTests \
-            -only-testing:cmuxTests/ClosedItemHistoryAgentEnrichmentTests \
-            -only-testing:cmuxTests/ClosedItemHistoryPendingEnrichmentTests \
-            -only-testing:cmuxTests/AgentHibernationPlannerSwiftTests \
-            test
+          SUITES=(
+            SharedLiveAgentIndexFingerprintInvalidationTests
+            SharedLiveAgentIndexGenerationAuthorityTests
+            SharedLiveAgentIndexHookStoreInvalidationTests
+            TerminationResumeIndexCoordinatorInvalidationTests
+            ClosedItemHistoryAgentEnrichmentTests
+            ClosedItemHistoryPendingEnrichmentTests
+            AgentHibernationPlannerSwiftTests
+          )
+          for suite in "${SUITES[@]}"; do
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:"cmuxTests/$suite" \
+              test
+          done
 
       - name: Run process-detected resume index regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
