@@ -5715,7 +5715,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if !cmuxFindEventIsPlainEscape(event) { endFindEscapeSuppression() }
         if shouldConsumeSuppressedFindEscape(event) { return }
         if cmuxFindEventIsPlainEscape(event), !hasMarkedText(), let terminalSurface, terminalSurface.searchState != nil {
-            terminalSurface.searchState = nil
+            terminalSurface.closeSearchFromExplicitInput()
             beginFindEscapeSuppression(); return
         }
 #if DEBUG
@@ -9415,7 +9415,7 @@ final class GhosttySurfaceScrollView: NSView {
                 terminalSurface?.setFocus(false)
             },
             onClose: { [weak self, weak terminalSurface] in
-                terminalSurface?.searchState = nil
+                terminalSurface?.closeSearchFromExplicitInput()
                 self?.moveFocus()
             }
         )

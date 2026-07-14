@@ -15,6 +15,13 @@ extension TerminalSurface {
         paneHost.terminalSurfaceDidReceiveExplicitInput()
     }
 
+    /// Closes Find as an explicit user action, cancelling any deferred viewport restoration first.
+    @MainActor
+    public func closeSearchFromExplicitInput() {
+        didReceiveExplicitInput()
+        searchState = nil
+    }
+
     /// Whether closing this surface should ask for confirmation.
     public func needsConfirmClose() -> Bool {
 #if DEBUG

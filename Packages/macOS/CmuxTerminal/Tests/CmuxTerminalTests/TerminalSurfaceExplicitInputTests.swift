@@ -54,6 +54,17 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
+    @Test func closingSearchAsExplicitInputNotifiesBeforeClearingSearchState() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.searchState = TerminalSurface.SearchState(needle: "scroll")
+
+        fixture.surface.closeSearchFromExplicitInput()
+
+        #expect(fixture.paneHost.explicitInputCount == 1)
+        #expect(fixture.surface.searchState == nil)
+    }
+
     @Test func copyModeToggleNotifiesPaneHost() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
