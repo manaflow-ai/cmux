@@ -3,9 +3,21 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
-    func markMacConnectionHealthy() {
+    func markMacConnectionHealthy(completingRecovery: Bool = false) {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
+            return
+        }
+        if completingRecovery {
+            completeMobileConnectionRecovery()
+        } else if case .reconnectingStoredRoute(let recoveryID) = connectionRecoveryState {
+            connectionRecoveryState = .awaitingStoredRouteSubscription(recoveryID)
+        }
+        if connectionRecoveryState != nil {
+            macConnectionStatus = .reconnecting
+            isRecoveringConnection = true
+            connectionRecoveryFailed = false
+            connectionRequiresReauth = false
             return
         }
         macConnectionStatus = .connected
@@ -44,7 +56,7 @@ extension MobileShellComposite {
     /// re-subscribe the foreground session.
     func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
-        guard recoveryID == nil else { return }
+        guard connectionRecoveryState == nil else { return }
         if connectionState == .connected,
            remoteClient != nil,
            !trigger.resetsConnectedSession {
@@ -54,65 +66,122 @@ extension MobileShellComposite {
         }
 
         let recoveryID = UUID()
-        self.recoveryID = recoveryID
         isRecoveringConnection = true
         connectionRecoveryFailed = false
         let stackUserID = lastReconnectStackUserID
         let connectedClient = connectionState == .connected ? remoteClient : nil
         let connectedGeneration = connectionGeneration
-        recoveryTask?.cancel()
+        if connectedClient == nil
+            || (trigger == .manual && macConnectionStatus == .unavailable) {
+            connectionRecoveryState = .reconnectingStoredRoute(recoveryID)
+            startStoredRouteRecovery(recoveryID: recoveryID, stackUserID: stackUserID)
+            return
+        }
+        guard let connectedClient else { return }
+
+        connectionRecoveryState = .resettingSession(recoveryID)
         recoveryTask = Task { @MainActor [weak self] in
-            var isAwaitingSubscriptionAck = false
-            defer {
-                if self?.recoveryID == recoveryID {
-                    self?.recoveryID = nil
-                    self?.recoveryTask = nil
-                    if !isAwaitingSubscriptionAck {
-                        self?.isRecoveringConnection = false
-                    }
-                }
-            }
             guard let self else { return }
-            if let connectedClient {
-                isAwaitingSubscriptionAck = await self.resetRemoteSessionForRecovery(
-                    client: connectedClient,
-                    expectedGeneration: connectedGeneration,
-                    reason: "networkRecovery.\(trigger)"
-                )
-                guard self.recoveryID == recoveryID, !Task.isCancelled else { return }
-                if self.multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
-                    self.scheduleSecondaryAggregation()
-                }
-                return
-            }
-            guard self.connectionState != .connected else { return }
-            let reconnected = await self.reconnectActiveMacIfAvailable(
-                stackUserID: stackUserID,
-                preservingConnectionRecoveryOnFailure: true
+            let isAwaitingSubscriptionAck = await self.resetRemoteSessionForRecovery(
+                client: connectedClient,
+                expectedGeneration: connectedGeneration,
+                recoveryID: recoveryID,
+                reason: "networkRecovery.\(trigger)"
             )
             guard self.recoveryID == recoveryID, !Task.isCancelled else { return }
-            if !reconnected {
-                self.connectionRecoveryFailed = true
+            guard isAwaitingSubscriptionAck else {
+                self.startStoredRouteRecovery(
+                    recoveryID: recoveryID,
+                    stackUserID: stackUserID
+                )
+                return
+            }
+            if self.multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
+                self.scheduleSecondaryAggregation()
             }
         }
     }
 
     func cancelMobileConnectionRecovery() {
-        recoveryID = nil
+        connectionRecoveryState = nil
         recoveryTask?.cancel()
         recoveryTask = nil
         isRecoveringConnection = false
+    }
+
+    func completeMobileConnectionRecovery() {
+        guard connectionRecoveryState != nil else { return }
+        connectionRecoveryState = nil
+        recoveryTask = nil
+        isRecoveringConnection = false
+        connectionRecoveryFailed = false
+    }
+
+    @discardableResult
+    func handleMobileConnectionRecoverySubscriptionFailure() -> Bool {
+        guard let recoveryState = connectionRecoveryState else { return false }
+        switch recoveryState {
+        case .resettingSession(let recoveryID),
+             .awaitingResetSubscription(let recoveryID):
+            startStoredRouteRecovery(
+                recoveryID: recoveryID,
+                stackUserID: lastReconnectStackUserID
+            )
+        case .reconnectingStoredRoute, .awaitingStoredRouteSubscription:
+            connectionRecoveryState = nil
+            recoveryTask = nil
+            markMacConnectionUnavailable()
+        }
+        return true
+    }
+
+    private func startStoredRouteRecovery(recoveryID: UUID, stackUserID: String?) {
+        guard self.recoveryID == recoveryID else { return }
+        connectionRecoveryState = .reconnectingStoredRoute(recoveryID)
+        markMacConnectionReconnecting()
+        stopTerminalRefreshPolling()
+        connectionState = .disconnected
+        clearRemoteConnectionContext(
+            preservingOtherMacWorkspaceState: true,
+            preservingConnectionRecovery: true
+        )
+        recoveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let reconnected = await self.reconnectActiveMacIfAvailable(
+                stackUserID: stackUserID,
+                preservingConnectionRecoveryOnFailure: true
+            )
+            guard self.recoveryID == recoveryID, !Task.isCancelled else { return }
+            guard reconnected else {
+                self.connectionRecoveryState = nil
+                self.recoveryTask = nil
+                self.markMacConnectionUnavailable()
+                self.connectionRecoveryFailed = true
+                return
+            }
+            guard self.runtime?.supportsServerPushEvents == true else {
+                self.completeMobileConnectionRecovery()
+                self.markMacConnectionHealthy()
+                return
+            }
+            if case .reconnectingStoredRoute = self.connectionRecoveryState {
+                self.connectionRecoveryState = .awaitingStoredRouteSubscription(recoveryID)
+            }
+            self.markMacConnectionReconnecting()
+        }
     }
 
     /// Replaces only the stale transport while preserving the paired-Mac session context.
     func resetRemoteSessionForRecovery(
         client: MobileCoreRPCClient,
         expectedGeneration: UUID,
+        recoveryID: UUID,
         reason: String
     ) async -> Bool {
         guard connectionState == .connected,
               remoteClient === client,
-              connectionGeneration == expectedGeneration else {
+              connectionGeneration == expectedGeneration,
+              self.recoveryID == recoveryID else {
             return false
         }
 
@@ -124,9 +193,11 @@ extension MobileShellComposite {
 
         guard connectionState == .connected,
               remoteClient === client,
-              connectionGeneration == recoveryGeneration else {
+              connectionGeneration == recoveryGeneration,
+              self.recoveryID == recoveryID else {
             return false
         }
+        connectionRecoveryState = .awaitingResetSubscription(recoveryID)
         resyncTerminalOutput(reason: reason, restartEventStream: true)
         return true
     }

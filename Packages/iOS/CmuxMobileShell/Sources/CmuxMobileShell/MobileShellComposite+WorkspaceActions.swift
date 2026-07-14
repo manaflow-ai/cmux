@@ -364,15 +364,17 @@ extension MobileShellComposite {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
             _ = try await client.sendRequest(request)
         } catch {
-            if disconnectForAuthorizationFailureIfNeeded(error) {
+            let isCurrentForegroundRequest = target.isForeground
+                && remoteClient === client
+                && connectionGeneration == requestGeneration
+            if isCurrentForegroundRequest,
+               disconnectForAuthorizationFailureIfNeeded(error) {
                 return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
             }
             // Only the foreground connection's health drives the foreground
             // unavailable/reconnect UI; a failed write to a secondary Mac must not
             // tear the foreground session down.
-            if target.isForeground,
-               remoteClient === client,
-               connectionGeneration == requestGeneration {
+            if isCurrentForegroundRequest {
                 recoverMacConnectionIfNeeded(after: error)
             }
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) error=\(String(describing: error), privacy: .public)")

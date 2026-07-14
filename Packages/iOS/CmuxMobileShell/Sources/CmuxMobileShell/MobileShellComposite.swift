@@ -1419,7 +1419,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private var networkPathObservationStarted = false
     private var networkPathObservationTask: Task<Void, Never>?
-    var recoveryID: UUID?
+    var connectionRecoveryState: MobileConnectionRecoveryState?
+    var recoveryID: UUID? { connectionRecoveryState?.id }
     var recoveryTask: Task<Void, Never>?
     var lastReconnectStackUserID: String?
 
@@ -5096,7 +5097,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
     }
 
-    private func clearRemoteConnectionContext(
+    func clearRemoteConnectionContext(
         preservingOtherMacWorkspaceState: Bool = false,
         preservingConnectionRecovery: Bool = false
     ) {
@@ -6221,10 +6222,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
                 self.diagnosticLog?.record(DiagnosticEvent(.error))
                 self.stopTerminalRefreshPolling()
+                if self.handleMobileConnectionRecoverySubscriptionFailure() {
+                    return
+                }
                 self.markMacConnectionUnavailable()
                 return
             }
-            self.markMacConnectionHealthy()
+            self.markMacConnectionHealthy(completingRecovery: true)
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
             self.scheduleNotificationReconcile(client: client)
         }
@@ -6244,13 +6248,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // and silently swallow the handshake's failure verdict (its ack
             // guard sees a newer listenerID), so a closed transport would
             // loop `reconnecting` forever. A stream that dies before its
-            // handshake completes is a failed start. Converge to the bounded
-            // unavailable state instead of continuously replacing a transport
-            // that has never established a subscription.
-            mobileShellLog.info("terminal event stream ended before subscribe ack, marking unavailable")
+            // handshake completes is a failed start. Recovery replacements get
+            // one route-level fallback; an initial connection still converges
+            // unavailable instead of continuously replacing a transport that
+            // has never established a subscription.
+            mobileShellLog.info("terminal event stream ended before subscribe ack")
             MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; failed start")
             diagnosticLog?.record(DiagnosticEvent(.error))
             stopTerminalRefreshPolling()
+            if handleMobileConnectionRecoverySubscriptionFailure() {
+                return
+            }
             markMacConnectionUnavailable()
             return
         }
