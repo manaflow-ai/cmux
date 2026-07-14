@@ -3252,6 +3252,13 @@ struct CMUXCLI {
             return
         }
 
+        // Orchestration store verbs manage ~/.cmuxterm/orchestrations locally
+        // and must work with no cmux running; only run/plan need the socket.
+        if command == "orchestration", !Self.orchestrationCommandNeedsSocket(commandArgs) {
+            try runOrchestrationLocalNamespace(commandArgs: commandArgs, jsonOutput: jsonOutput)
+            return
+        }
+
         // Keep no-socket config subcommands on the early path. Socket-backed
         // config subcommands fall through to the resolved-socket dispatch below.
         if command == "config",
@@ -4387,6 +4394,8 @@ struct CMUXCLI {
             )
 
         case "layout": try runLayoutNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
+
+        case "orchestration": try runOrchestrationSocketNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
 
         case "list-workspaces":
             Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
@@ -15794,6 +15803,8 @@ struct CMUXCLI {
             """)
         case "layout":
             return Self.layoutHelpText()
+        case "orchestration":
+            return Self.orchestrationHelpText()
         case "workspace-group":
             return """
             Usage: cmux workspace-group <subcommand> [flags]
