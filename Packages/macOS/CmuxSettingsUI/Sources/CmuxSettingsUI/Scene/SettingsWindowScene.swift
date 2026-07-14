@@ -33,25 +33,9 @@ public struct SettingsWindowRoot: View {
     // there is no SwiftUI scene to store into (cmux issue #7777).
     @AppStorage("selectedSettingsSection") private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
     @AppStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
-    // Legacy `SettingsRootView` binds `NavigationSplitView`'s
-    // `columnVisibility` so the user can collapse the sidebar via the
-    // toolbar button (or the SidebarCommands menu) and have that state
-    // persist for the lifetime of the window. Without a binding,
-    // `NavigationSplitView` is locked to whatever its initial layout
-    // resolved to, which makes the chevron toggle a no-op in the
-    // package window. Keep this in @State (not @SceneStorage) because
-    // legacy stores it on the transient `SettingsDraftState`, not in
-    // SceneStorage.
+    // The toolbar and menu command share this transient split-view state.
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    // Mirrors legacy SettingsView.settingsNavigationGeneration. When
-    // multiple navigation requests fire in quick succession (e.g. the
-    // sidebar selection changes plus an external app.cmux.settings
-    // navigation post), each `proxy.scrollTo(...)` runs one main-actor
-    // hop later. Without a generation guard, a stale earlier request can
-    // win and snap the scroll back to a section the user has already
-    // moved past. The counter is incremented in `applyScrollNavigation`
-    // and re-checked inside the scheduled `Task { @MainActor in ... }`,
-    // so only the most recent request actually scrolls.
+    // Rejects stale deferred scrolls when navigation requests overlap.
     @State private var settingsNavigationGeneration: Int = 0
     // Drives the "flash the navigated-to row" affordance the legacy
     // settings window had. When the user clicks a search hit, the target
@@ -113,14 +97,12 @@ public struct SettingsWindowRoot: View {
         // so the package window can shrink to the same lower bound.
         .frame(minWidth: 820, minHeight: 540)
         .settingsErrorAlert(log: runtime.errorLog)
+        .toolbar(removing: .sidebarToggle)
         .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
             applyNavigationRequest(notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: Self.sidebarToggleRequestName)) { _ in
-            // AppKit hosts this window, so SwiftUI's SidebarCommands cannot
-            // reach the split view; the host app routes its sidebar-toggle
-            // menu command here when the Settings window is key.
-            columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+            toggleSidebar()
         }
         .onChange(of: searchText) { _, newValue in
             // Legacy SettingsRootView resyncs the sidebar entry to the
@@ -183,6 +165,22 @@ public struct SettingsWindowRoot: View {
         .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
         .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
         .navigationSplitViewColumnWidth(210)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button(action: toggleSidebar) {
+                    Label(
+                        String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar"),
+                        systemImage: "sidebar.left"
+                    )
+                }
+                .labelStyle(.iconOnly)
+                .help(String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar"))
+            }
+        }
+    }
+
+    private func toggleSidebar() {
+        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
     }
 
     func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }

@@ -14,7 +14,6 @@ import os
 @MainActor
 enum SettingsWindowFactory {
     private nonisolated static let log = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
-    static let toolbarIdentifier = NSToolbar.Identifier("cmux.settings.toolbar")
 
     /// `onContentAppear` is invoked from the hosted content's `onAppear`, so
     /// the presenter that owns this window learns when the content's
@@ -30,12 +29,10 @@ enum SettingsWindowFactory {
         let hostingController = NSHostingController(
             rootView: SettingsWindowHostRoot(onContentAppear: onContentAppear)
         )
-        // The AppKit owner configures the toolbar explicitly below; bridge only
-        // SwiftUI's navigation title so an implicit scene toolbar can never
-        // replace or remove the Settings chrome contract. The sidebar search
-        // remains inside the hosted NavigationSplitView: `.searchable` with
-        // `.sidebar` placement does not require toolbar bridging.
-        hostingController.sceneBridgingOptions = [.title]
+        // SwiftUI owns the NavigationSplitView toolbar content and placement;
+        // AppKit owns only the surrounding window chrome. Bridging both keeps
+        // the sidebar search, title, and toggle in the split view's columns.
+        hostingController.sceneBridgingOptions = [.toolbars, .title]
         let window = SettingsHostWindow(contentViewController: hostingController)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         window.title = String(localized: "settings.title", defaultValue: "Settings")
@@ -44,22 +41,13 @@ enum SettingsWindowFactory {
         return window
     }
 
-    /// Establishes the complete modern Settings chrome invariant at
-    /// construction time. The AppKit-owned window must also own its toolbar;
-    /// `sceneBridgingOptions` only forwards toolbar content explicitly declared
-    /// by a hosted SwiftUI view and otherwise leaves a bare legacy titlebar.
+    /// Establishes the AppKit-owned portion of the modern Settings chrome at
+    /// construction time. The hosted split view supplies the bridged toolbar.
     private static func configureChrome(on window: SettingsHostWindow) {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.titlebarSeparatorStyle = .none
 
-        let toolbar = NSToolbar(identifier: toolbarIdentifier)
-        toolbar.delegate = window
-        toolbar.allowsUserCustomization = false
-        toolbar.autosavesConfiguration = false
-        toolbar.displayMode = .iconOnly
-        toolbar.insertItem(withItemIdentifier: .toggleSidebar, at: 0)
-        window.toolbar = toolbar
         window.toolbarStyle = .unifiedCompact
     }
 }
@@ -77,9 +65,8 @@ extension SettingsWindowPresenter {
         return true
     }
 
-    /// Shared mutation path for the toolbar item and the app's Toggle Left
-    /// Sidebar command. The SwiftUI split view owns the visibility state and
-    /// consumes this request in ``SettingsWindowRoot``.
+    /// Routes the app's Toggle Left Sidebar command into the same SwiftUI
+    /// mutation path used by the Settings toolbar button.
     static func requestSidebarToggle() {
         NotificationCenter.default.post(name: SettingsWindowRoot.sidebarToggleRequestName, object: nil)
     }
@@ -90,44 +77,8 @@ extension SettingsWindowPresenter {
 /// window even when a foreign `willClose` observer re-enters `show()` before
 /// the presenter's own observer runs (notification-observer order is not a
 /// lifecycle invariant).
-class SettingsHostWindow: NSWindow, NSToolbarDelegate {
+class SettingsHostWindow: NSWindow {
     private(set) var isClosingSettingsWindow = false
-
-    /// Receives the standard AppKit toolbar item's `toggleSidebar:` action and
-    /// forwards it through the same route as the app menu command.
-    @objc func toggleSidebar(_ sender: Any?) {
-        SettingsWindowPresenter.requestSidebarToggle()
-    }
-
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar]
-    }
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar]
-    }
-
-    func toolbar(
-        _ toolbar: NSToolbar,
-        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
-        willBeInsertedIntoToolbar flag: Bool
-    ) -> NSToolbarItem? {
-        // AppKit creates its standard toggle-sidebar item itself and does not
-        // ask the delegate for it. No custom identifiers are allowed here.
-        nil
-    }
-
-    func toolbarWillAddItem(_ notification: Notification) {
-        guard
-            let sidebarToggle = notification.userInfo?[NSToolbarUserInfoKey.itemKey] as? NSToolbarItem,
-            sidebarToggle.itemIdentifier == .toggleSidebar
-        else { return }
-        // AppKit may recreate standard items when the toolbar attaches to a
-        // window. Configure every inserted instance so the live item always
-        // uses the shared Settings toggle path.
-        sidebarToggle.target = self
-        sidebarToggle.action = #selector(toggleSidebar(_:))
-    }
 
     override func close() {
         isClosingSettingsWindow = true
