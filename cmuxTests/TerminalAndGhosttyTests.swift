@@ -4646,6 +4646,29 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         }
     }
 
+    // Process state before the first test of this suite ran. The shared app
+    // host owns real windows, portals, and terminal surfaces of its own, so
+    // the last-slot leak check compares against this baseline, not zero.
+    static var suiteBaselineWindowNumbers: Set<Int>?
+    static var suiteBaselinePortalCount = 0
+    static var suiteBaselineRuntimeSurfaceCount = 0
+
+    override func setUp() {
+        super.setUp()
+        // Leaked cross-test state in this suite has produced livelocks (a
+        // SwiftUI reentrant-layout loop inside one CA commit) that hang the
+        // app host until CI's job timeout. Bound each test so a wedge fails
+        // in minutes with a report instead. XCTest rounds the allowance up
+        // to the nearest minute.
+        executionTimeAllowance = 60
+        if Self.suiteBaselineWindowNumbers == nil {
+            Self.suiteBaselineWindowNumbers = Set(NSApp.windows.map(\.windowNumber))
+            Self.suiteBaselinePortalCount = TerminalWindowPortalRegistry.debugPortalCount()
+            Self.suiteBaselineRuntimeSurfaceCount =
+                GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot().runtimeSurfaceCount
+        }
+    }
+
     func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -5586,6 +5609,72 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertNotNil(
             TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredSecondPoint, in: secondWindow),
             "Unrelated windows should retain their stale geometry until their own sync runs"
+        )
+    }
+
+    /// Runs last (XCTest orders a class's tests alphabetically) and asserts
+    /// the suite returned the process to its pre-suite state. Every test here
+    /// shares one app host with the tests after it, so state that outlives a
+    /// test participates in later tests' layout and teardown passes. The
+    /// full-suite failure signatures — a SwiftUI reentrant-layout livelock
+    /// under realizeWindowLayout, a teardown hang inside removePortal, and an
+    /// io-reader crash in the PTY output tee — all trace back to state left
+    /// behind: dropped TerminalSurfaces whose native frees and io threads
+    /// were still in flight, and portal windows never closed.
+    func testZZLeakCheckSuiteLeavesNoLingeringPortalTestState() async {
+        // Give queued coalesced portal passes the main-queue turns they were
+        // already promised; what's left after this has no owner to clean it.
+        // (Yield instead of a blocking XCTWaiter: this test is async on the
+        // main actor, and a blocking wait here would starve the very queue
+        // it's draining.)
+        for _ in 0..<8 {
+            await Task.yield()
+        }
+
+        XCTAssertLessThanOrEqual(
+            TerminalWindowPortalRegistry.debugPortalCount(),
+            Self.suiteBaselinePortalCount,
+            "Earlier tests left window portals registered after their windows went away"
+        )
+
+        let baselineWindows = Self.suiteBaselineWindowNumbers ?? []
+        let leakedPortalWindows = NSApp.windows.filter { window in
+            guard !baselineWindows.contains(window.windowNumber) else { return false }
+            guard let container = window.contentView?.superview else { return false }
+            return container.subviews.contains { $0 is WindowTerminalHostView }
+        }
+        XCTAssertTrue(
+            leakedPortalWindows.isEmpty,
+            "Earlier tests left live portal windows behind: "
+                + leakedPortalWindows
+                    .map { "#\($0.windowNumber) \(Int($0.frame.width))x\(Int($0.frame.height))" }
+                    .joined(separator: ", ")
+        )
+
+        let runtimeSurfaceCount =
+            GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot().runtimeSurfaceCount
+        XCTAssertLessThanOrEqual(
+            runtimeSurfaceCount,
+            Self.suiteBaselineRuntimeSurfaceCount,
+            "Earlier tests dropped live TerminalSurfaces without releasing them: "
+                + "\(runtimeSurfaceCount - Self.suiteBaselineRuntimeSurfaceCount) native runtime "
+                + "surface(s) still alive — their io threads and queued frees race the next tests"
+        )
+
+        // A dropped (not released) TerminalSurface unregisters from the
+        // surface registry in deinit, so the count above can look clean while
+        // the native free — and the surface's io threads — are still in
+        // flight on the teardown coordinator. That in-flight window is
+        // exactly what raced later tests, so assert it is empty too.
+        let pendingTeardowns = await GhosttyApp
+            .terminalSurfaceRuntimeDependencies
+            .runtimeTeardown
+            .debugPendingTeardownCount
+        XCTAssertEqual(
+            pendingTeardowns,
+            0,
+            "Earlier tests left \(pendingTeardowns) native surface free(s) in flight; "
+                + "release test surfaces synchronously instead of dropping them"
         )
     }
 }

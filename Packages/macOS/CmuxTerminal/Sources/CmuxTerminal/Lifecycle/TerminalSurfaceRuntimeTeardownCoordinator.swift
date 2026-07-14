@@ -20,6 +20,17 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// Creates the process's teardown coordinator.
     public init() {}
 
+#if DEBUG
+    /// Test support: native frees still queued or in flight. A test that
+    /// drops a live TerminalSurface instead of releasing it leaves its free —
+    /// and the surface's io threads — racing whatever runs next in the same
+    /// host; suites that create surfaces assert this drained back to their
+    /// baseline after teardown.
+    public var debugPendingTeardownCount: Int {
+        pendingReasonsById.count
+    }
+#endif
+
     /// Reads a bounded screen tail away from the main actor and before any
     /// subsequently enqueued native free for the same surface.
     ///
