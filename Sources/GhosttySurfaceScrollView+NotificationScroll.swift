@@ -136,7 +136,7 @@ extension GhosttySurfaceScrollView {
         return applyNotificationScrollRestore(
             targetTopRow: targetTopRow,
             scrollbar: geometry.scrollbar,
-            attemptsRemaining: 1,
+            attemptsRemaining: attemptsRemaining,
             perform: {
                 self.surfaceView.scrollToRow(
                     targetTopRow,
