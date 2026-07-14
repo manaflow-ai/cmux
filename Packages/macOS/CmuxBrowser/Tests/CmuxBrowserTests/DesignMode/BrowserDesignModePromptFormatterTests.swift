@@ -169,6 +169,18 @@ import Testing
         #expect(sanitized.hasSuffix("#%3Credacted%3E"))
     }
 
+    @Test func boundsPageURLsBeforeAndAfterRedaction() {
+        let oversizedInput = BrowserDesignModePageURL(
+            rawValue: "https://example.com/" + String(repeating: "private-segment/", count: 2_000)
+        ).sanitizedValue
+        let expandingInput = BrowserDesignModePageURL(
+            rawValue: "https://example.com/" + String(repeating: "x/", count: 1_000)
+        ).sanitizedValue
+
+        #expect(oversizedInput.isEmpty)
+        #expect(expandingInput.utf8.count <= 4_096)
+    }
+
     @Test func decodesRuntimeWireSnapshot() throws {
         let json = #"""
         {

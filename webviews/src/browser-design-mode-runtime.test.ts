@@ -276,6 +276,25 @@ describe("browser design-mode runtime", () => {
     expect(runtime.snapshot().selection?.selector).toBe("#renamed-hero");
   });
 
+  test("preserves application style and text updates beneath active edits", async () => {
+    const { dom, runtime } = fixture(`<main><h1 id="hero" style="color: purple">Original</h1></main>`);
+    const hero = dom.window.document.querySelector("#hero") as HTMLElement;
+    runtime.select("#hero");
+    runtime.applyStyle("color", "red");
+    runtime.applyText("Design edit");
+
+    hero.style.setProperty("color", "green");
+    hero.textContent = "Application update";
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(hero.style.getPropertyValue("color")).toBe("red");
+    expect(hero.textContent).toBe("Design edit");
+    runtime.revertAll();
+    expect(hero.style.getPropertyValue("color")).toBe("green");
+    expect(hero.textContent).toBe("Application update");
+  });
+
   test("bounds page-controlled snapshot fields before crossing the bridge", () => {
     const { dom, runtime } = fixture(`<p id="notes"></p>`);
     const huge = "x".repeat(1_000_000);
@@ -358,6 +377,32 @@ describe("browser design-mode runtime", () => {
     expect(account.selection?.text_content).not.toContain("style-secret");
   });
 
+  test("redacts editable content and URL-bearing attributes", () => {
+    const { runtime } = fixture(`
+      <main id="drafts">
+        <div id="editor" contenteditable="true">private draft copy</div>
+        <div id="role-editor" role="textbox">private role draft</div>
+        <a href="https://example.com/reset/opaque-reset-secret">Reset password</a>
+        <form action="https://example.com/submit/opaque-action-secret"></form>
+      </main>
+    `);
+
+    const editor = runtime.select("#editor");
+    expect(editor.selection?.text_content).toBe("<redacted>");
+    expect(editor.selection?.text_editable).toBe(false);
+
+    const roleEditor = runtime.select("#role-editor");
+    expect(roleEditor.selection?.text_content).toBe("<redacted>");
+    expect(roleEditor.selection?.text_editable).toBe(false);
+
+    const drafts = runtime.select("#drafts");
+    expect(drafts.selection?.dom_snippet).not.toContain("private draft copy");
+    expect(drafts.selection?.dom_snippet).not.toContain("private role draft");
+    expect(drafts.selection?.dom_snippet).not.toContain("opaque-reset-secret");
+    expect(drafts.selection?.dom_snippet).not.toContain("opaque-action-secret");
+    expect(drafts.selection?.dom_snippet).toContain("&lt;redacted&gt;");
+  });
+
   test("does not expose or edit form values or dispatch page input events", () => {
     const { dom, runtime } = fixture(`<main><input id="name" value="Original"></main>`);
     let inputEvents = 0;
@@ -410,6 +455,26 @@ describe("browser design-mode runtime", () => {
     await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
 
     expect(selectorQueries).toBe(0);
+  });
+
+  test("selects through an interaction shield before the page receives pointer gestures", () => {
+    const { dom, runtime } = fixture(`<main><button id="danger">Delete</button></main>`);
+    const button = dom.window.document.querySelector("#danger") as HTMLButtonElement;
+    const overlay = dom.window.document.querySelector("[data-cmux-design-mode=overlay]") as HTMLElement;
+    let pagePointerDowns = 0;
+    button.addEventListener("pointerdown", () => { pagePointerDowns += 1; });
+    Object.defineProperty(dom.window.document, "elementFromPoint", { value: () => button });
+
+    overlay.dispatchEvent(new dom.window.MouseEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 4,
+      clientY: 4,
+    }));
+
+    expect(runtime.snapshot().selection?.selector).toBe("#danger");
+    expect(pagePointerDowns).toBe(0);
   });
 
   test("destroy restores every touched node and removes injected DOM state", () => {
