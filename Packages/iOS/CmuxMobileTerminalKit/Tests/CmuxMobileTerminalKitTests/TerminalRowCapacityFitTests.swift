@@ -153,4 +153,50 @@ struct TerminalRowCapacityFitTests {
         #expect(rowOnlyFit?.maximumFontSize(forEffectiveColumns: 134, atBaseFontSize: 12) == nil)
         #expect(rowOnlyFit?.capacityColumns(atBaseFontSize: 0) == nil)
     }
+
+    @Test("destination font waits for the exact viewport grant")
+    func destinationFontWaitsForExactViewportGrant() {
+        let request = TerminalViewportFontGrantRequest(
+            fontSize: 24,
+            reportColumns: 67,
+            reportRows: 66,
+            sourceEffectiveRows: 50
+        )
+        var state = TerminalViewportFontGrantState()
+
+        #expect(state.decision(for: request) == .wait(requestNewReport: true))
+        state.bindPendingRequest(toReportID: 7, columns: 67, rows: 66)
+
+        #expect(state.consumeAcknowledgement(reportID: 6, columns: 67, rows: 50) == nil)
+        #expect(state.consumeAcknowledgement(reportID: 7, columns: 68, rows: 50) == nil)
+        #expect(state.consumeAcknowledgement(reportID: 7, columns: 67, rows: 49) == nil)
+        #expect(state.consumeAcknowledgement(reportID: 7, columns: 67, rows: 50) == 24)
+    }
+
+    @Test("retry exhaustion keeps the safe font until geometry changes")
+    func retryExhaustionKeepsSafeFontUntilGeometryChanges() {
+        let failedRequest = TerminalViewportFontGrantRequest(
+            fontSize: 24,
+            reportColumns: 67,
+            reportRows: 66,
+            sourceEffectiveRows: 50
+        )
+        let changedRequest = TerminalViewportFontGrantRequest(
+            fontSize: 20,
+            reportColumns: 80,
+            reportRows: 66,
+            sourceEffectiveRows: 50
+        )
+        var state = TerminalViewportFontGrantState()
+
+        #expect(state.decision(for: failedRequest) == .wait(requestNewReport: true))
+        state.bindPendingRequest(toReportID: 7, columns: 67, rows: 66)
+        state.noteReportFailure(reportID: 7, willRetry: true)
+        #expect(state.decision(for: failedRequest) == .wait(requestNewReport: false))
+
+        state.bindPendingRequest(toReportID: 8, columns: 67, rows: 66)
+        state.noteReportFailure(reportID: 8, willRetry: false)
+        #expect(state.decision(for: failedRequest) == .reject)
+        #expect(state.decision(for: changedRequest) == .wait(requestNewReport: true))
+    }
 }

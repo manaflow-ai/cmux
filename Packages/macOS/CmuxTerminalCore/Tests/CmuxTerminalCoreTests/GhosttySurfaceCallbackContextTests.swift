@@ -92,4 +92,25 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         #expect(context.runtimeSurface == nil)
         #expect(context.tabId == nil)
     }
+
+    @Test func originFenceRejectsHostRebindAndRuntimeReplacement() {
+        let originPointer = ghostty_surface_t(bitPattern: 0x3)
+        let replacementPointer = ghostty_surface_t(bitPattern: 0x4)
+        let origin = FakeSurfaceController(runtimeSurfacePointer: originPointer)
+        let replacement = FakeSurfaceController(runtimeSurfacePointer: replacementPointer)
+        let host = FakeSurfaceHost(attachedSurfaceController: origin)
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: origin
+        )
+
+        #expect(context.isCurrentOrigin(runtimeSurface: originPointer))
+
+        host.attachedSurfaceController = replacement
+        #expect(!context.isCurrentOrigin(runtimeSurface: originPointer))
+
+        host.attachedSurfaceController = origin
+        origin.runtimeSurfacePointer = replacementPointer
+        #expect(!context.isCurrentOrigin(runtimeSurface: originPointer))
+    }
 }

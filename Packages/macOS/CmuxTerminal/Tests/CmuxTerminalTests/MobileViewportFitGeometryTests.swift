@@ -414,6 +414,31 @@ struct MobileViewportFitGeometryTests {
         #expect(box.height == 1)
     }
 
+    @Test func staleReloadCompletionCannotConsumeNewerLease() throws {
+        var state = MobileViewportFontFitReloadLeaseState()
+        let first = state.prepare(
+            columns: 80,
+            rows: 24,
+            surrendered: true,
+            userAdjustedBaseFontPointSize: nil
+        )
+        let second = state.prepare(
+            columns: 100,
+            rows: 30,
+            surrendered: false,
+            userAdjustedBaseFontPointSize: 14
+        )
+
+        #expect(state.consume(generation: first.generation) == nil)
+        #expect(state.pendingGeneration == second.generation)
+
+        let consumed = try #require(state.consume(generation: second.generation))
+        #expect(consumed.columns == 100)
+        #expect(consumed.rows == 30)
+        #expect(consumed.userAdjustedBaseFontPointSize == 14)
+        #expect(state.pendingGeneration == nil)
+    }
+
     private func geometry(
         paneWidthPx: Int,
         paneHeightPx: Int,
