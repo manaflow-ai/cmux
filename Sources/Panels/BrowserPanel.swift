@@ -22,15 +22,6 @@ import CommonCrypto
 import Security
 #endif
 
-enum BrowserAddressBarFocusSelectionIntent: Equatable {
-    case preserveFieldEditorSelection
-    case selectAll
-
-    var shouldSelectAll: Bool {
-        self == .selectAll
-    }
-}
-
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
     var result: [URL] = []
@@ -976,10 +967,13 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
 @discardableResult
 func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
     guard let url = request.url else { return nil }
+    let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
         guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
+        webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
         return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
     }
+    webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
     return webView.load(browserPreparedNavigationRequest(request))
 }
 
@@ -2586,7 +2580,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             now.timeIntervalSince(session.createdAt) <= maxSessionAge
         }
     }
-
     private func responseHeaders(for file: RegisteredFile) -> [String: String] {
         var headers = [
             "Content-Type": "\(file.mimeType); charset=utf-8",
@@ -2594,6 +2587,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             "X-Content-Type-Options": "nosniff",
             "Cross-Origin-Resource-Policy": "same-origin"
         ]
+        if file.fileURL.lastPathComponent.hasSuffix(".deflate") { headers["Content-Encoding"] = "deflate" }
         if file.mimeType == "text/html" {
             headers["Content-Security-Policy"] = [
                 "default-src 'none'",
@@ -3730,27 +3724,26 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didClearPDFDocument = { [weak self] in
             MainActor.assumeIsolated { self?.clearRenderedPDFDocument() }
         }
-
-        navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
+        navigationDelegate.didStartProvisionalNavigation = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                (webView as? CmuxWebView)?.diffViewerNavigationDidStart(navigation)
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
             }
         }
-        navigationDelegate.didCommit = { [weak self] webView in
+        navigationDelegate.didCommit = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
                 self.isMainFrameProvisionalNavigationActive = false
-                // An about:blank commit is WebKit's placeholder document, not
-                // content; leaving the flag false keeps the restore-stall
-                // detector armed so a restore that dead-ends there retries.
+                // An about:blank placeholder leaves the restore-stall detector armed.
                 if !Self.isAboutBlankURL(webView.url) {
                     self.hasCommittedDocumentSinceWebViewReplacement = true
                 }
-                // Reset playback tracking only once the new top-level document has
-                // actually replaced the old one. Resetting earlier (on provisional
+                // Reset playback tracking only once the new top-level document has replaced
+                // the old one. Resetting earlier (on provisional
                 // start) would drop a still-playing page's frames if the
                 // navigation then fails or is canceled, letting a playing pane be
                 // discarded. didCommit does not fire for same-document (pushState)
@@ -3809,6 +3802,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView, cancelledNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                (webView as? CmuxWebView)?.diffViewerNavigationDidCancel(cancelledNavigation)
                 let isRestoreBookkeepingNavigation = self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation)
                 self.isMainFrameProvisionalNavigationActive = false
                 if isRestoreBookkeepingNavigation {
@@ -4229,6 +4223,7 @@ final class BrowserPanel: Panel, ObservableObject {
             webView.frame = contentView.bounds
             webView.autoresizingMask = [.width, .height]
             contentView.addSubview(webView)
+            webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
             return true
         }
 
@@ -4257,6 +4252,7 @@ final class BrowserPanel: Panel, ObservableObject {
         window.contentView = contentView
         backgroundPreloadWindow = window
         window.orderFrontRegardless()
+        webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
 
 #if DEBUG
         cmuxDebugLog(

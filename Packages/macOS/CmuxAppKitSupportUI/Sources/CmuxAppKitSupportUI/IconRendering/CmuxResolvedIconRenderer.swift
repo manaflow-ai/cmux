@@ -13,15 +13,29 @@ public final class CmuxResolvedIconRenderer {
     /// - Parameters:
     ///   - request: Icon render request.
     ///   - appearance: Appearance used to resolve dynamic colors and asset variants.
-    /// - Returns: A copied, sized image, or `nil` when the source cannot be resolved.
+    /// - Returns: A copied, sized image, or `nil` when the source is missing or draws blank.
     public func image(for request: CmuxResolvedIconRequest, appearance: NSAppearance) -> NSImage? {
+        try? render(for: request, appearance: appearance).get()
+    }
+
+    /// Renders a non-template image for the supplied appearance.
+    /// - Parameters:
+    ///   - request: Icon render request.
+    ///   - appearance: Appearance used to resolve dynamic colors and asset variants.
+    /// - Returns: A visible image, or a failure that distinguishes missing sources from blank output.
+    public func render(
+        for request: CmuxResolvedIconRequest,
+        appearance: NSAppearance
+    ) -> Result<NSImage, CmuxResolvedIconRenderFailure> {
         guard let imageSize = normalizedSize(request.size) else {
-            return nil
+            return .failure(.sourceUnavailable)
         }
         var output: NSImage?
+        var failure = CmuxResolvedIconRenderFailure.sourceUnavailable
         appearance.performAsCurrentDrawingAppearance {
             guard let sourceImage = resolvedSourceImage(for: request),
                   let bitmap = bitmapRepresentation(size: imageSize) else {
+                failure = .sourceUnavailable
                 return
             }
             bitmap.size = imageSize
@@ -47,15 +61,20 @@ public final class CmuxResolvedIconRenderer {
                 tintColor.setFill()
                 NSRect(origin: .zero, size: imageSize).fill(using: .sourceAtop)
             }
+            guard containsVisiblePixels(in: bitmap) else {
+                failure = .blankOutput
+                return
+            }
             let rendered = NSImage(size: imageSize)
             rendered.addRepresentation(bitmap)
+            rendered.cacheMode = .never
+            rendered.isTemplate = false
             output = rendered
         }
-        guard let output else {
-            return nil
+        if let output {
+            return .success(output)
         }
-        output.isTemplate = false
-        return output
+        return .failure(failure)
     }
 
     /// Returns PNG data for an icon rendered under the supplied appearance.
@@ -84,7 +103,6 @@ public final class CmuxResolvedIconRenderer {
             )
             let configured = baseImage.withSymbolConfiguration(configuration) ?? baseImage
             let image = copiedImage(configured)
-            image.isTemplate = true
             return image
         case .asset(let name, let bundle):
             guard let image = bundle.image(forResource: name) ?? NSImage(named: name) else {
@@ -100,6 +118,7 @@ public final class CmuxResolvedIconRenderer {
     private func copiedImage(_ image: NSImage) -> NSImage {
         let copy = (image.copy() as? NSImage) ?? image
         copy.cacheMode = .never
+        copy.isTemplate = false
         copy.recache()
         return copy
     }
@@ -117,6 +136,17 @@ public final class CmuxResolvedIconRenderer {
             bytesPerRow: 0,
             bitsPerPixel: 0
         )
+    }
+
+    private func containsVisiblePixels(in bitmap: NSBitmapImageRep) -> Bool {
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                if let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.01 {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private func normalizedSize(_ size: NSSize) -> NSSize? {

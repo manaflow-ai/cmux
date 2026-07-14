@@ -50,7 +50,6 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
-    private let resolvedIconAppearanceObserver = ResolvedIconAppearanceObserver()
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
@@ -65,7 +64,6 @@ struct cmuxApp: App {
     @State private var browserFocusModeMenuRevision = 0
     @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @Environment(\.openWindow) private var openWindow
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
     }
@@ -380,14 +378,6 @@ struct cmuxApp: App {
                 .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
-                    SettingsWindowPresenter.configure(
-                        openWindow: {
-                            openWindow(id: SettingsWindowPresenter.windowID)
-                        },
-                        parentWindowProvider: {
-                            AppDelegate.shared?.preferredMainWindowForSettingsPresentation()
-                        }
-                    )
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
                         AppDelegate.shared?.updateLog.append("ui test: cmuxApp onAppear")
@@ -869,20 +859,10 @@ struct cmuxApp: App {
             windowAndViewCommands
         }
 
-        Window(String(localized: "settings.title", defaultValue: "Settings"), id: SettingsWindowPresenter.windowID) {
-            SettingsWindowRoot(runtime: settingsRuntime)
-                .settingsRuntime(settingsRuntime)
-                .cmuxFontMagnificationEnvironment()
-                .background(WindowAccessor(dedupeByWindow: false) { window in
-                    SettingsWindowPresenter.configure(window: window)
-                })
-                .cmuxAppearanceColorScheme(appearanceMode)
-        }
-        .defaultSize(width: 980, height: 680)
-        .windowResizability(.contentMinSize)
-        .commands {
-            SidebarCommands()
-        }
+        // Settings is an AppKit-owned window (SettingsWindowPresenter /
+        // SettingsWindowFactory), not a SwiftUI Window scene: openWindow(id:)
+        // could silently no-op and leave menu/⌘,/CLI opens dead until app
+        // restart (https://github.com/manaflow-ai/cmux/issues/7777).
 
         Window(String(localized: "settings.config.windowTitle", defaultValue: "Config"), id: ConfigSettingsView.windowID) {
             ConfigSettingsView()
@@ -903,6 +883,10 @@ struct cmuxApp: App {
         historyCommands
         CommandGroup(after: .toolbar) {
             splitCommandButton(title: String(localized: "menu.view.toggleLeftSidebar", defaultValue: "Toggle Left Sidebar"), shortcut: menuShortcut(for: .toggleSidebar)) {
+                // The AppKit-hosted Settings window has no SwiftUI
+                // SidebarCommands; route the shared command to its split view
+                // whenever it is key.
+                if SettingsWindowPresenter.handleSidebarToggleIfSettingsWindowIsKey(keyWindow: NSApp.keyWindow) { return }
                 if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
                     sidebarState.toggle()
                 }
@@ -1138,7 +1122,6 @@ struct cmuxApp: App {
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
         appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
-        resolvedIconAppearanceObserver.startObserving()
     }
 
     private var currentSocketMode: SocketControlMode {

@@ -1,17 +1,15 @@
-//! Left sidebar: a "workspaces" header (with a blank line under it),
-//! then two lines per workspace (name, then the active pane's title)
-//! with a blank line between workspaces, and a new-workspace row at the
-//! end. Uses the terminal's default background so it blends with pane
-//! content; only the active workspace rows get a highlight. Owns its
-//! full column including the status-bar row (the status bar starts
-//! after the sidebar). Rebuilds the click hit map as it draws.
+//! Left sidebar renderer for the built-in files/workspaces views and the
+//! external plugin PTY. Owns its full column including the status-bar row
+//! (the status bar starts after the sidebar) and rebuilds the click hit map
+//! as it draws.
 
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 
-use super::truncate;
+use super::{middle_truncate, truncate};
 use crate::app::{App, Hit};
+use crate::config::SidebarView;
 
 /// The color of a workspace's unread indicator, or `None` when nothing is
 /// unread. Mirrors the tab-bar severity cue (`error` > `warning` > `info`)
@@ -39,7 +37,10 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         draw_plugin(app, frame);
         return;
     }
-    draw_builtin(app, frame);
+    match app.sidebar_view {
+        SidebarView::Files => draw_files(app, frame),
+        SidebarView::Workspaces => draw_workspaces(app, frame),
+    }
 }
 
 fn draw_plugin(app: &mut App, frame: &mut Frame) {
@@ -63,6 +64,10 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
             buf[(border_x, y)].set_symbol("│").set_style(border_style);
         }
     }
+    // The divider column is a drag handle exactly like the built-in sidebar's;
+    // without this hit zone, drag-resize is dead whenever a plugin owns the
+    // sidebar (the plugin rect stops one column short of the divider).
+    app.hits.push((Rect { x: border_x, y: 0, width: 1, height }, Hit::SidebarResize));
     if let Some(surface_id) = app.sidebar_plugin_surface {
         let Some(surface) = app.session.surface(surface_id) else { return };
         surface.take_dirty();
@@ -99,7 +104,7 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
     }
 }
 
-fn draw_builtin(app: &mut App, frame: &mut Frame) {
+fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     let width = app.sidebar_width;
     let height = area.height;
@@ -111,13 +116,19 @@ fn draw_builtin(app: &mut App, frame: &mut Frame) {
     let workspace_drag = app.workspace_drag();
     let buf = frame.buffer_mut();
 
+    let chrome = app.chrome;
+    let selected_bg = if app.config.theme_overrides.sidebar_active_bg {
+        app.config.theme.sidebar_active_bg
+    } else {
+        chrome.sidebar_selected_bg
+    };
     let base = Style::default();
-    let dim = base.fg(Color::Indexed(242));
+    let dim = base.fg(chrome.sidebar_dim_fg);
     let active_style = Style::default()
-        .bg(app.config.theme.sidebar_active_bg)
-        .fg(Color::Indexed(255))
+        .bg(selected_bg)
+        .fg(chrome.sidebar_selected_fg)
         .add_modifier(Modifier::BOLD);
-    let border = base.fg(Color::Indexed(237));
+    let border = base.fg(chrome.sidebar_border);
 
     for y in 0..height {
         for x in 0..width - 1 {
@@ -146,20 +157,24 @@ fn draw_builtin(app: &mut App, frame: &mut Frame) {
             break;
         }
         let active = i == app.tree.active_workspace;
-        let mut style = if active { active_style } else { base };
+        let focused_selection = app.sidebar_focused && i == app.sidebar_workspace_selection;
+        let highlighted = active || focused_selection;
+        let mut style = if highlighted { active_style } else { base };
         if workspace_drag.is_some_and(|(id, _)| id == ws.id) {
             style = style.add_modifier(Modifier::DIM);
         }
         // The active highlight paints the full rows, and the rail marks
         // BOTH lines of the entry in the configured color.
-        if active {
+        if highlighted {
             for x in 0..width - 1 {
                 buf[(x, y)].set_style(active_style);
                 buf[(x, y + 1)].set_style(active_style);
             }
-            let rail_style = active_style.fg(rail);
-            buf[(0, y)].set_symbol("▎").set_style(rail_style);
-            buf[(0, y + 1)].set_symbol("▎").set_style(rail_style);
+            if active {
+                let rail_style = active_style.fg(rail);
+                buf[(0, y)].set_symbol("▎").set_style(rail_style);
+                buf[(0, y + 1)].set_symbol("▎").set_style(rail_style);
+            }
         }
         if content_w > 1
             && let Some(color) = workspace_unread_color(&app.config.theme, ws)
@@ -179,7 +194,7 @@ fn draw_builtin(app: &mut App, frame: &mut Frame) {
         } else {
             format!("  {}", truncate(title, content_w.saturating_sub(3)))
         };
-        let sub_style = if active { active_style.add_modifier(Modifier::DIM) } else { dim };
+        let sub_style = if highlighted { active_style.add_modifier(Modifier::DIM) } else { dim };
         set_line_from(buf, 1, y + 1, subtitle.trim_start(), sub_style);
         hits.push((row_rect(y + 1), Hit::Workspace { index: i, id: ws.id }));
         y += 3; // two content lines + one blank separator line
@@ -202,4 +217,157 @@ fn draw_builtin(app: &mut App, frame: &mut Frame) {
     }
     hits.push((Rect { x: width - 1, y: 0, width: 1, height }, Hit::SidebarResize));
     app.hits.extend(hits);
+}
+
+fn draw_files(app: &mut App, frame: &mut Frame) {
+    let area = frame.area();
+    let width = app.sidebar_width;
+    let height = area.height;
+    if width < 3 || height == 0 {
+        return;
+    }
+    let content_width = width - 1;
+    let content_w = content_width as usize;
+    let chrome = app.chrome;
+    let base = Style::default();
+    let dim = base.fg(chrome.sidebar_dim_fg);
+    let selected_bg = if app.config.theme_overrides.sidebar_active_bg {
+        app.config.theme.sidebar_active_bg
+    } else {
+        chrome.sidebar_selected_bg
+    };
+    let selected_style = Style::default()
+        .bg(selected_bg)
+        .fg(chrome.sidebar_selected_fg)
+        .add_modifier(Modifier::BOLD);
+    let border = base.fg(if app.sidebar_focused {
+        app.config.theme.border_active
+    } else {
+        chrome.sidebar_border
+    });
+
+    let entries = app
+        .sidebar_files
+        .visible_entries()
+        .map(|entry| (entry.name.clone(), entry.is_dir()))
+        .collect::<Vec<_>>();
+    let selected = app.sidebar_files.selected();
+    let current_dir = app.sidebar_files.current_dir().to_string_lossy().into_owned();
+    let pinned = app.sidebar_files.is_pinned();
+    let filter_mode = app.sidebar_files.filter_mode();
+    let query = app.sidebar_files.query().to_string();
+    let show_hidden = app.sidebar_files.show_hidden();
+    let total = app.sidebar_files.total_len();
+    let listing_error = app.sidebar_files.listing_error().map(str::to_owned);
+    let message = app.sidebar_files.message().map(str::to_owned);
+    let unread = unread_summary(app);
+
+    let buf = frame.buffer_mut();
+    for y in 0..height {
+        for x in 0..content_width {
+            buf[(x, y)].set_symbol(" ").set_style(base);
+        }
+        buf[(width - 1, y)].set_symbol("│").set_style(border);
+    }
+
+    let marker = if pinned { "● " } else { "  " };
+    buf.set_stringn(0, 0, marker, content_w, dim);
+    let badge = unread.map(|(count, _)| format!("• {count}"));
+    let badge_width = badge.as_ref().map(|text| text.chars().count()).unwrap_or(0);
+    let path_width = content_w.saturating_sub(2 + badge_width + usize::from(badge_width > 0));
+    let path = middle_truncate(&current_dir, path_width);
+    buf.set_stringn(2, 0, &path, path_width, base.add_modifier(Modifier::BOLD));
+    if let (Some(text), Some((_, color))) = (badge, unread) {
+        let badge_x = content_width.saturating_sub(text.chars().count() as u16);
+        buf.set_stringn(
+            badge_x,
+            0,
+            &text,
+            text.chars().count(),
+            base.fg(color).add_modifier(Modifier::BOLD),
+        );
+    }
+
+    let body_start = 1;
+    let body_height = height.saturating_sub(2) as usize;
+    let mut hits = Vec::new();
+    if let Some(error) = listing_error {
+        if body_height > 0 {
+            buf.set_stringn(0, body_start, truncate(&error, content_w), content_w, dim);
+        }
+    } else if entries.is_empty() {
+        if body_height > 0 {
+            buf.set_stringn(0, body_start, " No files", content_w, dim);
+        }
+    } else {
+        let offset = file_scroll_offset(selected, body_height, entries.len());
+        for (line, (name, is_dir)) in entries.iter().skip(offset).take(body_height).enumerate() {
+            let y = body_start + line as u16;
+            let row_index = offset + line;
+            let style = if row_index == selected { selected_style } else { base };
+            if row_index == selected {
+                for x in 0..content_width {
+                    buf[(x, y)].set_style(style);
+                }
+            }
+            let prefix = if *is_dir { "▸ " } else { "  " };
+            buf.set_stringn(0, y, prefix, content_w, style.add_modifier(Modifier::DIM));
+            let name_width = content_w.saturating_sub(2);
+            buf.set_stringn(2, y, truncate(name, name_width), name_width, style);
+            hits.push((
+                Rect { x: 0, y, width: content_width, height: 1 },
+                Hit::SidebarFile { index: row_index },
+            ));
+        }
+    }
+
+    if height > 1 {
+        let footer = if filter_mode {
+            format!("/{query}█")
+        } else if let Some(message) = message {
+            message
+        } else {
+            format!(
+                "{}/{}  .:{}  / filter",
+                entries.len(),
+                total,
+                if show_hidden { "on" } else { "off" }
+            )
+        };
+        buf.set_stringn(0, height - 1, truncate(&footer, content_w), content_w, dim);
+    }
+    hits.push((Rect { x: width - 1, y: 0, width: 1, height }, Hit::SidebarResize));
+    app.hits.extend(hits);
+}
+
+fn unread_summary(app: &App) -> Option<(usize, Color)> {
+    let mut count = 0;
+    let mut highest = None;
+    for notification in app
+        .tree
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.screens.iter())
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .filter_map(|tab| tab.notification.filter(|notification| notification.unread))
+    {
+        count += 1;
+        let ranked = match notification.level {
+            "error" => (2u8, app.config.theme.notification_error),
+            "warning" => (1, app.config.theme.notification_warning),
+            _ => (0, app.config.theme.notification_info),
+        };
+        if highest.is_none_or(|current: (u8, Color)| ranked.0 > current.0) {
+            highest = Some(ranked);
+        }
+    }
+    highest.map(|(_, color)| (count, color))
+}
+
+fn file_scroll_offset(selected: usize, visible_height: usize, total: usize) -> usize {
+    if visible_height == 0 || total <= visible_height || selected < visible_height {
+        return 0;
+    }
+    (selected + 1).saturating_sub(visible_height).min(total - visible_height)
 }

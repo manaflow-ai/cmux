@@ -409,6 +409,7 @@ extension CmuxSettingsFileStore {
         "sidebar.stackBranchDirectory",
         "sidebar.pathLastSegmentOnly",
         "sidebar.showNotificationMessage",
+        "sidebar.notificationMessageLineLimit",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",
         "sidebar.watchGitStatus",

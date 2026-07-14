@@ -3,6 +3,7 @@ extension TerminalController {
     nonisolated static let v2DebugMethodNames: [String] = [
         "remote.tmux.test_exec",
         "remote.tmux.test_set_frame",
+        "remote.tmux.sizing_settled",
         "debug.shortcut.set",
         "debug.shortcut.simulate",
         "debug.type",
@@ -10,6 +11,7 @@ extension TerminalController {
         "debug.textbox.interact",
         "debug.app.activate",
         "debug.workspace_todo.checklist_add_field",
+        "debug.pro_welcome_checklist.show",
         "debug.command_palette.toggle",
         "debug.command_palette.rename_tab.open",
         "debug.command_palette.visible",

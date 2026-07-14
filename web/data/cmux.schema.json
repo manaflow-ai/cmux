@@ -1006,6 +1006,14 @@
           "default": true,
           "description": "Show the latest notification text in the sidebar."
         },
+        "notificationMessageLineLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 12,
+          "description": "Maximum lines shown for the latest notification below each workspace title.",
+          "descriptionKey": "schemaDescriptions.sidebar.notificationMessageLineLimit"
+        },
         "showBranchDirectory": {
           "type": "boolean",
           "default": true,
@@ -1643,9 +1651,15 @@
               "openDiffViewer",
               "diffViewerScrollDown",
               "diffViewerScrollUp",
+              "diffViewerScrollHalfPageDown",
+              "diffViewerScrollHalfPageUp",
+              "diffViewerScrollDownEmacs",
+              "diffViewerScrollUpEmacs",
               "diffViewerScrollToBottom",
               "diffViewerScrollToTop",
-              "diffViewerOpenFileSearch"
+              "diffViewerOpenFileSearch",
+              "diffViewerNextFile",
+              "diffViewerPreviousFile"
             ]
           },
           "properties": {
@@ -1661,6 +1675,18 @@
             "diffViewerScrollUp": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
+            "diffViewerScrollHalfPageDown": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerScrollHalfPageUp": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerScrollDownEmacs": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerScrollUpEmacs": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
             "diffViewerScrollToBottom": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
@@ -1668,6 +1694,12 @@
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerOpenFileSearch": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerNextFile": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerPreviousFile": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },

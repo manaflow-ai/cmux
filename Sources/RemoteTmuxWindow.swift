@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 /// A tmux window within a mirrored session, assembled from the control-mode
@@ -61,4 +62,17 @@ struct RemoteTmuxWindow: Sendable, Equatable, Codable {
 
     /// All pane ids in this window, depth-first left-to-right.
     var paneIDsInOrder: [Int] { layout.paneIDsInOrder }
+
+    /// Returns the same verified window geometry with a newer tmux name.
+    func replacingName(with name: String) -> Self {
+        Self(
+            id: id,
+            name: name,
+            width: width,
+            height: height,
+            layout: layout,
+            visibleLayout: visibleLayout,
+            zoomed: zoomed
+        )
+    }
 }

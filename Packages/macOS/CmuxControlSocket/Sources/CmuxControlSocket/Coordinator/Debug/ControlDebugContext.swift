@@ -64,6 +64,10 @@ public protocol ControlDebugContext: AnyObject {
     ///   selected.
     func controlDebugRequestWorkspaceTodoChecklistAddField() -> UUID?
 
+    /// Shows the Pro welcome checklist window for
+    /// `debug.pro_welcome_checklist.show`.
+    func controlDebugShowProWelcomeChecklist()
+
     /// Runs the shared v1 `is_terminal_focused` body for
     /// `debug.terminal.is_focused`.
     ///
@@ -311,5 +315,8 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The stats payload (`nil` only if the counter dictionary ever
     ///   failed to bridge to JSON, which its `String`/`Int` leaves preclude).
     func controlDebugPortalStats() -> JSONValue?
+
+    /// Snapshots exact-span settlement for every visible mirrored tmux window.
+    func controlDebugRemoteTmuxSizingSettled() -> JSONValue?
 #endif
 }
