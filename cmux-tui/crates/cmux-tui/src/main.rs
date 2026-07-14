@@ -94,7 +94,7 @@ CLI VERBS
   identify, ping, set-client-info, list-clients, detach-client,
   reload-config, set-window-title, clear-window-title,
   list-workspaces, export-layout, apply-layout, send,
-  read-screen, vt-state, new-tab, new-browser-tab, new-workspace,
+  read-screen, read-scrollback, vt-state, new-tab, new-browser-tab, new-workspace,
   new-screen, split, set-ratio, pane-neighbor, focus-direction,
   swap-pane, zoom-pane, process-info, set-default-colors,
   close-surface, close-pane, close-screen, close-workspace,

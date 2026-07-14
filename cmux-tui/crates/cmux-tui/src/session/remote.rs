@@ -70,7 +70,6 @@ impl std::fmt::Display for RemoteRequestError {
 }
 
 impl std::error::Error for RemoteRequestError {}
-
 #[derive(Clone)]
 struct RemoteBrowserFrame {
     frame: BrowserFrame,

@@ -15,8 +15,8 @@ use std::sync::atomic::Ordering;
 
 use cmux_tui_core::{
     BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
-    SidebarPluginStatus, SplitDir, Surface, SurfaceId, SurfaceKind, SurfaceResizeReporter,
-    WorkspaceId, ZoomMode,
+    SidebarPluginStatus, SplitDir, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame,
+    SurfaceResizeReporter, WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{MouseInput, RenderState, Terminal};
 use serde_json::json;
@@ -812,11 +812,24 @@ impl SurfaceHandle {
         }
     }
 
-    pub fn snapshot(&self, rs: &mut RenderState) -> ghostty_vt::Result<()> {
+    pub fn render_frame(
+        &self,
+        rs: &mut RenderState,
+    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
         match self {
-            SurfaceHandle::Local(surface) => surface.snapshot(rs),
+            SurfaceHandle::Local(surface) => surface.render_frame(),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
-                rs.update(&mut surface.term.lock().unwrap())
+                let mut term = surface.term.lock().unwrap();
+                rs.update(&mut term)?;
+                let palette_colors = std::array::from_fn(|idx| rs.palette_color(idx as u8));
+                let palette_overridden =
+                    std::array::from_fn(|idx| rs.palette_overridden(idx as u8));
+                Ok(Arc::new(SurfaceRenderFrame {
+                    frame: rs.build_frame()?,
+                    scrollback_rows: term.history_rows(),
+                    palette_colors,
+                    palette_overridden,
+                }))
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => {
                 Err(ghostty_vt::Error::InvalidValue)
