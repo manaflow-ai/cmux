@@ -344,7 +344,7 @@ import Testing
 }
 
 @MainActor
-@Test func definiteCloseFailuresSkipRefreshAndReleaseReservation() async throws {
+@Test func closePolicyFailuresRefreshOnlyWhenStateMayHaveDiverged() async throws {
     for code in ["protected", "confirmation_required"] {
         let router = RoutingHostRouter()
         await router.setTerminalCloseErrorCode(code)
@@ -383,7 +383,7 @@ import Testing
             }
         }
         #expect(await router.recordedTerminalCloseCount() == 1)
-        #expect(await router.workspaceListGate.requestCount() == 0)
+        #expect(await router.workspaceListGate.requestCount() == (code == "protected" ? 1 : 0))
         #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
     }
 }

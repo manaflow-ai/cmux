@@ -23,12 +23,15 @@ import Testing
 }
 
 @MainActor
-@Test func rejectedMutationDispositionDistinguishesPolicyFromDivergence() {
+@Test func rejectedMutationDispositionDistinguishesRetryableStateFromPolicy() {
     let store = MobileShellComposite.preview()
 
     #expect(store.workspaceMutationErrorDisposition(
         MobileShellConnectionError.rpcError("protected", "Protected")
-    ) == .immediateRejection)
+    ) == .definiteDivergence)
+    #expect(store.workspaceMutationErrorDisposition(
+        MobileShellConnectionError.rpcError("unavailable", "Unavailable")
+    ) == .definiteDivergence)
     #expect(store.workspaceMutationErrorDisposition(
         MobileShellConnectionError.rpcError("confirmation_required", "Confirm")
     ) == .immediateRejection)

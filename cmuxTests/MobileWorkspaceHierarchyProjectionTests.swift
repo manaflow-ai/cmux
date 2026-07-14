@@ -11,6 +11,29 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct MobileWorkspaceHierarchyProjectionTests {
+    @Test func digestIndexResamplesOnlyTheChangedWorkspace() throws {
+        let firstManager = TabManager()
+        let secondManager = TabManager()
+        let first = try #require(firstManager.selectedWorkspace)
+        let second = try #require(secondManager.selectedWorkspace)
+        let workspaces = [first, second]
+        var sampledWorkspaceIDs: [UUID] = []
+        var index = MobileWorkspaceListProjection.DigestIndex()
+
+        _ = index.refresh(tabs: workspaces, resampling: Set(workspaces.map(\.id))) { workspace in
+            sampledWorkspaceIDs.append(workspace.id)
+            return workspace.id.hashValue
+        }
+        #expect(sampledWorkspaceIDs == workspaces.map(\.id))
+
+        sampledWorkspaceIDs.removeAll()
+        _ = index.refresh(tabs: workspaces, resampling: [second.id]) { workspace in
+            sampledWorkspaceIDs.append(workspace.id)
+            return workspace.id.hashValue
+        }
+        #expect(sampledWorkspaceIDs == [second.id])
+    }
+
     @Test func closeConfirmationFallbackIsLazyForKnownShellActivity() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)

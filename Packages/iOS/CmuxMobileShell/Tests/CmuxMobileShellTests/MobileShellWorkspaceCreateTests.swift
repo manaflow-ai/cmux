@@ -170,7 +170,7 @@ import Testing
         }
         await router.awaitFirstWorkspaceCreateReached()
 
-        #expect(await store.refreshForegroundWorkspaceListAfterMutation())
+        #expect(await store.reloadWorkspaceListFromMac())
         #expect(store.workspaces.first(where: { $0.rpcWorkspaceID.rawValue == RoutingHostRouter.workspaceID })?.name == "Stale Workspace")
 
         await router.releaseFirstWorkspaceCreate()
