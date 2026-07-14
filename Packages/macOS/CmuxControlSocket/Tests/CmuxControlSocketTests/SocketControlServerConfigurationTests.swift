@@ -37,6 +37,16 @@ struct SocketControlServerConfigurationTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.socketPath))
     }
 
+    @Test func directStartWithOffLeavesNoListener() throws {
+        let fixture = try SocketConfigurationFixture()
+        defer { fixture.shutdown() }
+
+        #expect(!fixture.server.start(socketPath: fixture.socketPath, accessMode: .off))
+        #expect(!fixture.server.isRunning)
+        #expect(fixture.server.accessMode == .off)
+        #expect(!FileManager.default.fileExists(atPath: fixture.socketPath))
+    }
+
     @Test func reconfigureInvalidatesConnectionsAcceptedUnderPreviousMode() async throws {
         let fixture = try SocketConfigurationFixture()
         defer { fixture.shutdown() }
