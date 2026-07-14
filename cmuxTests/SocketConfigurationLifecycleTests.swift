@@ -64,6 +64,39 @@ extension SocketACLReloadRegressionTests {
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.password.rawValue)
     }
 
+    @Test(arguments: [SocketControlMode.cmuxOnly, .off])
+    func missingPrimaryColdStartPreservesImportedRestrictiveMode(mode: SocketControlMode) throws {
+        let defaults = UserDefaults.standard
+        let originalDefaults = capturedSocketDefaults(defaults)
+        let directory = lifecycleTemporaryDirectory(prefix: "scfc")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let configURL = directory.appendingPathComponent("cmux.json")
+        defer {
+            restoreSocketDefaults(originalDefaults, in: defaults)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        resetSocketDefaults(defaults, unmanagedMode: .allowAll)
+        try writeConfig(mode: mode.rawValue, to: configURL)
+        _ = CmuxSettingsFileStore(
+            primaryPath: configURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == mode.rawValue)
+
+        try FileManager.default.removeItem(at: configURL)
+        _ = CmuxSettingsFileStore(
+            primaryPath: configURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == mode.rawValue)
+    }
+
     @Test func malformedReloadPreservesLastValidRestrictiveMode() throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
