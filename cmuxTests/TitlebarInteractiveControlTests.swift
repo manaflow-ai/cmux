@@ -265,6 +265,14 @@ struct TitlebarInteractiveControlTests {
 
         #expect(layoutState.reservationWidth > 0)
 
+        let intrinsicControlWidth = controller.view.intrinsicContentSize.width
+        #expect(intrinsicControlWidth > 0)
+        controller.view.setFrameSize(NSSize(width: 600, height: 28))
+        #expect(
+            layoutState.reservationWidth <= intrinsicControlWidth + 1,
+            "AppKit may stretch the accessory host, but the sidebar must reserve only the controls' intrinsic width."
+        )
+
         let backdrop = NativeTitlebarBackdropCoordinator(fullscreenAuxiliaryWindows: { [] })
         backdrop.setTitlebarControlsHidden(true, in: window, isMinimalMode: false)
         #expect(layoutState.reservationWidth == 0)
