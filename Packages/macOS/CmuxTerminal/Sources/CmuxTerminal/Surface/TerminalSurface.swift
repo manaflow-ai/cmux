@@ -213,6 +213,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var mobileViewportCellLimit: (columns: Int, rows: Int)?
     /// Owns the temporary mobile-fit font lease and its user/configured origin.
     var mobileViewportFontFitState = MobileViewportFontFitState()
+    let mobileViewportMetricsReapplyState = MobileViewportMetricsReapplyState()
     var mobileViewportConfiguredFontPointSize: Float?
     var pendingMobileViewportFontFitReloadLease: MobileViewportFontFitReloadLease?
     // Debug metadata is read from debug/CLI paths off the main thread; the

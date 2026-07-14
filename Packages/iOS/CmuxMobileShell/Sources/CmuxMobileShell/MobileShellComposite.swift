@@ -6780,6 +6780,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
             return
         }
+        if let replayBarrierTokenForRequest {
+            guard !deferTerminalReplayToBarrierOwnerIfNeeded(
+                surfaceID: surfaceID,
+                replayBarrierToken: replayBarrierTokenForRequest
+            ) else { return }
+        }
         let coveredReplayBarrierDroppedOutputCountForRequest = replayBarrierTokenForRequest == nil
             ? nil
             : (coveredReplayBarrierDroppedOutputCount
@@ -6808,15 +6814,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
-        if let replayBarrierTokenForRequest {
-            guard terminalReplayBarrierTokensInFlightBySurfaceID[surfaceID] != replayBarrierTokenForRequest else {
-                recordTerminalReplayBarrierFollowUpWork(surfaceID: surfaceID)
-                #if DEBUG
-                mobileShellLog.info("CMUX_REPLAY followup_owed surface=\(surfaceID, privacy: .public) reason=barrier_in_flight")
-                #endif
-                return
-            }
-        } else {
+        if replayBarrierTokenForRequest == nil {
             guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else {
                 #if DEBUG
                 mobileShellLog.info("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=in_flight")

@@ -110,6 +110,27 @@ extension MobileShellComposite {
         return version
     }
 
+    /// Transfers a replay request to the barrier acknowledgement that already
+    /// owns the surface, coalescing it into that acknowledgement's follow-up.
+    func deferTerminalReplayToBarrierOwnerIfNeeded(
+        surfaceID: String,
+        replayBarrierToken: UUID
+    ) -> Bool {
+        let reason: String
+        if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] != nil {
+            reason = "barrier_ack_pending"
+        } else if terminalReplayBarrierTokensInFlightBySurfaceID[surfaceID] == replayBarrierToken {
+            reason = "barrier_in_flight"
+        } else {
+            return false
+        }
+        recordTerminalReplayBarrierFollowUpWork(surfaceID: surfaceID)
+        MobileDebugLog.anchormux(
+            "CMUX_REPLAY followup_owed surface=\(surfaceID) reason=\(reason)"
+        )
+        return true
+    }
+
     func requestColdAttachTerminalReplay(surfaceID: String) {
         guard remoteClient != nil else {
             terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.insert(surfaceID)

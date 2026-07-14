@@ -50,13 +50,29 @@ struct MobileViewportFitResult {
 }
 
 extension TerminalSurface {
-    /// Marks a Ghostty cell-metrics update as a possible explicit font change.
-    /// The next constrained sizing pass samples the live font once, then returns
-    /// to the cached ownership state until Ghostty signals another change.
+    /// Reapplies the active mobile viewport after Ghostty changes cell metrics.
+    /// Synchronous callbacks caused by the fit itself only rearm the live-font
+    /// probe; the bounded fit already in progress owns their convergence.
     @MainActor
     public func mobileViewportFontMetricsDidChange() {
-        guard mobileViewportCellLimit != nil else { return }
+        mobileViewportFontMetricsDidChange { [unowned self] columns, rows in
+            _ = applyMobileViewportLimit(
+                columns: columns,
+                rows: rows,
+                reason: "cell_metrics_changed"
+            )
+        }
+    }
+
+    @MainActor
+    func mobileViewportFontMetricsDidChange(
+        reapply: (_ columns: Int, _ rows: Int) -> Void
+    ) {
+        guard let mobileViewportCellLimit else { return }
         mobileViewportFontFitState.cellMetricsDidChange()
+        mobileViewportMetricsReapplyState.cellMetricsDidChange {
+            reapply(mobileViewportCellLimit.columns, mobileViewportCellLimit.rows)
+        }
     }
 
     /// Caps the surface grid to a paired iPhone's viewport.
@@ -88,6 +104,19 @@ extension TerminalSurface {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "applyMobileViewportLimit") else {
             paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
             return nil
+        }
+        guard mobileViewportMetricsReapplyState.beginViewportLimitApplication() else {
+            return mobileViewportCellLimit
+        }
+        defer {
+            mobileViewportMetricsReapplyState.endViewportLimitApplication { [unowned self] in
+                guard let mobileViewportCellLimit else { return }
+                _ = applyMobileViewportLimit(
+                    columns: mobileViewportCellLimit.columns,
+                    rows: mobileViewportCellLimit.rows,
+                    reason: "cell_metrics_followup"
+                )
+            }
         }
         if manualIO {
             // Remote/tmux mirrors keep legacy capping; their remote grid is
