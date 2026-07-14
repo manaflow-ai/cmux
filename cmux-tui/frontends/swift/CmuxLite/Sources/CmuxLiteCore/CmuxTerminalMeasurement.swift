@@ -14,21 +14,27 @@ public struct CmuxTerminalMeasurement: Sendable, Equatable {
     /// Ghostty's measured cell height in backing pixels.
     public let cellHeightPixels: UInt32
 
+    /// Ghostty's exact grid when the measured viewport is fitted to the container.
+    public let fittedGrid: CmuxSurfaceSize?
+
     /// Creates a terminal-container measurement.
     /// - Parameters:
     ///   - widthPixels: The final laid-out container width in backing pixels.
     ///   - heightPixels: The final laid-out container height in backing pixels.
     ///   - cellWidthPixels: Ghostty's measured cell width in backing pixels.
     ///   - cellHeightPixels: Ghostty's measured cell height in backing pixels.
+    ///   - fittedGrid: Ghostty's exact fitted grid, when available.
     public init(
         widthPixels: Double,
         heightPixels: Double,
         cellWidthPixels: UInt32,
-        cellHeightPixels: UInt32
+        cellHeightPixels: UInt32,
+        fittedGrid: CmuxSurfaceSize? = nil
     ) {
         self.widthPixels = widthPixels
         self.heightPixels = heightPixels
         self.cellWidthPixels = cellWidthPixels
         self.cellHeightPixels = cellHeightPixels
+        self.fittedGrid = fittedGrid
     }
 }

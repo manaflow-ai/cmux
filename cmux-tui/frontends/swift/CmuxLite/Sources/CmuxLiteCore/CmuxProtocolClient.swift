@@ -166,6 +166,10 @@ public actor CmuxProtocolClient {
         )
     }
 
+    func vtState(_ surface: UInt64) async throws -> CmuxVTStateResponse {
+        try await request(CmuxCommandRequest(id: 0, cmd: "vt-state", surface: surface))
+    }
+
     func sendBytes(_ bytes: Data, surface: UInt64) async throws {
         _ = try await request(
             CmuxCommandRequest(

@@ -34,6 +34,13 @@ public struct CmuxResizePolicy: Sendable {
     /// - Parameter measurement: Final container bounds and cell metrics.
     /// - Returns: A positive grid, or `nil` for incomplete layout metrics.
     public func grid(for measurement: CmuxTerminalMeasurement) -> CmuxSurfaceSize? {
+        if let fittedGrid = measurement.fittedGrid,
+           fittedGrid.cols > 0,
+           fittedGrid.rows > 0
+        {
+            return fittedGrid
+        }
+
         guard measurement.widthPixels.isFinite,
               measurement.heightPixels.isFinite,
               measurement.widthPixels > 0,

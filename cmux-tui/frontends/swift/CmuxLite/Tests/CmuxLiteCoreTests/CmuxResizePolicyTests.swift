@@ -67,6 +67,20 @@ struct CmuxResizePolicyTests {
         #expect(action == .none)
     }
 
+    @Test
+    func fittedGhosttyGridWinsOverCellOnlyEstimate() {
+        let fitted = CmuxSurfaceSize(cols: 94, rows: 36)
+        let measurement = CmuxTerminalMeasurement(
+            widthPixels: 1_330,
+            heightPixels: 1_036,
+            cellWidthPixels: 14,
+            cellHeightPixels: 28,
+            fittedGrid: fitted
+        )
+
+        #expect(policy.grid(for: measurement) == fitted)
+    }
+
     private func measurement(width: Double, height: Double) -> CmuxTerminalMeasurement {
         CmuxTerminalMeasurement(
             widthPixels: width,
