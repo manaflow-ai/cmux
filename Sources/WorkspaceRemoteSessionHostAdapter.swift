@@ -88,11 +88,4 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
         }
     }
 
-    func publishPersistentCleanupResult(succeeded: Bool) {
-        guard succeeded else { return }
-        let controllerID = self.controllerID
-        Task { @MainActor [weak workspace] in
-            workspace?.remoteSessionCleanupControllers.removeValue(forKey: controllerID)
-        }
-    }
 }

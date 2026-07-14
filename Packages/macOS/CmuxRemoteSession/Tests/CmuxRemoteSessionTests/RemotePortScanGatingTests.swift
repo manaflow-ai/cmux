@@ -385,7 +385,6 @@ struct PortScanNoopRemoteSessionHost: RemoteSessionHosting {
     func publishPortsSnapshot(detectedByPanel: [UUID: [Int]], detected: [Int]) {}
     func publishHeartbeat(count: Int, lastSeenAt: Date?) {}
     func publishBootstrapRemoteTTY(_ ttyName: String) {}
-    func publishPersistentCleanupResult(succeeded: Bool) {}
 }
 final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked Sendable {
     private let lock = NSLock()
@@ -415,7 +414,6 @@ final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked Sendabl
     }
     func publishHeartbeat(count: Int, lastSeenAt: Date?) {}
     func publishBootstrapRemoteTTY(_ ttyName: String) {}
-    func publishPersistentCleanupResult(succeeded: Bool) {}
 }
 
 /// The port-scan path never acquires a proxy lease or touches PTY sessions, so

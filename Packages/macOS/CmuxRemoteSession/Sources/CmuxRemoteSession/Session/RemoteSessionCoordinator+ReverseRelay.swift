@@ -398,12 +398,23 @@ extension RemoteSessionCoordinator {
     }
 
     private func removeRemoteRelayMetadataLocked(cleanupScope: RemoteRelayCleanupScope) -> Bool {
-        guard let relayPort = configuration.relayPort, relayPort > 0 else { return true }
         // VM workspaces never installed relay metadata (the reverse-relay path is gated off),
         // and the ssh-exec the cleanup would issue hangs on Freestyle's russh gateway.
         if configuration.skipDaemonBootstrap {
-            debugLog("remote.relay.cleanup.skipped reason=vm-baked relayPort=\(relayPort)")
+            debugLog("remote.relay.cleanup.skipped reason=vm-baked relayPort=\(configuration.relayPort.map(String.init) ?? "nil")")
             return true
+        }
+        guard let relayPort = configuration.relayPort, relayPort > 0 else {
+            guard case .persistentSlot = cleanupScope,
+                  let daemonRemotePath,
+                  let script = Self.remotePersistentDaemonStopScript(
+                      daemonRemotePath: daemonRemotePath,
+                      persistentDaemonSlot: configuration.persistentDaemonSlot
+                  ) else {
+                if case .transport = cleanupScope { return true }
+                return false
+            }
+            return runRemoteRelayCleanupScriptLocked(script, cleanupScope: cleanupScope, relayPort: nil)
         }
         let script = switch cleanupScope {
         case .transport:
@@ -417,6 +428,14 @@ extension RemoteSessionCoordinator {
                 persistentDaemonSlot: configuration.persistentDaemonSlot
             )
         }
+        return runRemoteRelayCleanupScriptLocked(script, cleanupScope: cleanupScope, relayPort: relayPort)
+    }
+
+    private func runRemoteRelayCleanupScriptLocked(
+        _ script: String,
+        cleanupScope: RemoteRelayCleanupScope,
+        relayPort: Int?
+    ) -> Bool {
         let command = "sh -c \(script.shellSingleQuoted)"
         do {
             let result = try sshExec(
@@ -427,11 +446,11 @@ extension RemoteSessionCoordinator {
                 let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
                     ?? "ssh exited \(result.status)"
                 debugLog(
-                    "remote.relay.cleanup.failed scope=\(cleanupScope) relayPort=\(relayPort) " +
+                    "remote.relay.cleanup.failed scope=\(cleanupScope) relayPort=\(relayPort.map(String.init) ?? "nil") " +
                         "\(detail) \(debugConfigSummary())"
                 )
                 remoteRelayLogger.error(
-                    "cleanup failed scope=\(String(describing: cleanupScope), privacy: .public) relayPort=\(relayPort, privacy: .public) detail=\(detail, privacy: .private(mask: .hash))"
+                    "cleanup failed scope=\(String(describing: cleanupScope), privacy: .public) relayPort=\(relayPort.map(String.init) ?? "nil", privacy: .public) detail=\(detail, privacy: .private(mask: .hash))"
                 )
                 return false
             }

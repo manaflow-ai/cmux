@@ -348,64 +348,6 @@ struct RemoteDisconnectLifecycleTests {
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(replacement.id))
     }
 
-    @Test func manualDisconnectPreservesPersistentDaemonSlot() throws {
-        let runner = CleanupRecordingRunner()
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
-        workspace.configureRemoteConnection(Self.persistentRemoteConfiguration(), autoConnect: true)
-
-        workspace.disconnectRemoteConnection(clearConfiguration: false)
-
-        let cleanupCommand = try #require(runner.waitForCleanupCommand())
-        #expect(!cleanupCommand.contains("serve --persistent-stop --slot"))
-        #expect(!cleanupCommand.contains("rm -rf"))
-
-        workspace.disconnectRemoteConnection(clearConfiguration: true)
-
-        let finalCleanupCommand = try #require(runner.waitForCleanupCommand())
-        #expect(finalCleanupCommand.contains("serve --persistent-stop --slot"))
-        #expect(finalCleanupCommand.contains("64007.shell"))
-    }
-
-    @Test func samePersistentIdentityReconfigurationPreservesDaemonSlot() throws {
-        let runner = CleanupRecordingRunner()
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
-        let configuration = Self.persistentRemoteConfiguration()
-        workspace.configureRemoteConnection(configuration, autoConnect: true)
-
-        workspace.configureRemoteConnection(configuration, autoConnect: false)
-
-        let cleanupCommand = try #require(runner.waitForCleanupCommand())
-        #expect(!cleanupCommand.contains("serve --persistent-stop --slot"))
-        #expect(!cleanupCommand.contains("rm -rf"))
-
-        workspace.disconnectRemoteConnection(clearConfiguration: true)
-
-        let finalCleanupCommand = try #require(runner.waitForCleanupCommand())
-        #expect(finalCleanupCommand.contains("serve --persistent-stop --slot"))
-        #expect(finalCleanupCommand.contains("64007.shell"))
-    }
-
-    @Test func failedFinalCleanupSurvivesNewControllerAndRetries() throws {
-        let runner = CleanupRecordingRunner(cleanupStatuses: [1, 0, 0])
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
-        workspace.configureRemoteConnection(Self.persistentRemoteConfiguration(slot: "ssh-lifecycle-a"), autoConnect: true)
-        workspace.disconnectRemoteConnection(clearConfiguration: true)
-        #expect(try #require(runner.waitForCleanupCommand()).contains("'ssh-lifecycle-a'"))
-
-        workspace.configureRemoteConnection(
-            Self.persistentRemoteConfiguration(slot: "ssh-lifecycle-b", relayPort: 64_008),
-            autoConnect: true
-        )
-        workspace.disconnectRemoteConnection(clearConfiguration: true)
-
-        let retryCommands = try [#require(runner.waitForCleanupCommand()), #require(runner.waitForCleanupCommand())]
-        #expect(retryCommands.contains(where: { $0.contains("'ssh-lifecycle-a'") }))
-        #expect(retryCommands.contains(where: { $0.contains("'ssh-lifecycle-b'") }))
-    }
-
     private static func remoteConfiguration(port: Int? = nil) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -419,61 +361,6 @@ struct RemoteDisconnectLifecycleTests {
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini"
         )
-    }
-
-    private static func persistentRemoteConfiguration(
-        slot: String = "ssh-lifecycle-test",
-        relayPort: Int = 64_007
-    ) -> WorkspaceRemoteConfiguration {
-        WorkspaceRemoteConfiguration(
-            destination: "cmux-macmini",
-            port: nil,
-            identityFile: nil,
-            sshOptions: [],
-            localProxyPort: nil,
-            relayPort: relayPort,
-            relayID: String(repeating: "a", count: 16),
-            relayToken: String(repeating: "b", count: 64),
-            localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            preserveAfterTerminalExit: true,
-            persistentDaemonSlot: slot
-        )
-    }
-
-    // The process-runner protocol is synchronous; the lock only protects this test recorder's short append/read pair.
-    private final class CleanupRecordingRunner: RemoteSessionProcessRunning, @unchecked Sendable {
-        private let lock = NSLock()
-        private let cleanupObserved = DispatchSemaphore(value: 0)
-        private var cleanupCommands: [String] = []
-        private var cleanupStatuses: [Int32]
-
-        init(cleanupStatuses: [Int32] = []) {
-            self.cleanupStatuses = cleanupStatuses
-        }
-
-        func run(
-            _ request: RemoteProcessRequest,
-            operation: (any RemoteTransferCancelling)?
-        ) throws -> RemoteCommandResult {
-            let command = request.arguments.last ?? ""
-            guard command.contains("relay_socket='127.0.0.1:") else {
-                return RemoteCommandResult(status: 1, stdout: "", stderr: "intentional bootstrap stop")
-            }
-            lock.lock()
-            cleanupCommands.append(command)
-            let status = cleanupStatuses.isEmpty ? 0 : cleanupStatuses.removeFirst()
-            lock.unlock()
-            cleanupObserved.signal()
-            return RemoteCommandResult(status: status, stdout: "", stderr: "")
-        }
-
-        func waitForCleanupCommand() -> String? {
-            guard cleanupObserved.wait(timeout: .now() + 2) == .success else { return nil }
-            lock.lock()
-            defer { lock.unlock() }
-            return cleanupCommands.isEmpty ? nil : cleanupCommands.removeFirst()
-        }
     }
 
     private static func removeTransitionArtifacts(workspace: Workspace, panelIds: [UUID]) {

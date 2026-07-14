@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"io"
@@ -176,6 +177,30 @@ func TestRunPersistentStopUsesSlotControlPlane(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("persistent daemon did not stop after serve --persistent-stop")
+	}
+}
+
+func TestPersistentDaemonShutdownRejectionDoesNotExposeRemoteMessage(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	done := make(chan error, 1)
+	go func() {
+		defer server.Close()
+		reader := bufio.NewReader(server)
+		if _, err := reader.ReadBytes('\n'); err != nil {
+			done <- err
+			return
+		}
+		_, err := io.WriteString(server, `{"id":"shutdown","ok":false,"error":{"code":"internal","message":"private remote detail"}}`+"\n")
+		done <- err
+	}()
+
+	err := requestPersistentDaemonShutdown(client)
+	if err == nil || err.Error() != "persistent daemon shutdown rejected" {
+		t.Fatalf("shutdown error = %q, want generic rejection", err)
+	}
+	if serverErr := <-done; serverErr != nil {
+		t.Fatalf("serve rejection response: %v", serverErr)
 	}
 }
 

@@ -240,49 +240,65 @@ struct RemoteRelaySlotTeardownTests {
     }
 
     @Test
-    func coordinatorStopUsesFinalPersistentSlotTeardown() throws {
-        let runner = SpyProcessRunner()
-        let host = IntentionalCleanupTestHost()
-        let coordinator = makeCoordinator(runner: runner, host: host)
-
-        coordinator.stop(cleanupScope: .persistentSlot)
-        coordinator.queue.sync {}
-
-        let cleanupCommand = try #require(runner.requests.last?.arguments.last)
-        #expect(cleanupCommand.contains("serve --persistent-stop --slot"))
-        #expect(cleanupCommand.contains("64010.shell"))
-        #expect(host.persistentCleanupResults == [true])
-    }
-
-    @Test
-    func coordinatorReportsFailedFinalCleanup() {
-        let runner = SpyProcessRunner(result: RemoteCommandResult(status: 1, stdout: "", stderr: "failed"))
-        let host = IntentionalCleanupTestHost()
-        let coordinator = makeCoordinator(runner: runner, host: host)
-
-        coordinator.stop(cleanupScope: .persistentSlot)
-        coordinator.queue.sync {}
-
-        #expect(host.persistentCleanupResults == [false])
-    }
-
-    @Test
-    func coordinatorTransportStopPreservesPersistentSlot() throws {
+    func coordinatorStopUsesFinalPersistentSlotTeardown() async throws {
         let runner = SpyProcessRunner()
         let coordinator = makeCoordinator(runner: runner)
 
-        coordinator.stop(cleanupScope: .transport)
-        coordinator.queue.sync {}
+        let succeeded = await coordinator.stopAndWait(cleanupScope: .persistentSlot)
 
         let cleanupCommand = try #require(runner.requests.last?.arguments.last)
+        #expect(succeeded)
+        #expect(cleanupCommand.contains("serve --persistent-stop --slot"))
+        #expect(cleanupCommand.contains("64010.shell"))
+    }
+
+    @Test
+    func coordinatorReportsFailedFinalCleanup() async {
+        let runner = SpyProcessRunner(result: RemoteCommandResult(status: 1, stdout: "", stderr: "failed"))
+        let coordinator = makeCoordinator(runner: runner)
+
+        let succeeded = await coordinator.stopAndWait(cleanupScope: .persistentSlot)
+
+        #expect(!succeeded)
+    }
+
+    @Test
+    func coordinatorTransportStopPreservesPersistentSlot() async throws {
+        let runner = SpyProcessRunner()
+        let coordinator = makeCoordinator(runner: runner)
+
+        let succeeded = await coordinator.stopAndWait(cleanupScope: .transport)
+
+        let cleanupCommand = try #require(runner.requests.last?.arguments.last)
+        #expect(succeeded)
         #expect(!cleanupCommand.contains("serve --persistent-stop --slot"))
         #expect(!cleanupCommand.contains("rm -rf"))
         #expect(cleanupCommand.contains("64010.slot"))
     }
 
+    @Test
+    func coordinatorStopsPersistentSlotAfterTransportCleanupWithoutRelayMetadata() async throws {
+        let runner = SpyProcessRunner()
+        let coordinator = makeCoordinator(runner: runner, relayPort: nil)
+        coordinator.queue.sync { coordinator.daemonRemotePath = ".cmux/bin/cmuxd-remote" }
+
+        let transportSucceeded = await coordinator.stopAndWait(cleanupScope: .transport)
+        #expect(transportSucceeded)
+        #expect(runner.requests.isEmpty)
+
+        let succeeded = await coordinator.stopAndWait(cleanupScope: .persistentSlot)
+
+        let cleanupCommand = try #require(runner.requests.last?.arguments.last)
+        #expect(succeeded)
+        #expect(cleanupCommand.contains("$HOME/.cmux/bin/cmuxd-remote"))
+        #expect(cleanupCommand.contains("serve --persistent-stop --slot"))
+        #expect(!cleanupCommand.contains(".cmux/relay"))
+    }
+
     private func makeCoordinator(
         runner: SpyProcessRunner,
-        host: any RemoteSessionHosting = IntentionalCleanupTestHost()
+        host: any RemoteSessionHosting = IntentionalCleanupTestHost(),
+        relayPort: Int? = 64_010
     ) -> RemoteSessionCoordinator {
         RemoteSessionCoordinator(
             host: host,
@@ -292,7 +308,7 @@ struct RemoteRelaySlotTeardownTests {
                 identityFile: nil,
                 sshOptions: [],
                 localProxyPort: nil,
-                relayPort: 64_010,
+                relayPort: relayPort,
                 relayID: "relay-id",
                 relayToken: "relay-token",
                 localSocketPath: "/tmp/cmux-test.sock",

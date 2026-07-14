@@ -5,6 +5,24 @@ public import Foundation
 // (the CmuxCore SSH-option-normalization precedent); the script text is
 // wire/process behavior pinned by tests — do not alter.
 extension RemoteSessionCoordinator {
+    /// Builds a direct persistent-slot shutdown script when no relay metadata exists.
+    static func remotePersistentDaemonStopScript(
+        daemonRemotePath: String,
+        persistentDaemonSlot: String?
+    ) -> String? {
+        let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRemotePath.isEmpty,
+              let persistentDaemonSlot = normalizedPersistentDaemonSlotForRemoteCleanup(persistentDaemonSlot) else {
+            return nil
+        }
+        let daemonPathExpression = remoteDaemonPathShellExpression(trimmedRemotePath)
+        return """
+        daemon_path=\(daemonPathExpression)
+        [ -x "$daemon_path" ] || exit 1
+        "$daemon_path" serve --persistent-stop --slot \(persistentDaemonSlot.shellSingleQuoted)
+        """
+    }
+
     /// Script that stops the expected persistent daemon slot and removes its owned relay state.
     ///
     /// - Parameters:

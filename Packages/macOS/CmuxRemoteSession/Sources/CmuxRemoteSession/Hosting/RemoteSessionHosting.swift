@@ -27,8 +27,4 @@ public protocol RemoteSessionHosting: Sendable {
     /// Publish the remote TTY name resolved for the workspace's bootstrap
     /// terminal.
     func publishBootstrapRemoteTTY(_ ttyName: String)
-    /// Publish whether final persistent-slot cleanup completed successfully.
-    ///
-    /// - Parameter succeeded: `true` only after remote ownership state was released.
-    func publishPersistentCleanupResult(succeeded: Bool)
 }

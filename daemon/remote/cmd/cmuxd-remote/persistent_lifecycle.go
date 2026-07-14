@@ -112,9 +112,6 @@ func requestPersistentDaemonShutdown(conn net.Conn) error {
 		return err
 	}
 	if !response.OK {
-		if response.Error != nil {
-			return fmt.Errorf("persistent daemon shutdown rejected: %s: %s", response.Error.Code, response.Error.Message)
-		}
 		return errors.New("persistent daemon shutdown rejected")
 	}
 	return nil

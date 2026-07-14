@@ -2293,13 +2293,15 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
-    private var remoteSessionController: RemoteSessionCoordinator?
-    // Retains each controller until its own persistent cleanup succeeds.
+    var remoteSessionController: RemoteSessionCoordinator?
+    // Retains each detached controller until cleanup finishes or ownership transfers.
     var remoteSessionCleanupControllers: [UUID: (controller: RemoteSessionCoordinator, configuration: WorkspaceRemoteConfiguration)] = [:]
-    private enum RemoteForegroundAuthenticationPhase: Equatable {
+    var remoteSessionTransitionTask: Task<Void, Never>?
+    var remoteSessionTransitionID: UUID?
+    enum RemoteForegroundAuthenticationPhase: Equatable {
         case readyBeforeConfiguration(token: String), authenticating(token: String)
     }
-    private var remoteForegroundAuthenticationPhase: RemoteForegroundAuthenticationPhase?
+    var remoteForegroundAuthenticationPhase: RemoteForegroundAuthenticationPhase?
     var activeRemoteSessionControllerID: UUID?
     private var remoteLastErrorFingerprint: String?
     private var remoteLastDaemonErrorFingerprint: String?
@@ -3160,6 +3162,7 @@ final class Workspace: Identifiable, ObservableObject {
             NotificationCenter.default.removeObserver(sharedLiveAgentIndexObserver)
         }
         activeRemoteSessionControllerID = nil
+        remoteSessionTransitionTask?.cancel()
         remoteSessionController?.stop(cleanupScope: .persistentSlot)
         for owner in remoteSessionCleanupControllers.values { owner.controller.stop(cleanupScope: .persistentSlot) }
         PortScanner.shared.scheduleAgentWorkspaceUnregistration(workspaceId: id)
@@ -5309,18 +5312,8 @@ final class Workspace: Identifiable, ObservableObject {
         let previousControllerID = activeRemoteSessionControllerID
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
-        let preservesPersistentSlot = previousConfiguration?.hasSamePersistentPTYIdentity(
-            as: configuration
-        ) == true
         if let previousController, let previousControllerID, let previousConfiguration {
             remoteSessionCleanupControllers[previousControllerID] = (previousController, previousConfiguration)
-        }
-        if preservesPersistentSlot {
-            previousController?.stop(cleanupScope: .transport)
-        } else if let previousConfiguration {
-            for owner in remoteSessionCleanupControllers.values where owner.configuration == previousConfiguration {
-                owner.controller.stop(cleanupScope: .persistentSlot)
-            }
         }
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
@@ -5335,6 +5328,11 @@ final class Workspace: Identifiable, ObservableObject {
             remoteConnectionState = .connected
             applyBrowserRemoteWorkspaceStatusToPanels()
             postRemoteConnectionPresentationDidChange()
+            enqueueRemoteSessionTransition(
+                targetConfiguration: configuration,
+                shouldStartController: false,
+                finalCleanup: false
+            )
             return
         }
         guard shouldAutoConnect else {
@@ -5342,133 +5340,21 @@ final class Workspace: Identifiable, ObservableObject {
             remoteConnectionState = foregroundAuthToken == nil ? .disconnected : .connecting
             applyBrowserRemoteWorkspaceStatusToPanels()
             postRemoteConnectionPresentationDidChange()
+            enqueueRemoteSessionTransition(
+                targetConfiguration: configuration,
+                shouldStartController: false,
+                finalCleanup: false
+            )
             return
         }
         remoteConnectionState = .connecting
         applyBrowserRemoteWorkspaceStatusToPanels()
         postRemoteConnectionPresentationDidChange()
-        let controllerID = UUID()
-        var processRunner: any RemoteSessionProcessRunning = RemoteSessionProcessRunner()
-#if DEBUG
-        if let override = remoteSessionProcessRunnerOverrideForTesting {
-            processRunner = override
-        }
-#endif
-        let controller = RemoteSessionCoordinator(
-            host: WorkspaceRemoteSessionHostAdapter(workspace: self, controllerID: controllerID),
-            configuration: configuration,
-            proxyBroker: TerminalController.shared.remoteProxyBroker,
-            manifestRepository: RemoteDaemonManifestRepository(
-                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
-            ),
-            processRunner: processRunner,
-            reachabilityProbe: RemoteHostReachabilityProbe(),
-            relayCommandRewriter: WorkspaceRemoteRelayCommandRewriter(),
-            buildInfo: WorkspaceRemoteSessionBuildInfo(),
-            daemonStrings: RemoteDaemonStrings.appLocalized,
-            strings: RemoteSessionStrings.appLocalized
+        enqueueRemoteSessionTransition(
+            targetConfiguration: configuration,
+            shouldStartController: true,
+            finalCleanup: false
         )
-        activeRemoteSessionControllerID = controllerID
-        remoteSessionCleanupControllers = remoteSessionCleanupControllers.filter {
-            !$0.value.configuration.hasSamePersistentPTYIdentity(as: configuration)
-        }
-        remoteSessionController = controller
-        controller.updateRemotePortScanningEnabled(Self.remotePortScanningEnabledFromSettings())
-        syncRemotePortScanTTYs()
-        syncRemoteRelayIDAliasesToController()
-        controller.start()
-    }
-
-    @discardableResult
-    func reconnectRemoteConnection(surfaceId: UUID? = nil) -> Bool {
-        guard let configuration = remoteConfiguration else { return false }
-        var didRespawnTerminal = false
-        let reconnectingSurfaceId: UUID?
-        if let surfaceId {
-            guard panels[surfaceId] is TerminalPanel else { return false }
-            reconnectingSurfaceId = surfaceId
-        } else {
-            reconnectingSurfaceId = remoteReconnectTerminalSurfaceId(requestedSurfaceId: nil)
-        }
-        if configuration.preserveAfterTerminalExit {
-            let reattached = reattachPersistentRemotePTYPanels(requestedSurfaceId: surfaceId, restartEndedSessions: true)
-            didRespawnTerminal = surfaceId.map(reattached.contains) ?? !reattached.isEmpty
-        } else if let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration),
-           !startupCommand.isEmpty,
-           let reconnectingSurfaceId {
-            let shouldRespawnSurface =
-                isDefaultFreestyleSSHDRemoteWorkspace ||
-                surfaceId != nil ||
-                remoteDisconnectPlaceholderPanelIds.contains(reconnectingSurfaceId) ||
-                pendingRemoteTerminalChildExitSurfaceIds.contains(reconnectingSurfaceId) ||
-                !activeRemoteTerminalSurfaceIds.contains(reconnectingSurfaceId) ||
-                activeRemoteTerminalSurfaceIds.isEmpty ||
-                remoteConnectionState != .connected
-            if shouldRespawnSurface {
-                didRespawnTerminal = respawnTerminalSurface(
-                    panelId: reconnectingSurfaceId,
-                    command: startupCommand,
-                    tmuxStartCommand: startupCommand,
-                    waitAfterCommand: true
-                ) != nil
-            }
-            if didRespawnTerminal {
-                remoteDisconnectPlaceholderPanelIds.remove(reconnectingSurfaceId)
-                pendingRemoteTerminalChildExitSurfaceIds.remove(reconnectingSurfaceId)
-                pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: reconnectingSurfaceId)
-            }
-            if didRespawnTerminal || !shouldRespawnSurface { trackRemoteTerminalSurface(reconnectingSurfaceId) }
-        }
-        if reconnectingSurfaceId != nil, remoteConnectionState == .connected { return didRespawnTerminal }
-        guard remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return didRespawnTerminal }
-        configureRemoteConnection(configuration, autoConnect: true)
-        return didRespawnTerminal
-    }
-
-    @discardableResult
-    func reconnectCloudTerminalSurface(surfaceId: UUID) -> Bool {
-        guard isManagedCloudVMWorkspace,
-              isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId) else {
-            return false
-        }
-        return reconnectRemoteConnection(surfaceId: surfaceId)
-    }
-
-    private func remoteReconnectTerminalSurfaceId(requestedSurfaceId: UUID?) -> UUID? {
-        if let requestedSurfaceId,
-           panels[requestedSurfaceId] is TerminalPanel {
-            return requestedSurfaceId
-        }
-        if let focusedPanelId,
-           panels[focusedPanelId] is TerminalPanel {
-            return focusedPanelId
-        }
-        let terminalPanelIds = panels.compactMap { panelId, panel in
-            panel is TerminalPanel ? panelId : nil
-        }
-        return terminalPanelIds.count == 1 ? terminalPanelIds.first : nil
-    }
-
-    private static func normalizedForegroundAuthToken(_ token: String?) -> String? {
-        guard let token else { return nil }
-        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    func notifyRemoteForegroundAuthenticationReady(token: String? = nil) {
-        guard let foregroundAuthToken = Self.normalizedForegroundAuthToken(token) else {
-            return
-        }
-        guard let remoteConfiguration else {
-            remoteForegroundAuthenticationPhase = .readyBeforeConfiguration(token: foregroundAuthToken)
-            return
-        }
-        guard Self.normalizedForegroundAuthToken(remoteConfiguration.foregroundAuthToken) == foregroundAuthToken else {
-            return
-        }
-        guard remoteForegroundAuthenticationPhase == .authenticating(token: foregroundAuthToken) else { return }
-        remoteForegroundAuthenticationPhase = nil
-        configureRemoteConnection(remoteConfiguration, autoConnect: true)
     }
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
@@ -5487,11 +5373,11 @@ final class Workspace: Identifiable, ObservableObject {
         }
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
-        if clearConfiguration {
-            for owner in remoteSessionCleanupControllers.values { owner.controller.stop(cleanupScope: .persistentSlot) }
-        } else {
-            previousController?.stop(cleanupScope: .transport)
-        }
+        enqueueRemoteSessionTransition(
+            targetConfiguration: nil,
+            shouldStartController: false,
+            finalCleanup: clearConfiguration
+        )
         remoteForegroundAuthenticationPhase = nil
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         activeRemoteTerminalSurfaceIds.removeAll()
@@ -5737,7 +5623,7 @@ final class Workspace: Identifiable, ObservableObject {
         "tab_id_groups",
     ]
 
-    private func syncRemoteRelayIDAliasesToController() {
+    func syncRemoteRelayIDAliasesToController() {
         remoteSessionController?.updateRemoteRelayIDAliases(
             workspaceAliases: remoteRelayWorkspaceIDAliases,
             surfaceAliases: remoteRelaySurfaceIDAliases
@@ -5991,7 +5877,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private var isDefaultFreestyleSSHDRemoteWorkspace: Bool {
+    var isDefaultFreestyleSSHDRemoteWorkspace: Bool {
         defaultFreestyleSSHDVMID(from: remoteConfiguration) != nil
     }
 

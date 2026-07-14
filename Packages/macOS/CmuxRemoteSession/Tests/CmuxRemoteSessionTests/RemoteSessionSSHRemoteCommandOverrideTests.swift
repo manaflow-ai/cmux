@@ -156,7 +156,6 @@ private struct NoopRemoteSessionHost: RemoteSessionHosting {
     func publishPortsSnapshot(detectedByPanel: [UUID: [Int]], detected: [Int]) {}
     func publishHeartbeat(count: Int, lastSeenAt: Date?) {}
     func publishBootstrapRemoteTTY(_ ttyName: String) {}
-    func publishPersistentCleanupResult(succeeded: Bool) {}
 }
 
 private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Sendable {
