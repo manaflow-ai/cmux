@@ -47,6 +47,9 @@ actor MobileCoreRPCSession {
     private var isTearingDown: Bool = false
     private var writeQueue: AsyncStream<PendingWrite>.Continuation?
     private var writerTask: Task<Void, Never>?
+    var transportCloseTask: Task<Void, Never>?
+    var transportCloseTaskID: UUID?
+    var pendingTransportClose: (any CmxByteTransport)?
     var activeWrite: (
         connectionID: UUID,
         requestID: String,
@@ -73,6 +76,7 @@ actor MobileCoreRPCSession {
         connectionTask?.task.cancel()
         readerTask?.cancel()
         writerTask?.cancel()
+        transportCloseTask?.cancel()
         writeQueue?.finish()
     }
 
@@ -182,11 +186,7 @@ actor MobileCoreRPCSession {
         readerTask = nil
         isTearingDown = false
         if let transportToClose {
-            // Session state is already detached, so a transport whose close
-            // callback stalls cannot hold recovery or the UI in limbo.
-            Task.detached {
-                await transportToClose.close()
-            }
+            enqueueTransportClose(transportToClose)
         }
         if let connecting { await abandonConnectionTask(connecting) }
     }

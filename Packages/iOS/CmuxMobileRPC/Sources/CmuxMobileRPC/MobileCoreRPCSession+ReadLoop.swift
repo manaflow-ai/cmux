@@ -28,6 +28,10 @@ extension MobileCoreRPCSession {
                 }
                 continue
             }
+            guard !Task.isCancelled,
+                  installedConnectionID == connectionID else {
+                return
+            }
             buffer.append(chunk)
             let frames: [Data]
             do {

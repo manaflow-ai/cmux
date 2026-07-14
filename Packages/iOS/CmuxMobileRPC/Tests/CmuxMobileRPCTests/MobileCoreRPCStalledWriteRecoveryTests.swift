@@ -171,8 +171,64 @@ import Testing
         await client.disconnect()
     }
 
+    @Test func transportCloseCleanupRetainsOnlyNewestPendingTransport() async throws {
+        let first = StalledWriteTransport(hangsOnClose: true)
+        let superseded = StalledWriteTransport(hangsOnClose: true)
+        let newest = StalledWriteTransport(hangsOnClose: true)
+        let factory = SequencedTransportFactory([first, superseded, newest])
+        let client = try makeClient(factory: factory)
+
+        let firstTask = Task {
+            try await client.sendRequest(
+                inputRequest(id: "close-first", text: "a"),
+                timeoutNanoseconds: 60 * 1_000_000_000
+            )
+        }
+        await first.waitUntilSendStarted()
+        await client.resetConnectionForRecovery()
+        await first.waitUntilCloseStarted()
+
+        let supersededTask = Task {
+            try await client.sendRequest(
+                inputRequest(id: "close-superseded", text: "b"),
+                timeoutNanoseconds: 60 * 1_000_000_000
+            )
+        }
+        await superseded.waitUntilSendStarted()
+        await client.resetConnectionForRecovery()
+
+        let newestTask = Task {
+            try await client.sendRequest(
+                inputRequest(id: "close-newest", text: "c"),
+                timeoutNanoseconds: 60 * 1_000_000_000
+            )
+        }
+        await newest.waitUntilSendStarted()
+        await client.resetConnectionForRecovery()
+
+        #expect(await first.closed())
+        #expect(!(await superseded.closed()))
+        #expect(!(await newest.closed()))
+        #expect(factory.createdTransportCount() == 3)
+
+        await first.releaseClose()
+        await newest.waitUntilCloseStarted()
+        #expect(!(await superseded.closed()))
+
+        await newest.releaseClose()
+        await superseded.releaseClose()
+        await superseded.close()
+        await first.failStalledSend()
+        await superseded.failStalledSend()
+        await newest.failStalledSend()
+        _ = try? await firstTask.value
+        _ = try? await supersededTask.value
+        _ = try? await newestTask.value
+        await client.disconnect()
+    }
+
     private func makeClient(
-        factory: StalledWriteRecoveryTransportFactory
+        factory: any CmxByteTransportFactory
     ) throws -> MobileCoreRPCClient {
         let route = try hostPortRoute(
             kind: .debugLoopback,

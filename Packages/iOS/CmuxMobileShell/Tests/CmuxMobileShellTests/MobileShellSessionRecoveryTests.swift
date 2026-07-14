@@ -93,3 +93,23 @@ import Testing
     #expect(!store.connectionRecoveryFailed)
     #expect(store.macConnectionStatus != .unavailable)
 }
+
+/// Recovery triggers share one owner, so a path transition or Retry arriving
+/// behind a failed liveness verdict cannot rotate the replacement again.
+@MainActor
+@Test func concurrentRecoveryTriggersRotateTransportOnce() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let hostStatusCount = await router.count(of: "mobile.host.status")
+
+    store.recoverMobileConnection(trigger: .liveness)
+    store.recoverMobileConnection(trigger: .networkChange)
+
+    #expect(await router.waitForCount(
+        of: "mobile.host.status",
+        atLeast: hostStatusCount + 1
+    ))
+    #expect(box.createdTransportCount() == 2)
+}
