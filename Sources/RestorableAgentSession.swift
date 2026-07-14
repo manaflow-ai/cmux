@@ -868,26 +868,35 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     func forkStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true
+        allowLauncherScript: Bool = true,
+        dialect: TerminalStartupShellDialect = .loginShell
     ) -> String? {
         startupInput(
             command: forkCommand,
             workingDirectory: nil,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript
+            allowLauncherScript: allowLauncherScript,
+            dialect: dialect
         )
     }
 
+    /// `dialect` describes the shell that will parse the returned input. Local
+    /// surfaces type into the user's login shell (`.loginShell` default);
+    /// remote workspaces type into the remote host's shell after attach, which
+    /// cmux treats as POSIX regardless of the local `$SHELL` — pass `.posix`
+    /// there so a local nushell login never leaks `^/bin/sh -c "…"` to a
+    /// remote zsh/bash.
     private func startupInput(
         command: String?,
         workingDirectory: String?,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        allowLauncherScript: Bool = true
+        allowLauncherScript: Bool = true,
+        dialect: TerminalStartupShellDialect = .loginShell
     ) -> String? {
         guard let command else { return nil }
-        let inlineInput = TerminalStartupTypedShellCommand.typedInput(posixCommand: command) + "\n"
+        let inlineInput = TerminalStartupTypedShellCommand.typedInput(posixCommand: command, dialect: dialect) + "\n"
         guard inlineInput.utf8.count > Self.maxInlineForkInputBytes else {
             return inlineInput
         }
