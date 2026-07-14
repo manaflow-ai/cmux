@@ -99,7 +99,7 @@ struct DiffReviewFileView: View {
                 .frame(minWidth: 44, minHeight: 44)
                 .accessibilityIdentifier("DiffReviewRetry")
             }
-        case .loaded(_, let hunks, let isTruncated):
+        case .loaded(_, let hunks, let metadataLines, let isTruncated):
             if let hunk = currentHunk(in: hunks) {
                 VStack(spacing: 0) {
                     if isTruncated {
@@ -138,12 +138,7 @@ struct DiffReviewFileView: View {
                     .contentShape(.rect)
                     .gesture(hunkSwipeGesture)
                 } else {
-                    ContentUnavailableView(
-                        L10n.string("mobile.diff.noHunks", defaultValue: "No diff hunks"),
-                        systemImage: "doc.text"
-                    )
-                    .contentShape(.rect)
-                    .gesture(hunkSwipeGesture)
+                    noHunkContent(metadataLines: metadataLines)
                 }
             }
         }
@@ -287,7 +282,7 @@ struct DiffReviewFileView: View {
             return L10n.string("mobile.diff.loading", defaultValue: "Loading diff")
         case .failed:
             return L10n.string("mobile.diff.unavailable", defaultValue: "Diff unavailable")
-        case .loaded(_, let hunks, _):
+        case .loaded(_, let hunks, _, _):
             guard !hunks.isEmpty else {
                 return L10n.string("mobile.diff.hunkCounterEmpty", defaultValue: "Hunk 0/0")
             }
@@ -313,6 +308,32 @@ struct DiffReviewFileView: View {
             }
     }
 
+    private func noHunkContent(metadataLines: [String]) -> some View {
+        VStack(spacing: 12) {
+            Label(
+                L10n.string("mobile.diff.noHunks", defaultValue: "No diff hunks"),
+                systemImage: "doc.text"
+            )
+            .font(.headline)
+
+            if !metadataLines.isEmpty {
+                ScrollView(.horizontal) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(metadataLines.indices, id: \.self) { index in
+                            Text(verbatim: metadataLines[index])
+                                .font(.system(.footnote, design: .monospaced))
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(.rect)
+        .gesture(hunkSwipeGesture)
+    }
+
     private func currentHunk(in hunks: [DiffHunk]) -> DiffHunk? {
         guard hunks.indices.contains(session.currentHunkIndex) else { return nil }
         return hunks[session.currentHunkIndex]
@@ -332,7 +353,12 @@ struct DiffReviewFileView: View {
             guard activeRequest == request, !Task.isCancelled else { return }
             let result = await parser.parse(response)
             guard activeRequest == request, !Task.isCancelled else { return }
-            loadState = .loaded(path: path, hunks: result.hunks, isTruncated: result.isTruncated)
+            loadState = .loaded(
+                path: path,
+                hunks: result.hunks,
+                metadataLines: result.metadataLines,
+                isTruncated: result.isTruncated
+            )
             session.recordHunkCount(result.hunks.count, for: path)
         } catch is CancellationError {
             return

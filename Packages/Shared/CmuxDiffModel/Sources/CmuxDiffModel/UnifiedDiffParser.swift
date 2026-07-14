@@ -3,16 +3,27 @@ public struct UnifiedDiffParser: Sendable {
     private static let maximumHunkCount = 2_000
     static let maximumLineCountPerHunk = 2_000
     private static let maximumTotalLineCount = 20_000
+    private static let maximumMetadataLineCount = 32
     private static let maximumDisplayedLineUTF8Bytes = 8 * 1024
+    private static let meaningfulMetadataPrefixes = [
+        "old mode ",
+        "new mode ",
+        "new file mode ",
+        "deleted file mode ",
+        "Binary files ",
+        "GIT binary patch",
+        "Submodule ",
+    ]
 
     /// Creates a unified-diff parser.
     public init() {}
 
     /// Parses unified diff text.
     ///
-    /// File headers, rename metadata, binary notices, and other non-hunk lines
-    /// are ignored. Malformed hunk headers are skipped instead of failing the
-    /// whole parse, so binary or empty diffs produce an empty hunk list.
+    /// Structural file headers are ignored. Meaningful non-hunk metadata such
+    /// as binary notices and mode changes is retained for files that cannot be
+    /// represented as text hunks. Malformed hunk headers are skipped instead
+    /// of failing the whole parse.
     ///
     /// - Parameters:
     ///   - unifiedDiff: Raw unified diff text.
@@ -23,6 +34,7 @@ public struct UnifiedDiffParser: Sendable {
             return DiffParseResult(hunks: [], isTruncated: isTruncated)
         }
         var hunks: [DiffHunk] = []
+        var metadataLines: [String] = []
         var current: HunkBuilder?
         var oldLine = 0
         var newLine = 0
@@ -78,6 +90,15 @@ public struct UnifiedDiffParser: Sendable {
             }
 
             guard let builder = current else {
+                if isMeaningfulMetadata(rawLine) {
+                    if metadataLines.count < Self.maximumMetadataLineCount {
+                        let displayedMetadata = cappedDisplayText(rawLine)
+                        metadataLines.append(displayedMetadata.text)
+                        parserTruncated = parserTruncated || displayedMetadata.wasCapped
+                    } else {
+                        parserTruncated = true
+                    }
+                }
                 continue
             }
             guard totalLineCount < Self.maximumTotalLineCount else {
@@ -137,7 +158,15 @@ public struct UnifiedDiffParser: Sendable {
         if let current {
             hunks.append(current.build())
         }
-        return DiffParseResult(hunks: hunks, isTruncated: isTruncated || parserTruncated)
+        return DiffParseResult(
+            hunks: hunks,
+            metadataLines: metadataLines,
+            isTruncated: isTruncated || parserTruncated
+        )
+    }
+
+    private func isMeaningfulMetadata(_ line: String) -> Bool {
+        Self.meaningfulMetadataPrefixes.contains { line.hasPrefix($0) }
     }
 
     /// Bounds every retained row before it reaches SwiftUI text layout or an

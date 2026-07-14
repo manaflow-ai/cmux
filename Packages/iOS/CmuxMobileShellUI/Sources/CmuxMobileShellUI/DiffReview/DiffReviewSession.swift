@@ -58,15 +58,30 @@ final class DiffReviewSession {
 
     func setFiles(_ files: [DiffFileSummary]) {
         let selectedPath = currentFile?.path
+        let previousSnapshotByPath = Dictionary(
+            self.files.map { ($0.path, $0.snapshotToken) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let changedSnapshotPaths = Set<String>(files.compactMap { file -> String? in
+            guard let previousSnapshot = previousSnapshotByPath[file.path],
+                  previousSnapshot != file.snapshotToken else {
+                return nil
+            }
+            return file.path
+        })
         self.files = files
         let validPaths = Set(files.map(\.path))
         hunkCountsByPath = hunkCountsByPath.filter { path, _ in
-            validPaths.contains(path)
+            validPaths.contains(path) && !changedSnapshotPaths.contains(path)
         }
         // A bookmark whose file left the list would keep showing the Jump
         // Back pill while jumpToBookmark silently no-ops.
-        if let bookmark, !files.contains(where: { $0.path == bookmark.filePath }) {
-            self.bookmark = nil
+        if let bookmark {
+            let bookmarkIsInvalid = !files.contains(where: { $0.path == bookmark.filePath })
+                || changedSnapshotPaths.contains(bookmark.filePath)
+            if bookmarkIsInvalid {
+                self.bookmark = nil
+            }
         }
         if self.files.isEmpty {
             currentFileIndex = 0
@@ -77,6 +92,10 @@ final class DiffReviewSession {
         if let selectedPath,
            let selectedIndex = self.files.firstIndex(where: { $0.path == selectedPath }) {
             currentFileIndex = selectedIndex
+            if changedSnapshotPaths.contains(selectedPath) {
+                currentHunkIndex = 0
+                pendingSeekToLastHunk = false
+            }
         } else {
             currentFileIndex = min(currentFileIndex, self.files.count - 1)
             currentHunkIndex = 0
