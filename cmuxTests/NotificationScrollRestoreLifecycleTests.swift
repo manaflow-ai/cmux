@@ -129,6 +129,60 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(hostedView.hasPendingNotificationScrollRestore)
     }
 
+    @Test func missingReplayBoundariesFallBackToLiveGeometryAtDeadline() {
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.armSessionScrollbackReplay(
+            expectedStartBoundary: "missing-start",
+            expectedEndBoundary: "missing-end"
+        )
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+        hostedView.expireNotificationScrollRestoreFrameDeadline()
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
+    @Test func activationAfterEndBoundaryWaitsForAuthoritativeGeometry() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 100, offset: 56, len: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+        postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
+        #expect(surfaceView.performedBindingActions.isEmpty)
+
+        postRenderedFrame(to: surfaceView)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
+    @Test func frameDeadlineRebasesTruncatedRestoreFromLatestGeometry() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 1_200, offset: 1_156, len: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 10_000)
+        ))
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
+        hostedView.expireNotificationScrollRestoreFrameDeadline()
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:1056"])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
     @Test func mismatchedInBandBoundaryDoesNotCompleteReplay() {
         let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)

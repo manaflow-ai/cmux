@@ -71,6 +71,7 @@ extension GhosttySurfaceScrollView {
             let pendingAttempts,
             let pendingProvisionalTopRow
         ):
+            guard let pendingPosition else { return false }
             position = pendingPosition
             attemptsRemaining = pendingAttempts
             isPostReplayGeometry = true
@@ -204,6 +205,7 @@ extension GhosttySurfaceScrollView {
             pendingPosition: notificationScrollRestoreState.pendingPosition,
             attemptsRemaining: 2
         )
+        scheduleNotificationScrollRestoreFrameDeadline()
     }
 
     func armSessionScrollbackReplay(from environment: [String: String]) {
@@ -219,6 +221,7 @@ extension GhosttySurfaceScrollView {
         if case .armed(let expectedStartBoundary, let expectedEndBoundary, let pendingPosition, _) =
             notificationScrollRestoreState,
             boundary == expectedStartBoundary {
+            cancelNotificationScrollRestoreDeadlineTimer()
             notificationScrollRestoreState = .replaying(
                 expectedBoundary: expectedEndBoundary,
                 pendingPosition: pendingPosition
@@ -228,11 +231,6 @@ extension GhosttySurfaceScrollView {
         guard case .replaying(let expectedEndBoundary, let pendingPosition) = notificationScrollRestoreState,
               boundary == expectedEndBoundary else {
             return false
-        }
-        guard let pendingPosition else {
-            cancelNotificationScrollRestoreFrameWait()
-            notificationScrollRestoreState = .inactive
-            return true
         }
         notificationScrollRestoreState = .awaitingPostReplayGeometry(
             position: pendingPosition,
@@ -286,12 +284,32 @@ extension GhosttySurfaceScrollView {
 
     func expireNotificationScrollRestoreFrameDeadline() {
         guard notificationScrollRestoreFrameDeadlineTimer != nil else { return }
+        if case .armed(_, _, let pendingPosition, let attemptsRemaining) = notificationScrollRestoreState {
+            cancelNotificationScrollRestoreFrameWait()
+            if let pendingPosition {
+                notificationScrollRestoreState = .awaitingInitialGeometry(
+                    position: pendingPosition,
+                    attemptsRemaining: attemptsRemaining
+                )
+                _ = restorePendingNotificationScrollPositionIfReady()
+            } else {
+                notificationScrollRestoreState = .inactive
+            }
+            return
+        }
         cancelNotificationScrollRestoreFrameWait()
+        if notificationScrollRestoreState.pendingPosition != nil {
+            _ = restorePendingNotificationScrollPositionIfReady(
+                isPostReplayGeometryUpdate: true,
+                isAuthoritativePostReplayFrame: true
+            )
+        } else {
+            notificationScrollRestoreState = .inactive
+        }
     }
 
     func cancelNotificationScrollRestoreFrameWait() {
-        notificationScrollRestoreFrameDeadlineTimer?.invalidate()
-        notificationScrollRestoreFrameDeadlineTimer = nil
+        cancelNotificationScrollRestoreDeadlineTimer()
         if let observer = notificationScrollRestoreRenderedFrameObserver {
             NotificationCenter.default.removeObserver(observer)
             notificationScrollRestoreRenderedFrameObserver = nil
@@ -299,6 +317,11 @@ extension GhosttySurfaceScrollView {
         releaseNotificationScrollRestoreFrameDemand?()
         releaseNotificationScrollRestoreFrameDemand = nil
         notificationScrollRestoreBoundaryFrameGeneration = nil
+    }
+
+    private func cancelNotificationScrollRestoreDeadlineTimer() {
+        notificationScrollRestoreFrameDeadlineTimer?.invalidate()
+        notificationScrollRestoreFrameDeadlineTimer = nil
     }
 
     var hasPendingNotificationScrollRestore: Bool {
@@ -310,8 +333,18 @@ extension GhosttySurfaceScrollView {
     }
 
     func restorePendingNotificationScrollPositionAfterScrollbarUpdate() {
-        let isAuthoritativePostReplayFrame = notificationScrollRestoreRenderedFrameObserver != nil &&
+        let isAwaitingPostReplayGeometry: Bool
+        if case .awaitingPostReplayGeometry = notificationScrollRestoreState {
+            isAwaitingPostReplayGeometry = true
+        } else {
+            isAwaitingPostReplayGeometry = false
+        }
+        let isAuthoritativePostReplayFrame = isAwaitingPostReplayGeometry &&
             notificationScrollRestoreBoundaryFrameGeneration == nil
+        if isAuthoritativePostReplayFrame, notificationScrollRestoreState.pendingPosition == nil {
+            clearPendingNotificationScrollRestore()
+            return
+        }
         _ = restorePendingNotificationScrollPositionIfReady(
             isPostReplayGeometryUpdate: true,
             isAuthoritativePostReplayFrame: isAuthoritativePostReplayFrame
