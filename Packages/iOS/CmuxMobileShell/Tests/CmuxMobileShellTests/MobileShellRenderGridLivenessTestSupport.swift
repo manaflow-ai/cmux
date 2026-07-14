@@ -35,6 +35,7 @@ actor LivenessHostRouter {
     private var workspaceListRequestCount = 0
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
     private var holdWorkspaceAction = false
+    private var workspaceActionErrorCode = "unavailable"
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
@@ -211,8 +212,9 @@ actor LivenessHostRouter {
         heldWorkspaceListRequestNumbers.insert(number)
     }
 
-    func holdNextWorkspaceAction() {
+    func holdNextWorkspaceAction(errorCode: String = "unavailable") {
         holdWorkspaceAction = true
+        workspaceActionErrorCode = errorCode
     }
 
     /// Hold the Nth `mobile.events.subscribe` request (1-based) forever,
@@ -315,7 +317,7 @@ actor LivenessHostRouter {
             return try? Self.errorFrame(
                 id: id,
                 message: "workspace action unavailable",
-                code: "unavailable"
+                code: workspaceActionErrorCode
             )
         case "mobile.events.subscribe":
             subscribeRequestCount += 1

@@ -20,7 +20,7 @@ import Testing
         clock: clock
     )
     let workspaceID = try #require(store.workspaces.first?.id)
-    await staleRouter.holdNextWorkspaceAction()
+    await staleRouter.holdNextWorkspaceAction(errorCode: "unauthorized")
 
     let mutation = Task { @MainActor in
         await store.renameWorkspace(id: workspaceID, title: "Renamed")
@@ -40,5 +40,7 @@ import Testing
     _ = await mutation.value
 
     #expect(await replacementRouter.count(of: "mobile.host.status") == 0)
+    #expect(store.connectionState == .connected)
+    #expect(!store.connectionRequiresReauth)
     #expect(store.macConnectionStatus != .reconnecting)
 }
