@@ -147,13 +147,16 @@ extension RemoteTmuxControlConnection {
             return
         }
         pending.inFlight = false
-        guard generation == pending.generation else {
-            // Stale reply for an older layout. A newer fetch is owed: send it.
-            pending.inFlight = requestPaneRects(windowId: windowId, generation: pending.generation)
-            pending.dirty = false
-            pendingLayouts[windowId] = pending
-            return
-        }
+        // A generation-stale reply is not discarded outright. Under continuous
+        // churn every reply is one generation behind by the time it lands
+        // (%layout-change inter-arrival < one round trip), so discard-and-
+        // refetch never converges: `windowsByID` freezes at the pre-churn tree
+        // while claims and tmux keep agreeing (seed-1 fuzz iter 10 starved
+        // publication for 32 s this way). Instead, verify the reply against
+        // the CURRENT tree: if it covers every required pane it publishes
+        // below — true as of that reply — and the one follow-up fetch it owes
+        // reconciles exactness within a round trip.
+        let isStaleReply = generation != pending.generation
         var rects: [Int: (x: Int, y: Int, width: Int, height: Int)] = [:]
         var labels: [Int: String] = [:]
         var activePane: Int?
@@ -183,6 +186,17 @@ extension RemoteTmuxControlConnection {
         let requiredPanes = Set(pending.node.paneIDsInOrder)
             .union(pending.visibleNode.map { Set($0.paneIDsInOrder) } ?? [])
         guard !rects.isEmpty, requiredPanes.allSatisfy({ rects[$0] != nil }) else {
+            if isStaleReply {
+                // The structure changed mid-flight: this old snapshot cannot
+                // cover the current tree, so nothing publishes. The owed
+                // fetch returns the new structure's rects; the garbled-reply
+                // retry budget is not burned on a reply that was never
+                // expected to match.
+                pending.inFlight = requestPaneRects(windowId: windowId, generation: pending.generation)
+                pending.dirty = false
+                pendingLayouts[windowId] = pending
+                return
+            }
             // Garbled/partial reply. Retry once; then drop the pending layout —
             // observers keep the last VERIFIED tree rather than ever seeing a
             // raw one.
@@ -227,7 +241,7 @@ extension RemoteTmuxControlConnection {
             visibleLayout: pending.visibleNode?.patchingLeafRects(rects),
             zoomed: pending.zoomed
         )
-        if pending.dirty {
+        if pending.dirty || isStaleReply {
             // A newer layout superseded this one mid-flight: publish this
             // verified state now (it is true as of this reply) and fetch the
             // newer generation once.
