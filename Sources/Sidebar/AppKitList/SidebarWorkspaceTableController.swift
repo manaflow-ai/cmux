@@ -40,6 +40,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         table.dataSource = self
         table.delegate = self
         table.headerView = nil
+        table.style = .fullWidth
         table.backgroundColor = .clear
         table.enclosingScrollView?.backgroundColor = .clear
         table.focusRingType = .none

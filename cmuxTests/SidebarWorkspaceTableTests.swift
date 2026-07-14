@@ -10,6 +10,20 @@ import Testing
 @Suite
 struct SidebarWorkspaceTableTests {
     @Test
+    @MainActor
+    func containerHasNoStructuralHorizontalRowInset() throws {
+        let container = SidebarWorkspaceTableController().makeContainerView()
+        let column = try #require(container.tableView.tableColumns.first)
+
+        #expect(container.tableView.style == .fullWidth)
+        #expect(container.scrollView.contentInsets.left == 0)
+        #expect(container.scrollView.contentInsets.right == 0)
+        #expect(container.tableView.intercellSpacing.width == 0)
+        #expect(container.tableView.columnAutoresizingStyle == .uniformColumnAutoresizingStyle)
+        #expect(column.resizingMask.contains(.autoresizingMask))
+    }
+
+    @Test
     func rowHeightEstimateAccountsForScaleWrappingAndDetails() {
         let calculator = SidebarWorkspaceTableRowHeightCalculator()
         let compact = calculator.estimatedWorkspaceHeight(
