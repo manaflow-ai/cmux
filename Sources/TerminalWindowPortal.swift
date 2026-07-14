@@ -661,6 +661,14 @@ final class WindowTerminalPortal: NSObject {
     weak var installedReferenceView: NSView?
     private var referenceGeometryObservers: [NSObjectProtocol] = []
     private var hasDeferredFullSyncScheduled = false
+    /// Surface redraws requested by a sync that ran inside someone else's
+    /// layout/update pass (syncLayout == false). displayIfNeeded there reaches
+    /// ghostty's Metal drawFrame while the window's transaction is still open,
+    /// and waitUntilCompleted then waits on a present that only that
+    /// transaction can commit — the main thread wedges permanently. These
+    /// drain on the next main-queue turn instead.
+    private var pendingDeferredSurfaceRefreshes: [ObjectIdentifier: String] = [:]
+    private var hasDeferredSurfaceRefreshScheduled = false
     private var hasExternalGeometrySyncScheduled = false
     private var pendingExternalGeometrySyncRequiresImmediate = false
     /// True while some request since the last executed pass asked for the
@@ -1636,6 +1644,25 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
+    private func deferSurfaceRefresh(forHostedId hostedId: ObjectIdentifier, reason: String) {
+        pendingDeferredSurfaceRefreshes[hostedId] = reason
+        guard !hasDeferredSurfaceRefreshScheduled else { return }
+        hasDeferredSurfaceRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.hasDeferredSurfaceRefreshScheduled = false
+            let pending = self.pendingDeferredSurfaceRefreshes
+            self.pendingDeferredSurfaceRefreshes = [:]
+            for (pendingId, pendingReason) in pending {
+                guard let entry = self.entriesByHostedId[pendingId],
+                      entry.visibleInUI,
+                      let hostedView = entry.hostedView,
+                      !hostedView.isHidden else { continue }
+                hostedView.refreshSurfaceNow(reason: pendingReason)
+            }
+        }
+    }
+
     private func synchronizeAllHostedViews(excluding hostedIdToSkip: ObjectIdentifier?, syncLayout: Bool = true) {
         guard ensureInstalled(syncLayout: syncLayout) else { return }
         if syncLayout {
@@ -1975,7 +2002,11 @@ final class WindowTerminalPortal: NSObject {
                 // window full of mirrored panes drag. The end-of-resize sync runs
                 // after live resize is over and takes this branch normally.
                 if entry.visibleInUI, !shouldHide, !hostedView.isHidden, !isWindowLiveResizeActive {
-                    hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                    if syncLayout {
+                        hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                    } else {
+                        deferSurfaceRefresh(forHostedId: hostedId, reason: "portal.frameChange.deferred")
+                    }
                 }
             }
         }
@@ -2006,7 +2037,11 @@ final class WindowTerminalPortal: NSObject {
             // normal frame-change refresh path won't run. Nudge geometry + redraw so newly
             // revealed terminals don't sit on a stale/blank IOSurface until later focus churn.
             hostedView.reconcileGeometryNow()
-            hostedView.refreshSurfaceNow(reason: "portal.reveal")
+            if syncLayout {
+                hostedView.refreshSurfaceNow(reason: "portal.reveal")
+            } else {
+                deferSurfaceRefresh(forHostedId: hostedId, reason: "portal.reveal.deferred")
+            }
         }
 
         if transientRecoveryReason == nil {
