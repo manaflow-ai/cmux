@@ -52,8 +52,8 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
         worktreePath: String
     ) async throws -> WorktreeSidebarDeletionInspection {
         let worktrees = try await listWorktrees(projectRootPath: projectRootPath)
-        let normalizedTarget = normalizedPath(worktreePath)
-        guard let worktree = worktrees.first(where: { normalizedPath($0.path) == normalizedTarget }) else {
+        let normalizedTarget = WorktreeSidebarWorktree.normalizedPath(worktreePath)
+        guard let worktree = worktrees.first(where: { $0.normalizedPath == normalizedTarget }) else {
             throw WorktreeSidebarGitError.worktreeNotFound
         }
         guard !worktree.isMain else {
@@ -61,6 +61,9 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
         }
         guard !worktree.isLocked else {
             throw WorktreeSidebarGitError.locked(reason: worktree.lockReason)
+        }
+        guard !worktrees.contains(where: { worktree.isAncestor(of: $0) }) else {
+            throw WorktreeSidebarGitError.containsRegisteredWorktrees
         }
 
         let status = try await deletionStatus(
@@ -133,14 +136,14 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
                 arguments: arguments,
                 optionalLocks: false
             )
-            if isSuccessful(result) {
+            if result.worktreeSidebarSucceeded {
                 removal = .removed
-            } else if commandDetails(result).localizedCaseInsensitiveContains("is not a working tree") {
+            } else if result.worktreeSidebarDetails.localizedCaseInsensitiveContains("is not a working tree") {
                 throw WorktreeSidebarGitError.worktreeChanged
             } else {
                 throw WorktreeSidebarGitError.commandFailed(
                     .remove,
-                    details: commandDetails(result)
+                    details: result.worktreeSidebarDetails
                 )
             }
         }
@@ -164,7 +167,7 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             arguments: ["check-ref-format", "--branch", branch.value],
             optionalLocks: true
         )
-        guard isSuccessful(validation) else {
+        guard validation.worktreeSidebarSucceeded else {
             throw WorktreeSidebarGitError.invalidBranchName(branch.value)
         }
 
@@ -199,10 +202,10 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
                 optionalLocks: false,
                 timeout: submoduleTimeout
             )
-            guard isSuccessful(submodules) else {
+            guard submodules.worktreeSidebarSucceeded else {
                 throw WorktreeSidebarGitError.submoduleInitializationFailed(
                     creation,
-                    details: commandDetails(submodules)
+                    details: submodules.worktreeSidebarDetails
                 )
             }
         }
@@ -326,11 +329,11 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             ],
             optionalLocks: true
         )
-        if isSuccessful(result) { return .deleteMerged(localBranch.name) }
+        if result.worktreeSidebarSucceeded { return .deleteMerged(localBranch.name) }
         if result.executionError == nil, !result.timedOut, result.exitStatus == 1 {
             return .keepUnmerged(localBranch.name)
         }
-        throw WorktreeSidebarGitError.commandFailed(.inspect, details: commandDetails(result))
+        throw WorktreeSidebarGitError.commandFailed(.inspect, details: result.worktreeSidebarDetails)
     }
 
     private func localBranch(
@@ -393,9 +396,9 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             arguments: ["branch", "-d", "--", branchName],
             optionalLocks: false
         )
-        return isSuccessful(result)
+        return result.worktreeSidebarSucceeded
             ? .deleted(branchName)
-            : .preserved(branchName, reason: commandDetails(result))
+            : .preserved(branchName, reason: result.worktreeSidebarDetails)
     }
 
     private func removeStaleRegistration(
@@ -450,8 +453,8 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             arguments: arguments,
             optionalLocks: optionalLocks
         )
-        guard isSuccessful(result) else {
-            throw WorktreeSidebarGitError.commandFailed(operation, details: commandDetails(result))
+        guard result.worktreeSidebarSucceeded else {
+            throw WorktreeSidebarGitError.commandFailed(operation, details: result.worktreeSidebarDetails)
         }
         return result.stdout ?? ""
     }
@@ -477,23 +480,6 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             arguments: ["-C", projectRootPath] + arguments,
             timeout: timeout
         )
-    }
-
-    private func isSuccessful(_ result: CommandResult) -> Bool {
-        result.executionError == nil && !result.timedOut && result.exitStatus == 0
-    }
-
-    private func commandDetails(_ result: CommandResult) -> String {
-        [result.stderr, result.stdout, result.executionError]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first(where: { !$0.isEmpty }) ?? ""
-    }
-
-    private func normalizedPath(_ path: String) -> String {
-        URL(fileURLWithPath: path, isDirectory: true)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-            .path
     }
 
 }

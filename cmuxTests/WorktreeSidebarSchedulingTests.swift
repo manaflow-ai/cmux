@@ -100,6 +100,62 @@ struct WorktreeSidebarSchedulingTests {
         throw WorktreeSidebarSchedulingTestError.descendantDeletionWasAllowed
     }
 
+    @Test("resolver coalesces matching in-flight requests")
+    @MainActor
+    func resolverCoalescesMatchingInFlightRequests() async {
+        let git = WorktreeSidebarResolverTestGit(projectRootPath: "/repo")
+        let resolver = WorktreeSidebarProjectRootResolver(git: git)
+        async let first = resolver.projectRoot(onDiskFor: "/repo/first")
+        await git.waitForFirstListRequest()
+        let requesterID = UUID()
+        let coalescedRoot: String? = await withTaskGroup(of: String?.self) { group in
+            for _ in 0..<2 {
+                group.addTask {
+                    await resolver.projectRoot(
+                        onDiskFor: "/repo/first",
+                        requesterID: requesterID
+                    )
+                }
+            }
+            guard case .some(.none) = await group.next() else {
+                Issue.record("Expected one same-requester request to be superseded")
+                group.cancelAll()
+                await git.resolveFirstListRequest()
+                return nil
+            }
+            await git.resolveFirstListRequest()
+            guard case .some(.some(let projectRoot)) = await group.next() else {
+                Issue.record("Expected the remaining request to share the in-flight result")
+                return nil
+            }
+            return projectRoot
+        }
+
+        #expect(await first == "/repo")
+        #expect(coalescedRoot == "/repo")
+        #expect(await git.listRequestCount == 1)
+    }
+
+    @Test("TabManager injects one resolver without a static default")
+    @MainActor
+    func tabManagerInjectsResolverWithoutStaticDefault() {
+        let resolver = WorktreeSidebarProjectRootResolver()
+        let rootManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            extensionSidebarProjectRootResolver: resolver
+        )
+        let windowManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            extensionSidebarProjectRootResolver:
+                rootManager.extensionSidebarProjectRootResolver
+        )
+        let isolatedManager = TabManager(autoWelcomeIfNeeded: false)
+
+        #expect(rootManager.extensionSidebarProjectRootResolver === resolver)
+        #expect(windowManager.extensionSidebarProjectRootResolver === resolver)
+        #expect(isolatedManager.extensionSidebarProjectRootResolver !== resolver)
+    }
+
     private func runGit(_ arguments: [String], in directory: URL) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")

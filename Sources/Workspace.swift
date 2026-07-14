@@ -2005,7 +2005,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
     @Published private(set) var extensionSidebarProjectRootPath: String?
     private var extensionSidebarProjectRootRefreshID: UInt64 = 0
-    private let extensionSidebarProjectRootResolver: WorktreeSidebarProjectRootResolver
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
@@ -2148,7 +2147,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
-    weak var owningTabManager: TabManager?
+    weak var owningTabManager: TabManager? {
+        didSet {
+            guard owningTabManager !== oldValue else { return }
+            scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
+        }
+    }
 
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
     // layout/size synchronization.
@@ -2411,19 +2415,15 @@ final class Workspace: Identifiable, ObservableObject {
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
         extensionSidebarProjectRootRefreshID &+= 1
         let refreshID = extensionSidebarProjectRootRefreshID
-        guard !usesRemoteDirectoryProvenance else {
-            extensionSidebarProjectRootPath = nil
-            return
-        }
         let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDirectory.isEmpty else {
+        guard !usesRemoteDirectoryProvenance, !trimmedDirectory.isEmpty else {
             extensionSidebarProjectRootPath = nil
             return
         }
 
-        let resolver = extensionSidebarProjectRootResolver
+        let resolver = owningTabManager?.extensionSidebarProjectRootResolver
         Task { @MainActor [weak self, trimmedDirectory, refreshID, resolver, requesterID = id] in
-            let projectRootPath = await resolver.projectRoot(
+            let projectRootPath = await resolver?.projectRoot(
                 onDiskFor: trimmedDirectory,
                 requesterID: requesterID
             )
@@ -2885,11 +2885,9 @@ final class Workspace: Identifiable, ObservableObject {
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
-        sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
-        extensionSidebarProjectRootResolver: WorktreeSidebarProjectRootResolver = .shared
+        sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil
     ) {
         self.id = UUID()
-        self.extensionSidebarProjectRootResolver = extensionSidebarProjectRootResolver
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.closeTabWarningDefaults = closeTabWarningDefaults

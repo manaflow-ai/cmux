@@ -448,14 +448,11 @@ class TabManager: ObservableObject {
     // default) on purpose: the cap is per process, not per window, matching
     // the legacy shared limiter; tests inject their own instance.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
-
-    // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
-    // is the per-window composition point: it constructs the concrete
-    // services, stores only the seams, implements SidebarGitHosting
-    // (see TabManager+SidebarGitHosting.swift), and forwards its legacy
-    // entry points.
+    // Per-window composition root for sidebar Git/PR services and the worktree resolver;
+    // stores seams and forwards legacy entry points through SidebarGitHosting.
     let sidebarGitMetadataService: any SidebarGitMetadataServing
     let pullRequestProbing: any PullRequestProbing
+    let extensionSidebarProjectRootResolver: WorktreeSidebarProjectRootResolver
 
     init(
         initialWorkspaceTitle: String? = nil,
@@ -469,8 +466,11 @@ class TabManager: ObservableObject {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
-        closeTabWarningDefaults: UserDefaults = .standard
+        closeTabWarningDefaults: UserDefaults = .standard,
+        extensionSidebarProjectRootResolver: WorktreeSidebarProjectRootResolver? = nil
     ) {
+        self.extensionSidebarProjectRootResolver = extensionSidebarProjectRootResolver
+            ?? WorktreeSidebarProjectRootResolver()
         self.settings = settings
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults

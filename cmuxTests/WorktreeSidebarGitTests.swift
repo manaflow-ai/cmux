@@ -391,7 +391,7 @@ struct WorktreeSidebarGitTests {
         #expect(result.removal == .pruned)
         let refreshed = try await service.listWorktrees(projectRootPath: fixture.repo.path)
         #expect(refreshed.count == 2)
-        #expect(refreshed.contains { $0.path == canonical(other) && $0.isPrunable })
+        #expect(refreshed.contains { $0.normalizedPath == canonical(other) && $0.isPrunable })
     }
 
     @Test("linked worktree grouping resolves to the main checkout")
@@ -469,7 +469,7 @@ struct WorktreeSidebarGitTests {
     }
 
     private func canonical(_ url: URL) -> String {
-        url.standardizedFileURL.resolvingSymlinksInPath().path
+        WorktreeSidebarWorktree.normalizedPath(url.path)
     }
 
     @discardableResult

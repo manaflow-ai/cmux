@@ -398,14 +398,13 @@ final class WorktreeSidebarModel {
                 return
             }
             if statusWatchPlans[path] == plan { return }
+            statusWatchPlans.removeValue(forKey: path)
             statusRecursiveWatcherTasks.removeValue(forKey: path)?.cancel()
             statusShallowWatcherTasks.removeValue(forKey: path)?.forEach { $0.cancel() }
-            if let watcher = statusRecursiveWatchers.removeValue(forKey: path) {
-                await watcher.stop()
-            }
-            for watcher in statusShallowWatchers.removeValue(forKey: path) ?? [] {
-                await watcher.stop()
-            }
+            let previousRecursiveWatcher = statusRecursiveWatchers.removeValue(forKey: path)
+            let previousShallowWatchers = statusShallowWatchers.removeValue(forKey: path) ?? []
+            if let previousRecursiveWatcher { await previousRecursiveWatcher.stop() }
+            for watcher in previousShallowWatchers { await watcher.stop() }
             guard !Task.isCancelled,
                   lifecyclePhase == .running,
                   visiblePaths.contains(path) else {

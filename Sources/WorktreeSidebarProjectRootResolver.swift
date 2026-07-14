@@ -1,9 +1,7 @@
 import Foundation
 
-/// Process-wide resolver with one Git listing in flight and one pending request per workspace.
+/// Serial resolver with one Git listing in flight and one pending request per workspace.
 actor WorktreeSidebarProjectRootResolver {
-    static let shared = WorktreeSidebarProjectRootResolver()
-
     private struct Request: Sendable {
         let requesterID: UUID
         let directory: String
