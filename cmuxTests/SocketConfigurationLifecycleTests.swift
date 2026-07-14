@@ -9,6 +9,61 @@ import CmuxSettings
 #endif
 
 extension SocketACLReloadRegressionTests {
+    @Test(arguments: [
+        "{",
+        #"{"automation":{"socketControlMode":"invalid-mode"}}"#,
+    ])
+    func invalidColdLaunchPreservesPasswordMode(contents: String) throws {
+        let defaults = UserDefaults.standard
+        let originalDefaults = capturedSocketDefaults(defaults)
+        let directory = lifecycleTemporaryDirectory(prefix: "scfp")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let configURL = directory.appendingPathComponent("cmux.json")
+        defer {
+            restoreSocketDefaults(originalDefaults, in: defaults)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        resetSocketDefaults(defaults, unmanagedMode: .password)
+        try contents.write(to: configURL, atomically: true, encoding: .utf8)
+        _ = CmuxSettingsFileStore(
+            primaryPath: configURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.password.rawValue)
+    }
+
+    @Test(arguments: ["null", "[]"])
+    func malformedAutomationSectionPreservesManagedPassword(section: String) throws {
+        let defaults = UserDefaults.standard
+        let originalDefaults = capturedSocketDefaults(defaults)
+        let directory = lifecycleTemporaryDirectory(prefix: "scfa")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let configURL = directory.appendingPathComponent("cmux.json")
+        defer {
+            restoreSocketDefaults(originalDefaults, in: defaults)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        resetSocketDefaults(defaults, unmanagedMode: .allowAll)
+        try writeConfig(mode: SocketControlMode.password.rawValue, to: configURL)
+        let store = CmuxSettingsFileStore(
+            primaryPath: configURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.password.rawValue)
+
+        try "{\"automation\":\(section)}".write(to: configURL, atomically: true, encoding: .utf8)
+        store.reload()
+
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.password.rawValue)
+    }
+
     @Test func malformedReloadPreservesLastValidRestrictiveMode() throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
