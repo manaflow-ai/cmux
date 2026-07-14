@@ -34,13 +34,14 @@ def main() -> None:
     )
     require_workflow_cache(
         ".github/workflows/test-ios.yml",
-        consumer="- name: Resolve packages",
+        consumer="- name: Run iOS simulator tests",
     )
 
     test_workflow = (ROOT / ".github/workflows/test-ios.yml").read_text()
     assert test_workflow.count(
         '-clonedSourcePackagesDirPath "$IOS_SOURCE_PACKAGES_DIR"'
-    ) == 2
+    ) == 1
+    assert "-resolvePackageDependencies" not in test_workflow
 
     upload_script = (ROOT / "ios/scripts/upload-testflight.sh").read_text()
     assert "CMUX_XCODE_SOURCE_PACKAGES_DIR" in upload_script

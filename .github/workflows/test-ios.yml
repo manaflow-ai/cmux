@@ -368,16 +368,6 @@ jobs:
           echo "IOS_DERIVED_DATA=$IOS_DERIVED_DATA" >> "$GITHUB_ENV"
           echo "IOS_SOURCE_PACKAGES_DIR=$IOS_SOURCE_PACKAGES_DIR" >> "$GITHUB_ENV"
 
-      - name: Resolve packages
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
-        run: |
-          xcodebuild -workspace ios/cmux.xcworkspace \
-            -scheme cmux-ios \
-            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -derivedDataPath "$IOS_DERIVED_DATA" \
-            -clonedSourcePackagesDirPath "$IOS_SOURCE_PACKAGES_DIR" \
-            -resolvePackageDependencies
-
       - name: Run iOS simulator tests
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         env:
