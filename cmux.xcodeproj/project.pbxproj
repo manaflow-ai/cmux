@@ -1077,6 +1077,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */; };
 		0A110711000000000000001A /* PromptTurnNotificationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A110711000000000000001B /* PromptTurnNotificationHandler.swift */; };
 		C0DEA771000000000000000F /* ProWelcomeChecklist.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000010 /* ProWelcomeChecklist.swift */; };
+		A13F10070000000000000007 /* PullRequestCheckRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00070000000000000007 /* PullRequestCheckRow.swift */; };
 		A13F10010000000000000001 /* PullRequestPanelActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00010000000000000001 /* PullRequestPanelActivation.swift */; };
 		8ACF001A8ACF001A8ACF001A /* PullRequestPanelRemoteWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ACF001B8ACF001B8ACF001B /* PullRequestPanelRemoteWorkspaceTests.swift */; };
 		A13F10030000000000000003 /* PullRequestPanelView+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00030000000000000003 /* PullRequestPanelView+Presentation.swift */; };
@@ -2883,6 +2884,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectTargetsTabView.swift; sourceTree = "<group>"; };
 		0A110711000000000000001B /* PromptTurnNotificationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptTurnNotificationHandler.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000010 /* ProWelcomeChecklist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProWelcomeChecklist.swift; sourceTree = "<group>"; };
+		A13F00070000000000000007 /* PullRequestCheckRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequestCheckRow.swift; sourceTree = "<group>"; };
 		A13F00010000000000000001 /* PullRequestPanelActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequestPanelActivation.swift; sourceTree = "<group>"; };
 		8ACF001B8ACF001B8ACF001B /* PullRequestPanelRemoteWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequestPanelRemoteWorkspaceTests.swift; sourceTree = "<group>"; };
 		A13F00030000000000000003 /* PullRequestPanelView+Presentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PullRequestPanelView+Presentation.swift"; sourceTree = "<group>"; };
@@ -3881,6 +3883,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = PBXGroup;
 			children = (
 				A13F00010000000000000001 /* PullRequestPanelActivation.swift */,
+				A13F00070000000000000007 /* PullRequestCheckRow.swift */,
 				A13F00020000000000000002 /* PullRequestPanelView.swift */,
 				A13F00030000000000000003 /* PullRequestPanelView+Presentation.swift */,
 				A13F00060000000000000006 /* PullRequestPanelWorkspaceView.swift */,
@@ -6559,6 +6562,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
 				0A110711000000000000001A /* PromptTurnNotificationHandler.swift in Sources */,
 				C0DEA771000000000000000F /* ProWelcomeChecklist.swift in Sources */,
+				A13F10070000000000000007 /* PullRequestCheckRow.swift in Sources */,
 				A13F10010000000000000001 /* PullRequestPanelActivation.swift in Sources */,
 				A13F10030000000000000003 /* PullRequestPanelView+Presentation.swift in Sources */,
 				A13F10020000000000000002 /* PullRequestPanelView.swift in Sources */,

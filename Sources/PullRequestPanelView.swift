@@ -169,6 +169,16 @@ struct PullRequestPanelView: View {
 
     private func mergeSection(_ snapshot: PullRequestPanelSnapshot) -> some View {
         @Bindable var bindableModel = model
+        let mergeMethodLabel: (PullRequestMergeMethod) -> String = { method in
+            switch method {
+            case .squash:
+                String(localized: "pullRequestPanel.merge.squash", defaultValue: "Squash")
+            case .merge:
+                String(localized: "pullRequestPanel.merge.commit", defaultValue: "Merge Commit")
+            case .rebase:
+                String(localized: "pullRequestPanel.merge.rebase", defaultValue: "Rebase")
+            }
+        }
         let hasFreshContent = model.hasFreshContent(for: input)
         let canMerge = hasFreshContent
             && snapshot.mergeAvailability == .allowed
@@ -237,41 +247,16 @@ struct PullRequestPanelView: View {
     }
 
     private func checksSection(_ snapshot: PullRequestPanelSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let openURL = onOpenURL
+        return VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "pullRequestPanel.checks.title", defaultValue: "Checks"))
                 .font(.caption.weight(.semibold))
             Text(checksSummary(snapshot.checksStatus))
                 .font(.caption)
                 .foregroundStyle(checksSummaryColor(snapshot.checksStatus))
             ForEach(snapshot.checks) { check in
-                checkRow(check)
+                PullRequestCheckRow(check: check, onOpenURL: openURL)
             }
-        }
-    }
-
-    @ViewBuilder
-    private func checkRow(_ check: GitHubPullRequestCheck) -> some View {
-        let row = HStack(spacing: 7) {
-            checkIcon(check.presentationState)
-            Text(verbatim: check.name)
-                .lineLimit(2)
-            Spacer(minLength: 0)
-            if check.link != nil {
-                Image(systemName: "arrow.up.right.square")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .font(.caption)
-
-        if let link = check.link {
-            Button { onOpenURL(link) } label: { row }
-                .buttonStyle(.plain)
-                .safeHelp(String(
-                    localized: "pullRequestPanel.check.openTooltip",
-                    defaultValue: "Open Check"
-                ))
-        } else {
-            row
         }
     }
 

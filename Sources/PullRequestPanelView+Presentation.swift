@@ -11,20 +11,6 @@ extension PullRequestPanelView {
             .background(stateBadgeColor(pullRequest).opacity(0.12), in: Capsule())
     }
 
-    @ViewBuilder
-    func checkIcon(_ state: PullRequestCheckState) -> some View {
-        switch state {
-        case .pending:
-            ProgressView().controlSize(.mini)
-        case .success:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .failure:
-            Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
-        case .neutral:
-            Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
-        }
-    }
-
     func stateBadgeLabel(_ pullRequest: GitHubPullRequest) -> String {
         if pullRequest.isDraft {
             return String(localized: "pullRequestPanel.state.draft", defaultValue: "Draft")
@@ -42,14 +28,6 @@ extension PullRequestPanelView {
         case "MERGED": return .purple
         case "CLOSED": return .red
         default: return .green
-        }
-    }
-
-    func mergeMethodLabel(_ method: PullRequestMergeMethod) -> String {
-        switch method {
-        case .squash: return String(localized: "pullRequestPanel.merge.squash", defaultValue: "Squash")
-        case .merge: return String(localized: "pullRequestPanel.merge.commit", defaultValue: "Merge Commit")
-        case .rebase: return String(localized: "pullRequestPanel.merge.rebase", defaultValue: "Rebase")
         }
     }
 
