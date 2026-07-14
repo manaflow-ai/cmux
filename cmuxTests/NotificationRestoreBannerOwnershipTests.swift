@@ -106,6 +106,7 @@ struct NotificationRestoreBannerOwnershipTests {
         let sourceTabId = UUID()
         let destinationTabId = UUID()
         let surfaceId = UUID()
+        let sourceSupersededId = UUID()
         let sourceOwner = notification(
             id: UUID(), tabId: sourceTabId, surfaceId: surfaceId,
             title: "Source owner", createdAt: Date(timeIntervalSince1970: 10)
@@ -120,6 +121,8 @@ struct NotificationRestoreBannerOwnershipTests {
             } else {
                 UserDefaults.standard.removeObject(forKey: tombstoneKey)
             }
+            _ = store.flushSupersededPhoneDismissIDsForTesting(tabId: sourceTabId, surfaceId: surfaceId)
+            _ = store.flushSupersededPhoneDismissIDsForTesting(tabId: destinationTabId, surfaceId: surfaceId)
             store.reloadDismissedTombstonesForTesting()
             store.replaceNotificationsForTesting(previousNotifications)
         }
@@ -127,6 +130,11 @@ struct NotificationRestoreBannerOwnershipTests {
         UserDefaults.standard.removeObject(forKey: tombstoneKey)
         store.reloadDismissedTombstonesForTesting()
         store.replaceNotificationsForTesting([destinationOwner, sourceOwner])
+        store.stashSupersededPhoneDismissIDsForTesting(
+            [sourceSupersededId.uuidString],
+            tabId: sourceTabId,
+            surfaceId: surfaceId
+        )
 
         store.rebindSurfaceNotifications(
             fromTabId: sourceTabId,
@@ -142,6 +150,7 @@ struct NotificationRestoreBannerOwnershipTests {
         )
         let tombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey) ?? []
         #expect(tombstones.contains(sourceOwner.id.uuidString))
+        #expect(tombstones.contains(sourceSupersededId.uuidString))
         #expect(!tombstones.contains(destinationOwner.id.uuidString))
     }
 

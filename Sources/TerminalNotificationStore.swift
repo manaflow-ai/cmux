@@ -1600,8 +1600,11 @@ final class TerminalNotificationStore: ObservableObject {
             panelIdMap: panelIdMap
         )
         supersededPhoneDismissBuffer.transfer(fromTabId: fromTabId, toTabId: toTabId, panelIdMap: panelIdMap)
-        guard !displacedOwners.isEmpty else { return }
+        dismissDisplacedExternalBannerOwners(displacedOwners)
+    }
 
+    private func dismissDisplacedExternalBannerOwners(_ displacedOwners: [TerminalNotification]) {
+        guard !displacedOwners.isEmpty else { return }
         let displacedIds = Set(displacedOwners.map { $0.id.uuidString }).sorted()
         let displacedKeys = Set(displacedOwners.map {
             SupersededPhoneDismissBuffer.key(tabId: $0.tabId, surfaceId: $0.surfaceId)
@@ -1737,7 +1740,17 @@ final class TerminalNotificationStore: ObservableObject {
             )
         }
         if didMoveNotification {
-            externalBannerOwnership.rebind(surfaceId: surfaceId, fromTabId: sourceTabId, toTabId: destinationTabId)
+            let displacedOwner = externalBannerOwnership.rebind(
+                surfaceId: surfaceId,
+                fromTabId: sourceTabId,
+                toTabId: destinationTabId
+            )
+            supersededPhoneDismissBuffer.rebind(
+                surfaceId: surfaceId,
+                fromTabId: sourceTabId,
+                toTabId: destinationTabId
+            )
+            dismissDisplacedExternalBannerOwners(displacedOwner.map { [$0] } ?? [])
             notifications = updated
         }
 

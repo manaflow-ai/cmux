@@ -94,17 +94,21 @@ struct ExternalNotificationBannerOwnership {
         return displaced
     }
 
-    mutating func rebind(surfaceId: UUID, fromTabId: UUID, toTabId: UUID) {
-        guard let owner = owner(tabId: fromTabId, surfaceId: surfaceId) else { return }
+    @discardableResult
+    mutating func rebind(surfaceId: UUID, fromTabId: UUID, toTabId: UUID) -> TerminalNotification? {
+        guard let owner = owner(tabId: fromTabId, surfaceId: surfaceId) else { return nil }
         clear(tabId: fromTabId, surfaceId: surfaceId)
-        setOwner(
-            Self.replacingLocation(
-                owner,
-                tabId: toTabId,
-                surfaceId: owner.surfaceId,
-                panelId: owner.panelId
-            )
+        let moved = Self.replacingLocation(
+            owner,
+            tabId: toTabId,
+            surfaceId: owner.surfaceId,
+            panelId: owner.panelId
         )
+        if let existing = self.owner(tabId: toTabId, surfaceId: surfaceId) {
+            return existing.id == moved.id ? nil : moved
+        }
+        setOwner(moved)
+        return nil
     }
 
     private static func key(_ notification: TerminalNotification) -> String {

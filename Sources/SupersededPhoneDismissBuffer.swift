@@ -62,6 +62,14 @@ struct SupersededPhoneDismissBuffer {
         }
     }
 
+    mutating func rebind(surfaceId: UUID, fromTabId: UUID, toTabId: UUID) {
+        let sourceKey = Self.key(tabId: fromTabId, surfaceId: surfaceId)
+        stash(
+            ids: idsByKey.removeValue(forKey: sourceKey) ?? [],
+            forKey: Self.key(tabId: toTabId, surfaceId: surfaceId)
+        )
+    }
+
     /// Take (and clear) everything stashed across all keys, for clear-all /
     /// mark-all-read operations.
     mutating func flushAll() -> [String] {
