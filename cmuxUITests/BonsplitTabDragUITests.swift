@@ -272,6 +272,31 @@ final class BonsplitTabDragUITests: XCTestCase {
                 titlebarToggle.frame.minX,
                 "Expected the native trailing cluster to stay left of the collapsed-sidebar edge cell."
             )
+        } else {
+            let window = app.windows.element(boundBy: 0)
+            let splitDownButton = app.descendants(matching: .any)
+                .matching(identifier: "paneTabBarControl.splitDown")
+                .firstMatch
+            hover(
+                in: window,
+                at: CGPoint(
+                    x: titlebarToggle.frame.minX - 12,
+                    y: titlebarToggle.frame.midY
+                )
+            )
+            XCTAssertTrue(
+                splitDownButton.waitForExistence(timeout: 5.0),
+                "Expected minimal-mode Split Down to remain available beside the right-sidebar toggle."
+            )
+            XCTAssertTrue(
+                splitDownButton.isHittable,
+                "Expected minimal-mode Split Down to remain hittable beside the right-sidebar toggle. button=\(splitDownButton.debugDescription) toggle=\(titlebarToggle.debugDescription)"
+            )
+            XCTAssertLessThanOrEqual(
+                splitDownButton.frame.maxX,
+                titlebarToggle.frame.minX,
+                "Expected minimal-mode Split Down to stay left of the right-sidebar toggle. button=\(splitDownButton.frame) toggle=\(titlebarToggle.frame)"
+            )
         }
 
         titlebarToggle.click()
