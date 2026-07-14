@@ -10,7 +10,7 @@ import sys
 
 
 DEFAULT_ROOTS = ("Sources",)
-OWNER_LIST_PATH = pathlib.Path("Sources/cmuxApp.swift")
+OWNER_LIST_PATH = pathlib.Path("Sources/CmuxAuxiliaryWindows.swift")
 OWNER_LIST_NAME = "cmuxAuxiliaryWindowIdentifiers"
 
 # Hidden/internal bootstrap windows should not take Cmd+W away from the active

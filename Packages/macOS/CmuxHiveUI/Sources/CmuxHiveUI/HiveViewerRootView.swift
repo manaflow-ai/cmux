@@ -82,7 +82,7 @@ public struct HiveViewerRootView: View {
             client: client,
             workspaceID: selection.workspaceID,
             terminalID: selection.terminalID,
-            retryDelay: HiveReconnectBackoff.delay
+            retryDelay: HiveReconnectBackoff().delay(attempt:)
         )
         terminalSessions[selection] = terminal
         return terminal

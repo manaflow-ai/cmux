@@ -13,11 +13,11 @@ import SwiftUI
 final class HiveViewerWindowController: NSObject, NSWindowDelegate {
     static let shared = HiveViewerWindowController()
 
-    /// The viewer windows' identifier prefix. The exact identifier is
-    /// `<prefix>.<deviceID>`; `cmuxWindowShouldOwnCloseShortcut`
-    /// (CmuxAuxiliaryWindows.swift) prefix-matches it so Cmd+W closes the
-    /// viewer instead of a terminal tab in the main window behind it.
-    static let windowIdentifierPrefix = "cmux.hiveViewerWindow"
+    /// The viewer windows' shared identifier (identifiers need not be unique
+    /// per window). Listed in `cmuxAuxiliaryWindowIdentifiers`
+    /// (CmuxAuxiliaryWindows.swift) so Cmd+W closes the viewer instead of a
+    /// terminal tab in the main window behind it.
+    static let windowIdentifier = "cmux.hiveViewerWindow"
 
     private struct OpenViewer {
         let window: NSWindow
@@ -59,7 +59,7 @@ final class HiveViewerWindowController: NSObject, NSWindowDelegate {
         let hostingController = NSHostingController(rootView: root)
         let window = NSWindow(contentViewController: hostingController)
         window.title = session.displayName
-        window.identifier = NSUserInterfaceItemIdentifier("\(Self.windowIdentifierPrefix).\(deviceID)")
+        window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.setContentSize(NSSize(width: 980, height: 640))
         window.contentMinSize = NSSize(width: 560, height: 360)
