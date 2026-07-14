@@ -26,8 +26,8 @@ enum TextBoxLayout {
     static let iconSymbolSize: CGFloat = 13
     static let sendSymbolSize: CGFloat = 14
     static let buttonBottomPadding: CGFloat = 3
-    static let leadingButtonHorizontalOffset: CGFloat = -1
-    static let trailingButtonHorizontalOffset: CGFloat = 1
+    static let leadingButtonHorizontalOffset: CGFloat = -2
+    static let trailingButtonHorizontalOffset: CGFloat = 2
     static let attachmentControlSpacing: CGFloat = 2
     static var attachmentImageSize: CGFloat {
         GlobalFontMagnification.scaledSize(16)
