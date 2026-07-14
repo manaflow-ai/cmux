@@ -82,6 +82,47 @@ struct UnifiedFileExplorerTests {
         #expect(snapshot.groupingMatchesByFile().results == [firstMatch, secondMatch, otherFileMatch])
     }
 
+    @Test("Streaming regrouping preserves the selected match")
+    func streamingRegroupingPreservesSelectedMatch() throws {
+        let searchController = SearchControllerSpy()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: FileExplorerStore(),
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: searchController
+        )
+        let firstMatch = FileSearchResult(
+            path: "/tmp/a.swift", relativePath: "a.swift", lineNumber: 1, columnNumber: 1, preview: "first"
+        )
+        let selectedMatch = FileSearchResult(
+            path: "/tmp/b.swift", relativePath: "b.swift", lineNumber: 2, columnNumber: 1, preview: "selected"
+        )
+        let insertedMatch = FileSearchResult(
+            path: "/tmp/a.swift", relativePath: "a.swift", lineNumber: 3, columnNumber: 1, preview: "inserted"
+        )
+        searchController.publish(
+            FileSearchSnapshot(query: "match", results: [firstMatch, selectedMatch], status: .searching, isSearching: true)
+        )
+        let selectedRow = try #require(container.searchSnapshot.results.firstIndex(of: selectedMatch))
+        container.searchResultsView.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+
+        searchController.publish(
+            FileSearchSnapshot(
+                query: "match",
+                results: [firstMatch, selectedMatch, insertedMatch],
+                status: .searching,
+                isSearching: true
+            )
+        )
+
+        let regroupedSelection = try #require(container.searchResultsView.selectedRowIndexes.first)
+        #expect(container.searchSnapshot.results[regroupedSelection] == selectedMatch)
+    }
+
     @Test("Hidden unified search chrome stays collapsed after font changes")
     func hiddenUnifiedSearchChromeStaysCollapsedAfterFontChanges() throws {
         let coordinator = FileExplorerPanelView.Coordinator(
