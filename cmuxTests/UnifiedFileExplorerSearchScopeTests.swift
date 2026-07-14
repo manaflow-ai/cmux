@@ -290,7 +290,7 @@ struct UnifiedFileExplorerSearchScopeTests {
         #expect(!store.isExpanded(root))
         #expect(outline.selectedRow == 0)
 
-        outline.keyDown(with: try Self.keyEvent(characters: "", keyCode: 124))
+        outline.keyDown(with: try Self.keyEvent(characters: "\u{f703}", keyCode: 124))
 
         #expect(outline.selectedRow == 1)
         #expect(store.selectedPath == match.path)
