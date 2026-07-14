@@ -31,6 +31,15 @@ struct CEFOmnibarIntegrationTests {
     }
 
     @Test
+    func chromeManagementURLKeepsOpaqueScheme() throws {
+        let panel = CEFBrowserPanel(workspaceId: UUID())
+
+        let url = try #require(panel.resolveNavigableURL(from: "chrome:extensions"))
+
+        #expect(url.absoluteString == "chrome:extensions")
+    }
+
+    @Test
     func completedLoadingTransitionRecordsVisit() throws {
         let directory = temporaryDirectory(named: "visit")
         defer { try? FileManager.default.removeItem(at: directory) }
