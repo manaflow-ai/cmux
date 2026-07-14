@@ -708,6 +708,23 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(TerminalController.normalizedExportedScreenPath(nil))
     }
 
+    func testIsPlausibleExportedScreenPathRequiresExistingFile() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-export-path-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let existing = directory.appendingPathComponent("screen.vt")
+        try Data("screen".utf8).write(to: existing)
+
+        XCTAssertTrue(TerminalController.isPlausibleExportedScreenPath(existing.path))
+        XCTAssertTrue(TerminalController.isPlausibleExportedScreenPath("file://\(existing.path)"))
+        // Typical user copies must never be mistaken for an export path.
+        XCTAssertFalse(TerminalController.isPlausibleExportedScreenPath("user copied text"))
+        XCTAssertFalse(TerminalController.isPlausibleExportedScreenPath(existing.path + "-missing"))
+        // Directories are not export payloads.
+        XCTAssertFalse(TerminalController.isPlausibleExportedScreenPath(directory.path))
+    }
+
     func testNormalizedMobileVTExportTextSplitsGhosttyCRLFRows() {
         let normalized = TerminalController.normalizedMobileVTExportText("first\r\nsecond\r\nthird")
         let rows = normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)

@@ -123,6 +123,41 @@ struct ClipboardWriteCaptureTests {
         #expect(board?.string(forType: .string) == marker)
         #expect(service.hasString(for: GHOSTTY_CLIPBOARD_SELECTION))
     }
+
+    @Test func nonMatchingWritePassesThroughAndLeavesCaptureArmed() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService(standardPasteboard: scratch.pasteboard)
+        let exportFile = scratchDir.appendingPathComponent("export.vt")
+        try Data("screen".utf8).write(to: exportFile)
+        let userCopy = "user copied text \(UUID().uuidString)"
+
+        let captured = service.captureNextStandardClipboardWrite(
+            matching: { $0 == exportFile.path }
+        ) {
+            // A user copy racing the export must reach the pasteboard...
+            service.writeString(userCopy, to: GHOSTTY_CLIPBOARD_STANDARD)
+            // ...and the capture must stay armed for the export's own write.
+            service.writeString(exportFile.path, to: GHOSTTY_CLIPBOARD_STANDARD)
+            return true
+        }
+
+        #expect(captured == exportFile.path)
+        #expect(scratch.pasteboard.string(forType: .string) == userCopy)
+    }
+
+    @Test func standardWritesLandOnInjectedPasteboardAfterCaptureDisarms() {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService(standardPasteboard: scratch.pasteboard)
+        service.captureNextStandardClipboardWrite {
+            service.writeString("diverted", to: GHOSTTY_CLIPBOARD_STANDARD)
+            return true
+        }
+        let marker = "after-capture-\(UUID().uuidString)"
+        service.writeString(marker, to: GHOSTTY_CLIPBOARD_STANDARD)
+        #expect(scratch.pasteboard.string(forType: .string) == marker)
+    }
 }
 
 @Suite("Image materialization and temp-file ownership")

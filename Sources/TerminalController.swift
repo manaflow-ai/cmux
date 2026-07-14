@@ -687,6 +687,21 @@ class TerminalController {
         return trimmed.hasPrefix("/") ? trimmed : nil
     }
 
+    /// Whether a standard-clipboard write plausibly is the file path a
+    /// `write_screen_file:copy` / `write_active_file:copy` binding action
+    /// produces: a single absolute path (or file URL) to an existing file.
+    /// Gates the VT-export clipboard capture so it cannot swallow an
+    /// unrelated write (e.g. a user copy) that races the export.
+    nonisolated static func isPlausibleExportedScreenPath(
+        _ raw: String,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        guard let path = normalizedExportedScreenPath(raw) else { return false }
+        var isDirectory = ObjCBool(false)
+        return fileManager.fileExists(atPath: path, isDirectory: &isDirectory)
+            && !isDirectory.boolValue
+    }
+
     nonisolated static func shouldRemoveExportedScreenFile(
         fileURL: URL,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
@@ -5440,7 +5455,9 @@ class TerminalController {
         normalizeLineEndings: Bool = true
     ) -> String? {
         var actionSucceeded = false
-        let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
+        let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite(
+            matching: { Self.isPlausibleExportedScreenPath($0) }
+        ) {
             let ok = terminalPanel.performInternalBindingAction(bindingAction)
             actionSucceeded = ok
             return ok
