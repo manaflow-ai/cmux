@@ -409,6 +409,14 @@ extension MobileHostIrohRuntime {
 extension MobileHostIrohRuntime: CmxIrohDebugSettingsControlling {
     func setIrohDebugRelayOnly(_ enabled: Bool) async throws {
         let mode: CmxIrohTransportVerificationMode = enabled ? .relayOnly : .automatic
+        await setIrohDebugTransportVerificationMode(mode)
+    }
+
+    /// Applies one Debug-only path constraint through the same runtime restart
+    /// boundary used by Settings and the Debug menu.
+    func setIrohDebugTransportVerificationMode(
+        _ mode: CmxIrohTransportVerificationMode
+    ) async {
         guard transportVerificationMode != mode else { return }
         UserDefaults.standard.set(
             mode.rawValue,
