@@ -136,11 +136,15 @@ struct NotificationScrollRestoreRecoveryTests {
         ))
 
         #expect(surfaceView.performedRows == [256])
+        #expect(surfaceView.attemptedRowSpaceRevisions == [1])
+        #expect(surfaceView.acceptedRowSpaceRevisions.isEmpty)
         #expect(hostedView.hasPendingNotificationScrollRestore)
 
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
         #expect(surfaceView.performedRows == [256, 256])
+        #expect(surfaceView.attemptedRowSpaceRevisions == [1, 2])
+        #expect(surfaceView.acceptedRowSpaceRevisions == [2])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
@@ -234,6 +238,8 @@ struct NotificationScrollRestoreRecoveryTests {
 
 private final class NotificationRecoveryRecordingSurfaceView: GhosttyNSView {
     private(set) var performedRows: [Int] = []
+    private(set) var attemptedRowSpaceRevisions: [UInt64] = []
+    private(set) var acceptedRowSpaceRevisions: [UInt64] = []
     var authoritativeGeometry: NotificationScrollRestoreGeometry?
     var acceptsAtomicScroll = true
 
@@ -261,11 +267,13 @@ private final class NotificationRecoveryRecordingSurfaceView: GhosttyNSView {
         result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
     ) -> Bool {
         performedRows.append(Int(clamping: row))
+        attemptedRowSpaceRevisions.append(rowSpaceRevision)
         guard acceptsAtomicScroll,
               let authoritativeGeometry,
               authoritativeGeometry.rowSpaceRevision == rowSpaceRevision else {
             return false
         }
+        acceptedRowSpaceRevisions.append(rowSpaceRevision)
         result.pointee = cValue(for: authoritativeGeometry)
         return true
     }
