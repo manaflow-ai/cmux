@@ -51,6 +51,38 @@ struct RemoteDisconnectLifecycleTests {
         #expect(replayRange.lowerBound < endRange.lowerBound)
     }
 
+    @Test func missingPlaceholderReplayFileStillCompletesNotificationRestoreLifecycle() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-remote-missing-replay-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let missingPath = temporaryDirectory.appendingPathComponent("missing-replay").path
+        let scriptPath = try #require(Workspace.remoteDisconnectPlaceholderScript(
+            target: "example-host",
+            reconnectCommand: nil,
+            temporaryDirectory: temporaryDirectory
+        ))
+        let outputPipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [scriptPath]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outputPipe
+        process.standardError = FileHandle.nullDevice
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            [SessionScrollbackReplayStore.environmentKey: missingPath],
+            uniquingKeysWith: { _, new in new }
+        )
+
+        try process.run()
+        process.waitUntilExit()
+        let output = String(decoding: outputPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+
+        #expect(process.terminationStatus == 0)
+        #expect(output.contains(SessionScrollbackReplayStore.startBoundaryValue(forReplayFilePath: missingPath)))
+        #expect(output.contains(SessionScrollbackReplayStore.endBoundaryValue(forReplayFilePath: missingPath)))
+    }
+
     @Test func twoPendingRemoteExitsKeepIndependentReplacementState() async throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.remoteConfiguration(), autoConnect: false)

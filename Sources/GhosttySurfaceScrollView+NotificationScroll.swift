@@ -211,6 +211,10 @@ extension GhosttySurfaceScrollView {
     }
 
     func cancelPendingNotificationScrollRestoreForUserInput() {
+        if case .awaitingPostReplayGeometry = notificationScrollRestoreState {
+            notificationScrollRestoreState = .inactive
+            return
+        }
         guard notificationScrollRestoreState.pendingPosition != nil else { return }
         clearPendingNotificationScrollRestore()
     }
@@ -251,7 +255,10 @@ extension GhosttySurfaceScrollView {
             return false
         }
         guard let pendingPosition else {
-            notificationScrollRestoreState = .inactive
+            notificationScrollRestoreState = .awaitingPostReplayGeometry(
+                position: nil,
+                attemptsRemaining: 2
+            )
             return true
         }
         notificationScrollRestoreState = .awaitingPostReplayGeometry(
