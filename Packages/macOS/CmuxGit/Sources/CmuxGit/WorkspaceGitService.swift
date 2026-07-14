@@ -231,6 +231,18 @@ public struct WorkspaceGitService: Sendable {
     private static func untrackedStats(for path: String, in repoRoot: String) -> WorkspaceGitNumstatEntry {
         let url = URL(fileURLWithPath: repoRoot, isDirectory: true).appendingPathComponent(path)
         do {
+            // lstat gate: opening a FIFO/socket/device blocks or misbehaves, and a
+            // symlink's git content is its target path, not the target's bytes.
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            guard let type = attributes[.type] as? FileAttributeType, type == .typeRegular else {
+                return WorkspaceGitNumstatEntry(
+                    path: path,
+                    oldPath: nil,
+                    additions: 0,
+                    deletions: 0,
+                    binary: false
+                )
+            }
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
             let data = try handle.read(upToCount: untrackedReadByteCap) ?? Data()
