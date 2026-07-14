@@ -263,18 +263,19 @@ extension TerminalSurface {
 
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            // Transport manualIOContext and teeLease through the request too:
+            // the coordinator releases all callback userdata only after the
+            // native free, which is what joins ghostty's IO threads.
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
                 reason: "teardown",
                 surface: surfaceToFree,
                 callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The teardown coordinator releases callbackContext; manualIOContext
-            // and teeLease are not transported through the request, so release them here.
-            manualIOContext?.release()
-            teeLease?.release()
             return
         }
 #endif
@@ -332,18 +333,19 @@ extension TerminalSurface {
 
 #if DEBUG
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            // Transport manualIOContext and teeLease through the request too:
+            // the coordinator releases all callback userdata only after the
+            // native free, which is what joins ghostty's IO threads.
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
                 reason: reason,
                 surface: surfaceToFree,
                 callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The teardown coordinator releases callbackContext; manualIOContext
-            // and teeLease are not transported through the request, so release them here.
-            manualIOContext?.release()
-            teeLease?.release()
             return
         }
 #endif
