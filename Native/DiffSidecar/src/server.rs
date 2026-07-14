@@ -10,8 +10,8 @@ use axum::body::Body;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::header::{
-    CACHE_CONTROL, CONNECTION, CONTENT_LENGTH, CONTENT_TYPE, HOST, LOCATION, ORIGIN,
-    REFERRER_POLICY,
+    CACHE_CONTROL, CONNECTION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST, LOCATION,
+    ORIGIN, REFERRER_POLICY,
 };
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -539,10 +539,7 @@ async fn open_session(
 
     let source = resolve_session_source(state, params.source, &canonical_repo).await?;
     run_git_patch(&source, &canonical_repo, &temporary_path).await?;
-    tokio::fs::rename(&temporary_path, &final_path)
-        .await
-        .map_err(|_| SessionOpenError::Failed)?;
-    replace_session_temp(&state.config.root, &temporary_path, &final_path)
+    rename_owned_session_temp(&state.config.root, &temporary_path, &final_path)
         .map_err(|_| SessionOpenError::Failed)?;
     temporary_file.retarget(final_path.clone());
     let metadata = tokio::fs::metadata(&final_path)
@@ -896,7 +893,7 @@ fn unregister_session_temp(root: &Path, path: &Path) -> Result<(), String> {
     })
 }
 
-fn replace_session_temp(root: &Path, old_path: &Path, new_path: &Path) -> Result<(), String> {
+fn rename_owned_session_temp(root: &Path, old_path: &Path, new_path: &Path) -> Result<(), String> {
     let old_name = old_path
         .file_name()
         .and_then(|value| value.to_str())
@@ -912,6 +909,7 @@ fn replace_session_temp(root: &Path, old_path: &Path, new_path: &Path) -> Result
         let Some(entry) = entries.iter_mut().find(|entry| entry.as_str() == old_name) else {
             return Err("temp ownership missing".to_owned());
         };
+        std::fs::rename(old_path, new_path).map_err(|error| error.to_string())?;
         new_name.clone_into(entry);
         Ok(())
     })
@@ -1436,6 +1434,12 @@ async fn resource_response(state: &AppState, file: AllowedFile, head: bool) -> R
     let mut headers = base_headers();
     set_header(&mut headers, CONTENT_TYPE, content_type(&file.mime_type));
     set_header(&mut headers, CONTENT_LENGTH, metadata.len().to_string());
+    if path
+        .extension()
+        .is_some_and(|extension| extension == "deflate")
+    {
+        set_header(&mut headers, CONTENT_ENCODING, "deflate");
+    }
     if head {
         return (StatusCode::OK, headers, Body::empty()).into_response();
     }
