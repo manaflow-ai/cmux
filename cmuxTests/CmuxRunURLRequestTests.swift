@@ -291,6 +291,19 @@ struct CmuxRunURLRequestTests {
         )
     }
 
+    @Test func rejectsSafeLookingSymlinksToDirectoriesWithHiddenCharacters() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let hiddenTarget = root.appendingPathComponent("hidden\ncanonical", isDirectory: true)
+        let safeLink = root.appendingPathComponent("safe-link", isDirectory: true)
+        try FileManager.default.createDirectory(at: hiddenTarget, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: safeLink, withDestinationURL: hiddenTarget)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        if case .success = CmuxRunWorkingDirectoryResolver().resolve(safeLink.path) {
+            Issue.record("Canonical working directories must reject hidden characters")
+        }
+    }
+
     private func parsed(_ queryItems: [URLQueryItem]) throws -> CmuxRunURLRequest {
         switch parse(queryItems) {
         case .success(let request):
