@@ -133,13 +133,14 @@ extension GhosttySurfaceScrollView {
             targetTopRow: targetTopRow,
             scrollbar: geometry.scrollbar,
             attemptsRemaining: attemptsRemaining,
+            requiresLiveBottom: position.row == 0,
             perform: {
                 self.surfaceView.scrollToRow(
                     targetTopRow,
                     ifRowSpaceRevisionMatches: position.row == 0
                         ? geometry.rowSpaceRevision
                         : position.rowSpaceRevision ?? geometry.rowSpaceRevision
-                ) != nil
+                )
             },
             pendingRequest: { remaining in
                 .awaitingInitialGeometry(position: position, attemptsRemaining: remaining)
@@ -172,6 +173,9 @@ extension GhosttySurfaceScrollView {
             case .provisional:
                 anchorGeometry = geometry
                 retryReplayContext = .provisional(geometry)
+            case .stable where position.rowSpaceRevision == geometry.rowSpaceRevision:
+                anchorGeometry = geometry
+                retryReplayContext = .stable(geometry)
             case .stable:
                 clearPendingNotificationScrollRestore()
                 return false
@@ -202,13 +206,14 @@ extension GhosttySurfaceScrollView {
             targetTopRow: targetTopRow,
             scrollbar: geometry.scrollbar,
             attemptsRemaining: attemptsRemaining,
+            requiresLiveBottom: position.row == 0,
             perform: {
                 self.surfaceView.scrollToRow(
                     targetTopRow,
                     ifRowSpaceRevisionMatches: position.row == 0
                         ? geometry.rowSpaceRevision
                         : anchorGeometry.rowSpaceRevision
-                ) != nil
+                )
             },
             pendingRequest: { remaining in
                 return .awaitingPostReplayRestore(
@@ -239,14 +244,27 @@ extension GhosttySurfaceScrollView {
         targetTopRow: Int,
         scrollbar: GhosttyScrollbar,
         attemptsRemaining: Int,
-        perform: () -> Bool,
+        requiresLiveBottom: Bool,
+        perform: () -> NotificationScrollRestoreGeometry?,
         pendingRequest: (Int) -> NotificationScrollRequestPhase
     ) -> Bool {
         let currentLastTopRow = Int(clamping: scrollbar.total - min(scrollbar.total, scrollbar.len))
         let previousUserScrolledAwayFromBottom = userScrolledAwayFromBottom
         allowExplicitScrollbarSync = true
         userScrolledAwayFromBottom = targetTopRow < currentLastTopRow
-        let didRestore = perform()
+        let restoredGeometry = perform()
+        var didRestore = restoredGeometry != nil
+        if requiresLiveBottom, let restoredGeometry {
+            // Output appended during the atomic scroll moves the live bottom
+            // below the row we just landed on; keep the request pending so the
+            // next scrollbar update re-anchors to the new bottom.
+            let restoredScrollbar = restoredGeometry.scrollbar
+            let restoredLastTopRow = Int(clamping: restoredScrollbar.total
+                - min(restoredScrollbar.total, restoredScrollbar.len))
+            if targetTopRow < restoredLastTopRow {
+                didRestore = false
+            }
+        }
         if didRestore {
             clearPendingNotificationScrollRestore()
         } else {
