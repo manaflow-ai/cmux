@@ -857,7 +857,12 @@ final class ClaudeHookSessionStore {
         includeTerminalPromptTurnIds: Bool = true
     ) -> Bool {
         if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
-            return true
+            // SessionStart is asynchronous. A late hook from the process that
+            // owns the active turn must not erase that turn, but a resumed or
+            // restored Codex process is a new generation and must be allowed to
+            // replace state left behind when the previous TUI exited mid-turn.
+            guard let incomingPID, let existingPID = record.pid else { return true }
+            return incomingPID == existingPID
         }
         let hasCompletedTurnState = normalizeOptional(record.lastPromptTurnId) != nil
             || (includeTerminalPromptTurnIds && !terminalPromptTurnSet(from: record).isEmpty)
