@@ -27,7 +27,7 @@ struct CmuxConfigExecutor {
             }
             return authorizeProjectActionIfNeeded(
                 descriptor: workspaceTrustDescriptor(
-                    command: command,
+                    command: resolvedCommand,
                     actionID: actionID ?? command.id,
                     configSourcePath: configSourcePath,
                     icon: icon,

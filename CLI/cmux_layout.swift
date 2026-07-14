@@ -5,13 +5,13 @@ extension CMUXCLI {
         String(localized: "cli.layout.help", defaultValue: """
         Usage: cmux layout <subcommand> [flags]
 
-        Save, list, export, open, and delete named workspace layouts.
+        Save, list, inspect, open, and delete named workspace layouts.
 
         Subcommands:
           save <name> [--workspace <ref>] [--overwrite] [--description <text>]
           list [--json]
           get <name>
-          open <name> [--cwd <dir>] [--param KEY=VALUE]... [--focus <true|false>]
+          open <name> [--cwd <dir>] [--param KEY[=VALUE]]... [--focus <true|false>]
           delete <name>
 
         Examples:

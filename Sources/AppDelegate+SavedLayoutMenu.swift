@@ -54,7 +54,7 @@ extension AppDelegate {
     @objc private func performSavedLayoutContextMenuItem(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? SavedLayoutContextMenuActionBox,
               let context = mainWindowContexts.values.first(where: { $0.windowId == box.windowId }),
-              resolvedWindow(for: context) != nil else {
+              let window = resolvedWindow(for: context) else {
             NSSound.beep()
             return
         }
@@ -70,7 +70,7 @@ extension AppDelegate {
                 focus: true
             )
         } catch let error as CmuxTemplateResolutionError {
-            WorkspaceTemplateErrorPresenter(presentingWindow: nil).present(error)
+            WorkspaceTemplateErrorPresenter(presentingWindow: window).present(error)
         } catch {
             NSSound.beep()
         }
