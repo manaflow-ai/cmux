@@ -42,6 +42,7 @@ extension ShortcutAction {
         case .closeWindow: return ShortcutStroke(key: "w", command: true, control: true)
         case .toggleFullScreen: return ShortcutStroke(key: "f", command: true, control: true)
         case .quit: return ShortcutStroke(key: "q", command: true)
+        case .toggleVoiceDictation: return ShortcutStroke(key: "v", command: true, control: true)
         case .toggleSidebar: return ShortcutStroke(key: "b", command: true)
         case .newTab: return ShortcutStroke(key: "n", command: true)
         case .newBrowserWorkspace: return ShortcutStroke(key: "n", command: true, option: true)
