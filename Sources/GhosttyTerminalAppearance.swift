@@ -87,7 +87,6 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
 
 enum GhosttyNotificationKey {
     static let scrollbar = "ghostty.scrollbar"
-    static let renderedFrameGeneration = "ghostty.renderedFrameGeneration"
     static let cellSize = "ghostty.cellSize"
     static let tabId = "ghostty.tabId"
     static let surfaceId = "ghostty.surfaceId"

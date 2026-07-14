@@ -2907,7 +2907,18 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_PWD:
-            handleCurrentDirectoryAction(action.action.pwd.pwd.flatMap { String(cString: $0) } ?? "", surfaceView: surfaceView)
+            let pwdAction = action.action.pwd
+            let geometry = pwdAction.scrollbar.map {
+                NotificationScrollRestoreGeometry(
+                    scrollbar: GhosttyScrollbar(c: $0.pointee),
+                    rowSpaceRevision: pwdAction.scrollbar_revision
+                )
+            }
+            handleCurrentDirectoryAction(
+                pwdAction.pwd.flatMap { String(cString: $0) } ?? "",
+                authoritativeGeometry: geometry,
+                surfaceView: surfaceView
+            )
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             guard let tabId = surfaceView.tabId else { return true }
@@ -3417,9 +3428,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
-    private var _pendingRenderedFrameGeneration: UInt64 = 0
     private let _renderedFrameLock = NSLock()
-    let targetedRenderedFrameNotificationDemand = RenderDemandCounter()
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
@@ -3525,10 +3534,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    func enqueueRenderedFrameUpdate(generation: UInt64) {
-        guard hasRenderedFrameNotificationDemand else { return }
+    func enqueueRenderedFrameUpdate() {
+        guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
         _renderedFrameLock.lock()
-        _pendingRenderedFrameGeneration = max(_pendingRenderedFrameGeneration, generation)
         let needsSchedule = !_renderedFrameFlushScheduled
         if needsSchedule {
             _renderedFrameFlushScheduled = true
@@ -3544,15 +3552,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func flushRenderedFrameUpdate() {
         _renderedFrameLock.lock()
         _renderedFrameFlushScheduled = false
-        let generation = _pendingRenderedFrameGeneration
-        _pendingRenderedFrameGeneration = 0
         _renderedFrameLock.unlock()
 
-        guard hasRenderedFrameNotificationDemand else { return }
+        guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
-            object: self,
-            userInfo: [GhosttyNotificationKey.renderedFrameGeneration: generation]
+            object: self
         )
     }
 
@@ -3677,7 +3682,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let metalLayer = GhosttyMetalLayer()
         metalLayer.setFrameReceiver(self)
         metalLayer.setRenderDemand(GhosttyApp.renderedFrameNotificationDemand)
-        metalLayer.setTargetedRenderDemand(targetedRenderedFrameNotificationDemand)
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.isOpaque = false
         Task { @MainActor [weak self] in self?.reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() }
@@ -4288,6 +4292,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
+    }
+
+    func authoritativeScrollbarGeometry() -> NotificationScrollRestoreGeometry? {
+        guard let surface else { return nil }
+        var result = ghostty_surface_scrollbar_s()
+        guard ghostty_surface_scrollbar(surface, &result) else { return nil }
+        return NotificationScrollRestoreGeometry(c: result)
+    }
+
+    func scrollToRow(
+        _ row: Int,
+        ifRowSpaceRevisionMatches rowSpaceRevision: UInt64
+    ) -> NotificationScrollRestoreGeometry? {
+        guard let surface, let row = UInt64(exactly: row) else { return nil }
+        var result = ghostty_surface_scrollbar_s()
+        guard ghostty_surface_scroll_to_row_if_revision(
+            surface,
+            row,
+            rowSpaceRevision,
+            &result
+        ) else { return nil }
+        return NotificationScrollRestoreGeometry(c: result)
     }
 
     @discardableResult
@@ -8179,10 +8205,6 @@ final class GhosttySurfaceScrollView: NSView {
     private var isLiveScrolling = false
     private var lastSentRow: Int?
     var notificationScrollRestoreState: NotificationScrollRestoreState = .inactive
-    var notificationScrollRestoreBoundaryFrameGeneration: UInt64?
-    var notificationScrollRestoreRenderedFrameObserver: NSObjectProtocol?
-    var releaseNotificationScrollRestoreFrameDemand: (() -> Void)?
-    var notificationScrollRestoreFrameDeadlineTimer: Timer?
     /// Tracks scrollback review so auto-scroll does not fight the user's position.
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
@@ -8760,11 +8782,6 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        if let observer = notificationScrollRestoreRenderedFrameObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        releaseNotificationScrollRestoreFrameDemand?()
-        notificationScrollRestoreFrameDeadlineTimer?.invalidate()
         deferredSearchOverlayMutationWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
         dropZoneOverlayView.removeFromSuperview()

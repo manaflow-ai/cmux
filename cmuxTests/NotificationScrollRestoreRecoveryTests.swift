@@ -1,4 +1,4 @@
-import CmuxTerminal
+import CmuxTerminalCore
 import Foundation
 import Testing
 
@@ -11,9 +11,9 @@ import Testing
 @MainActor
 @Suite("Notification scroll restore recovery", .serialized)
 struct NotificationScrollRestoreRecoveryTests {
-    @Test func missingReplayBoundariesFallBackToLiveGeometryAtDeadline() {
+    @Test func missingReplayBoundariesStayPendingUntilExplicitInput() {
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
-        surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)
+        surfaceView.setAuthoritativeScrollbar(scrollbar(total: 400, offset: 356, len: 44))
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         hostedView.armSessionScrollbackReplay(
             expectedStartBoundary: "missing-start",
@@ -23,72 +23,80 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(!hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 100, totalRows: 400)
         ))
-        #expect(hostedView.notificationScrollRestoreFrameDeadlineTimer != nil)
-        hostedView.expireNotificationScrollRestoreFrameDeadline()
+        postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(surfaceView.performedRows.isEmpty)
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+
+        hostedView.terminalSurfaceDidReceiveExplicitInput()
+
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func activationAfterEndBoundaryWaitsForAuthoritativeGeometry() {
+    @Test func activationAfterEndBoundaryUsesAuthoritativeTerminalGeometry() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 100, offset: 56, len: 44)
+        surfaceView.setAuthoritativeScrollbar(scrollbar(total: 400, offset: 356, len: 44))
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         beginReplay(on: hostedView, endBoundary: boundary)
-        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(
+            boundary,
+            authoritativeGeometry: surfaceView.authoritativeGeometry
+        ))
 
-        #expect(!hostedView.restoreNotificationScrollPosition(
+        #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 100, totalRows: 400)
         ))
-        postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
-        #expect(surfaceView.performedBindingActions.isEmpty)
 
-        postRenderedFrame(to: surfaceView)
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(surfaceView.performedRows == [256])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func frameDeadlineRebasesTruncatedRestoreFromLatestGeometry() {
+    @Test(arguments: [UInt64(4_000), 1_200])
+    func boundaryGeometryRebasesTruncatedRestoreIntoRetainedSuffix(retainedTotalRows: UInt64) {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
-        surfaceView.scrollbar = scrollbar(total: 1_200, offset: 1_156, len: 44)
+        surfaceView.setAuthoritativeScrollbar(
+            scrollbar(total: retainedTotalRows, offset: retainedTotalRows - 44, len: 44)
+        )
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         beginReplay(on: hostedView, endBoundary: boundary)
 
         #expect(!hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 100, totalRows: 10_000)
         ))
-        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
-        hostedView.expireNotificationScrollRestoreFrameDeadline()
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(
+            boundary,
+            authoritativeGeometry: surfaceView.authoritativeGeometry
+        ))
 
-        #expect(surfaceView.performedBindingActions.isEmpty)
-        #expect(hostedView.hasPendingNotificationScrollRestore)
-        postScrollbar(scrollbar(total: 1_200, offset: 1_156, len: 44), to: surfaceView)
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:1056"])
+        #expect(surfaceView.performedRows == [Int(retainedTotalRows) - 100 - 44])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
     @Test func authoritativeGeometryRebasesNumericallyReachableTruncatedAnchor() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
-        surfaceView.scrollbar = scrollbar(total: 4_000, offset: 3_956, len: 44)
+        surfaceView.setAuthoritativeScrollbar(scrollbar(total: 4_000, offset: 3_956, len: 44))
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         beginReplay(on: hostedView, endBoundary: boundary)
 
         #expect(!hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 3_000, totalRows: 5_000)
         ))
-        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
-        postRenderedFrame(to: surfaceView)
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(
+            boundary,
+            authoritativeGeometry: surfaceView.authoritativeGeometry
+        ))
 
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:956"])
+        #expect(surfaceView.performedRows == [956])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func missingEndBoundaryFallsBackAtReplayDeadline() {
+    @Test func missingEndBoundaryDoesNotConsumePendingRestore() {
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
-        surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)
+        surfaceView.setAuthoritativeScrollbar(scrollbar(total: 400, offset: 356, len: 44))
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         hostedView.armSessionScrollbackReplay(
             expectedStartBoundary: "expected-start",
@@ -99,79 +107,66 @@ struct NotificationScrollRestoreRecoveryTests {
             TerminalNotificationScrollPosition(row: 100, totalRows: 400)
         ))
 
-        hostedView.expireNotificationScrollRestoreFrameDeadline()
+        postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
-        #expect(!hostedView.hasPendingNotificationScrollRestore)
+        #expect(surfaceView.performedRows.isEmpty)
+        #expect(hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func renderedFrameDemandIsScopedToTheRestoringSurface() {
-        let restoringSurface = NotificationRecoveryRecordingSurfaceView(frame: .zero)
-        let unrelatedSurface = NotificationRecoveryRecordingSurfaceView(frame: .zero)
-
-        let release = restoringSurface.retainTargetedRenderedFrameNotifications()
-
-        #expect(restoringSurface.targetedRenderedFrameNotificationDemand.isActive)
-        #expect(!unrelatedSurface.targetedRenderedFrameNotificationDemand.isActive)
-        release()
-        #expect(!restoringSurface.targetedRenderedFrameNotificationDemand.isActive)
-    }
-
-    @Test func missingRenderedFrameDeadlineReleasesDemandWithoutDiscardingRestore() {
+    @Test func rowSpaceRevisionMismatchRetriesAgainstFreshGeometry() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
-        surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)
+        let staleGeometry = geometry(
+            scrollbar(total: 400, offset: 356, len: 44),
+            rowSpaceRevision: 1
+        )
+        surfaceView.setAuthoritativeScrollbar(
+            scrollbar(total: 400, offset: 356, len: 44),
+            rowSpaceRevision: 2
+        )
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         beginReplay(on: hostedView, endBoundary: boundary)
 
         #expect(!hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 100, totalRows: 400)
         ))
-        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
-        #expect(hostedView.notificationScrollRestoreRenderedFrameObserver != nil)
-        #expect(hostedView.releaseNotificationScrollRestoreFrameDemand != nil)
-        #expect(hostedView.notificationScrollRestoreFrameDeadlineTimer != nil)
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(
+            boundary,
+            authoritativeGeometry: staleGeometry
+        ))
 
-        hostedView.expireNotificationScrollRestoreFrameDeadline()
-
+        #expect(surfaceView.performedRows == [256])
         #expect(hostedView.hasPendingNotificationScrollRestore)
-        #expect(hostedView.notificationScrollRestoreRenderedFrameObserver == nil)
-        #expect(hostedView.releaseNotificationScrollRestoreFrameDemand == nil)
-        #expect(hostedView.notificationScrollRestoreFrameDeadlineTimer == nil)
-        #expect(hostedView.notificationScrollRestoreBoundaryFrameGeneration == nil)
 
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(surfaceView.performedRows == [256, 256])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func missingTerminalBindingAtReplayBoundaryKeepsRestorePending() {
+    @Test func unavailableAtomicRestoreRetriesOnLaterGeometry() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
-        surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
+        surfaceView.setAuthoritativeScrollbar(scrollbar(total: 400, offset: 356, len: 44))
+        surfaceView.acceptsAtomicScroll = false
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         beginReplay(on: hostedView, endBoundary: boundary)
 
         #expect(!hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 100, totalRows: 400)
         ))
-        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(
+            boundary,
+            authoritativeGeometry: surfaceView.authoritativeGeometry
+        ))
 
+        #expect(surfaceView.performedRows == [256])
         #expect(hostedView.hasPendingNotificationScrollRestore)
-        #expect(surfaceView.terminalSurface == nil)
-        #expect(hostedView.notificationScrollRestoreRenderedFrameObserver != nil)
-        #expect(hostedView.releaseNotificationScrollRestoreFrameDemand != nil)
 
-        hostedView.expireNotificationScrollRestoreFrameDeadline()
-
-        #expect(hostedView.hasPendingNotificationScrollRestore)
-        #expect(hostedView.notificationScrollRestoreRenderedFrameObserver == nil)
-        #expect(hostedView.releaseNotificationScrollRestoreFrameDemand == nil)
-
+        surfaceView.acceptsAtomicScroll = true
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
-        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(surfaceView.performedRows == [256, 256])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
@@ -185,34 +180,61 @@ struct NotificationScrollRestoreRecoveryTests {
     }
 
     private func scrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
-        GhosttyScrollbar(c: ghostty_action_scrollbar_s(total: total, offset: offset, len: len))
+        GhosttyScrollbar(total: total, offset: offset, len: len)
     }
 
-    private func postScrollbar(_ scrollbar: GhosttyScrollbar, to surfaceView: GhosttyNSView) {
+    private func geometry(
+        _ scrollbar: GhosttyScrollbar,
+        rowSpaceRevision: UInt64
+    ) -> NotificationScrollRestoreGeometry {
+        NotificationScrollRestoreGeometry(
+            scrollbar: scrollbar,
+            rowSpaceRevision: rowSpaceRevision
+        )
+    }
+
+    private func postScrollbar(
+        _ scrollbar: GhosttyScrollbar,
+        to surfaceView: NotificationRecoveryRecordingSurfaceView
+    ) {
+        surfaceView.scrollbar = scrollbar
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: surfaceView,
             userInfo: [GhosttyNotificationKey.scrollbar: scrollbar]
         )
     }
-
-    private func postRenderedFrame(to surfaceView: GhosttyNSView) {
-        NotificationCenter.default.post(
-            name: .ghosttyDidRenderFrame,
-            object: surfaceView,
-            userInfo: ["ghostty.renderedFrameGeneration": UInt64.max]
-        )
-        if let scrollbar = surfaceView.scrollbar {
-            postScrollbar(scrollbar, to: surfaceView)
-        }
-    }
 }
 
 private final class NotificationRecoveryRecordingSurfaceView: GhosttyNSView {
-    private(set) var performedBindingActions: [String] = []
+    private(set) var performedRows: [Int] = []
+    var authoritativeGeometry: NotificationScrollRestoreGeometry?
+    var acceptsAtomicScroll = true
 
-    override func performBindingAction(_ action: String) -> Bool {
-        performedBindingActions.append(action)
-        return true
+    func setAuthoritativeScrollbar(
+        _ scrollbar: GhosttyScrollbar,
+        rowSpaceRevision: UInt64 = 1
+    ) {
+        authoritativeGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: scrollbar,
+            rowSpaceRevision: rowSpaceRevision
+        )
+    }
+
+    override func authoritativeScrollbarGeometry() -> NotificationScrollRestoreGeometry? {
+        authoritativeGeometry
+    }
+
+    override func scrollToRow(
+        _ row: Int,
+        ifRowSpaceRevisionMatches rowSpaceRevision: UInt64
+    ) -> NotificationScrollRestoreGeometry? {
+        performedRows.append(row)
+        guard acceptsAtomicScroll,
+              let authoritativeGeometry,
+              authoritativeGeometry.rowSpaceRevision == rowSpaceRevision else {
+            return nil
+        }
+        return authoritativeGeometry
     }
 }

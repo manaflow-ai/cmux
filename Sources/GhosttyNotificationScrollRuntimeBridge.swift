@@ -9,10 +9,17 @@ extension TerminalPanel {
 }
 
 extension GhosttyApp {
-    func handleCurrentDirectoryAction(_ directory: String, surfaceView: GhosttyNSView) {
+    func handleCurrentDirectoryAction(
+        _ directory: String,
+        authoritativeGeometry: NotificationScrollRestoreGeometry?,
+        surfaceView: GhosttyNSView
+    ) {
         let terminalSurface = surfaceView.terminalSurface
-        DispatchQueue.main.async {
-            if terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(directory) == true {
+        performOnMain {
+            if terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(
+                directory,
+                authoritativeGeometry: authoritativeGeometry
+            ) == true {
                 return
             }
             guard let tabId = surfaceView.tabId,
@@ -33,17 +40,4 @@ extension GhosttyNSView {
         return { retention.release() }
     }
 
-    func retainTargetedRenderedFrameNotifications() -> () -> Void {
-        let retention = targetedRenderedFrameNotificationDemand.retain()
-        return { retention.release() }
-    }
-
-    var hasRenderedFrameNotificationDemand: Bool {
-        GhosttyApp.renderedFrameNotificationDemand.isActive ||
-            targetedRenderedFrameNotificationDemand.isActive
-    }
-
-    func currentRenderedFrameSourceGeneration() -> UInt64 {
-        (layer as? GhosttyMetalLayer)?.currentFrameGeneration() ?? 0
-    }
 }

@@ -13,28 +13,18 @@ internal import Foundation
 /// notifications hop to the main actor before touching the receiver.
 public final class GhosttyMetalLayer: CAMetalLayer {
     private let lock = NSLock()
-    // SAFETY: all mutable fields are guarded by `lock`; written/read from the renderer
+    // SAFETY: all four are guarded by `lock`; written/read from the renderer
     // thread (`nextDrawable()`) and the main actor (configuration, debug HUD).
     nonisolated(unsafe) private var drawableCount: Int = 0
-    nonisolated(unsafe) private var frameGeneration: UInt64 = 0
     nonisolated(unsafe) private var lastDrawableTime: CFTimeInterval = 0
     nonisolated(unsafe) private weak var frameReceiver: (any TerminalRenderedFrameReceiving)?
     nonisolated(unsafe) private var renderDemand: (any RenderDemandGating)?
-    nonisolated(unsafe) private var targetedRenderDemand: (any RenderDemandGating)?
 
     /// Injects the rendered-frame demand gate that decides whether vending a
     /// drawable should notify the receiver.
     public func setRenderDemand(_ renderDemand: (any RenderDemandGating)?) {
         lock.lock()
         self.renderDemand = renderDemand
-        lock.unlock()
-    }
-
-    /// Injects demand scoped to this layer's surface. A drawable notifies its
-    /// receiver when either process-wide or surface-specific demand is active.
-    public func setTargetedRenderDemand(_ renderDemand: (any RenderDemandGating)?) {
-        lock.lock()
-        targetedRenderDemand = renderDemand
         lock.unlock()
     }
 
@@ -53,13 +43,6 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         return (drawableCount, lastDrawableTime)
     }
 
-    /// Returns the latest generation assigned synchronously by the renderer.
-    public func currentFrameGeneration() -> UInt64 {
-        lock.lock()
-        defer { lock.unlock() }
-        return frameGeneration
-    }
-
     override public func nextDrawable() -> (any CAMetalDrawable)? {
         guard let drawable = super.nextDrawable() else { return nil }
         // One critical section for the instrumentation write and both
@@ -67,22 +50,17 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         // per vended drawable.
         lock.lock()
         drawableCount += 1
-        frameGeneration &+= 1
-        let generation = frameGeneration
         lastDrawableTime = CACurrentMediaTime()
         let renderDemand = renderDemand
-        let targetedRenderDemand = targetedRenderDemand
         let frameReceiver = frameReceiver
         lock.unlock()
-        guard renderDemand?.isActive == true || targetedRenderDemand?.isActive == true else {
-            return drawable
-        }
+        guard renderDemand?.isActive == true else { return drawable }
         if let frameReceiver {
             // Hop to the main actor exactly like the legacy
             // DispatchQueue.main.async dispatch (the main-actor executor is
             // the main queue); the receiver coalesces bursts on arrival.
             Task { @MainActor [weak frameReceiver] in
-                frameReceiver?.enqueueRenderedFrameUpdate(generation: generation)
+                frameReceiver?.enqueueRenderedFrameUpdate()
             }
         }
         return drawable
