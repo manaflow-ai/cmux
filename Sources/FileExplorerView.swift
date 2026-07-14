@@ -1190,6 +1190,7 @@ final class FileExplorerContainerView: NSView {
         let previousStatusTextLength = searchStatusLabel.stringValue.count
 #endif
         let previousSelectedRow = searchResultsView.selectedRow
+        let previousSelectedResults = searchResultsView.selectedRowIndexes.compactMap { searchSnapshot.results.indices.contains($0) ? searchSnapshot.results[$0] : nil }
         let previousResults = searchSnapshot.results
         searchSnapshot = snapshot
         searchStatusLabel.stringValue = statusText(for: snapshot)
@@ -1209,10 +1210,9 @@ final class FileExplorerContainerView: NSView {
         }
 
         if !snapshot.results.isEmpty {
-            let selectedRow = previousSelectedRow >= 0
-                ? min(previousSelectedRow, snapshot.results.count - 1)
-                : 0
-            searchResultsView.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+            let preservedRows = IndexSet(previousSelectedResults.compactMap { snapshot.results.firstIndex(of: $0) })
+            let fallbackRow = previousSelectedRow >= 0 ? min(previousSelectedRow, snapshot.results.count - 1) : 0
+            searchResultsView.selectRowIndexes(preservedRows.isEmpty ? IndexSet(integer: fallbackRow) : preservedRows, byExtendingSelection: false)
         }
 
         if shouldRunDeferredContentRefresh {
