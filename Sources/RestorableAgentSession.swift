@@ -42,6 +42,10 @@ enum TerminalStartupShellDialect: Equatable {
     case posix
     case nushell
 
+    /// Maps a shell executable path to its dialect by basename. Everything
+    /// except `nu` is treated as POSIX: every other login shell cmux supports
+    /// (zsh/bash/fish/csh/dash/ksh) parses the POSIX command strings cmux
+    /// generates.
     static func forShellPath(_ shell: String?) -> TerminalStartupShellDialect {
         guard let shell = shell?.trimmingCharacters(in: .whitespacesAndNewlines),
               !shell.isEmpty else {
@@ -71,12 +75,18 @@ enum TerminalStartupShellDialect: Equatable {
 /// Launcher-script inputs (`/bin/zsh '<script>'`) parse in every supported
 /// shell and do not need this.
 struct TerminalStartupTypedShellCommand {
+    /// Dialect of the shell that will parse the rendered input.
     let dialect: TerminalStartupShellDialect
 
+    /// Defaults to the login shell cmux spawns local surfaces with; pass
+    /// ``TerminalStartupShellDialect/remoteHost`` when the input is typed
+    /// into a remote host's shell instead.
     init(dialect: TerminalStartupShellDialect = .loginShell) {
         self.dialect = dialect
     }
 
+    /// Renders `posixCommand` for typing: verbatim for POSIX shells,
+    /// delegated through `/bin/sh` for nushell (which cannot parse POSIX).
     func typedInput(posixCommand: String) -> String {
         switch dialect {
         case .posix:
@@ -802,6 +812,9 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     /// user-owned claude resume/fork when no explicit launch flag covers it.
     var permissionMode: String? = nil
 
+    /// Input that resumes this agent session when typed into a shell.
+    /// `dialect` must match the shell that will parse it (see
+    /// ``startupInput(command:fileManager:temporaryDirectory:allowLauncherScript:allowOversizedInlineInput:dialect:)``).
     func resumeStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
@@ -842,6 +855,9 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         return "/bin/zsh \(shellSingleQuoted(scriptURL.path))"
     }
 
+    /// Input that forks this agent conversation when typed into a shell.
+    /// `dialect` must match the shell that will parse it — `.remoteHost` for
+    /// remote forks.
     func forkStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,

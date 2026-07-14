@@ -388,6 +388,9 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         inlineStartupInput(repairPortableAgentExecutable: true)
     }
 
+    /// ``WorkspaceSurfaceResumeBinding`` conformance shim: local restores
+    /// type into the login shell, so the protocol shape resolves the dialect
+    /// implicitly.
     func startupInputWithLauncherScript(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
@@ -401,6 +404,9 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         )
     }
 
+    /// Startup input for typing into an interactive shell of the given
+    /// dialect, falling back to a `/bin/zsh '<script>'` launcher line when the
+    /// inline form exceeds the paste budget.
     func startupInputWithLauncherScript(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
