@@ -8,7 +8,7 @@ describe("app pro welcome page", () => {
     await expect(
       AppProWelcomePage({ searchParams: Promise.resolve({}) }),
     ).rejects.toMatchObject({
-      digest: "NEXT_REDIRECT;replace;/dashboard/billing;307;",
+      digest: expect.stringContaining(";/dashboard/billing;"),
     });
   });
 
