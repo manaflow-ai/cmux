@@ -57,6 +57,121 @@ extension TerminalController {
             isDescendant: { isDescendant($0) }
         )
     }
+
+    nonisolated func passwordAuthRequiredResponse(for command: String) -> String {
+        let message = "Authentication required. Send auth <password> first."
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return "ERROR: Authentication required — send auth <password> first"
+        }
+        let id = dict["id"]
+        return v2Error(id: id, code: "auth_required", message: message)
+    }
+
+    nonisolated func passwordLoginV1ResponseIfNeeded(
+        for command: String,
+        passwordAuthorization: inout SocketPasswordAuthorization
+    ) -> String? {
+        let lowered = command.lowercased()
+        guard lowered == "auth" || lowered.hasPrefix("auth ") else {
+            return nil
+        }
+        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
+            return "ERROR: Password mode is enabled but no socket password is configured in Settings."
+        }
+
+        let provided: String
+        if lowered == "auth" {
+            provided = ""
+        } else {
+            provided = String(command.dropFirst(5))
+        }
+        guard !provided.isEmpty else {
+            return "ERROR: Missing password. Usage: auth <password>"
+        }
+        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
+            return "ERROR: Invalid password"
+        }
+        passwordAuthorization.authenticate(password: provided)
+        return "OK: Authenticated"
+    }
+
+    nonisolated func passwordLoginV2ResponseIfNeeded(
+        for command: String,
+        passwordAuthorization: inout SocketPasswordAuthorization
+    ) -> String? {
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return nil
+        }
+        let id = dict["id"]
+        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard method == "auth.login" else {
+            return nil
+        }
+
+        guard let params = dict["params"] as? [String: Any],
+              let provided = params["password"] as? String else {
+            return v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
+        }
+
+        guard passwordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
+            return v2Error(
+                id: id,
+                code: "auth_unconfigured",
+                message: "Password mode is enabled but no socket password is configured in Settings."
+            )
+        }
+
+        guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
+            return v2Error(id: id, code: "auth_failed", message: "Invalid password")
+        }
+        passwordAuthorization.authenticate(password: provided)
+        return v2Ok(id: id, result: ["authenticated": true])
+    }
+
+    nonisolated func authResponseIfNeeded(
+        for command: String,
+        passwordAuthorization: inout SocketPasswordAuthorization
+    ) -> String? {
+        guard socketServer.accessMode.requiresPasswordAuth else {
+            return nil
+        }
+        if let v2Response = passwordLoginV2ResponseIfNeeded(
+            for: command,
+            passwordAuthorization: &passwordAuthorization
+        ) {
+            return v2Response
+        }
+        if let v1Response = passwordLoginV1ResponseIfNeeded(
+            for: command,
+            passwordAuthorization: &passwordAuthorization
+        ) {
+            return v1Response
+        }
+        if !passwordAuthorization.isAuthenticated {
+            return passwordAuthRequiredResponse(for: command)
+        }
+        return nil
+    }
+
+    /// Checks both listener policy generation and password credential revision.
+    nonisolated func socketAuthorizationIsCurrent(
+        _ authorizationGeneration: UInt64,
+        passwordAuthorization: SocketPasswordAuthorization
+    ) -> Bool {
+        guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) else { return false }
+        let accessMode = socketServer.accessMode
+        let currentPassword = accessMode.requiresPasswordAuth
+            ? passwordStore.configuredPassword(allowLazyKeychainFallback: true)
+            : nil
+        return passwordAuthorization.permitsConnectionContinuation(
+            accessMode: accessMode,
+            currentPassword: currentPassword
+        )
+    }
 }
 
 private extension String {
