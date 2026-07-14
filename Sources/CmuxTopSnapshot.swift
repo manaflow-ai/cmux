@@ -131,6 +131,7 @@ nonisolated struct CmuxTopProcessScope: Sendable, Equatable {
 
 nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let sampledAt: Date
+    let isComplete: Bool
     private let includesProcessDetails: Bool
     private let includesCMUXScope: Bool
     let processesByPID: [Int: CmuxTopProcessInfo]
@@ -143,14 +144,16 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true
     ) -> CmuxTopProcessSnapshot {
-        CmuxTopProcessSnapshot(
-            processes: allProcesses(
-                includeProcessDetails: includeProcessDetails,
-                includeCMUXScope: includeCMUXScope
-            ),
+        let capture = allProcessesWithPerformanceProof(
+            includeProcessDetails: includeProcessDetails,
+            includeCMUXScope: includeCMUXScope
+        )
+        return CmuxTopProcessSnapshot(
+            processes: capture.processes,
             sampledAt: Date(),
             includesProcessDetails: includeProcessDetails,
-            includesCMUXScope: includeCMUXScope
+            includesCMUXScope: includeCMUXScope,
+            isComplete: capture.isComplete
         )
     }
 
@@ -167,7 +170,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                 processes: capture.processes,
                 sampledAt: Date(),
                 includesProcessDetails: includeProcessDetails,
-                includesCMUXScope: includeCMUXScope
+                includesCMUXScope: includeCMUXScope,
+                isComplete: capture.isComplete
             ),
             capture.proof
         )
@@ -177,9 +181,11 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,
         includesProcessDetails: Bool,
-        includesCMUXScope: Bool = true
+        includesCMUXScope: Bool = true,
+        isComplete: Bool = true
     ) {
         self.sampledAt = sampledAt
+        self.isComplete = isComplete
         self.includesProcessDetails = includesProcessDetails
         self.includesCMUXScope = includesCMUXScope
         var processMap: [Int: CmuxTopProcessInfo] = [:]
@@ -223,7 +229,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "resident_memory_sources": residentMemorySourceNames,
             "resident_memory_fallback_source": CmuxTopProcessMemorySource.rusageResidentSize.rawValue,
             "process_details": includesProcessDetails,
-            "cmux_scope": includesCMUXScope
+            "cmux_scope": includesCMUXScope,
+            "complete": isComplete
         ]
     }
 

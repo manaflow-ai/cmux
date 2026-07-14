@@ -100,13 +100,25 @@ extension PortScanner {
 
     static func scanListeningPortsWithPerformanceProof(
         pids: Set<Int>
-    ) -> (portsByPID: [Int: Set<Int>], proof: ProcessPerformanceCaptureProof) {
-        guard !pids.isEmpty else { return ([:], .libproc) }
+    ) -> (scan: PortLsofScanResult, proof: ProcessPerformanceCaptureProof) {
+        guard !pids.isEmpty else {
+            return (
+                PortLsofScanResult(values: [:], globallyComplete: true, incompletePIDs: []),
+                .libproc
+            )
+        }
         var result: [Int: Set<Int>] = [:]
+        var incompletePIDs: Set<Int> = []
         for pid in pids.sorted() where pid > 0 {
             let rawPID = pid_t(pid)
+            errno = 0
             let requiredBytes = proc_pidinfo(rawPID, PROC_PIDLISTFDS, 0, nil, 0)
-            guard requiredBytes > 0 else { continue }
+            guard requiredBytes > 0 else {
+                if errno != 0, PIDPresence.current(pid: rawPID) != .absent {
+                    incompletePIDs.insert(pid)
+                }
+                continue
+            }
 
             // Leave spare entries for descriptors opened between sizing and
             // the second syscall. A truncated list is refreshed on the next
@@ -115,6 +127,7 @@ extension PortScanner {
             let capacity = max(1, requiredCount + 16)
             var descriptors = [proc_fdinfo](repeating: proc_fdinfo(), count: capacity)
             let bufferBytes = Int32(capacity * MemoryLayout<proc_fdinfo>.stride)
+            errno = 0
             let usedBytes = proc_pidinfo(
                 rawPID,
                 PROC_PIDLISTFDS,
@@ -122,7 +135,15 @@ extension PortScanner {
                 &descriptors,
                 bufferBytes
             )
-            guard usedBytes > 0 else { continue }
+            guard usedBytes > 0 else {
+                if errno != 0, PIDPresence.current(pid: rawPID) != .absent {
+                    incompletePIDs.insert(pid)
+                }
+                continue
+            }
+            if usedBytes >= bufferBytes {
+                incompletePIDs.insert(pid)
+            }
 
             let descriptorCount = min(
                 descriptors.count,
@@ -131,6 +152,7 @@ extension PortScanner {
             for descriptor in descriptors.prefix(descriptorCount)
                 where descriptor.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
                 var socketInfo = socket_fdinfo()
+                errno = 0
                 let infoBytes = proc_pidfdinfo(
                     rawPID,
                     descriptor.proc_fd,
@@ -138,18 +160,30 @@ extension PortScanner {
                     &socketInfo,
                     Int32(MemoryLayout<socket_fdinfo>.size)
                 )
-                guard infoBytes == MemoryLayout<socket_fdinfo>.size,
-                      let port = listeningTCPPort(from: socketInfo) else {
+                guard infoBytes == MemoryLayout<socket_fdinfo>.size else {
+                    if PIDPresence.current(pid: rawPID) != .absent {
+                        incompletePIDs.insert(pid)
+                    }
+                    continue
+                }
+                guard let port = listeningTCPPort(from: socketInfo) else {
                     continue
                 }
                 result[pid, default: []].insert(port)
             }
         }
-        return (result, .libproc)
+        return (
+            PortLsofScanResult(
+                values: result,
+                globallyComplete: true,
+                incompletePIDs: incompletePIDs
+            ),
+            .libproc
+        )
     }
 
     static func scanListeningPorts(pids: Set<Int>) -> [Int: Set<Int>] {
-        scanListeningPortsWithPerformanceProof(pids: pids).portsByPID
+        scanListeningPortsWithPerformanceProof(pids: pids).scan.values
     }
 
     static func listeningTCPPort(from socketInfo: socket_fdinfo) -> Int? {

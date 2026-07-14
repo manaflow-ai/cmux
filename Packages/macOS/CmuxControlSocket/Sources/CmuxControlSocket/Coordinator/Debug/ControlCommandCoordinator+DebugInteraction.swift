@@ -217,6 +217,21 @@ extension ControlCommandCoordinator {
             : .err(code: "internal_error", message: resp, data: nil)
     }
 
+    /// `debug.workspace_todo.checklist_add_field` — request the selected workspace's checklist add field.
+    func debugWorkspaceTodoChecklistAddField() -> ControlCallResult {
+        guard let debugContext else {
+            return .err(code: "unavailable", message: "Control debug context unavailable", data: nil)
+        }
+        guard let workspaceID = debugContext.controlDebugRequestWorkspaceTodoChecklistAddField() else {
+            return .err(code: "not_found", message: "No selected workspace", data: nil)
+        }
+        return .ok(.object([
+            "workspace_id": .string(workspaceID.uuidString),
+            "workspace_ref": ref(.workspace, workspaceID),
+            "requested": .bool(true),
+        ]))
+    }
+
     // MARK: - debug.command_palette.* (event posts)
 
     /// The shared body of the four palette-notification commands (`toggle`,

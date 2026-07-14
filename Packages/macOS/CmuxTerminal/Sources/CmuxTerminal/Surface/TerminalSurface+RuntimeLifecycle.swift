@@ -616,7 +616,7 @@ extension TerminalSurface {
             }()
             if shouldReapply {
                 let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
-                _ = performBindingAction(action)
+                _ = performInternalBindingAction(action)
             }
         }
 

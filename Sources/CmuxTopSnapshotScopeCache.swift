@@ -264,7 +264,7 @@ nonisolated extension CmuxTopProcessSnapshot {
         return nil
     }
 
-    private static func kinfoProc(for pid: Int) -> kinfo_proc? {
+    static func kinfoProc(for pid: Int) -> kinfo_proc? {
         guard pid > 0, pid <= Int(Int32.max) else { return nil }
 
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]

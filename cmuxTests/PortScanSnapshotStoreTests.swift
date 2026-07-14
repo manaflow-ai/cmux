@@ -1,4 +1,5 @@
 import Darwin
+import CmuxCore
 import Foundation
 import Testing
 
@@ -10,6 +11,44 @@ import Testing
 
 @Suite
 struct PortScanSnapshotStoreTests {
+    @Test
+    func partialLibprocEvidenceDoesNotClearStablePorts() async {
+        let failedPID = 100
+        let store = PortScanSnapshotStore(
+            captureWithEvidenceAndProof: { _ in
+                (
+                    PortLsofScanResult(
+                        values: [:],
+                        globallyComplete: true,
+                        incompletePIDs: [failedPID]
+                    ),
+                    .libproc
+                )
+            }
+        )
+
+        let partial = await store.evidencedSnapshot(pids: [failedPID], maximumAge: 0)
+        #expect(partial.completeness(for: [failedPID]) == .incomplete)
+
+        var reconciler = PortScanSnapshotReconciler<Int>(missingPortRetentionLimit: 1)
+        _ = reconciler.reconcile(
+            scannedPorts: [failedPID: [4_200]],
+            scannedKeys: [failedPID],
+            trackedKeys: [failedPID],
+            completeness: .complete
+        )
+        for _ in 0..<2 {
+            _ = reconciler.reconcile(
+                scannedPorts: [failedPID: []],
+                scannedKeys: [failedPID],
+                trackedKeys: [failedPID],
+                completeness: partial.completeness(for: [failedPID])
+            )
+        }
+
+        #expect(reconciler.snapshot[failedPID] == [4_200])
+    }
+
     @Test
     func concurrentCoveredRequestsShareOneLibprocCapture() async {
         let metricsStore = ProcessPerformanceMetrics(enabled: true)

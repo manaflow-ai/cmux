@@ -9,10 +9,14 @@ actor PortScanSnapshotStore {
         portsByPID: [Int: Set<Int>],
         proof: ProcessPerformanceCaptureProof
     )
+    typealias EvidencedProvenancedCapture = @Sendable (Set<Int>) async -> (
+        scan: PortLsofScanResult,
+        proof: ProcessPerformanceCaptureProof
+    )
 
     private struct CachedScan {
         let requestedPIDs: Set<Int>
-        let portsByPID: [Int: Set<Int>]
+        let scan: PortLsofScanResult
         let storedAt: Date
         let metricsToken: ProcessPerformanceMetricToken
     }
@@ -21,7 +25,7 @@ actor PortScanSnapshotStore {
         let id: UInt64
         let requestedPIDs: Set<Int>
         let task: Task<(
-            portsByPID: [Int: Set<Int>],
+            scan: PortLsofScanResult,
             proof: ProcessPerformanceCaptureProof
         ), Never>
         let metricsToken: ProcessPerformanceMetricToken
@@ -35,7 +39,7 @@ actor PortScanSnapshotStore {
     }
 
     private let now: Now
-    private let capture: ProvenancedCapture
+    private let capture: EvidencedProvenancedCapture
     private let metrics: ProcessPerformanceMetrics
     private var cached: CachedScan?
     private var inFlight: InFlightScan?
@@ -50,7 +54,14 @@ actor PortScanSnapshotStore {
     ) {
         self.now = now
         self.capture = { pids in
-            (await capture(pids), .libproc)
+            (
+                PortLsofScanResult(
+                    values: await capture(pids),
+                    globallyComplete: true,
+                    incompletePIDs: []
+                ),
+                .libproc
+            )
         }
         self.metrics = metrics
     }
@@ -61,7 +72,27 @@ actor PortScanSnapshotStore {
         metrics: ProcessPerformanceMetrics = .shared
     ) {
         self.now = now
-        self.capture = captureWithProof
+        self.capture = { pids in
+            let result = await captureWithProof(pids)
+            return (
+                PortLsofScanResult(
+                    values: result.portsByPID,
+                    globallyComplete: true,
+                    incompletePIDs: []
+                ),
+                result.proof
+            )
+        }
+        self.metrics = metrics
+    }
+
+    init(
+        now: @escaping Now = { Date() },
+        captureWithEvidenceAndProof: @escaping EvidencedProvenancedCapture,
+        metrics: ProcessPerformanceMetrics = .shared
+    ) {
+        self.now = now
+        self.capture = captureWithEvidenceAndProof
         self.metrics = metrics
     }
 
@@ -69,13 +100,22 @@ actor PortScanSnapshotStore {
         pids: Set<Int>,
         maximumAge: TimeInterval
     ) async -> [Int: Set<Int>] {
+        await evidencedSnapshot(pids: pids, maximumAge: maximumAge).values
+    }
+
+    func evidencedSnapshot(
+        pids: Set<Int>,
+        maximumAge: TimeInterval
+    ) async -> PortLsofScanResult {
         if let exercise = performanceExercise,
            !ProcessPerformanceExerciseContext.isListenerExerciseRequest {
             await exercise.gate.waitUntilFinished()
-            return await snapshot(pids: pids, maximumAge: maximumAge)
+            return await evidencedSnapshot(pids: pids, maximumAge: maximumAge)
         }
         let requestedPIDs = Set(pids.filter { $0 > 0 })
-        guard !requestedPIDs.isEmpty else { return [:] }
+        guard !requestedPIDs.isEmpty else {
+            return PortLsofScanResult(values: [:], globallyComplete: true, incompletePIDs: [])
+        }
 
         while true {
             let requestedAt = await now()
@@ -85,7 +125,7 @@ actor PortScanSnapshotStore {
                 now: requestedAt
             ) {
                 metrics.recordLsofReuse(.cache, token: cached.metricsToken)
-                return cached.portsByPID
+                return cached.scan
             }
 
             if let active = inFlight {
@@ -98,7 +138,7 @@ actor PortScanSnapshotStore {
                     metrics.recordLsofReuse(.inFlight, token: active.metricsToken)
                     let captureResult = await active.task.value
                     await finishCapture(active, captureResult: captureResult)
-                    return captureResult.portsByPID
+                    return captureResult.scan
                 }
 
                 pendingPIDs.formUnion(requestedPIDs)
@@ -139,7 +179,7 @@ actor PortScanSnapshotStore {
             let captureResult = await task.value
             await finishCapture(started, captureResult: captureResult)
             if capturePIDs.isSuperset(of: requestedPIDs) {
-                return captureResult.portsByPID
+                return captureResult.scan
             }
         }
     }
@@ -218,7 +258,7 @@ actor PortScanSnapshotStore {
     private func finishCapture(
         _ completed: InFlightScan,
         captureResult: (
-            portsByPID: [Int: Set<Int>],
+            scan: PortLsofScanResult,
             proof: ProcessPerformanceCaptureProof
         )
     ) async {
@@ -229,7 +269,7 @@ actor PortScanSnapshotStore {
         }
         cached = CachedScan(
             requestedPIDs: completed.requestedPIDs,
-            portsByPID: captureResult.portsByPID,
+            scan: captureResult.scan,
             storedAt: storedAt,
             metricsToken: completed.metricsToken
         )

@@ -2480,7 +2480,7 @@ class GhosttyApp {
         }
     }
 
-    private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
+    func performOnMain<T>(_ work: @MainActor () -> T) -> T {
         if Thread.isMainThread {
             return MainActor.assumeIsolated { work() }
         }
@@ -2907,16 +2907,18 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_PWD:
-            guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id else { return true }
-            let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
-            DispatchQueue.main.async {
-                AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
-                    tabId: tabId,
-                    surfaceId: surfaceId,
-                    directory: pwd
+            let pwdAction = action.action.pwd
+            let geometry = pwdAction.scrollbar.map {
+                NotificationScrollRestoreGeometry(
+                    scrollbar: GhosttyScrollbar(c: $0.pointee),
+                    rowSpaceRevision: pwdAction.scrollbar_revision
                 )
             }
+            handleCurrentDirectoryAction(
+                pwdAction.pwd.flatMap { String(cString: $0) } ?? "",
+                authoritativeGeometry: geometry,
+                surfaceView: surfaceView
+            )
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             guard let tabId = surfaceView.tabId else { return true }
@@ -3424,6 +3426,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
+    // SAFETY: replay setup replaces this before runtime attachment; callbacks only read it.
+    nonisolated(unsafe) var currentDirectoryActionDispatcher = GhosttyCurrentDirectoryActionDispatcher()
     var scrollbar: GhosttyScrollbar?
     /// Pending scrollbar value written from the action callback thread;
     /// read and cleared on the main thread by `flushPendingScrollbar()`.
@@ -3442,11 +3446,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
-    static func retainRenderedFrameNotifications() -> () -> Void {
-        // See GhosttyApp.retainTickNotifications() on the idempotent release.
-        let retention = GhosttyApp.renderedFrameNotificationDemand.retain()
-        return { retention.release() }
-    }
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
         case GHOSTTY_MOUSE_SHAPE_DEFAULT:
@@ -3537,7 +3536,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func flushPendingScrollbarIfAvailable() -> Bool {
+    func flushPendingScrollbarIfAvailable() -> Bool {
         _scrollbarLock.lock()
         let hasPending = _pendingScrollbar != nil
         _scrollbarLock.unlock()
@@ -3546,7 +3545,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         flushPendingScrollbar()
         return true
     }
-
 
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
@@ -4288,7 +4286,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
     }
-
     private func enqueueInputDemandKeyEvent(_ event: NSEvent, reason: String) {
         guard let surfaceId = terminalSurface?.id else { return }
         guard pendingInputDemandKeyEvents.count < Self.maxPendingInputDemandKeyEvents else {
@@ -4337,13 +4334,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     func prepareSurfaceForPaste(reason: String) -> Bool {
+        terminalSurface?.didReceiveExplicitInput()
         guard ensureSurfaceReadyForInput() != nil else {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
         }
         return true
     }
-
     func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
         return action.withCString { cString in
@@ -5707,6 +5704,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        terminalSurface?.didReceiveExplicitInput()
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -5771,7 +5769,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if !cmuxFindEventIsPlainEscape(event) { endFindEscapeSuppression() }
         if shouldConsumeSuppressedFindEscape(event) { return }
         if cmuxFindEventIsPlainEscape(event), !hasMarkedText(), let terminalSurface, terminalSurface.searchState != nil {
-            terminalSurface.searchState = nil
+            terminalSurface.closeSearchFromExplicitInput()
             beginFindEscapeSuppression(); return
         }
 #if DEBUG
@@ -6505,6 +6503,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDown(with event: NSEvent) {
+        terminalSurface?.didReceiveExplicitInput()
         #if DEBUG
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
@@ -7203,6 +7202,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func rightMouseDown(with event: NSEvent) {
+        terminalSurface?.didReceiveExplicitInput()
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             requestPointerFocusRecovery()
@@ -7232,6 +7232,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.otherMouseDown(with: event)
             return
         }
+        terminalSurface?.didReceiveExplicitInput()
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
@@ -7385,7 +7386,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @objc private func resetTerminal(_ sender: Any?) {
-        _ = performBindingAction("reset")
+        _ = terminalSurface?.performExplicitInputBindingAction("reset")
     }
     override func mouseMoved(with event: NSEvent) {
         maybeRequestFirstResponderForMouseFocus()
@@ -8240,9 +8241,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
     private var lastSentRow: Int?
-    /// Tracks whether the user has scrolled away from the bottom to review scrollback.
-    /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
-    /// where the terminal fights the user's scroll position.
+    var notificationScrollRestoreState = NotificationScrollRestoreState()
+    /// Tracks scrollback review so auto-scroll does not fight the user's position.
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
@@ -8265,7 +8265,6 @@ final class GhosttySurfaceScrollView: NSView {
         case terminal
     }
     private(set) var searchFocusTarget: SearchFocusTarget = .searchField
-
 
 #if DEBUG
     private var lastDropZoneOverlayLogSignature: String?
@@ -8734,7 +8733,6 @@ final class GhosttySurfaceScrollView: NSView {
             }
             self.scheduleAutomaticFirstResponderApply(reason: "surfaceDidBecomeReady")
         })
-
         observers.append(NotificationCenter.default.addObserver(
             forName: .workspaceRemoteConnectionPresentationDidChange,
             object: nil,
@@ -8742,15 +8740,16 @@ final class GhosttySurfaceScrollView: NSView {
         ) { [weak self] notification in
             self?.handleWorkspaceRemoteConnectionPresentationDidChange(notification)
         })
-
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidReceiveWheelScroll,
             object: surfaceView,
             queue: .main
         ) { [weak self] _ in
-            self?.pendingExplicitWheelScroll = true
+            MainActor.assumeIsolated {
+                self?.pendingExplicitWheelScroll = true
+                self?.cancelPendingNotificationScrollRestoreForUserInput()
+            }
         })
-
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttySearchFocus,
             object: nil,
@@ -9453,7 +9452,6 @@ final class GhosttySurfaceScrollView: NSView {
         imageTransferIndicatorSpinner.stopAnimation(nil)
         imageTransferIndicatorContainerView.isHidden = true
     }
-
     private func makeSearchOverlayRootView(
         terminalSurface: TerminalSurface,
         searchState: TerminalSurface.SearchState
@@ -9466,14 +9464,15 @@ final class GhosttySurfaceScrollView: NSView {
                 self?.canApplyMountedSearchFieldFocusRequest() ?? false
             },
             onNavigateSearch: { [weak terminalSurface] action in
-                _ = terminalSurface?.performBindingAction(action)
+                _ = terminalSurface?.performExplicitInputBindingAction(action)
             },
+            onSearchTextChanged: { [weak terminalSurface] in terminalSurface?.didReceiveExplicitInput() },
             onFieldDidFocus: { [weak self, weak terminalSurface] in
                 self?.searchFocusTarget = .searchField
                 terminalSurface?.setFocus(false)
             },
             onClose: { [weak self, weak terminalSurface] in
-                terminalSurface?.searchState = nil
+                terminalSurface?.closeSearchFromExplicitInput()
                 self?.moveFocus()
             }
         )
@@ -11438,7 +11437,6 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         allowExplicitScrollbarSync = false
-
         if didChangeGeometry {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
@@ -11447,11 +11445,10 @@ final class GhosttySurfaceScrollView: NSView {
     private func handleScrollChange() {
         synchronizeSurfaceView()
     }
-
     private func handleLiveScroll() {
+        cancelPendingNotificationScrollRestoreForUserInput()
         let cellHeight = surfaceView.cellSize.height
         guard cellHeight > 0 else { return }
-
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
@@ -11471,9 +11468,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func handleScrollbarUpdate(_ notification: Notification) {
-        guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else {
-            return
-        }
+        guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else { return }
         let wasVisible = scrollView.hasVerticalScroller
         if pendingExplicitWheelScroll {
             userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
@@ -11484,9 +11479,11 @@ final class GhosttySurfaceScrollView: NSView {
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
+            restorePendingNotificationScrollPositionAfterScrollbarUpdate()
             return
         }
         synchronizeScrollView()
+        restorePendingNotificationScrollPositionAfterScrollbarUpdate()
     }
 
     @discardableResult
@@ -12042,7 +12039,7 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
 
         guard !sanitizedChars.isEmpty else { return }
-
+        terminalSurface?.didReceiveExplicitInput()
         // Otherwise send directly to the terminal
         recordDirectAgentHibernationTerminalInput()
         sendTextToSurface(

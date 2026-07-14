@@ -45,6 +45,8 @@ extension ControlCommandCoordinator {
             return debugTextBoxInteract(request.params)
         case "debug.app.activate":
             return debugActivateApp()
+        case "debug.workspace_todo.checklist_add_field":
+            return debugWorkspaceTodoChecklistAddField()
         case "debug.pro_welcome_checklist.show":
             return debugShowProWelcomeChecklist()
         case "debug.command_palette.toggle":
