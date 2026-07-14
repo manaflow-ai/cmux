@@ -34,7 +34,7 @@ extension Notification.Name {
 
 nonisolated private struct SocketLineProcessingResult: Sendable {
     let response: String?
-    let authenticated: Bool
+    let passwordAuthorization: SocketPasswordAuthorization
 }
 // Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
 // AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
@@ -911,7 +911,10 @@ class TerminalController {
         return v2Error(id: id, code: "auth_required", message: message)
     }
 
-    private nonisolated func passwordLoginV1ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+    private nonisolated func passwordLoginV1ResponseIfNeeded(
+        for command: String,
+        passwordAuthorization: inout SocketPasswordAuthorization
+    ) -> String? {
         let lowered = command.lowercased()
         guard lowered == "auth" || lowered.hasPrefix("auth ") else {
             return nil
@@ -932,11 +935,14 @@ class TerminalController {
         guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
             return "ERROR: Invalid password"
         }
-        authenticated = true
+        passwordAuthorization.authenticate(password: provided)
         return "OK: Authenticated"
     }
 
-    private nonisolated func passwordLoginV2ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+    private nonisolated func passwordLoginV2ResponseIfNeeded(
+        for command: String,
+        passwordAuthorization: inout SocketPasswordAuthorization
+    ) -> String? {
         guard command.hasPrefix("{"),
               let data = command.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
@@ -964,24 +970,49 @@ class TerminalController {
         guard passwordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
             return v2Error(id: id, code: "auth_failed", message: "Invalid password")
         }
-        authenticated = true
+        passwordAuthorization.authenticate(password: provided)
         return v2Ok(id: id, result: ["authenticated": true])
     }
 
-    private nonisolated func authResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+    private nonisolated func authResponseIfNeeded(
+        for command: String,
+        passwordAuthorization: inout SocketPasswordAuthorization
+    ) -> String? {
         guard socketServer.accessMode.requiresPasswordAuth else {
             return nil
         }
-        if let v2Response = passwordLoginV2ResponseIfNeeded(for: command, authenticated: &authenticated) {
+        if let v2Response = passwordLoginV2ResponseIfNeeded(
+            for: command,
+            passwordAuthorization: &passwordAuthorization
+        ) {
             return v2Response
         }
-        if let v1Response = passwordLoginV1ResponseIfNeeded(for: command, authenticated: &authenticated) {
+        if let v1Response = passwordLoginV1ResponseIfNeeded(
+            for: command,
+            passwordAuthorization: &passwordAuthorization
+        ) {
             return v1Response
         }
-        if !authenticated {
+        if !passwordAuthorization.isAuthenticated {
             return passwordAuthRequiredResponse(for: command)
         }
         return nil
+    }
+
+    /// Checks both listener policy generation and password credential revision.
+    nonisolated func socketAuthorizationIsCurrent(
+        _ authorizationGeneration: UInt64,
+        passwordAuthorization: SocketPasswordAuthorization
+    ) -> Bool {
+        guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) else { return false }
+        let accessMode = socketServer.accessMode
+        let currentPassword = accessMode.requiresPasswordAuth
+            ? passwordStore.configuredPassword(allowLazyKeychainFallback: true)
+            : nil
+        return passwordAuthorization.permitsConnectionContinuation(
+            accessMode: accessMode,
+            currentPassword: currentPassword
+        )
     }
 
     /// Interim bridged view of a decoded `ControlRequest` with Foundation
@@ -1463,14 +1494,17 @@ class TerminalController {
                 Task { await preauthorizationLimiter.release() }
             }
         }
-        var authenticated = false
+        var passwordAuthorization = SocketPasswordAuthorization()
         let lineReader = ControlClientLineReader(socket: socket, initialLimits: initialReadLimits)
         while let line = lineReader.nextLine(shouldContinueReading: {
             socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
         }) {
             let receivedCommand = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !receivedCommand.isEmpty else { continue }
-            guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) else {
+            guard socketAuthorizationIsCurrent(
+                authorizationGeneration,
+                passwordAuthorization: passwordAuthorization
+            ) else {
                 _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
                 return
             }
@@ -1495,7 +1529,10 @@ class TerminalController {
             var shouldCloseSocket = false
             autoreleasepool {
                 if isEventsStreamRequest(trimmed) {
-                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                    if let response = authResponseIfNeeded(
+                        for: trimmed,
+                        passwordAuthorization: &passwordAuthorization
+                    ) {
                         if !writeSocketResponse(response, to: socket) {
                             shouldCloseSocket = true
                         }
@@ -1504,14 +1541,18 @@ class TerminalController {
                     handleEventsStreamRequest(
                         trimmed,
                         socket: socket,
-                        authorizationGeneration: authorizationGeneration
+                        authorizationGeneration: authorizationGeneration,
+                        passwordAuthorization: passwordAuthorization
                     )
                     shouldCloseSocket = true
                     return
                 }
 
-                let result = processSocketLine(trimmed, authenticated: authenticated)
-                authenticated = result.authenticated
+                let result = processSocketLine(
+                    trimmed,
+                    passwordAuthorization: passwordAuthorization
+                )
+                passwordAuthorization = result.passwordAuthorization
                 if let response = result.response {
                     let didWriteResponse = writeSocketResponse(response, to: socket)
                     publishSocketEvents(command: trimmed, response: response)
@@ -1529,7 +1570,7 @@ class TerminalController {
 
     private nonisolated func processSocketLine(
         _ command: String,
-        authenticated: Bool
+        passwordAuthorization: SocketPasswordAuthorization
     ) -> SocketLineProcessingResult {
 #if DEBUG
         let debugInfo = Self.socketCommandDebugInfo(command)
@@ -1542,8 +1583,11 @@ class TerminalController {
             )
         }
 #endif
-        var nextAuthenticated = authenticated
-        if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
+        var nextPasswordAuthorization = passwordAuthorization
+        if let response = authResponseIfNeeded(
+            for: command,
+            passwordAuthorization: &nextPasswordAuthorization
+        ) {
 #if DEBUG
             Self.debugLogSocketCommandEndIfNeeded(
                 debugInfo: debugInfo,
@@ -1552,7 +1596,10 @@ class TerminalController {
                 loggingEnabled: debugLoggingEnabled
             )
 #endif
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+            return SocketLineProcessingResult(
+                response: response,
+                passwordAuthorization: nextPasswordAuthorization
+            )
         }
 
         let response = processCommandUsingSocketExecutionPolicy(command)
@@ -1566,7 +1613,10 @@ class TerminalController {
             )
         }
 #endif
-        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        return SocketLineProcessingResult(
+            response: response,
+            passwordAuthorization: nextPasswordAuthorization
+        )
     }
 
 #if DEBUG
