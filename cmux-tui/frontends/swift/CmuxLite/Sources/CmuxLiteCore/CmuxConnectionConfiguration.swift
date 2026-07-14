@@ -48,7 +48,10 @@ public struct CmuxConnectionConfiguration: Sendable, Equatable {
         environment: [String: String],
         userID: UInt32
     ) -> String {
-        let temporaryDirectory = environment["TMPDIR"].flatMap { $0.isEmpty ? nil : $0 }
+        // Mirror the server's runtime-base precedence exactly
+        // (platform.rs): XDG_RUNTIME_DIR, then TMPDIR, then /tmp.
+        let temporaryDirectory = environment["XDG_RUNTIME_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? environment["TMPDIR"].flatMap { $0.isEmpty ? nil : $0 }
             ?? "/tmp"
         return URL(fileURLWithPath: temporaryDirectory, isDirectory: true)
             .appendingPathComponent("cmux-tui-\(userID)", isDirectory: true)

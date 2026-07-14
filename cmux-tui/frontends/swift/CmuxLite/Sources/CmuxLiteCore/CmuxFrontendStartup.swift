@@ -1,6 +1,6 @@
 import Foundation
 
-/// Summarizes cmux-lite's local navigation and current byte attachment.
+/// Summarizes cmux-lite's local navigation and visible byte attachments.
 public struct CmuxFrontendStartup: Sendable, Equatable {
     /// Workspaces and screens in server order.
     public let workspaces: [CmuxWorkspaceSnapshot]
@@ -11,8 +11,11 @@ public struct CmuxFrontendStartup: Sendable, Equatable {
     /// The screen selected by this client without changing server selection.
     public let selectedScreen: UInt64
 
-    /// The attached PTY surface identifier.
+    /// The locally active or first attached PTY surface identifier.
     public let surface: UInt64
+
+    /// Every PTY surface attached for the selected visible screen.
+    public let surfaces: [UInt64]
 
     /// The negotiated server protocol version.
     public let protocolVersion: UInt32
@@ -25,7 +28,8 @@ public struct CmuxFrontendStartup: Sendable, Equatable {
     ///   - workspaces: Workspaces and screens in server order.
     ///   - selectedWorkspace: The locally selected workspace identifier.
     ///   - selectedScreen: The locally selected screen identifier.
-    ///   - surface: The selected PTY surface.
+    ///   - surface: The active or first selected PTY surface.
+    ///   - surfaces: Every attached visible PTY surface.
     ///   - protocolVersion: The identified server protocol.
     ///   - sessionName: The identified server session name.
     public init(
@@ -33,6 +37,7 @@ public struct CmuxFrontendStartup: Sendable, Equatable {
         selectedWorkspace: UInt64,
         selectedScreen: UInt64,
         surface: UInt64,
+        surfaces: [UInt64]? = nil,
         protocolVersion: UInt32,
         sessionName: String
     ) {
@@ -40,6 +45,7 @@ public struct CmuxFrontendStartup: Sendable, Equatable {
         self.selectedWorkspace = selectedWorkspace
         self.selectedScreen = selectedScreen
         self.surface = surface
+        self.surfaces = surfaces ?? [surface]
         self.protocolVersion = protocolVersion
         self.sessionName = sessionName
     }

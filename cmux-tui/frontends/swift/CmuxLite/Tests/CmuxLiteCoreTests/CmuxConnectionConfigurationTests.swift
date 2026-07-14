@@ -83,4 +83,18 @@ struct CmuxConnectionConfigurationTests {
     private enum TestError: Error {
         case unexpectedRead
     }
+
+    @Test
+    func socketDirectoryPrefersXdgRuntimeDirOverTmpdir() {
+        let dir = CmuxConnectionConfiguration.socketDirectory(
+            environment: ["XDG_RUNTIME_DIR": "/run/user/501", "TMPDIR": "/var/tmp-x"],
+            userID: 501
+        )
+        #expect(dir == "/run/user/501/cmux-tui-501")
+        let empty = CmuxConnectionConfiguration.socketDirectory(
+            environment: ["XDG_RUNTIME_DIR": "", "TMPDIR": "/var/tmp-x"],
+            userID: 501
+        )
+        #expect(empty == "/var/tmp-x/cmux-tui-501")
+    }
 }

@@ -7,24 +7,23 @@ final class CmuxLiteWindowController: NSWindowController,
     NSTableViewDataSource,
     NSTableViewDelegate
 {
-    private enum NavigationRequest {
-        case workspace(UInt64)
-        case screen(UInt64)
-        case tab(pane: UInt64, index: Int)
-        case newWorkspace
-        case newScreen
-        case newTab(pane: UInt64)
-    }
-
     private let frontend: CmuxFrontendSession
-    private let terminalHost: CmuxTerminalHostViewController
+    private let ghosttyViewConfiguration: CmuxGhosttyViewConfiguration
+    private let ghosttyConfigPath: String?
+    private let shortcutTable = CmuxShortcutTable()
     private let workspaceTable = NSTableView()
-    private let tabsStack = NSStackView()
     private let screensStack = NSStackView()
     private let sessionBadge = NSTextField(labelWithString: "")
+    private let paneLayoutHost = NSView()
+    private var paneControllers: [UInt64: CmuxPaneViewController] = [:]
     private var snapshot: CmuxFrontendStartup?
+    private var activePane: UInt64?
+    private var pendingRatios: [CmuxSplitTarget: CmuxPendingRatio] = [:]
+    private var nextRatioRequestID: UInt64 = 1
     private var connectionTask: Task<Void, Never>?
-    private var navigationTask: Task<Void, Never>?
+    private var mutationTask: Task<Void, Never>?
+    private var keyMonitor: Any?
+    private var mouseMonitor: Any?
     private var applyingSelection = false
 
     init(
@@ -33,11 +32,8 @@ final class CmuxLiteWindowController: NSWindowController,
         ghosttyConfigPath: String?
     ) {
         self.frontend = frontend
-        terminalHost = CmuxTerminalHostViewController(
-            frontend: frontend,
-            ghosttyViewConfiguration: ghosttyViewConfiguration,
-            ghosttyConfigPath: ghosttyConfigPath
-        )
+        self.ghosttyViewConfiguration = ghosttyViewConfiguration
+        self.ghosttyConfigPath = ghosttyConfigPath
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1040, height: 680),
@@ -58,6 +54,7 @@ final class CmuxLiteWindowController: NSWindowController,
         super.init(window: window)
         window.delegate = self
         configureContent()
+        installEventMonitors()
     }
 
     @available(*, unavailable)
@@ -79,7 +76,7 @@ final class CmuxLiteWindowController: NSWindowController,
                 let events = await frontend.events()
                 let startup = try await frontend.connect(hostname: hostname)
                 guard let self else { return }
-                apply(startup)
+                apply(startup, preferServerActivePane: true)
 
                 for await event in events {
                     guard !Task.isCancelled else { return }
@@ -87,7 +84,7 @@ final class CmuxLiteWindowController: NSWindowController,
                     case let .snapshot(snapshot):
                         apply(snapshot)
                     case let .terminal(event):
-                        terminalHost.consume(event)
+                        route(event)
                         if case .detached = event {
                             setSessionBadge(
                                 String(
@@ -134,12 +131,13 @@ final class CmuxLiteWindowController: NSWindowController,
               workspaceTable.selectedRow >= 0,
               snapshot.workspaces.indices.contains(workspaceTable.selectedRow)
         else { return }
-        runNavigation(.workspace(snapshot.workspaces[workspaceTable.selectedRow].id))
+        runMutation(.workspace(snapshot.workspaces[workspaceTable.selectedRow].id))
     }
 
     func windowWillClose(_: Notification) {
-        navigationTask?.cancel()
-        navigationTask = nil
+        removeEventMonitors()
+        mutationTask?.cancel()
+        mutationTask = nil
         connectionTask?.cancel()
         connectionTask = nil
         let frontend = frontend
@@ -148,71 +146,93 @@ final class CmuxLiteWindowController: NSWindowController,
 
     @objc
     private func newWorkspacePressed(_: NSButton) {
-        runNavigation(.newWorkspace)
+        perform(.newWorkspace)
     }
 
     @objc
     private func newScreenPressed(_: NSButton) {
-        runNavigation(.newScreen)
-    }
-
-    @objc
-    private func newTabPressed(_: NSButton) {
-        guard let pane = selectedScreen()?.pane else { return }
-        runNavigation(.newTab(pane: pane))
+        runMutation(.newScreen)
     }
 
     @objc
     private func screenPressed(_ sender: NSButton) {
-        guard let snapshot,
-              let workspace = snapshot.workspaces.first(where: {
-                $0.id == snapshot.selectedWorkspace
-              }),
+        guard let workspace = selectedWorkspace(),
               workspace.screens.indices.contains(sender.tag)
         else { return }
-        runNavigation(.screen(workspace.screens[sender.tag].id))
+        runMutation(.screen(workspace.screens[sender.tag].id))
     }
 
-    @objc
-    private func tabPressed(_ sender: NSButton) {
-        guard let screen = selectedScreen(), let pane = screen.pane,
-              screen.tabs.indices.contains(sender.tag)
-        else { return }
-        runNavigation(.tab(pane: pane, index: sender.tag))
+    private func perform(_ action: CmuxShortcutAction) {
+        switch action {
+        case let .split(direction):
+            guard let activePane else { return }
+            runMutation(.split(pane: activePane, direction: direction))
+        case .newTab:
+            guard let activePane else { return }
+            runMutation(.newTab(pane: activePane))
+        case .closeTab:
+            guard let pane = activePaneSnapshot(), let surface = pane.activeSurface else { return }
+            runMutation(.closeTab(surface: surface))
+        case .newWorkspace:
+            runMutation(.newWorkspace)
+        case let .selectTab(index):
+            guard let pane = activePaneSnapshot(), pane.tabs.indices.contains(index) else { return }
+            runMutation(.selectTab(pane: pane.id, index: index))
+        case let .selectScreen(index):
+            guard let workspace = selectedWorkspace(), workspace.screens.indices.contains(index) else {
+                return
+            }
+            runMutation(.screen(workspace.screens[index].id))
+        case let .focusPane(direction):
+            focusPane(toward: direction)
+        case let .resizePane(direction):
+            resizePane(toward: direction)
+        }
     }
 
-    private func runNavigation(_ request: NavigationRequest) {
-        navigationTask?.cancel()
+    private func runMutation(_ mutation: CmuxWindowMutation) {
+        mutationTask?.cancel()
         let frontend = frontend
-        navigationTask = Task { [weak self] in
+        mutationTask = Task { [weak self] in
             do {
-                let snapshot: CmuxFrontendStartup
-                switch request {
+                let updated: CmuxFrontendStartup
+                switch mutation {
                 case let .workspace(id):
-                    snapshot = try await frontend.selectWorkspace(id)
+                    updated = try await frontend.selectWorkspace(id)
                 case let .screen(id):
-                    snapshot = try await frontend.selectScreen(id)
-                case let .tab(pane, index):
-                    snapshot = try await frontend.selectTab(pane: pane, index: index)
+                    updated = try await frontend.selectScreen(id)
                 case .newWorkspace:
-                    snapshot = try await frontend.newWorkspace()
+                    updated = try await frontend.newWorkspace()
                 case .newScreen:
-                    snapshot = try await frontend.newScreen()
+                    updated = try await frontend.newScreen()
+                case let .selectTab(pane, index):
+                    updated = try await frontend.selectTab(pane: pane, index: index)
                 case let .newTab(pane):
-                    snapshot = try await frontend.newTab(pane: pane)
+                    updated = try await frontend.newTab(pane: pane)
+                case let .split(pane, direction):
+                    updated = try await frontend.split(pane: pane, direction: direction)
+                case let .closeTab(surface):
+                    updated = try await frontend.closeTab(surface: surface)
+                case let .setRatio(target, ratio, _):
+                    updated = try await frontend.setRatio(target: target, ratio: ratio)
                 }
                 guard let self, !Task.isCancelled else { return }
-                apply(snapshot)
+                apply(updated, preferServerActivePane: mutation.followsServerActivePane)
             } catch is CancellationError {
-                return
+                guard let self else { return }
+                rollbackPendingRatio(for: mutation)
             } catch {
                 guard let self, !Task.isCancelled else { return }
+                rollbackPendingRatio(for: mutation)
                 showConnectionError(error)
             }
         }
     }
 
-    private func apply(_ snapshot: CmuxFrontendStartup) {
+    private func apply(
+        _ snapshot: CmuxFrontendStartup,
+        preferServerActivePane: Bool = false
+    ) {
         self.snapshot = snapshot
         workspaceTable.reloadData()
         applyingSelection = true
@@ -224,54 +244,193 @@ final class CmuxLiteWindowController: NSWindowController,
             workspaceTable.deselectAll(nil)
         }
         applyingSelection = false
-        rebuildTabs(snapshot)
+
+        guard let screen = selectedScreen(in: snapshot) else {
+            clearPaneLayout()
+            rebuildScreens(snapshot)
+            setSessionBadge(snapshot.sessionName)
+            return
+        }
+        reconcilePendingRatios(with: screen.layout)
+        let visible = screen.layout.paneIDs
+        if preferServerActivePane, let serverPane = screen.activePane, visible.contains(serverPane) {
+            activePane = serverPane
+        } else if let activePane, visible.contains(activePane) {
+            self.activePane = activePane
+        } else if let serverPane = screen.activePane, visible.contains(serverPane) {
+            activePane = serverPane
+        } else {
+            activePane = visible.first
+        }
+        rebuildPaneLayout(screen)
         rebuildScreens(snapshot)
         setSessionBadge(snapshot.sessionName)
     }
 
-    private func rebuildTabs(_ snapshot: CmuxFrontendStartup) {
-        for view in tabsStack.arrangedSubviews {
-            tabsStack.removeArrangedSubview(view)
-            view.removeFromSuperview()
+    private func rebuildPaneLayout(_ screen: CmuxScreenSnapshot) {
+        let visible = Set(screen.layout.paneIDs)
+        for pane in paneControllers.keys where !visible.contains(pane) {
+            paneControllers[pane]?.view.removeFromSuperview()
+            paneControllers.removeValue(forKey: pane)
+        }
+        for paneID in screen.layout.paneIDs {
+            guard let pane = screen.panes.first(where: { $0.id == paneID }) else { continue }
+            let controller: CmuxPaneViewController
+            if let existing = paneControllers[paneID] {
+                controller = existing
+            } else {
+                controller = CmuxPaneViewController(
+                    snapshot: pane,
+                    frontend: frontend,
+                    ghosttyViewConfiguration: ghosttyViewConfiguration,
+                    ghosttyConfigPath: ghosttyConfigPath
+                )
+                controller.onActivate = { [weak self] pane in
+                    self?.activatePane(pane)
+                }
+                controller.onSelectTab = { [weak self] pane, index in
+                    self?.activatePane(pane, focus: false)
+                    self?.perform(.selectTab(index))
+                }
+                controller.onNewTab = { [weak self] pane in
+                    self?.activatePane(pane, focus: false)
+                    self?.perform(.newTab)
+                }
+                paneControllers[paneID] = controller
+            }
+            controller.update(snapshot: pane, active: paneID == activePane)
         }
 
-        guard let screen = selectedScreen(in: snapshot) else { return }
-        for (index, tab) in screen.tabs.enumerated() {
-            let number = String(index + 1)
-            let accessibilityLabel = String(
-                format: String(
-                    localized: "tabs.unnamed",
-                    defaultValue: "Tab %lld",
-                    bundle: .module
-                ),
-                Int64(index + 1)
+        paneLayoutHost.subviews.forEach { $0.removeFromSuperview() }
+        guard let root = makeLayoutView(screen.layout) else { return }
+        root.frame = paneLayoutHost.bounds
+        root.autoresizingMask = [.width, .height]
+        paneLayoutHost.addSubview(root)
+        paneControllers[activePane ?? 0]?.focusTerminal()
+    }
+
+    private func makeLayoutView(_ layout: CmuxPaneLayoutView) -> NSView? {
+        switch layout {
+        case let .pane(pane):
+            return paneControllers[pane]?.view
+        case let .group(direction, ratio, first, second):
+            guard let firstView = makeLayoutView(first),
+                  let secondView = makeLayoutView(second)
+            else { return nil }
+            let target = layout.dividerTarget()
+            let pending = target.flatMap { pendingRatios[$0] }
+            let pendingValid = pending.map {
+                abs(ratio - $0.previousRatio) <= 0.000_001
+            } ?? false
+            return CmuxSplitView(
+                direction: direction,
+                authoritativeRatio: ratio,
+                displayedRatio: pendingValid ? (pending?.ratio ?? ratio) : ratio,
+                target: target,
+                pending: pendingValid,
+                first: firstView,
+                second: secondView,
+                onCommit: { [weak self] target, previous, ratio in
+                    self?.beginRatioCommit(
+                        target: target,
+                        previousRatio: previous,
+                        ratio: ratio
+                    )
+                }
             )
-            let button = CmuxTabButton(frame: .zero)
-            button.tag = index
-            button.target = self
-            button.action = #selector(tabPressed(_:))
-            button.setAccessibilityLabel(accessibilityLabel)
-            button.toolTip = tab.label
-            button.configure(label: number, active: screen.activeTab == index)
-            tabsStack.addArrangedSubview(button)
         }
+    }
 
-        guard screen.pane != nil else { return }
-        let newTab = CmuxHoverButton(frame: .zero)
-        newTab.target = self
-        newTab.action = #selector(newTabPressed(_:))
-        newTab.setAccessibilityLabel(
-            String(localized: "tabs.new", defaultValue: "New tab", bundle: .module)
+    private func clearPaneLayout() {
+        paneLayoutHost.subviews.forEach { $0.removeFromSuperview() }
+        paneControllers.removeAll()
+        activePane = nil
+    }
+
+    private func activatePane(_ pane: UInt64, focus: Bool = true) {
+        guard let screen = selectedScreen(), screen.layout.paneIDs.contains(pane) else { return }
+        activePane = pane
+        for paneSnapshot in screen.panes where screen.layout.paneIDs.contains(paneSnapshot.id) {
+            paneControllers[paneSnapshot.id]?.update(
+                snapshot: paneSnapshot,
+                active: paneSnapshot.id == pane
+            )
+        }
+        if focus {
+            paneControllers[pane]?.focusTerminal()
+        }
+    }
+
+    private func focusPane(toward direction: CmuxPaneDirection) {
+        guard let screen = selectedScreen(), let activePane else { return }
+        let geometry = CmuxPaneGeometry(layout: screen.layout)
+        guard let neighbor = geometry.neighbor(of: activePane, toward: direction) else { return }
+        activatePane(neighbor)
+    }
+
+    private func resizePane(toward direction: CmuxPaneDirection) {
+        guard let screen = selectedScreen(), let activePane,
+              let nudge = screen.layout.ratioNudge(for: activePane, toward: direction),
+              let previous = screen.layout.ratio(for: nudge.target),
+              abs(previous - nudge.ratio) > 0.000_001
+        else { return }
+        beginRatioCommit(
+            target: nudge.target,
+            previousRatio: previous,
+            ratio: nudge.ratio
         )
-        newTab.configure(
-            title: "+",
-            font: .systemFont(ofSize: 16),
-            normalBackground: CmuxPalette.tui.statusBackground,
-            normalForeground: CmuxPalette.tui.dim
+    }
+
+    private func beginRatioCommit(
+        target: CmuxSplitTarget,
+        previousRatio: Double,
+        ratio: Double
+    ) {
+        guard pendingRatios[target] == nil else { return }
+        let requestID = nextRatioRequestID
+        nextRatioRequestID &+= 1
+        pendingRatios[target] = CmuxPendingRatio(
+            requestID: requestID,
+            previousRatio: previousRatio,
+            ratio: ratio
         )
-        newTab.translatesAutoresizingMaskIntoConstraints = false
-        newTab.widthAnchor.constraint(equalToConstant: 34).isActive = true
-        tabsStack.addArrangedSubview(newTab)
+        if let screen = selectedScreen() {
+            rebuildPaneLayout(screen)
+        }
+        runMutation(.setRatio(target: target, ratio: ratio, requestID: requestID))
+    }
+
+    private func reconcilePendingRatios(with layout: CmuxPaneLayoutView) {
+        var reconciledTargets: [CmuxSplitTarget] = []
+        for (target, pending) in pendingRatios {
+            guard let authoritative = layout.ratio(for: target),
+                  abs(authoritative - pending.previousRatio) <= 0.000_001
+            else {
+                reconciledTargets.append(target)
+                continue
+            }
+        }
+        for target in reconciledTargets {
+            pendingRatios.removeValue(forKey: target)
+        }
+    }
+
+    private func rollbackPendingRatio(for mutation: CmuxWindowMutation) {
+        guard case let .setRatio(target, _, requestID) = mutation,
+              pendingRatios[target]?.requestID == requestID
+        else { return }
+        pendingRatios.removeValue(forKey: target)
+        if let screen = selectedScreen() {
+            rebuildPaneLayout(screen)
+        }
+    }
+
+    private func route(_ event: CmuxAttachEvent) {
+        guard let surface = event.surface,
+              let screen = selectedScreen(),
+              let pane = screen.panes.first(where: { $0.activeSurface == surface })
+        else { return }
+        paneControllers[pane.id]?.consume(event)
     }
 
     private func rebuildScreens(_ snapshot: CmuxFrontendStartup) {
@@ -293,10 +452,7 @@ final class CmuxLiteWindowController: NSWindowController,
         label.translatesAutoresizingMaskIntoConstraints = false
         screensStack.addArrangedSubview(label)
 
-        guard let workspace = snapshot.workspaces.first(where: {
-            $0.id == snapshot.selectedWorkspace
-        }) else { return }
-
+        guard let workspace = selectedWorkspace(in: snapshot) else { return }
         for (index, screen) in workspace.screens.enumerated() {
             let button = CmuxHoverButton(frame: .zero)
             button.tag = index
@@ -342,18 +498,28 @@ final class CmuxLiteWindowController: NSWindowController,
         screensStack.addArrangedSubview(newScreen)
     }
 
-    private func setSessionBadge(_ value: String) {
-        sessionBadge.stringValue = "[\(value)]"
-        sessionBadge.toolTip = value
+    private func selectedWorkspace(
+        in value: CmuxFrontendStartup? = nil
+    ) -> CmuxWorkspaceSnapshot? {
+        guard let snapshot = value ?? snapshot else { return nil }
+        return snapshot.workspaces.first(where: { $0.id == snapshot.selectedWorkspace })
     }
 
     private func selectedScreen(in value: CmuxFrontendStartup? = nil) -> CmuxScreenSnapshot? {
         guard let snapshot = value ?? snapshot,
-              let workspace = snapshot.workspaces.first(where: {
-                $0.id == snapshot.selectedWorkspace
-              })
+              let workspace = selectedWorkspace(in: snapshot)
         else { return nil }
         return workspace.screens.first(where: { $0.id == snapshot.selectedScreen })
+    }
+
+    private func activePaneSnapshot() -> CmuxPaneSnapshot? {
+        guard let screen = selectedScreen(), let activePane else { return nil }
+        return screen.panes.first(where: { $0.id == activePane })
+    }
+
+    private func setSessionBadge(_ value: String) {
+        sessionBadge.stringValue = "[\(value)]"
+        sessionBadge.toolTip = value
     }
 
     private func showConnectionError(_ error: Error) {
@@ -366,6 +532,41 @@ final class CmuxLiteWindowController: NSWindowController,
             String(describing: error)
         )
         setSessionBadge(message)
+    }
+
+    private func installEventMonitors() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.window === window,
+                  let input = event.cmuxShortcutInput,
+                  let action = shortcutTable.action(for: input)
+            else { return event }
+            perform(action)
+            return nil
+        }
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] event in
+            guard let self, event.window === window else { return event }
+            for (pane, controller) in paneControllers {
+                let point = controller.view.convert(event.locationInWindow, from: nil)
+                if controller.view.bounds.contains(point) {
+                    activatePane(pane, focus: false)
+                    break
+                }
+            }
+            return event
+        }
+    }
+
+    private func removeEventMonitors() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+        if let mouseMonitor {
+            NSEvent.removeMonitor(mouseMonitor)
+            self.mouseMonitor = nil
+        }
     }
 
     private func configureContent() {
@@ -414,6 +615,7 @@ final class CmuxLiteWindowController: NSWindowController,
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
+        scroll.focusRingType = .none
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
         let newWorkspace = CmuxHoverButton(frame: .zero)
@@ -443,21 +645,14 @@ final class CmuxLiteWindowController: NSWindowController,
         sidebar.addSubview(newWorkspace)
         sidebar.addSubview(sidebarBorder)
 
-        let pane = NSView()
-        pane.wantsLayer = true
-        pane.layer?.backgroundColor = palette.background.cgColor
-        pane.translatesAutoresizingMaskIntoConstraints = false
+        let content = NSView()
+        content.wantsLayer = true
+        content.layer?.backgroundColor = palette.background.cgColor
+        content.translatesAutoresizingMaskIntoConstraints = false
 
-        let tabBar = NSView()
-        tabBar.wantsLayer = true
-        tabBar.layer?.backgroundColor = palette.statusBackground.cgColor
-        tabBar.translatesAutoresizingMaskIntoConstraints = false
-
-        tabsStack.orientation = .horizontal
-        tabsStack.alignment = .centerY
-        tabsStack.spacing = 0
-        tabsStack.translatesAutoresizingMaskIntoConstraints = false
-        tabBar.addSubview(tabsStack)
+        paneLayoutHost.wantsLayer = true
+        paneLayoutHost.layer?.backgroundColor = palette.background.cgColor
+        paneLayoutHost.translatesAutoresizingMaskIntoConstraints = false
 
         let status = NSView()
         status.wantsLayer = true
@@ -478,12 +673,10 @@ final class CmuxLiteWindowController: NSWindowController,
 
         status.addSubview(screensStack)
         status.addSubview(sessionBadge)
-        pane.addSubview(tabBar)
-        pane.addSubview(terminalHost.view)
-        pane.addSubview(status)
-        terminalHost.view.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(paneLayoutHost)
+        content.addSubview(status)
         root.addSubview(sidebar)
-        root.addSubview(pane)
+        root.addSubview(content)
 
         NSLayoutConstraint.activate([
             sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
@@ -510,30 +703,25 @@ final class CmuxLiteWindowController: NSWindowController,
             newWorkspace.trailingAnchor.constraint(equalTo: sidebarBorder.leadingAnchor),
             newWorkspace.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor),
             newWorkspace.heightAnchor.constraint(equalToConstant: 28),
-            pane.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-            pane.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            pane.topAnchor.constraint(equalTo: root.topAnchor),
-            pane.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            tabBar.leadingAnchor.constraint(equalTo: pane.leadingAnchor),
-            tabBar.trailingAnchor.constraint(equalTo: pane.trailingAnchor),
-            tabBar.topAnchor.constraint(equalTo: pane.topAnchor),
-            tabBar.heightAnchor.constraint(equalToConstant: 28),
-            tabsStack.leadingAnchor.constraint(equalTo: tabBar.leadingAnchor),
-            tabsStack.topAnchor.constraint(equalTo: tabBar.topAnchor),
-            tabsStack.bottomAnchor.constraint(equalTo: tabBar.bottomAnchor),
-            tabsStack.trailingAnchor.constraint(lessThanOrEqualTo: tabBar.trailingAnchor),
-            terminalHost.view.leadingAnchor.constraint(equalTo: pane.leadingAnchor),
-            terminalHost.view.trailingAnchor.constraint(equalTo: pane.trailingAnchor),
-            terminalHost.view.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
-            terminalHost.view.bottomAnchor.constraint(equalTo: status.topAnchor),
-            status.leadingAnchor.constraint(equalTo: pane.leadingAnchor),
-            status.trailingAnchor.constraint(equalTo: pane.trailingAnchor),
-            status.bottomAnchor.constraint(equalTo: pane.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+            content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            content.topAnchor.constraint(equalTo: root.topAnchor),
+            content.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            paneLayoutHost.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            paneLayoutHost.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            paneLayoutHost.topAnchor.constraint(equalTo: content.topAnchor),
+            paneLayoutHost.bottomAnchor.constraint(equalTo: status.topAnchor),
+            status.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            status.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            status.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             status.heightAnchor.constraint(equalToConstant: 26),
             screensStack.leadingAnchor.constraint(equalTo: status.leadingAnchor),
             screensStack.topAnchor.constraint(equalTo: status.topAnchor),
             screensStack.bottomAnchor.constraint(equalTo: status.bottomAnchor),
-            screensStack.trailingAnchor.constraint(lessThanOrEqualTo: sessionBadge.leadingAnchor, constant: -8),
+            screensStack.trailingAnchor.constraint(
+                lessThanOrEqualTo: sessionBadge.leadingAnchor,
+                constant: -8
+            ),
             sessionBadge.trailingAnchor.constraint(equalTo: status.trailingAnchor, constant: -8),
             sessionBadge.centerYAnchor.constraint(equalTo: status.centerYAnchor),
         ])

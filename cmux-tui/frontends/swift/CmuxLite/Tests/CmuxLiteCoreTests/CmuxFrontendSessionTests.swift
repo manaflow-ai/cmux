@@ -5,6 +5,36 @@ import Testing
 @Suite(.serialized)
 struct CmuxFrontendSessionTests {
     @Test
+    func visibleSplitPanesAttachIndependentlyAndDetachOnScreenChange() async throws {
+        let tree = Data(
+            #"{"workspaces":[{"id":4,"name":"phone","active":true,"screens":[{"id":101,"name":null,"active":true,"active_pane":201,"zoomed_pane":null,"layout":{"type":"split","dir":"right","ratio":0.5,"a":{"type":"leaf","pane":201},"b":{"type":"leaf","pane":202}},"panes":[{"id":201,"active_tab":0,"tabs":[{"surface":11,"kind":"pty","name":null,"title":"left","size":{"cols":80,"rows":24},"dead":false}],"dead":false},{"id":202,"active_tab":0,"tabs":[{"surface":12,"kind":"pty","name":null,"title":"right","size":{"cols":80,"rows":24},"dead":false}],"dead":false}]},{"id":102,"name":null,"active":false,"active_pane":203,"zoomed_pane":null,"layout":{"type":"leaf","pane":203},"panes":[{"id":203,"active_tab":0,"tabs":[{"surface":13,"kind":"pty","name":null,"title":"other","size":{"cols":80,"rows":24},"dead":false}],"dead":false}]}]}]}"#.utf8
+        )
+        let control = ScriptedTransport(role: .control(tree: tree))
+        let attachments = [11, 12, 13].map {
+            ScriptedTransport(role: .attachment(surface: $0))
+        }
+        let session = makeSession(control: control, attachments: attachments)
+
+        let initial = try await session.connect(hostname: "test")
+        #expect(initial.surfaces == [11, 12])
+        #expect(await attachments[0].commandSummaries().contains("attach-surface:11"))
+        #expect(await attachments[1].commandSummaries().contains("attach-surface:12"))
+
+        try await session.sendText("left", surface: 11)
+        try await session.sendText("right", surface: 12)
+        #expect(await attachments[0].commandSummaries().contains("send:left"))
+        #expect(await attachments[1].commandSummaries().contains("send:right"))
+
+        let selected = try await session.selectScreen(102)
+        #expect(selected.surfaces == [13])
+        #expect(await attachments[0].isClosed())
+        #expect(await attachments[1].isClosed())
+        #expect(await attachments[2].isClosed() == false)
+        await session.close()
+        #expect(await attachments[2].isClosed())
+    }
+
+    @Test
     func navigationIsLocalAndClosesThePreviousAttachment() async throws {
         let harness = makeHarness(attachmentSurfaces: [11, 12])
         let initial = try await harness.session.connect(hostname: "test")

@@ -6,7 +6,7 @@ final class CmuxHoverButton: NSButton {
     private var hovered = false
     private var active = false
     private var normalBackground = NSColor.clear
-    private var hoverBackground = CmuxPalette.tui.activeBackground
+    private var hoverBackground = CmuxPalette.tui.hoverBackground
     private var activeBackground = CmuxPalette.tui.statusActiveBackground
     private var normalForeground = CmuxPalette.tui.dim
     private var activeForeground = CmuxPalette.tui.activeForeground
@@ -32,7 +32,7 @@ final class CmuxHoverButton: NSButton {
         alignment: NSTextAlignment = .center,
         font: NSFont = .systemFont(ofSize: 11),
         normalBackground: NSColor = .clear,
-        hoverBackground: NSColor = CmuxPalette.tui.activeBackground,
+        hoverBackground: NSColor = CmuxPalette.tui.hoverBackground,
         activeBackground: NSColor = CmuxPalette.tui.statusActiveBackground,
         normalForeground: NSColor = CmuxPalette.tui.dim,
         activeForeground: NSColor = CmuxPalette.tui.activeForeground,

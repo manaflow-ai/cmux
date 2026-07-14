@@ -55,6 +55,30 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "不明なオプションです: %@" } }
       }
     },
+    "frontend.error.pane_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pane %lld is unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペイン %lld は利用できません" } }
+      }
+    },
+    "frontend.error.surface_not_attached" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Surface %lld is not attached" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーフェス %lld はアタッチされていません" } }
+      }
+    },
+    "frontend.error.surface_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Surface %lld is unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーフェス %lld は利用できません" } }
+      }
+    },
+    "frontend.error.tab_unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tab %1$lld in pane %2$lld is unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペイン %2$lld のタブ %1$lld は利用できません" } }
+      }
+    },
     "transport.payload.inbound_not_utf8" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Inbound JSON line is not UTF-8" } },

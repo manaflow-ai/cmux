@@ -18,6 +18,7 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
     private var hasAppliedReplay = false
     private var pendingInitialClaim = false
     private var lastMeasurement: CmuxTerminalMeasurement?
+    private var active = false
 
     init(
         frontend: CmuxFrontendSession,
@@ -75,6 +76,18 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
         }
     }
 
+    func setActive(_ active: Bool) {
+        self.active = active
+        if active {
+            focusTerminal()
+        }
+    }
+
+    func focusTerminal() {
+        guard let terminalView, let window = view.window else { return }
+        window.makeFirstResponder(terminalView)
+    }
+
     func terminalDidResize(_ size: TerminalGridMetrics) {
         guard let measurement = measurement(for: size) else { return }
         let containerChanged = lastMeasurement.map {
@@ -119,7 +132,7 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
         let frontend = frontend
         let session = InMemoryTerminalSession(
             write: { data in
-                Task { await frontend.sendInput(data) }
+                Task { await frontend.sendInput(data, surface: surface) }
             },
             // AppTerminalView reports the same metrics through its main-actor
             // delegate. Keeping one path lets replay reconstruction suppress
@@ -164,7 +177,9 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
             terminal.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             terminal.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
-        view.window?.makeFirstResponder(terminal)
+        if active {
+            view.window?.makeFirstResponder(terminal)
+        }
     }
 
     private var effectiveTerminalConfiguration: TerminalConfiguration {
@@ -213,12 +228,13 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
     }
 
     private func submit(_ measurement: CmuxTerminalMeasurement, claim: Bool) {
+        guard let attachedSurface else { return }
         let frontend = frontend
         Task {
             if claim {
-                await frontend.scheduleResize(for: measurement)
+                await frontend.scheduleResize(for: measurement, surface: attachedSurface)
             } else {
-                await frontend.recordTerminalMeasurement(measurement)
+                await frontend.recordTerminalMeasurement(measurement, surface: attachedSurface)
             }
         }
     }
