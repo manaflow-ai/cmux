@@ -1,6 +1,7 @@
 import Testing
 import AppKit
 import CmuxUpdater
+import OSLog
 import SwiftUI
 
 #if canImport(cmux_DEV)
@@ -33,6 +34,14 @@ final class SidebarLazyLayoutScaleTests {
     /// pass can multiply that, but a virtualization defeat realizes all 300.
     private static let realizedRowCeiling = 150
 
+    private final class InjectableMouseLocationWindow: NSWindow {
+        var injectedMouseLocation = NSPoint.zero
+
+        override var mouseLocationOutsideOfEventStream: NSPoint {
+            injectedMouseLocation
+        }
+    }
+
     // Plain class (not @MainActor) so the probe's nonisolated `() -> Void`
     // closures can mutate it; bodies only run on the main thread. Same shape
     // as MinimalModeBodyProbeCounts in WorkspaceContentViewVisibilityTests.
@@ -62,7 +71,7 @@ final class SidebarLazyLayoutScaleTests {
         let tabManager: TabManager
         let unread: SidebarUnreadModel
         let counter: RowBodyCounter
-        let window: NSWindow
+        let window: InjectableMouseLocationWindow
         let defaultsSuiteName: String
 
         func tearDown() {
@@ -177,7 +186,7 @@ final class SidebarLazyLayoutScaleTests {
         )
         .defaultAppStorage(defaults)
 
-        let window = NSWindow(
+        let window = InjectableMouseLocationWindow(
             contentRect: NSRect(x: 0, y: 0, width: 280, height: 640),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
@@ -221,16 +230,30 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private static func hoverReconcilerViews(in rootView: NSView) -> [SidebarWorkspaceRowHoverReconcilerView] {
-        var result: [SidebarWorkspaceRowHoverReconcilerView] = []
+    private static func firstScrollView(in rootView: NSView) -> NSScrollView? {
         var pendingViews = [rootView]
         while let view = pendingViews.popLast() {
-            if let reconciler = view as? SidebarWorkspaceRowHoverReconcilerView {
-                result.append(reconciler)
-            }
+            if let scrollView = view as? NSScrollView { return scrollView }
             pendingViews.append(contentsOf: view.subviews)
         }
-        return result
+        return nil
+    }
+
+    private static func viewUpdateFaultMessages(since startDate: Date) throws -> [String] {
+        let store = try OSLogStore(scope: .currentProcessIdentifier)
+        let entries = try store.getEntries(at: store.position(date: startDate))
+        let faultFragments = [
+            "Modifying state during view update",
+            "Publishing changes from within view updates",
+            "laid out reentrantly",
+        ]
+        return entries.compactMap { entry in
+            guard let message = (entry as? OSLogEntryLog)?.composedMessage,
+                  faultFragments.contains(where: message.localizedCaseInsensitiveContains) else {
+                return nil
+            }
+            return message
+        }
     }
 
     /// Mounting the sidebar with 300 workspaces must realize only the rows a
@@ -366,35 +389,68 @@ final class SidebarLazyLayoutScaleTests {
         )
     }
 
-    /// AppKit may invoke `updateTrackingAreas` repeatedly while SwiftUI is
-    /// reconciling a lazy row's platform children. A burst must collapse to a
-    /// bounded asynchronous delivery and then settle; calling row bindings on
-    /// this stack is the #8004 AttributeGraph/NSHostingView livelock.
+    /// A stationary pointer over a row must survive the highest-risk sidebar
+    /// churn without producing SwiftUI view-update or NSHostingView reentrant
+    /// layout faults. The injectable window makes every production hover
+    /// reconciler see a real in-row pointer without requiring a key window or
+    /// physical mouse, while scroll, remount, unread, and appearance changes
+    /// exercise the #8004 lifecycle path.
     @Test
     @MainActor
-    func testTrackingAreaStormStaysBoundedAndConverges() async throws {
+    func testStationaryPointerChurnHasNoViewUpdateFaultsAndConverges() async throws {
+        let logStart = Date()
         let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
         let rootView = try #require(harness.window.contentView)
-        let reconcilers = Self.hoverReconcilerViews(in: rootView)
-        #expect(!reconcilers.isEmpty, "The mounted viewport has no hover reconcilers; the stress path is not covered.")
+        let scrollView = try #require(Self.firstScrollView(in: rootView))
+        let pointerInScrollView = NSPoint(
+            x: scrollView.bounds.midX,
+            y: scrollView.bounds.maxY - 80
+        )
+        harness.window.injectedMouseLocation = scrollView.convert(pointerInScrollView, to: nil)
 
         harness.counter.reset()
-        for _ in 0..<100 {
-            for reconciler in reconcilers {
-                reconciler.updateTrackingAreas()
+        let stormTargets = Array(harness.tabManager.tabs.prefix(3).map(\.id))
+        let groupIds = harness.tabManager.workspaceGroups.map(\.id)
+        for i in 1...40 {
+            let target = stormTargets[i % stormTargets.count]
+            harness.unread.apply(
+                totalUnreadCount: i,
+                summaries: [
+                    target: SidebarWorkspaceUnreadSummary(
+                        unreadCount: i,
+                        latestNotificationText: "stationary pointer churn \(i)"
+                    )
+                ],
+                unreadSurfaceKeys: [],
+                focusedReadIndicatorByWorkspaceId: [:],
+                manualUnreadWorkspaceIds: []
+            )
+
+            let documentHeight = scrollView.documentView?.bounds.height ?? 0
+            let maximumOffset = max(0, documentHeight - scrollView.contentView.bounds.height)
+            let requestedOffset = CGFloat((i % 8) * 36)
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(maximumOffset, requestedOffset)))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+
+            if i.isMultiple(of: 4), let groupId = groupIds.first {
+                harness.tabManager.toggleWorkspaceGroupCollapsed(groupId: groupId)
             }
+            harness.window.appearance = NSAppearance(
+                named: i.isMultiple(of: 2) ? .darkAqua : .aqua
+            )
+            await Self.drainMainRunLoop(for: harness.window, iterations: 2)
         }
         await Self.drainMainRunLoop(for: harness.window)
 
-        let stormEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
+        let faultMessages = try Self.viewUpdateFaultMessages(since: logStart)
         #expect(
-            stormEvals < reconcilers.count * 4,
+            faultMessages.isEmpty,
             """
-            \(stormEvals) row bodies evaluated after 100 tracking-area passes across \
-            \(reconcilers.count) visible rows. AppKit lifecycle events must be coalesced before they update SwiftUI.
+            Sidebar stationary-pointer churn emitted \(faultMessages.count) SwiftUI/AppKit \
+            view-update faults:\n\(faultMessages.joined(separator: "\n"))
             """
         )
 
@@ -404,8 +460,8 @@ final class SidebarLazyLayoutScaleTests {
         #expect(
             quietEvals < 20,
             """
-            \(quietEvals) row bodies evaluated after the tracking-area burst ended. The sidebar failed to converge \
-            and is still feeding SwiftUI state changes back into AppKit layout.
+            \(quietEvals) row bodies evaluated after stationary-pointer churn ended. The sidebar failed to converge \
+            and is still feeding interaction or geometry changes back into layout.
             """
         )
     }
