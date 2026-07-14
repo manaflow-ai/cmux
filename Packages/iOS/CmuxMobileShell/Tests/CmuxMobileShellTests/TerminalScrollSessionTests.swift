@@ -116,6 +116,12 @@ struct TerminalScrollSessionTests {
 
         let firstRemote = harness.remote.pending.removeFirst()
         firstRemote.continuation.resume(returning: response(for: firstRemote.request, renderRevision: 10))
+        harness.local.pending.removeFirst().continuation.resume(returning: true)
+        try await requireEventually { harness.delivered.count == 1 }
+        session.authoritativeDidApply(
+            interactionEpoch: firstRemote.request.interactionEpoch,
+            clientRevision: firstRemote.request.clientRevision
+        )
         try await requireEventually { harness.remote.pending.count == 1 }
         let secondRemote = harness.remote.pending.removeFirst()
         #expect(secondRemote.request.lines == -10)
@@ -126,18 +132,40 @@ struct TerminalScrollSessionTests {
         let finalRemote = harness.remote.pending.removeFirst()
         #expect(finalRemote.request.lines == 5)
         #expect(finalRemote.request.wireEncoding == .legacyScalar)
-        #expect(finalRemote.request.prefetchWindow == .directional(for: 5))
+        #expect(finalRemote.request.prefetchWindow == nil)
         finalRemote.continuation.resume(returning: response(for: finalRemote.request, renderRevision: 30))
 
         #expect(harness.local.started.map(\.lines) == [10, -10, 5])
         while !harness.local.pending.isEmpty {
             harness.local.pending.removeFirst().continuation.resume(returning: true)
         }
-        try await requireEventually { harness.delivered.count == 1 }
+        try await requireEventually { harness.delivered.count == 2 }
+        session.authoritativeDidApply(
+            interactionEpoch: finalRemote.request.interactionEpoch,
+            clientRevision: finalRemote.request.clientRevision
+        )
+        try await requireEventually { harness.remote.pending.count == 1 }
+        let settlementRemote = harness.remote.pending.removeFirst()
+        #expect(settlementRemote.request.lines == 0)
+        #expect(settlementRemote.request.directionalRuns.isEmpty)
+        #expect(settlementRemote.request.prefetchWindow == .directional(for: 5))
+        settlementRemote.continuation.resume(returning: response(
+            for: settlementRemote.request,
+            renderRevision: 40
+        ))
+        try await requireEventually { harness.delivered.count == 3 }
+        session.authoritativeDidApply(
+            interactionEpoch: settlementRemote.request.interactionEpoch,
+            clientRevision: settlementRemote.request.clientRevision
+        )
+        try await requireEventually {
+            guard case .idle = session.phase else { return false }
+            return session.queuedInteractionCount == 0
+        }
 
-        #expect(harness.remote.started.map(\.lines) == [10, -10, 5])
-        #expect(harness.remote.started.allSatisfy { $0.directionalRuns.count == 1 })
-        #expect(harness.delivered.map(\.renderRevision) == [30])
+        #expect(harness.remote.started.map(\.lines) == [10, -10, 5, 0])
+        #expect(harness.remote.started.dropLast().allSatisfy { $0.directionalRuns.count == 1 })
+        #expect(harness.delivered.map(\.renderRevision) == [10, 30, 40])
     }
 
     @Test("journal overflow enters replay recovery without stuck reconciliation")

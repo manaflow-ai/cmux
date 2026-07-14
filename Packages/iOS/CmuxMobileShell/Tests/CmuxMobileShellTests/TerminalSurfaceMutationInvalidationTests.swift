@@ -58,7 +58,7 @@ struct TerminalSurfaceMutationInvalidationTests {
         #expect(await receipt.value)
     }
 
-    @Test("optimistic scroll skips stale viewport but preserves causal barriers")
+    @Test("optimistic scroll preserves authoritative and causal output order")
     func atomicInvalidationPreservesRequiredOutput() throws {
         var queue = TerminalOutputDeliveryQueue()
         let staleFrame = try frame(text: "stale", full: true)
@@ -88,7 +88,9 @@ struct TerminalSurfaceMutationInvalidationTests {
 
         let result = queue.enqueueOptimisticScroll(scroll)
 
-        #expect(result.immediate == raw)
+        #expect(result.immediate == nil)
+        #expect(queue.completeInFlight() == raw)
+        #expect(queue.completeInFlight() == laterStaleViewport)
         #expect(queue.completeInFlight() == incremental)
         #expect(queue.completeInFlight() == policy)
         #expect(queue.completeInFlight() == barrier)

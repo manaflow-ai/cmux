@@ -266,7 +266,7 @@ import Testing
     ))
     let baselineChunk = try #require(await iterator.next())
     lines.append(String(decoding: baselineChunk.data, as: UTF8.self))
-    #expect(store.terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID))
+    #expect(!store.terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID))
 
     // An alternate delta lands before the ack, forcing a follow-up replay
     // that answers empty over the intact surface: both the sequence baseline
@@ -279,10 +279,11 @@ import Testing
         full: false
     ))
     let deltaDroppedByBarrier = try await pollUntil {
-        store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] == 1
+        store.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID)
     }
     #expect(deltaDroppedByBarrier, "the pre-ack delta must be consumed (and dropped) before the ack")
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: baselineChunk.streamToken)
+    #expect(store.terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID))
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
     let alternateBaselinePreserved = try await pollUntil {
         store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil

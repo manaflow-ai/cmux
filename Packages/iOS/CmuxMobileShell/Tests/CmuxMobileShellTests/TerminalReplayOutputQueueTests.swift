@@ -90,12 +90,16 @@ import Testing
         text: "normal-full-grid",
         full: true
     ))
-    let fullEventProcessed = try await pollUntil {
-        store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 20
-    }
-    #expect(fullEventProcessed)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] != 20)
 
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: rawInFlightChunk.streamToken)
     let queuedRawChunk = try #require(await iterator.next())
     #expect(String(data: queuedRawChunk.data, encoding: .utf8) == "raw-queued-after-full")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: queuedRawChunk.streamToken)
+
+    let fullGridChunk = try #require(await iterator.next())
+    #expect(String(decoding: fullGridChunk.data, as: UTF8.self).contains("normal-full-grid"))
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] != 20)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: fullGridChunk.streamToken)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 20)
 }

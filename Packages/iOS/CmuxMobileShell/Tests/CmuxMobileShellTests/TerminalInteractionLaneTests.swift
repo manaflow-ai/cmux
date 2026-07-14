@@ -175,6 +175,15 @@ struct TerminalInteractionLaneTests {
         let first = harness.remoteScrolls[0]
         harness.localReceipts[0].resolve(true)
         first.continuation.resume(returning: harness.response(for: first.request))
+        try await requireEventually {
+            harness.deliveredReconciliations.contains {
+                $0 == (first.request.interactionEpoch, first.request.clientRevision)
+            }
+        }
+        session.authoritativeDidApply(
+            interactionEpoch: first.request.interactionEpoch,
+            clientRevision: first.request.clientRevision
+        )
         try await requireEventually { harness.remoteScrolls.count == 2 }
         let second = harness.remoteScrolls[1]
         #expect(second.request.directionalRuns.map(\.lines) == [-3, 2])

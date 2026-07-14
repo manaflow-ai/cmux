@@ -387,6 +387,8 @@ func gridlessAcknowledgementDeliversSameOrNewerDeferredFrameBeforeAdvancingFloor
     #expect(completed)
     let delivered = try #require(await iterator.next())
     #expect(delivered.data == frame.vtPatchBytes())
+    #expect(store.acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] == 12)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: delivered.streamToken)
     #expect(store.acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] == deferredRevision)
     #expect(store.deferredTerminalRenderGridEventsBySurfaceID[surfaceID] == nil)
 }
@@ -429,5 +431,7 @@ func gridlessAcknowledgementDeliversSameOrNewerDeferredFrameBeforeAdvancingFloor
     #expect(store.deliverAuthoritativeTerminalRenderGrid(replay, source: "replay"))
     let delivered = try #require(await iterator.next())
     #expect(delivered.data == replay.vtPatchBytes())
+    #expect(store.equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID] == 12)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: delivered.streamToken)
     #expect(store.equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID] == nil)
 }
