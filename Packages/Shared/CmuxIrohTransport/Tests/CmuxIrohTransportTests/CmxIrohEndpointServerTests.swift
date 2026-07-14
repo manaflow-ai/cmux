@@ -30,7 +30,7 @@ struct CmxIrohEndpointServerTests {
         )
         await endpoint.enqueue(connection)
         let recorder = EndpointServerRecorder()
-        let server = CmxIrohEndpointServer(supervisor: supervisor) { connection, generation in
+        let server = CmxIrohEndpointServer(supervisor: supervisor) { connection, generation, _ in
             let identity = await connection.remoteIdentity()
             await recorder.record(
                 identity: identity,
@@ -75,7 +75,7 @@ struct CmxIrohEndpointServerTests {
         let server = CmxIrohEndpointServer(
             supervisor: supervisor,
             clock: clock
-        ) { connection, generation in
+        ) { connection, generation, _ in
             await recorder.record(
                 identity: await connection.remoteIdentity(),
                 generation: generation
@@ -128,7 +128,7 @@ struct CmxIrohEndpointServerTests {
             maximumPendingAdmissions: 1,
             admissionTimeout: 15,
             clock: clock
-        ) { connection, generation in
+        ) { connection, generation, _ in
             await recorder.record(
                 identity: await connection.remoteIdentity(),
                 generation: generation
@@ -242,7 +242,7 @@ struct CmxIrohEndpointServerTests {
         let server = CmxIrohEndpointServer(
             supervisor: supervisor,
             maximumPendingAdmissions: 3
-        ) { connection, generation in
+        ) { connection, generation, _ in
             await recorder.record(
                 identity: await connection.remoteIdentity(),
                 generation: generation

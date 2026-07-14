@@ -278,7 +278,7 @@ public actor CmxIrohHostRuntime {
             endpointAttestation = policy.attestation
             lanRendezvous = policy.lanRendezvous
 
-            let server = CmxIrohEndpointServer(supervisor: supervisor) { [weak self] connection, generation in
+            let server = CmxIrohEndpointServer(supervisor: supervisor) { [weak self] connection, generation, markAdmitted in
                 guard let self else {
                     await connection.close(errorCode: 1, reason: "runtime_deallocated")
                     return
@@ -286,7 +286,8 @@ public actor CmxIrohHostRuntime {
                 try await self.admit(
                     connection: connection,
                     runtimeGeneration: generation,
-                    lifecycleRevision: revision
+                    lifecycleRevision: revision,
+                    markAdmitted: markAdmitted
                 )
             }
             endpointServer = server
@@ -430,7 +431,8 @@ public actor CmxIrohHostRuntime {
     private func admit(
         connection: any CmxIrohConnection,
         runtimeGeneration: UInt64,
-        lifecycleRevision revision: UInt64
+        lifecycleRevision revision: UInt64,
+        markAdmitted: @escaping CmxIrohEndpointServer.AdmissionMarker
     ) async throws {
         try requireCurrent(revision)
         guard let admissionController,
@@ -446,6 +448,10 @@ public actor CmxIrohHostRuntime {
         let peer = try await session.admit()
         let onlineLease = try await session.admittedOnlineLease()
         guard await isCurrent(revision: revision, runtimeGeneration: runtimeGeneration) else {
+            await session.close()
+            throw CmxIrohHostRuntimeError.superseded
+        }
+        guard await markAdmitted() else {
             await session.close()
             throw CmxIrohHostRuntimeError.superseded
         }
