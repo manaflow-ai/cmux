@@ -19,10 +19,39 @@ struct ProcessDetectedResumeIndexes: Sendable {
         )
     }
 
+    @MainActor
     static func load(
-        homeDirectory: String = NSHomeDirectory(),
+        maximumAge: TimeInterval = 60
+    ) async -> ProcessDetectedResumeIndexes? {
+        await load(coordinatedBy: .shared, maximumAge: maximumAge)
+    }
+
+    @MainActor
+    static func load(
+        coordinatedBy sharedIndex: SharedLiveAgentIndex,
+        maximumAge: TimeInterval = 60
+    ) async -> ProcessDetectedResumeIndexes? {
+        await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: maximumAge)
+    }
+
+    @MainActor
+    static func loadCapturedAfterRequest() async -> ProcessDetectedResumeIndexes? {
+        await loadCapturedAfterRequest(coordinatedBy: .shared)
+    }
+
+    @MainActor
+    static func loadCapturedAfterRequest(
+        coordinatedBy sharedIndex: SharedLiveAgentIndex
+    ) async -> ProcessDetectedResumeIndexes? {
+        await sharedIndex.resumeIndexesCapturedAfterRequest()
+    }
+
+    /// One-off compatibility entry point for callers with an isolated process
+    /// snapshot store. Normal runtime consumers share `SharedLiveAgentIndex`.
+    static func load(
+        homeDirectory: String,
         fileManager: FileManager = .default,
-        snapshotStore: CmuxTopProcessSnapshotStore
+        snapshotStore: CmuxTopProcessSnapshotStore = .shared
     ) async -> ProcessDetectedResumeIndexes {
         let processSnapshot = await snapshotStore.snapshot(
             requirements: [.processDetails, .cmuxScope],
@@ -39,8 +68,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
     }
 
     /// Termination-only fallback. App shutdown must persist the final restorable
-    /// state before returning to AppKit, so this one raw capture cannot await the
-    /// actor; the compatibility seam records it in the shared proof metrics.
+    /// state before returning to AppKit, so this raw capture cannot await the actor.
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
@@ -60,7 +88,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot
     ) -> ProcessDetectedResumeIndexes {
-        let capturedAt = Date().timeIntervalSince1970
+        let capturedAt = processSnapshot.sampledAt.timeIntervalSince1970
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: registry,
@@ -81,35 +109,9 @@ struct ProcessDetectedResumeIndexes: Sendable {
         )
         return ProcessDetectedResumeIndexes(
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(
+                bindingsByPanel: detectedBindings.mapValues(\.binding)
+            )
         )
-    }
-
-    @MainActor
-    static func load(
-        maximumAge: TimeInterval = 60
-    ) async -> ProcessDetectedResumeIndexes? {
-        await load(coordinatedBy: .shared, maximumAge: maximumAge)
-    }
-
-    @MainActor
-    static func load(
-        coordinatedBy sharedIndex: SharedLiveAgentIndex,
-        maximumAge: TimeInterval = 60
-    ) async -> ProcessDetectedResumeIndexes? {
-        await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: maximumAge)
-    }
-
-    @MainActor
-    static func loadCapturedAfterRequest(
-    ) async -> ProcessDetectedResumeIndexes? {
-        await loadCapturedAfterRequest(coordinatedBy: .shared)
-    }
-
-    @MainActor
-    static func loadCapturedAfterRequest(
-        coordinatedBy sharedIndex: SharedLiveAgentIndex
-    ) async -> ProcessDetectedResumeIndexes? {
-        await sharedIndex.resumeIndexesCapturedAfterRequest()
     }
 }

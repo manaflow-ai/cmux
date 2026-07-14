@@ -61,6 +61,12 @@ struct SharedLiveAgentIndexLoader {
         processMetadataCaptured: @Sendable () -> Void = {}
     ) -> LoadResult {
         let processSnapshot = processSnapshotProvider()
+#if DEBUG
+        let loadMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+            .restorableLoad,
+            inputCount: processSnapshot.processesByPID.count
+        )
+#endif
         let capturedAt = capturedAtProvider()
         let resolvedRegistry = registry ?? registryLoader(homeDirectory, fileManager)
         var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
@@ -72,12 +78,6 @@ struct SharedLiveAgentIndexLoader {
             processArgumentsByPID.updateValue(resolved, forKey: processID)
             return resolved
         }
-#if DEBUG
-        let loadMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
-            .restorableLoad,
-            inputCount: processSnapshot.processesByPID.count
-        )
-#endif
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: resolvedRegistry,
             fileManager: fileManager,
@@ -85,8 +85,15 @@ struct SharedLiveAgentIndexLoader {
             capturedAt: capturedAt,
             processArgumentsProvider: injectedProcessArgumentsProvider
         )
+        let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            processArgumentsProvider: cachedProcessArguments
+        )
         // Process-only session identity must be immutable before terminal teardown.
-        // Hook-store and transcript loading below may continue after the runtime exits.
+        // Tmux binding detection is included in the boundary; hook-store and transcript
+        // loading below may continue after the runtime exits.
         processMetadataCaptured()
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
@@ -95,12 +102,6 @@ struct SharedLiveAgentIndexLoader {
             detectedSnapshots: detectedSnapshots,
             processArgumentsProvider: cachedProcessArguments,
             processIdentityProvider: processIdentityProvider
-        )
-        let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt,
-            processArgumentsProvider: cachedProcessArguments
         )
 #if DEBUG
         ProcessPerformanceMetrics.shared.operationCompleted(
@@ -133,7 +134,9 @@ struct SharedLiveAgentIndexLoader {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> Set<String> {
-        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        let snapshot = CmuxTopProcessSnapshot.captureSynchronouslyForCompatibility(
+            includeProcessDetails: true
+        )
         return cacheValidationFingerprint(
             from: snapshot,
             homeDirectory: homeDirectory,
@@ -143,8 +146,8 @@ struct SharedLiveAgentIndexLoader {
 
     static func cacheValidationFingerprint(
         from snapshot: CmuxTopProcessSnapshot,
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        homeDirectory: String,
+        fileManager: FileManager
     ) -> Set<String> {
         let registry = CmuxVaultAgentRegistry.load(
             homeDirectory: homeDirectory,

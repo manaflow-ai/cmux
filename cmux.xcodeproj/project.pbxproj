@@ -8192,7 +8192,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */,
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
 				D7332D010000000000000001 /* UpdateRelaunchResumeIndexResolverTests.swift in Sources */,
-				A6C400020000000000000002 /* VaultAgentProcessCandidateSelectorTests.swift in Sources */,
+					A6C400020000000000000002 /* VaultAgentProcessCandidateSelectorTests.swift in Sources */,
 				A3340002A3340002A3340002 /* ViewerNavigationTests.swift in Sources */,
 				C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */,
 				C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */,
