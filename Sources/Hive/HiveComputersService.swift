@@ -1,18 +1,17 @@
 import CmuxAuthRuntime
 import CmuxHive
-import CmuxMobilePairedMac
-import CmuxMobileShell
 import Foundation
 
-/// App-side composition of the hive computers directory: wires the shared
-/// device-registry client, the local paired-computer store, and the presence
-/// subscriber (the same client stack the iOS app composes) to the signed-in
-/// account, and hands the resulting ``HiveComputerDirectory`` to the
-/// Settings › Computers pane.
+/// App-side owner of the hive computers directory (the merged registry +
+/// pairings + presence list behind Settings › Computers).
 ///
-/// Follows the house pattern of the other cloud clients configured at the
-/// composition root (``DeviceRegistryClient``, ``PresenceHeartbeatClient``):
-/// a `shared` instance that stays inert until `configure(auth:)`.
+/// The composition root supplies configuration only — URLs, tokens, device
+/// identity, loopback policy — and `HiveComposition` (in the CmuxHive
+/// package) names the concrete client-stack types, so the app target depends
+/// on nothing below CmuxHive. Follows the house pattern of the other cloud
+/// clients configured at the root (``DeviceRegistryClient``,
+/// ``PresenceHeartbeatClient``): a `shared` instance that stays inert until
+/// `configure(auth:)`.
 @MainActor
 final class HiveComputersService {
     static let shared = HiveComputersService()
@@ -33,55 +32,21 @@ final class HiveComputersService {
     func configure(auth: AuthCoordinator) {
         self.auth = auth
         guard directory == nil else { return }
-        let store: MobilePairedMacStore
+        let composition = HiveComposition(configuration: HiveComposition.Configuration(
+            apiBaseURL: Self.normalizedBaseURL(AuthEnvironment.vmAPIBaseURL),
+            presenceBaseURL: PresenceHeartbeatClient.resolvedServiceURL().map(Self.normalizedBaseURL),
+            ownDeviceID: MobileHostIdentity.deviceID(),
+            allowsLoopbackRoutes: Self.allowsLoopbackPairing,
+            accessToken: { (try? await auth.currentTokens())?.accessToken },
+            refreshToken: { (try? await auth.currentTokens())?.refreshToken },
+            currentUserID: { await auth.currentUser?.id },
+            teamID: { await auth.resolvedTeamID }
+        ))
         do {
-            store = try MobilePairedMacStore(databaseURL: Self.pairedComputersDatabaseURL())
+            directory = try composition.makeDirectory()
         } catch {
             NSLog("cmux.hive paired-computer store unavailable: %@", String(describing: error))
-            return
         }
-        let apiBaseURL = Self.normalizedBaseURL(AuthEnvironment.vmAPIBaseURL)
-        let registry = DeviceRegistryService(
-            apiBaseURL: apiBaseURL,
-            deviceID: MobileHostIdentity.deviceID(),
-            tokenSource: DeviceRegistryService.TokenSource(
-                accessToken: { (try? await auth.currentTokens())?.accessToken },
-                refreshToken: { (try? await auth.currentTokens())?.refreshToken }
-            ),
-            teamIDProvider: { await auth.resolvedTeamID }
-        )
-        let presence: PresenceClient?
-        if let presenceURL = PresenceHeartbeatClient.resolvedServiceURL() {
-            presence = PresenceClient(
-                serviceBaseURL: Self.normalizedBaseURL(presenceURL),
-                tokenSource: PresenceTokenSource(
-                    accessToken: { (try? await auth.currentTokens())?.accessToken },
-                    currentUserID: { await auth.currentUser?.id }
-                ),
-                teamIDProvider: { await auth.resolvedTeamID }
-            )
-        } else {
-            presence = nil
-        }
-        directory = HiveComputerDirectory(
-            registry: registry,
-            pairedStore: store,
-            presence: presence,
-            ownDeviceID: MobileHostIdentity.deviceID(),
-            scopeProvider: {
-                await HiveAccountScope(
-                    stackUserID: auth.currentUser?.id,
-                    teamID: auth.resolvedTeamID
-                )
-            },
-            linkDecoder: HivePairingLinkDecoder(allowsLoopbackRoutes: Self.allowsLoopbackPairing),
-            presenceRetryDelay: { attempt in
-                // Bounded, cancellable resubscribe backoff for the presence
-                // stream (a genuine delay, not a poll): 1s doubling to 60s.
-                let seconds = min(60.0, pow(2.0, Double(min(attempt, 6))))
-                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            }
-        )
     }
 
     /// Dev builds may pair over loopback so two instances on one machine can
@@ -92,15 +57,6 @@ final class HiveComputersService {
         #else
         false
         #endif
-    }
-
-    /// The Mac-side paired-computer database. Uses its own file (not the
-    /// phone's `paired-macs.sqlite3` name) so the namespace stays clearly
-    /// Mac-as-client.
-    private static func pairedComputersDatabaseURL() throws -> URL {
-        try MobilePairedMacStore.defaultDatabaseURL()
-            .deletingLastPathComponent()
-            .appendingPathComponent("hive-paired-computers.sqlite3")
     }
 
     private static func normalizedBaseURL(_ url: URL) -> String {

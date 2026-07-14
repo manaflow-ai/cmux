@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-public import Foundation
+import Foundation
 
 /// One computer on the signed-in account, merged from the device registry,
 /// the local paired-computer store, and the live presence map.
