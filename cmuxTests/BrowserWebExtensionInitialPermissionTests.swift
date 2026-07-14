@@ -114,4 +114,68 @@ struct BrowserWebExtensionInitialPermissionTests {
         #expect(snapshot.id == entry.id)
     }
 
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func permissionPromptReentrancyDoesNotCommitAStaleLoadGeneration() async throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let extensionDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-web-extension-stale-load-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: extensionDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: extensionDirectory) }
+
+        let manifest = """
+        {
+          "manifest_version": 3,
+          "name": "Stale Load Test Extension",
+          "version": "1.0",
+          "permissions": ["tabs"]
+        }
+        """
+        try Data(manifest.utf8).write(
+            to: extensionDirectory.appendingPathComponent("manifest.json")
+        )
+
+        let entry = BrowserWebExtensionEntry(
+            id: "stale-load-test-\(UUID().uuidString)",
+            kind: .unpackedDirectory,
+            path: extensionDirectory.path,
+            enabled: true
+        )
+        let generationChangeNotification = Notification.Name(
+            "cmuxTests.browserWebExtension.staleLoadGeneration"
+        )
+        let support = BrowserWebExtensionSupport(permissionConfirmation: { _ in
+            NotificationCenter.default.post(name: generationChangeNotification, object: nil)
+            return true
+        })
+        let generationChangeObserver = NotificationCenter.default.addObserver(
+            forName: generationChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak support] _ in
+            MainActor.assumeIsolated {
+                support?.settingsLoadGeneration &+= 1
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(generationChangeObserver) }
+        defer { _ = support.unloadAllWebExtensions() }
+        defer {
+            support.permissionStateStore.removeState(
+                for: entry.id,
+                standardizedPath: entry.standardizedResourceRootPath
+            )
+        }
+
+        await support.apply(entries: [entry])
+
+        #expect(support.context(forActionID: entry.id) == nil)
+    }
+
 }
