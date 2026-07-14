@@ -240,9 +240,9 @@ fn exact_split_for_pane_edge_walk(
         return;
     }
     let (a_rect, b_rect) = split_sides(area, *dir, *ratio);
+    let pane_in_a = a.contains(pane);
+    let pane_in_b = b.contains(pane);
     if *dir == edge.dir() {
-        let pane_in_a = a.contains(pane);
-        let pane_in_b = b.contains(pane);
         let boundary = match dir {
             SplitDir::Right => b_rect.x,
             SplitDir::Down => b_rect.y,
@@ -257,9 +257,9 @@ fn exact_split_for_pane_edge_walk(
             *best = Some(ExactSplitResize { area, split: *id });
         }
     }
-    if a.contains(pane) {
+    if pane_in_a {
         exact_split_for_pane_edge_walk(a, a_rect, pane, pane_rect, edge, best);
-    } else if b.contains(pane) {
+    } else if pane_in_b {
         exact_split_for_pane_edge_walk(b, b_rect, pane, pane_rect, edge, best);
     }
 }
