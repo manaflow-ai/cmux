@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -174,6 +175,55 @@ func TestRunPersistentStopUsesSlotControlPlane(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("persistent daemon did not stop after serve --persistent-stop")
+	}
+}
+
+func TestStopPersistentDaemonWaitsForSlotLockWhenSocketIsAbsent(t *testing.T) {
+	rootBase := t.TempDir()
+	socketBase, err := os.MkdirTemp("/tmp", "cmuxd-remote-stop-lock-*")
+	if err != nil {
+		t.Fatalf("create short socket base: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketBase) })
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	t.Setenv("CMUX_REMOTE_DAEMON_SOCKET_DIR", socketBase)
+
+	paths, err := persistentDaemonPathsForSlot("stop-lock-slot")
+	if err != nil {
+		t.Fatalf("resolve persistent daemon paths: %v", err)
+	}
+	paths, err = ensurePersistentDaemonDirectory(paths)
+	if err != nil {
+		t.Fatalf("create persistent daemon directories: %v", err)
+	}
+	lockFile, err := os.OpenFile(paths.lockFile, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("open persistent daemon lock: %v", err)
+	}
+	defer lockFile.Close()
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatalf("hold persistent daemon lock: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- stopPersistentDaemon("stop-lock-slot")
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("persistent stop returned before slot ownership released: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatalf("release persistent daemon lock: %v", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("persistent stop failed after slot ownership released: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("persistent stop did not finish after slot ownership released")
 	}
 }
 

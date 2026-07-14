@@ -13,6 +13,12 @@ extension RemoteSessionCoordinator {
         relay_directory="$HOME/.cmux/relay"
         daemon_path_file="$relay_directory/\(relayPort).daemon_path"
         slot_file="$relay_directory/\(relayPort).slot"
+        socket_addr_file="$HOME/.cmux/socket_addr"
+        if [ -r "$socket_addr_file" ] && [ "$(tr -d '\\r\\n' < "$socket_addr_file")" = "$relay_socket" ]; then
+          rm -f "$socket_addr_file"
+        fi
+        rm -f "$relay_directory/\(relayPort).auth" "$relay_directory/\(relayPort).tty"
+        persistent_stop_succeeded=0
         if [ -r "$daemon_path_file" ] && [ -r "$slot_file" ]; then
           daemon_path="$(tr -d '\\r\\n' < "$daemon_path_file")"
           persistent_slot="$(tr -d '\\r\\n' < "$slot_file")"
@@ -20,17 +26,19 @@ extension RemoteSessionCoordinator {
             ''|.|..|*[!A-Za-z0-9._-]*) ;;
             *)
               if [ -x "$daemon_path" ]; then
-                "$daemon_path" serve --persistent-stop --slot "$persistent_slot" >/dev/null 2>&1 || true
+                if "$daemon_path" serve --persistent-stop --slot "$persistent_slot" >/dev/null 2>&1; then
+                  persistent_stop_succeeded=1
+                fi
               fi
               ;;
           esac
         fi
-        socket_addr_file="$HOME/.cmux/socket_addr"
-        if [ -r "$socket_addr_file" ] && [ "$(tr -d '\\r\\n' < "$socket_addr_file")" = "$relay_socket" ]; then
-          rm -f "$socket_addr_file"
+        if [ "$persistent_stop_succeeded" -eq 1 ]; then
+          rm -f "$daemon_path_file" "$slot_file"
+          rm -rf "$relay_directory/\(relayPort).shell"
+        else
+          exit 1
         fi
-        rm -f "$relay_directory/\(relayPort).auth" "$daemon_path_file" "$slot_file" "$relay_directory/\(relayPort).tty"
-        rm -rf "$relay_directory/\(relayPort).shell"
         """
     }
 
@@ -43,7 +51,7 @@ extension RemoteSessionCoordinator {
         if [ -r "$socket_addr_file" ] && [ "$(tr -d '\\r\\n' < "$socket_addr_file")" = "$relay_socket" ]; then
           rm -f "$socket_addr_file"
         fi
-        rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).daemon_path" "$HOME/.cmux/relay/\(relayPort).tty"
+        rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).tty"
         """
     }
 

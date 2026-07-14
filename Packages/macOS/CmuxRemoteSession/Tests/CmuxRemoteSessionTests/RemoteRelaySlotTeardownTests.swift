@@ -115,9 +115,59 @@ struct RemoteRelaySlotTeardownTests {
         #expect(process.terminationStatus == 0)
         #expect(!fileManager.fileExists(atPath: socketAddressURL.path))
         #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64009.auth").path))
-        #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64009.daemon_path").path))
         #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64009.tty").path))
+        #expect(fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64009.daemon_path").path))
         #expect(fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64009.slot").path))
+        #expect(fileManager.fileExists(atPath: shellDirectory.path))
+    }
+
+    @Test
+    func failedShutdownPreservesPersistentOwnershipState() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-relay-failed-shutdown-\(UUID().uuidString)")
+        let relayDirectory = home.appendingPathComponent(".cmux/relay")
+        let shellDirectory = relayDirectory.appendingPathComponent("64011.shell")
+        let daemonURL = home.appendingPathComponent("cmuxd-remote-old")
+        let socketAddressURL = home.appendingPathComponent(".cmux/socket_addr")
+        defer { try? fileManager.removeItem(at: home) }
+
+        try fileManager.createDirectory(at: shellDirectory, withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 2\n".write(to: daemonURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: daemonURL.path)
+        try "127.0.0.1:64011".write(to: socketAddressURL, atomically: true, encoding: .utf8)
+        try daemonURL.path.write(
+            to: relayDirectory.appendingPathComponent("64011.daemon_path"),
+            atomically: true,
+            encoding: .utf8
+        )
+        for suffix in ["auth", "slot", "tty"] {
+            try suffix.write(
+                to: relayDirectory.appendingPathComponent("64011.\(suffix)"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(relayPort: 64011),
+        ]
+        process.environment = [
+            "HOME": home.path,
+            "PATH": "/usr/bin:/bin",
+        ]
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus != 0)
+        #expect(!fileManager.fileExists(atPath: socketAddressURL.path))
+        #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64011.auth").path))
+        #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64011.tty").path))
+        #expect(fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64011.daemon_path").path))
+        #expect(fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64011.slot").path))
         #expect(fileManager.fileExists(atPath: shellDirectory.path))
     }
 

@@ -48,7 +48,7 @@ func stopPersistentDaemon(slot string) error {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			if _, socketErr := os.Lstat(paths.socket); errors.Is(socketErr, os.ErrNotExist) {
-				return nil
+				return waitForPersistentDaemonStop(paths.lockFile)
 			}
 		}
 		return err
@@ -57,7 +57,7 @@ func stopPersistentDaemon(slot string) error {
 	if err != nil {
 		if shouldRemovePersistentSocketAfterDialError(err) {
 			_ = os.Remove(paths.socket)
-			return nil
+			return waitForPersistentDaemonStop(paths.lockFile)
 		}
 		return err
 	}
