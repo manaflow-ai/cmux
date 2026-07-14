@@ -106,7 +106,8 @@ public struct CmuxConnectionConfiguration: Sendable, Equatable {
         environment: [String: String],
         userID: UInt32,
         readFile: (String) throws -> String,
-        listDirectory: (String) throws -> [String]
+        listDirectory: (String) throws -> [String],
+        isSocketLive: (String) -> Bool = CmuxConnectionConfiguration.socketIsLive
     ) throws -> CmuxConnectionConfiguration {
         var endpoint: CmuxConnectionEndpoint?
         var token: String?
@@ -197,7 +198,8 @@ public struct CmuxConnectionConfiguration: Sendable, Equatable {
         let resolvedEndpoint = try endpoint ?? discoverSocket(
             environment: environment,
             userID: userID,
-            listDirectory: listDirectory
+            listDirectory: listDirectory,
+            isLive: isSocketLive
         )
 
         switch resolvedEndpoint {
@@ -241,17 +243,44 @@ public struct CmuxConnectionConfiguration: Sendable, Equatable {
         }
     }
 
+    /// Whether something is actually listening on a unix socket path.
+    /// Crashed servers and test binaries leave stale *.sock files behind;
+    /// discovery must ignore them or a single dead file blocks auto-connect.
+    public static func socketIsLive(_ path: String) -> Bool {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        guard bytes.count < MemoryLayout.size(ofValue: addr.sun_path) else { return false }
+        withUnsafeMutableBytes(of: &addr.sun_path) { raw in
+            raw.copyBytes(from: bytes)
+        }
+        var timeout = timeval(tv_sec: 0, tv_usec: 200_000)
+        _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        let size = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let result = withUnsafePointer(to: &addr) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                connect(fd, sockaddrPointer, size)
+            }
+        }
+        return result == 0
+    }
+
     private static func discoverSocket(
         environment: [String: String],
         userID: UInt32,
-        listDirectory: (String) throws -> [String]
+        listDirectory: (String) throws -> [String],
+        isLive: (String) -> Bool = CmuxConnectionConfiguration.socketIsLive
     ) throws -> CmuxConnectionEndpoint {
         let directory = socketDirectory(environment: environment, userID: userID)
         let sockets = (try? listDirectory(directory))?
             .filter { URL(fileURLWithPath: $0).pathExtension == "sock" }
             .sorted() ?? []
+        let live = sockets.filter(isLive)
 
-        if sockets.count == 1, let socket = sockets.first {
+        if live.count == 1, let socket = live.first {
             return .unixSocket(path: socket)
         }
 
@@ -266,11 +295,11 @@ public struct CmuxConnectionConfiguration: Sendable, Equatable {
             String(
                 format: String(
                     localized: "connection.argument.socket_discovery",
-                    defaultValue: "Expected exactly one *.sock in %1$@, found %2$lld: %3$@; pass --socket <path>, --session <name>, or --url <ws://...>",
+                    defaultValue: "Expected exactly one live *.sock in %1$@, found %2$lld live of %3$@; pass --socket <path>, --session <name>, or --url <ws://...>",
                     bundle: .module
                 ),
                 directory,
-                Int64(sockets.count),
+                Int64(live.count),
                 found
             )
         )

@@ -69,15 +69,41 @@ struct CmuxConnectionConfigurationTests {
 
     private func parse(
         _ arguments: [String],
-        sockets: [String] = []
+        sockets: [String] = [],
+        live: [String]? = nil
     ) throws -> CmuxConnectionConfiguration {
         try CmuxConnectionConfiguration.parse(
             arguments: arguments,
             environment: environment,
             userID: 501,
             readFile: { _ in throw TestError.unexpectedRead },
-            listDirectory: { _ in sockets }
+            listDirectory: { _ in sockets },
+            isSocketLive: { path in (live ?? sockets).contains(path) }
         )
+    }
+
+    @Test
+    func discoveryIgnoresStaleSocketsAndPicksTheSoleLiveOne() throws {
+        let configuration = try parse(
+            [],
+            sockets: ["stale-a.sock", "phone.sock", "stale-b.sock"],
+            live: ["phone.sock"]
+        )
+        #expect(configuration.endpoint == .unixSocket(path: "phone.sock"))
+    }
+
+    @Test
+    func discoveryFailsWhenNoSocketIsLive() {
+        #expect(throws: CmuxProtocolError.self) {
+            _ = try parse([], sockets: ["stale-a.sock", "stale-b.sock"], live: [])
+        }
+    }
+
+    @Test
+    func discoveryFailsWhenMultipleSocketsAreLive() {
+        #expect(throws: CmuxProtocolError.self) {
+            _ = try parse([], sockets: ["a.sock", "b.sock"], live: ["a.sock", "b.sock"])
+        }
     }
 
     private enum TestError: Error {
