@@ -13997,7 +13997,12 @@ struct CMUXCLI {
             let (outPathOpt, _) = parseOption(subArgs, name: "--out")
             let localJSONOutput = hasFlag(subArgs, name: "--json")
             let outputAsJSON = effectiveJSONOutput || localJSONOutput
-            var payload = try client.sendV2(method: "browser.screenshot", params: ["surface_id": sid])
+            // Leave room beyond the app's capture deadline for its liveness probe and recovery reply.
+            var payload = try client.sendV2(
+                method: "browser.screenshot",
+                params: ["surface_id": sid],
+                responseTimeout: 25
+            )
 
             func fileURL(fromPath rawPath: String) -> URL {
                 let resolvedPath = resolvePath(rawPath)

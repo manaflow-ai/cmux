@@ -338,7 +338,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
 
         timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
-            finish(.failure(BrowserScreenshotError.emptySnapshot))
+            finish(.failure(BrowserScreenshotError.automationTimedOut))
         }
 
         prepareForVisualCapture(webView, expectedURL: expectedURL) { result in

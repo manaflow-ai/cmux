@@ -2810,6 +2810,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var shouldPreloadInitialNavigationInBackground: Bool
     private var backgroundPreloadWindow: NSWindow?
     private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
+    let automationWatchdog = BrowserAutomationWatchdog()
     private var activeVisualAutomationCaptureCount: Int = 0
     private struct PendingInteractiveBrowserPrompt {
         let present: (NSWindow, @escaping () -> Void) -> Void
@@ -5067,6 +5068,20 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
+    @discardableResult
+    func replaceWebViewAfterAutomationTimeout(
+        expectedWebViewIdentifier: ObjectIdentifier,
+        reason: String
+    ) -> Bool {
+        guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return false }
+        replaceWebViewPreservingState(
+            from: webView,
+            websiteDataStore: websiteDataStore,
+            reason: reason
+        )
+        return true
+    }
+
     private func replaceWebViewPreservingState(
         from oldWebView: WKWebView,
         websiteDataStore: WKWebsiteDataStore,
@@ -7098,7 +7113,7 @@ extension BrowserPanel {
         }
 
         timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
-            finish(.failure(BrowserScreenshotError.emptySnapshot))
+            finish(.failure(BrowserScreenshotError.automationTimedOut))
         }
 
         BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(

@@ -4100,7 +4100,9 @@ class TerminalController {
             requestedWorkspaceId: requestedWorkspaceId,
             preferredSurfaceId: surfaceSelection.surfaceId
         )
-        if let error = resolved.error { return error }
+        if let error = resolved.error {
+            return error
+        }
         guard let target = resolved.target else { return .err(code: "not_found", message: "Workspace not found", data: nil) }
         guard let controller = target.controller else {
             return .err(code: "remote_pty_error", message: "remote connection is not active", data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef])
@@ -6347,6 +6349,8 @@ class TerminalController {
             }
         }
 
+        rawResult = v2RecoverTimedOutBrowserJavaScript(rawResult, webView: webView, surfaceId: surfaceId)
+
         switch rawResult {
         case .failure(let message):
             return .failure(message)
@@ -6447,7 +6451,7 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2PNGData(from image: NSImage) -> Data? {
+    nonisolated func v2PNGData(from image: NSImage) -> Data? {
         guard let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .png, properties: [:])
@@ -7859,33 +7863,29 @@ class TerminalController {
             return (nil, context.workspaceId, context.surfaceId, context.browserPanel)
         }
 
-        if let error = resolved.error {
-            return error
-        }
+        if let error = resolved.error { return error }
         guard let workspaceId = resolved.workspaceId,
               let surfaceId = resolved.surfaceId,
               let browserPanel = resolved.browserPanel else {
             return .err(code: "internal_error", message: "Browser operation failed", data: nil)
         }
 
-        let snapshotResult: Data?? = v2AwaitCallback(timeout: 15.0) { finish in
-            v2MainSync {
-                browserPanel.captureAutomationVisibleViewportSnapshot { result in
-                    switch result {
-                    case .success(let image):
-                        finish(self.v2PNGData(from: image))
-                    case .failure:
-                        finish(nil)
-                    }
-                }
-            }
-        }
-
-        guard let snapshotResult else {
-            return .err(code: "timeout", message: "Timed out waiting for snapshot", data: nil)
-        }
-        guard let imageData = snapshotResult else {
-            return .err(code: "internal_error", message: "Failed to capture snapshot", data: nil)
+        let expectedWebViewIdentifier = v2MainSync { ObjectIdentifier(browserPanel.webView) }
+        let snapshotResult = v2CaptureBrowserAutomationSnapshot(browserPanel, timeout: 17.0)
+        let imageData: Data
+        switch snapshotResult {
+        case .success(let data):
+            imageData = data
+        case .failure(let message):
+            return .err(code: "internal_error", message: message, data: nil)
+        case .timedOut, nil:
+            let message = v2BrowserAutomationMessageAfterLivenessCheck(
+                originalMessage: BrowserScreenshotError.automationTimedOut.localizedDescription,
+                surfaceId: surfaceId,
+                expectedWebViewIdentifier: expectedWebViewIdentifier,
+                channel: .snapshot
+            )
+            return .err(code: "timeout", message: message, data: nil)
         }
 
         var result: [String: Any] = [
