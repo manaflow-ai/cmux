@@ -540,9 +540,14 @@ impl RemoteSession {
             }
             Some("overflow") => {
                 if value.get("scope").and_then(Value::as_str) == Some("surface") {
-                    let surface = surface_id().map_or_else(String::new, |id| format!(" {id}"));
+                    let surface_id = surface_id();
+                    if let Some(surface_id) = surface_id {
+                        self.surfaces.lock().unwrap().remove(&surface_id);
+                        self.emit(MuxEvent::SurfaceOutput(surface_id));
+                    }
+                    let surface = surface_id.map_or_else(String::new, |id| format!(" {id}"));
                     self.emit(MuxEvent::Status(format!(
-                        "surface{surface} event stream overflowed; global events remain active"
+                        "surface{surface} event stream overflowed; mirror will reattach"
                     )));
                     return;
                 }
@@ -1262,6 +1267,39 @@ mod tests {
         let received = events.try_iter().collect::<Vec<_>>();
         assert!(received.iter().any(|event| matches!(event, MuxEvent::Status(_))));
         assert!(received.iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_overflow_invalidates_mirror_and_requests_reattach() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        session.surfaces.lock().unwrap().insert(
+            7,
+            Arc::new(RemoteSurface {
+                id: 7,
+                kind: SurfaceKind::Pty,
+                term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
+                dirty: AtomicBool::new(false),
+                server_size: Mutex::new((80, 24)),
+                asserted_size: Mutex::new(None),
+                browser: Mutex::new(RemoteBrowserState::default()),
+            }),
+        );
+
+        session.handle_line(json!({
+            "event": "overflow",
+            "scope": "surface",
+            "surface": 7,
+            "error": "surface stream fell behind",
+        }));
+
+        assert!(!session.has_surface(7));
+        assert!(!session.exited_surfaces.lock().unwrap().contains(&7));
+        let received = events.try_iter().collect::<Vec<_>>();
+        assert!(received.iter().any(|event| matches!(event, MuxEvent::SurfaceOutput(7))));
+        assert!(received.iter().any(|event| matches!(event, MuxEvent::Status(_))));
     }
 
     #[test]

@@ -387,7 +387,8 @@ export class CmuxClient {
     return this.openStream(
       { cmd: "subscribe", ...options },
       (event) => event as SubscribeEvent,
-      (event, dedicated) => dedicated || !this.attachOnlyEvent(event.event),
+      (event, dedicated) => dedicated
+        || (!this.attachOnlyEvent(event.event) && !this.isSurfaceOverflow(event)),
     );
   }
 
@@ -400,7 +401,7 @@ export class CmuxClient {
       { cmd: "attach-surface", surface },
       (event) => this.decodeAttachEvent(event as AttachEvent),
       (event, dedicated) => dedicated || this.matchesAttachEvent(event, surface),
-      (event) => event.event === "detached",
+      (event) => event.event === "detached" || this.isSurfaceOverflow(event, surface),
     );
   }
 
@@ -491,7 +492,19 @@ export class CmuxClient {
 
   private matchesAttachEvent(event: UnknownEvent, surface: Id): boolean {
     if (!("surface" in event) || event.surface !== surface) return false;
-    return this.attachOnlyEvent(event.event) || event.event === "scroll-changed";
+    return this.attachOnlyEvent(event.event)
+      || event.event === "scroll-changed"
+      || this.isSurfaceOverflow(event, surface);
+  }
+
+  private isSurfaceOverflow(
+    event: { event: string; scope?: unknown; surface?: unknown },
+    surface?: Id,
+  ): boolean {
+    return event.event === "overflow"
+      && event.scope === "surface"
+      && "surface" in event
+      && (surface === undefined || event.surface === surface);
   }
 
   private attachOnlyEvent(event: string): boolean {

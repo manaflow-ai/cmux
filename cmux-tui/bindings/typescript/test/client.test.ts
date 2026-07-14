@@ -54,6 +54,43 @@ test("attachSurface decodes VT, output, and resized payloads", async () => {
   await client.close();
 });
 
+test("surface overflow terminates only the matching shared attach stream", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    if (request.cmd === "identify") {
+      connection.emit({
+        id: request.id,
+        ok: true,
+        data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+      });
+      return;
+    }
+    assert.ok(request.cmd === "attach-surface" || request.cmd === "subscribe");
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+  const attach = await client.attachSurface(7);
+  const subscription = await client.subscribe();
+
+  transport.emit({
+    event: "overflow",
+    scope: "surface",
+    surface: 7,
+    error: "surface stream fell behind",
+  });
+  transport.emit({ event: "overflow", error: "subscriber fell behind" });
+
+  const attachOverflow = await attach.next();
+  assert.equal(attachOverflow.event, "overflow");
+  await assert.rejects(() => attach.next(), /stream is closed/);
+  const subscriptionOverflow = await subscription.next();
+  assert.equal(subscriptionOverflow.event, "overflow");
+  if (subscriptionOverflow.event === "overflow") {
+    assert.equal(subscriptionOverflow.scope, undefined);
+  }
+  subscription.close();
+  await client.close();
+});
+
 test("generic request preserves exact wire command and typed result", async () => {
   let sent: Record<string, unknown> | undefined;
   const transport = new ScriptedTransport((request, connection) => {
