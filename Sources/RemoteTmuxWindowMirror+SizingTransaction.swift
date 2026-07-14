@@ -226,16 +226,20 @@ extension RemoteTmuxWindowMirror {
         let hostingContext = visibleHostingContext()
         let visibleHostingBound = hostingContext?.contentSize
         // A reading the oversized guard rejected gets exactly one
-        // re-judgment, against this pass's bound: a mid-resize callback can
+        // re-judgment, against a SETTLED bound: a mid-resize callback can
         // carry the true post-resize slot while the window's transient frame
         // undersells it, and no later callback re-delivers that truth. If
         // the reading fits the settled bound it was truth all along — bank
         // it verbatim. If it still exceeds the bound it is a content ideal
         // and stays discarded; it is never clamped (see noteContainerSize).
-        if let parked = pendingOversizedReading {
+        // A pass with NO bound (portal darkness — every hosted view briefly
+        // detached or hidden mid-churn) judges nothing: consuming the parked
+        // reading there lost the one re-judgment, and the reveal path never
+        // re-delivers it — the reading stays parked for the next bounded
+        // pass instead.
+        if let parked = pendingOversizedReading, let bound = visibleHostingBound {
             pendingOversizedReading = nil
-            if let bound = visibleHostingBound,
-               parked.size.width <= bound.width + 0.5,
+            if parked.size.width <= bound.width + 0.5,
                parked.size.height <= bound.height + 0.5 {
                 containerSizePt = parked.size
                 containerScale = parked.scale
