@@ -308,5 +308,8 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The stats payload (`nil` only if the counter dictionary ever
     ///   failed to bridge to JSON, which its `String`/`Int` leaves preclude).
     func controlDebugPortalStats() -> JSONValue?
+
+    /// Snapshots exact-span settlement for every visible mirrored tmux window.
+    func controlDebugRemoteTmuxSizingSettled() -> JSONValue?
 #endif
 }

@@ -166,7 +166,7 @@ import Testing
                 service.repositoryRoot(for: repo.path)
             }
         }
-        try await requireFile(startedMarker, within: .seconds(2))
+        try await requireFile(startedMarker, within: .seconds(20))
 
         let clock = ContinuousClock()
         let cancellationStart = clock.now

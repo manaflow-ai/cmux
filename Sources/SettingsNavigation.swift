@@ -391,7 +391,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "sidebar-branch-layout", String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"), "branch directory vertical inline"),
         setting(.sidebarAppearance, "stack-branch-directory", String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"), "branch directory cwd path stack two rows separate lines"),
         setting(.sidebarAppearance, "path-last-segment-only", String(localized: "settings.app.pathLastSegmentOnly", defaultValue: "Truncate Path From Start"), "cwd path directory truncate last segment basename viewport"),
-        setting(.sidebarAppearance, "show-notification-message", String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), "workspace latest notification"),
+        setting(.sidebarAppearance, "show-notification-message", String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), "workspace latest notification"), setting(.sidebarAppearance, "notification-message-line-limit", String(localized: "settings.app.notificationMessageLineLimit", defaultValue: "Notification Preview Lines"), "sidebar.notificationMessageLineLimit workspace latest notification lines limit"),
         setting(.sidebarAppearance, "show-branch-directory", String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"), "git cwd path"),
         setting(.sidebarAppearance, "show-pull-requests", String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"), "review pr mr link"),
         setting(.sidebarAppearance, "watch-git-status", String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar"), "git status branch watcher index lock"),
@@ -467,7 +467,6 @@ enum SettingsSearchIndex {
     ] + terminalScrollSpeedSettingEntries
 
     private static let allEntries = sectionEntries + settingEntries
-
     private static let entriesByID: [String: SettingsSearchEntry] = Dictionary(
         uniqueKeysWithValues: allEntries.map { ($0.id, $0) }
     )
@@ -522,6 +521,7 @@ enum SettingsSearchIndex {
         "sidebar.stackBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "stack-branch-directory"),
         "sidebar.pathLastSegmentOnly": settingID(for: .sidebarAppearance, idSuffix: "path-last-segment-only"),
         "sidebar.showNotificationMessage": settingID(for: .sidebarAppearance, idSuffix: "show-notification-message"),
+        "sidebar.notificationMessageLineLimit": settingID(for: .sidebarAppearance, idSuffix: "notification-message-line-limit"),
         "sidebar.showBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "show-branch-directory"),
         "sidebar.showPullRequests": settingID(for: .sidebarAppearance, idSuffix: "show-pull-requests"),
         "sidebar.watchGitStatus": settingID(for: .sidebarAppearance, idSuffix: "watch-git-status"),
