@@ -212,6 +212,7 @@ final class CmuxTerminalHostViewController: NSViewController,
 
         // Install ownership before attaching the view because surface creation can synchronously resize.
         terminalSession = session
+        CmuxStateDump.register(self)
         terminalController = controller
         terminalView = terminal
         view.addSubview(terminal, positioned: .below, relativeTo: foreignSizeHint)
@@ -296,6 +297,18 @@ final class CmuxTerminalHostViewController: NSViewController,
         {
             scheduleInitialPresentation()
         }
+    }
+
+    /// Verification-only snapshot for CmuxStateDump (SIGUSR1 harness).
+    func verificationState() -> [String: Any]? {
+        guard let text = terminalSession?.readViewportText() else { return nil }
+        var state: [String: Any] = ["text": text]
+        if let surface = attachedSurface { state["surface"] = surface }
+        if let grid = sharedGrid {
+            state["cols"] = grid.cols
+            state["rows"] = grid.rows
+        }
+        return state
     }
 
     private var currentViewport: CmuxTerminalViewport? {
