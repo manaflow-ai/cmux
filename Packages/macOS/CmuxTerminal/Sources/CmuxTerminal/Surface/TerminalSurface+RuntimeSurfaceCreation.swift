@@ -289,14 +289,22 @@ extension TerminalSurface {
         envVars: inout [ghostty_env_var_s]
     ) -> ghostty_surface_t? {
         if envVars.isEmpty {
-            return ghostty_surface_new(app, &surfaceConfig)
+            return GhosttyRuntimeCInterop.createSurface(
+                app: app,
+                config: &surfaceConfig,
+                scrollbackLimitBytes: TerminalScrollbackBudget.cmuxDefault.maxBytesPerSurface
+            )
         }
 
         let envVarsCount = envVars.count
         return envVars.withUnsafeMutableBufferPointer { buffer in
             surfaceConfig.env_vars = buffer.baseAddress
             surfaceConfig.env_var_count = envVarsCount
-            return ghostty_surface_new(app, &surfaceConfig)
+            return GhosttyRuntimeCInterop.createSurface(
+                app: app,
+                config: &surfaceConfig,
+                scrollbackLimitBytes: TerminalScrollbackBudget.cmuxDefault.maxBytesPerSurface
+            )
         }
     }
 }

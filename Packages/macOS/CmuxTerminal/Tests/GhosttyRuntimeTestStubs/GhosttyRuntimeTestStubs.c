@@ -6,6 +6,7 @@ static uint64_t cmux_test_foreground_pid = 0;
 static const char* cmux_test_tty_name = NULL;
 static uint64_t cmux_test_occlusion_call_count = 0;
 static bool cmux_test_last_occlusion_visible = false;
+static uintptr_t cmux_test_last_scrollback_limit_bytes = 0;
 
 void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_needs_confirm_quit = false;
@@ -13,6 +14,7 @@ void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_tty_name = NULL;
     cmux_test_occlusion_call_count = 0;
     cmux_test_last_occlusion_visible = false;
+    cmux_test_last_scrollback_limit_bytes = 0;
 }
 
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name) {
@@ -49,6 +51,12 @@ bool ghostty_surface_needs_confirm_quit(void *surface) {
     return cmux_test_needs_confirm_quit;
 }
 void ghostty_surface_new(void) {}
+void* ghostty_surface_new_with_scrollback_limit(void* app, const void* config, uintptr_t scrollback_limit_bytes) {
+    (void)app;
+    (void)config;
+    cmux_test_last_scrollback_limit_bytes = scrollback_limit_bytes;
+    return NULL;
+}
 bool ghostty_surface_process_exited(void *surface) {
     (void)surface;
     return false;
@@ -86,4 +94,8 @@ uint64_t cmux_test_ghostty_surface_set_occlusion_call_count(void) {
 
 bool cmux_test_ghostty_surface_last_occlusion_visible(void) {
     return cmux_test_last_occlusion_visible;
+}
+
+uintptr_t cmux_test_ghostty_surface_last_scrollback_limit_bytes(void) {
+    return cmux_test_last_scrollback_limit_bytes;
 }
