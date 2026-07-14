@@ -1,5 +1,39 @@
 import Foundation
 
+private func mobileViewportScaleRatio(from current: Double, to destination: Double) -> Double {
+    guard current.isFinite, current > 0,
+          destination.isFinite, destination > 0 else { return 1 }
+    return destination / current
+}
+
+nonisolated struct MobileViewportScaleProjection: Equatable {
+    let xRatio: Double
+    let yRatio: Double
+
+    init(
+        currentXScale: Double,
+        currentYScale: Double,
+        destinationXScale: Double,
+        destinationYScale: Double
+    ) {
+        xRatio = mobileViewportScaleRatio(from: currentXScale, to: destinationXScale)
+        yRatio = mobileViewportScaleRatio(from: currentYScale, to: destinationYScale)
+    }
+
+    func cellWidth(_ value: Double) -> Double { value * xRatio }
+    func cellHeight(_ value: Double) -> Double { value * yRatio }
+    func horizontalNonGridPixels(_ value: Int) -> Int { Int((Double(value) * xRatio).rounded()) }
+    func verticalNonGridPixels(_ value: Int) -> Int { Int((Double(value) * yRatio).rounded()) }
+
+    static let identity = MobileViewportScaleProjection(
+        currentXScale: 1,
+        currentYScale: 1,
+        destinationXScale: 1,
+        destinationYScale: 1
+    )
+
+}
+
 /// Pure pixel and font-fit math for Mac panes mirroring a mobile terminal viewport.
 ///
 /// The mobile viewport grant is expressed in terminal cells. This helper keeps

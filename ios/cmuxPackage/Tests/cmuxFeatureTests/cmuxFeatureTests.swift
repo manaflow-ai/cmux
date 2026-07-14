@@ -22,13 +22,16 @@ import UIKit
 final class TerminalOutputCollector {
     private(set) var lines: [String] = []
     private var task: Task<Void, Never>?
+    private var lineContinuation: AsyncStream<String>.Continuation?
 
     /// Begin consuming the surface's output stream into ``lines``.
     func mount(store: CMUXMobileShellStore, surfaceID: String) {
         task = Task { @MainActor [weak self] in
             for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                 guard let self else { break }
-                self.lines.append(String(data: chunk.data, encoding: .utf8) ?? "")
+                let line = String(data: chunk.data, encoding: .utf8) ?? ""
+                self.lines.append(line)
+                self.lineContinuation?.yield(line)
                 store.terminalOutputDidProcess(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
@@ -37,10 +40,23 @@ final class TerminalOutputCollector {
         }
     }
 
+    /// A signal-backed stream of lines already delivered and lines delivered later.
+    func deliveredLines() -> AsyncStream<String> {
+        let existingLines = lines
+        return AsyncStream { continuation in
+            lineContinuation = continuation
+            for line in existingLines {
+                continuation.yield(line)
+            }
+        }
+    }
+
     /// Stop consuming the stream, unregistering the surface from the store.
     func unmount() {
         task?.cancel()
         task = nil
+        lineContinuation?.finish()
+        lineContinuation = nil
     }
 }
 
@@ -2384,7 +2400,8 @@ struct TerminalStreamTests {
 }
 
 @MainActor
-@Test func terminalInputResyncsOutputWhenMacSequenceIsAhead() async throws {
+@Test(.timeLimit(.minutes(1)))
+func terminalInputResyncsOutputWhenMacSequenceIsAhead() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
         kind: .debugLoopback,
@@ -2410,6 +2427,7 @@ struct TerminalStreamTests {
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     collector.mount(store: store, surfaceID: "live-terminal")
+    let deliveredLines = collector.deliveredLines()
     let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
@@ -2431,11 +2449,10 @@ struct TerminalStreamTests {
     let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
     #expect(replayRequests.count >= 2)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    // The request-count waits only prove the second replay was REQUESTED; its
-    // response still has to round-trip and deliver. The slower CI iPad leg
-    // regularly needs more than the file's usual 200ms here.
-    for _ in 0..<4000 where !collector.lines.contains(currentGridText) {
-        try await Task.sleep(nanoseconds: 1_000_000)
+    // Request counts prove only that repair was requested. Wait on the mounted
+    // output sink so the assertion observes actual authoritative delivery.
+    for await line in deliveredLines {
+        if line == currentGridText { break }
     }
 
     #expect(collector.lines.last == currentGridText)

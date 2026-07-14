@@ -53,6 +53,50 @@ struct TerminalRowCapacityFitTests {
         #expect(fit.capacityColumns(atBaseFontSize: 12) == 134)
     }
 
+    @Test("destination-font capacity is available before the live font changes")
+    func destinationFontCapacityPrecedesFontChange() throws {
+        let fit = try #require(TerminalRowCapacityFit(
+            containerPixelHeight: 1_200,
+            cellPixelHeight: 18,
+            containerPixelWidth: 1_206,
+            cellPixelWidth: 9,
+            liveFontSize: 12
+        ))
+
+        #expect(fit.capacityColumns(atFontSize: 24) == 67)
+        #expect(fit.capacityColumns(atFontSize: 0) == nil)
+    }
+
+    @Test("destination-font reporting follows fit hysteresis until font changes")
+    func destinationFontReportingFollowsFitHysteresis() throws {
+        let baseFit = try #require(TerminalRowCapacityFit(
+            containerPixelHeight: 1_200,
+            cellPixelHeight: 18,
+            liveFontSize: 12
+        ))
+        let fitted = try #require(TerminalRowCapacityFit(
+            containerPixelHeight: 1_200,
+            cellPixelHeight: 21,
+            liveFontSize: 14
+        ))
+
+        #expect(!baseFit.shouldReportDestinationFont(
+            renderedRows: 50,
+            effectiveRows: 49,
+            baseFontSize: 12
+        ))
+        #expect(baseFit.shouldReportDestinationFont(
+            renderedRows: 50,
+            effectiveRows: 48,
+            baseFontSize: 12
+        ))
+        #expect(fitted.shouldReportDestinationFont(
+            renderedRows: 49,
+            effectiveRows: 49,
+            baseFontSize: 12
+        ))
+    }
+
     @Test("column capacity is the measured grid when live font equals base font")
     func columnCapacityIdentityAtBaseFont() throws {
         let fit = try #require(TerminalRowCapacityFit(
@@ -108,5 +152,60 @@ struct TerminalRowCapacityFitTests {
         #expect(rowOnlyFit?.capacityColumns(atBaseFontSize: 12) == nil)
         #expect(rowOnlyFit?.maximumFontSize(forEffectiveColumns: 134, atBaseFontSize: 12) == nil)
         #expect(rowOnlyFit?.capacityColumns(atBaseFontSize: 0) == nil)
+    }
+
+    @Test("destination font waits for the exact viewport grant")
+    func destinationFontWaitsForExactViewportGrant() {
+        let request = TerminalViewportFontGrantRequest(
+            fontSize: 24,
+            reportColumns: 67,
+            reportRows: 66,
+            sourceEffectiveRows: 50
+        )
+        var state = TerminalViewportFontGrantState()
+
+        #expect(state.decision(for: request) == .wait(requestNewReport: true))
+        state.bindPendingRequest(toReportID: 7, columns: 67, rows: 66)
+
+        #expect(state.consumeAcknowledgement(reportID: 6, columns: 67, rows: 50) == nil)
+        #expect(state.consumeAcknowledgement(reportID: 7, columns: 68, rows: 50) == nil)
+        #expect(state.consumeAcknowledgement(reportID: 7, columns: 67, rows: 49) == nil)
+        #expect(state.consumeAcknowledgement(reportID: 7, columns: 67, rows: 50) == 24)
+
+        var narrowerGrantState = TerminalViewportFontGrantState()
+        #expect(narrowerGrantState.decision(for: request) == .wait(requestNewReport: true))
+        narrowerGrantState.bindPendingRequest(toReportID: 8, columns: 67, rows: 66)
+        #expect(narrowerGrantState.consumeAcknowledgement(
+            reportID: 8,
+            columns: 66,
+            rows: 50
+        ) == 24)
+    }
+
+    @Test("retry exhaustion keeps the safe font until geometry changes")
+    func retryExhaustionKeepsSafeFontUntilGeometryChanges() {
+        let failedRequest = TerminalViewportFontGrantRequest(
+            fontSize: 24,
+            reportColumns: 67,
+            reportRows: 66,
+            sourceEffectiveRows: 50
+        )
+        let changedRequest = TerminalViewportFontGrantRequest(
+            fontSize: 20,
+            reportColumns: 80,
+            reportRows: 66,
+            sourceEffectiveRows: 50
+        )
+        var state = TerminalViewportFontGrantState()
+
+        #expect(state.decision(for: failedRequest) == .wait(requestNewReport: true))
+        state.bindPendingRequest(toReportID: 7, columns: 67, rows: 66)
+        state.noteReportFailure(reportID: 7, willRetry: true)
+        #expect(state.decision(for: failedRequest) == .wait(requestNewReport: false))
+
+        state.bindPendingRequest(toReportID: 8, columns: 67, rows: 66)
+        state.noteReportFailure(reportID: 8, willRetry: false)
+        #expect(state.decision(for: failedRequest) == .reject)
+        #expect(state.decision(for: changedRequest) == .wait(requestNewReport: true))
     }
 }

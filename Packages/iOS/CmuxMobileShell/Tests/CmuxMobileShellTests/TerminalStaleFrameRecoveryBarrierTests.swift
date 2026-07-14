@@ -219,6 +219,17 @@ import Testing
     #expect(failedOpen, "a failed follow-up replay must fail open")
     #expect(store.terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] == nil)
 
+    let retainedDeltaChunk = try #require(await iterator.next())
+    #expect(
+        String(decoding: retainedDeltaChunk.data, as: UTF8.self).contains("delta-before-ack"),
+        "fail-open must reconcile output retained across the failed follow-up"
+    )
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: retainedDeltaChunk.streamToken
+    )
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 55)
+
     // The next full live frame rebuilds the baseline and resumes delivery.
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,
@@ -284,13 +295,21 @@ import Testing
     let alternateBaselinePreserved = try await pollUntil {
         store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
             && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
-            && store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 50
+            && store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 55
             && store.terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
     }
     #expect(
         alternateBaselinePreserved,
-        "an empty follow-up replay must not erase the alternate-screen baseline"
+        "an empty follow-up replay must reconcile its retained delta without erasing the alternate-screen baseline"
     )
+
+    let retainedDeltaChunk = try #require(await iterator.next())
+    lines.append(String(decoding: retainedDeltaChunk.data, as: UTF8.self))
+    #expect(
+        lines.last?.contains("alt-delta-before-ack") == true,
+        "retained output must drain before later live output"
+    )
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retainedDeltaChunk.streamToken)
 
     // Alternate deltas keep flowing instead of being gated as baseline-less.
     await transport.deliver(try renderGridEventFrame(

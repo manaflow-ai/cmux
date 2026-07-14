@@ -1774,7 +1774,7 @@ class GhosttyApp {
             }
         }
         let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
-        guard let app else {
+        guard app != nil else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
         }
@@ -1793,7 +1793,7 @@ class GhosttyApp {
         if soft, let config {
             let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
-            ghostty_app_update_config(app, config)
+            performOnMain { updateAppConfigurationSurrenderingMobileViewportFontFits(config, source: source) }
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
@@ -1829,7 +1829,7 @@ class GhosttyApp {
         )
         let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
         synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
-        ghostty_app_update_config(app, newConfig)
+        performOnMain { updateAppConfigurationSurrenderingMobileViewportFontFits(newConfig, source: source) }
         DispatchQueue.main.async {
             self.applyBackgroundToKeyWindow()
         }
@@ -2553,50 +2553,6 @@ class GhosttyApp {
         return true
     }
 
-    private func splitDirection(from direction: ghostty_action_split_direction_e) -> SplitDirection? {
-        switch direction {
-        case GHOSTTY_SPLIT_DIRECTION_RIGHT: return .right
-        case GHOSTTY_SPLIT_DIRECTION_LEFT: return .left
-        case GHOSTTY_SPLIT_DIRECTION_DOWN: return .down
-        case GHOSTTY_SPLIT_DIRECTION_UP: return .up
-        default: return nil
-        }
-    }
-
-    private func focusDirection(from direction: ghostty_action_goto_split_e) -> NavigationDirection? {
-        switch direction {
-        // For previous/next, we use left/right as a reasonable default
-        // Bonsplit doesn't have cycle-based navigation
-        case GHOSTTY_GOTO_SPLIT_PREVIOUS: return .left
-        case GHOSTTY_GOTO_SPLIT_NEXT: return .right
-        case GHOSTTY_GOTO_SPLIT_UP: return .up
-        case GHOSTTY_GOTO_SPLIT_DOWN: return .down
-        case GHOSTTY_GOTO_SPLIT_LEFT: return .left
-        case GHOSTTY_GOTO_SPLIT_RIGHT: return .right
-        default: return nil
-        }
-    }
-
-    private func resizeDirection(from direction: ghostty_action_resize_split_direction_e) -> ResizeDirection? {
-        switch direction {
-        case GHOSTTY_RESIZE_SPLIT_UP: return .up
-        case GHOSTTY_RESIZE_SPLIT_DOWN: return .down
-        case GHOSTTY_RESIZE_SPLIT_LEFT: return .left
-        case GHOSTTY_RESIZE_SPLIT_RIGHT: return .right
-        default: return nil
-        }
-    }
-
-    private static func callbackContext(from userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceCallbackContext? {
-        guard let userdata else { return nil }
-        return Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
-    }
-
-    private static func runtimeApp(from userdata: UnsafeMutableRawPointer?) -> GhosttyApp? {
-        guard let userdata else { return nil }
-        return Unmanaged<GhosttyApp>.fromOpaque(userdata).takeUnretainedValue()
-    }
-
     private static func registerRuntimeApp(_ runtimeApp: GhosttyApp, for app: ghostty_app_t) {
         let key = UInt(bitPattern: app)
         appRegistryLock.lock()
@@ -2842,16 +2798,32 @@ class GhosttyApp {
             surfaceView.enqueueScrollbarUpdate(scrollbar)
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
+            guard let callbackContext,
+                  let callbackTerminalSurface = callbackContext.terminalSurface else {
+                return true
+            }
+            let callbackOriginSurface = target.target.surface
             let cellSize = CGSize(
                 width: CGFloat(action.action.cell_size.width),
                 height: CGFloat(action.action.cell_size.height)
             )
+            let metricsTransactionGeneration: UInt64? = performOnMain {
+                guard callbackContext.isCurrentOrigin(runtimeSurface: callbackOriginSurface) else {
+                    return nil
+                }
+                return callbackTerminalSurface.mobileViewportFontMetricsTransactionGeneration
+            }
             DispatchQueue.main.async {
+                guard callbackContext.isCurrentOrigin(runtimeSurface: callbackOriginSurface) else {
+                    return
+                }
                 surfaceView.cellSize = cellSize
+                callbackTerminalSurface.mobileViewportFontMetricsDidChange(
+                    transactionGeneration: metricsTransactionGeneration
+                )
                 NotificationCenter.default.post(
                     name: .ghosttyDidUpdateCellSize,
-                    object: surfaceView,
-                    userInfo: [GhosttyNotificationKey.cellSize: cellSize]
+                    object: surfaceView, userInfo: [GhosttyNotificationKey.cellSize: cellSize]
                 )
             }
             return true
@@ -2969,7 +2941,18 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_CONFIG_CHANGE:
+            guard let callbackContext else { return true }
+            let callbackOriginSurface = target.target.surface
+            let resolvedFontPointSize = configuredFontPointSize(from: action.action.config_change.config)
+            completeMobileViewportFontFitConfigurationReload(
+                callbackContext: callbackContext,
+                runtimeSurface: callbackOriginSurface,
+                configuredFontPointSize: resolvedFontPointSize
+            )
             DispatchQueue.main.async { [self] in
+                guard callbackContext.isCurrentOrigin(runtimeSurface: callbackOriginSurface) else {
+                    return
+                }
                 if let staleOverride = surfaceView.backgroundColor {
                     surfaceView.backgroundColor = nil
                     if backgroundLogEnabled {
@@ -2981,14 +2964,13 @@ class GhosttyApp {
                     surfaceView.applyWindowBackgroundIfActive()
                 }
             }
-            // Keep surface config-change handling scoped to the surface. The app-level
-            // default background is owned by reloadConfiguration's resolved GhosttyConfig.
+            // Keep this surface-scoped; reloadConfiguration owns the app-level default background.
             let effectiveConfigChangeColorScheme = effectiveTerminalColorSchemePreference
-            synchronizeGhosttyRuntimeColorScheme(
-                effectiveConfigChangeColorScheme,
-                source: "action.config_change.surface:resolved"
-            )
+            synchronizeGhosttyRuntimeColorScheme(effectiveConfigChangeColorScheme, source: "action.config_change.surface:resolved")
             DispatchQueue.main.async {
+                guard callbackContext.isCurrentOrigin(runtimeSurface: callbackOriginSurface) else {
+                    return
+                }
                 surfaceView.applySurfaceColorScheme(
                     force: true,
                     preferredColorScheme: effectiveConfigChangeColorScheme
@@ -3014,8 +2996,8 @@ class GhosttyApp {
                 surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
                     preferredColorScheme: preferredColorScheme
                 )
-                self.reloadSurfaceConfiguration(
-                    target.target.surface,
+                self.reloadSurfaceConfigurationSurrenderingMobileViewportFontFit(
+                    target.target.surface, terminalSurface: surfaceView.terminalSurface,
                     soft: soft,
                     source: source,
                     preferredColorScheme: preferredColorScheme

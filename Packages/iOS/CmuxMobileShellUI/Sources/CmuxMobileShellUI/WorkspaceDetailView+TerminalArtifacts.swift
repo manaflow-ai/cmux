@@ -91,7 +91,7 @@ extension WorkspaceDetailView {
     // `keyboardHeight` directly, so opt out of SwiftUI keyboard
     // avoidance; otherwise the view ALSO shrinks for the keyboard
     // and the reservation double-counts (extra gap when open).
-    .ignoresSafeArea(.keyboard, edges: .bottom)
+    .mobileTerminalDiagnosticsOverlay(surfaceID: terminalID, store: store)
     // Keep the grid clear of the Dynamic Island and nav bar.
     .padding(.top, terminalTopPadding)
     }

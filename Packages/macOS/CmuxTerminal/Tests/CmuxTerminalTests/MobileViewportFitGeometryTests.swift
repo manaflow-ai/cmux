@@ -4,6 +4,312 @@ import Testing
 
 @Suite("Mobile viewport fit geometry")
 struct MobileViewportFitGeometryTests {
+    @Test func destinationScaleProjectsMeasuredCellsAndPadding() {
+        let projection = MobileViewportScaleProjection(
+            currentXScale: 1,
+            currentYScale: 1,
+            destinationXScale: 2,
+            destinationYScale: 1.5
+        )
+
+        #expect(projection.cellWidth(10) == 20)
+        #expect(projection.cellHeight(20) == 30)
+        #expect(projection.horizontalNonGridPixels(4) == 8)
+        #expect(projection.verticalNonGridPixels(4) == 6)
+    }
+
+    @Test func explicitZoomReplacesTheCachedAutomaticFitBaseline() {
+        var state = MobileViewportFontFitState(
+            baseFontPointSize: 12,
+            fittedFontPointSize: 8,
+            baseWasUserAdjusted: false
+        )
+
+        state.reconcile(liveFontPointSize: 9, configuredFontPointSize: 12)
+
+        #expect(state.baseFontPointSize == 9)
+        #expect(state.fittedFontPointSize == nil)
+        #expect(state.baseWasUserAdjusted == true)
+        #expect(state.resolvedCurrentFontPointSize(liveFontPointSize: 9) == 9)
+    }
+
+    @Test func explicitZoomReplacesAnUnfittedCachedBaseline() {
+        var state = MobileViewportFontFitState(
+            baseFontPointSize: 12,
+            fittedFontPointSize: nil,
+            baseWasUserAdjusted: false
+        )
+
+        state.reconcile(liveFontPointSize: 14, configuredFontPointSize: 12)
+
+        #expect(state.baseFontPointSize == 14)
+        #expect(state.baseWasUserAdjusted == true)
+    }
+
+    @Test func liveFontProbeRunsOnceUntilCellMetricsSignalAChange() {
+        var state = MobileViewportFontFitState()
+
+        let initialRequest = state.consumeLiveFontProbeRequest()
+        let steadyStateRequest = state.consumeLiveFontProbeRequest()
+        #expect(initialRequest)
+        #expect(!steadyStateRequest)
+
+        state.cellMetricsDidChange()
+
+        let signaledRequest = state.consumeLiveFontProbeRequest()
+        let nextSteadyStateRequest = state.consumeLiveFontProbeRequest()
+        #expect(signaledRequest)
+        #expect(!nextSteadyStateRequest)
+
+        state.cellMetricsDidChange()
+        state.suppressLiveFontProbeUntilMetricsChange()
+        let suppressedRequest = state.consumeLiveFontProbeRequest()
+        #expect(!suppressedRequest)
+        state.cellMetricsDidChange()
+        let resumedRequest = state.consumeLiveFontProbeRequest()
+        #expect(resumedRequest)
+    }
+
+    @Test func pendingLiveFontProbePreservesZoomBeforeReloadLease() {
+        var state = MobileViewportFontFitState(
+            baseFontPointSize: 12,
+            fittedFontPointSize: 8,
+            baseWasUserAdjusted: false
+        )
+
+        state.cellMetricsDidChange()
+        state.reconcilePendingLiveFontProbe(configuredFontPointSize: 12) {
+            MobileViewportLiveFont(pointSize: 14, isAdjusted: true)
+        }
+
+        #expect(state.baseFontPointSize == 14)
+        #expect(state.fittedFontPointSize == nil)
+        #expect(state.baseWasUserAdjusted == true)
+    }
+
+    @Test func explicitAdjustedOwnershipWinsWhenFontEqualsConfiguration() {
+        var state = MobileViewportFontFitState()
+        let liveFont = MobileViewportLiveFont(
+            pointSize: 12.03,
+            isAdjusted: true
+        )
+
+        state.begin(liveFont: liveFont, configuredFontPointSize: 12)
+        state.recordFittedFontPointSize(8)
+
+        #expect(state.baseFontPointSize == liveFont.pointSize)
+        #expect(state.baseWasUserAdjusted == true)
+        #expect(
+            state.restorePlan(configuredFontPointSize: 12) ==
+                .resetThenSet(liveFont.pointSize)
+        )
+    }
+
+    @Test func unadjustedSurfaceBaselineRestoresExactlyAfterAutomaticFit() {
+        var state = MobileViewportFontFitState()
+        state.begin(
+            liveFont: MobileViewportLiveFont(pointSize: 14, isAdjusted: false),
+            configuredFontPointSize: 12
+        )
+        state.recordFittedFontPointSize(9)
+        state.reconcile(
+            liveFont: MobileViewportLiveFont(pointSize: 9, isAdjusted: true),
+            configuredFontPointSize: 12
+        )
+
+        #expect(state.baseFontPointSize == 14)
+        var resetCount = 0
+        var restoredPointSize: Float?
+        let outcome = state.restorePlan(configuredFontPointSize: 12).restore(
+            reset: {
+                resetCount += 1
+                return true
+            },
+            set: {
+                restoredPointSize = $0
+                return true
+            }
+        )
+
+        #expect(outcome == .restored)
+        #expect(resetCount == 1)
+        #expect(restoredPointSize == 14)
+    }
+
+    @Test func unavailableLiveFontProbeRearmsUntilTheOwnerCanAnswer() {
+        var state = MobileViewportFontFitState()
+        var probeCount = 0
+
+        let unavailable = state.reconcilePendingLiveFontProbe(configuredFontPointSize: 12) {
+            probeCount += 1
+            return nil
+        }
+        let available = state.reconcilePendingLiveFontProbe(configuredFontPointSize: 12) {
+            probeCount += 1
+            return MobileViewportLiveFont(pointSize: 14, isAdjusted: true)
+        }
+
+        #expect(unavailable == nil)
+        #expect(available?.pointSize == 14)
+        #expect(available?.isAdjusted == true)
+        #expect(probeCount == 2)
+    }
+
+    @Test func activeRuntimeConfigWinsWhenSurfaceHasNoTemplateFont() {
+        let resolved = MobileViewportResetFontPointSize(
+            surfaceConfigFontPointSize: nil,
+            runtimeConfigFontPointSize: 16,
+            fallbackBaseFontPointSize: 12,
+            magnificationPercent: 100
+        ).resolve()
+
+        #expect(resolved == 16)
+    }
+
+    @Test func surfaceReloadConfigWinsAheadOfStaleAppConfig() {
+        let resolved = MobileViewportResetFontPointSize(
+            surfaceConfigFontPointSize: 18,
+            runtimeConfigFontPointSize: 12,
+            fallbackBaseFontPointSize: 10,
+            magnificationPercent: 100
+        ).resolve()
+
+        #expect(resolved == 18)
+    }
+
+    @Test func cachedSurfaceConfigAvoidsConstructingFallbackFontConfig() {
+        var fallbackWasConstructed = false
+        var runtimeConfigWasRead = false
+        let resolved = MobileViewportConfiguredFontPointSizeResolver(
+            surfaceConfigFontPointSize: 18,
+            runtimeConfigFontPointSize: {
+                runtimeConfigWasRead = true
+                return 12
+            },
+            fallbackBaseFontPointSize: {
+                fallbackWasConstructed = true
+                return 10
+            },
+            magnificationPercent: 100
+        ).resolve()
+
+        #expect(resolved == 18)
+        #expect(!runtimeConfigWasRead)
+        #expect(!fallbackWasConstructed)
+    }
+
+    @Test func activeRuntimeConfigDefinesResetTargetForInheritedTemplateFont() {
+        let configured = MobileViewportResetFontPointSize(
+            surfaceConfigFontPointSize: nil,
+            runtimeConfigFontPointSize: 12,
+            fallbackBaseFontPointSize: 12,
+            magnificationPercent: 100
+        ).resolve()
+        var state = MobileViewportFontFitState()
+        state.begin(baseFontPointSize: 14, configuredFontPointSize: configured)
+        state.recordFittedFontPointSize(9)
+
+        #expect(state.baseWasUserAdjusted == true)
+        #expect(state.restorePlan(configuredFontPointSize: configured) == .resetThenSet(14))
+    }
+
+    @Test func configuredBaselineTracksConfigChangesDuringAutomaticFit() {
+        var state = MobileViewportFontFitState(
+            baseFontPointSize: 12,
+            fittedFontPointSize: 8,
+            baseWasUserAdjusted: false
+        )
+
+        state.reconcile(liveFontPointSize: 8, configuredFontPointSize: 14)
+
+        #expect(state.baseFontPointSize == 14)
+        #expect(state.fittedFontPointSize == 8)
+    }
+
+    @Test func restoreClearsAutomaticAdjustmentButPreservesUserAdjustment() {
+        let automatic = MobileViewportFontFitState(
+            baseFontPointSize: 12,
+            fittedFontPointSize: 8,
+            baseWasUserAdjusted: false
+        )
+        let userAdjusted = MobileViewportFontFitState(
+            baseFontPointSize: 14,
+            fittedFontPointSize: 9,
+            baseWasUserAdjusted: true
+        )
+
+        #expect(automatic.restorePlan(configuredFontPointSize: 12) == .resetToConfigured)
+        #expect(userAdjusted.restorePlan(configuredFontPointSize: 12) == .resetThenSet(14))
+    }
+
+    @Test func failedBaseReapplyRecordsThatResetAlreadySurrenderedTheFit() {
+        var state = MobileViewportFontFitState(
+            baseFontPointSize: 14,
+            fittedFontPointSize: 9,
+            baseWasUserAdjusted: true
+        )
+        var resetCount = 0
+        var reappliedFont: Float?
+
+        let outcome = state.restorePlan(configuredFontPointSize: 12).restore(
+            reset: {
+                resetCount += 1
+                return true
+            },
+            set: {
+                reappliedFont = $0
+                return false
+            }
+        )
+        state.reconcileRestoreOutcome(outcome)
+
+        #expect(outcome == .resetAfterBaseReapplyFailure)
+        #expect(outcome.surrenderedAutomaticFit)
+        #expect(resetCount == 1)
+        #expect(reappliedFont == 14)
+        #expect(state == .init())
+    }
+
+    @Test func failedResetLeavesTheFitStateForAFutureRetry() {
+        var state = MobileViewportFontFitState(
+            baseFontPointSize: 14,
+            fittedFontPointSize: 9,
+            baseWasUserAdjusted: true
+        )
+        let originalState = state
+        var attemptedBaseReapply = false
+
+        let outcome = state.restorePlan(configuredFontPointSize: 12).restore(
+            reset: { false },
+            set: { _ in
+                attemptedBaseReapply = true
+                return true
+            }
+        )
+        state.reconcileRestoreOutcome(outcome)
+
+        #expect(outcome == .failed)
+        #expect(!outcome.surrenderedAutomaticFit)
+        #expect(!attemptedBaseReapply)
+        #expect(state == originalState)
+    }
+
+    @Test func reloadRefitPreservesUserAdjustedFontOwnership() {
+        var state = MobileViewportFontFitState()
+
+        state.begin(
+            baseFontPointSize: 14,
+            configuredFontPointSize: 14,
+            preservedUserAdjustedBaseFontPointSize: 14
+        )
+        state.recordFittedFontPointSize(9)
+        state.reconcile(liveFontPointSize: 9, configuredFontPointSize: 12)
+
+        #expect(state.baseFontPointSize == 14)
+        #expect(state.baseWasUserAdjusted == true)
+        #expect(state.restorePlan(configuredFontPointSize: 12) == .resetThenSet(14))
+    }
+
     @Test func fitNotNeededKeepsBaseFontAndGrantBox() {
         let geometry = geometry(paneWidthPx: 1000, paneHeightPx: 600, cellWidthPx: 10, cellHeightPx: 20)
         let font = geometry.targetFontPointSize(

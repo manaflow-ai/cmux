@@ -136,17 +136,25 @@ extension TerminalSurface {
         let rawHpx = pixelDimension(from: resolvedBackingHeight)
         lastUncappedPixelWidth = rawWpx
         lastUncappedPixelHeight = rawHpx
+        let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale) ||
+            !scaleApproximatelyEqual(yScale, lastYScale)
+        let scaleProjection = MobileViewportScaleProjection(
+            currentXScale: Double(lastXScale),
+            currentYScale: Double(lastYScale),
+            destinationXScale: Double(xScale),
+            destinationYScale: Double(yScale)
+        )
         let fittedSize = mobileViewportFittedSize(
             width: rawWpx,
             height: rawHpx,
             surface: surface,
-            reason: "updateSize"
+            reason: "updateSize",
+            scaleProjection: scaleProjection
         )
         let wpx = fittedSize.width
         let hpx = fittedSize.height
         guard wpx > 0, hpx > 0 else { return false }
 
-        let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale) || !scaleApproximatelyEqual(yScale, lastYScale)
         let sizeChanged = wpx != lastPixelWidth || hpx != lastPixelHeight
 
         #if DEBUG

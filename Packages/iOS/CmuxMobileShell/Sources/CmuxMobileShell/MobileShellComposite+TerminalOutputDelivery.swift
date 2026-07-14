@@ -232,7 +232,7 @@ extension MobileShellComposite {
         )
     }
 
-    private func deliverTerminalOutput(
+    func deliverTerminalOutput(
         _ delivery: TerminalOutputDelivery,
         surfaceID: String,
         bypassReplayBarrier: Bool = false
@@ -241,21 +241,19 @@ extension MobileShellComposite {
               let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID],
            !bypassReplayBarrier {
-            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
-            let droppedOutputCount = (terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0) &+ 1
-            terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] = droppedOutputCount
+            retainTerminalReplayBarrierOutput(delivery, surfaceID: surfaceID)
+            let droppedOutputCount = recordTerminalReplayBarrierFollowUpWork(surfaceID: surfaceID)
             if droppedOutputCount == 1 || droppedOutputCount.isMultiple(of: 32) {
                 MobileDebugLog.anchormux(
                     "terminal.output.drop_replay_barrier surface=\(surfaceID) count=\(droppedOutputCount)"
                 )
             }
             if droppedOutputCount >= Self.maxTerminalReplayBarrierDroppedOutputBeforeFailOpen {
-                failOpenTerminalReplayBarrier(
+                return failOpenTerminalReplayBarrier(
                     surfaceID: surfaceID,
                     token: replayBarrierToken,
                     reason: "dropped_output_cap"
                 )
-                return deliverTerminalOutput(delivery, surfaceID: surfaceID, bypassReplayBarrier: true)
             }
             if remoteClient != nil,
                terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == nil,
@@ -304,6 +302,7 @@ extension MobileShellComposite {
         let next = queue.completeInFlight()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken {
+            discardTerminalReplayBarrierRetainedOutputCoveredByFollowUp(surfaceID: surfaceID)
             let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID]
             let coldAttachReplayBarrier = replayBarrierToken.map {
                 terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] == $0
@@ -332,7 +331,7 @@ extension MobileShellComposite {
                     terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                     let replayBarrierToken = beginTerminalReplayBarrier(
                         surfaceID: surfaceID,
-                        preservingFollowUpCount: true
+                        continuingReplayEpisode: true
                     )
                     if coldAttachReplayBarrier {
                         terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
@@ -360,6 +359,7 @@ extension MobileShellComposite {
                 MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared surface=\(surfaceID)")
                 terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
                 terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+                terminalReplayBarrierRetainedOutputBySurfaceID.removeValue(forKey: surfaceID)
                 // Fully resolved: a seq-less raw tail leaves no delivered sequence,
                 // so the floor restore is the truthful baseline hand-back.
                 restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
@@ -426,6 +426,7 @@ extension MobileShellComposite {
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierRetainedOutputBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         guard let retryToken = prepareTerminalReplayFailureRetry(
             surfaceID: surfaceID,

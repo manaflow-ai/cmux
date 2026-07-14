@@ -103,6 +103,18 @@ struct TerminalSurfaceRegistryTests {
         #expect(Set(ids) == Set(surfaces.map(\.id.uuidString)))
     }
 
+    @Test func allSurfacesIncludesDockOwnedLifecycleCandidates() {
+        let registry = TerminalSurfaceRegistry()
+        let workspaceSurface = FakeSurface(focusPlacement: .workspace)
+        let dockSurface = FakeSurface(focusPlacement: .rightSidebarDock)
+        registry.register(workspaceSurface)
+        registry.register(dockSurface)
+
+        let ids = Set(registry.allSurfaces().map(\.id))
+
+        #expect(ids == [workspaceSurface.id, dockSurface.id])
+    }
+
     @Test func runtimeSurfaceOwnershipFollowsOwnerIdGuard() throws {
         let registry = TerminalSurfaceRegistry()
         let pointer = try #require(ghostty_surface_t(bitPattern: 0xdead_beef))
