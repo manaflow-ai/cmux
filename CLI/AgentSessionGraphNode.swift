@@ -23,6 +23,14 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
     var updatedAt: TimeInterval
     var endedAt: TimeInterval?
 
+    /// A process generation can host more than one logical session and some
+    /// providers emit hooks from the same launcher process. Graph identity must
+    /// therefore include provider and session instead of treating `runId` as a
+    /// globally unique node key.
+    var nodeId: String {
+        "\(provider)\u{1F}\(sessionId)\u{1F}\(runId)"
+    }
+
     enum CodingKeys: String, CodingKey {
         case provider
         case sessionId = "session_id"
@@ -47,18 +55,19 @@ struct AgentSessionGraphNode: Codable, Sendable, Equatable {
     }
 }
 
-/// Duplicate-safe run lookup for corrupted or hand-edited session stores.
-/// The newest node wins, with a stable identity key breaking timestamp ties.
+/// Duplicate-safe node lookup for corrupted or hand-edited session stores.
+/// The newest copy of the same provider/session/run wins. Distinct logical
+/// sessions sharing one process generation remain separate graph nodes.
 struct AgentSessionGraphNodeIndex: Sendable {
     static func indices(_ nodes: [AgentSessionGraphNode]) -> [String: Int] {
         nodes.indices.reduce(into: [:]) { result, candidateIndex in
-            let runId = nodes[candidateIndex].runId
-            guard let existingIndex = result[runId] else {
-                result[runId] = candidateIndex
+            let nodeId = nodes[candidateIndex].nodeId
+            guard let existingIndex = result[nodeId] else {
+                result[nodeId] = candidateIndex
                 return
             }
             if prefers(nodes[candidateIndex], over: nodes[existingIndex]) {
-                result[runId] = candidateIndex
+                result[nodeId] = candidateIndex
             }
         }
     }
@@ -69,6 +78,12 @@ struct AgentSessionGraphNodeIndex: Sendable {
 
     static func canonicalNodes(_ nodes: [AgentSessionGraphNode]) -> [AgentSessionGraphNode] {
         indices(nodes).values.sorted().map { nodes[$0] }
+    }
+
+    static func candidatesByRunId(_ nodes: [AgentSessionGraphNode]) -> [String: [AgentSessionGraphNode]] {
+        Dictionary(grouping: canonicalNodes(nodes), by: \.runId).mapValues { candidates in
+            candidates.sorted { prefers($0, over: $1) }
+        }
     }
 
     private static func prefers(_ candidate: AgentSessionGraphNode, over existing: AgentSessionGraphNode) -> Bool {

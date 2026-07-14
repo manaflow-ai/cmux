@@ -82,15 +82,15 @@ extension AgentActivitySnapshot.Counts {
 struct AgentSubtreeActivityProjector: Sendable {
     func project(nodes: inout [AgentSessionGraphNode], edges: [AgentSessionGraphEdge]) {
         nodes = AgentSessionGraphNodeIndex.canonicalNodes(nodes)
-        let indexByRun = AgentSessionGraphNodeIndex.indices(nodes)
+        let indexByNode = AgentSessionGraphNodeIndex.indices(nodes)
         let edgeResolver = AgentSessionGraphEdgeResolver(nodes: nodes)
         var parentsByChild: [Int: [Int]] = [:]
         var remainingChildren = Array(repeating: 0, count: nodes.count)
         var seenEdges: Set<String> = []
         for edge in edges {
-            guard let parentRun = edgeResolver.parentRunId(for: edge),
-                  let parent = indexByRun[parentRun],
-                  let child = indexByRun[edge.toRunId],
+            guard let parentNode = edgeResolver.parentNodeId(for: edge),
+                  let parent = indexByNode[parentNode],
+                  let child = indexByNode[edge.toNodeId],
                   parent != child else { continue }
             let edgeKey = "\(parent):\(child)"
             guard seenEdges.insert(edgeKey).inserted else { continue }

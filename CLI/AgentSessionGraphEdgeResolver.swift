@@ -3,12 +3,12 @@ import Foundation
 /// Resolves graph edges that retain a durable parent session ID after the
 /// parent process generation is no longer available to the child hook.
 struct AgentSessionGraphEdgeResolver: Sendable {
-    private let nodesByRunId: [String: AgentSessionGraphNode]
+    private let nodesByRunId: [String: [AgentSessionGraphNode]]
     private let parentCandidatesBySessionId: [String: [AgentSessionGraphNode]]
 
     init(nodes: [AgentSessionGraphNode]) {
         let canonical = AgentSessionGraphNodeIndex.canonicalNodes(nodes)
-        nodesByRunId = AgentSessionGraphNodeIndex.nodes(canonical)
+        nodesByRunId = AgentSessionGraphNodeIndex.candidatesByRunId(canonical)
         parentCandidatesBySessionId = Dictionary(grouping: canonical, by: \.sessionId)
             .mapValues { candidates in
                 candidates.sorted { lhs, rhs in
@@ -21,13 +21,18 @@ struct AgentSessionGraphEdgeResolver: Sendable {
             }
     }
 
-    func parentRunId(for edge: AgentSessionGraphEdge) -> String? {
-        if let fromRunId = edge.fromRunId, nodesByRunId[fromRunId] != nil {
-            return fromRunId
+    func parentNodeId(for edge: AgentSessionGraphEdge) -> String? {
+        if let fromRunId = edge.fromRunId,
+           let candidates = nodesByRunId[fromRunId],
+           let parent = candidates.first(where: { candidate in
+               candidate.nodeId != edge.toNodeId
+                   && (edge.fromSessionId == nil || candidate.sessionId == edge.fromSessionId)
+           }) ?? candidates.first(where: { $0.nodeId != edge.toNodeId }) {
+            return parent.nodeId
         }
         guard let fromSessionId = edge.fromSessionId else { return nil }
         return parentCandidatesBySessionId[fromSessionId]?
-            .first(where: { $0.runId != edge.toRunId })?
-            .runId
+            .first(where: { $0.nodeId != edge.toNodeId })?
+            .nodeId
     }
 }

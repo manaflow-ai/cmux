@@ -155,6 +155,7 @@ extension CMUXCLI {
                         edges.append(AgentSessionGraphEdge(
                             fromRunId: run.parentRunId,
                             fromSessionId: run.parentSessionId,
+                            toNodeId: node.nodeId,
                             toRunId: run.runId,
                             relationship: relationship
                         ))
@@ -164,7 +165,7 @@ extension CMUXCLI {
         }
 
         let edgeResolver = AgentSessionGraphEdgeResolver(nodes: nodes)
-        edges.removeAll { edgeResolver.parentRunId(for: $0) == nil }
+        edges.removeAll { edgeResolver.parentNodeId(for: $0) == nil }
         AgentSubtreeActivityProjector().project(nodes: &nodes, edges: edges)
 
         nodes.sort { lhs, rhs in
@@ -172,7 +173,7 @@ extension CMUXCLI {
             return lhs.runId < rhs.runId
         }
         edges.sort { lhs, rhs in
-            if lhs.toRunId != rhs.toRunId { return lhs.toRunId < rhs.toRunId }
+            if lhs.toNodeId != rhs.toNodeId { return lhs.toNodeId < rhs.toNodeId }
             return lhs.relationship.rawValue < rhs.relationship.rawValue
         }
         let snapshot = AgentSessionGraphSnapshot(nodes: nodes, edges: edges)
@@ -208,32 +209,32 @@ extension CMUXCLI {
         guard !snapshot.nodes.isEmpty else {
             return String(localized: "cli.agents.tree.output.noMatches", defaultValue: "No saved agent runs matched.")
         }
-        let nodeByRunId = AgentSessionGraphNodeIndex.nodes(snapshot.nodes)
+        let nodeById = AgentSessionGraphNodeIndex.nodes(snapshot.nodes)
         let edgeResolver = AgentSessionGraphEdgeResolver(nodes: snapshot.nodes)
         let childrenByRunId = Dictionary(grouping: snapshot.edges.compactMap { edge -> (String, AgentSessionGraphEdge)? in
-            guard let parent = edgeResolver.parentRunId(for: edge) else { return nil }
+            guard let parent = edgeResolver.parentNodeId(for: edge) else { return nil }
             return (parent, edge)
         }, by: \.0).mapValues { $0.map(\.1) }
         let childRunIds = Set(snapshot.edges.compactMap { edge in
-            edgeResolver.parentRunId(for: edge).map { _ in edge.toRunId }
+            edgeResolver.parentNodeId(for: edge).map { _ in edge.toNodeId }
         })
         let roots = snapshot.nodes.filter { !childRunIds.contains($0.runId) }
         var lines: [String] = []
         var visited: Set<String> = []
 
         func append(_ node: AgentSessionGraphNode, prefix: String, depth: Int) {
-            guard depth <= maximumDepth, visited.insert(node.runId).inserted else { return }
+            guard depth <= maximumDepth, visited.insert(node.nodeId).inserted else { return }
             let authority = node.restoreAuthority ? " restore-owner" : " child"
             let modes = node.activity.modes.map(\.rawValue).joined(separator: ",")
             let activity = modes.isEmpty ? "" : " [\(modes)]"
             lines.append("\(prefix)\(node.provider) \(node.sessionId) \(node.effectiveState.rawValue.uppercased())\(activity)\(authority) \(node.surfaceId)")
-            let children = (childrenByRunId[node.runId] ?? []).compactMap { nodeByRunId[$0.toRunId] }
+            let children = (childrenByRunId[node.nodeId] ?? []).compactMap { nodeById[$0.toNodeId] }
             for (index, child) in children.enumerated() {
                 append(child, prefix: prefix + (index == children.count - 1 ? "└── " : "├── "), depth: depth + 1)
             }
         }
         for root in roots { append(root, prefix: "", depth: 0) }
-        for node in snapshot.nodes where !visited.contains(node.runId) { append(node, prefix: "", depth: 0) }
+        for node in snapshot.nodes where !visited.contains(node.nodeId) { append(node, prefix: "", depth: 0) }
         return lines.joined(separator: "\n")
     }
 
