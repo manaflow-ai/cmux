@@ -168,7 +168,12 @@ public struct CmxIrohRelayPolicyVerifier: Sendable {
         guard policy.relayProtocol == relayProtocol else {
             throw CmxIrohRelayPolicyError.unsupportedRelayProtocol
         }
-        guard policy.notBefore <= nowSeconds else {
+        // Distributed clients and the signing service do not share a clock.
+        // Apply the same bounded skew allowance already required for `iat` so
+        // a freshly issued policy cannot fail merely because the server is a
+        // few seconds ahead, while policies beyond the 30-second window still
+        // fail closed as invalid claims above.
+        guard policy.notBefore <= futureTolerance.partialValue else {
             throw CmxIrohRelayPolicyError.notYetValid
         }
         guard policy.expiresAt > nowSeconds else {

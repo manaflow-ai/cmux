@@ -129,7 +129,9 @@ export function relayPolicyPayload(input: {
     jti,
     sequence: input.catalog.sequence,
     iat: input.nowSeconds,
-    nbf: input.nowSeconds,
+    // Backdate the activation edge slightly so normal request latency and
+    // small client/server clock differences do not strand a fresh policy.
+    nbf: input.nowSeconds - 5,
     exp: input.nowSeconds + RELAY_POLICY_TTL_SECONDS,
     aud: RELAY_POLICY_AUDIENCE,
     relay_protocol: RELAY_POLICY_PROTOCOL,

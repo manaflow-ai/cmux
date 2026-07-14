@@ -172,7 +172,7 @@ describe("signed relay policy", () => {
       jti: "01890f47-9ff8-7cc2-98b3-2fefdbb4312c",
       sequence: 17,
       iat: 1_700_000_000,
-      nbf: 1_700_000_000,
+      nbf: 1_699_999_995,
       exp: 1_700_000_300,
       aud: RELAY_POLICY_AUDIENCE,
       relay_protocol: RELAY_POLICY_PROTOCOL,
