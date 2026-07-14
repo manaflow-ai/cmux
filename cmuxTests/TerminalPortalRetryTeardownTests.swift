@@ -95,4 +95,26 @@ struct TerminalPortalRetryTeardownTests {
 
         #expect(retryCount == 0)
     }
+
+    @MainActor
+    @Test
+    func hibernationAllowsReplacementHostAtCurrentOwnershipGeneration() {
+        let surface = makeSurface()
+        let owner = NSView(), replacement = NSView()
+        let pane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        defer { surface.teardownSurface() }
+
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(owner), paneId: pane, ownershipGeneration: 1,
+            inWindow: true, bounds: bounds, reason: "test.hibernate.owner"
+        ))
+
+        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.hibernate")
+
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(replacement), paneId: pane, ownershipGeneration: 1,
+            inWindow: true, bounds: bounds, reason: "test.hibernate.replacement"
+        ))
+    }
 }
