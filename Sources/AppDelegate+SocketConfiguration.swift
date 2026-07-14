@@ -66,7 +66,11 @@ extension AppDelegate {
         )
         let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
         guard !health.isHealthy else {
-            TerminalController.shared.reconcileSocketConfiguration(config, source: source)
+            TerminalController.shared.reconcileSocketConfiguration(
+                config,
+                preferredTabManager: tabManager,
+                source: source
+            )
             return
         }
 

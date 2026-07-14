@@ -37,6 +37,9 @@ extension TerminalController {
         preferredTabManager: TabManager? = nil,
         source: String
     ) {
+        if let preferredTabManager {
+            self.tabManager = preferredTabManager
+        }
         let previousMode = socketServer.accessMode
         let wasRunning = socketServer.isRunning
         let pathChanged = socketServer.updateConfiguredPreferredSocketPath(

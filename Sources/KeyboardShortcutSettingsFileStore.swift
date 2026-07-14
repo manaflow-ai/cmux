@@ -296,7 +296,7 @@ final class CmuxSettingsFileStore {
     private func resolveSettings() -> ResolvedSettingsSnapshot {
         // A transient missing or malformed file must not restore a potentially broader unmanaged policy.
         let priorSocketMode = synchronized { activeManagedUserDefaults[SocketControlSettings.appStorageKey] }
-        let preservedSocketMode = priorSocketMode ?? .string(SocketControlMode.cmuxOnly.rawValue)
+        let preservedSocketMode = priorSocketMode ?? .string(Self.failClosedSocketMode().rawValue)
         switch loadSettings(at: primaryPath) {
         case .parsed(var snapshot):
             mergeFallbackSettings(into: &snapshot)
@@ -309,7 +309,8 @@ final class CmuxSettingsFileStore {
         var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
         mergeFallbackSettings(into: &fallbackSnapshot)
         fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey] =
-            priorSocketMode ?? fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey] ?? preservedSocketMode
+            Self.socketModeAfterMissingPrimary(prior: priorSocketMode,
+                fallback: fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey])
         return fallbackSnapshot
     }
 
@@ -850,7 +851,7 @@ final class CmuxSettingsFileStore {
             let mode = raw.flatMap { knownModes.contains(normalizedRaw ?? "") ? SocketControlSettings.migrateMode($0) : nil }
             if mode == nil { logInvalid("automation.socketControlMode", sourcePath: sourcePath) }
             snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = .string(
-                (mode ?? SocketControlMode.cmuxOnly).rawValue
+                (mode ?? Self.failClosedSocketMode()).rawValue
             )
         }
         if section.keys.contains("socketPassword") {
