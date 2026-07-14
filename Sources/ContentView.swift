@@ -13015,6 +13015,16 @@ private struct ExtensionSidebarBrowserStackEmptyArea: View {
 // Do NOT remove .equatable() from the ForEach call site in VerticalTabsSidebar.
 struct SidebarWorkspaceSnapshotBuilder {
     struct PresentationKey: Equatable {
+        /// Identity of the workspace this snapshot was built for. Included in the
+        /// cache-validity key so a `TabItemView`'s memoized snapshot
+        /// (`workspaceSnapshotStorage` / `workspaceSnapshotScratch`) can never be
+        /// served for a *different* workspace after SwiftUI recycles the row's
+        /// `@State` across an identity change — the LazyVStack recycling hazard
+        /// behind #7519, where sidebar "Running" / "Needs input" pills attached to
+        /// neighbouring workspaces on cold load. The rest of the key is global
+        /// presentation settings, so without this field every row's key compared
+        /// equal and a recycled snapshot passed the guard silently.
+        let workspaceId: UUID
         let showsWorkspaceDescription: Bool
         let usesVerticalBranchLayout: Bool
         let showsGitBranch: Bool
@@ -13514,6 +13524,7 @@ struct TabItemView: View, Equatable {
 
     private var workspaceSnapshotPresentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
+            workspaceId: tab.id,
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             showsGitBranch: sidebarShowGitBranch,
