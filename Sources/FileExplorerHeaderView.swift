@@ -8,7 +8,6 @@ final class FileExplorerHeaderView: NSView {
     private let pathLabel = NSTextField(labelWithString: "")
     private var heightConstraint: NSLayoutConstraint?
     private var displayPath = ""
-    private var quickSearchQuery: String?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -61,32 +60,15 @@ final class FileExplorerHeaderView: NSView {
         applyHeaderState()
     }
 
-    func updateQuickSearch(query: String?) {
-        guard quickSearchQuery != query else { return }
-        quickSearchQuery = query
-        applyHeaderState()
-    }
-
     private func applyHeaderState() {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
-        if let quickSearchQuery {
-            iconView.apply(CmuxResolvedIconRequest(
-                source: .systemSymbol(name: "magnifyingglass", accessibilityDescription: nil),
-                size: NSSize(width: 14, height: 14),
-                tintColor: .secondaryLabelColor,
-                symbolWeight: .regular
-            ))
-            pathLabel.stringValue = "/" + quickSearchQuery
-            pathLabel.toolTip = pathLabel.stringValue
-        } else {
-            iconView.apply(CmuxResolvedIconRequest(
-                source: .systemSymbol(name: "folder.fill", accessibilityDescription: nil),
-                size: NSSize(width: 14, height: 14),
-                tintColor: .secondaryLabelColor,
-                symbolWeight: .regular
-            ))
-            pathLabel.stringValue = displayPath
-            pathLabel.toolTip = displayPath
-        }
+        iconView.apply(CmuxResolvedIconRequest(
+            source: .systemSymbol(name: "folder.fill", accessibilityDescription: nil),
+            size: NSSize(width: 14, height: 14),
+            tintColor: .secondaryLabelColor,
+            symbolWeight: .regular
+        ))
+        pathLabel.stringValue = displayPath
+        pathLabel.toolTip = displayPath
     }
 }

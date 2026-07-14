@@ -515,6 +515,9 @@ final class MainWindowFocusController {
     ) -> Bool {
         switch focusToggleDestination() {
         case .terminal:
+            if let requestedMode, activeRightSidebarMode != requestedMode {
+                return focusRightSidebar(mode: requestedMode, focusFirstItem: focusFirstItem)
+            }
             return restoreFocusedPanelFocusFromRightSidebarIfNeeded(currentResponder: window?.firstResponder)
         case .rightSidebar:
             return focusRightSidebar(mode: requestedMode, focusFirstItem: focusFirstItem)

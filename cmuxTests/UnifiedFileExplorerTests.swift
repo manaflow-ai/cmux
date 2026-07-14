@@ -149,8 +149,8 @@ struct UnifiedFileExplorerTests {
         #expect(searchBar.frame.height == 0)
     }
 
-    @Test("Typing in the persistent search field restores Find activation")
-    func typingInPersistentSearchRestoresFindActivation() throws {
+    @Test("Typing preserves the selected Names or Contents activation")
+    func typingPreservesSelectedSearchScope() throws {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: "rightSidebar.mode")
         defer { Self.restore(previousMode, forKey: "rightSidebar.mode") }
@@ -174,7 +174,21 @@ struct UnifiedFileExplorerTests {
             Notification(name: NSControl.textDidChangeNotification, object: searchField)
         )
 
+        #expect(state.mode == .files)
+        #expect(container.displayedSearchScope == .names)
+        #expect(container.searchQuery(for: .names) == "needle")
+
+        state.mode = .find
+        container.updatePresentation(.unified)
+        searchField.stringValue = "content needle"
+        container.controlTextDidChange(
+            Notification(name: NSControl.textDidChangeNotification, object: searchField)
+        )
+
         #expect(state.mode == .find)
+        #expect(container.displayedSearchScope == .contents)
+        #expect(container.searchQuery(for: .contents) == "content needle")
+        #expect(container.searchQuery(for: .names) == "needle")
     }
 
     @Test("Files and Find focus one host without discarding either view's state")
@@ -248,6 +262,12 @@ struct UnifiedFileExplorerTests {
         #expect(focusController.activeRightSidebarMode == .find)
         #expect(container.ownsKeyboardFocus(searchResponder))
 
+        #expect(focusController.toggleRightSidebarOrTerminalFocus(mode: .files))
+        #expect(window.firstResponder is NSOutlineView)
+        #expect(state.mode == .files)
+        #expect(container.displayedSearchScope == .names)
+        #expect(focusController.focusRightSidebar(mode: .find, focusFirstItem: true))
+
         searchField.stringValue = "needle"
         #expect(container.focusSearchField())
         let result = FileSearchResult(
@@ -269,7 +289,8 @@ struct UnifiedFileExplorerTests {
         #expect(window.firstResponder is NSOutlineView)
         #expect(state.mode == .files)
         #expect(focusController.activeRightSidebarMode == .files)
-        #expect(searchField.stringValue == "needle")
+        #expect(searchField.stringValue.isEmpty)
+        #expect(container.searchQuery(for: .contents) == "needle")
         #expect(container.searchSnapshot == snapshot)
         #expect(store.expandedPaths == [directory.path])
         #expect(store.selectedPath == directory.path)
@@ -280,7 +301,7 @@ struct UnifiedFileExplorerTests {
         state.mode = .find
         focusController.rememberRightSidebarMode(.find)
         container.updatePresentation(.unified)
-        #expect(container.searchResultsView.isHidden)
+        #expect(container.searchResultsView.isHiddenOrHasHiddenAncestor)
         #expect(searchController.searchRequests.count == searchCountBeforeFindActivation)
         #expect(container.searchSnapshot == snapshot)
         #expect(window.firstResponder === outlineResponder)
@@ -288,20 +309,20 @@ struct UnifiedFileExplorerTests {
 
         _ = window.makeFirstResponder(nil)
         container.updatePresentation(.unified)
-        #expect(!container.searchResultsView.isHidden)
+        #expect(!container.searchResultsView.isHiddenOrHasHiddenAncestor)
         #expect(window.makeFirstResponder(container.searchResultsView))
         let searchResultsResponder = window.firstResponder
         let cancelCountBeforeFilesActivation = searchController.cancelRequests.count
         state.mode = .files
         focusController.rememberRightSidebarMode(.files)
         container.updatePresentation(.unified)
-        #expect(!container.searchResultsView.isHidden)
+        #expect(!container.searchResultsView.isHiddenOrHasHiddenAncestor)
         #expect(window.firstResponder === searchResultsResponder)
         #expect(searchController.cancelRequests.count == cancelCountBeforeFilesActivation)
 
         _ = window.makeFirstResponder(nil)
         container.updatePresentation(.unified)
-        #expect(container.searchResultsView.isHidden)
+        #expect(container.searchResultsView.isHiddenOrHasHiddenAncestor)
         #expect(searchController.cancelRequests.last == false)
         #expect(focusController.focusRightSidebar(mode: nil, focusFirstItem: true))
         #expect(window.firstResponder is NSOutlineView)
@@ -311,7 +332,7 @@ struct UnifiedFileExplorerTests {
         store.reload()
         container.updateHeader(store: store)
         #expect(searchController.searchRequests.count == searchCountBeforeHiddenRevision)
-        #expect(window.makeFirstResponder(searchField))
+        #expect(focusController.focusRightSidebar(mode: .find, focusFirstItem: true))
         #expect(searchController.searchRequests.count == searchCountBeforeHiddenRevision + 1)
         #expect(searchController.searchRequests.last?.contentRevision == store.contentRevision)
 
@@ -319,6 +340,7 @@ struct UnifiedFileExplorerTests {
         #expect(state.mode == .find)
         #expect(focusController.activeRightSidebarMode == .find)
         #expect(searchField.stringValue == "needle")
+        #expect(container.searchQuery(for: .names).isEmpty)
         #expect(container.searchSnapshot == snapshot)
         #expect(store.expandedPaths == [directory.path])
         #expect(store.selectedPath == directory.path)

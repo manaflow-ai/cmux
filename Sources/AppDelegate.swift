@@ -7078,7 +7078,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let window {
             mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarToggle)
         }
-        let result = context.keyboardFocusCoordinator.toggleRightSidebarOrTerminalFocus()
+        let result = context.keyboardFocusCoordinator.toggleRightSidebarOrTerminalFocus(mode: .files)
 #if DEBUG
         let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
