@@ -27,13 +27,16 @@ extension GhosttySurfaceScrollView {
                 attemptsRemaining: 2
             )
             return false
-        case .completedAwaitingGeometry where position.rowSpaceRevision == nil:
+        case .completedAwaitingGeometry
+            where position.row != 0 || position.rowSpaceRevision == nil:
             notificationScrollRestoreState.request = .waitingForReplay(
                 position: position,
                 attemptsRemaining: 2
             )
             return false
-        case .completed(let geometry) where position.rowSpaceRevision == nil:
+        case .completed(let geometry)
+            where position.rowSpaceRevision == nil ||
+                (position.row != 0 && position.rowSpaceRevision != geometry.rowSpaceRevision):
             notificationScrollRestoreState.request = .awaitingPostReplayRestore(
                 position: position,
                 attemptsRemaining: 2,
@@ -86,7 +89,8 @@ extension GhosttySurfaceScrollView {
     ) {
         guard case .waitingForReplay(let position, let attemptsRemaining) =
             notificationScrollRestoreState.request else { return }
-        if position.rowSpaceRevision == nil {
+        if position.rowSpaceRevision == nil ||
+            (position.row != 0 && position.rowSpaceRevision != geometry.rowSpaceRevision) {
             notificationScrollRestoreState.request = .awaitingPostReplayRestore(
                 position: position,
                 attemptsRemaining: attemptsRemaining,
@@ -160,12 +164,21 @@ extension GhosttySurfaceScrollView {
             return false
         }
         let geometry = currentGeometry ?? replayGeometry
-        let anchorGeometry = replayContext.geometry
+        let anchorGeometry: NotificationScrollRestoreGeometry
+        let retryReplayContext: NotificationReplayRestoreContext
         if position.row != 0,
-           (anchorGeometry.rowSpaceRevision != replayGeometry.rowSpaceRevision ||
-            anchorGeometry.rowSpaceRevision != geometry.rowSpaceRevision) {
-            clearPendingNotificationScrollRestore()
-            return false
+           replayContext.geometry.rowSpaceRevision != geometry.rowSpaceRevision {
+            switch replayContext {
+            case .provisional:
+                anchorGeometry = geometry
+                retryReplayContext = .provisional(geometry)
+            case .stable:
+                clearPendingNotificationScrollRestore()
+                return false
+            }
+        } else {
+            anchorGeometry = replayContext.geometry
+            retryReplayContext = replayContext
         }
         let anchorScrollbar = position.row == 0
             ? geometry.scrollbar
@@ -201,7 +214,7 @@ extension GhosttySurfaceScrollView {
                 return .awaitingPostReplayRestore(
                     position: position,
                     attemptsRemaining: remaining,
-                    replayContext: replayContext
+                    replayContext: retryReplayContext
                 )
             }
         )

@@ -181,7 +181,7 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func rowSpaceRevisionMismatchFailsClosedAgainstFreshGeometry() {
+    @Test func provisionalRowSpaceRevisionMismatchRetriesAgainstFreshGeometry() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
         let staleGeometry = geometry(
@@ -191,6 +191,10 @@ struct NotificationScrollRestoreRecoveryTests {
         surfaceView.setAuthoritativeScrollbar(
             scrollbar(total: 400, offset: 356, len: 44),
             rowSpaceRevision: 2
+        )
+        surfaceView.authoritativeGeometryOnNextAtomicScroll = geometry(
+            scrollbar(total: 400, offset: 356, len: 44),
+            rowSpaceRevision: 3
         )
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         beginReplay(on: hostedView, endBoundary: boundary)
@@ -203,16 +207,16 @@ struct NotificationScrollRestoreRecoveryTests {
             authoritativeGeometry: staleGeometry
         ))
 
-        #expect(surfaceView.performedRows.isEmpty)
-        #expect(surfaceView.attemptedRowSpaceRevisions.isEmpty)
+        #expect(surfaceView.performedRows == [256])
+        #expect(surfaceView.attemptedRowSpaceRevisions == [2])
         #expect(surfaceView.acceptedRowSpaceRevisions.isEmpty)
-        #expect(!hostedView.hasPendingNotificationScrollRestore)
+        #expect(hostedView.hasPendingNotificationScrollRestore)
 
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
-        #expect(surfaceView.performedRows.isEmpty)
-        #expect(surfaceView.attemptedRowSpaceRevisions.isEmpty)
-        #expect(surfaceView.acceptedRowSpaceRevisions.isEmpty)
+        #expect(surfaceView.performedRows == [256, 256])
+        #expect(surfaceView.attemptedRowSpaceRevisions == [2, 3])
+        #expect(surfaceView.acceptedRowSpaceRevisions == [3])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
@@ -401,6 +405,7 @@ private final class NotificationRecoveryRecordingSurfaceView: GhosttyNSView {
     private(set) var attemptedRowSpaceRevisions: [UInt64] = []
     private(set) var acceptedRowSpaceRevisions: [UInt64] = []
     var authoritativeGeometry: NotificationScrollRestoreGeometry?
+    var authoritativeGeometryOnNextAtomicScroll: NotificationScrollRestoreGeometry?
     var acceptsAtomicScroll = true
 
     func setAuthoritativeScrollbar(
@@ -428,6 +433,10 @@ private final class NotificationRecoveryRecordingSurfaceView: GhosttyNSView {
     ) -> Bool {
         performedRows.append(Int(clamping: row))
         attemptedRowSpaceRevisions.append(rowSpaceRevision)
+        if let nextGeometry = authoritativeGeometryOnNextAtomicScroll {
+            authoritativeGeometry = nextGeometry
+            authoritativeGeometryOnNextAtomicScroll = nil
+        }
         guard acceptsAtomicScroll,
               let authoritativeGeometry,
               authoritativeGeometry.rowSpaceRevision == rowSpaceRevision else {
