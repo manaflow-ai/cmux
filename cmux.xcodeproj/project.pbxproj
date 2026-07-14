@@ -1644,6 +1644,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */; };
 		C4160A070000000000000001 /* TitlebarLayoutDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */; };
 		C0DEA7710000000000000009 /* TitlebarTrailingAccessoryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000A /* TitlebarTrailingAccessoryViewController.swift */; };
+		7998A0057998A0057998A005 /* TitlebarTrailingControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7998B0057998B0057998B005 /* TitlebarTrailingControls.swift */; };
 		E30760030000000000000002 /* TmuxOverlayExperimentSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760030000000000000001 /* TmuxOverlayExperimentSettings.swift */; };
 		E30760040000000000000002 /* TmuxOverlayExperimentTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760040000000000000001 /* TmuxOverlayExperimentTarget.swift */; };
 		B35751000000000000000002 /* TmuxResumeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35751000000000000000001 /* TmuxResumeParser.swift */; };
@@ -3433,6 +3434,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlTests.swift; sourceTree = "<group>"; };
 		C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarLayoutDebugWindow.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000A /* TitlebarTrailingAccessoryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarTrailingAccessoryViewController.swift; sourceTree = "<group>"; };
+		7998B0057998B0057998B005 /* TitlebarTrailingControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarTrailingControls.swift; sourceTree = "<group>"; };
 		E30760030000000000000001 /* TmuxOverlayExperimentSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentSettings.swift; sourceTree = "<group>"; };
 		E30760040000000000000001 /* TmuxOverlayExperimentTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentTarget.swift; sourceTree = "<group>"; };
 		B35751000000000000000001 /* TmuxResumeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxResumeParser.swift; sourceTree = "<group>"; };
@@ -3955,6 +3957,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7998B0027998B0027998B002 /* RightSidebarTitlebarToggleButton.swift */,
 				7998B0047998B0047998B004 /* RightSidebarTitlebarToggleOverlay.swift */,
 				C0DEA771000000000000000A /* TitlebarTrailingAccessoryViewController.swift */,
+				7998B0057998B0057998B005 /* TitlebarTrailingControls.swift */,
 				7998B0037998B0037998B003 /* TitlebarControlButtonStyleBody.swift */,
 				C0DEA771000000000000000C /* ProBadgeStyle.swift */,
 				C0DEA771000000000000000E /* PricingPlansScreen.swift */,
@@ -6930,6 +6933,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					F50030020000000000000001 /* TitlebarInteractiveControlModifier.swift in Sources */,
 				C4160A070000000000000001 /* TitlebarLayoutDebugWindow.swift in Sources */,
 				C0DEA7710000000000000009 /* TitlebarTrailingAccessoryViewController.swift in Sources */,
+				7998A0057998A0057998A005 /* TitlebarTrailingControls.swift in Sources */,
 				E30760030000000000000002 /* TmuxOverlayExperimentSettings.swift in Sources */,
 				E30760040000000000000002 /* TmuxOverlayExperimentTarget.swift in Sources */,
 				B35751000000000000000002 /* TmuxResumeParser.swift in Sources */,
