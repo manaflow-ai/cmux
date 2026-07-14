@@ -33,6 +33,23 @@ struct CLIBrowserEvalOutputTests {
         }
     }
 
+    @Test("browser value formatter distinguishes booleans from every numeric representation")
+    func browserValueFormatterPreservesFoundationScalarTypes() {
+        let formatter = BrowserValueTextFormatter()
+
+        #expect(formatter.string(from: NSNumber(value: false)) == "false")
+        #expect(formatter.string(from: NSNumber(value: true)) == "true")
+        #expect(formatter.string(from: NSNumber(value: 0)) == "0")
+        #expect(formatter.string(from: NSNumber(value: 0.0)) == "0")
+        #expect(formatter.string(from: NSNumber(value: 1)) == "1")
+        #expect(formatter.string(from: NSNumber(value: 1.0)) == "1")
+        #expect(formatter.string(from: NSNumber(value: Double.nan)) == "NaN")
+        #expect(formatter.string(from: NSNumber(value: Double.infinity)) == "Infinity")
+        #expect(formatter.string(from: NSNumber(value: -Double.infinity)) == "-Infinity")
+        #expect(formatter.string(from: "") == "")
+        #expect(formatter.string(from: NSNull()) == "null")
+    }
+
     private func assertBrowserEvalOutput(_ testCase: Case) throws {
         let socketPath = "/tmp/cmux-eval-\(UUID().uuidString.prefix(8)).sock"
         let response = #"{"id":null,"ok":true,"result":{"value":\#(testCase.wireValue)}}"#
