@@ -11,6 +11,27 @@ import Testing
 @Suite(.serialized)
 struct ClosedItemHistoryPendingEnrichmentTests {
     @Test
+    func emptyOrFullyExcludedCandidatesRemainUnavailable() {
+        let store = ClosedItemHistoryStore()
+        #expect(store.restoreFirstRestorableResult { _ in
+            Issue.record("An empty store must not attempt restoration")
+            return true
+        } == .unavailable)
+
+        let record = ClosedItemHistoryRecord(
+            entry: Self.entry(workspaceId: UUID(), panelId: UUID())
+        )
+        store.push(record)
+        #expect(store.restoreFirstRestorableResult(
+            newerThan: nil,
+            excluding: [record.id]
+        ) { _ in
+            Issue.record("An excluded record must not be restored")
+            return true
+        } == .unavailable)
+    }
+
+    @Test
     func persistedCoreRecordSurvivesStoreReloadWhilePending() async throws {
         let workspaceId = UUID()
         let panelId = UUID()
