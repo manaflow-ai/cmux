@@ -364,6 +364,11 @@ struct UnifiedFileExplorerSearchScopeTests {
         #expect(outline.numberOfRows == 2)
         #expect(container.focusOutline())
         #expect(outline.numberOfRows == 3)
+
+        outline.collapseItem(root)
+        #expect(!outline.isItemExpanded(root))
+        coordinator.reloadIfNeeded()
+        #expect(!outline.isItemExpanded(root))
     }
 
     @Test("Return flushes a pending name filter before opening")
