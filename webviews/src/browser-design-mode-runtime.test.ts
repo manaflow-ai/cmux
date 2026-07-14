@@ -196,6 +196,26 @@ describe("browser design-mode runtime", () => {
     expect(unrelated.style.getPropertyValue("font-size")).toBe("");
   });
 
+  test("fails closed when a selector is reused by a different logical item", async () => {
+    const { dom, runtime } = fixture(`
+      <main><button data-testid="save" data-item-key="alpha">Save</button></main>
+    `);
+    runtime.select('[data-testid="save"]');
+    runtime.applyStyle("font-size", "44px");
+    const original = dom.window.document.querySelector('[data-testid="save"]') as HTMLElement;
+    const replacement = dom.window.document.createElement("button");
+    replacement.dataset.testid = "save";
+    replacement.dataset.itemKey = "beta";
+    replacement.textContent = "Save";
+
+    original.replaceWith(replacement);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(runtime.snapshot().selection).toBeNull();
+    expect(replacement.style.getPropertyValue("font-size")).toBe("");
+  });
+
   test("fails closed when selection or SPA rebinding is ambiguous", async () => {
     const nested = (label: string) => `<section><div><div><div><div><div><div><div><span class="target">${label}</span></div></div></div></div></div></div></div></section>`;
     const ambiguous = fixture(`<main>${nested("First")}${nested("Second")}</main>`);
