@@ -233,6 +233,99 @@ struct WorktreeSidebarSchedulingTests {
         #expect(await loader.load(plan: plan) != changedLock)
     }
 
+    @Test("requester queue drains in FIFO order")
+    func requesterQueueDrainsInFIFOOrder() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        var queue = WorktreeSidebarRequesterQueue()
+        queue.enqueue(first)
+        queue.enqueue(second)
+        queue.enqueue(third)
+
+        #expect(queue.dequeue() == first)
+        #expect(queue.dequeue() == second)
+        #expect(queue.dequeue() == third)
+        #expect(queue.dequeue() == nil)
+    }
+
+    @Test("Git child environment removes ambient repository selectors")
+    func gitChildEnvironmentRemovesRepositorySelectors() throws {
+        let removedVariables = [
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_COMMON_DIR",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_DIR",
+            "GIT_INDEX_FILE",
+            "GIT_NAMESPACE",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_OPTIONAL_LOCKS",
+            "GIT_PREFIX",
+            "GIT_QUARANTINE_PATH",
+            "GIT_WORK_TREE",
+        ]
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = WorktreeSidebarGitEnvironment().launchArguments(
+            executable: "/usr/bin/env",
+            arguments: [],
+            optionalLocks: true
+        )
+        process.environment = Dictionary(uniqueKeysWithValues: removedVariables.map {
+            ($0, "/ambient/\($0.lowercased())")
+        }).merging(["CMUX_TEST_PRESERVED": "yes"]) { _, value in value }
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        let output = String(
+            data: pipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        let childEnvironment = Set(output.split(whereSeparator: \.isNewline).map(String.init))
+
+        #expect(process.terminationStatus == 0)
+        #expect(childEnvironment.contains("CMUX_TEST_PRESERVED=yes"))
+        #expect(childEnvironment.contains("GIT_OPTIONAL_LOCKS=0"))
+        for variable in removedVariables where variable != "GIT_OPTIONAL_LOCKS" {
+            #expect(!childEnvironment.contains { $0.hasPrefix(variable + "=") })
+        }
+    }
+
+    @Test("workspace close plan preserves symlink matches across removal")
+    @MainActor
+    func workspaceClosePlanPreservesSymlinkMatchesAcrossRemoval() throws {
+        let container = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-close-plan-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: container) }
+        let worktree = container.appendingPathComponent("worktree", isDirectory: true)
+        let nested = worktree.appendingPathComponent("Sources", isDirectory: true)
+        let alias = container.appendingPathComponent("alias", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: worktree)
+        let manager = TabManager(
+            initialWorkingDirectory: alias.appendingPathComponent("Sources").path,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try #require(manager.tabs.first)
+        let controller = WorktreeSidebarWorkspaceController(tabManager: manager)
+
+        let plan = controller.closePlan(
+            worktreePath: worktree.path,
+            fallbackDirectory: container.path
+        )
+        try FileManager.default.removeItem(at: worktree)
+        let latePlan = controller.closePlan(
+            worktreePath: worktree.path,
+            fallbackDirectory: container.path
+        )
+
+        #expect(plan.entries.contains { $0.workspaceIDs.contains(workspace.id) })
+        #expect(!latePlan.entries.contains { $0.workspaceIDs.contains(workspace.id) })
+    }
+
     private func runGit(_ arguments: [String], in directory: URL) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")

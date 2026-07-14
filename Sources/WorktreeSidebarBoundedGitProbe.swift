@@ -19,6 +19,7 @@ struct WorktreeSidebarBoundedGitProbe: Sendable {
     }
 
     private let commands: any CommandRunning
+    private let gitEnvironment = WorktreeSidebarGitEnvironment()
     private let timeout: TimeInterval
 
     init(
@@ -152,8 +153,12 @@ struct WorktreeSidebarBoundedGitProbe: Sendable {
     ) async throws -> String {
         let result = await commands.run(
             directory: commandDirectory,
-            executable: "/bin/zsh",
-            arguments: ["-o", "pipefail", "-c", script, "_", worktreePath],
+            executable: "/usr/bin/env",
+            arguments: gitEnvironment.launchArguments(
+                executable: "/bin/zsh",
+                arguments: ["-o", "pipefail", "-c", script, "_", worktreePath],
+                optionalLocks: true
+            ),
             timeout: timeout
         )
         guard result.executionError == nil,

@@ -1786,6 +1786,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		6510B0000000000000000004 /* WorktreeSidebarDeletionInspection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000004 /* WorktreeSidebarDeletionInspection.swift */; };
 		6510B0000000000000000005 /* WorktreeSidebarDeletionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000005 /* WorktreeSidebarDeletionResult.swift */; };
 		6510B0000000000000000006 /* WorktreeSidebarDialogPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000006 /* WorktreeSidebarDialogPresenter.swift */; };
+		6510B0000000000000000025 /* WorktreeSidebarGitEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000025 /* WorktreeSidebarGitEnvironment.swift */; };
 		6510B0000000000000000007 /* WorktreeSidebarGitError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000007 /* WorktreeSidebarGitError.swift */; };
 		6510B0000000000000000008 /* WorktreeSidebarGitOperating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000008 /* WorktreeSidebarGitOperating.swift */; };
 		6510B0000000000000000009 /* WorktreeSidebarGitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000009 /* WorktreeSidebarGitService.swift */; };
@@ -1800,6 +1801,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		6510B000000000000000000C /* WorktreeSidebarModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F000000000000000000C /* WorktreeSidebarModel.swift */; };
 		6510B000000000000000000D /* WorktreeSidebarPorcelainParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F000000000000000000D /* WorktreeSidebarPorcelainParser.swift */; };
 		6510B000000000000000000E /* WorktreeSidebarProjectRootResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F000000000000000000E /* WorktreeSidebarProjectRootResolver.swift */; };
+		6510B0000000000000000026 /* WorktreeSidebarRequesterQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000026 /* WorktreeSidebarRequesterQueue.swift */; };
 		6510B000000000000000001F /* WorktreeSidebarResolverTestGit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F000000000000000001F /* WorktreeSidebarResolverTestGit.swift */; };
 		6510B000000000000000000F /* WorktreeSidebarRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F000000000000000000F /* WorktreeSidebarRow.swift */; };
 		6510B0000000000000000010 /* WorktreeSidebarRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000010 /* WorktreeSidebarRowActions.swift */; };
@@ -3593,6 +3595,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		6510F0000000000000000004 /* WorktreeSidebarDeletionInspection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarDeletionInspection.swift; sourceTree = "<group>"; };
 		6510F0000000000000000005 /* WorktreeSidebarDeletionResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarDeletionResult.swift; sourceTree = "<group>"; };
 		6510F0000000000000000006 /* WorktreeSidebarDialogPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarDialogPresenter.swift; sourceTree = "<group>"; };
+		6510F0000000000000000025 /* WorktreeSidebarGitEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarGitEnvironment.swift; sourceTree = "<group>"; };
 		6510F0000000000000000007 /* WorktreeSidebarGitError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarGitError.swift; sourceTree = "<group>"; };
 		6510F0000000000000000008 /* WorktreeSidebarGitOperating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarGitOperating.swift; sourceTree = "<group>"; };
 		6510F0000000000000000009 /* WorktreeSidebarGitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarGitService.swift; sourceTree = "<group>"; };
@@ -3607,6 +3610,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		6510F000000000000000000C /* WorktreeSidebarModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarModel.swift; sourceTree = "<group>"; };
 		6510F000000000000000000D /* WorktreeSidebarPorcelainParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarPorcelainParser.swift; sourceTree = "<group>"; };
 		6510F000000000000000000E /* WorktreeSidebarProjectRootResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarProjectRootResolver.swift; sourceTree = "<group>"; };
+		6510F0000000000000000026 /* WorktreeSidebarRequesterQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarRequesterQueue.swift; sourceTree = "<group>"; };
 		6510F000000000000000001F /* WorktreeSidebarResolverTestGit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarResolverTestGit.swift; sourceTree = "<group>"; };
 		6510F000000000000000000F /* WorktreeSidebarRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarRow.swift; sourceTree = "<group>"; };
 		6510F0000000000000000010 /* WorktreeSidebarRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarRowActions.swift; sourceTree = "<group>"; };
@@ -3979,6 +3983,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				6510F0000000000000000005 /* WorktreeSidebarDeletionResult.swift */,
 				6510F0000000000000000006 /* WorktreeSidebarDialogPresenter.swift */,
 				6510F0000000000000000007 /* WorktreeSidebarGitError.swift */,
+				6510F0000000000000000025 /* WorktreeSidebarGitEnvironment.swift */,
 				6510F0000000000000000008 /* WorktreeSidebarGitOperating.swift */,
 				6510F0000000000000000009 /* WorktreeSidebarGitService.swift */,
 				6510F000000000000000000A /* WorktreeSidebarListView.swift */,
@@ -3986,6 +3991,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				6510F000000000000000000C /* WorktreeSidebarModel.swift */,
 				6510F000000000000000000D /* WorktreeSidebarPorcelainParser.swift */,
 				6510F000000000000000000E /* WorktreeSidebarProjectRootResolver.swift */,
+				6510F0000000000000000026 /* WorktreeSidebarRequesterQueue.swift */,
 				6510F000000000000000000F /* WorktreeSidebarRow.swift */,
 				6510F0000000000000000010 /* WorktreeSidebarRowActions.swift */,
 				6510F0000000000000000011 /* WorktreeSidebarRowView.swift */,
@@ -7090,6 +7096,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				6510B0000000000000000004 /* WorktreeSidebarDeletionInspection.swift in Sources */,
 				6510B0000000000000000005 /* WorktreeSidebarDeletionResult.swift in Sources */,
 				6510B0000000000000000006 /* WorktreeSidebarDialogPresenter.swift in Sources */,
+				6510B0000000000000000025 /* WorktreeSidebarGitEnvironment.swift in Sources */,
 				6510B0000000000000000007 /* WorktreeSidebarGitError.swift in Sources */,
 				6510B0000000000000000008 /* WorktreeSidebarGitOperating.swift in Sources */,
 				6510B0000000000000000009 /* WorktreeSidebarGitService.swift in Sources */,
@@ -7103,6 +7110,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				6510B000000000000000000C /* WorktreeSidebarModel.swift in Sources */,
 				6510B000000000000000000D /* WorktreeSidebarPorcelainParser.swift in Sources */,
 				6510B000000000000000000E /* WorktreeSidebarProjectRootResolver.swift in Sources */,
+				6510B0000000000000000026 /* WorktreeSidebarRequesterQueue.swift in Sources */,
 				6510B000000000000000000F /* WorktreeSidebarRow.swift in Sources */,
 				6510B0000000000000000010 /* WorktreeSidebarRowActions.swift in Sources */,
 				6510B0000000000000000011 /* WorktreeSidebarRowView.swift in Sources */,

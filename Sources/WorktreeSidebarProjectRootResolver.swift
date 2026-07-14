@@ -10,7 +10,7 @@ actor WorktreeSidebarProjectRootResolver {
 
     private let git: any WorktreeSidebarGitOperating
     private var isResolving = false
-    private var pendingOrder: [UUID] = []
+    private var pendingOrder = WorktreeSidebarRequesterQueue()
     private var pendingRequests: [UUID: Request] = [:]
 
     init(git: (any WorktreeSidebarGitOperating)? = nil) {
@@ -39,7 +39,7 @@ actor WorktreeSidebarProjectRootResolver {
         if let previous = pendingRequests.updateValue(request, forKey: request.requesterID) {
             previous.continuation.resume(returning: nil)
         } else {
-            pendingOrder.append(request.requesterID)
+            pendingOrder.enqueue(request.requesterID)
         }
     }
 
@@ -56,10 +56,10 @@ actor WorktreeSidebarProjectRootResolver {
     }
 
     private func resumeCoalescedRequests(directory: String, projectRoot: String?) {
-        let requesterIDs = pendingOrder.filter { pendingRequests[$0]?.directory == directory }
+        let requesterIDs = pendingRequests.compactMap { requesterID, request in
+            request.directory == directory ? requesterID : nil
+        }
         guard !requesterIDs.isEmpty else { return }
-        let requesterIDSet = Set(requesterIDs)
-        pendingOrder.removeAll { requesterIDSet.contains($0) }
         for requesterID in requesterIDs {
             pendingRequests.removeValue(forKey: requesterID)?
                 .continuation.resume(returning: projectRoot)
@@ -67,7 +67,7 @@ actor WorktreeSidebarProjectRootResolver {
     }
 
     private func dequeueRequest() -> Request? {
-        while let requesterID = pendingOrder.popLast() {
+        while let requesterID = pendingOrder.dequeue() {
             if let request = pendingRequests.removeValue(forKey: requesterID) {
                 return request
             }

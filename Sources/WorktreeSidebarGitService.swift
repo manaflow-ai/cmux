@@ -7,6 +7,7 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
     private let commands: any CommandRunning
     private let metadata: GitMetadataService
     private let parser: WorktreeSidebarPorcelainParser
+    private let gitEnvironment = WorktreeSidebarGitEnvironment()
     private let commandTimeout: TimeInterval
     private let submoduleTimeout: TimeInterval
 
@@ -465,18 +466,14 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
         timeout: TimeInterval? = nil
     ) async -> CommandResult {
         let timeout = timeout ?? commandTimeout
-        if optionalLocks {
-            return await commands.run(
-                directory: projectRootPath,
-                executable: "/usr/bin/env",
-                arguments: ["GIT_OPTIONAL_LOCKS=0", "/usr/bin/git", "-C", projectRootPath] + arguments,
-                timeout: timeout
-            )
-        }
         return await commands.run(
             directory: projectRootPath,
-            executable: "/usr/bin/git",
-            arguments: ["-C", projectRootPath] + arguments,
+            executable: "/usr/bin/env",
+            arguments: gitEnvironment.launchArguments(
+                executable: "/usr/bin/git",
+                arguments: ["-C", projectRootPath] + arguments,
+                optionalLocks: optionalLocks
+            ),
             timeout: timeout
         )
     }

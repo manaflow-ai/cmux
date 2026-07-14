@@ -193,16 +193,17 @@ final class WorktreeSidebarModel {
                     return
                 }
 
+                let closePlan = workspaces.closePlan(
+                    worktreePath: inspection.worktree.path,
+                    fallbackDirectory: projectRootPath
+                )
                 operationPhase = .removing(row.id)
                 let result = try await git.removeWorktree(
                     projectRootPath: projectRootPath,
                     expected: inspection,
                     force: force
                 )
-                workspaces.apply(workspaces.closePlan(
-                    worktreePath: inspection.worktree.path,
-                    fallbackDirectory: projectRootPath
-                ))
+                workspaces.apply(closePlan)
                 if case .preserved(let name, let reason) = result.branch {
                     dialogs.presentPreservedBranch(name: name, reason: reason)
                 }
