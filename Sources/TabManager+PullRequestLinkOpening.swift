@@ -8,18 +8,18 @@ extension TabManager {
         preferSplitRight: Bool
     ) -> Bool {
         if BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser() {
-            let openedPanel: BrowserPanel?
+            let openedSurfaceID: UUID?
             if let workspaceId {
-                openedPanel = openBrowser(
+                openedSurfaceID = openBrowser(
                     inWorkspace: workspaceId,
                     url: url,
                     preferSplitRight: preferSplitRight,
                     insertAtEnd: true
                 )
             } else {
-                openedPanel = openBrowser(url: url, insertAtEnd: true)
+                openedSurfaceID = openBrowser(url: url, insertAtEnd: true)
             }
-            if openedPanel != nil { return true }
+            if openedSurfaceID != nil { return true }
         }
         return NSWorkspace.shared.open(url)
     }
