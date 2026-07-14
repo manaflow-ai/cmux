@@ -70,15 +70,28 @@ struct ExternalNotificationBannerOwnership {
         }
     }
 
-    mutating func transfer(fromTabId: UUID, toTabId: UUID, panelIdMap: [UUID: UUID]) {
-        let moving = ownerByKey.values.filter { $0.tabId == fromTabId }
+    @discardableResult
+    mutating func transfer(
+        fromTabId: UUID,
+        toTabId: UUID,
+        panelIdMap: [UUID: UUID]
+    ) -> [TerminalNotification] {
+        let moving = ownerByKey.values
+            .filter { $0.tabId == fromTabId }
+            .sorted(by: TerminalNotificationStore.notificationSortPrecedes)
         clear(tabId: fromTabId)
+        var displaced: [TerminalNotification] = []
         for owner in moving {
             let surfaceId = owner.surfaceId.map { panelIdMap[$0] ?? $0 }
             let panelId = owner.panelId.map { panelIdMap[$0] ?? $0 }
             let moved = Self.replacingLocation(owner, tabId: toTabId, surfaceId: surfaceId, panelId: panelId)
-            if ownerByKey[Self.key(moved)] == nil { setOwner(moved) }
+            if let existing = ownerByKey[Self.key(moved)] {
+                if existing.id != moved.id { displaced.append(moved) }
+            } else {
+                setOwner(moved)
+            }
         }
+        return displaced
     }
 
     mutating func rebind(surfaceId: UUID, fromTabId: UUID, toTabId: UUID) {

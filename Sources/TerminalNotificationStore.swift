@@ -311,8 +311,8 @@ final class TerminalNotificationStore: ObservableObject {
     /// Forwards a dismiss/clear to the user's phone. Call only from the
     /// change-confirmed branch of a user-driven read/clear/remove path, so the
     /// Mac→iOS→Mac echo can't loop. Session restore / surface rebind paths must
-    /// NOT call this: they reassign ids on churn and would clear a phone banner
-    /// that should persist.
+    /// not call this unless two owner keys collide: ordinary churn preserves
+    /// the phone banner, while a collision must dismiss the displaced owner.
     ///
     /// Two lanes share this chokepoint: the instant peer event for a
     /// live-attached phone, and a silent APNs badge push (the cold lane) so a
@@ -1594,8 +1594,24 @@ final class TerminalNotificationStore: ObservableObject {
             focused[toTabId] = panelIdMap[oldSurfaceId] ?? oldSurfaceId
         }
         if focused != focusedReadIndicatorByTabId { focusedReadIndicatorByTabId = focused }
-        externalBannerOwnership.transfer(fromTabId: fromTabId, toTabId: toTabId, panelIdMap: panelIdMap)
+        let displacedOwners = externalBannerOwnership.transfer(
+            fromTabId: fromTabId,
+            toTabId: toTabId,
+            panelIdMap: panelIdMap
+        )
         supersededPhoneDismissBuffer.transfer(fromTabId: fromTabId, toTabId: toTabId, panelIdMap: panelIdMap)
+        guard !displacedOwners.isEmpty else { return }
+
+        let displacedIds = Set(displacedOwners.map { $0.id.uuidString }).sorted()
+        let displacedKeys = Set(displacedOwners.map {
+            SupersededPhoneDismissBuffer.key(tabId: $0.tabId, surfaceId: $0.surfaceId)
+        })
+        let drainedSuperseded = displacedKeys.sorted().flatMap {
+            supersededPhoneDismissBuffer.flush(forKey: $0)
+        }
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: displacedIds)
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: displacedIds)
+        emitNotificationsDismissed(ids: displacedIds, drainedSuperseded: drainedSuperseded)
     }
 
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
