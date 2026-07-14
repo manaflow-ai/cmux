@@ -512,7 +512,9 @@ impl CmuxClient {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
-        if protocol > 6 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
+        // Protocol 7 is additive: an attach without `mode` is the exact v6
+        // byte stream, so the v6 opt-in covers 6 and 7 alike.
+        if protocol > 7 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
             return Err(CmuxError::ProtocolVersion(format!(
                 "unsupported attach protocol {protocol}"
             )));
