@@ -42,6 +42,11 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
         }
     }
 
+    deinit {
+        replayBoundaryContinuation.finish()
+        ordinaryContinuation.finish()
+    }
+
     func registerReplayBoundaries(startBoundary: String, endBoundary: String) {
         _ = boundaryGeneration.wrappingAdd(1, ordering: .acquiringAndReleasing)
         startBoundaryHash.store(Self.stableHash(startBoundary), ordering: .releasing)
