@@ -20,6 +20,9 @@
   ];
   const preferredAttributes = ["data-testid", "data-test", "data-qa", "aria-label", "name"];
   const selectorAttributes = new Set(["id", "class", ...preferredAttributes]);
+  const urlBearingAttributes = new Set([
+    "action", "cite", "data", "formaction", "href", "ping", "poster", "src", "srcset",
+  ]);
   const maxSnapshotCharacters = 128 * 1024;
   const maxTextCharacters = 16 * 1024;
   const maxTextNodeCount = 512;
@@ -46,6 +49,7 @@
   let selectionIdentityNeedsRefresh = false;
   let selectionRecoveryFrame = 0;
   let selectionRecoveryAttemptsRemaining = 0;
+  let editStateNeedsEmit = false;
   let overlayFrame = 0;
   let captureHidden = false;
   const edits = new Map();
@@ -162,6 +166,15 @@
     if (!element || element.nodeType !== 1) return false;
     if (["script", "style"].includes(element.localName)) return true;
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) return true;
+    let editableAncestor = element;
+    while (editableAncestor) {
+      const contentEditable = String(editableAncestor.getAttribute?.("contenteditable") || "").toLowerCase();
+      const role = String(editableAncestor.getAttribute?.("role") || "").toLowerCase();
+      if (editableAncestor.isContentEditable
+          || (editableAncestor.hasAttribute?.("contenteditable") && contentEditable !== "false")
+          || role === "textbox") return true;
+      editableAncestor = editableAncestor.parentElement;
+    }
     const autocomplete = String(element.getAttribute?.("autocomplete") || "");
     if (sensitiveAutocompletePattern.test(autocomplete)) return true;
     return hasSensitiveName(element.getAttribute?.("name")) || hasSensitiveName(element.id);
@@ -170,7 +183,8 @@
   const sanitizedAttributeValue = (element, attribute) => {
     const name = String(attribute.name || "");
     const value = String(attribute.value || "");
-    if (hasSensitiveName(name)
+    if (urlBearingAttributes.has(name.toLowerCase())
+        || hasSensitiveName(name)
         || (isSensitiveElement(element)
           && !["id", "name", "type", "autocomplete", "class", "role", "aria-label"].includes(name.toLowerCase()))
         || /(?:token|secret|password|passwd|credential|authorization|api[-_]?key)\s*[:=]/i.test(value)) {
@@ -408,6 +422,19 @@
     }
   };
 
+  const capturePageStyleMutation = (element) => {
+    const originals = styleOriginals.get(element);
+    if (!originals) return;
+    for (const edit of edits.values()) {
+      if (edit.kind !== "style" || !originals.has(edit.property)) continue;
+      const value = element.style.getPropertyValue(edit.property);
+      const priority = element.style.getPropertyPriority(edit.property);
+      if (value !== edit.value || priority !== "important") {
+        originals.set(edit.property, { value, priority });
+      }
+    }
+  };
+
   const restoreStyleProperty = (property) => {
     for (const [element, originals] of styleOriginals) {
       const original = originals.get(property);
@@ -454,6 +481,19 @@
     if (!rememberTextOriginal(element)) return false;
     if (element.textContent !== value) element.textContent = value;
     return true;
+  };
+
+  const capturePageTextMutation = (element) => {
+    const edit = edits.get("text:text-content");
+    if (!edit || edit.kind !== "text") return false;
+    if (!textIsEditable(element)) {
+      edits.delete(edit.id);
+      textOriginals.delete(element);
+      return true;
+    }
+    const value = textValue(element);
+    if (value !== edit.value) textOriginals.set(element, { value });
+    return false;
   };
 
   const applyEditsTo = (element) => {
@@ -503,6 +543,16 @@
     overlayHost.style.setProperty("z-index", "2147483647", "important");
     const shadow = overlayHost.attachShadow({ mode: "closed" });
 
+    const shield = document.createElement("div");
+    Object.assign(shield.style, {
+      display: "block",
+      position: "fixed",
+      inset: "0",
+      pointerEvents: "auto",
+      cursor: "crosshair",
+      background: "transparent",
+    });
+
     const margin = box("margin", "rgba(246, 178, 107, 0.28)");
     const border = box("border", "rgba(255, 214, 102, 0.30)");
     const padding = box("padding", "rgba(131, 211, 124, 0.30)");
@@ -527,14 +577,16 @@
       textOverflow: "ellipsis",
     });
 
-    shadow.append(margin, border, padding, content, badge);
+    shadow.append(shield, margin, border, padding, content, badge);
     document.documentElement.appendChild(overlayHost);
-    overlay = { margin, border, padding, content, badge };
+    overlay = { shield, margin, border, padding, content, badge };
   };
 
   const hideOverlay = () => {
     if (!overlay) return;
-    for (const element of Object.values(overlay)) element.style.display = "none";
+    for (const [name, element] of Object.entries(overlay)) {
+      element.style.display = name === "shield" && enabled ? "block" : "none";
+    }
   };
 
   const place = (element, rect) => {
@@ -552,6 +604,7 @@
       return;
     }
     createOverlay();
+    if (hoveredElement && !hoveredElement.isConnected) hoveredElement = null;
     const selected = resolveSelectedElement();
     const element = hoveredElement?.isConnected ? hoveredElement : selected;
     if (!element) {
@@ -609,6 +662,8 @@
 
   const refreshAfterMutation = (emitRecoveredSelection = false) => {
     refreshScheduled = false;
+    const editsChanged = editStateNeedsEmit;
+    editStateNeedsEmit = false;
     let identityChanged = false;
     if (selectionIdentityNeedsRefresh && selectedElement?.isConnected && selectedBaseline) {
       const selectors = selectorsFor(selectedElement);
@@ -642,7 +697,7 @@
     } else if (previous) {
       selectionRecoveryAttemptsRemaining = maxSelectionRecoveryAttempts;
     }
-    if (previous !== current || identityChanged || (emitRecoveredSelection && current)) {
+    if (previous !== current || identityChanged || editsChanged || (emitRecoveredSelection && current)) {
       revision += 1;
       emit();
     }
@@ -698,9 +753,16 @@
     const selected = selectedElement;
     if (!selectedBaseline) return false;
     if (!selected) return mutationCanRestoreSelection(mutation);
-    if (mutation.type === "characterData") return nodeContains(selected, mutation.target);
+    if (mutation.type === "characterData") {
+      if (!nodeContains(selected, mutation.target)) return false;
+      if (capturePageTextMutation(selected)) editStateNeedsEmit = true;
+      return true;
+    }
     if (mutation.type === "attributes") {
-      if (mutation.target === selected && mutation.attributeName === "style") return true;
+      if (mutation.target === selected && mutation.attributeName === "style") {
+        capturePageStyleMutation(selected);
+        return true;
+      }
       if (!selectorAttributes.has(mutation.attributeName || "")) return false;
       if (mutation.target === selected || nodeContains(mutation.target, selected)) {
         selectionIdentityNeedsRefresh = true;
@@ -709,7 +771,10 @@
       return false;
     }
     if (mutation.type !== "childList") return false;
-    if (nodeContains(selected, mutation.target)) return true;
+    if (nodeContains(selected, mutation.target)) {
+      if (capturePageTextMutation(selected)) editStateNeedsEmit = true;
+      return true;
+    }
     for (const node of mutation.removedNodes) {
       if (nodeContains(node, selected)) return true;
     }
@@ -725,6 +790,11 @@
   };
 
   const onMutations = (mutations) => {
+    if (hoveredElement && mutations.some((mutation) => mutation.type === "childList"
+      && Array.from(mutation.removedNodes).some((node) => nodeContains(node, hoveredElement)))) {
+      hoveredElement = null;
+      scheduleOverlayRefresh();
+    }
     if (!selectedElement && selectedBaseline) {
       if (mutations.some(mutationCanRestoreSelection)) scheduleSelectionRecovery();
       return;
@@ -761,20 +831,41 @@
 
   const onPointerMove = (event) => {
     if (!enabled || captureHidden) return;
-    const candidate = document.elementFromPoint(event.clientX, event.clientY);
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    const candidate = elementUnderPoint(event.clientX, event.clientY);
     if (!candidate || candidate === hoveredElement) return;
     hoveredElement = candidate;
     scheduleOverlayRefresh();
   };
 
-  const onClick = (event) => {
+  const elementUnderPoint = (x, y) => {
+    const shield = overlay?.shield;
+    shield?.style.setProperty("pointer-events", "none", "important");
+    try {
+      const candidate = document.elementFromPoint(x, y);
+      return candidate === overlayHost || overlayHost?.contains(candidate) ? null : candidate;
+    } finally {
+      shield?.style.setProperty("pointer-events", "auto", "important");
+    }
+  };
+
+  const onPointerDown = (event) => {
     if (!enabled || captureHidden) return;
-    const candidate = document.elementFromPoint(event.clientX, event.clientY) || event.target;
-    if (!candidate) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    selectElement(candidate);
+    if (event.button !== 0) return;
+    const candidate = elementUnderPoint(event.clientX, event.clientY);
+    if (candidate) selectElement(candidate);
+  };
+
+  const blockPageGesture = (event) => {
+    if (!enabled || captureHidden) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
   };
 
   const onKeyDown = (event) => {
@@ -795,7 +886,10 @@
 
   const installListeners = () => {
     document.addEventListener("pointermove", onPointerMove, true);
-    document.addEventListener("click", onClick, true);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    for (const name of ["pointerup", "mousedown", "mouseup", "click", "dblclick", "contextmenu"]) {
+      document.addEventListener(name, blockPageGesture, true);
+    }
     document.addEventListener("keydown", onKeyDown, true);
     globalThis.addEventListener("scroll", scheduleOverlayRefresh, true);
     globalThis.addEventListener("resize", scheduleOverlayRefresh, true);
@@ -811,7 +905,10 @@
 
   const removeListeners = () => {
     document.removeEventListener("pointermove", onPointerMove, true);
-    document.removeEventListener("click", onClick, true);
+    document.removeEventListener("pointerdown", onPointerDown, true);
+    for (const name of ["pointerup", "mousedown", "mouseup", "click", "dblclick", "contextmenu"]) {
+      document.removeEventListener(name, blockPageGesture, true);
+    }
     document.removeEventListener("keydown", onKeyDown, true);
     globalThis.removeEventListener("scroll", scheduleOverlayRefresh, true);
     globalThis.removeEventListener("resize", scheduleOverlayRefresh, true);

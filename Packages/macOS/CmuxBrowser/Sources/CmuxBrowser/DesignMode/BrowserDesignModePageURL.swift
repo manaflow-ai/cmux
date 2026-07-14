@@ -2,6 +2,8 @@ import Foundation
 
 /// Keeps URL structure while redacting route and value content before agent handoff.
 nonisolated struct BrowserDesignModePageURL {
+    private static let maxInputUTF8Bytes = 8_192
+    private static let maxOutputUTF8Bytes = 4_096
     private let rawValue: String
 
     init(rawValue: String) {
@@ -9,6 +11,7 @@ nonisolated struct BrowserDesignModePageURL {
     }
 
     var sanitizedValue: String {
+        guard isWithinUTF8Limit(rawValue, limit: Self.maxInputUTF8Bytes) else { return "" }
         guard var components = URLComponents(string: rawValue) else { return "" }
         components.user = nil
         components.password = nil
@@ -19,7 +22,8 @@ nonisolated struct BrowserDesignModePageURL {
         if let fragment = components.percentEncodedFragment {
             components.percentEncodedFragment = sanitizedFragment(fragment)
         }
-        return components.string ?? ""
+        let result = components.string ?? ""
+        return isWithinUTF8Limit(result, limit: Self.maxOutputUTF8Bytes) ? result : ""
     }
 
     private func sanitizedFragment(_ fragment: String) -> String? {
@@ -61,5 +65,9 @@ nonisolated struct BrowserDesignModePageURL {
                 value: item.value == nil ? nil : "<redacted>"
             )
         }
+    }
+
+    private func isWithinUTF8Limit(_ value: String, limit: Int) -> Bool {
+        value.utf8.prefix(limit + 1).count <= limit
     }
 }
