@@ -461,7 +461,6 @@ public struct SettingsWindowRoot: View {
 
         BetaFeaturesSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .betaFeatures))
-
         AutomationSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
