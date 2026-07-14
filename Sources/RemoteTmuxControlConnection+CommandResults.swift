@@ -9,6 +9,18 @@ extension RemoteTmuxControlConnection {
         // misalign the positional correlation.
         guard !pendingCommands.isEmpty else { return }
         let kind = pendingCommands.removeFirst()
+        #if DEBUG
+        switch kind {
+        case .paneRects, .listWindows, .perWindowSize:
+            cmuxDebugLog(
+                "remote.fifo.dequeue \(kind) depth=\(pendingCommands.count)"
+                    + " err=\(isError ? 1 : 0) lines=\(lines.count)"
+                    + " bytes=\(lines.reduce(0) { $0 + $1.utf8.count })"
+            )
+        default:
+            break
+        }
+        #endif
         defer {
             if case .listWindows = kind {
                 completeWindowListRequest()
@@ -32,7 +44,7 @@ extension RemoteTmuxControlConnection {
             // whole connection.
             if case let .perWindowSize(windowId) = kind {
                 if lines.joined(separator: " ").localizedCaseInsensitiveContains("find window") {
-                    lastWindowSizes[windowId] = nil
+                    removeWindowSizeClaim(windowId: windowId)
                 } else {
                     notePerWindowSizeRejected()
                 }
@@ -167,7 +179,7 @@ extension RemoteTmuxControlConnection {
                 // Per-window sizing state must not outlive the topology: a
                 // stale pin would be replayed by the reconnect reseed, and a
                 // pending debounce could fire at a dead @id.
-                lastWindowSizes = lastWindowSizes.filter { liveIDs.contains($0.key) }
+                retainWindowSizeClaims(for: liveIDs)
                 for (id, task) in windowSizeDebounceTasks where !liveIDs.contains(id) {
                     task.cancel()
                     windowSizeDebounceTasks[id] = nil
@@ -176,8 +188,14 @@ extension RemoteTmuxControlConnection {
                     lastSizeRequestWindowId = nil
                 }
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
-                windowTitleRowsVisible = windowTitleRowsVisible.filter { liveIDs.contains($0.key) }
+                windowTitleRowPlacements = windowTitleRowPlacements.filter { liveIDs.contains($0.key) }
                 prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
+                #if DEBUG
+                cmuxDebugLog(
+                    "remote.window.snapshot order=\(order)"
+                        + " prior=\(windowOrder)"
+                )
+                #endif
                 windowOrder = shouldApplyWindowOrder
                     ? order
                     : decoding.windowOrder(order, applyingReorder: optimisticLiveOrder)

@@ -58,6 +58,7 @@ bool ghostty_surface_process_exited(void *surface) {
 }
 void ghostty_surface_process_output(void) {}
 void ghostty_surface_quicklook_font(void) {}
+void ghostty_surface_read_screen_tail_vt(void) {}
 void ghostty_surface_read_text(void) {}
 void ghostty_surface_refresh(void) {}
 float ghostty_surface_font_size(void *surface) { (void)surface; return 12; }

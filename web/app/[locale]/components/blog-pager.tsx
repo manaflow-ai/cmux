@@ -1,12 +1,14 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link, usePathname } from "../../../i18n/navigation";
-import { blogPosts } from "./blog-posts";
+import { blogPostsForLocale } from "./blog-posts";
 
 export function BlogPager() {
   const pathname = usePathname();
+  const locale = useLocale();
   const t = useTranslations("blog.posts");
+  const blogPosts = blogPostsForLocale(locale);
   const index = blogPosts.findIndex(
     (post) => `/blog/${post.slug}` === pathname
   );
