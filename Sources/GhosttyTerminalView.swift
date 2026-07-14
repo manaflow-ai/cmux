@@ -7332,7 +7332,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @objc private func resetTerminal(_ sender: Any?) {
-        _ = performBindingAction("reset")
+        _ = terminalSurface?.performExplicitInputBindingAction("reset")
     }
     override func mouseMoved(with event: NSEvent) {
         maybeRequestFirstResponderForMouseFocus()

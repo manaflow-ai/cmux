@@ -37,6 +37,30 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(surfaceView.performedRows == [256])
     }
 
+    @Test func explicitInputCancelsRequestButRetainsReplayAuthority() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(scrollbar(total: 400, offset: 356, len: 44))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+
+        hostedView.terminalSurfaceDidReceiveExplicitInput()
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(
+            boundary,
+            authoritativeGeometry: surfaceView.authoritativeGeometry
+        ))
+        surfaceView.setAuthoritativeScrollbar(scrollbar(total: 500, offset: 456, len: 44))
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 10_000)
+        ))
+        #expect(surfaceView.performedRows == [256])
+    }
+
     @Test func activationAfterEndBoundaryUsesAuthoritativeTerminalGeometry() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)

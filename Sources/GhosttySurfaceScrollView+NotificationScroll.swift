@@ -39,7 +39,8 @@ extension GhosttySurfaceScrollView {
                 attemptsRemaining: 2,
                 replayContext: .stable(geometry)
             )
-        case .inactive, .completedAwaitingGeometry, .completed:
+        case .inactive, .armedAfterExplicitInput, .replayingAfterExplicitInput,
+             .completedAwaitingGeometry, .completed:
             notificationScrollRestoreState.request = .awaitingInitialGeometry(
                 position: position,
                 attemptsRemaining: 2
@@ -108,6 +109,7 @@ extension GhosttySurfaceScrollView {
             return false
         }
         guard let geometry = surfaceView.authoritativeScrollbarGeometry() else { return false }
+        guard geometry.scrollbar.len > 0 else { return false }
         if let capturedRevision = position.rowSpaceRevision,
            position.row != 0,
            capturedRevision != geometry.rowSpaceRevision {
@@ -157,17 +159,8 @@ extension GhosttySurfaceScrollView {
             : authoritativeGeometry ?? currentGeometry else {
             return false
         }
-        let effectiveReplayContext: NotificationReplayRestoreContext
-        if case .provisional = replayContext,
-           replayContext.geometry.rowSpaceRevision != geometry.rowSpaceRevision {
-            notificationScrollRestoreState.replay = .completed(geometry)
-            effectiveReplayContext = .provisional(geometry)
-        } else {
-            effectiveReplayContext = replayContext
-        }
-        let anchorGeometry = effectiveReplayContext.geometry
-        if case .stable = effectiveReplayContext,
-           position.row != 0,
+        let anchorGeometry = replayContext.geometry
+        if position.row != 0,
            anchorGeometry.rowSpaceRevision != geometry.rowSpaceRevision {
             clearPendingNotificationScrollRestore()
             return false
@@ -203,19 +196,10 @@ extension GhosttySurfaceScrollView {
                 ) != nil
             },
             pendingRequest: { remaining in
-                let retryContext: NotificationReplayRestoreContext = switch effectiveReplayContext {
-                case .provisional:
-                    .provisional(geometry)
-                case .stable:
-                    effectiveReplayContext
-                }
-                if case .provisional = effectiveReplayContext {
-                    self.notificationScrollRestoreState.replay = .completed(geometry)
-                }
                 return .awaitingPostReplayRestore(
                     position: position,
                     attemptsRemaining: remaining,
-                    replayContext: retryContext
+                    replayContext: replayContext
                 )
             }
         )
@@ -269,13 +253,21 @@ extension GhosttySurfaceScrollView {
 
     func cancelPendingNotificationScrollRestoreForUserInput() {
         switch notificationScrollRestoreState.replay {
-        case .armed, .replaying:
-            notificationScrollRestoreState.replay = .inactive
-            clearPendingNotificationScrollRestore()
+        case .armed(let expectedStartBoundary, let expectedEndBoundary):
+            notificationScrollRestoreState.replay = .armedAfterExplicitInput(
+                expectedStartBoundary: expectedStartBoundary,
+                expectedEndBoundary: expectedEndBoundary
+            )
+        case .replaying(let expectedEndBoundary):
+            notificationScrollRestoreState.replay = .replayingAfterExplicitInput(
+                expectedEndBoundary: expectedEndBoundary
+            )
+        case .armedAfterExplicitInput, .replayingAfterExplicitInput:
+            break
         case .inactive, .completedAwaitingGeometry, .completed:
-            guard notificationScrollRestoreState.pendingPosition != nil else { return }
-            clearPendingNotificationScrollRestore()
+            break
         }
+        clearPendingNotificationScrollRestore()
     }
 
     func armSessionScrollbackReplay(expectedStartBoundary: String, expectedEndBoundary: String) {
@@ -308,18 +300,30 @@ extension GhosttySurfaceScrollView {
         _ boundary: String,
         authoritativeGeometry: NotificationScrollRestoreGeometry? = nil
     ) -> Bool {
-        if case .armed(let expectedStartBoundary, let expectedEndBoundary) =
-            notificationScrollRestoreState.replay,
-            boundary == expectedStartBoundary {
+        switch notificationScrollRestoreState.replay {
+        case .armed(let expectedStartBoundary, let expectedEndBoundary)
+            where boundary == expectedStartBoundary:
             notificationScrollRestoreState.replay = .replaying(
                 expectedEndBoundary: expectedEndBoundary
             )
             return true
+        case .armedAfterExplicitInput(let expectedStartBoundary, let expectedEndBoundary)
+            where boundary == expectedStartBoundary:
+            notificationScrollRestoreState.replay = .replayingAfterExplicitInput(
+                expectedEndBoundary: expectedEndBoundary
+            )
+            return true
+        default:
+            break
         }
-        guard case .replaying(let expectedEndBoundary) = notificationScrollRestoreState.replay,
-              boundary == expectedEndBoundary else {
+        let expectedEndBoundary: String
+        switch notificationScrollRestoreState.replay {
+        case .replaying(let value), .replayingAfterExplicitInput(let value):
+            expectedEndBoundary = value
+        default:
             return false
         }
+        guard boundary == expectedEndBoundary else { return false }
 
         if let geometry = authoritativeGeometry ?? surfaceView.authoritativeScrollbarGeometry() {
             notificationScrollRestoreState.replay = .completed(geometry)
