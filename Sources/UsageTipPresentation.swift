@@ -1,6 +1,6 @@
 import Foundation
 
-struct UsageTipPresentation: Identifiable, Equatable {
+nonisolated struct UsageTipPresentation: Identifiable, Equatable {
     let tip: UsageTip
     let shortcutLabel: String?
     let windowID: UUID

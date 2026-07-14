@@ -12,7 +12,8 @@ final class UsageTipsOverlayContainerView: NSView {
         guard let interactiveView,
               !isHidden,
               !interactiveView.isHidden else { return nil }
-        let localPoint = interactiveView.convert(point, from: self)
+        let containerPoint = convert(point, from: superview)
+        let localPoint = interactiveView.convert(containerPoint, from: self)
         let bounds = interactiveView.bounds
         let interactiveBounds = NSRect(
             x: bounds.minX + interactiveContentInsets.left,
@@ -21,6 +22,6 @@ final class UsageTipsOverlayContainerView: NSView {
             height: max(0, bounds.height - interactiveContentInsets.top - interactiveContentInsets.bottom)
         )
         guard interactiveBounds.contains(localPoint) else { return nil }
-        return interactiveView.hitTest(localPoint)
+        return interactiveView.hitTest(containerPoint)
     }
 }

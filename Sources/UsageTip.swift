@@ -1,4 +1,4 @@
-struct UsageTip: Identifiable, Equatable {
+nonisolated struct UsageTip: Identifiable, Equatable {
     let id: UsageTipID
     let title: String
     let body: String

@@ -1,6 +1,6 @@
 import Foundation
 
-struct UsageTipsCatalog {
+nonisolated struct UsageTipsCatalog {
     let tips: [UsageTip]
 
     init(tips: [UsageTip]? = nil) {

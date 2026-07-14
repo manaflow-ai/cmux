@@ -11,6 +11,23 @@ struct UsageTipCard: View {
     }
 
     var body: some View {
+        ViewThatFits(in: .vertical) {
+            cardContent
+            ScrollView(.vertical) {
+                cardContent
+            }
+        }
+        .frame(minWidth: 220, idealWidth: 344, maxWidth: 344, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Color.primary.opacity(0.13), lineWidth: 0.8)
+        }
+        .shadow(color: .black.opacity(0.24), radius: 16, x: 0, y: 7)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var cardContent: some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(alignment: .center, spacing: 8) {
                 Text(String(localized: "usageTips.badge", defaultValue: "TIP"))
@@ -66,14 +83,6 @@ struct UsageTipCard: View {
             }
         }
         .padding(14)
-        .frame(width: 344, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .stroke(Color.primary.opacity(0.13), lineWidth: 0.8)
-        }
-        .shadow(color: .black.opacity(0.24), radius: 16, x: 0, y: 7)
-        .accessibilityElement(children: .contain)
     }
 
     private var headline: some View {

@@ -3,11 +3,11 @@ import CmuxFoundation
 import ObjectiveC
 import SwiftUI
 
-private var usageTipsWindowOverlayKey: UInt8 = 0
 private let usageTipsOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.usageTips.overlay.container")
 
 @MainActor
 final class UsageTipsWindowOverlayController: NSObject {
+    private static var associationKey: UInt8 = 0
     private static let cardPadding: CGFloat = 18
     private static let fadeDuration: TimeInterval = 0.24
 
@@ -39,7 +39,7 @@ final class UsageTipsWindowOverlayController: NSObject {
         )
         objc_setAssociatedObject(
             window,
-            &usageTipsWindowOverlayKey,
+            &Self.associationKey,
             overlayController,
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
@@ -48,7 +48,7 @@ final class UsageTipsWindowOverlayController: NSObject {
     }
 
     static func controller(for window: NSWindow) -> UsageTipsWindowOverlayController? {
-        objc_getAssociatedObject(window, &usageTipsWindowOverlayKey) as? UsageTipsWindowOverlayController
+        objc_getAssociatedObject(window, &Self.associationKey) as? UsageTipsWindowOverlayController
     }
 
     private init(window: NSWindow, controller: UsageTipsController, windowID: UUID) {
@@ -91,8 +91,8 @@ final class UsageTipsWindowOverlayController: NSObject {
         hostingView.layer?.masksToBounds = false
         hostingView.setContentHuggingPriority(.required, for: .horizontal)
         hostingView.setContentHuggingPriority(.required, for: .vertical)
-        hostingView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
+        hostingView.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        hostingView.setContentCompressionResistancePriority(.defaultHigh, for: .vertical)
         containerView.interactiveView = hostingView
         containerView.interactiveContentInsets = NSEdgeInsets(
             top: Self.cardPadding,
@@ -102,6 +102,8 @@ final class UsageTipsWindowOverlayController: NSObject {
         )
         containerView.addSubview(hostingView)
         NSLayoutConstraint.activate([
+            hostingView.leadingAnchor.constraint(greaterThanOrEqualTo: containerView.leadingAnchor),
+            hostingView.topAnchor.constraint(greaterThanOrEqualTo: containerView.topAnchor),
             hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             hostingView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
         ])

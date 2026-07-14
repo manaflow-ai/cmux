@@ -10,9 +10,9 @@ import SwiftUI
 /// First Click, File Drops, Open Files With, Open Supported Files in
 /// cmux, Terminal Config link, Open Markdown in cmux Viewer,
 /// Markdown Viewer typography, iMessage Mode, Reorder on Notification, Dock Badge,
-/// Menu Bar Only, Usage Tips, Show in Menu Bar, Unread Pane Ring, Pane Flash, Desktop
+/// Menu Bar Only, Show in Menu Bar, Unread Pane Ring, Pane Flash, Desktop
 /// Notifications, Notification Sound, Notification Command, Send
-/// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
+/// anonymous telemetry, Usage Tips, Warn Before Quit, Warn Before Closing Tab /
 /// X Button / Hide Tab Close Button, Rename Selects Existing Name,
 /// Command Palette Searches All Surfaces.
 @MainActor
