@@ -9385,6 +9385,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return state.snapshot().contains(where: predicate)
     }
 
+    func persistentSSHInitialStartupScriptForReconnectTest() throws -> String {
+        let run = try runMockedSSH(arguments: [])
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        return try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
+    }
+
     private func decodedReusableStartupScript(from command: String) -> String? {
         guard let markerRange = command.range(of: "printf %s ") else {
             return nil
