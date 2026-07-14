@@ -300,7 +300,7 @@ test("typed branch empty diffs keep the base picker available before base resolu
 test("typed source switching preserves the last resolved branch base", async () => {
   dom = createDom("cmux-diff-viewer://0123456789abcdef/branch.html");
   const requests: any[] = [];
-  installDomGlobals(dom, () => new Response("diff --git a/a b/a\n", { status: 200 }));
+  installDomGlobals(dom, () => new Response("", { status: 200 }));
   (dom.window as any).webkit = {
     messageHandlers: {
       cmuxDiff: {
@@ -346,6 +346,7 @@ test("typed source switching preserves the last resolved branch base", async () 
   );
 
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
+  await waitFor(() => dom?.window.document.querySelector(".base-picker-button")?.textContent?.includes("chosen-base") === true);
   const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
   sourceSelect.value = "unstaged";
   sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));

@@ -279,6 +279,10 @@ export function App({ config, initialStatus }: ConfigProps) {
     validDiffSource(payload.sessionSource) ? payload.sessionSource : null,
   );
   const [resolvedSessionSource, setResolvedSessionSource] = useState<DiffSource | null>(activeSessionSource);
+  const branchSourceByRepoRef = useRef(new Map<string, Extract<DiffSource, { kind: "branch" }>>());
+  if (activeSessionSource?.kind === "branch" && !branchSourceByRepoRef.current.has(activeSessionSource.repoRoot)) {
+    branchSourceByRepoRef.current.set(activeSessionSource.repoRoot, activeSessionSource);
+  }
   const [activePatchURL, setActivePatchURL] = useState<string | undefined>(payload.patchURL);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
   const latestState = useSyncedRef(state);
@@ -328,6 +332,12 @@ export function App({ config, initialStatus }: ConfigProps) {
         }
       });
   }, [payload.capabilityToken, transport]);
+  const rememberResolvedSessionSource = useCallback((source: DiffSource) => {
+    if (source.kind === "branch") {
+      branchSourceByRepoRef.current.set(source.repoRoot, source);
+    }
+    setResolvedSessionSource(source);
+  }, []);
 
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch, transport);
@@ -341,7 +351,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     activeSessionRef,
     closeActiveSession,
     activeSessionSource,
-    setResolvedSessionSource,
+    rememberResolvedSessionSource,
   );
   useCommentsBootstrap(bridgeAvailable ? commentRepoRoot : null, comments.onLoaded);
   useOptionsDismiss(state.optionsOpen, dispatch);
@@ -457,13 +467,20 @@ export function App({ config, initialStatus }: ConfigProps) {
         }}
         activeSessionSource={resolvedSessionSource ?? activeSessionSource}
         onSelectSessionSource={(source) => {
+          const currentSource = resolvedSessionSource ?? activeSessionSource;
+          const selectedSource = source.kind === "branch" && currentSource?.kind !== "branch"
+            ? branchSourceByRepoRef.current.get(source.repoRoot) ?? source
+            : source;
+          if (selectedSource.kind === "branch") {
+            branchSourceByRepoRef.current.set(selectedSource.repoRoot, selectedSource);
+          }
           const status = createDiffViewerStatus(label("loadingDiff"), { pending: true });
           applyDiffViewerStatusToDocument(status);
           dispatch({ type: "reset-diff", status });
           setActivePatchURL(undefined);
           void closeActiveSession();
-          setResolvedSessionSource(source);
-          setActiveSessionSource(source);
+          setResolvedSessionSource(selectedSource);
+          setActiveSessionSource(selectedSource);
         }}
         onReload={async () => {
           await closeActiveSession();
