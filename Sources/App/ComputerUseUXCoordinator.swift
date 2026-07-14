@@ -127,7 +127,19 @@ final class ComputerUseUXCoordinator {
 
         // Offer permission setup at app startup so the embedded driver does not
         // have to be the first process to discover missing TCC grants.
-        presentOnboardingAutomaticallyIfNeeded()
+        //
+        // Defer to a later main-runloop turn instead of presenting inline. install()
+        // runs inside applicationDidFinishLaunching, and presentOnboarding() brings
+        // up a key window (NSApp.activate + makeKeyAndOrderFront). Doing that
+        // synchronously here reenters AppKit key-window/first-responder handling
+        // while the main window's SwiftUI content — including the right-sidebar
+        // keyboard-focus host (`rs.focus.host.attach`) — is still attaching, which
+        // deadlocks the main thread at launch (reproduced on every fresh dev build,
+        // where the changed code signature drops the TCC grants so onboarding is due
+        // to present). The short delay lets the main window finish attaching first.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+            self?.presentOnboardingAutomaticallyIfNeeded()
+        }
     }
 
     func teardown() {
@@ -152,7 +164,12 @@ final class ComputerUseUXCoordinator {
     private func recordCapableSessionStarted() {
         agentSessionRequiresRestart = !permissionService.accessibilityGranted()
             || !permissionService.screenRecordingGranted()
-        presentOnboardingAutomaticallyIfNeeded()
+        // Defer for the same reason as the launch path: this fires from a menu-bar
+        // snapshot refresh on the main actor, and presenting a key window inline can
+        // reenter focus/first-responder handling. Hop to the next runloop turn.
+        DispatchQueue.main.async { [weak self] in
+            self?.presentOnboardingAutomaticallyIfNeeded()
+        }
     }
 
     private func presentOnboardingAutomaticallyIfNeeded() {
