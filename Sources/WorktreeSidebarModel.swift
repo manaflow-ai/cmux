@@ -44,20 +44,16 @@ final class WorktreeSidebarModel {
     @ObservationIgnored private var worktrees: [WorktreeSidebarWorktree] = []
     @ObservationIgnored private var statusByPath: [String: WorktreeSidebarStatus] = [:]
     @ObservationIgnored private var visiblePaths: Set<String> = []
-    @ObservationIgnored private var statusRefreshPendingPaths: Set<String> = []
+    @ObservationIgnored private var staleStatusRefreshPaths: Set<String> = []
+    @ObservationIgnored private var statusScheduler: WorktreeSidebarStatusScheduler!
     @ObservationIgnored private var listingRequestID: UInt64 = 0
-    @ObservationIgnored private var nextStatusRequestID: UInt64 = 0
-    @ObservationIgnored private var statusRequestIDs: [String: UInt64] = [:]
     @ObservationIgnored private var listingTask: Task<Void, Never>?
     @ObservationIgnored private var listingWatcherInstallTask: Task<Void, Never>?
     @ObservationIgnored private var listingWatcher: RecursivePathWatcher?
     @ObservationIgnored private var listingWatcherTask: Task<Void, Never>?
-    @ObservationIgnored private var statusTasks: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored private var statusDebounceTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var statusWatcherInstallTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var statusWatchers: [String: RecursivePathWatcher] = [:]
     @ObservationIgnored private var statusWatcherTasks: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored private let statusDebounceDuration: Duration
 
     init(
         projectRootPath: String,
@@ -70,7 +66,24 @@ final class WorktreeSidebarModel {
         self.git = git ?? WorktreeSidebarGitService()
         self.dialogs = dialogs ?? WorktreeSidebarDialogPresenter()
         self.workspaces = workspaces
-        self.statusDebounceDuration = statusDebounceDuration
+        let git = self.git
+        let root = projectRootPath
+        self.statusScheduler = WorktreeSidebarStatusScheduler(
+            delay: statusDebounceDuration,
+            probe: { path in
+                do {
+                    return try await git.isDirty(
+                        projectRootPath: root,
+                        worktreePath: path
+                    ) ? .success(.dirty) : .success(.clean)
+                } catch {
+                    return .failure
+                }
+            },
+            completion: { [weak self] path, result in
+                self?.completeStatusProbe(path: path, result: result)
+            }
+        )
     }
 
     var isRefreshing: Bool { listingPhase == .loading }
@@ -80,12 +93,14 @@ final class WorktreeSidebarModel {
     func start() {
         guard lifecyclePhase == .stopped else { return }
         lifecyclePhase = .running
+        statusScheduler.start()
         refresh()
         reconcileListingWatcher()
     }
 
     func stop() {
         lifecyclePhase = .stopped
+        statusScheduler.stop()
         listingRequestID &+= 1
         listingTask?.cancel()
         listingTask = nil
@@ -107,7 +122,7 @@ final class WorktreeSidebarModel {
     func refreshAll() {
         refresh()
         for path in visiblePaths {
-            requestStatusRefresh(path: path)
+            scheduleStatusRefresh(path: path)
         }
     }
 
@@ -204,7 +219,8 @@ final class WorktreeSidebarModel {
         let path = row.worktree.path
         guard visiblePaths.insert(path).inserted else { return }
         guard !row.worktree.isPrunable else { return }
-        requestStatusRefresh(path: path)
+        guard prepareStatusProbe(for: row.worktree) else { return }
+        scheduleStatusRefresh(path: path)
         reconcileStatusWatcher(path: path)
     }
 
@@ -267,9 +283,11 @@ final class WorktreeSidebarModel {
             stopStatusTracking(path: path)
         }
         statusByPath = statusByPath.filter { validPaths.contains($0.key) }
+        staleStatusRefreshPaths.formIntersection(validPaths)
         visiblePaths.formIntersection(validPaths)
         for worktree in worktrees where worktree.isPrunable {
             statusByPath[worktree.path] = .unavailable
+            staleStatusRefreshPaths.remove(worktree.path)
             stopStatusTracking(path: worktree.path)
         }
         rebuildRows()
@@ -289,50 +307,41 @@ final class WorktreeSidebarModel {
         }
     }
 
-    private func requestStatusRefresh(path: String) {
+    private func scheduleStatusRefresh(path: String) {
         guard lifecyclePhase == .running,
               visiblePaths.contains(path),
-              worktrees.contains(where: { $0.path == path && !$0.isPrunable }) else {
+              let worktree = worktrees.first(where: { $0.path == path && !$0.isPrunable }),
+              prepareStatusProbe(for: worktree) else {
             return
         }
-        if statusTasks[path] != nil {
-            statusRefreshPendingPaths.insert(path)
-            return
-        }
+        guard statusScheduler.enqueue(path: path) else { return }
         if statusByPath[path] == nil || statusByPath[path] == .unknown {
             statusByPath[path] = .loading
             rebuildRows()
         }
-        nextStatusRequestID &+= 1
-        let requestID = nextStatusRequestID
-        statusRequestIDs[path] = requestID
-        let task = Task { [weak self] in
-            guard let self else { return }
-            let status: WorktreeSidebarStatus
-            do {
-                status = try await git.isDirty(
-                    projectRootPath: projectRootPath,
-                    worktreePath: path
-                ) ? .dirty : .clean
-            } catch {
-                status = .unavailable
-            }
-            guard !Task.isCancelled,
-                  lifecyclePhase == .running,
-                  statusRequestIDs[path] == requestID else {
-                return
-            }
-            statusTasks[path] = nil
-            statusRequestIDs[path] = nil
-            if visiblePaths.contains(path) {
-                statusByPath[path] = status
+    }
+
+    private func completeStatusProbe(
+        path: String,
+        result: WorktreeSidebarStatusScheduler.ProbeResult
+    ) {
+        guard lifecyclePhase == .running,
+              visiblePaths.contains(path),
+              let worktree = worktrees.first(where: { $0.path == path && !$0.isPrunable }) else {
+            return
+        }
+        switch result {
+        case .success(let status):
+            statusByPath[path] = status
+            rebuildRows()
+        case .failure:
+            if requiresListingRefresh(for: worktree) {
+                requestListingRefreshForStaleWorktree(path: path)
+            } else {
+                statusByPath[path] = .unavailable
                 rebuildRows()
             }
-            if statusRefreshPendingPaths.remove(path) != nil {
-                scheduleStatusRefresh(path: path)
-            }
         }
-        statusTasks[path] = task
     }
 
     private func reconcileListingWatcher() {
@@ -384,23 +393,19 @@ final class WorktreeSidebarModel {
             statusWatcherTasks[path] = Task { @MainActor [weak self] in
                 for await _ in watcher.events {
                     guard let self else { break }
-                    let marker = URL(fileURLWithPath: path, isDirectory: true)
-                        .appendingPathComponent(".git", isDirectory: false)
-                    if FileManager.default.fileExists(atPath: marker.path) {
-                        scheduleStatusRefresh(path: path)
-                    } else {
+                    guard let worktree = worktrees.first(where: { $0.path == path }) else {
                         refresh()
+                        continue
                     }
+                    guard prepareStatusProbe(for: worktree) else { continue }
+                    scheduleStatusRefresh(path: path)
                 }
             }
         }
     }
 
     private func stopStatusTracking(path: String) {
-        statusDebounceTasks.removeValue(forKey: path)?.cancel()
-        statusTasks.removeValue(forKey: path)?.cancel()
-        statusRequestIDs[path] = nil
-        statusRefreshPendingPaths.remove(path)
+        statusScheduler.remove(path: path)
         statusWatcherInstallTasks.removeValue(forKey: path)?.cancel()
         statusWatcherTasks.removeValue(forKey: path)?.cancel()
         if let watcher = statusWatchers.removeValue(forKey: path) {
@@ -408,21 +413,30 @@ final class WorktreeSidebarModel {
         }
     }
 
-    private func scheduleStatusRefresh(path: String) {
-        guard statusDebounceTasks[path] == nil else { return }
-        let delay = statusDebounceDuration
-        // This bounded, cancellable delay rate-limits sustained watcher output.
-        // Hiding the row cancels it; later events cannot postpone refresh forever.
-        statusDebounceTasks[path] = Task { @MainActor [weak self] in
-            do {
-                try await ContinuousClock().sleep(for: delay)
-            } catch {
-                return
-            }
-            guard let self, !Task.isCancelled else { return }
-            statusDebounceTasks[path] = nil
-            requestStatusRefresh(path: path)
+    private func prepareStatusProbe(for worktree: WorktreeSidebarWorktree) -> Bool {
+        guard !requiresListingRefresh(for: worktree) else {
+            requestListingRefreshForStaleWorktree(path: worktree.path)
+            return false
         }
+        staleStatusRefreshPaths.remove(worktree.path)
+        return true
+    }
+
+    private func requiresListingRefresh(for worktree: WorktreeSidebarWorktree) -> Bool {
+        guard !worktree.isPrunable else { return false }
+        guard FileManager.default.fileExists(atPath: worktree.path) else { return true }
+        guard !worktree.isMain, !worktree.isBare else { return false }
+        let marker = URL(fileURLWithPath: worktree.path, isDirectory: true)
+            .appendingPathComponent(".git", isDirectory: false)
+        return !FileManager.default.fileExists(atPath: marker.path)
+    }
+
+    private func requestListingRefreshForStaleWorktree(path: String) {
+        statusScheduler.remove(path: path)
+        statusByPath[path] = .unavailable
+        rebuildRows()
+        guard staleStatusRefreshPaths.insert(path).inserted else { return }
+        refresh()
     }
 
     private static func details(for error: Error) -> String {

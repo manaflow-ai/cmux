@@ -38,10 +38,13 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
         projectRootPath: String,
         worktreePath: String
     ) async throws -> Bool {
-        !(try await statusPorcelain(
-            projectRootPath: projectRootPath,
+        try await WorktreeSidebarBoundedGitProbe(
+            commands: commands,
+            timeout: commandTimeout
+        ).hasVisibleChanges(
+            commandDirectory: projectRootPath,
             worktreePath: worktreePath
-        )).isEmpty
+        )
     }
 
     func inspectDeletion(
@@ -60,12 +63,10 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             throw WorktreeSidebarGitError.locked(reason: worktree.lockReason)
         }
 
-        let status = worktree.isPrunable
-            ? StatusSnapshot()
-            : try await deletionStatusSnapshot(
-                projectRootPath: projectRootPath,
-                worktreePath: worktree.path
-            )
+        let status = try await deletionStatus(
+            projectRootPath: projectRootPath,
+            worktree: worktree
+        )
         let localBranch = try await localBranch(
             projectRootPath: projectRootPath,
             worktree: worktree
@@ -87,8 +88,8 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             )
         return WorktreeSidebarDeletionInspection(
             worktree: worktree,
-            statusPorcelain: status.uncommitted,
-            ignoredStatusPorcelain: status.ignored,
+            hasUncommittedChanges: status.hasUncommittedChanges,
+            hasIgnoredFiles: status.hasIgnoredFiles,
             unpushedCommitCount: unpushedCommitCount,
             branchDisposition: branchDisposition,
             hasInitializedSubmodules: hasInitializedSubmodules
@@ -239,43 +240,26 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
         await metadata.watchedPaths(for: worktreePath) ?? []
     }
 
-    private func statusPorcelain(
+    private func deletionStatus(
         projectRootPath: String,
-        worktreePath: String
-    ) async throws -> String {
-        try await checkedGit(
-            projectRootPath: projectRootPath,
-            arguments: ["-C", worktreePath, "status", "--porcelain", "--untracked-files=all"],
-            operation: .status,
-            optionalLocks: true
-        )
-    }
-
-    private func deletionStatusSnapshot(
-        projectRootPath: String,
-        worktreePath: String
+        worktree: WorktreeSidebarWorktree
     ) async throws -> StatusSnapshot {
-        let output = try await checkedGit(
-            projectRootPath: projectRootPath,
-            arguments: [
-                "-C", worktreePath, "status", "--porcelain=v1", "-z",
-                "--untracked-files=all", "--ignored",
-            ],
-            operation: .status,
-            optionalLocks: true
+        guard !worktree.isPrunable else { return StatusSnapshot() }
+        let probe = WorktreeSidebarBoundedGitProbe(
+            commands: commands,
+            timeout: commandTimeout
         )
-        var uncommitted: [Substring] = []
-        var ignored: [Substring] = []
-        for entry in output.split(separator: "\0") {
-            if entry.hasPrefix("!! ") {
-                ignored.append(entry)
-            } else {
-                uncommitted.append(entry)
-            }
-        }
+        let hasUncommittedChanges = try await probe.hasDeletionChanges(
+            commandDirectory: projectRootPath,
+            worktreePath: worktree.path
+        )
+        let hasIgnoredFiles = try await probe.hasIgnoredFiles(
+            commandDirectory: projectRootPath,
+            worktreePath: worktree.path
+        )
         return StatusSnapshot(
-            uncommitted: uncommitted.joined(separator: "\0"),
-            ignored: ignored.joined(separator: "\0")
+            hasUncommittedChanges: hasUncommittedChanges,
+            hasIgnoredFiles: hasIgnoredFiles
         )
     }
 
@@ -493,7 +477,7 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
     }
 
     private struct StatusSnapshot {
-        var uncommitted = ""
-        var ignored = ""
+        var hasUncommittedChanges = false
+        var hasIgnoredFiles = false
     }
 }

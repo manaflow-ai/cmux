@@ -45,7 +45,7 @@ struct WorktreeSidebarGitTests {
     func listsShellCreatedWorktreesAndVisibleDirtyState() async throws {
         let fixture = try makeRepository()
         defer { try? FileManager.default.removeItem(at: fixture.container) }
-        let manual = fixture.container.appendingPathComponent("manual\nworktree", isDirectory: true)
+        let manual = fixture.container.appendingPathComponent("manual\n$(touch PWNED)", isDirectory: true)
         _ = try runGit(["worktree", "add", "-b", "manual", manual.path, "HEAD"], in: fixture.repo)
 
         let service = WorktreeSidebarGitService(commandTimeout: 10)
@@ -58,6 +58,14 @@ struct WorktreeSidebarGitTests {
         #expect(try await service.isDirty(
             projectRootPath: fixture.repo.path,
             worktreePath: manual.path
+        ))
+        let inspection = try await service.inspectDeletion(
+            projectRootPath: fixture.repo.path,
+            worktreePath: manual.path
+        )
+        #expect(inspection.hasUncommittedChanges)
+        #expect(!FileManager.default.fileExists(
+            atPath: fixture.repo.appendingPathComponent("PWNED").path
         ))
     }
 
@@ -374,6 +382,36 @@ struct WorktreeSidebarGitTests {
         let resolved = await WorktreeSidebarProjectRootResolver()
             .projectRoot(onDiskFor: worktree.path)
         #expect(resolved == canonical(fixture.repo))
+
+        let separate = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-separate-git-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: separate) }
+        let checkout = separate.appendingPathComponent("checkout", isDirectory: true)
+        let admin = separate.appendingPathComponent("admin.git", isDirectory: true)
+        let linked = separate.appendingPathComponent("linked", isDirectory: true)
+        try FileManager.default.createDirectory(at: checkout, withIntermediateDirectories: true)
+        _ = try runGit(["init", "--separate-git-dir", admin.path, "-b", "main"], in: checkout)
+        _ = try runGit(["config", "user.name", "cmux Test"], in: checkout)
+        _ = try runGit(["config", "user.email", "cmux@example.invalid"], in: checkout)
+        try Data("hello\n".utf8).write(to: checkout.appendingPathComponent("README.md"))
+        _ = try runGit(["add", "README.md"], in: checkout)
+        _ = try runGit(["commit", "-m", "initial"], in: checkout)
+        _ = try runGit(["worktree", "add", "-b", "linked", linked.path, "HEAD"], in: checkout)
+        let separateResolved = await WorktreeSidebarProjectRootResolver()
+            .projectRoot(onDiskFor: linked.path)
+        #expect(separateResolved == canonical(admin))
+    }
+
+    @Test("status queue is FIFO and deduplicated")
+    func statusQueueIsFIFOAndDeduplicated() {
+        var queue = WorktreeSidebarStatusQueue()
+        let now = ContinuousClock().now
+        #expect(queue.enqueue(path: "/a", eligibleAt: now))
+        #expect(!queue.enqueue(path: "/a", eligibleAt: now))
+        #expect(queue.enqueue(path: "/b", eligibleAt: now))
+        #expect(queue.popFirst() == "/a")
+        #expect(queue.remove(path: "/b"))
+        #expect(queue.isEmpty)
     }
 
     @Test("open-terminal request is interactive, eager, and focus-false by construction")
