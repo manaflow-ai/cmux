@@ -10,6 +10,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     static let shared = DiffSidecarBridge()
 
     nonisolated private enum InvocationCompletion: Sendable {
+        case ready(Bool)
         case terminated(Int32)
         case timedOut
         case missingTermination
@@ -26,6 +27,8 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     private nonisolated static let maximumResponseBytes = 32 * 1024 * 1024
     private nonisolated static let processPool = DiffSidecarProcessPool(limit: 4)
     private nonisolated static let processGroupReadyMarker = Data("cmux-diff-sidecar-process-group-ready\n".utf8)
+    private nonisolated static let startupTimeout: TimeInterval = 5
+    private nonisolated static let terminationGrace: TimeInterval = 0.25
     // Longer than the sidecar's 120-second branch regeneration limit.
     private nonisolated static let requestTimeout: TimeInterval = 130
     private var invocations: [UUID: Task<Void, Never>] = [:]
@@ -162,27 +165,36 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
         return try await withTaskCancellationHandler {
             try process.run()
-            do {
-                try readProcessGroupReady(from: readiness.fileHandleForReading)
-            } catch {
-                terminate(process: process, input: input, output: output, readiness: readiness)
-                process.waitUntilExit()
-                killProcessGroup(process, signal: SIGKILL)
-                throw error
-            }
-            if Task.isCancelled {
-                terminate(process: process, input: input, output: output, readiness: readiness)
-                process.waitUntilExit()
-                killProcessGroup(process, signal: SIGKILL)
-                throw CancellationError()
+            let startup = await waitForProcessGroupReady(
+                process: process,
+                input: input,
+                output: output,
+                readiness: readiness
+            )
+            guard case .ready(true) = startup else {
+                await terminateAndReap(
+                    process: process,
+                    input: input,
+                    output: output,
+                    readiness: readiness,
+                    termination: termination
+                )
+                if case .cancelled = startup {
+                    throw CancellationError()
+                }
+                throw InvocationError.timedOut
             }
             do {
                 try input.fileHandleForWriting.write(contentsOf: request)
                 try input.fileHandleForWriting.close()
             } catch {
-                terminate(process: process, input: input, output: output, readiness: readiness)
-                process.waitUntilExit()
-                killProcessGroup(process, signal: SIGKILL)
+                await terminateAndReap(
+                    process: process,
+                    input: input,
+                    output: output,
+                    readiness: readiness,
+                    termination: termination
+                )
                 throw error
             }
 
@@ -213,16 +225,22 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             switch completion {
             case .timedOut, .cancelled:
-                terminate(process: process, input: input, output: output, readiness: readiness)
-                process.waitUntilExit()
-                killProcessGroup(process, signal: SIGKILL)
-            case .terminated, .missingTermination:
+                await terminateAndReap(
+                    process: process,
+                    input: input,
+                    output: output,
+                    readiness: readiness,
+                    termination: termination
+                )
+            case .ready, .terminated, .missingTermination:
                 break
             }
             let outputData = await outputTask.value
 
             let status: Int32
             switch completion {
+            case .ready:
+                throw InvocationError.missingTermination
             case .terminated(let terminationStatus):
                 status = terminationStatus
             case .timedOut:
@@ -240,7 +258,37 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             }
             return outputData
         } onCancel: {
-            terminate(process: process, input: input, output: output, readiness: readiness)
+            requestTermination(process: process, input: input, output: output, readiness: readiness)
+        }
+    }
+
+    nonisolated private static func waitForProcessGroupReady(
+        process: Process,
+        input: Pipe,
+        output: Pipe,
+        readiness: Pipe
+    ) async -> InvocationCompletion {
+        let readTask = Task.detached(priority: .userInitiated) {
+            (try? readProcessGroupReady(from: readiness.fileHandleForReading)) != nil
+        }
+        return await withTaskGroup(of: InvocationCompletion.self) { group in
+            group.addTask { .ready(await readTask.value) }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: .seconds(startupTimeout))
+                    return .timedOut
+                } catch {
+                    return .cancelled
+                }
+            }
+            let completion = await group.next() ?? .missingTermination
+            if case .ready(true) = completion {
+                // The request can now be sent without racing process-group setup.
+            } else {
+                requestTermination(process: process, input: input, output: output, readiness: readiness)
+            }
+            group.cancelAll()
+            return completion
         }
     }
 
@@ -258,7 +306,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
     }
 
-    nonisolated private static func terminate(
+    nonisolated private static func requestTermination(
         process: Process,
         input: Pipe,
         output: Pipe,
@@ -274,6 +322,49 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             } else {
                 process.terminate()
             }
+        }
+    }
+
+    nonisolated private static func terminateAndReap(
+        process: Process,
+        input: Pipe,
+        output: Pipe,
+        readiness: Pipe,
+        termination: AsyncStream<Int32>
+    ) async {
+        requestTermination(process: process, input: input, output: output, readiness: readiness)
+        let terminated = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in termination {
+                    return true
+                }
+                return !process.isRunning
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: .seconds(terminationGrace))
+                } catch {
+                    return !process.isRunning
+                }
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+        if !terminated, process.isRunning {
+            forceTermination(process)
+        }
+        process.waitUntilExit()
+    }
+
+    nonisolated private static func forceTermination(_ process: Process) {
+        let processID = process.processIdentifier
+        guard processID > 0 else { return }
+        if Darwin.getpgid(processID) == processID {
+            killProcessGroup(process, signal: SIGKILL)
+        } else {
+            _ = Darwin.kill(processID, SIGKILL)
         }
     }
 
