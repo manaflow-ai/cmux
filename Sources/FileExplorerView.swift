@@ -1154,10 +1154,6 @@ final class FileExplorerContainerView: NSView {
         let showSearchField = (presentation.keepsSearchFieldVisible || isSearchVisible) && effectiveHasContent && !effectiveIsLoading
         let showSearchResults = isSearchVisible && effectiveHasContent && !effectiveIsLoading
         let nextSearchBarHeight = showSearchField ? searchBarVisibleHeight : 0
-        if presentation == .unified, effectiveHasContent, !effectiveIsLoading, let window {
-            if showSearchResults, window.firstResponder === outlineView { _ = window.makeFirstResponder(searchField) }
-            else if !showSearchResults, window.firstResponder === searchResultsView, window.makeFirstResponder(outlineView) { coordinator.noteKeyboardFocus(mode: .files, in: window) }
-        }
         // Assigning isHidden/constraints unconditionally fires KVO even when unchanged,
         // which re-enters updateNSView and spins the main thread on macOS 26 (#4931).
         var changed = false

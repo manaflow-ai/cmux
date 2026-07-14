@@ -36,6 +36,7 @@ final class FileExplorerSearchResultCellView: NSTableCellView {
     }
 
     private func setupViews() {
+        setAccessibilityElement(true)
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
         pathLabel.textColor = .labelColor
         pathLabel.lineBreakMode = .byTruncatingMiddle
@@ -72,6 +73,18 @@ final class FileExplorerSearchResultCellView: NSTableCellView {
         pathLabel.stringValue = result.relativePath
         let preview = result.preview.isEmpty ? " " : result.preview
         previewLabel.stringValue = "\(result.lineNumber): \(preview)"
+        let accessibilityFormat = String(
+            localized: "fileExplorer.search.result.accessibilityLabel",
+            defaultValue: "%@: line %lld"
+        )
+        setAccessibilityLabel(
+            String.localizedStringWithFormat(
+                accessibilityFormat,
+                result.relativePath,
+                Int64(result.lineNumber)
+            )
+        )
+        setAccessibilityValue(result.preview)
         toolTip = "\(result.path):\(result.lineNumber):\(result.columnNumber)"
     }
 
