@@ -57,8 +57,15 @@ public struct GitHubPullRequest: Decodable, Equatable, Sendable {
         mergeable = try container.decode(String.self, forKey: .mergeable)
         reviewDecision = try container.decodeIfPresent(String.self, forKey: .reviewDecision)
         mergeStateStatus = try container.decode(String.self, forKey: .mergeStateStatus)
-        isAutoMergeEnabled = container.contains(.autoMergeRequest)
-            && !(try container.decodeNil(forKey: .autoMergeRequest))
+        if container.contains(.autoMergeRequest) {
+            if try container.decodeNil(forKey: .autoMergeRequest) {
+                isAutoMergeEnabled = false
+            } else {
+                isAutoMergeEnabled = true
+            }
+        } else {
+            isAutoMergeEnabled = false
+        }
         baseRefName = try container.decode(String.self, forKey: .baseRefName)
         headRefName = try container.decode(String.self, forKey: .headRefName)
         baseRefOid = try container.decode(String.self, forKey: .baseRefOid)
