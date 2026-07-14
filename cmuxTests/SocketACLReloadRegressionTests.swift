@@ -292,6 +292,79 @@ struct SocketACLReloadRegressionTests {
         #expect(FileManager.default.fileExists(atPath: socketPath))
     }
 
+    @Test func deletedStalePathRecoversUsingLatestConfiguredPath() async throws {
+        let controller = TerminalController.shared
+        controller.stop()
+
+        let originalDelegate = AppDelegate.shared
+        let defaults = UserDefaults.standard
+        let originalMode = defaults.object(forKey: SocketControlSettings.appStorageKey)
+        let environmentKeys = [
+            "CMUX_SOCKET_PATH",
+            SocketControlSettings.allowSocketPathOverrideKey,
+            "CMUX_SOCKET_ENABLE",
+            "CMUX_SOCKET_MODE",
+        ]
+        let processEnvironment = ProcessInfo.processInfo.environment
+        let originalEnvironment = environmentKeys.map { ($0, processEnvironment[$0]) }
+        let directory = shortTemporaryDirectory(prefix: "salp")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let stalePath = directory.appendingPathComponent("stale.sock").path
+        let configuredPath = directory.appendingPathComponent("configured.sock").path
+        let appDelegate = AppDelegate()
+        defer {
+            controller.stop()
+            if let originalMode {
+                defaults.set(originalMode, forKey: SocketControlSettings.appStorageKey)
+            } else {
+                defaults.removeObject(forKey: SocketControlSettings.appStorageKey)
+            }
+            for (key, value) in originalEnvironment {
+                if let value {
+                    setenv(key, value, 1)
+                } else {
+                    unsetenv(key)
+                }
+            }
+            AppDelegate.shared = originalDelegate
+            try? FileManager.default.removeItem(at: directory)
+            _ = appDelegate
+        }
+
+        defaults.set(SocketControlMode.automation.rawValue, forKey: SocketControlSettings.appStorageKey)
+        setenv("CMUX_SOCKET_PATH", configuredPath, 1)
+        setenv(SocketControlSettings.allowSocketPathOverrideKey, "1", 1)
+        unsetenv("CMUX_SOCKET_ENABLE")
+        setenv("CMUX_SOCKET_MODE", SocketControlMode.automation.rawValue, 1)
+
+        controller.start(tabManager: TabManager(), socketPath: stalePath, accessMode: .automation)
+        #expect(controller.socketServer.isRunning)
+        #expect(controller.socketServer.currentSocketPath == stalePath)
+
+        let (restartPaths, restartContinuation) = AsyncStream<String>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .socketListenerDidStart,
+            object: controller,
+            queue: nil
+        ) { notification in
+            if let path = notification.userInfo?["path"] as? String {
+                restartContinuation.yield(path)
+            }
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+            restartContinuation.finish()
+        }
+
+        #expect(unlink(stalePath) == 0)
+        #expect(await firstValue(from: restartPaths, within: .seconds(5)) == configuredPath)
+        #expect(controller.socketServer.currentSocketPath == configuredPath)
+        #expect(FileManager.default.fileExists(atPath: configuredPath))
+        #expect(!FileManager.default.fileExists(atPath: stalePath))
+    }
+
     @Test func restartStopsListenerWhenModeIsOffWithoutTabManager() throws {
         let controller = TerminalController.shared
         controller.stop()
