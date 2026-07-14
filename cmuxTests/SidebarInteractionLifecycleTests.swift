@@ -2,6 +2,7 @@ import AppKit
 import CmuxSidebar
 import CmuxUpdater
 import OSLog
+import Observation
 import SwiftUI
 import Testing
 
@@ -32,6 +33,24 @@ final class SidebarInteractionLifecycleTests {
 
     private final class LifecycleTestWindow: NSPanel {
         override var canBecomeKey: Bool { true }
+    }
+
+    @MainActor
+    @Observable
+    private final class PresentationState {
+        var colorScheme: ColorScheme = .light
+        var tint = Color.blue
+    }
+
+    private struct PresentationHost<Content: View>: View {
+        let presentation: PresentationState
+        let content: Content
+
+        var body: some View {
+            content
+                .tint(presentation.tint)
+                .environment(\.colorScheme, presentation.colorScheme)
+        }
     }
 
     @MainActor
@@ -121,8 +140,7 @@ final class SidebarInteractionLifecycleTests {
         private let windowID = UUID()
         private let hostingView: NSHostingView<AnyView>
         private let defaults: UserDefaults
-        private var colorScheme: ColorScheme = .light
-        private var tint = Color.blue
+        private let presentation = PresentationState()
 
         private init(
             tabManager: TabManager,
@@ -288,12 +306,11 @@ final class SidebarInteractionLifecycleTests {
                 )
             }
 
-            colorScheme = pass.isMultiple(of: 2) ? .dark : .light
-            tint = pass.isMultiple(of: 2) ? .orange : .blue
+            presentation.colorScheme = pass.isMultiple(of: 2) ? .dark : .light
+            presentation.tint = pass.isMultiple(of: 2) ? .orange : .blue
             window.appearance = NSAppearance(
                 named: pass.isMultiple(of: 2) ? .darkAqua : .aqua
             )
-            hostingView.rootView = rootView()
 
             let scrollView = try #require(findScrollView(in: hostingView))
             let clipView = scrollView.contentView
@@ -309,36 +326,37 @@ final class SidebarInteractionLifecycleTests {
         private func rootView() -> AnyView {
             let counter = counter
             return AnyView(
-                VerticalTabsSidebar(
-                    updateViewModel: updateModel,
-                    fileExplorerState: fileExplorerState,
-                    windowId: windowID,
-                    onSendFeedback: {},
-                    onToggleSidebar: {},
-                    onNewTab: {},
-                    observedWindow: window,
-                    selection: .constant(.tabs),
-                    selectedTabIds: .constant([]),
-                    lastSidebarSelectionIndex: .constant(nil),
-                    sidebarRenderWorkerClient: .constant(nil)
-                )
-                .frame(width: 280)
-                .tint(tint)
-                .environment(\.colorScheme, colorScheme)
-                .environmentObject(tabManager)
-                .environmentObject(unread)
-                .environmentObject(CmuxConfigStore())
-                .environmentObject(TerminalNotificationStore.shared)
-                .environmentObject(SidebarState())
-                .environmentObject(SidebarSelectionState())
-                .environment(
-                    \.sidebarLazyContractProbe,
-                    SidebarLazyContractProbe(
-                        workspaceRowBody: { counter.workspaceRows += 1 },
-                        groupHeaderRowBody: { counter.groupHeaders += 1 }
+                PresentationHost(
+                    presentation: presentation,
+                    content: VerticalTabsSidebar(
+                        updateViewModel: updateModel,
+                        fileExplorerState: fileExplorerState,
+                        windowId: windowID,
+                        onSendFeedback: {},
+                        onToggleSidebar: {},
+                        onNewTab: {},
+                        observedWindow: window,
+                        selection: .constant(.tabs),
+                        selectedTabIds: .constant([]),
+                        lastSidebarSelectionIndex: .constant(nil),
+                        sidebarRenderWorkerClient: .constant(nil)
                     )
+                    .frame(width: 280)
+                    .environmentObject(tabManager)
+                    .environmentObject(unread)
+                    .environmentObject(CmuxConfigStore())
+                    .environmentObject(TerminalNotificationStore.shared)
+                    .environmentObject(SidebarState())
+                    .environmentObject(SidebarSelectionState())
+                    .environment(
+                        \.sidebarLazyContractProbe,
+                        SidebarLazyContractProbe(
+                            workspaceRowBody: { counter.workspaceRows += 1 },
+                            groupHeaderRowBody: { counter.groupHeaders += 1 }
+                        )
+                    )
+                    .defaultAppStorage(defaults)
                 )
-                .defaultAppStorage(defaults)
             )
         }
 
