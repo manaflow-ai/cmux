@@ -99,6 +99,7 @@ final class SidebarWorkspaceRowHoverReconcilerView: NSView {
     }
 
     deinit {
-        stopHoverEventConsumption()
+        hoverEventsTask?.cancel()
+        hoverContinuation.finish()
     }
 }
