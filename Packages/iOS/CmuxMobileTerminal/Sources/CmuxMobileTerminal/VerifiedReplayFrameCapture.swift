@@ -57,71 +57,69 @@ nonisolated struct VerifiedReplayPresentationFence: Sendable {
 /// Keeps authoritative grid export and its tokened Metal submission adjacent
 /// inside one serial surface-queue closure. Publishing the exported frame to
 /// MainActor happens only after this synchronous operation returns.
-nonisolated enum VerifiedReplayAtomicSubmission {
-    static func exportThenSubmit<Frame>(
-        export: () -> Frame?,
-        submit: () -> Void
-    ) -> Frame? {
-        guard let frame = export() else { return nil }
-        submit()
-        return frame
-    }
+func verifiedReplayExportThenSubmit<Frame>(
+    export: () -> Frame?,
+    submit: () -> Void
+) -> Frame? {
+    guard let frame = export() else { return nil }
+    submit()
+    return frame
 }
 
-nonisolated enum VerifiedReplayFrameCapture {
-    static func rendererIdentity(from contents: Any?) -> VerifiedReplayRendererSurfaceIdentity? {
-        guard let surface = ioSurface(from: contents) else { return nil }
-        return VerifiedReplayRendererSurfaceIdentity(
-            id: IOSurfaceGetID(surface),
-            seed: IOSurfaceGetSeed(surface)
-        )
+func verifiedReplayRendererIdentity(
+    from contents: Any?
+) -> VerifiedReplayRendererSurfaceIdentity? {
+    guard let surface = verifiedReplayIOSurface(from: contents) else { return nil }
+    return VerifiedReplayRendererSurfaceIdentity(
+        id: IOSurfaceGetID(surface),
+        seed: IOSurfaceGetSeed(surface)
+    )
+}
+
+/// Copies the current renderer target into Data-backed immutable pixels.
+/// The resulting CGImage cannot be changed when Ghostty reuses its three
+/// IOSurface swap-chain targets.
+func copyVerifiedReplayCGImage(from contents: Any?) -> CGImage? {
+    guard let surface = verifiedReplayIOSurface(from: contents) else { return nil }
+    let width = IOSurfaceGetWidth(surface)
+    let height = IOSurfaceGetHeight(surface)
+    let bytesPerRow = IOSurfaceGetBytesPerRow(surface)
+    guard width > 0,
+          height > 0,
+          bytesPerRow >= width * 4,
+          height <= Int.max / bytesPerRow else {
+        return nil
     }
 
-    /// Copies the current renderer target into Data-backed immutable pixels.
-    /// The resulting CGImage cannot be changed when Ghostty reuses its three
-    /// IOSurface swap-chain targets.
-    static func copyCGImage(from contents: Any?) -> CGImage? {
-        guard let surface = ioSurface(from: contents) else { return nil }
-        let width = IOSurfaceGetWidth(surface)
-        let height = IOSurfaceGetHeight(surface)
-        let bytesPerRow = IOSurfaceGetBytesPerRow(surface)
-        guard width > 0,
-              height > 0,
-              bytesPerRow >= width * 4,
-              height <= Int.max / bytesPerRow else {
-            return nil
-        }
-
-        guard IOSurfaceLock(surface, [.readOnly], nil) == 0 else {
-            return nil
-        }
-        defer { IOSurfaceUnlock(surface, [.readOnly], nil) }
-        let baseAddress = IOSurfaceGetBaseAddress(surface)
-        let pixels = Data(bytes: baseAddress, count: bytesPerRow * height)
-        guard let provider = CGDataProvider(data: pixels as CFData) else { return nil }
-        let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(
-            CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)
-        )
-        return CGImage(
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bitsPerPixel: 32,
-            bytesPerRow: bytesPerRow,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: bitmapInfo,
-            provider: provider,
-            decode: nil,
-            shouldInterpolate: false,
-            intent: .defaultIntent
-        )
+    guard IOSurfaceLock(surface, [.readOnly], nil) == 0 else {
+        return nil
     }
+    defer { IOSurfaceUnlock(surface, [.readOnly], nil) }
+    let baseAddress = IOSurfaceGetBaseAddress(surface)
+    let pixels = Data(bytes: baseAddress, count: bytesPerRow * height)
+    guard let provider = CGDataProvider(data: pixels as CFData) else { return nil }
+    let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(
+        CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)
+    )
+    return CGImage(
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bitsPerPixel: 32,
+        bytesPerRow: bytesPerRow,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: bitmapInfo,
+        provider: provider,
+        decode: nil,
+        shouldInterpolate: false,
+        intent: .defaultIntent
+    )
+}
 
-    private static func ioSurface(from contents: Any?) -> IOSurface? {
-        guard let contents else { return nil }
-        let value = contents as CFTypeRef
-        guard CFGetTypeID(value) == IOSurfaceGetTypeID() else { return nil }
-        return contents as? IOSurface
-    }
+private func verifiedReplayIOSurface(from contents: Any?) -> IOSurface? {
+    guard let contents else { return nil }
+    let value = contents as CFTypeRef
+    guard CFGetTypeID(value) == IOSurfaceGetTypeID() else { return nil }
+    return contents as? IOSurface
 }
 #endif

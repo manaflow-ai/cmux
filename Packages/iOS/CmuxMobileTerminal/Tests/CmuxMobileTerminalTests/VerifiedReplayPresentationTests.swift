@@ -10,7 +10,7 @@ struct VerifiedReplayPresentationTests {
     @Test("the retained last-good frame owns immutable pixel bytes")
     func frozenFrameDoesNotAliasRendererIOSurface() throws {
         let source = try makeSurface(fill: 0x11)
-        let frozen = try #require(VerifiedReplayFrameCapture.copyCGImage(from: source))
+        let frozen = try #require(copyVerifiedReplayCGImage(from: source))
 
         overwrite(source, with: 0xEE)
 
@@ -60,7 +60,7 @@ struct VerifiedReplayPresentationTests {
     func exportAndTokenSubmissionStayAdjacent() {
         var events: [String] = []
 
-        let exported = VerifiedReplayAtomicSubmission.exportThenSubmit(
+        let exported = verifiedReplayExportThenSubmit(
             export: {
                 events.append("export")
                 return 42

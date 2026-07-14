@@ -137,7 +137,7 @@ extension GhosttySurfaceView {
     func handleVerifiedReplayRenderPresented(token: UInt64) {
         guard var pending = pendingVerifiedReplayPresentation else { return }
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
-        let modelIdentity = VerifiedReplayFrameCapture.rendererIdentity(from: renderer?.contents)
+        let modelIdentity = verifiedReplayRendererIdentity(from: renderer?.contents)
         guard pending.fence.acknowledge(
             token: token,
             modelIdentity: modelIdentity
@@ -153,8 +153,8 @@ extension GhosttySurfaceView {
     func completePendingVerifiedReplayPresentationIfPresented() {
         guard let pending = pendingVerifiedReplayPresentation else { return }
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
-        let modelIdentity = VerifiedReplayFrameCapture.rendererIdentity(from: renderer?.contents)
-        let presentationIdentity = VerifiedReplayFrameCapture.rendererIdentity(
+        let modelIdentity = verifiedReplayRendererIdentity(from: renderer?.contents)
+        let presentationIdentity = verifiedReplayRendererIdentity(
             from: renderer?.presentation()?.contents
         )
         guard pending.fence.isSatisfied(
@@ -223,9 +223,9 @@ extension GhosttySurfaceView {
             return
         }
         outputQueue.async { [weak self] in
-            let observed = VerifiedReplayAtomicSubmission.exportThenSubmit(
+            let observed = verifiedReplayExportThenSubmit(
                 export: {
-                    Self.exportVerifiedReplayGridSynchronously(read)
+                    exportVerifiedReplayGridSynchronously(read)
                 },
                 submit: {
                     ghostty_surface_render_now_with_token(
@@ -269,34 +269,13 @@ extension GhosttySurfaceView {
         return true
     }
 
-    nonisolated private static func exportVerifiedReplayGridSynchronously(
-        _ read: VerifiedReplaySurfaceRead
-    ) -> MobileTerminalRenderGridFrame? {
-        let exported = read.surfaceID.withCString { pointer in
-            ghostty_surface_render_grid_json(
-                read.surface,
-                pointer,
-                UInt(read.surfaceID.utf8.count),
-                read.stateSeq,
-                0
-            )
-        }
-        defer { ghostty_string_free(exported) }
-        guard let pointer = exported.ptr, exported.len > 0 else { return nil }
-        let data = Data(bytes: pointer, count: Int(exported.len))
-        guard var frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
-        frame.renderEpoch = read.renderEpoch
-        frame.renderRevision = read.renderRevision
-        return frame
-    }
-
     private func makeVerifiedReplayFrozenPresentation(
         transactionID: UInt64
     ) -> VerifiedReplayFrozenPresentation? {
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         let presentedRenderer = renderer?.presentation() ?? renderer
         let presentedContents = presentedRenderer?.contents ?? renderer?.contents
-        let image = VerifiedReplayFrameCapture.copyCGImage(from: presentedContents)
+        let image = copyVerifiedReplayCGImage(from: presentedContents)
         // If Ghostty has pixels, never start mutating its surface unless those
         // pixels were copied out of the reusable swap chain successfully.
         guard presentedContents == nil || image != nil else {
@@ -393,5 +372,26 @@ extension GhosttySurfaceView {
         "position": NSNull(),
         "transform": NSNull()
     ]
+}
+
+private func exportVerifiedReplayGridSynchronously(
+    _ read: VerifiedReplaySurfaceRead
+) -> MobileTerminalRenderGridFrame? {
+    let exported = read.surfaceID.withCString { pointer in
+        ghostty_surface_render_grid_json(
+            read.surface,
+            pointer,
+            UInt(read.surfaceID.utf8.count),
+            read.stateSeq,
+            0
+        )
+    }
+    defer { ghostty_string_free(exported) }
+    guard let pointer = exported.ptr, exported.len > 0 else { return nil }
+    let data = Data(bytes: pointer, count: Int(exported.len))
+    guard var frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
+    frame.renderEpoch = read.renderEpoch
+    frame.renderRevision = read.renderRevision
+    return frame
 }
 #endif

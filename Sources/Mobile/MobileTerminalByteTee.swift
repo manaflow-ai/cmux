@@ -98,23 +98,15 @@ final class MobileTerminalByteTee {
         statesBySurfaceID[surfaceID]?.seq
     }
 
-    struct RenderCaptureIdentity: Equatable {
-        let epoch: String
-        let revision: UInt64
-    }
-
     /// Claims the next epoch-aware render-grid capture identity for one surface.
-    func nextRenderCaptureIdentity(surfaceID: UUID) -> RenderCaptureIdentity {
+    func nextRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
         var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
         state.renderRevision &+= 1
         if state.renderRevision == 0 {
             state.renderRevision = 1
         }
         statesBySurfaceID[surfaceID] = state
-        return RenderCaptureIdentity(
-            epoch: state.renderEpoch,
-            revision: state.renderRevision
-        )
+        return (epoch: state.renderEpoch, revision: state.renderRevision)
     }
 
     /// Drop replay history for a surface (e.g. when the surface closes).

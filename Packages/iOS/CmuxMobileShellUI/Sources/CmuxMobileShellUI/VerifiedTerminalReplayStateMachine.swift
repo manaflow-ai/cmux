@@ -3,36 +3,11 @@ import CMUXMobileCore
 /// Owns the single atomic presentation transaction for one mounted terminal.
 @MainActor
 final class VerifiedTerminalReplayStateMachine {
-    struct Dimensions: Equatable {
-        let columns: Int
-        let rows: Int
-    }
-
-    struct Transaction {
-        let id: UInt64
-        let renderEpoch: String
-        let renderRevision: UInt64
-        let stateSeq: UInt64
-        let expected: MobileTerminalRenderGridVisualSnapshot
-    }
-
-    enum BeginDecision {
-        case apply(Transaction)
-        case keepFrozenAndRequestReplay
-    }
-
-    enum CompletionDecision: Equatable {
-        case reveal
-        case keepFrozenAndRequestReplay
-        case ignoreStaleCompletion
-    }
-
-    private enum Phase: Equatable {
-        case ready
-        case verifying
-        case recovering
-        case invalidated
-    }
+    typealias Dimensions = VerifiedTerminalReplayDimensions
+    typealias Transaction = VerifiedTerminalReplayTransaction
+    typealias BeginDecision = VerifiedTerminalReplayBeginDecision
+    typealias CompletionDecision = VerifiedTerminalReplayCompletionDecision
+    private typealias Phase = VerifiedTerminalReplayPhase
 
     private var phase = Phase.ready
     private var nextTransactionID: UInt64 = 0

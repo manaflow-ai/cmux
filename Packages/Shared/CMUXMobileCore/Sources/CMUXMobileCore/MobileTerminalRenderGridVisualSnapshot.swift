@@ -29,13 +29,13 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
     /// - Returns: `nil` when `fullFrame` is a delta.
     public init?(fullFrame: MobileTerminalRenderGridFrame) {
         guard fullFrame.full else { return nil }
-        let styles = Self.normalizedStylesByID(fullFrame.styles)
+        let styles = normalizedRenderGridStylesByID(fullFrame.styles)
         self.columns = fullFrame.columns
         self.rowCount = fullFrame.rows
         self.activeScreen = fullFrame.activeScreen
-        self.defaultStyle = styles[0] ?? Self.normalizedStyle(.default)
-        self.rows = Self.resolvedRows(frame: fullFrame, styles: styles)
-        self.cursor = Self.normalizedCursor(fullFrame.cursor)
+        self.defaultStyle = styles[0] ?? normalizedRenderGridStyle(.default)
+        self.rows = resolvedRenderGridRows(frame: fullFrame, styles: styles)
+        self.cursor = normalizedRenderGridCursor(fullFrame.cursor)
         self.terminalCursorColor = fullFrame.terminalCursorColor?.uppercased()
     }
 
@@ -57,8 +57,8 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
             return nil
         }
 
-        let styles = Self.normalizedStylesByID(frame.styles)
-        let deltaRows = Self.resolvedRows(frame: frame, styles: styles)
+        let styles = normalizedRenderGridStylesByID(frame.styles)
+        let deltaRows = resolvedRenderGridRows(frame: frame, styles: styles)
         let replacedRows = Set(frame.clearedRows).union(frame.rowSpans.map(\.row))
         var nextRows = rows
         for row in replacedRows where nextRows.indices.contains(row) {
@@ -71,7 +71,7 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
             activeScreen: activeScreen,
             defaultStyle: styles[0] ?? defaultStyle,
             rows: nextRows,
-            cursor: Self.normalizedCursor(frame.cursor) ?? cursor,
+            cursor: normalizedRenderGridCursor(frame.cursor) ?? cursor,
             terminalCursorColor: frame.terminalCursorColor?.uppercased() ?? terminalCursorColor
         )
     }
@@ -94,61 +94,62 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
         self.terminalCursorColor = terminalCursorColor
     }
 
-    private static func resolvedRows(
-        frame: MobileTerminalRenderGridFrame,
-        styles: [Int: MobileTerminalRenderGridFrame.Style]
-    ) -> [[MobileTerminalRenderGridVisualSpan]] {
-        var rows = Array(repeating: [MobileTerminalRenderGridVisualSpan](), count: frame.rows)
-        for span in frame.rowSpans where rows.indices.contains(span.row) {
-            rows[span.row].append(MobileTerminalRenderGridVisualSpan(
-                column: span.column,
-                cellWidth: span.gridCellWidth,
-                text: span.text,
-                style: styles[span.styleID] ?? normalizedStyle(.default)
-            ))
-        }
-        for row in rows.indices {
-            rows[row].sort {
-                if $0.column != $1.column { return $0.column < $1.column }
-                if $0.cellWidth != $1.cellWidth { return $0.cellWidth < $1.cellWidth }
-                return $0.text < $1.text
-            }
-        }
-        return rows
-    }
+}
 
-    private static func normalizedStylesByID(
-        _ styles: [MobileTerminalRenderGridFrame.Style]
-    ) -> [Int: MobileTerminalRenderGridFrame.Style] {
-        Dictionary(uniqueKeysWithValues: styles.map { ($0.id, normalizedStyle($0)) })
+private func resolvedRenderGridRows(
+    frame: MobileTerminalRenderGridFrame,
+    styles: [Int: MobileTerminalRenderGridFrame.Style]
+) -> [[MobileTerminalRenderGridVisualSpan]] {
+    var rows = Array(repeating: [MobileTerminalRenderGridVisualSpan](), count: frame.rows)
+    for span in frame.rowSpans where rows.indices.contains(span.row) {
+        rows[span.row].append(MobileTerminalRenderGridVisualSpan(
+            column: span.column,
+            cellWidth: span.gridCellWidth,
+            text: span.text,
+            style: styles[span.styleID] ?? normalizedRenderGridStyle(.default)
+        ))
     }
-
-    private static func normalizedStyle(
-        _ style: MobileTerminalRenderGridFrame.Style
-    ) -> MobileTerminalRenderGridFrame.Style {
-        MobileTerminalRenderGridFrame.Style(
-            id: 0,
-            foreground: style.foreground?.uppercased(),
-            background: style.background?.uppercased(),
-            bold: style.bold,
-            faint: style.faint,
-            italic: style.italic,
-            underline: style.underline,
-            blink: style.blink,
-            inverse: style.inverse,
-            invisible: style.invisible,
-            strikethrough: style.strikethrough,
-            overline: style.overline
-        )
-    }
-
-    private static func normalizedCursor(
-        _ cursor: MobileTerminalRenderGridFrame.Cursor?
-    ) -> MobileTerminalRenderGridFrame.Cursor? {
-        guard var cursor else { return nil }
-        if cursor.style == .blockHollow {
-            cursor.style = .block
+    for row in rows.indices {
+        rows[row].sort {
+            if $0.column != $1.column { return $0.column < $1.column }
+            if $0.cellWidth != $1.cellWidth { return $0.cellWidth < $1.cellWidth }
+            return $0.text < $1.text
         }
-        return cursor
     }
+    return rows
+}
+
+private func normalizedRenderGridStylesByID(
+    _ styles: [MobileTerminalRenderGridFrame.Style]
+) -> [Int: MobileTerminalRenderGridFrame.Style] {
+    Dictionary(uniqueKeysWithValues: styles.map { ($0.id, normalizedRenderGridStyle($0)) })
+}
+
+private func normalizedRenderGridStyle(
+    _ style: MobileTerminalRenderGridFrame.Style
+) -> MobileTerminalRenderGridFrame.Style {
+    MobileTerminalRenderGridFrame.Style(
+        id: 0,
+        foreground: style.foreground?.uppercased(),
+        background: style.background?.uppercased(),
+        bold: style.bold,
+        faint: style.faint,
+        italic: style.italic,
+        underline: style.underline,
+        blink: style.blink,
+        inverse: style.inverse,
+        invisible: style.invisible,
+        strikethrough: style.strikethrough,
+        overline: style.overline
+    )
+}
+
+private func normalizedRenderGridCursor(
+    _ cursor: MobileTerminalRenderGridFrame.Cursor?
+) -> MobileTerminalRenderGridFrame.Cursor? {
+    guard var cursor else { return nil }
+    if cursor.style == .blockHollow {
+        cursor.style = .block
+    }
+    return cursor
 }

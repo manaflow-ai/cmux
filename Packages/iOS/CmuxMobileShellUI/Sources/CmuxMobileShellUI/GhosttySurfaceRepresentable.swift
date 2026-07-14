@@ -9,26 +9,6 @@ import CmuxMobileTerminal
 import SwiftUI
 import UIKit
 
-enum TerminalOutputApplicationPath: Equatable {
-    case verifiedReplay
-    case rejectUnverified
-    case legacy
-}
-
-func terminalOutputApplicationPath(
-    for chunk: MobileTerminalOutputChunk
-) -> TerminalOutputApplicationPath {
-    if let frame = chunk.sourceRenderGridFrame,
-       !frame.renderEpoch.isEmpty,
-       frame.renderRevision > 0 {
-        return .verifiedReplay
-    }
-    if chunk.requiresVerifiedReplay, !chunk.data.isEmpty {
-        return .rejectUnverified
-    }
-    return .legacy
-}
-
 /// SwiftUI wrapper that mounts a `GhosttySurfaceView` and routes terminal output
 /// chunks into `ghostty_surface_process_output`. Primary-screen output can stay
 /// at the phone's natural height, while alternate-screen render-grid replay can
