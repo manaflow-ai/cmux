@@ -46,11 +46,32 @@ extension SettingsWindowSharedStateSuites {
 
             let toolbar = try #require(window.toolbar)
             let sidebarToggle = try #require(
-                toolbar.items.first { $0.itemIdentifier == .toggleSidebar }
+                toolbar.items.first {
+                    $0.action == #selector(NSSplitViewController.toggleSidebar(_:))
+                }
             )
             let action = try #require(sidebarToggle.action)
+            let splitViewController = try #require(
+                NSApp.target(
+                    forAction: action,
+                    to: sidebarToggle.target,
+                    from: sidebarToggle
+                ) as? NSSplitViewController
+            )
+            let sidebarItem = try #require(
+                splitViewController.splitViewItems.first { $0.behavior == .sidebar }
+            )
+            let wasCollapsed = sidebarItem.isCollapsed
+
             #expect(sidebarToggle.isEnabled)
-            #expect(NSApp.sendAction(action, to: sidebarToggle.target, from: sidebarToggle))
+            var handled = false
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                handled = NSApp.sendAction(action, to: sidebarToggle.target, from: sidebarToggle)
+            }
+            #expect(handled)
+            window.contentView?.layoutSubtreeIfNeeded()
+            #expect(sidebarItem.isCollapsed != wasCollapsed)
         }
     }
 }
