@@ -637,9 +637,30 @@
     return current?.parentNode === ancestor ? current : null;
   };
 
+  const nodeMatchesStoredSelection = (node) => {
+    if (node?.nodeType !== 1 || !selectedBaseline) return false;
+    for (const selector of selectedBaseline.selectors) {
+      try {
+        if (node.matches?.(selector) || node.querySelector?.(selector)) return true;
+      } catch (_) {}
+    }
+    return false;
+  };
+
+  const mutationCanRestoreSelection = (mutation) => {
+    if (mutation.type === "attributes") {
+      return selectorAttributes.has(mutation.attributeName || "")
+        && nodeMatchesStoredSelection(mutation.target);
+    }
+    if (mutation.type !== "childList") return false;
+    return nodeMatchesStoredSelection(mutation.target)
+      || Array.from(mutation.addedNodes).some(nodeMatchesStoredSelection);
+  };
+
   const mutationTouchesSelection = (mutation) => {
     const selected = selectedElement;
-    if (!selected || !selectedBaseline) return false;
+    if (!selectedBaseline) return false;
+    if (!selected) return mutationCanRestoreSelection(mutation);
     if (mutation.type === "characterData") return nodeContains(selected, mutation.target);
     if (mutation.type === "attributes") {
       if (mutation.target === selected && mutation.attributeName === "style") return true;
