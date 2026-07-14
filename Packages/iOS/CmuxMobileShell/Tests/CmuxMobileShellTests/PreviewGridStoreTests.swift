@@ -79,10 +79,10 @@ struct PreviewGridStoreTests {
         }
 
         #expect(store.publicationCount(surfaceID: "surface") == 1)
-        // This is the intentional bounded throttle under test. The production
-        // interval is 250 ms; wait just beyond one interval and require one
-        // coalesced publication containing the newest frame.
-        try await Task.sleep(for: .milliseconds(300))
+        // The throttle defers the burst into one pending publication at the
+        // cadence deadline. Awaiting the stream suspends until that timer
+        // fires, so the wait is event-driven rather than a wall-clock sleep,
+        // and exactly one coalesced publication carries the newest frame.
         #expect(await iterator.next()?.stateSeq == 20)
         #expect(store.publicationCount(surfaceID: "surface") == 2)
     }
