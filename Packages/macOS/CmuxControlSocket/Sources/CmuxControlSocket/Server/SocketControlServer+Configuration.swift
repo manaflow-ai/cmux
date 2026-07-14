@@ -3,14 +3,15 @@ public import CmuxSettings
 extension SocketControlServer {
     /// Records the resolved preferred path and reports real configuration drift.
     ///
-    /// The first value establishes a baseline independently of the active bound
-    /// path, which may intentionally be a fallback chosen by listener policy.
+    /// The first value establishes an inactive baseline independently of any
+    /// reserved fallback path. For an already-running untracked listener, a
+    /// mismatch reports drift so the host can rebind to the resolved path.
     @discardableResult
     public func updateConfiguredPreferredSocketPath(_ path: String) -> Bool {
         withListenerState { state in
             let changed = state.configuredPreferredSocketPath.map {
                 !SocketControlSettings.pathsMatch($0, path)
-            } ?? false
+            } ?? (state.isRunning && !SocketControlSettings.pathsMatch(state.socketPath, path))
             state.configuredPreferredSocketPath = path
             return changed
         }
