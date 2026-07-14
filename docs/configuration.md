@@ -269,3 +269,21 @@ Default: `unified`.
 ```
 
 The toolbar layout toggle persists the last user choice for future generated diff viewers. Passing `cmux diff --layout split` or `cmux diff --layout unified` overrides both the saved toolbar choice and this default for that invocation.
+
+## Voice dictation
+
+Voice dictation transcribes your speech fully on-device and types it into the focused pane. Enable or disable it and pick the dictation language from **Settings > Voice**. No audio or transcripts leave your Mac.
+
+The toggle shortcut (default `ctrl+cmd+v`) is customizable like any other cmux shortcut, from **Settings > Keyboard Shortcuts** or in `cmux.json`:
+
+```json
+{
+  "shortcuts": {
+    "bindings": {
+      "toggleVoiceDictation": "ctrl+cmd+v"
+    }
+  }
+}
+```
+
+Set the binding to `null` (or `"none"`) to unbind it.
