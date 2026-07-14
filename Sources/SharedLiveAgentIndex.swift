@@ -43,6 +43,20 @@ final class SharedLiveAgentIndex {
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
+    private static let maxEventReloadInterval: TimeInterval = 30.0
+    private static let liveAgentsPerReloadIntervalStep = 8
+
+    static func hookEventReloadInterval(liveAgentCount: Int) -> TimeInterval {
+        let clampedAgentCount = max(0, liveAgentCount)
+        let intervalSteps = max(
+            1,
+            (clampedAgentCount + liveAgentsPerReloadIntervalStep - 1) / liveAgentsPerReloadIntervalStep
+        )
+        return min(
+            maxEventReloadInterval,
+            TimeInterval(intervalSteps) * minEventReloadInterval
+        )
+    }
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
@@ -441,13 +455,16 @@ final class SharedLiveAgentIndex {
     }
 
     func scheduleHookStoreRefresh() {
+        let reloadInterval = Self.hookEventReloadInterval(
+            liveAgentCount: liveAgentProcessFingerprint.count
+        )
         let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
-        if elapsed >= Self.minEventReloadInterval {
+        if elapsed >= reloadInterval {
             startBackgroundRefresh()
         } else if deferredReloadTimer == nil {
             // DispatchSourceTimer coalesces hook-store event bursts without Task.sleep in runtime code.
             let timer = DispatchSource.makeTimerSource(queue: watchQueue)
-            timer.schedule(deadline: .now() + (Self.minEventReloadInterval - elapsed))
+            timer.schedule(deadline: .now() + (reloadInterval - elapsed))
             timer.setEventHandler { [weak self] in
                 Task { @MainActor in
                     guard let self else { return }
