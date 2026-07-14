@@ -205,10 +205,16 @@ struct ChatArtifactViewerRouteView: View {
                 #else
                 await model.load(path: path, loader: loader)
                 #endif
+                await waitForViewerTaskCancellation()
+                await model.cleanup()
             }
-            .onDisappear {
-                Task { await model.cleanup() }
-            }
+    }
+
+    /// Keeps cleanup structured under the SwiftUI page task after loading ends.
+    private func waitForViewerTaskCancellation() async {
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        defer { continuation.finish() }
+        for await _ in stream {}
     }
 
     @ViewBuilder

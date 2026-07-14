@@ -98,10 +98,12 @@ extension TerminalArtifactFilesSheet {
                     systemImage: "tray"
                 )
             } else {
+                let swipeOrder = ChatArtifactGallerySwipeOrder(references: artifacts)
                 artifactCollection(
                     artifacts.map(TerminalArtifactGalleryDisplayItem.init(reference:)),
                     loader: loader,
-                    scope: .inView
+                    scope: .inView,
+                    swipeOrder: swipeOrder
                 )
                 .refreshable { await refreshInView() }
             }
@@ -168,6 +170,7 @@ extension TerminalArtifactFilesSheet {
                 let created = presentation.items(in: .created)
                 let attached = presentation.items(in: .attached)
                 let referenced = presentation.items(in: .referenced)
+                let swipeOrder = ChatArtifactGallerySwipeOrder(groups: presentation.groups)
                 ScrollView {
                     VStack(spacing: 0) {
                         artifactSection(
@@ -178,7 +181,8 @@ extension TerminalArtifactFilesSheet {
                             ),
                             count: created.count,
                             items: created,
-                            expanded: $createdExpanded
+                            expanded: $createdExpanded,
+                            swipeOrder: swipeOrder
                         )
                         artifactSection(
                             title: String(
@@ -188,7 +192,8 @@ extension TerminalArtifactFilesSheet {
                             ),
                             count: attached.count,
                             items: attached,
-                            expanded: $attachedExpanded
+                            expanded: $attachedExpanded,
+                            swipeOrder: swipeOrder
                         )
                         artifactSection(
                             title: String(
@@ -201,6 +206,7 @@ extension TerminalArtifactFilesSheet {
                                 : snapshot.referencedTotal,
                             items: referenced,
                             expanded: $referencedExpanded,
+                            swipeOrder: swipeOrder,
                             pagingCursor: usesCompleteSessionSnapshot ? nil : snapshot.nextCursor,
                             showsEagerFooter: usesCompleteSessionSnapshot
                         )
@@ -227,6 +233,7 @@ extension TerminalArtifactFilesSheet {
                 sort: gallerySort
             )
             let items = presentation.items(in: .referenced)
+            let swipeOrder = ChatArtifactGallerySwipeOrder(items: items)
             if items.isEmpty {
                 ContentUnavailableView.search(text: query)
             } else {
@@ -241,7 +248,9 @@ extension TerminalArtifactFilesSheet {
                                     ),
                                     layout: .list,
                                     loader: sessionLoader,
-                                    open: { open(item.path, scope: .session) }
+                                    open: {
+                                        open(item.path, scope: .session, swipeOrder: swipeOrder)
+                                    }
                                 )
                                 Divider().padding(.leading, 72)
                             }
@@ -263,7 +272,9 @@ extension TerminalArtifactFilesSheet {
                                         ),
                                         layout: .grid,
                                         loader: sessionLoader,
-                                        open: { open(item.path, scope: .session) }
+                                        open: {
+                                            open(item.path, scope: .session, swipeOrder: swipeOrder)
+                                        }
                                     )
                                 }
                             } footer: {
@@ -290,6 +301,7 @@ extension TerminalArtifactFilesSheet {
         count: Int,
         items: [ChatArtifactGalleryItem],
         expanded: Binding<Bool>,
+        swipeOrder: ChatArtifactGallerySwipeOrder,
         pagingCursor: String? = nil,
         showsEagerFooter: Bool = false
     ) -> some View {
@@ -301,7 +313,9 @@ extension TerminalArtifactFilesSheet {
                             artifact: TerminalArtifactGalleryDisplayItem(galleryItem: item),
                             layout: .list,
                             loader: sessionLoader,
-                            open: { open(item.path, scope: .session) }
+                            open: {
+                                open(item.path, scope: .session, swipeOrder: swipeOrder)
+                            }
                         )
                         Divider().padding(.leading, 72)
                     }
@@ -319,7 +333,9 @@ extension TerminalArtifactFilesSheet {
                                 artifact: TerminalArtifactGalleryDisplayItem(galleryItem: item),
                                 layout: .grid,
                                 loader: sessionLoader,
-                                open: { open(item.path, scope: .session) }
+                                open: {
+                                    open(item.path, scope: .session, swipeOrder: swipeOrder)
+                                }
                             )
                         }
                     } footer: {
@@ -344,7 +360,8 @@ extension TerminalArtifactFilesSheet {
     private func artifactCollection(
         _ artifacts: [TerminalArtifactGalleryDisplayItem],
         loader: ChatArtifactLoader,
-        scope: Scope
+        scope: Scope,
+        swipeOrder: ChatArtifactGallerySwipeOrder
     ) -> some View {
         switch viewMode {
         case .list:
@@ -355,7 +372,9 @@ extension TerminalArtifactFilesSheet {
                             artifact: artifact,
                             layout: .list,
                             loader: loader,
-                            open: { open(artifact.path, scope: scope) }
+                            open: {
+                                open(artifact.path, scope: scope, swipeOrder: swipeOrder)
+                            }
                         )
                         Divider().padding(.leading, 72)
                     }
@@ -369,7 +388,9 @@ extension TerminalArtifactFilesSheet {
                             artifact: artifact,
                             layout: .grid,
                             loader: loader,
-                            open: { open(artifact.path, scope: scope) }
+                            open: {
+                                open(artifact.path, scope: scope, swipeOrder: swipeOrder)
+                            }
                         )
                     }
                 }
@@ -579,8 +600,16 @@ extension TerminalArtifactFilesSheet {
         return "\(provenance) · \(modifiedAt.formatted(date: .abbreviated, time: .omitted))"
     }
 
-    private func open(_ path: String, scope: Scope) {
-        selection = TerminalArtifactPathSelection(path: path, scope: scope)
+    private func open(
+        _ path: String,
+        scope: Scope,
+        swipeOrder: ChatArtifactGallerySwipeOrder
+    ) {
+        selection = TerminalArtifactPathSelection(
+            path: path,
+            scope: scope,
+            swipeOrder: swipeOrder
+        )
     }
 }
 #endif

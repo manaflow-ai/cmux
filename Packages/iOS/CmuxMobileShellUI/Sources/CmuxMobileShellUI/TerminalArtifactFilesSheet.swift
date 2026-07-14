@@ -83,7 +83,8 @@ struct TerminalArtifactFilesSheet: View {
         .sheet(item: $selection) { selection in
             ChatArtifactViewerSheet(
                 path: selection.path,
-                scope: selection.scope == .session ? .chat : .terminal
+                scope: selection.scope == .session ? .chat : .terminal,
+                swipeOrder: selection.swipeOrder
             )
             .environment(
                 \.chatArtifactLoader,
@@ -377,6 +378,7 @@ struct TerminalArtifactFilesSheet: View {
     struct TerminalArtifactPathSelection: Identifiable {
         let path: String
         let scope: Scope
+        let swipeOrder: ChatArtifactGallerySwipeOrder
         var id: String { "\(scope)#\(path)" }
     }
 }
