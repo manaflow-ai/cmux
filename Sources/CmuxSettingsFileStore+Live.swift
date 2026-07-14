@@ -25,26 +25,47 @@ extension CmuxSettingsFileStore {
         }
     }
 
-    /// Returns the persisted managed socket mode only when the primary is absent at cold start.
-    static func coldStartSocketMode(
-        _ primaryPath: String,
-        fileManager: FileManager,
-        imported: [String: ManagedSettingsValue]
-    ) -> ManagedSettingsValue? {
-        guard !fileManager.fileExists(atPath: primaryPath) else { return nil }
-        return imported[SocketControlSettings.appStorageKey]
+    /// Makes a newly bootstrapped primary file the durable owner of the resolved socket policy.
+    static func materializeBootstrapSocketPolicy(
+        in template: Data,
+        imported: ManagedSettingsValue?
+    ) -> Data {
+        guard let imported else { return template }
+        let resolved = socketModeAfterMissingPrimary(
+            prior: imported,
+            fallback: socketModeManagedValue(in: template)
+        )
+        guard case .string(let rawMode) = resolved else { return template }
+        let source = String(data: template, encoding: .utf8) ?? defaultTemplate()
+        let encodedMode = "\"\(rawMode)\""
+        if let updated = JSONCObjectEditor.setNestedObjectProperty(
+            parentKey: "automation",
+            childKey: "socketControlMode",
+            childValueJSON: encodedMode,
+            in: source
+        ) {
+            return Data(updated.utf8)
+        }
+        return Data(minimalBootstrapSettingsSource(socketMode: rawMode).utf8)
     }
 
-    /// Reconciles a bootstrapped primary through the missing-primary restrictive precedence rule.
-    static func preserveColdStartSocketMode(
-        _ coldStartSocketMode: ManagedSettingsValue?,
-        in snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        guard let coldStartSocketMode else { return }
-        snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = socketModeAfterMissingPrimary(
-            prior: coldStartSocketMode,
-            fallback: snapshot.managedUserDefaults[SocketControlSettings.appStorageKey]
-        )
+    private static func socketModeManagedValue(in data: Data) -> ManagedSettingsValue? {
+        guard let sanitized = try? JSONCParser.preprocess(data: data),
+              let root = try? JSONSerialization.jsonObject(with: sanitized) as? [String: Any],
+              let automation = root["automation"] as? [String: Any],
+              let rawMode = automation["socketControlMode"] as? String else { return nil }
+        return .string(SocketControlSettings.migrateMode(rawMode).rawValue)
+    }
+
+    private static func minimalBootstrapSettingsSource(socketMode: String) -> String {
+        """
+        {
+          "$schema": "\(schemaURLString)",
+          "schemaVersion": \(currentSchemaVersion),
+          "automation": { "socketControlMode": "\(socketMode)" }
+        }
+
+        """
     }
 
     /// Resolves a missing primary without broadening the last live managed policy.

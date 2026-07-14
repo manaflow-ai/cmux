@@ -100,8 +100,7 @@ final class CmuxSettingsFileStore {
         bootstrapPrimaryTemplateIfNeeded()
         reload(
             applyLiveDefaultSideEffects: false,
-            synchronizeManagedAppearanceTerminalTheme: false,
-            coldStartSocketMode: Self.coldStartSocketMode(primaryPath, fileManager: fileManager, imported: importedManagedDefaults)
+            synchronizeManagedAppearanceTerminalTheme: false
         )
         guard startWatching else { return }
         watchers = ([primaryPath] + fallbackPaths).map { FileWatcher(path: $0) }
@@ -145,10 +144,7 @@ final class CmuxSettingsFileStore {
         applyManagedDefaultBatchSideEffects(drainDeferredManagedDefaultSideEffects())
     }
 
-    private func reload(
-        applyLiveDefaultSideEffects: Bool,
-        synchronizeManagedAppearanceTerminalTheme: Bool, coldStartSocketMode: ManagedSettingsValue? = nil
-    ) {
+    private func reload(applyLiveDefaultSideEffects: Bool, synchronizeManagedAppearanceTerminalTheme: Bool) {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
@@ -157,7 +153,7 @@ final class CmuxSettingsFileStore {
                 sourcePath: activeSourcePath
             )
         }
-        let resolved = resolveSettings(coldStartSocketMode: coldStartSocketMode)
+        let resolved = resolveSettings()
         applyManagedSettings(
             snapshot: resolved,
             importedManagedDefaults: previousState.importedManagedDefaults,
@@ -222,7 +218,11 @@ final class CmuxSettingsFileStore {
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o755]
             )
-            let contents = legacySettingsDataForBootstrap() ?? Data(Self.defaultTemplate().utf8)
+            let template = legacySettingsDataForBootstrap() ?? Data(Self.defaultTemplate().utf8)
+            let contents = Self.materializeBootstrapSocketPolicy(
+                in: template,
+                imported: importedManagedDefaults[SocketControlSettings.appStorageKey]
+            )
             try contents.write(to: fileURL, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
@@ -292,14 +292,14 @@ final class CmuxSettingsFileStore {
         })
     }
 
-    private func resolveSettings(coldStartSocketMode: ManagedSettingsValue?) -> ResolvedSettingsSnapshot {
+    private func resolveSettings() -> ResolvedSettingsSnapshot {
         // A transient missing or malformed file must not restore a potentially broader unmanaged policy.
-        let priorSocketMode = synchronized { activeManagedUserDefaults[SocketControlSettings.appStorageKey] } ?? coldStartSocketMode
+        let priorSocketMode = synchronized { activeManagedUserDefaults[SocketControlSettings.appStorageKey] }
         let preservedSocketMode = priorSocketMode ?? .string(Self.failClosedSocketMode().rawValue)
         switch loadSettings(at: primaryPath) {
-        case .parsed(var snapshot):
+        case .parsed(var snapshot, let malformedAutomation):
             mergeFallbackSettings(into: &snapshot)
-            Self.preserveColdStartSocketMode(coldStartSocketMode, in: &snapshot)
+            if malformedAutomation { snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = preservedSocketMode }
             return snapshot
         case .invalid:
             return ResolvedSettingsSnapshot(path: primaryPath,
@@ -313,10 +313,9 @@ final class CmuxSettingsFileStore {
                 fallback: fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey])
         return fallbackSnapshot
     }
-
     private func mergeFallbackSettings(into snapshot: inout ResolvedSettingsSnapshot) {
         for fallbackPath in fallbackPaths {
-            guard case .parsed(let fallbackSnapshot) = loadSettings(at: fallbackPath) else { continue }
+            guard case .parsed(let fallbackSnapshot, _) = loadSettings(at: fallbackPath) else { continue }
             snapshot.fillMissingSettings(from: fallbackSnapshot)
         }
     }
@@ -324,7 +323,7 @@ final class CmuxSettingsFileStore {
     private enum LoadResult {
         case missing
         case invalid
-        case parsed(ResolvedSettingsSnapshot)
+        case parsed(ResolvedSettingsSnapshot, malformedAutomation: Bool)
     }
 
     private func loadSettings(at path: String) -> LoadResult {
@@ -338,10 +337,9 @@ final class CmuxSettingsFileStore {
         do {
             let sanitized = try JSONCParser.preprocess(data: data)
             let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
-            guard let root = object as? [String: Any],
-                  root["automation"] == nil || root["automation"] is [String: Any]
-            else { return .invalid }
-            return .parsed(parseSettingsFile(root: root, sourcePath: path))
+            guard let root = object as? [String: Any] else { return .invalid }
+            let malformedAutomation = root["automation"] != nil && !(root["automation"] is [String: Any])
+            return .parsed(parseSettingsFile(root: root, sourcePath: path), malformedAutomation: malformedAutomation)
         } catch {
             cmuxSettingsFileStoreLogger.warning("parse error at \(path, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private(mask: .hash))")
             return .invalid
