@@ -71,9 +71,14 @@ public struct TerminalHierarchyPreviewView: View {
         .terminalHierarchyCloseUnavailableAlert(isPresented: $isCloseUnavailablePresented)
     }
 
-    private func createTerminal() {
+    private func createTerminal(
+        completion: @escaping @MainActor (Result<Void, MobileWorkspaceMutationFailure>) -> Void
+    ) {
         guard let paneID = workspace.terminalCreationPaneID,
-              let paneIndex = workspace.panes.firstIndex(where: { $0.id == paneID }) else { return }
+              let paneIndex = workspace.panes.firstIndex(where: { $0.id == paneID }) else {
+            completion(.failure(.rejected(hostDisplayName: nil)))
+            return
+        }
         let next = workspace.terminals.count + 1
         let terminal = MobileTerminalPreview(
             id: .init(rawValue: "terminal-created-\(next)"),
@@ -84,6 +89,7 @@ public struct TerminalHierarchyPreviewView: View {
         workspace.panes[paneIndex].terminalIDs.append(terminal.id)
         workspace.selectedTerminalID = terminal.id
         selectedTerminalID = terminal.id
+        completion(.success(()))
     }
 
     private func reorderTerminal(

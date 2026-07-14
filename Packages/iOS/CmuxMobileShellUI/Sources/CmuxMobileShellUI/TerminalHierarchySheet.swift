@@ -9,7 +9,9 @@ import SwiftUI
 
 struct TerminalHierarchySheet: View {
     let snapshot: TerminalHierarchySnapshot
-    let createTerminal: () -> Void
+    let createTerminal: (
+        @escaping @MainActor (Result<Void, MobileWorkspaceMutationFailure>) -> Void
+    ) -> Void
     let selectTerminal: (MobileTerminalPreview.ID) -> Void
     let reorderGate: MobileTerminalReorderGate
     let reorderTerminal: (
@@ -305,7 +307,20 @@ struct TerminalHierarchySheet: View {
 
     private func createAndAnnounce() {
         guard reorderGate.canMutate(workspaceID: snapshot.workspaceID) else { return }
-        createTerminal()
+        createTerminal { result in
+            switch result {
+            case .success:
+                break
+            case .failure(.appliedNeedsRefresh):
+                presentRefreshRequired(resultIsUnknown: false)
+            case .failure(.resultUnknownNeedsRefresh):
+                presentRefreshRequired(resultIsUnknown: true)
+            case .failure(.resultUnknownRefreshed):
+                mutationResultUnknownRefreshed = true
+            case .failure:
+                mutationFailed = true
+            }
+        }
         announce(L10n.string("mobile.terminal.hierarchy.createdAnnouncement", defaultValue: "Creating terminal"))
     }
 

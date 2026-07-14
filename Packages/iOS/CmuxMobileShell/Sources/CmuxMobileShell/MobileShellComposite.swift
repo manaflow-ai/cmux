@@ -242,21 +242,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// half-merged aggregate is unrepresentable. Transport-agnostic: fed by N
     /// direct phone->Mac connections today, one phone->Durable Object stream later.
     var workspacesByMac: [String: MacWorkspaceState] = [:] {
-        didSet { recomputeDerivedWorkspaceState() }
+        didSet {
+            if !suppressesWorkspaceAggregationRecompute {
+                recomputeDerivedWorkspaceState()
+            }
+        }
     }
+    /// Focus pushes update one source row and its already-derived visible row.
+    /// These guards keep that narrow path from rebuilding every Mac's list or
+    /// publishing a false topology change.
+    @ObservationIgnored private var suppressesWorkspaceAggregationRecompute = false
+    @ObservationIgnored private var suppressesWorkspaceTopologyPublication = false
     let workspaceAggregation = MobileWorkspaceAggregation()
     var stableMacColorSlots: [String: Int] = [:]  // see MobileShellComposite+MacSwitchState.swift
     /// The flat aggregated workspace list the UI renders. A materialized
-    /// derivation of ``workspacesByMac``: only ``recomputeDerivedWorkspaceState``
-    /// assigns it, so it is never independently mutated.
+    /// derivation of ``workspacesByMac``; authoritative list changes rebuild it,
+    /// while focus pushes replace only the corresponding visible row.
     public private(set) var workspaces: [MobileWorkspacePreview] = [] {
         didSet {
-            workspaceTopologyVersion &+= 1
-            prunePendingAttachmentsForMissingTerminals()
+            if !suppressesWorkspaceTopologyPublication {
+                workspaceTopologyVersion &+= 1
+                prunePendingAttachmentsForMissingTerminals()
+            }
         }
     }
-    /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
-    /// changed" signal (e.g. for retrying a parked notification deep link).
+    /// Bumped when workspace topology may have changed, but not for focus-only
+    /// row replacements (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
     /// Last authoritative chat-session snapshots, keyed by the workspace row id the UI renders.
     var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
@@ -3672,6 +3683,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         body(&state.workspaces)
         workspacesByMac[key] = state
     }
+
+    /// Publish a focus-only row replacement without claiming the workspace
+    /// hierarchy changed. The private setter remains centralized on this type.
+    func replaceVisibleWorkspaceFocus(
+        at index: Int,
+        with workspace: MobileWorkspacePreview
+    ) {
+        suppressesWorkspaceTopologyPublication = true
+        workspaces[index] = workspace
+        suppressesWorkspaceTopologyPublication = false
+    }
+
+    /// Replace one focus-updated source row without running the full aggregate
+    /// derivation. The caller also replaces the corresponding visible row.
+    func replaceWorkspaceSourceFocus(
+        for ownerKey: String,
+        with state: MacWorkspaceState
+    ) {
+        suppressesWorkspaceAggregationRecompute = true
+        workspacesByMac[ownerKey] = state
+        suppressesWorkspaceAggregationRecompute = false
+    }
     /// Create a workspace locally or through the connected Mac, then select it.
     public func createWorkspace(
         inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil
@@ -3714,13 +3747,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// different workspace if the selection drifts before the async work runs.
     public func createTerminal(
         in workspaceID: MobileWorkspacePreview.ID? = nil,
-        paneID explicitPaneID: MobilePanePreview.ID? = nil
+        paneID explicitPaneID: MobilePanePreview.ID? = nil,
+        completion: @escaping @MainActor (Result<Void, MobileWorkspaceMutationFailure>) -> Void = { _ in }
     ) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         let targetWorkspace = workspaces.first(where: { $0.id == targetWorkspaceID })
         guard remoteClient == nil else {
             if let targetWorkspaceID,
                recoverTerminalHierarchyForCreateIfRequired(in: targetWorkspaceID) {
+                completion(.success(()))
                 return
             }
             let targetPaneID = remoteTerminalCreationPaneID(
@@ -3730,24 +3765,39 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that
             // workspace with no new terminal while the earlier RPC still runs.
-            guard !terminalCreationRequestOwner.isActive else { return }
+            guard !terminalCreationRequestOwner.isActive else {
+                completion(.failure(.busy(hostDisplayName: connectedHostName)))
+                return
+            }
             let mutationClaim = claimTerminalCreationMutation(
                 in: targetWorkspace, paneID: targetPaneID ?? targetWorkspace?.terminalCreationPaneID
             )
-            if case .blocked = mutationClaim { return }
+            if case .blocked = mutationClaim {
+                completion(.failure(.busy(hostDisplayName: connectedHostName)))
+                return
+            }
             // Pin selection to the target so the async create + the resulting
             // terminal selection stay on the workspace the caller intended.
             if let targetWorkspaceID { selectedWorkspaceID = targetWorkspaceID }
-            terminalCreationRequestOwner.startIfIdle(
+            let started = terminalCreationRequestOwner.startIfIdle(
                 claim: mutationClaim,
                 gate: terminalReorderGate
             ) { @MainActor [weak self] in
                 guard let self else { return }
-                await self.createRemoteTerminal(in: targetWorkspaceID, paneID: targetPaneID)
+                let result = await self.createRemoteTerminal(
+                    in: targetWorkspaceID,
+                    paneID: targetPaneID
+                )
+                guard !Task.isCancelled else { return }
+                completion(result)
+            }
+            if !started {
+                completion(.failure(.busy(hostDisplayName: connectedHostName)))
             }
             return
         }
         createLocalTerminal(in: targetWorkspaceID, paneID: explicitPaneID)
+        completion(.success(()))
     }
 
     /// Select the active terminal by id without changing workspace selection.

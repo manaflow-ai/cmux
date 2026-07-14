@@ -10,12 +10,15 @@ enum MobileTerminalCreationMutationClaim {
 }
 
 extension MobileShellComposite {
+    @discardableResult
     func createRemoteTerminal(
         in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil,
         paneID: MobilePanePreview.ID? = nil
-    ) async {
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard let client = remoteClient,
-              let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
+              let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else {
+            return .failure(.notConnected(hostDisplayName: connectedHostName))
+        }
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
         let existingTerminalIDs = Set(
             workspaces.first(where: { $0.id == rowWorkspaceID })?.terminals.map(\.id) ?? []
@@ -47,10 +50,10 @@ extension MobileShellComposite {
             )
             switch responseOutcome {
             case .invalidated:
-                return
+                return .success(())
             case .reconciliationRequired:
                 terminalReorderGate.requireRefresh(workspaceID: rowWorkspaceID)
-                return
+                return .failure(.appliedNeedsRefresh(hostDisplayName: connectedHostName))
             case .appliedScopedResponse, .reconciledAuthoritativeList:
                 break
             }
@@ -61,10 +64,13 @@ extension MobileShellComposite {
                 paneID: paneID,
                 selectionRevision: createSelectionRevision
             )
+            return .success(())
         } catch {
             guard isCurrentRemoteOperation(client: client, generation: generation),
-                  !Task.isCancelled else { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+                  !Task.isCancelled else { return .success(()) }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else {
+                return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
+            }
             markMacConnectionUnavailableIfNeeded(after: error)
             let disposition = workspaceMutationErrorDisposition(error)
             switch disposition {
@@ -73,19 +79,33 @@ extension MobileShellComposite {
             case .definiteDivergence, .ambiguous:
                 let reconciled = await refreshForegroundWorkspaceListAfterMutation()
                 guard isCurrentRemoteOperation(client: client, generation: generation),
-                      !Task.isCancelled else { return }
+                      !Task.isCancelled else { return .success(()) }
                 if !reconciled {
                     terminalReorderGate.requireRefresh(workspaceID: rowWorkspaceID)
+                    if disposition == .ambiguous {
+                        applyOperationalError(error)
+                        return .failure(unreconciledWorkspaceMutationFailure(
+                            error,
+                            hostDisplayName: connectedHostName
+                        ))
+                    }
                 } else if disposition == .ambiguous {
                     // The response was lost, so the refreshed hierarchy cannot
                     // reliably attribute any one new terminal to this request.
                     // Keep the user's selection and clear the transient
                     // availability state now that an authoritative read worked.
                     markMacConnectionHealthy()
-                    return
+                    return .failure(reconciledWorkspaceMutationFailure(
+                        error,
+                        hostDisplayName: connectedHostName
+                    ))
                 }
             }
             applyOperationalError(error)
+            return .failure(workspaceMutationFailure(
+                error,
+                hostDisplayName: connectedHostName
+            ))
         }
     }
 

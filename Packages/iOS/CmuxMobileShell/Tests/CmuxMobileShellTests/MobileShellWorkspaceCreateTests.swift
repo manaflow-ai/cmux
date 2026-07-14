@@ -203,7 +203,7 @@ import Testing
         }
         await router.awaitFirstWorkspaceCreateReached()
         let terminalCreate = Task { @MainActor in
-            await store.createRemoteTerminal(in: workspaceID)
+            _ = await store.createRemoteTerminal(in: workspaceID)
         }
         await router.awaitFirstTerminalCreateReached()
 
@@ -264,7 +264,7 @@ import Testing
         let originalTerminalID = store.selectedTerminalID
 
         let create = Task { @MainActor in
-            await store.createRemoteTerminal(in: workspaceID)
+            _ = await store.createRemoteTerminal(in: workspaceID)
         }
         await router.awaitFirstTerminalCreateReached()
         _ = store.advanceForegroundWorkspaceListMutationEpoch()
@@ -351,7 +351,7 @@ import Testing
             claim: .reserved(reservation),
             gate: store.terminalReorderGate
         ) {
-            await store.createRemoteTerminal(in: workspace.id)
+            _ = await store.createRemoteTerminal(in: workspace.id)
         })
         for _ in 0..<300 where owner.isActive {
             try await Task.sleep(for: .milliseconds(1))

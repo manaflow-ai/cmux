@@ -21,7 +21,9 @@ struct WorkspaceDetailView: View {
     @Bindable var store: CMUXMobileShellStore
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
-    let createTerminal: () -> Void
+    let createTerminal: (
+        @escaping @MainActor (Result<Void, MobileWorkspaceMutationFailure>) -> Void
+    ) -> Void
     let reorderTerminal: (
         MobileTerminalReorderIntent,
         MobileTerminalReorderReservation
@@ -62,6 +64,7 @@ struct WorkspaceDetailView: View {
     @State private var textSheetSurfaceID: String?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     @State var isTerminalHierarchyPresented = false
+    @State var terminalCreationResultUnknownRefreshed = false
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -136,7 +139,10 @@ struct WorkspaceDetailView: View {
                         workspace: workspace,
                         selectedTerminalID: store.selectedTerminalID
                     ),
-                    createTerminal: createTerminalFromToolbar,
+                    createTerminal: { completion in
+                        browserStore.closeBrowser(for: workspace.id.rawValue)
+                        createTerminal(completion)
+                    },
                     selectTerminal: selectTerminalFromPicker,
                     reorderGate: store.terminalReorderGate,
                     reorderTerminal: reorderTerminal,
@@ -150,6 +156,9 @@ struct WorkspaceDetailView: View {
                 isPresented: $isRenamePresented,
                 text: $renameText,
                 onSave: commitRenameFromDialog
+            )
+            .terminalHierarchyResultUnknownRefreshedAlert(
+                isPresented: $terminalCreationResultUnknownRefreshed
             )
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #else

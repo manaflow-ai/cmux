@@ -45,14 +45,19 @@ extension Workspace {
         panelId: UUID,
         fallbackNeedsConfirmClose: () -> Bool
     ) -> Bool {
-        switch panelShellActivityStates[panelId] ?? .unknown {
-        case .promptIdle:
-            return false
-        case .commandRunning:
-            return true
-        case .unknown:
-            return fallbackNeedsConfirmClose()
-        }
+        // Mirrored remote tmux window-tabs have manual-I/O surfaces, so their
+        // local fallback cannot tell whether a remote command is active. The
+        // subscription-fed mirror cache is authoritative when available.
+        let remoteMirrorHasActiveCommand = isRemoteTmuxMirror
+            ? AppDelegate.shared?.remoteTmuxController
+                .cachedMirrorTabActivity(workspaceId: id, panelId: panelId)?
+                .hasActiveCommand
+            : nil
+        return Self.resolveCloseConfirmation(
+            remoteMirrorHasActiveCommand: remoteMirrorHasActiveCommand,
+            shellActivityState: panelShellActivityStates[panelId],
+            fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
+        )
     }
 
     func closeTabsFromContextMenu(_ tabIds: [TabID], skipPinned: Bool = true) {

@@ -45,7 +45,9 @@ struct WorkspaceDetailContainer: View {
                     store: store,
                     createWorkspace: createWorkspace,
                     canCreateWorkspace: canCreateWorkspace,
-                    createTerminal: { store.createTerminal(in: workspace.id) },
+                    createTerminal: { completion in
+                        store.createTerminal(in: workspace.id, completion: completion)
+                    },
                     reorderTerminal: { intent, reservation in
                         await store.reorderTerminal(
                             workspaceID: workspace.id,

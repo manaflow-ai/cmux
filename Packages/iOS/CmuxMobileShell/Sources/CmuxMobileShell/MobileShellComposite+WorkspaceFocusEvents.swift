@@ -18,30 +18,33 @@ struct MobileWorkspaceFocusDimensionRevisions: Equatable, Sendable {
 extension MobileShellComposite {
     /// Applies a focus-only event without fetching or decoding the full list.
     func applyWorkspaceFocusEvent(_ event: MobileWorkspaceFocusEvent, macID: String?) {
-        if let macID {
-            guard var state = workspacesByMac[macID],
-                  let index = state.workspaces.firstIndex(where: {
-                      $0.rpcWorkspaceID.rawValue == event.workspaceID
-                  }) else { return }
-            let dimensions = state.workspaces[index].applyFocusSnapshot(event)
-            workspacesByMac[macID] = state
-            recordWorkspaceFocusEvent(event, dimensions: dimensions, macID: macID)
+        let ownerKey = macID ?? foregroundMacKey
+        guard var state = workspacesByMac[ownerKey],
+              let sourceIndex = state.workspaces.firstIndex(where: {
+                  $0.rpcWorkspaceID.rawValue == event.workspaceID
+              }) else { return }
+        var sourceWorkspace = state.workspaces[sourceIndex]
+        let dimensions = sourceWorkspace.applyFocusSnapshot(event)
+        guard !dimensions.isEmpty else { return }
+
+        let remoteWorkspaceID = sourceWorkspace.remoteWorkspaceID ?? sourceWorkspace.id
+        let ownerID = sourceWorkspace.macDeviceID ?? state.macDeviceID
+        let visibleWorkspaceID = workspacesByMac.keys.filter { !$0.isEmpty }.count > 1
+            && !ownerID.isEmpty
+            ? workspaceAggregation.rowID(macDeviceID: ownerID, workspaceID: remoteWorkspaceID)
+            : sourceWorkspace.id
+        guard let visibleIndex = workspaces.firstIndex(where: { $0.id == visibleWorkspaceID }) else {
             return
         }
-        var appliedDimensions: MobileWorkspaceFocusAppliedDimensions?
-        mutateForegroundWorkspaces { workspaces in
-            guard let index = workspaces.firstIndex(where: {
-                $0.rpcWorkspaceID.rawValue == event.workspaceID
-            }) else { return }
-            appliedDimensions = workspaces[index].applyFocusSnapshot(event)
-        }
-        if let appliedDimensions {
-            recordWorkspaceFocusEvent(
-                event,
-                dimensions: appliedDimensions,
-                macID: foregroundMacDeviceID
-            )
-        }
+
+        state.workspaces[sourceIndex] = sourceWorkspace
+        replaceWorkspaceSourceFocus(for: ownerKey, with: state)
+
+        var visibleWorkspace = workspaces[visibleIndex]
+        _ = visibleWorkspace.applyFocusSnapshot(event)
+        replaceVisibleWorkspaceFocus(at: visibleIndex, with: visibleWorkspace)
+
+        recordWorkspaceFocusEvent(event, dimensions: dimensions, macID: macID)
     }
 
     func workspaceFocusRevisionSnapshot() -> UInt64 {

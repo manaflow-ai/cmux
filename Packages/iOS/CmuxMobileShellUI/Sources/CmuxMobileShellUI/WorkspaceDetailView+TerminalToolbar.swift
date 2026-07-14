@@ -1,3 +1,4 @@
+import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
 
@@ -87,13 +88,20 @@ extension WorkspaceDetailView {
         guard canCreateTerminalFromHierarchy else { return }
         dismissTerminalKeyboardForChrome()
         if terminalHierarchyRequiresRefresh {
-            createTerminal()
+            createTerminal(presentTerminalCreationOutcome)
             return
         }
         // Creating a terminal from the shared chrome must surface it. If a
         // browser pane is up, close it so the new terminal becomes visible.
         browserStore.closeBrowser(for: workspace.id.rawValue)
-        createTerminal()
+        createTerminal(presentTerminalCreationOutcome)
+    }
+
+    private func presentTerminalCreationOutcome(
+        _ result: Result<Void, MobileWorkspaceMutationFailure>
+    ) {
+        guard case .failure(.resultUnknownRefreshed) = result else { return }
+        terminalCreationResultUnknownRefreshed = true
     }
 
     private var canCreateTerminalFromHierarchy: Bool {

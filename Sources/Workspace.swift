@@ -2511,17 +2511,31 @@ final class Workspace: Identifiable, ObservableObject {
     var processTitle: String
 
     nonisolated static func resolveCloseConfirmation(
+        remoteMirrorHasActiveCommand: Bool? = nil,
         shellActivityState: PanelShellActivityState?,
-        fallbackNeedsConfirmClose: Bool
+        fallbackNeedsConfirmClose: () -> Bool
     ) -> Bool {
+        if let remoteMirrorHasActiveCommand {
+            return remoteMirrorHasActiveCommand
+        }
         switch shellActivityState ?? .unknown {
         case .promptIdle:
             return false
         case .commandRunning:
             return true
         case .unknown:
-            return fallbackNeedsConfirmClose
+            return fallbackNeedsConfirmClose()
         }
+    }
+
+    nonisolated static func resolveCloseConfirmation(
+        shellActivityState: PanelShellActivityState?,
+        fallbackNeedsConfirmClose: Bool
+    ) -> Bool {
+        resolveCloseConfirmation(
+            shellActivityState: shellActivityState,
+            fallbackNeedsConfirmClose: { fallbackNeedsConfirmClose }
+        )
     }
 
     nonisolated private static func makeSessionRestorePolicyService(
@@ -4648,24 +4662,14 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
-        Self.resolveCloseConfirmation(
-            shellActivityState: panelShellActivityStates[panelId],
-            fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
+        panelNeedsConfirmClose(
+            panelId: panelId,
+            fallbackNeedsConfirmClose: { fallbackNeedsConfirmClose }
         )
     }
 
     func panelNeedsConfirmClose(panelId: UUID) -> Bool {
         guard let panel = panels[panelId] else { return false }
-        // Mirrored remote tmux window-tab: closing it kills the remote window,
-        // and its manual-I/O surface has no local child process for the ghostty
-        // fallback (which reports "needs confirm" whenever the cursor isn't at a
-        // marked prompt — i.e. always, for a mirror). Ask the control connection
-        // whether any of the window's panes is running an active command instead.
-        if isRemoteTmuxMirror,
-           let activity = AppDelegate.shared?.remoteTmuxController
-               .cachedMirrorTabActivity(workspaceId: id, panelId: panelId) {
-            return activity.hasActiveCommand
-        }
         if let terminalPanel = panel as? TerminalPanel {
             return panelNeedsConfirmClose(
                 panelId: panelId,
