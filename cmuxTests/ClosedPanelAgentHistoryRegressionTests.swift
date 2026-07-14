@@ -41,4 +41,54 @@ extension CMUXCLIErrorOutputRegressionTests {
         }
         #expect(entry.snapshot.terminal?.agent?.sessionId == "codex-session")
     }
+
+    @MainActor
+    @Test func coldAgentIndexCanEnrichAnAlreadyClosedWorkspaceWithoutBlockingClose() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelData = try JSONSerialization.data(withJSONObject: [
+            "id": panelId.uuidString,
+            "type": "terminal",
+            "isPinned": false,
+            "isManuallyUnread": false,
+            "listeningPorts": [],
+            "terminal": ["workingDirectory": "/tmp/project"],
+        ])
+        let panel = try JSONDecoder().decode(SessionPanelSnapshot.self, from: panelData)
+        let snapshot = SessionWorkspaceSnapshot(
+            workspaceId: workspaceId,
+            processTitle: "Agent workspace",
+            customTitle: nil,
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            terminalScrollBarHidden: nil,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panelId,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId)),
+            panels: [panel],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil,
+            remote: nil
+        )
+        let store = ClosedItemHistoryStore(capacity: 10)
+        let recordId = store.push(.workspace(ClosedWorkspaceHistoryEntry(
+            workspaceId: workspaceId, windowId: nil, workspaceIndex: 0, snapshot: snapshot
+        )))
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex, sessionId: "workspace-codex", workingDirectory: "/tmp/project", launchCommand: nil
+        )
+
+        #expect(store.enrichClosedWorkspaceAgents(recordId: recordId, agentsByPanelId: [panelId: agent]))
+
+        var restored: ClosedItemHistoryEntry?
+        #expect(!store.restoreFirstRestorable { entry in restored = entry; return false })
+        guard case .workspace(let entry) = try #require(restored) else {
+            Issue.record("Expected a workspace history entry")
+            return
+        }
+        #expect(entry.snapshot.panels.first?.terminal?.agent?.sessionId == "workspace-codex")
+    }
 }
