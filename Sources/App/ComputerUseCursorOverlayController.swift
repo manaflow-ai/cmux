@@ -331,25 +331,21 @@ private struct CursorArrowShape: Shape {
     }
 }
 
-/// A polished, branded computer-use cursor: a crisp arrow pointer filled with the
-/// cmux logo gradient, a white rim + soft shadow for contrast on any background,
-/// a subtle brand bloom, and a rounded label pill. Pure function of `presentation`.
+/// A crisp macOS-style arrow pointer (silhouette from PR #4494) filled with the
+/// cmux logo gradient, with a white rim + soft shadow for contrast on any
+/// background. No label — just the clean pointer. Pure function of `presentation`.
 struct ComputerUseCursorGlyph: View {
     /// Distance from the view's top-left to the arrow tip. Mirrors
     /// `ComputerUseCursorOverlayGeometry.hotspotInset`.
     static let hotspotInset: CGFloat = 22
-    private static let pointerSize = CGSize(width: 20, height: 29)
+    private static let pointerSize = CGSize(width: 15, height: 22)
 
     let presentation: ComputerUseCursorPresentation
 
     var body: some View {
-        HStack(alignment: .top, spacing: 7) {
-            pointer
-            pill
-                .padding(.top, 2)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(EdgeInsets(top: Self.hotspotInset, leading: Self.hotspotInset, bottom: 0, trailing: 0))
+        pointer
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(EdgeInsets(top: Self.hotspotInset, leading: Self.hotspotInset, bottom: 0, trailing: 0))
     }
 
     private var pointer: some View {
@@ -363,45 +359,10 @@ struct ComputerUseCursorGlyph: View {
             )
             .overlay(
                 CursorArrowShape()
-                    .stroke(Color.white.opacity(0.95), lineWidth: 1.4)
+                    .stroke(Color.white.opacity(0.95), lineWidth: 1.2)
             )
             .frame(width: Self.pointerSize.width, height: Self.pointerSize.height)
-            .background(bloom)
-            .shadow(color: Color.black.opacity(0.38), radius: 2.5, x: 0, y: 1)
-    }
-
-    private var bloom: some View {
-        Circle()
-            .fill(presentation.bloomColor)
-            .frame(width: Self.pointerSize.width + 6, height: Self.pointerSize.width + 6)
-            .blur(radius: 10)
-            .opacity(0.35)
-    }
-
-    private var pill: some View {
-        Text(presentation.label)
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: presentation.gradientColors,
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(0.35), lineWidth: 0.5)
-            )
-            .shadow(color: presentation.bloomColor.opacity(0.35), radius: 4, x: 0, y: 1)
-            .fixedSize()
+            .shadow(color: Color.black.opacity(0.35), radius: 2, x: 0, y: 1)
     }
 }
 
