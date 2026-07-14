@@ -60,6 +60,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case closeTab
     case closeOtherTabsInPane
     case closeWorkspace
+    /// Toggles the pinned state of the focused workspace.
+    case togglePinnedWorkspace
     /// Creates a new empty workspace group.
     case newWorkspaceGroup
     /// Groups the selected workspaces in the workspace list.
@@ -199,6 +201,7 @@ extension ShortcutAction {
              .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
+             .togglePinnedWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
              .focusTextBoxInput, .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
@@ -381,6 +384,8 @@ extension ShortcutAction {
         case .closeTab: return "Close Tab"
         case .closeOtherTabsInPane: return "Close Other Tabs in Pane"
         case .closeWorkspace: return "Close Workspace"
+        case .togglePinnedWorkspace:
+            return String(localized: "shortcut.togglePinnedWorkspace.label", defaultValue: "Pin or Unpin Focused Workspace")
         case .newWorkspaceGroup:
             return String(localized: "shortcut.newWorkspaceGroup.label", defaultValue: "New Workspace Group")
         case .groupSelectedWorkspaces:

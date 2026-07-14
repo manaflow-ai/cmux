@@ -13678,6 +13678,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        if matchConfiguredShortcut(event: event, action: .togglePinnedWorkspace) {
+            // Only consume the event when a focused workspace was resolved and
+            // toggled. Otherwise fall through so a rebinding that shares this
+            // chord with another action still works.
+            if handleTogglePinnedWorkspaceShortcut(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+            ) {
+                return true
+            }
+        }
+
         if matchConfiguredShortcut(event: event, action: .editWorkspaceDescription) {
 #if DEBUG
             cmuxDebugLog(
@@ -14875,6 +14886,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         tabManager.toggleWorkspaceGroupCollapsed(groupId: groupId)
+        return true
+    }
+
+    func handleTogglePinnedWorkspaceShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let resolvedTabManager: TabManager? = contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
+        guard let tabManager = resolvedTabManager else { return false }
+        // Don't consume the event when there is no focused workspace — let the
+        // matched chord propagate, consistent with the group shortcuts'
+        // fall-through policy.
+        guard let focusedId = tabManager.selectedTabId,
+              tabManager.tabs.contains(where: { $0.id == focusedId }) else {
+            // The selected id can be stale mid-transition; togglePin silently
+            // no-ops on an absent id, so don't consume the chord when there's
+            // no live workspace to pin.
+            return false
+        }
+        tabManager.togglePin(tabId: focusedId)
         return true
     }
 

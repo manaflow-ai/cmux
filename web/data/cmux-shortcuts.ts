@@ -122,6 +122,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "selectWorkspaceByNumber", combos: [["⌘", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
+      { id: "togglePinnedWorkspace", combos: [], description: { en: "Pin or unpin the focused workspace", ja: "フォーカス中のワークスペースをピン留め/解除" } },
       { id: "newWorkspaceGroup", combos: [["⌃", "⌘", "G"]], description: { en: "New empty workspace group", ja: "空のワークスペースグループを作成" } },
       { id: "groupSelectedWorkspaces", combos: [["⌘", "⇧", "G"]], description: { en: "Group selected workspaces", ja: "選択したワークスペースをグループ化" } },
       {

@@ -74,6 +74,10 @@ extension ShortcutAction {
         case .closeTab: return ShortcutStroke(key: "w", command: true)
         case .closeOtherTabsInPane: return ShortcutStroke(key: "t", command: true, option: true)
         case .closeWorkspace: return ShortcutStroke(key: "w", command: true, shift: true)
+        // Unbound by default: "Pin Workspace" is reachable through the context
+        // menu and command palette. Shipping it unbound avoids colliding with an
+        // existing default; users can bind it (e.g. ⌘⇧F) in Settings.
+        case .togglePinnedWorkspace: return nil
         case .newWorkspaceGroup: return ShortcutStroke(key: "g", command: true, control: true)
         case .groupSelectedWorkspaces: return ShortcutStroke(key: "g", command: true, shift: true)
         case .toggleFocusedWorkspaceGroupCollapsed: return ShortcutStroke(key: ".", command: true, control: true)
