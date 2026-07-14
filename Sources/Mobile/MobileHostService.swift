@@ -1961,6 +1961,8 @@ actor MobileHostConnection {
     /// stream_id → set of topics this connection is subscribed to.
     /// Populated by `mobile.events.subscribe`; cleared on close.
     private var subscriptions: [String: Set<String>] = [:]
+    /// Per-stream render-grid demand; absent for streams without that topic.
+    private var renderGridDemandScopes: [String: MobileRenderGridDemandScope] = [:]
 
     init(
         id: UUID,
@@ -2009,6 +2011,8 @@ actor MobileHostConnection {
         }
         let previousSubscriptions = Array(subscriptions.values)
         subscriptions.removeAll()
+        renderGridDemandScopes.removeAll()
+        publishRenderGridDemand()
         for topics in previousSubscriptions where !topics.isEmpty {
             MobileHostEventSubscriptionTracker.replace(
                 previousTopics: topics,
@@ -2231,7 +2235,13 @@ actor MobileHostConnection {
             // were never delivered), so it requests a catch-up replay instead
             // of trusting delta continuity.
             let alreadySubscribed = subscriptions[streamID] != nil
-            subscribe(streamID: streamID, topics: topics)
+            let renderGridDemand = request.params["render_grid_demand"]
+                .flatMap(MobileRenderGridDemand.decodeJSONObject(_:))
+            subscribe(
+                streamID: streamID,
+                topics: topics,
+                renderGridDemand: renderGridDemand
+            )
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif
@@ -2268,13 +2278,25 @@ actor MobileHostConnection {
     }
 
     /// Add a subscription for this connection. Idempotent per stream_id.
-    func subscribe(streamID: String, topics: Set<String>) {
+    func subscribe(
+        streamID: String,
+        topics: Set<String>,
+        renderGridDemand: MobileRenderGridDemand? = nil
+    ) {
         let previousTopics = subscriptions[streamID]
         subscriptions[streamID] = topics
+        if topics.contains("terminal.render_grid") {
+            renderGridDemandScopes[streamID] = renderGridDemand.map {
+                .scoped($0)
+            } ?? .legacyAll
+        } else {
+            renderGridDemandScopes.removeValue(forKey: streamID)
+        }
         MobileHostEventSubscriptionTracker.replace(
             previousTopics: previousTopics,
             nextTopics: topics
         )
+        publishRenderGridDemand()
         idleTimeoutTask?.cancel()
         idleTimeoutTask = nil
     }
@@ -2283,6 +2305,7 @@ actor MobileHostConnection {
     @discardableResult
     func unsubscribe(streamID: String) -> Bool {
         let previousTopics = subscriptions.removeValue(forKey: streamID)
+        renderGridDemandScopes.removeValue(forKey: streamID)
         let removed = previousTopics != nil
         if let previousTopics {
             MobileHostEventSubscriptionTracker.replace(previousTopics: previousTopics, nextTopics: nil)
@@ -2290,6 +2313,7 @@ actor MobileHostConnection {
         if subscriptions.isEmpty {
             startIdleTimeout()
         }
+        publishRenderGridDemand()
         return removed
     }
 
@@ -2318,6 +2342,11 @@ actor MobileHostConnection {
             #endif
             return false
         }
+        if topic == "terminal.render_grid",
+           let surfaceID = payload["surface_id"] as? String,
+           !renderGridDemandSummary.contains(surfaceID: surfaceID) {
+            return false
+        }
         let envelope: [String: Any] = [
             "kind": "event",
             "topic": topic,
@@ -2325,6 +2354,21 @@ actor MobileHostConnection {
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: envelope) else { return false }
         return await sendResponse(data)
+    }
+
+    private var renderGridDemandSummary: MobileRenderGridDemandSummary {
+        MobileRenderGridDemandSummary(scopes: renderGridDemandScopes.values)
+    }
+
+    private func publishRenderGridDemand() {
+        let connectionID = id
+        let summary = renderGridDemandSummary
+        Task { @MainActor in
+            MobileTerminalRenderObserver.shared.replaceConnectionDemand(
+                connectionID: connectionID,
+                summary: summary
+            )
+        }
     }
 
     private func sendResponse(_ response: Data) async -> Bool {

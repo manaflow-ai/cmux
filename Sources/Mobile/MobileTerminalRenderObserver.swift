@@ -16,6 +16,11 @@ final class MobileTerminalRenderObserver {
     private var hasPendingGlobalUpdate = false
     private var isEmitFlushScheduled = false
     private var renderGridStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
+    private var demandByConnectionID: [UUID: MobileRenderGridDemandSummary] = [:]
+    private let previewClock = ContinuousClock()
+    private let previewUpdateInterval: Duration = .milliseconds(250)
+    private var lastPreviewEmissionBySurfaceID: [UUID: ContinuousClock.Instant] = [:]
+    private var pendingPreviewEmissionTasksBySurfaceID: [UUID: Task<Void, Never>] = [:]
 
     private init() {}
 
@@ -73,10 +78,15 @@ final class MobileTerminalRenderObserver {
         hasPendingGlobalUpdate = false
         isEmitFlushScheduled = false
         renderGridStatesBySurfaceID.removeAll()
+        demandByConnectionID.removeAll()
+        cancelAllPreviewEmissionTasks()
+        MobileTerminalByteTee.shared.setRenderGridDemand(
+            MobileRenderGridDemandSummary(scopes: [])
+        )
     }
 
     func noteTerminalBytes(surfaceID: UUID) {
-        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
+        guard effectiveRenderGridDemand.contains(surfaceID: surfaceID.uuidString) else { return }
         pendingSurfaceIDs.insert(surfaceID)
         // The byte tee runs before Ghostty's VT parser consumes the bytes, and
         // the hop back to the main actor can land after the current tick/frame
@@ -95,7 +105,63 @@ final class MobileTerminalRenderObserver {
 
     private var hasAnyRenderEventSubscribers: Bool {
         MobileHostService.hasEventSubscribers(topic: "terminal.updated") ||
-            MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
+            effectiveRenderGridDemand.hasDemand
+    }
+
+    private var effectiveRenderGridDemand: MobileRenderGridDemandSummary {
+        let scopes = demandByConnectionID.values.map { summary -> MobileRenderGridDemandScope in
+            if summary.includesLegacyAll { return .legacyAll }
+            return .scoped(MobileRenderGridDemand(
+                focusedSurfaceIDs: summary.focusedSurfaceIDs,
+                previewSurfaceIDs: summary.previewSurfaceIDs
+            ))
+        }
+        return MobileRenderGridDemandSummary(scopes: scopes)
+    }
+
+    func replaceConnectionDemand(
+        connectionID: UUID,
+        summary: MobileRenderGridDemandSummary
+    ) {
+        let previousConnectionDemand = demandByConnectionID[connectionID]
+            ?? MobileRenderGridDemandSummary(scopes: [])
+        let previousEffectiveDemand = effectiveRenderGridDemand
+        if summary.hasDemand {
+            demandByConnectionID[connectionID] = summary
+        } else {
+            demandByConnectionID.removeValue(forKey: connectionID)
+        }
+        let nextEffectiveDemand = effectiveRenderGridDemand
+        MobileTerminalByteTee.shared.setRenderGridDemand(nextEffectiveDemand)
+
+        let addedForConnection = summary.surfaceIDs.filter {
+            !previousConnectionDemand.contains(surfaceID: $0)
+        }
+        if summary.includesLegacyAll && !previousConnectionDemand.includesLegacyAll {
+            renderGridStatesBySurfaceID.removeAll()
+            hasPendingGlobalUpdate = true
+        } else {
+            for surfaceIDString in addedForConnection {
+                guard let surfaceID = UUID(uuidString: surfaceIDString) else { continue }
+                resetEmissionState(surfaceID: surfaceID)
+                pendingSurfaceIDs.insert(surfaceID)
+            }
+        }
+
+        for removedID in previousEffectiveDemand.surfaceIDs.subtracting(nextEffectiveDemand.surfaceIDs) {
+            guard let surfaceID = UUID(uuidString: removedID) else { continue }
+            resetEmissionState(surfaceID: surfaceID)
+            pendingSurfaceIDs.remove(surfaceID)
+        }
+        for focusedID in nextEffectiveDemand.focusedSurfaceIDs {
+            guard let surfaceID = UUID(uuidString: focusedID) else { continue }
+            pendingPreviewEmissionTasksBySurfaceID.removeValue(forKey: surfaceID)?.cancel()
+            pendingSurfaceIDs.insert(surfaceID)
+        }
+        refreshNotificationDemand()
+        if summary.hasDemand {
+            enqueueTerminalUpdate(surfaceID: nil)
+        }
     }
 
     private func refreshNotificationDemand() {
@@ -116,6 +182,7 @@ final class MobileTerminalRenderObserver {
             hasPendingGlobalUpdate = false
             isEmitFlushScheduled = false
             renderGridStatesBySurfaceID.removeAll()
+            cancelAllPreviewEmissionTasks()
         }
     }
 
@@ -143,7 +210,8 @@ final class MobileTerminalRenderObserver {
             return
         }
         let shouldEmitUpdatedEvents = MobileHostService.hasEventSubscribers(topic: "terminal.updated")
-        let shouldEmitRenderGridEvents = MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
+        let renderGridDemand = effectiveRenderGridDemand
+        let shouldEmitRenderGridEvents = renderGridDemand.hasDemand
         let surfaceIDs = pendingSurfaceIDs
         let shouldEmitGlobal = hasPendingGlobalUpdate
         pendingSurfaceIDs.removeAll()
@@ -163,16 +231,56 @@ final class MobileTerminalRenderObserver {
         guard shouldEmitRenderGridEvents else { return }
         let renderSurfaceIDs: Set<UUID>
         if surfaceIDs.isEmpty, shouldEmitGlobal {
-            renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
+            if renderGridDemand.includesLegacyAll {
+                renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
+            } else {
+                renderSurfaceIDs = Set(renderGridDemand.surfaceIDs.compactMap(UUID.init(uuidString:)))
+            }
         } else {
-            renderSurfaceIDs = surfaceIDs
+            renderSurfaceIDs = Set(surfaceIDs.filter {
+                renderGridDemand.contains(surfaceID: $0.uuidString)
+            })
         }
         for surfaceID in renderSurfaceIDs {
+            if renderGridDemand.isFocused(surfaceID: surfaceID.uuidString) {
+                pendingPreviewEmissionTasksBySurfaceID.removeValue(forKey: surfaceID)?.cancel()
+                emitRenderGrid(surfaceID: surfaceID)
+            } else {
+                enqueuePreviewEmission(surfaceID: surfaceID)
+            }
+        }
+    }
+
+    private func enqueuePreviewEmission(surfaceID: UUID) {
+        let now = previewClock.now
+        guard let lastEmission = lastPreviewEmissionBySurfaceID[surfaceID] else {
             emitRenderGrid(surfaceID: surfaceID)
+            return
+        }
+        let deadline = lastEmission.advanced(by: previewUpdateInterval)
+        guard now < deadline else {
+            pendingPreviewEmissionTasksBySurfaceID.removeValue(forKey: surfaceID)?.cancel()
+            emitRenderGrid(surfaceID: surfaceID)
+            return
+        }
+        guard pendingPreviewEmissionTasksBySurfaceID[surfaceID] == nil else { return }
+        pendingPreviewEmissionTasksBySurfaceID[surfaceID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                // Intentional bounded preview cadence delay; demand changes cancel it.
+                try await self.previewClock.sleep(until: deadline)
+            } catch {
+                return
+            }
+            self.pendingPreviewEmissionTasksBySurfaceID.removeValue(forKey: surfaceID)
+            let demand = self.effectiveRenderGridDemand
+            guard demand.contains(surfaceID: surfaceID.uuidString) else { return }
+            self.emitRenderGrid(surfaceID: surfaceID)
         }
     }
 
     private func emitRenderGrid(surfaceID: UUID) {
+        lastPreviewEmissionBySurfaceID[surfaceID] = previewClock.now
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
               let snapshot = surface.mobileRenderGridFrame(stateSeq: stateSeq, full: true) else {
@@ -195,6 +303,20 @@ final class MobileTerminalRenderObserver {
         #endif
     }
 
+    private func resetEmissionState(surfaceID: UUID) {
+        renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+        lastPreviewEmissionBySurfaceID.removeValue(forKey: surfaceID)
+        pendingPreviewEmissionTasksBySurfaceID.removeValue(forKey: surfaceID)?.cancel()
+    }
+
+    private func cancelAllPreviewEmissionTasks() {
+        for task in pendingPreviewEmissionTasksBySurfaceID.values {
+            task.cancel()
+        }
+        pendingPreviewEmissionTasksBySurfaceID.removeAll()
+        lastPreviewEmissionBySurfaceID.removeAll()
+    }
+
     #if DEBUG
     func debugResetRenderGridCacheForTesting() {
         renderGridStatesBySurfaceID.removeAll()
@@ -206,6 +328,10 @@ final class MobileTerminalRenderObserver {
 
     var debugIsRetainingNotificationDemandForTesting: Bool {
         releaseFrameDemand != nil && releaseTickDemand != nil
+    }
+
+    var debugRenderGridDemandForTesting: MobileRenderGridDemandSummary {
+        effectiveRenderGridDemand
     }
     #endif
 }

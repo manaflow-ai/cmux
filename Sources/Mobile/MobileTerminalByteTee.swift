@@ -1,6 +1,8 @@
+import CMUXMobileCore
+import CmuxTerminal
 import Foundation
 import OSLog
-import CmuxTerminal
+import os
 
 private let mobileTerminalByteTeeLog = Logger(
     subsystem: "dev.cmux",
@@ -43,6 +45,11 @@ final class MobileTerminalByteTee {
 
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
     private let replayBudget: Int = 256 * 1024
+    // Synchronous Ghostty C callbacks cannot await the main-actor observer; this
+    // tiny mirror makes one bounded membership read and never guards domain mutation.
+    private nonisolated let renderGridDemandMirror = OSAllocatedUnfairLock(
+        initialState: MobileRenderGridDemandSummary(scopes: [])
+    )
     /// Serial queue so fan-out preserves byte order even though the
     /// upstream callback runs off the main thread.
     private let publishQueue = DispatchQueue(
@@ -61,17 +68,14 @@ final class MobileTerminalByteTee {
         // Hot path: this runs on the Ghostty PTY/IO read thread for *every*
         // surface, including normal desktop use with no phone attached. Bail
         // before any allocation or main-actor hop when no mobile client wants
-        // these bytes. The check is an O(1) dictionary read of the single
-        // subscription source of truth (`MobileHostEventSubscriptionTracker`),
-        // the same accessor `MobileTerminalRenderObserver` already uses; it is
-        // not a new lock, and its only writers are the rare subscribe /
-        // unsubscribe RPCs, so the IO thread never meaningfully contends. We
-        // gate on both topics because `publishFromMain` is load-bearing for
-        // the render-grid stream too: it advances `seq` (read as `stateSeq`)
-        // and calls `noteTerminalBytes` to schedule the post-parse tick.
+        // this surface. Raw-byte demand uses the existing subscription tracker;
+        // render-grid demand uses a tiny synchronous mirror because this C
+        // callback cannot await the main-actor observer. We gate both paths
+        // because `publishFromMain` is load-bearing for render-grid delivery:
+        // it advances `seq` and schedules the post-parse Ghostty tick.
         guard
             MobileHostService.hasEventSubscribers(topic: "terminal.bytes")
-                || MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
+                || renderGridDemandMirror.withLock({ $0.contains(surfaceID: surfaceID.uuidString) })
         else {
             return
         }
@@ -94,6 +98,10 @@ final class MobileTerminalByteTee {
 
     func currentSequence(surfaceID: UUID) -> UInt64? {
         statesBySurfaceID[surfaceID]?.seq
+    }
+
+    nonisolated func setRenderGridDemand(_ demand: MobileRenderGridDemandSummary) {
+        renderGridDemandMirror.withLock { $0 = demand }
     }
 
     /// Drop replay history for a surface (e.g. when the surface closes).
