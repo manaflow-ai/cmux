@@ -19,10 +19,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorIncludesRowTargets = false
     private var clipBoundsObserver: NSObjectProtocol?
     private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
-    private let bonsplitTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()
+    private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
 
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
+    var dropTargetComputationProbe: (() -> Void)? {
+        get { dropTargetGeometry.computationProbe }
+        set { dropTargetGeometry.computationProbe = newValue }
+    }
 #endif
 
     deinit {
@@ -81,7 +85,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         container.reorderDropView.registerForDraggedTypes([
             NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier),
         ])
-        container.bonsplitDropView.targetBridge = bonsplitTargetBridge
+        dropTargetGeometry.attach(containerView: container)
+        container.bonsplitDropView.targetBridge = dropTargetGeometry.bonsplitTargetBridge
 
         clipBoundsObserver = NotificationCenter.default.addObserver(
             forName: NSView.boundsDidChangeNotification,
@@ -179,6 +184,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard rows.indices.contains(row), let actions else { return nil }
         let workspaceId = rows[row].workspaceId
         actions.beginWorkspaceDrag(workspaceId)
+        workspaceDragSessionDidBegin()
         let item = NSPasteboardItem()
         item.setString(
             "\(SidebarTabDragPayload.prefix)\(workspaceId.uuidString)",
@@ -194,6 +200,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         operation: NSDragOperation
     ) {
         actions?.endWorkspaceDrag()
+        workspaceDragSessionDidEnd()
+    }
+
+    func workspaceDragSessionDidBegin() {
+        if dropTargetGeometry.setWorkspaceDragSessionActive(true, rows: rows) {
+            positionAppKitDropIndicator()
+        }
+    }
+
+    func workspaceDragSessionDidEnd() {
+        dropTargetGeometry.setWorkspaceDragSessionActive(false, rows: rows)
+        dropTargetGeometry.setReorderTargetCollectionActive(false, rows: rows)
     }
 
     func middleClick(row: Int) {
@@ -252,7 +270,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         setHoveredRowId(row.map { rows[$0].id })
     }
 
-    private func viewportDidChange() {
+    func viewportDidChange() {
         if let changed = rowHeightCache.prepareHostedRowsIfWidthChanged(
             rows,
             columnWidth: currentColumnWidth()
@@ -355,12 +373,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             actions.clearWorkspaceDropIndicator()
             self?.setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
         }
-        reorder.setWorkspaceDropTargetCollectionActive = actions.setWorkspaceDropTargetCollectionActive
+        reorder.setWorkspaceDropTargetCollectionActive = { [weak self] isActive in
+            actions.setWorkspaceDropTargetCollectionActive(isActive)
+            guard let self else { return }
+            if self.dropTargetGeometry.setReorderTargetCollectionActive(isActive, rows: self.rows) {
+                self.positionAppKitDropIndicator()
+            }
+        }
 
         let bonsplit = container.bonsplitDropView
         bonsplit.canPerformAction = actions.canPerformBonsplitAction
         bonsplit.updateAutoscroll = actions.updateDragAutoscroll
-        bonsplit.setWorkspaceDropTargetCollectionActive = actions.setBonsplitDropTargetCollectionActive
+        bonsplit.setWorkspaceDropTargetCollectionActive = { [weak self] isActive in
+            actions.setBonsplitDropTargetCollectionActive(isActive)
+            guard let self else { return }
+            if self.dropTargetGeometry.setBonsplitTargetCollectionActive(isActive, rows: self.rows) {
+                self.positionAppKitDropIndicator()
+            }
+        }
         bonsplit.setDropIndicator = { [weak self] indicator in
             actions.setBonsplitDropIndicator(indicator)
             self?.setAppKitDropIndicator(indicator, scope: .raw, includeRowTargets: true)
@@ -380,40 +410,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func updateDropTargets() {
-        guard let container = containerView else { return }
-        let table = container.tableView
-        let visibleRange = table.rows(in: table.visibleRect)
-        guard visibleRange.location != NSNotFound, visibleRange.length > 0 else {
-            container.reorderDropView.targets = []
-            container.reorderDropView.targetsDidUpdate()
-            bonsplitTargetBridge.updateTargets([])
-            return
+        if dropTargetGeometry.refreshIfActive(rows: rows) {
+            positionAppKitDropIndicator()
         }
-
-        let lower = max(0, visibleRange.location)
-        let upper = min(rows.count, visibleRange.location + visibleRange.length)
-        let visibleIndexes = lower..<upper
-        let reorderTargets = visibleIndexes.map { row -> SidebarWorkspaceReorderDropOverlay.Target in
-            let configuration = rows[row]
-            return SidebarWorkspaceReorderDropOverlay.Target(
-                workspaceId: configuration.workspaceId,
-                groupId: configuration.groupId,
-                isGroupHeader: configuration.isGroupHeader,
-                frame: table.convert(table.rect(ofRow: row), to: container.reorderDropView)
-            )
-        }
-        container.reorderDropView.targets = reorderTargets
-        container.reorderDropView.targetsDidUpdate()
-
-        bonsplitTargetBridge.updateTargets(visibleIndexes.map { row in
-            let configuration = rows[row]
-            return SidebarDropPlanner.WorkspaceDropTarget(
-                workspaceId: configuration.workspaceId,
-                isPinned: configuration.isPinned,
-                frame: table.convert(table.rect(ofRow: row), to: container.bonsplitDropView)
-            )
-        })
-        positionAppKitDropIndicator()
     }
 
     private func synchronizeAppKitDropIndicator(actions: SidebarWorkspaceTableActions) {

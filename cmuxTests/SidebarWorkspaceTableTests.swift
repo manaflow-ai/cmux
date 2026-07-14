@@ -199,6 +199,48 @@ struct SidebarWorkspaceTableTests {
         #expect(cell.hostedRootIdentity == rootIdentity)
         #expect(cell.representedRowId == .workspace(reusedWorkspaceId))
     }
+
+    @Test
+    @MainActor
+    func dropTargetGeometryIsIdleDuringScrollAndTracksDragLifecycle() {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let workspaceId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        controller.apply(
+            rows: [makeRowConfiguration(workspaceId: workspaceId)],
+            actions: makeTableActions(),
+            workspaceIds: [workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        var computations = 0
+        controller.dropTargetComputationProbe = { computations += 1 }
+
+        controller.viewportDidChange()
+        controller.viewportDidChange()
+        #expect(computations == 0)
+
+        controller.workspaceDragSessionDidBegin()
+        #expect(computations == 1)
+        #expect(container.reorderDropView.targets.map(\.workspaceId) == [workspaceId])
+
+        controller.viewportDidChange()
+        #expect(computations == 2)
+
+        controller.workspaceDragSessionDidEnd()
+        #expect(container.reorderDropView.targets.isEmpty)
+        controller.viewportDidChange()
+        #expect(computations == 2)
+    }
 #endif
 
     @Test
@@ -269,6 +311,32 @@ struct SidebarWorkspaceTableTests {
             isPointerHovering: isPointerHovering,
             contextMenuDidOpen: {},
             contextMenuDidClose: {}
+        )
+    }
+
+    @MainActor
+    private func makeTableActions() -> SidebarWorkspaceTableActions {
+        SidebarWorkspaceTableActions(
+            attachScrollView: { _ in },
+            closeWorkspace: { _ in },
+            createWorkspaceAtEnd: {},
+            createEmptyWorkspaceGroup: {},
+            beginWorkspaceDrag: { _ in },
+            endWorkspaceDrag: {},
+            isValidWorkspaceDrag: { true },
+            updateWorkspaceDrag: { _, _ in false },
+            performWorkspaceDrop: { _, _ in false },
+            clearWorkspaceDropIndicator: {},
+            currentDropIndicator: { nil },
+            currentDropIndicatorScope: { .raw },
+            setWorkspaceDropTargetCollectionActive: { _ in },
+            canPerformBonsplitAction: { _, _ in false },
+            moveBonsplitToExistingWorkspace: { _, _ in false },
+            moveBonsplitToNewWorkspace: { _, _ in nil },
+            didMoveBonsplitToWorkspace: { _ in },
+            updateDragAutoscroll: {},
+            setBonsplitDropTargetCollectionActive: { _ in },
+            setBonsplitDropIndicator: { _ in }
         )
     }
 #endif
