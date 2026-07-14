@@ -16,6 +16,7 @@ enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
     case irohAdmission(CmxIrohAdmittedPeer)
 }
 
+
 enum MobileHostEventTransport: String, Equatable, Sendable {
     case control = "control_v1"
     case irohServerEvents = "iroh_server_events_v1"
@@ -122,6 +123,15 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         }
     }
 
+    func removeAllIrohConnections() -> [MobileHostConnection] {
+        removeConnections { authorization in
+            if case .irohAdmission = authorization {
+                return true
+            }
+            return false
+        }
+    }
+
     private func removeConnections(
         where shouldRemove: (MobileHostConnectionAuthorizationContext) -> Bool
     ) -> [MobileHostConnection] {
@@ -223,4 +233,3 @@ enum MobileHostPublicStatusCache {
         return routes + legacyRoutes
     }
 }
-

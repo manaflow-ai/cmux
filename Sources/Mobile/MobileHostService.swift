@@ -350,6 +350,12 @@ final class MobileHostService {
         }
     }
 
+    func closeAllIrohConnections() {
+        for connection in MobileHostConnectionRegistry.shared.removeAllIrohConnections() {
+            Task { await connection.close(reason: "iroh endpoint deactivated") }
+        }
+    }
+
     /// The signed-in local user's id, awaiting launch session restore first so
     /// pairing checks can't race it. `nil` when signed out (or before the auth
     /// graph is configured), which the authorization policy rejects.

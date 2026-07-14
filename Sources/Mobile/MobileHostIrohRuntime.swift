@@ -509,14 +509,14 @@ final class MobileHostIrohRuntime {
                     }
                 )
             },
-            handleDeactivation: { bindingID in
+            handleDeactivation: { _ in
                 await lanPublisher.stop()
                 await MainActor.run {
-                    if let bindingID {
-                        MobileHostService.shared.closeIrohConnections(
-                            bindingID: bindingID
-                        )
-                    }
+                    // The runtime owns the local Mac binding, while admitted
+                    // sessions carry remote iOS binding IDs. Endpoint teardown
+                    // therefore closes every Iroh-authorized connection and
+                    // leaves Tailscale/other private-network sessions intact.
+                    MobileHostService.shared.closeAllIrohConnections()
                     MobileHostService.shared.updateIrohBinding(nil)
                 }
             },
