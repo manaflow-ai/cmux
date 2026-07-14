@@ -515,6 +515,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE49000000000000000002 /* CmuxExtensionSidebarExamples */; };
 		C57B00050000000000000001 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */; };
 		C6A701010000000000000001 /* CmuxExternalURLAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A701010000000000000002 /* CmuxExternalURLAdmission.swift */; };
+		C6A701160000000000000001 /* CmuxExternalURLIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A701160000000000000002 /* CmuxExternalURLIntent.swift */; };
 		C6A701020000000000000001 /* CmuxExternalURLIntentCounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A701020000000000000002 /* CmuxExternalURLIntentCounts.swift */; };
 		C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2C00000000000000000C2 /* CmuxFeedback */; };
 		5E2701040000000000000004 /* CmuxFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000002 /* CmuxFoundation */; };
@@ -2364,6 +2365,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E7E000000000000000000002 /* CmuxEventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventStream.swift; sourceTree = "<group>"; };
 		C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxExtensionSidebarSelection+CustomSidebarName.swift"; sourceTree = "<group>"; };
 		C6A701010000000000000002 /* CmuxExternalURLAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExternalURLAdmission.swift; sourceTree = "<group>"; };
+		C6A701160000000000000002 /* CmuxExternalURLIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExternalURLIntent.swift; sourceTree = "<group>"; };
 		C6A701020000000000000002 /* CmuxExternalURLIntentCounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExternalURLIntentCounts.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000003 /* CmuxHelpCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpCommands.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000004 /* CmuxHelpResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpResource.swift; sourceTree = "<group>"; };
@@ -4471,6 +4473,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C6A701130000000000000002 /* CmuxRunWorkingDirectoryProcessOutcome.swift */,
 				C6A701140000000000000002 /* CmuxRunWorkingDirectoryProcessLimiter.swift */,
 				C6A701150000000000000002 /* CmuxRunWorkingDirectoryProcessGate.swift */,
+				C6A701160000000000000002 /* CmuxExternalURLIntent.swift */,
 				C6A700040000000000000002 /* CmuxRunURLCoordinator.swift */,
 				C6A700050000000000000002 /* CmuxRunURLConfirmationPresenter.swift */,
 				C6A701070000000000000002 /* CmuxRunURLConfirmationGate.swift */,
@@ -6217,6 +6220,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E7E000000000000000000001 /* CmuxEventStream.swift in Sources */,
 				C57B00050000000000000001 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift in Sources */,
 				C6A701010000000000000001 /* CmuxExternalURLAdmission.swift in Sources */,
+				C6A701160000000000000001 /* CmuxExternalURLIntent.swift in Sources */,
 				C6A701020000000000000001 /* CmuxExternalURLIntentCounts.swift in Sources */,
 				C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */,
 				C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,

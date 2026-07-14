@@ -66,6 +66,7 @@ extension AppDelegate {
         isRunBusy: Bool
     ) -> CmuxExternalURLAdmission {
         guard intentCounts.total > 0 else { return .none }
+        guard intentCounts.run > 0 else { return .route }
         guard intentCounts.total == 1 else { return .multipleLinks }
         if intentCounts.run == 1, isRunBusy {
             return .busy
@@ -76,7 +77,7 @@ extension AppDelegate {
     private static func cmuxExternalURLIntent(
         for url: URL,
         supportedSchemes: Set<String>
-    ) -> CmuxExternalURLIntentCounts.Intent? {
+    ) -> CmuxExternalURLIntent? {
         guard let scheme = url.scheme?.lowercased() else { return nil }
         if scheme == "ssh" {
             return .ssh
