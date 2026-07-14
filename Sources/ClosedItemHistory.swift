@@ -203,6 +203,7 @@ final class ClosedItemHistoryStore: ObservableObject {
             newerThan: cutoff,
             excluding: excludedRecordIds
         )
+        guard !candidates.isEmpty else { return .unavailable }
         guard candidates.contains(where: { !pendingEnrichmentRecordIDs.contains($0.id) }) else {
             return .blockedByPendingEnrichment
         }
