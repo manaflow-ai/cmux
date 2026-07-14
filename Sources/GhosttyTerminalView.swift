@@ -7491,6 +7491,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
     deinit {
+        cancelNotificationScrollReplayBoundaryRegistration(discardAllPending: true)
         selectionAccessibilitySignal.finish()
 #if DEBUG
         cmuxDebugLog(

@@ -72,10 +72,26 @@ private final class GhosttyCurrentDirectoryActionDispatcher: @unchecked Sendable
     ) {
         let key = ObjectIdentifier(surfaceView)
         state.withLock { state in
+            state.boundaryRegistrations = state.boundaryRegistrations.filter {
+                $0.value.surfaceView != nil
+            }
             state.boundaryRegistrations[key] = BoundaryRegistration(
                 surfaceView: surfaceView,
                 values: [startBoundary, endBoundary]
             )
+        }
+    }
+
+    func cancelReplayBoundaries(for surfaceView: GhosttyNSView, discardAllPending: Bool) {
+        let key = ObjectIdentifier(surfaceView)
+        state.withLock { state in
+            state.boundaryRegistrations.removeValue(forKey: key)
+            if discardAllPending {
+                state.pendingBySurface.removeValue(forKey: key)
+            } else if let pending = state.pendingBySurface[key] {
+                let ordinaryActions = pending.filter { !$0.isReplayBoundary }
+                state.pendingBySurface[key] = ordinaryActions.isEmpty ? nil : ordinaryActions
+            }
         }
     }
 
@@ -174,6 +190,15 @@ extension GhosttyNSView {
             for: self,
             startBoundary: startBoundary,
             endBoundary: endBoundary
+        )
+    }
+
+    nonisolated func cancelNotificationScrollReplayBoundaryRegistration(
+        discardAllPending: Bool = false
+    ) {
+        GhosttyCurrentDirectoryActionDispatcher.shared.cancelReplayBoundaries(
+            for: self,
+            discardAllPending: discardAllPending
         )
     }
 
