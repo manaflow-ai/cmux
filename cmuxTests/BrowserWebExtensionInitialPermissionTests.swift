@@ -176,6 +176,7 @@ struct BrowserWebExtensionInitialPermissionTests {
         await support.apply(entries: [entry])
 
         #expect(support.context(forActionID: entry.id) == nil)
+        #expect(support.controller.extensionContexts.isEmpty)
     }
 
 }
