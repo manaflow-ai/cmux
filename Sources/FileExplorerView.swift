@@ -645,7 +645,6 @@ final class FileExplorerContainerView: NSView {
     private var searchBarVisibleHeight: CGFloat { max(isSearchVisible ? 48 : 34, GlobalFontMagnification.scaled(isSearchVisible ? 48 : 34)) }
     private var searchFieldVisibleHeight: CGFloat { max(24, GlobalFontMagnification.scaled(24)) }
     private var hasSearchQuery: Bool { !searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
 #if DEBUG
     private var debugLastSearchTextChangeUptime: TimeInterval = 0
     private var debugLastSearchLayoutFieldWidth: CGFloat = -1
@@ -653,7 +652,6 @@ final class FileExplorerContainerView: NSView {
     private var debugLastLoggedSearchResultCount = -1
     private var debugLastLoggedSearchStatus = ""
 #endif
-
     init(
         coordinator: FileExplorerPanelView.Coordinator,
         presentation: FileExplorerPanelPresentation,
@@ -703,9 +701,11 @@ final class FileExplorerContainerView: NSView {
         }
         searchField.onFocus = { [weak self] in
             guard let self else { return }
+            let wasSearchVisible = self.isSearchVisible
             self.isSearchVisible = self.presentation == .find || self.hasSearchQuery
             self.coordinator.noteKeyboardFocus(mode: .find, in: self.window)
             self.updateSearchLayout()
+            if !wasSearchVisible, self.isSearchVisible { self.refreshSearchIfNeeded() }
         }
         searchBarView.addSubview(searchField)
         searchStatusLabel.translatesAutoresizingMaskIntoConstraints = false

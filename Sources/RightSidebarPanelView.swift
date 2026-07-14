@@ -224,7 +224,7 @@ struct RightSidebarPanelView: View {
                     ModeBarButton(
                         item: item,
                         isSelected: item.isSelected(
-                            mode: fileExplorerState.mode
+                            mode: fileExplorerState.mode.registeredToolMode
                         ),
                         badgeCount: item.mode == .feed ? feedPendingCount : 0,
                         shortcutHint: shortcut,

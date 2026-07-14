@@ -36,7 +36,8 @@ final class FileExplorerState: ObservableObject {
     /// persisted).
     @Published var rightSidebarOwnsInputFocus: Bool = false
 
-    /// Active registered tool for the right sidebar.
+    /// Active right-sidebar target. Activation aliases such as Find retain their
+    /// identity here while `registeredToolMode` selects the shared mounted tool.
     var mode: RightSidebarMode {
         get { storedMode }
         set { setMode(newValue) }
@@ -115,10 +116,9 @@ final class FileExplorerState: ObservableObject {
         _ mode: RightSidebarMode,
         defaults: UserDefaults
     ) -> RightSidebarMode {
-        let registeredMode = mode.registeredToolMode
-        if registeredMode == .customSidebar {
+        if mode == .customSidebar {
             return .files
         }
-        return registeredMode.isAvailable(defaults: defaults) ? registeredMode : .files
+        return mode.isAvailable(defaults: defaults) ? mode : .files
     }
 }

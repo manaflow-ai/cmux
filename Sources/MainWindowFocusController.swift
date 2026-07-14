@@ -479,8 +479,8 @@ final class MainWindowFocusController {
         publishFeedFocusSnapshot()
         yieldCurrentTerminalSurfaceFocus(reason: terminalYieldReason)
         state.setVisible(true)
-        if state.mode != toolMode {
-            state.mode = toolMode
+        if state.mode != mode {
+            state.mode = mode
         }
 
         let modeResult = focusRightSidebarEndpoint(mode: toolMode, target: target)
