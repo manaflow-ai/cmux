@@ -468,6 +468,96 @@ import Testing
     #expect(expandedBaseline.data.range(of: Data("new".utf8)) == nil)
 }
 
+@MainActor
+@Test func secondBarrierSnapshotReconcilesRetainedFinalRawTailBeforeIdle() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let initial = try authoritativeSemanticFrame(seq: 10, revision: 1, text: "initial")
+    await router.enqueueReplayRenderGrid(initial)
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let streams = store.authoritativeTerminalOutputStreams(surfaceID: "live-terminal")
+    var visual = streams.visual.makeAsyncIterator()
+    var semantic = streams.semantic.makeAsyncIterator()
+    let initialVisualValue = await visual.next()
+    let initialVisual = try #require(initialVisualValue)
+    let initialSemanticValue = await semantic.next()
+    let initialSemantic = try #require(initialSemanticValue)
+    store.terminalOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: initialVisual.streamToken,
+        disposition: .applied
+    )
+    store.terminalSemanticOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: initialSemantic.streamToken,
+        disposition: .applied
+    )
+
+    let firstSnapshot = try authoritativeSemanticFrame(seq: 10, revision: 2, text: "snapshot-one")
+    let secondSnapshot = try authoritativeSemanticFrame(seq: 12, revision: 3, text: "snapshot-two")
+    await router.enqueueReplayRenderGrid(firstSnapshot)
+    await router.enqueueReplayRenderGrid(secondSnapshot)
+    await router.holdNextReplayResponses()
+    let replayCount = await router.count(of: "mobile.terminal.replay")
+    store.requestTerminalReplay(surfaceID: "live-terminal")
+    let firstReplayStarted = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCount
+    }
+    #expect(firstReplayStarted)
+
+    let transport = try #require(box.get())
+    // This starts one byte beyond snapshot one's end, forcing a real gap and
+    // therefore a second snapshot instead of a retained-tail fast path.
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 11,
+        text: "A"
+    ))
+    await router.releaseAllHeld()
+    let firstBaselineValue = await semantic.next()
+    let firstBaseline = try #require(firstBaselineValue)
+    #expect(firstBaseline.endSeq == 10)
+
+    await router.holdNextReplayResponses()
+    store.terminalSemanticOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: firstBaseline.streamToken,
+        disposition: .applied
+    )
+    let secondReplayStarted = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCount + 1
+    }
+    #expect(secondReplayStarted)
+
+    // Snapshot two covers the prior gap and A. B races after its capture and
+    // must be retained, trimmed against endSeq 12, and drained after its ACK.
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 12,
+        text: "B"
+    ))
+    await router.releaseAllHeld()
+    let secondBaselineValue = await semantic.next()
+    let secondBaseline = try #require(secondBaselineValue)
+    #expect(secondBaseline.endSeq == 12)
+    store.terminalSemanticOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: secondBaseline.streamToken,
+        disposition: .applied
+    )
+
+    let finalTailScheduled = try await pollUntil {
+        store.terminalSemanticScheduledEndSeqBySurfaceID["live-terminal"] == 13
+    }
+    #expect(finalTailScheduled)
+    let finalTailValue = await semantic.next()
+    let finalTail = try #require(finalTailValue)
+    #expect(finalTail.kind == .raw)
+    #expect(String(decoding: finalTail.data, as: UTF8.self) == "B")
+    #expect(store.terminalReplayBarrierTokensBySurfaceID["live-terminal"] == nil)
+}
+
 private func authoritativeSemanticFrame(
     seq: UInt64,
     revision: UInt64,
