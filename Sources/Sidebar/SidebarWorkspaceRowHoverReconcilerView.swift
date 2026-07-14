@@ -75,6 +75,13 @@ final class SidebarWorkspaceRowHoverReconcilerView: NSView {
         reportPointerHovering(bounds.contains(pointInView), force: true)
     }
 
+    func stopHoverEventConsumption() {
+        onPointerHoverChanged = nil
+        hoverEventsTask?.cancel()
+        hoverEventsTask = nil
+        hoverContinuation.finish()
+    }
+
     private func reportPointerHovering(_ hovering: Bool, force: Bool = false) {
         guard force || lastReportedHover != hovering else { return }
         lastReportedHover = hovering
@@ -92,7 +99,6 @@ final class SidebarWorkspaceRowHoverReconcilerView: NSView {
     }
 
     deinit {
-        hoverEventsTask?.cancel()
-        hoverContinuation.finish()
+        stopHoverEventConsumption()
     }
 }
