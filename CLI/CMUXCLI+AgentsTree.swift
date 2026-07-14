@@ -135,6 +135,7 @@ extension CMUXCLI {
                         legacyVisible: legacyVisible
                     ) else { continue }
                     let projection = AgentSessionStateProjection(record: record, run: run)
+                    guard queryScope.includes(projection: projection) else { continue }
                     if let normalizedState, projection.effective.rawValue != normalizedState { continue }
                     if let normalizedActivity, projection.activity.state.rawValue != normalizedActivity { continue }
                     if let normalizedWorkKind,

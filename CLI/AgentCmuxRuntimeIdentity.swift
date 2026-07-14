@@ -86,4 +86,16 @@ enum AgentSessionQueryScope: Sendable, Equatable {
             return legacyVisible
         }
     }
+
+    /// The default view is an operational inventory, not a history log. Keep
+    /// hibernated and restoring sessions visible because cmux still owns their
+    /// lifecycle, while completed runs remain available through `--all`.
+    func includes(projection: AgentSessionStateProjection) -> Bool {
+        switch self {
+        case .history:
+            return true
+        case .currentRuntime, .legacyUnscoped:
+            return projection.effective != .ended
+        }
+    }
 }
