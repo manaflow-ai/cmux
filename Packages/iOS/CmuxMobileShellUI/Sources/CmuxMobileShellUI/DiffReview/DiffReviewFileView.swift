@@ -100,6 +100,11 @@ struct DiffReviewFileView: View {
                 .accessibilityIdentifier("DiffReviewRetry")
             }
         case .loaded(_, let hunks, let metadataLines, let isTruncated):
+            let presentation = DiffReviewContentPresentation(
+                file: session.currentFile,
+                hunks: hunks,
+                metadataLines: metadataLines
+            )
             if let hunk = currentHunk(in: hunks) {
                 VStack(spacing: 0) {
                     if isTruncated {
@@ -112,6 +117,7 @@ struct DiffReviewFileView: View {
                         .padding(.horizontal, 8)
                         .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                     }
+                    metadataStrip(presentation.metadataLines)
                     DiffReviewHunkView(
                         hunk: hunk,
                         position: session.currentHunkIndex + 1,
@@ -125,20 +131,22 @@ struct DiffReviewFileView: View {
                     ))
                 }
             } else {
-                if let file = session.currentFile,
-                   let rename = DiffReviewRenamePresentation(file: file) {
-                    ContentUnavailableView {
-                        Label(
-                            L10n.string("mobile.diff.status.renamed", defaultValue: "Renamed"),
-                            systemImage: "arrow.right"
-                        )
-                    } description: {
-                        Text(rename.text)
+                if let rename = presentation.rename {
+                    VStack(spacing: 0) {
+                        ContentUnavailableView {
+                            Label(
+                                L10n.string("mobile.diff.status.renamed", defaultValue: "Renamed"),
+                                systemImage: "arrow.right"
+                            )
+                        } description: {
+                            Text(rename.text)
+                        }
+                        metadataStrip(presentation.metadataLines)
                     }
                     .contentShape(.rect)
                     .gesture(hunkSwipeGesture)
                 } else {
-                    noHunkContent(metadataLines: metadataLines)
+                    noHunkContent(metadataLines: presentation.metadataLines)
                 }
             }
         }
@@ -332,6 +340,25 @@ struct DiffReviewFileView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(.rect)
         .gesture(hunkSwipeGesture)
+    }
+
+    @ViewBuilder
+    private func metadataStrip(_ metadataLines: [String]) -> some View {
+        if !metadataLines.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(metadataLines.indices, id: \.self) { index in
+                        Text(verbatim: metadataLines[index])
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 8)
+            }
+            .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
+            .background(Color.secondary.opacity(0.08))
+            .accessibilityIdentifier("DiffReviewMetadata")
+        }
     }
 
     private func currentHunk(in hunks: [DiffHunk]) -> DiffHunk? {

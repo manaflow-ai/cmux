@@ -87,9 +87,9 @@ extension GitDiffService {
         }
         guard let identity else { return .success(nil) }
         guard rawIdentityNeedsWorkingTreeHead(identity) else { return .success(identity) }
-        switch workingTreeHeadsResult(repoRoot: repoRoot, paths: [summary.path]) {
-        case .success(let heads):
-            return .success(combinedSemanticIdentity(raw: identity, head: heads[summary.path]))
+        switch gitlinkWorkingTreeStatesResult(repoRoot: repoRoot, paths: [summary.path]) {
+        case .success(let states):
+            return .success(combinedSemanticIdentity(raw: identity, gitlinkState: states[summary.path]))
         case .notFound, .failed:
             return .failed
         case .timedOut:
@@ -107,10 +107,10 @@ extension GitDiffService {
                   rawIdentityNeedsWorkingTreeHead(raw) else { return nil }
             return summary.path
         }
-        let heads: [String: String]
-        switch workingTreeHeadsResult(repoRoot: repoRoot, paths: gitlinkPaths) {
+        let gitlinkStates: [String: String]
+        switch gitlinkWorkingTreeStatesResult(repoRoot: repoRoot, paths: gitlinkPaths) {
         case .success(let values):
-            heads = values
+            gitlinkStates = values
         case .notFound, .failed:
             return .failed
         case .timedOut:
@@ -126,7 +126,7 @@ extension GitDiffService {
             }
             identities.append(
                 rawIdentityNeedsWorkingTreeHead(raw)
-                    ? combinedSemanticIdentity(raw: raw, head: heads[summary.path])
+                    ? combinedSemanticIdentity(raw: raw, gitlinkState: gitlinkStates[summary.path])
                     : raw
             )
         }
@@ -312,13 +312,13 @@ extension GitDiffService {
         return fields[0] == ":160000" || fields[1] == "160000"
     }
 
-    private func workingTreeHeadsResult(
+    private func gitlinkWorkingTreeStatesResult(
         repoRoot: String,
         paths: [String]
     ) -> GitDiffQueryResult<[String: String]> {
         guard !paths.isEmpty else { return .success([:]) }
-        let maxOutputBytes = paths.reduce(1024) { $0 + $1.utf8.count + 66 }
-        let result = processRunner.runGitWorkingTreeHeads(
+        let maxOutputBytes = paths.reduce(1024) { $0 + $1.utf8.count + 72 }
+        let result = processRunner.runGitlinkWorkingTreeStates(
             repoRoot: repoRoot,
             paths: paths,
             maxOutputBytes: maxOutputBytes,
@@ -333,22 +333,22 @@ extension GitDiffService {
             fields.removeLast()
         }
         guard fields.count == paths.count * 2 else { return .failed }
-        var heads: [String: String] = [:]
+        var states: [String: String] = [:]
         var index = 0
         while index < fields.count {
             guard let path = String(data: Data(fields[index]), encoding: .utf8),
-                  let head = String(data: Data(fields[index + 1]), encoding: .utf8),
-                  heads.updateValue(head, forKey: path) == nil else { return .failed }
+                  let state = String(data: Data(fields[index + 1]), encoding: .utf8),
+                  states.updateValue(state, forKey: path) == nil else { return .failed }
             index += 2
         }
-        return .success(heads)
+        return .success(states)
     }
 
-    private func combinedSemanticIdentity(raw: Data, head: String?) -> Data {
+    private func combinedSemanticIdentity(raw: Data, gitlinkState: String?) -> Data {
         var identity = raw
         identity.append(0)
-        if let head {
-            identity.append(contentsOf: head.utf8)
+        if let gitlinkState {
+            identity.append(contentsOf: gitlinkState.utf8)
         }
         return identity
     }

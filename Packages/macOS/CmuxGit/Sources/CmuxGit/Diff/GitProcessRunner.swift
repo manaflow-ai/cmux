@@ -124,7 +124,7 @@ struct GitProcessRunner: Sendable {
         )
     }
 
-    func runGitWorkingTreeHeads(
+    func runGitlinkWorkingTreeStates(
         repoRoot: String,
         paths: [String],
         maxOutputBytes: Int,
@@ -148,8 +148,31 @@ struct GitProcessRunner: Sendable {
                 executableURL: URL(fileURLWithPath: "/bin/sh"),
                 arguments: [
                     "-c",
-                    "git=$1; root=$2; shift 2; root_gitdir=$(\"$git\" -C \"$root\" rev-parse --absolute-git-dir 2>/dev/null) || exit $?; for path do location=$root/$path; gitdir=$(\"$git\" -C \"$location\" rev-parse --absolute-git-dir 2>/dev/null) || gitdir=; if [ -n \"$gitdir\" ] && [ \"$gitdir\" != \"$root_gitdir\" ]; then head=$(\"$git\" -C \"$location\" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) || head=; else head=; fi; printf '%s\\000%s\\000' \"$path\" \"$head\"; done",
-                    "cmux-git-heads",
+                    """
+                    git=$1
+                    root=$2
+                    shift 2
+                    root_gitdir=$("$git" -C "$root" rev-parse --absolute-git-dir 2>/dev/null) || exit $?
+                    for path do
+                      location=$root/$path
+                      gitdir=$("$git" -C "$location" rev-parse --absolute-git-dir 2>/dev/null) || gitdir=
+                      if [ -n "$gitdir" ] && [ "$gitdir" != "$root_gitdir" ]; then
+                        state=$("$git" -C "$location" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) || state=
+                        if [ -n "$state" ]; then
+                          "$git" -C "$location" diff-index --quiet --ignore-submodules=none HEAD --
+                          dirty_status=$?
+                          if [ "$dirty_status" -gt 1 ]; then exit "$dirty_status"; fi
+                          if [ "$dirty_status" -eq 1 ] || [ -n "$("$git" -C "$location" ls-files --others --exclude-standard --directory --no-empty-directory | /usr/bin/head -n 1)" ]; then
+                            state=$state-dirty
+                          fi
+                        fi
+                      else
+                        state=
+                      fi
+                      printf '%s\\000%s\\000' "$path" "$state"
+                    done
+                    """,
+                    "cmux-gitlink-state",
                     gitExecutableURL.path,
                     repoRoot,
                 ] + batch,

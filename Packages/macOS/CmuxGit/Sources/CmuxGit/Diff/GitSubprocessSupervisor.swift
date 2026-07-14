@@ -1,6 +1,18 @@
 import Darwin
 import Foundation
 
+struct GitProcessWaitPlan {
+    let deadline: TimeInterval?
+
+    init(
+        processDeadline: TimeInterval,
+        escalationDeadline: TimeInterval?,
+        didSendSIGKILL: Bool
+    ) {
+        deadline = didSendSIGKILL ? nil : escalationDeadline ?? processDeadline
+    }
+}
+
 /// Owns one subprocess from spawn through output drain, deadline escalation,
 /// and reap. Kernel events and the caller's thread are the only scheduler: a
 /// saturated dispatch or Swift-concurrency pool cannot delay the deadline.
@@ -151,6 +163,7 @@ struct GitSubprocessSupervisor {
         var failure: GitProcessFailure?
         var processExited = false
         var escalationDeadline: TimeInterval?
+        var didSendSIGKILL = false
 
         func beginTermination(_ reason: GitProcessFailure?) {
             guard escalationDeadline == nil else { return }
@@ -167,8 +180,9 @@ struct GitSubprocessSupervisor {
             if failure == nil, !capped, now >= processDeadline {
                 beginTermination(.timedOut)
             }
-            if let escalationDeadline, now >= escalationDeadline {
+            if let escalationDeadline, !didSendSIGKILL, now >= escalationDeadline {
                 _ = kill(-processIdentifier, SIGKILL)
+                didSendSIGKILL = true
                 if outputDescriptor >= 0 {
                     close(outputDescriptor)
                     outputDescriptor = -1
@@ -176,14 +190,28 @@ struct GitSubprocessSupervisor {
             }
 
             if processExited && outputDescriptor < 0 { break }
-            let nextDeadline = escalationDeadline ?? processDeadline
-            var timeout = Self.timespec(until: nextDeadline)
             var events = [
                 kevent(ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: nil),
                 kevent(ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: nil),
             ]
-            let eventCount = events.withUnsafeMutableBufferPointer { buffer in
-                kevent(eventQueue, nil, 0, buffer.baseAddress, Int32(buffer.count), &timeout)
+            let waitPlan = GitProcessWaitPlan(
+                processDeadline: processDeadline,
+                escalationDeadline: escalationDeadline,
+                didSendSIGKILL: didSendSIGKILL
+            )
+            let eventCount: Int32
+            if let deadline = waitPlan.deadline {
+                var timeout = Self.timespec(until: deadline)
+                eventCount = events.withUnsafeMutableBufferPointer { buffer in
+                    kevent(eventQueue, nil, 0, buffer.baseAddress, Int32(buffer.count), &timeout)
+                }
+            } else {
+                // SIGKILL is sent once. A process stuck in uninterruptible I/O
+                // may not exit immediately, so block on NOTE_EXIT instead of
+                // polling an already-expired deadline and spinning a core.
+                eventCount = events.withUnsafeMutableBufferPointer { buffer in
+                    kevent(eventQueue, nil, 0, buffer.baseAddress, Int32(buffer.count), nil)
+                }
             }
             if eventCount < 0 {
                 if errno == EINTR { continue }
