@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+@testable import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
