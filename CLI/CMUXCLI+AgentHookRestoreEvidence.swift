@@ -1,4 +1,56 @@
 import Foundation
+import CMUXAgentLaunch
+
+enum CodexLaunchPermissionPolicy {
+    static func hasExplicitArguments(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {
+        guard let launchCommand,
+              AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: "codex") else {
+            return false
+        }
+        let arguments = launchCommand.arguments
+        for (index, argument) in arguments.enumerated() {
+            if [
+                "--yolo",
+                "--full-auto",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "-a",
+                "--ask-for-approval",
+                "-s",
+                "--sandbox",
+            ].contains(argument) {
+                return true
+            }
+            if argument.hasPrefix("--ask-for-approval=") || argument.hasPrefix("--sandbox=") {
+                return true
+            }
+            if argument == "-c" || argument == "--config",
+               index + 1 < arguments.count,
+               configOverridesPermissions(arguments[index + 1]) {
+                return true
+            }
+            if argument.hasPrefix("-c=") || argument.hasPrefix("--config=") {
+                let value = String(argument.split(separator: "=", maxSplits: 1)[1])
+                if configOverridesPermissions(value) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    static func wouldDropExplicitArguments(
+        existing: AgentHookLaunchCommandRecord?,
+        incoming: AgentHookLaunchCommandRecord?
+    ) -> Bool {
+        hasExplicitArguments(existing) && !hasExplicitArguments(incoming)
+    }
+
+    private static func configOverridesPermissions(_ value: String) -> Bool {
+        let key = value.split(separator: "=", maxSplits: 1).first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return key == "approval_policy" || key == "sandbox_mode"
+    }
+}
 
 extension CMUXCLI {
     func agentHookSessionHasDurableResumeEvidence(
@@ -33,11 +85,21 @@ extension CMUXCLI {
         if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
             return current
         }
+        let mappedLaunchCommand = kind == "codex"
+            ? repairedCodexLaunchCommand(mapped)
+            : mapped?.launchCommand
+        if kind == "codex",
+           let current,
+           let mappedLaunchCommand,
+           !CodexLaunchPermissionPolicy.hasExplicitArguments(current),
+           CodexLaunchPermissionPolicy.hasExplicitArguments(mappedLaunchCommand) {
+            return mappedLaunchCommand
+        }
         let currentSource = normalizedHookValue(current?.source)?.lowercased()
         if let current, currentSource != "default", agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
             return current
         }
-        if let launchCommand = mapped?.launchCommand,
+        if let launchCommand = mappedLaunchCommand,
            agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
             return launchCommand
         }
@@ -47,7 +109,7 @@ extension CMUXCLI {
         if agentHookMappedSessionHasDurableTargetEvidence(kind: kind, mapped: mapped) {
             return nil
         }
-        return current ?? mapped?.launchCommand
+        return current ?? mappedLaunchCommand
     }
 
     func preferredAgentHookResumeWorkingDirectory(
@@ -105,5 +167,73 @@ extension CMUXCLI {
         normalizedHookValue(environment?["CODEX_HOME"]) == nil
             && (normalizedHookValue(environment?["ANTHROPIC_BASE_URL"]) != nil
                 || normalizedHookValue(environment?["CLAUDE_CONFIG_DIR"]) != nil)
+    }
+
+    private func repairedCodexLaunchCommand(
+        _ mapped: ClaudeHookSessionRecord?
+    ) -> AgentHookLaunchCommandRecord? {
+        guard let mapped, var launchCommand = mapped.launchCommand else { return nil }
+        guard !CodexLaunchPermissionPolicy.hasExplicitArguments(launchCommand),
+              let capturedAt = launchCommand.capturedAt,
+              let transcriptPath = normalizedHookValue(mapped.transcriptPath),
+              let permissionArguments = codexPermissionArguments(
+                  transcriptPath: transcriptPath,
+                  before: capturedAt
+              ),
+              !permissionArguments.isEmpty else {
+            return launchCommand
+        }
+        launchCommand.arguments.append(contentsOf: permissionArguments)
+        return launchCommand
+    }
+
+    private func codexPermissionArguments(
+        transcriptPath: String,
+        before capturedAt: TimeInterval
+    ) -> [String]? {
+        let expandedPath = (transcriptPath as NSString).expandingTildeInPath
+        guard let handle = FileHandle(forReadingAtPath: expandedPath) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 4 * 1024 * 1024) else { return nil }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var approvalPolicy: String?
+        var sandboxMode: String?
+        for line in data.split(separator: 0x0A) {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+                  object["type"] as? String == "turn_context",
+                  let timestamp = object["timestamp"] as? String,
+                  let date = formatter.date(from: timestamp) else {
+                continue
+            }
+            if date.timeIntervalSince1970 >= capturedAt {
+                break
+            }
+            guard let payload = object["payload"] as? [String: Any] else { continue }
+            if let value = normalizedHookValue(payload["approval_policy"] as? String) {
+                approvalPolicy = value
+            }
+            if let sandbox = payload["sandbox_policy"] as? [String: Any],
+               let value = normalizedHookValue(sandbox["type"] as? String) {
+                sandboxMode = value
+            }
+        }
+
+        if approvalPolicy == "never", sandboxMode == "danger-full-access" {
+            return ["--yolo"]
+        }
+        if approvalPolicy == "never", sandboxMode == "disabled" {
+            return ["--dangerously-bypass-approvals-and-sandbox"]
+        }
+        var arguments: [String] = []
+        if let approvalPolicy {
+            arguments.append(contentsOf: ["-a", approvalPolicy])
+        }
+        if let sandboxMode,
+           ["read-only", "workspace-write", "danger-full-access"].contains(sandboxMode) {
+            arguments.append(contentsOf: ["-s", sandboxMode])
+        }
+        return arguments.isEmpty ? nil : arguments
     }
 }
