@@ -148,6 +148,29 @@ import Testing
         #expect(diff.unifiedDiff.contains("+padded name"))
     }
 
+    @Test func untrackedAllWhitespacePathDiffsVerbatim() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let whitespaceName = "   "
+        try Data("whitespace name\n".utf8)
+            .write(to: repo.appendingPathComponent(whitespaceName))
+
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let summary = try #require(changed.files.first { $0.path == whitespaceName })
+        let diff = try #require(service.fileDiff(
+            repoRoot: repo.path,
+            path: summary.path,
+            status: summary.status,
+            additions: summary.additions,
+            deletions: summary.deletions,
+            snapshotToken: summary.snapshotToken
+        ))
+
+        #expect(diff.path == whitespaceName)
+        #expect(diff.unifiedDiff.contains("+whitespace name"))
+    }
+
     @Test func fileDiffBelowMaxOutputBytesIsUnaffected() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

@@ -110,6 +110,42 @@ import Testing
         #expect(box.value == nil)
     }
 
+    @Test func deadlineDoesNotDependOnAvailableDispatchWorkers() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let stalledGit = repo.appendingPathComponent("dispatch-saturated-git.sh")
+        try Data("#!/bin/sh\nsleep 3\n".utf8).write(to: stalledGit)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: stalledGit.path
+        )
+
+        let blockerCount = max(32, ProcessInfo.processInfo.activeProcessorCount * 8)
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        for _ in 0..<blockerCount {
+            DispatchQueue.global(qos: .userInitiated).async {
+                started.signal()
+                release.wait()
+            }
+        }
+        defer {
+            for _ in 0..<blockerCount { release.signal() }
+        }
+        let requiredStartedCount = min(blockerCount, ProcessInfo.processInfo.activeProcessorCount * 2)
+        for _ in 0..<requiredStartedCount {
+            try #require(started.wait(timeout: .now() + 2) == .success)
+        }
+
+        let service = GitDiffService(
+            gitExecutableURL: stalledGit,
+            processDeadlineSeconds: 0.1
+        )
+        let clock = ContinuousClock()
+        let start = clock.now
+        #expect(service.repositoryRoot(for: repo.path) == nil)
+        #expect(start.duration(to: clock.now) < .seconds(2))
+    }
+
     @Test func deadlineTerminatesDescendantsInTheGitProcessGroup() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
