@@ -15,7 +15,7 @@ extension SettingsWindowSharedStateSuites {
     @MainActor
     @Suite(.serialized)
     struct SettingsWindowChromeTests {
-        @Test func factoryBuildsModernUnifiedChromeWithSwiftUIToolbarBridge() throws {
+        @Test func factoryBuildsModernUnifiedChromeWithNativeSidebarToolbar() throws {
             let window = SettingsWindowFactory.makeSettingsWindow(onContentAppear: {})
             defer {
                 window.orderOut(nil)
@@ -35,6 +35,22 @@ extension SettingsWindowSharedStateSuites {
             )
             #expect(hostingController.sceneBridgingOptions.contains(.toolbars))
             #expect(hostingController.sceneBridgingOptions.contains(.title))
+
+            // Toolbar bridging is only observable after the hosting controller
+            // is attached to a live window. Require the NavigationSplitView's
+            // native sidebar item and exercise its responder-chain action so a
+            // bare option bit cannot satisfy this regression test.
+            window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
+            window.orderBack(nil)
+            window.contentView?.layoutSubtreeIfNeeded()
+
+            let toolbar = try #require(window.toolbar)
+            let sidebarToggle = try #require(
+                toolbar.items.first { $0.itemIdentifier == .toggleSidebar }
+            )
+            let action = try #require(sidebarToggle.action)
+            #expect(sidebarToggle.isEnabled)
+            #expect(NSApp.sendAction(action, to: sidebarToggle.target, from: sidebarToggle))
         }
     }
 }
