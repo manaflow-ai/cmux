@@ -39,6 +39,23 @@ struct VerifiedReplayPresentationTests {
         #expect(fence.isSatisfied(modelIdentity: replay, presentationIdentity: replay))
     }
 
+    @Test("presentation accepts the tokened IOSurface after its content seed advances")
+    func presentationFenceTracksAllocationAcrossSeedAdvance() {
+        let assigned = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 12)
+        let presented = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 13)
+        let divergent = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 14)
+        let otherAllocation = VerifiedReplayRendererSurfaceIdentity(id: 10, seed: 13)
+        var fence = VerifiedReplayPresentationFence(expectedToken: 42)
+
+        #expect(fence.acknowledge(token: 42, modelIdentity: assigned))
+        fence.markObservedFrameReady()
+
+        #expect(fence.isSatisfied(modelIdentity: presented, presentationIdentity: presented))
+        #expect(!fence.isSatisfied(modelIdentity: presented, presentationIdentity: divergent))
+        #expect(!fence.isSatisfied(modelIdentity: otherAllocation, presentationIdentity: otherAllocation))
+        #expect(!fence.isSatisfied(modelIdentity: presented, presentationIdentity: otherAllocation))
+    }
+
     @Test("grid export and token submission are one synchronous queue operation")
     func exportAndTokenSubmissionStayAdjacent() {
         var events: [String] = []
