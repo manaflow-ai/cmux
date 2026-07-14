@@ -4,52 +4,9 @@ import Foundation
 @testable import CmuxMobileShell
 
 struct ReconnectPersistenceProbeStore: MobilePairedMacStoring {
-    private enum ProbeError: Error {
-        case loadFailed
-    }
-
-    private actor State {
-        private let failFirstLoadAfterWrite: Bool
-        private var hasWritten = false
-        private var didFailLoad = false
-        private var removeCount = 0
-        private var setActiveCount = 0
-        private var rollbackCount = 0
-
-        init(failFirstLoadAfterWrite: Bool) {
-            self.failFirstLoadAfterWrite = failFirstLoadAfterWrite
-        }
-
-        func recordWrite() {
-            hasWritten = true
-        }
-
-        func shouldFailLoad() -> Bool {
-            guard failFirstLoadAfterWrite, hasWritten, !didFailLoad else { return false }
-            didFailLoad = true
-            return true
-        }
-
-        func recordRemove() {
-            removeCount += 1
-        }
-
-        func recordSetActive() {
-            setActiveCount += 1
-        }
-
-        func recordRollback() {
-            rollbackCount += 1
-        }
-
-        func mutationCounts() -> (removes: Int, setActive: Int, rollbacks: Int) {
-            (removeCount, setActiveCount, rollbackCount)
-        }
-    }
-
     let inner: any MobilePairedMacStoring
     let invalidateAfterWrite: SynchronousGenerationBoundary?
-    private let state: State
+    private let state: ReconnectPersistenceProbeState
 
     init(
         inner: any MobilePairedMacStoring,
@@ -58,7 +15,9 @@ struct ReconnectPersistenceProbeStore: MobilePairedMacStoring {
     ) {
         self.inner = inner
         self.invalidateAfterWrite = invalidateAfterWrite
-        self.state = State(failFirstLoadAfterWrite: failFirstLoadAfterWrite)
+        self.state = ReconnectPersistenceProbeState(
+            failFirstLoadAfterWrite: failFirstLoadAfterWrite
+        )
     }
 
     func upsert(
@@ -140,7 +99,7 @@ struct ReconnectPersistenceProbeStore: MobilePairedMacStoring {
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         if await state.shouldFailLoad() {
-            throw ProbeError.loadFailed
+            throw CocoaError(.fileReadUnknown)
         }
         return try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
     }

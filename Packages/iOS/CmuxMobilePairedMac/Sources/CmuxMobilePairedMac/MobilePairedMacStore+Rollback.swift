@@ -14,12 +14,12 @@ extension MobilePairedMacStore: MobilePairedMacStoring {
     ) throws {
         try ensureReady()
         try transaction {
-            let rejectedOwnerKey = Self.ownerKey(
+            let rejectedOwnerKey = pairedMacOwnerKey(
                 stackUserID: rollback.rejectedStackUserID,
                 teamID: rollback.rejectedTeamID
             )
             let previousOwnerKey = rollback.previousMac.map {
-                Self.ownerKey(stackUserID: $0.stackUserID, teamID: $0.teamID)
+                pairedMacOwnerKey(stackUserID: $0.stackUserID, teamID: $0.teamID)
             }
             if previousOwnerKey != rejectedOwnerKey {
                 try exec(
@@ -64,7 +64,7 @@ extension MobilePairedMacStore: MobilePairedMacStoring {
             }
 
             if let previousActiveMac = rollback.previousActiveMac,
-               !Self.sameIdentity(previousActiveMac, rollback.previousMac) {
+               !samePairedMacIdentity(previousActiveMac, rollback.previousMac) {
                 try clearActiveMacs(
                     stackUserID: previousActiveMac.stackUserID,
                     teamID: previousActiveMac.teamID
@@ -73,7 +73,7 @@ extension MobilePairedMacStore: MobilePairedMacStoring {
                     "UPDATE paired_macs SET is_active = 1 WHERE mac_device_id = ? AND owner_key = ?;",
                     binding: [
                         .text(previousActiveMac.macDeviceID),
-                        .text(Self.ownerKey(
+                        .text(pairedMacOwnerKey(
                             stackUserID: previousActiveMac.stackUserID,
                             teamID: previousActiveMac.teamID
                         )),
@@ -107,7 +107,7 @@ extension MobilePairedMacStore: MobilePairedMacStoring {
         }
     }
 
-    private static func sameIdentity(
+    private func samePairedMacIdentity(
         _ lhs: MobilePairedMac,
         _ rhs: MobilePairedMac?
     ) -> Bool {
@@ -116,7 +116,7 @@ extension MobilePairedMacStore: MobilePairedMacStoring {
             && lhs.teamID == rhs?.teamID
     }
 
-    private static func ownerKey(stackUserID: String?, teamID: String?) -> String {
+    private func pairedMacOwnerKey(stackUserID: String?, teamID: String?) -> String {
         "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
     }
 }

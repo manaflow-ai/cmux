@@ -182,24 +182,12 @@ extension MobileShellComposite {
         store: any MobilePairedMacStoring
     ) async {
         guard let scope else { return }
-        if await isForgottenMacDeviceID(persistedMacDeviceID, scope: scope) {
-            await removePersistedMacIfForgotten(
-                persistedMacDeviceID,
-                scope: scope,
-                store: store
-            )
-            if let previousActiveMac,
-               previousActiveMac.macDeviceID != persistedMacDeviceID,
-               !(await isForgottenMacDeviceID(previousActiveMac.macDeviceID, scope: scope)) {
-                try? await store.setActive(
-                    macDeviceID: previousActiveMac.macDeviceID,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID
-                )
-            }
-            return
-        }
-        guard reconnectSourceMacDeviceID != nil else { return }
+        let persistedMacWasForgotten = await isForgottenMacDeviceID(
+            persistedMacDeviceID,
+            scope: scope
+        )
+        guard persistedMacWasForgotten
+            || reconnectSourceMacDeviceID != nil else { return }
         do {
             let rollbackActiveMac: MobilePairedMac? = if let previousActiveMac,
                 previousActiveMac.macDeviceID != persistedMacDeviceID,
@@ -212,7 +200,7 @@ extension MobileShellComposite {
                 rejectedMacDeviceID: persistedMacDeviceID,
                 rejectedStackUserID: scope.userID,
                 rejectedTeamID: scope.teamID,
-                previousMac: previousPersistedMac,
+                previousMac: persistedMacWasForgotten ? nil : previousPersistedMac,
                 previousActiveMac: rollbackActiveMac,
                 rejectedTimestamp: rejectedTimestamp
             ))

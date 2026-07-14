@@ -334,6 +334,7 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    /// Restore a rejected logical write within this tagged build's physical scope.
     public func rollbackRejectedUpsert(
         _ rollback: MobilePairedMacUpsertRollback
     ) async throws {

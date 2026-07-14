@@ -131,6 +131,11 @@ public protocol MobilePairedMacStoring: Sendable {
 }
 
 extension MobilePairedMacStoring {
+    /// Restore a rejected upsert using the protocol's sequential fallback.
+    ///
+    /// Production stores and scope decorators override this with one atomic
+    /// mutation. Test stores use this implementation to preserve equivalent
+    /// state semantics without exposing storage-specific transactions.
     public func rollbackRejectedUpsert(
         _ rollback: MobilePairedMacUpsertRollback
     ) async throws {

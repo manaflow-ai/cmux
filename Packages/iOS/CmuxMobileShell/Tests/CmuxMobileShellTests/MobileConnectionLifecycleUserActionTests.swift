@@ -129,6 +129,7 @@ import Testing
         await pairedMacStore.releaseUpsert(macDeviceID: "test-mac")
         await pairedMacStore.waitUntilUpsertCount(1)
         _ = await reconnect.value
+        await store.pairedMacWriteChain?.value
 
         let rows = try await pairedMacStore.loadAll(stackUserID: "user-1", teamID: nil)
         #expect(!rows.contains { $0.macDeviceID == "test-mac" })

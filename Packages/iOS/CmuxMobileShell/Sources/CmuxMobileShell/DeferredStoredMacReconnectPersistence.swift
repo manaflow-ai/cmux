@@ -163,29 +163,24 @@ struct DeferredStoredMacReconnectPersistence {
     ) async {
         let persistedMacDeviceID = request.ticket.macDeviceID
         do {
-            if progress.wasForgotten(persistedMacDeviceID) {
-                try await store.remove(
-                    macDeviceID: persistedMacDeviceID,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID
-                )
+            let persistedMacWasForgotten = progress.wasForgotten(
+                persistedMacDeviceID
+            )
+            let rollbackActiveMac: MobilePairedMac? = if let previousActiveMac,
+                previousActiveMac.macDeviceID != persistedMacDeviceID,
+                !progress.wasForgotten(previousActiveMac.macDeviceID) {
+                previousActiveMac
             } else {
-                let rollbackActiveMac: MobilePairedMac? = if let previousActiveMac,
-                    previousActiveMac.macDeviceID != persistedMacDeviceID,
-                    !progress.wasForgotten(previousActiveMac.macDeviceID) {
-                    previousActiveMac
-                } else {
-                    nil
-                }
-                try await store.rollbackRejectedUpsert(MobilePairedMacUpsertRollback(
-                    rejectedMacDeviceID: persistedMacDeviceID,
-                    rejectedStackUserID: scope.userID,
-                    rejectedTeamID: scope.teamID,
-                    previousMac: previousPersistedMac,
-                    previousActiveMac: rollbackActiveMac,
-                    rejectedTimestamp: rejectedTimestamp
-                ))
+                nil
             }
+            try await store.rollbackRejectedUpsert(MobilePairedMacUpsertRollback(
+                rejectedMacDeviceID: persistedMacDeviceID,
+                rejectedStackUserID: scope.userID,
+                rejectedTeamID: scope.teamID,
+                previousMac: persistedMacWasForgotten ? nil : previousPersistedMac,
+                previousActiveMac: rollbackActiveMac,
+                rejectedTimestamp: rejectedTimestamp
+            ))
         } catch {
             // A subsequent serialized user write still owns the final authority.
         }
