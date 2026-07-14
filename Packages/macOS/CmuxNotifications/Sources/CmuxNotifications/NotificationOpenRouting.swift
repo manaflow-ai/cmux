@@ -18,11 +18,13 @@ public protocol NotificationOpenRouting: AnyObject {
     /// falling back to the active window when none owns it. Returns whether
     /// focus succeeded. Mirrors the full `openNotification(tabId:surfaceId:notificationId:)`
     /// routing, including its `#if DEBUG` UI-test recorders, which the coordinator
-    /// must not duplicate.
+    /// must not duplicate. `retargetsToLiveSurfaceOwner` controls whether the
+    /// app-side route may follow a moved surface across workspace boundaries.
     func openRouted(
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool,
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?
