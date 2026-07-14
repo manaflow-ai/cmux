@@ -22,8 +22,6 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
 }
 
 final class CmuxSettingsFileStore {
-    static let shared = CmuxSettingsFileStore()
-
     static let currentSchemaVersion = 1
     static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
     private static let legacySchemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
@@ -114,6 +112,7 @@ final class CmuxSettingsFileStore {
                 for await _ in events {
                     guard let self else { break }
                     self.reload()
+                    self.onWatchedFileReload("settings.file_watcher")
                 }
             }
         }
