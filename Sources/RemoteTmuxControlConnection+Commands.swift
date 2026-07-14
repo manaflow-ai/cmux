@@ -11,6 +11,27 @@ extension RemoteTmuxControlConnection {
         sendInternal(command, kind: .other)
     }
 
+    /// Atomically enqueues a window-reorder batch and its result correlation.
+    func sendWindowReorder(
+        _ commands: [String],
+        verification: ((Bool) -> Void)? = nil
+    ) -> Bool {
+        guard !commands.isEmpty else {
+            verification?(true)
+            return true
+        }
+        guard windowReorderRecoveryGeneration == nil,
+              windowReorderVerificationGeneration == nil else { return false }
+        let kinds: [CommandKind] = commands.indices.map {
+            .windowReorder(isLast: $0 == commands.index(before: commands.endIndex))
+        }
+        guard sendBatchInternal(commands, kinds: kinds) else { return false }
+        windowReorderGeneration &+= 1
+        windowReorderVerificationGeneration = windowReorderGeneration
+        windowReorderVerifications[windowReorderGeneration] = verification
+        return true
+    }
+
     /// Sends `new-window -P -F '#{window_id}'` and returns its stable window id.
     @discardableResult
     func sendNewWindow(_ command: String, completion: @escaping (Int?) -> Void) -> Bool {
@@ -29,10 +50,35 @@ extension RemoteTmuxControlConnection {
     /// id and layout tokens never do — so the result parses as
     /// `@id <layout> <name with spaces…>`.
     func requestWindows() {
-        sendInternal(
+        guard !windowListRequestInFlight else {
+            windowListRequestDirty = true
+            return
+        }
+        guard sendInternal(
             "list-windows -F \"#{window_id} #{window_layout} #{window_visible_layout} [#{window_flags}] #{window_name}\"",
-            kind: .listWindows
-        )
+            kind: .listWindows(
+                reorderGeneration: windowReorderGeneration,
+                retainedPaneIDs: paneIDsRetainedUntilWindowList
+            )
+        ) else { return }
+        windowListRequestInFlight = true
+    }
+
+    func completeWindowListRequest() {
+        windowListRequestInFlight = false
+        guard windowListRequestDirty else { return }
+        windowListRequestDirty = false
+        requestWindows()
+    }
+
+    func resetWindowListRequestCoalescing() {
+        windowListRequestInFlight = false
+        windowListRequestDirty = false
+    }
+
+    func restartAfterWindowReorderRecoveryFailure() {
+        record("window-reorder-recovery-reconnect")
+        beginReconnecting()
     }
 
     /// Fetches one window's REAL pane rectangles (plus the active flag, the
@@ -40,14 +86,18 @@ extension RemoteTmuxControlConnection {
     /// `pane-border-format` — exactly the header text a native tmux client
     /// would draw, custom formats included). The layout string is not ground
     /// truth: under `pane-border-status` tmux publishes the pre-title tree
-    /// while the displayed panes sit one row lower and shorter — placement
-    /// must render where the panes actually are, so a quarantined layout is
-    /// published only by this fetch's reply. The expanded format is LAST (it
+    /// while panes touching the configured edge are shorter (and top-edge
+    /// panes also sit lower). Placement must render where panes actually are,
+    /// so a quarantined layout is published only by this fetch's reply. The
+    /// expanded format is LAST (it
     /// may contain spaces) behind a `:` sentinel (it may expand to EMPTY,
     /// and a trailing empty field must survive line splitting).
     @discardableResult
     func requestPaneRects(windowId: Int, generation: Int) -> Bool {
-        sendInternal(
+        #if DEBUG
+        cmuxDebugLog("remote.rects.request @\(windowId) gen=\(generation)")
+        #endif
+        return sendInternal(
             "list-panes -t @\(windowId) -F \"#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height} #{pane_active} #{pane-border-status} :#{T:pane-border-format}\"",
             kind: .paneRects(windowId, generation)
         )
@@ -134,11 +184,44 @@ extension RemoteTmuxControlConnection {
     /// hits the conservative no-reflow default on a slow link.
     func seedPane(paneId: Int) {
         requestPaneReflow(paneId: paneId)
-        subscribePaneReflow(paneId: paneId)
         capturePane(paneId: paneId)
         requestPanePath(paneId: paneId)
-        subscribePanePath(paneId: paneId)
-        subscribePaneHeader(paneId: paneId)
+        // One batched refresh-client for all three live subscriptions
+        // instead of three separate sends — see subscribePaneAll. Under
+        // churn this is the difference between the command FIFO keeping up
+        // with tmux and backing up into minutes-long non-convergence.
+        subscribePaneAll(paneId: paneId)
+    }
+
+    func reseedAfterReconnect() {
+        // The fresh ssh client has been sent nothing: the dedup baseline
+        // must reset with it, or requests matching pre-drop sends would be
+        // suppressed against a server that no longer has them.
+        sentWindowSizes.removeAll()
+        if let size = lastClientSize {
+            send("refresh-client -C \(size.columns)x\(size.rows)")
+        }
+        // Re-pin every per-window size: pins are per-client state, and the
+        // fresh ssh client starts with none (windows would sit at 80×24 or
+        // the session-wide size). Feed-forward by nature — replays recorded
+        // requests, reads nothing back.
+        if supportsPerWindowSize {
+            for (windowId, size) in lastWindowSizes.sorted(by: { $0.key < $1.key }) {
+                sendPerWindowSize(windowId: windowId, columns: size.0, rows: size.1)
+            }
+        }
+        // The re-applied size is usually a no-op (the server kept the window at our
+        // size across the transport drop), so TUIs get no SIGWINCH — kick them so
+        // they repaint over the re-seeded (possibly stale) frame. FIFO-safe: the
+        // captures below are queued before the kick task's first push can run.
+        scheduleAttachRedrawKickIfNeeded()
+        for window in windowsByID.values {
+            for paneId in window.paneIDsInOrder {
+                observers.emitPaneOutput(paneId, Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8))
+                seedPane(paneId: paneId)
+            }
+        }
+        observers.notifyReconnectReady()
     }
 
     /// Sends literal key bytes to a pane via tmux `send-keys -H` (hex-encoded),

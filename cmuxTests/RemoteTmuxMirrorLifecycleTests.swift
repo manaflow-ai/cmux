@@ -291,4 +291,123 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(!window.isVisible)
         #expect(!window.isKeyWindow)
     }
+
+    @Test func discoveryPurgesDeadMirrorAndRecreatesItsSession() throws {
+        let controller = RemoteTmuxController()
+        let host = RemoteTmuxHost(destination: "user@host")
+        var deadManager: TabManager? = TabManager()
+        _ = try mirror(
+            controller: controller,
+            manager: deadManager!,
+            host: host,
+            sessionName: "dev"
+        )
+        #expect(controller.sessionMirrors.count == 1)
+
+        // The mirror's window dies without a controller-driven detach: the
+        // weak workspace deallocates but the map entry stays. That stale key
+        // makes mirrorSessions skip recreation while the dead workspace fails
+        // the manager filter, so every re-attach mirrors nothing.
+        deadManager = nil
+
+        let target = TabManager()
+        controller.cacheConnection(
+            RemoteTmuxControlConnection(host: host, sessionName: "dev")
+        )
+        let workspaceIds = controller.mirrorDiscoveredSessions(
+            host: host,
+            sessions: [RemoteTmuxSession(
+                id: "$1",
+                name: "dev",
+                windowCount: 1,
+                attached: false,
+                createdUnix: nil
+            )],
+            into: target
+        )
+        #expect(workspaceIds.count == 1)
+        #expect(target.tabs.contains { $0.isRemoteTmuxMirror })
+        let entry = try #require(controller.sessionMirrors.values.first)
+        #expect(entry.mirroredWorkspaceId == workspaceIds.first)
+    }
+
+    @Test func failedMirrorAttachKeepsTransportSharedWithLiveMirror() throws {
+        let controller = RemoteTmuxController()
+        let manager = TabManager()
+        let host = RemoteTmuxHost(destination: "user@host")
+        _ = try mirror(
+            controller: controller,
+            manager: manager,
+            host: host,
+            sessionName: "dev"
+        )
+        _ = controller.transportRegistry.transport(for: host)
+        #expect(controller.transportRegistry.contains(connectionHash: host.connectionHash))
+
+        // An attach that mirrors nothing (e.g. explicitly targeting a window
+        // the sessions aren't in) must not kill the ControlMaster the live
+        // mirror shares.
+        controller.cleanUpTransportAfterFailedMirror(host: host)
+        #expect(controller.transportRegistry.contains(connectionHash: host.connectionHash))
+
+        // With no live mirror left, the failed attach owns the transport and
+        // must clean it up (the `ssh -O exit` fired here targets cmux's own
+        // nonexistent ControlPath socket — a local no-op, per suite policy).
+        controller.detach(host: host, sessionName: "dev")
+        _ = controller.transportRegistry.transport(for: host)
+        controller.cleanUpTransportAfterFailedMirror(host: host)
+        #expect(!controller.transportRegistry.contains(connectionHash: host.connectionHash))
+    }
+}
+
+/// Naming the kill-window confirmation dialog from the live foreground
+/// classification (`RemoteTmuxController.mirrorTabActivity`) so it can't lag the
+/// tab's own tmux automatic-rename.
+@Suite struct RemoteTmuxMirrorTabActivityTests {
+    private typealias State = RemoteTmuxControlConnection.PaneForegroundState
+
+    @Test @MainActor func namesTheActivePaneCommand() {
+        let activity = RemoteTmuxController.mirrorTabActivity(
+            states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|sleep")],
+            paneOrder: [1, 2], activePaneId: nil
+        )
+        #expect(activity.hasActiveCommand)
+        #expect(activity.activeCommandName == "sleep")
+    }
+
+    @Test @MainActor func prefersTheFocusedPaneWhenSeveralAreActive() {
+        let activity = RemoteTmuxController.mirrorTabActivity(
+            states: [1: State(rawValue: "0|vim"), 2: State(rawValue: "0|sleep")],
+            paneOrder: [1, 2], activePaneId: 2
+        )
+        #expect(activity.activeCommandName == "sleep")
+    }
+
+    @Test @MainActor func namesAnActiveBackgroundPaneWhenTheFocusedOneIsIdle() {
+        // Focused pane idle, another pane active → fall past the focused pane to
+        // the active one in layout order (the deduped second half of the scan).
+        let activity = RemoteTmuxController.mirrorTabActivity(
+            states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|sleep")],
+            paneOrder: [1, 2], activePaneId: 1
+        )
+        #expect(activity.hasActiveCommand)
+        #expect(activity.activeCommandName == "sleep")
+    }
+
+    @Test @MainActor func idleWindowHasNoNameAndIsNotActive() {
+        let activity = RemoteTmuxController.mirrorTabActivity(
+            states: [1: State(rawValue: "0|bash"), 2: State(rawValue: "0|zsh")],
+            paneOrder: [1, 2], activePaneId: 1
+        )
+        #expect(!activity.hasActiveCommand)
+        #expect(activity.activeCommandName == nil)
+    }
+
+    @Test @MainActor func unclassifiedWindowIsIdle() {
+        let activity = RemoteTmuxController.mirrorTabActivity(
+            states: [:], paneOrder: [1, 2], activePaneId: nil
+        )
+        #expect(!activity.hasActiveCommand)
+        #expect(activity.activeCommandName == nil)
+    }
 }

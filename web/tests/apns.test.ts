@@ -28,13 +28,19 @@ describe("apns payload", () => {
       body: "Agent finished",
       workspaceId: "ws-1",
       surfaceId: "sf-2",
+      retargetsToLiveSurfaceOwner: false,
       macDeviceId: "mac-3",
-    }) as { aps: Record<string, unknown>; cmux: Record<string, string> };
+    }) as { aps: Record<string, unknown>; cmux: Record<string, string | boolean> };
 
     expect(payload.aps.alert).toEqual({ title: "claude", subtitle: "issue-118", body: "Agent finished" });
     expect(payload.aps["interruption-level"]).toBe("time-sensitive");
     expect(payload.aps.sound).toBe("default");
-    expect(payload.cmux).toEqual({ workspaceId: "ws-1", surfaceId: "sf-2", macDeviceId: "mac-3" });
+    expect(payload.cmux).toEqual({
+      workspaceId: "ws-1",
+      surfaceId: "sf-2",
+      retargetsToLiveSurfaceOwner: false,
+      macDeviceId: "mac-3",
+    });
   });
 
   test("omits cmux block when no ids", () => {
@@ -158,6 +164,10 @@ describe("apns response", () => {
 
 describe("apns route policy", () => {
   test("allows only cmux iOS bundle IDs and derives the APNs environment", () => {
+    expect(normalizeApnsBundle("com.cmux.app")).toEqual({
+      bundleId: "com.cmux.app",
+      environment: "production",
+    });
     expect(normalizeApnsBundle("com.cmuxterm.app")).toEqual({
       bundleId: "com.cmuxterm.app",
       environment: "production",
@@ -185,6 +195,7 @@ describe("apns route policy", () => {
       surfaceId: " sf-1 ",
       macDeviceId: " mac-1 ",
       notificationId: " n-1 ",
+      retargetsToLiveSurfaceOwner: false,
       hideContent: true,
     });
 
@@ -201,6 +212,7 @@ describe("apns route policy", () => {
         notificationId: "n-1",
         dismissedIds: [],
         badgeCount: null,
+        retargetsToLiveSurfaceOwner: false,
         hideContent: true,
       },
     });
@@ -230,6 +242,7 @@ describe("apns route policy", () => {
         notificationId: null,
         dismissedIds: [],
         badgeCount: null,
+        retargetsToLiveSurfaceOwner: true,
         hideContent: false,
       },
     });
@@ -259,6 +272,7 @@ describe("apns route policy", () => {
         notificationId: null,
         dismissedIds: ["n-1", "n-2"],
         badgeCount: 4,
+        retargetsToLiveSurfaceOwner: false,
         hideContent: false,
       },
     });
@@ -433,7 +447,7 @@ describe("apns sender transport", () => {
       { keyP8: p8, keyId: "KID-CONCURRENT", teamId: "TEAM456" },
       [
         { deviceToken: "a".repeat(64), bundleId: "dev.cmux.ios.push1", environment: "sandbox" },
-        { deviceToken: "b".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" },
+        { deviceToken: "b".repeat(64), bundleId: "com.cmux.app", environment: "production" },
       ],
       { title: "agent", body: "done" },
       1000,
@@ -511,7 +525,7 @@ describe("apns sender transport", () => {
       { keyP8: p8, keyId: "KID-PARTIAL", teamId: "TEAM456" },
       [
         { deviceToken: "a".repeat(64), bundleId: "dev.cmux.ios.push1", environment: "sandbox" },
-        { deviceToken: "b".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" },
+        { deviceToken: "b".repeat(64), bundleId: "com.cmux.app", environment: "production" },
       ],
       { title: "agent", body: "done" },
       1000,
@@ -574,7 +588,7 @@ describe("apns sender transport", () => {
     const results = await sendApnsNotification(
       { keyP8: p8, keyId: "KID-SAME-HOST-PARTIAL", teamId: "TEAM456" },
       [
-        { deviceToken: "a".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" },
+        { deviceToken: "a".repeat(64), bundleId: "com.cmux.app", environment: "production" },
         { deviceToken: "b".repeat(64), bundleId: "dev.cmux.app.beta", environment: "production" },
       ],
       { title: "agent", body: "done" },
@@ -623,7 +637,7 @@ describe("apns sender transport", () => {
 
     await sendApnsNotification(
       { keyP8: p8, keyId: "KID-COLLAPSE", teamId: "TEAM456" },
-      [{ deviceToken: "a".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" }],
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmux.app", environment: "production" }],
       { title: "agent", body: "done", notificationId: "n-7" },
       1000,
       transport,
@@ -667,7 +681,7 @@ describe("apns sender transport", () => {
 
     await sendApnsNotification(
       { keyP8: p8, keyId: "KID-NO-COLLAPSE", teamId: "TEAM456" },
-      [{ deviceToken: "a".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" }],
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmux.app", environment: "production" }],
       { title: "agent", body: "done" },
       1000,
       transport,
@@ -711,7 +725,7 @@ describe("apns sender transport", () => {
 
     await sendApnsNotification(
       { keyP8: p8, keyId: "KID-DISMISS", teamId: "TEAM456" },
-      [{ deviceToken: "a".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" }],
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmux.app", environment: "production" }],
       {
         kind: "dismiss",
         title: "",
@@ -765,7 +779,7 @@ describe("apns sender transport", () => {
 
     await sendApnsNotification(
       { keyP8: p8, keyId: "KID-NOTIFY-PRIO", teamId: "TEAM456" },
-      [{ deviceToken: "a".repeat(64), bundleId: "com.cmuxterm.app", environment: "production" }],
+      [{ deviceToken: "a".repeat(64), bundleId: "com.cmux.app", environment: "production" }],
       { title: "agent", body: "done", badgeCount: 2 },
       1000,
       transport,

@@ -101,9 +101,6 @@
         "pendingBody": "{team}は{date}に終了する予定です。",
         "price": "$35/シート/月"
       },
-      "legacy": {
-        "body": "サブスクリプションは以前の請求システムで管理されています。変更するにはサポートにお問い合わせください。"
-      },
       "details": {
         "renewsOn": "更新日",
         "endsOn": "終了日",
@@ -124,6 +121,12 @@
         "cancelSummary": "プランをキャンセル",
         "confirmCancel": "キャンセルを確定",
         "resume": "プランを再開"
+      },
+      "plan": {
+        "heading": "個人プラン",
+        "free": "無料",
+        "pro": "Pro",
+        "loading": "読み込み中…"
       }
     },
     "testflight": {
@@ -338,7 +341,9 @@
   "pricing": {
     "metaTitle": "料金 — cmux",
     "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、モデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、Vault、モデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
     "perMonth": "/月",
     "perUserMonth": "/ユーザー/月",
@@ -617,7 +622,6 @@
     "welcomePendingAction": "再確認",
     "billingError": "チェックアウトの開始中に問題が発生しました。しばらくしてからもう一度お試しください。",
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
-    "billingExternal": "サブスクリプションは以前の請求システムで管理されています。変更するにはサポートにお問い合わせください。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
     "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
     "welcomeTeam": "cmux Team のご購入が完了しました。"
@@ -1320,9 +1324,10 @@
       "enableTitle": "有効にする",
       "enableDesc": "設定 → ベータ機能 を開き、「リモート tmux」をオンにします。デフォルトはオフなので、オプトインするまでローカルのターミナルには何も影響しません。",
       "attachTitle": "接続する",
-      "attachIntro": "ターミナルで cmux ssh-tmux <宛先>（~/.ssh/config のエイリアスまたは user@host）を実行します。cmux はそのホストの tmux セッションをミラーリングする新しいウィンドウを開きます。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはタブ内の分割になります。",
-      "attachSockets": "remote.tmux.* のソケットコマンド（下記）でより細かく制御できます。たとえば remote.tmux.mirror は、専用ウィンドウを開く代わりに、ホストのセッションを現在のウィンドウのサイドバーにミラーリングします。",
-      "attachCli": "非対話で認証されるホスト（ssh-agent や ~/.ssh/config の鍵）はプロンプトなしで接続されます。対話的な認証（パスワード、ホストキーの確認、多要素認証）が必要なホストでは、cmux がそのターミナル内で ssh を実行するため、その場で認証でき、その後 cmux がミラーウィンドウを開きます。--port と --identity を指定できます。",
+      "attachIntro": "ターミナルで cmux ssh-tmux <宛先>（~/.ssh/config のエイリアスまたは user@host）を実行します。cmux はそのホストの tmux セッションを現在のウィンドウのサイドバーにミラーリングします。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはタブ内の分割になります。",
+      "attachNewWindow": "--new-window を指定すると、現在のウィンドウの代わりに専用の新しいウィンドウでミラーを開きます。",
+      "attachSockets": "remote.tmux.* のソケットコマンド（下記）でより細かく制御できます。remote.tmux.mirror がミラーリングのエントリポイントで、ウィンドウや呼び出し元のルーティングを受け取り、必要に応じてミラーワークスペースを選択できます。",
+      "attachCli": "非対話で認証されるホスト（ssh-agent や ~/.ssh/config の鍵）はプロンプトなしで接続されます。対話的な認証（パスワード、ホストキーの確認、多要素認証）が必要なホストでは、cmux がそのターミナル内で ssh を実行するため、その場で認証でき、その後 cmux が現在のウィンドウにミラーリングします。--port、--identity、--no-focus を指定できます。",
       "troubleshootTitle": "「Permission denied」が出る場合",
       "troubleshootDesc": "宛先はそのまま ssh に渡されるため、エイリアスにはログインに必要な設定をすべて含める必要があります。特に User（未指定だと ssh はローカルのユーザー名を使います）と IdentityFile です:",
       "troubleshootFallback": "または cmux ssh-tmux dev@my-ssh-alias のようにユーザーを明示指定してください。素の ssh <宛先> でログインできない場合は、cmux ssh-tmux <宛先> でも接続できません。",
@@ -1337,14 +1342,13 @@
       "behaviorMouse": "マウス: リモートアプリがマウスモードのとき、クリック・スクロール・ドラッグがリモートアプリに届きます。ネイティブな cmux のテキスト選択・コピーには、Shift を押しながらドラッグしてください（マウスモードのアプリを実行している通常のターミナルと同じ挙動です）。",
       "behaviorUnicode": "Unicode に正しい出力: tmux が更新の途中でマルチバイト文字を分割しても文字は保持されるため、罫線素片などの幅広な内容も乱れずに描画されます。",
       "socketTitle": "ソケットコマンド",
-      "socketDesc": "この機能はソケットコマンドからも操作できます（ベータ機能フラグでゲートされます）。host は SSH の宛先または ~/.ssh/config のエイリアス、session は tmux のセッション名です。",
+      "socketDesc": "この機能はソケットコマンドからも操作できます（ベータ機能フラグでゲートされます）。host は SSH の宛先または ~/.ssh/config のエイリアス、session は tmux のセッション名です。mirror は通常の window/workspace/surface/pane ルーティングも受け取ります。",
       "socketMethod": "メソッド",
       "socketParams": "パラメータ",
       "socketMeaning": "説明",
       "methodSessions": "ホスト上の tmux セッションを一覧表示します。",
       "methodAttach": "セッションにコントロールクライアントで接続します（create で「接続または作成」）。",
-      "methodMirror": "ホスト上のすべてのセッションを、それぞれワークスペースとしてミラーリングします（ウィンドウがタブになります）。",
-      "methodWindow": "ホスト上のすべてのセッションをミラーリングする専用ウィンドウを開きます（cmux ssh-tmux のエントリポイント）。ホストが必要とする場合は、対話的認証のために実行すべき ssh コマンドを返します。",
+      "methodMirror": "ホスト上のすべてのセッションを解決されたウィンドウにミラーリングします（各セッションがワークスペース、ウィンドウがタブになります）。ホストが必要とする場合は、対話的認証のために実行すべき ssh コマンドを返します。",
       "methodDetach": "コントロールクライアントをデタッチします。リモートセッションは動作し続けます。",
       "methodState": "コントロールクライアントの観測状態を報告します（診断用）。",
       "socketSafetyDesc": "ダッシュで始まる host や identity ファイルは、SSH オプションインジェクション対策として境界で拒否されます。",
@@ -1548,6 +1552,7 @@
     "configuration": {
       "title": "設定",
       "metaDescription": "Ghostty設定ファイルと ~/.config/cmux/cmux.json によるcmuxの設定。ターミナル描画はGhostty設定、cmux側のアプリ設定、ショートカット、自動化、サイドバー、通知、ブラウザ動作は cmux.json で管理します。",
+      "metaDescriptionShort": "Ghostty設定と cmux.json でターミナル描画、アプリ設定、ショートカット、自動化、サイドバー、通知、ブラウザ動作を管理します。",
       "intro": "cmuxはターミナル設定をGhosttyの設定ファイルから読み込みます。cmux管理のアプリ設定も ~/.config/cmux/cmux.json で管理でき、ショートカット、自動化、サイドバー、通知、ブラウザ設定を含みます。",
       "configLocations": "設定ファイルの場所",
       "configLocationsDesc": "cmuxは以下の場所から設定を検索します（順番に）：",
@@ -1662,6 +1667,7 @@
           "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
         },
         "sidebar": {
+          "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
         },
         "fileExplorer": {
@@ -2856,6 +2862,10 @@
       "metaDescription": "cmuxと他のmacOSターミナルの比較、Ghostty上に構築されている仕組み、Claude Code・Codex・OpenCodeをcmuxで実行する方法のガイド。",
       "title": "ガイド",
       "intro": "cmuxの比較・背景・ユースケースのガイドです。製品ドキュメントについてはドキュメントをご覧ください。"
+    },
+    "remoteTmux": {
+      "title": "リモート tmux",
+      "metaDescription": "別のマシンで動く tmux を、cmux からネイティブ macOS フロントエンドとして使えます。"
     },
     "compare": {
       "metaTitle": "cmux と AI コーディング端末およびエージェント ワークスペースを比較する",
@@ -4374,6 +4384,7 @@
       "cursorCli": "Cursor CLI のためのターミナル",
       "keyboardShortcuts": "キーボードショートカット",
       "browserAutomation": "ブラウザ自動化",
+      "remoteTmux": "リモート tmux",
       "compare": "cmuxを比較"
     },
     "agents": {
@@ -4575,6 +4586,34 @@
       "submitting": "送信中...",
       "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro が有効です",
+    "title": "cmux Pro へようこそ",
+    "body": "プランには、Cloud VM 上のクラウドエージェント、毎月 20 コンピュート時間、モデルゲートウェイ、cmux iOS アプリが含まれます。まずはここから始めましょう。",
+    "done": "ダッシュボードへ",
+    "steps": {
+      "modelGateway": {
+        "title": "モデルゲートウェイ",
+        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングします。",
+        "action": "モデルゲートウェイを開く"
+      },
+      "aiAccounts": {
+        "title": "AI アカウントを接続",
+        "body": "プロバイダーのアカウントを追加すると、cmux が処理をルーティングできます。",
+        "action": "プロバイダーを接続"
+      },
+      "iosApp": {
+        "title": "cmux iOS アプリ",
+        "body": "スマートフォンで cmux を使えます。",
+        "action": "iOS ベータに参加"
+      },
+      "billing": {
+        "title": "プランを管理",
+        "body": "プラン、請求書、解約を確認できます。",
+        "action": "プランを管理"
+      }
     }
   }
 }

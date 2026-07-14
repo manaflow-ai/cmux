@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "خطتك الشخصية",
+        "free": "مجاني",
+        "pro": "Pro",
+        "loading": "جارٍ التحميل…"
+      }
     }
   },
   "community": {
@@ -932,6 +940,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "الحد الأقصى لعدد الأسطر المعروضة لأحدث إشعار أسفل عنوان كل مساحة عمل.",
           "rightMaxWidth": "أقصى عرض بالنقاط للشريط الجانبي الأيمن. عند تركه فارغًا، يُطبّق الحد الديناميكي المضمن."
         },
         "fileExplorer": {

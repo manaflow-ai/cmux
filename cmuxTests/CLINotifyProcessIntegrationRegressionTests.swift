@@ -21,8 +21,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "OK\n")
         XCTAssertTrue(
-            context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId)" },
-            "Expected clear SessionStart to clear stale notifications, saw \(context.state.commands)"
+            context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)" },
+            "Expected clear SessionStart to clear only the current pane, saw \(context.state.commands)"
         )
         XCTAssertTrue(
             context.state.commands.contains {

@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -31,9 +32,10 @@ use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
 
 use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
-use crate::config::{Action, Config, ScrollbarPosition};
+use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
 use crate::keys;
 use crate::session::{Session, SurfaceHandle, TreeView};
+use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::GraphicsWriter;
 use crate::ui::input::{InputEvent, TextInput};
@@ -73,6 +75,10 @@ pub enum Hit {
         id: WorkspaceId,
     },
     NewWorkspace,
+    /// A visible row in the built-in file browser.
+    SidebarFile {
+        index: usize,
+    },
     /// Status-bar screen entry.
     ScreenEntry {
         index: usize,
@@ -379,6 +385,7 @@ enum Drag {
 pub struct App {
     pub session: Session,
     pub config: Config,
+    pub chrome: ChromeTheme,
     pub tree: TreeView,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub graphics_writer: Option<GraphicsWriter>,
@@ -389,6 +396,10 @@ pub struct App {
     pub session_label: String,
     pub sidebar_visible: bool,
     pub sidebar_focused: bool,
+    pub sidebar_view: SidebarView,
+    pub sidebar_files: FileBrowser,
+    pub sidebar_workspace_selection: usize,
+    sidebar_followed_surface: Option<SurfaceId>,
     /// Width of the sidebar in the current frame (0 when hidden).
     pub sidebar_width: u16,
     pub sidebar_plugin_surface: Option<SurfaceId>,
@@ -546,8 +557,14 @@ fn pane_parts_for_rect(
     (bar, omnibar, content, track)
 }
 
-pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
-    let config = crate::config::load();
+pub fn run(
+    session: Session,
+    session_label: String,
+    default_colors: cmux_tui_core::DefaultColors,
+) -> anyhow::Result<()> {
+    let mut config = crate::config::load();
+    let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
+    config.apply_chrome_defaults(chrome);
     // First workspace before the terminal switches modes, so a spawn
     // failure prints a normal error. Spawn at the size the first pane
     // will actually render at (a post-spawn resize makes shells like zsh
@@ -604,6 +621,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     // Crossterm input → app channel. Start this after startup terminal
     // probes so DA / window-size responses are not consumed as key input.
     std::thread::Builder::new().name("input".into()).spawn({
+        let tx = tx.clone();
         move || {
             while let Ok(event) = crossterm::event::read() {
                 if tx.send(AppEvent::Input(event)).is_err() {
@@ -631,9 +649,12 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     let graphics_writer =
         if graphics_supported { Some(GraphicsWriter::spawn(stdout_lock.clone())?) } else { None };
 
+    let sidebar_view = config.sidebar.view;
+    let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut app = App {
         session,
         config,
+        chrome,
         tree: TreeView::default(),
         render_states: HashMap::new(),
         graphics_writer,
@@ -644,6 +665,10 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         session_label,
         sidebar_visible: true,
         sidebar_focused: false,
+        sidebar_view,
+        sidebar_files: FileBrowser::new(fallback_cwd),
+        sidebar_workspace_selection: 0,
+        sidebar_followed_surface: None,
         sidebar_width: 0,
         sidebar_plugin_surface: None,
         sidebar_plugin_error: None,
@@ -663,7 +688,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         cell_pixels,
         pointer_shape: false,
         last_browser_hover: None,
-        browser_input: BrowserInputDispatcher::spawn()?,
+        browser_input: BrowserInputDispatcher::spawn(tx)?,
         drag: None,
         encoder,
         encode_buf: Vec::with_capacity(64),
@@ -726,6 +751,9 @@ impl App {
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.expire_toast() {
+                        action = action.merge(RenderAction::Draw);
+                    }
+                    if self.tick_sidebar_files() {
                         action = action.merge(RenderAction::Draw);
                     }
                     None
@@ -844,9 +872,54 @@ impl App {
     }
 
     fn reload_config(&mut self) {
-        let config = crate::config::load();
+        let mut config = crate::config::load();
+        config.apply_chrome_defaults(self.chrome);
         self.session.apply_config(&config);
+        self.sidebar_view = config.sidebar.view;
         self.config = config;
+        self.sidebar_followed_surface = None;
+    }
+
+    fn focused_surface_cwd(&self) -> Option<PathBuf> {
+        let surface = self.tree.active_surface()?;
+        self.session.surface_cwd(surface).map(PathBuf::from)
+    }
+
+    fn sync_sidebar_files_to_focus(&mut self, force: bool) -> bool {
+        if self.config.sidebar.plugin.is_some()
+            || self.sidebar_view != SidebarView::Files
+            || self.sidebar_files.is_pinned()
+        {
+            return false;
+        }
+        let focused = self.tree.active_surface();
+        if !force && focused == self.sidebar_followed_surface {
+            return false;
+        }
+        self.sidebar_followed_surface = focused;
+        let Some(cwd) = self.focused_surface_cwd() else { return false };
+        self.sidebar_files.follow_focused_cwd(&cwd)
+    }
+
+    fn tick_sidebar_files(&mut self) -> bool {
+        if self.config.sidebar.plugin.is_some()
+            || self.sidebar_view != SidebarView::Files
+            || !self.sidebar_visible
+        {
+            return false;
+        }
+        // The cwd follow can be a synchronous socket round-trip for remote
+        // sessions; the event loop ticks up to ~33x/sec, so gate it behind the
+        // same 2s refresh cadence as the directory reload.
+        let now = Instant::now();
+        let mut changed = false;
+        if self.sidebar_files.refresh_due(now)
+            && !self.sidebar_files.is_pinned()
+            && let Some(cwd) = self.focused_surface_cwd()
+        {
+            changed |= self.sidebar_files.follow_focused_cwd(&cwd);
+        }
+        changed | self.sidebar_files.tick(now)
     }
 
     fn write_window_title(&self, title: &str) -> anyhow::Result<()> {
@@ -869,6 +942,9 @@ impl App {
             width,
             self.sidebar_width_override,
         );
+        if self.sidebar_width == 0 {
+            self.sidebar_focused = false;
+        }
         let area = Rect {
             x: self.sidebar_width,
             y: 0,
@@ -878,6 +954,9 @@ impl App {
         self.content_area = area;
         self.sync_sidebar_plugin(false);
         self.tree = self.session.tree();
+        self.sidebar_workspace_selection =
+            self.sidebar_workspace_selection.min(self.tree.workspaces.len().saturating_sub(1));
+        self.sync_sidebar_files_to_focus(false);
         let layout = self
             .tree
             .active_screen()
@@ -934,7 +1013,13 @@ impl App {
     }
 
     fn sync_sidebar_plugin(&mut self, relaunch: bool) {
-        if self.config.sidebar.plugin.is_none() || self.sidebar_width < 3 || !self.sidebar_visible {
+        if self.config.sidebar.plugin.is_none() {
+            self.sidebar_plugin_surface = None;
+            self.sidebar_plugin_error = None;
+            self.sidebar_plugin_retry_after_ms = None;
+            return;
+        }
+        if self.sidebar_width < 3 || !self.sidebar_visible {
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
             self.sidebar_plugin_retry_after_ms = None;
@@ -1022,8 +1107,15 @@ impl App {
                     state.input.insert_str(&text);
                     Ok(RenderAction::Draw)
                 } else if self.sidebar_focused {
-                    self.paste_sidebar(&text);
-                    Ok(RenderAction::None)
+                    if self.config.sidebar.plugin.is_some() {
+                        self.paste_sidebar(&text);
+                        Ok(RenderAction::None)
+                    } else {
+                        if self.sidebar_view == SidebarView::Files {
+                            self.sidebar_files.insert_filter_text(&text);
+                        }
+                        Ok(RenderAction::Draw)
+                    }
                 } else {
                     self.paste(&text);
                     Ok(RenderAction::None)
@@ -1193,8 +1285,11 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         if self.sidebar_focused {
-            self.forward_sidebar_key(&key);
-            return Ok(RenderAction::None);
+            if self.config.sidebar.plugin.is_some() {
+                self.forward_sidebar_key(&key);
+                return Ok(RenderAction::None);
+            }
+            return self.handle_builtin_sidebar_key(&key);
         }
         if let Some(action) = self.config.keys.modeless_action_for(&key) {
             return self.run_action(action);
@@ -1203,6 +1298,89 @@ impl App {
         self.selection = None;
         self.forward_key(&key);
         Ok(RenderAction::None)
+    }
+
+    fn handle_builtin_sidebar_key(&mut self, key: &KeyEvent) -> anyhow::Result<RenderAction> {
+        if key.code == KeyCode::Tab {
+            return self.run_action(Action::ToggleSidebarView);
+        }
+        match self.sidebar_view {
+            SidebarView::Files => {
+                if let Some(command) = self.sidebar_files.handle_key(key) {
+                    self.run_file_command(command);
+                }
+            }
+            SidebarView::Workspaces => match key.code {
+                KeyCode::Up => {
+                    self.sidebar_workspace_selection =
+                        self.sidebar_workspace_selection.saturating_sub(1);
+                }
+                KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.sidebar_workspace_selection =
+                        self.sidebar_workspace_selection.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    self.sidebar_workspace_selection = (self.sidebar_workspace_selection + 1)
+                        .min(self.tree.workspaces.len().saturating_sub(1));
+                }
+                KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.sidebar_workspace_selection = (self.sidebar_workspace_selection + 1)
+                        .min(self.tree.workspaces.len().saturating_sub(1));
+                }
+                KeyCode::Enter => {
+                    self.session.select_workspace(Some(self.sidebar_workspace_selection), None);
+                }
+                _ => {}
+            },
+        }
+        Ok(RenderAction::Draw)
+    }
+
+    fn run_file_command(&mut self, command: FileCommand) {
+        let result = match command {
+            FileCommand::Reroot => {
+                let cwd = self
+                    .focused_surface_cwd()
+                    .unwrap_or_else(|| self.sidebar_files.fallback_cwd().to_path_buf());
+                self.sidebar_files.reroot(cwd);
+                self.sidebar_followed_surface = self.tree.active_surface();
+                return;
+            }
+            FileCommand::Cd(path) => {
+                let Some(surface) = self.active_surface() else {
+                    self.sidebar_files.set_message("no focused pane");
+                    return;
+                };
+                let quoted = shell_single_quote(&path.to_string_lossy());
+                self.session.send_bytes(surface, format!("cd {quoted}\n").as_bytes())
+            }
+            FileCommand::OpenEditor(path) => {
+                let editor = std::env::var("EDITOR")
+                    .ok()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| "vi".to_string());
+                let cwd = path
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("/"))
+                    .to_string_lossy()
+                    .into_owned();
+                self.session.run_command(
+                    vec![editor, path.to_string_lossy().into_owned()],
+                    self.active_pane(),
+                    Some(cwd),
+                    None,
+                )
+            }
+            FileCommand::OpenBrowser(path) => self.session.new_browser_tab(
+                file_url(&path),
+                self.active_pane(),
+                self.browser_tab_size_hint(self.active_pane()),
+            ),
+        };
+        match result {
+            Ok(()) => self.sidebar_files.set_message("sent to focused pane"),
+            Err(error) => self.sidebar_files.set_message(error.to_string()),
+        }
     }
 
     /// Commit the open rename dialog (Enter or the OK button).
@@ -1302,13 +1480,7 @@ impl App {
                     return Ok(RenderAction::Draw);
                 }
                 let url = cmux_tui_core::normalize_url(input);
-                match self.session.surface(state.surface) {
-                    Some(handle) => {
-                        self.status_message =
-                            handle.browser_navigate(&url).err().map(|e| e.to_string());
-                    }
-                    None => self.status_message = Some("unknown browser surface".to_string()),
-                }
+                self.enqueue_browser_command(state.surface, BrowserInputKind::Navigate(url));
             }
             InputEvent::Changed | InputEvent::None => {}
         }
@@ -1438,6 +1610,7 @@ impl App {
                     self.sidebar_focused = false;
                 }
             }
+            Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
             Action::FocusLeft => self.move_focus(-1, 0),
             Action::FocusRight => self.move_focus(1, 0),
@@ -1452,18 +1625,15 @@ impl App {
             Action::ScrollUp => self.scroll_active(-10),
             Action::ScrollDown => self.scroll_active(10),
             Action::BrowserBack => {
-                let result = self.browser_back();
-                self.set_status_from_browser_result(result);
+                self.enqueue_active_browser_command(BrowserInputKind::Back);
                 return Ok(RenderAction::Draw);
             }
             Action::BrowserForward => {
-                let result = self.browser_forward();
-                self.set_status_from_browser_result(result);
+                self.enqueue_active_browser_command(BrowserInputKind::Forward);
                 return Ok(RenderAction::Draw);
             }
             Action::BrowserReload => {
-                let result = self.browser_reload();
-                self.set_status_from_browser_result(result);
+                self.enqueue_active_browser_command(BrowserInputKind::Reload);
                 return Ok(RenderAction::Draw);
             }
             Action::BrowserEditUrl => {
@@ -1481,10 +1651,6 @@ impl App {
         }
         self.status_message = None;
         Ok(RenderAction::Draw)
-    }
-
-    fn set_status_from_browser_result(&mut self, result: anyhow::Result<()>) {
-        self.status_message = result.err().map(|err| err.to_string());
     }
 
     fn open_rename_tab_prompt(&mut self, pane: Option<PaneId>) {
@@ -1537,28 +1703,6 @@ impl App {
         Ok(())
     }
 
-    fn active_browser_handle(&self) -> anyhow::Result<SurfaceHandle> {
-        let Some(surface) = self.active_surface_handle() else {
-            anyhow::bail!("no active surface");
-        };
-        if surface.kind() != SurfaceKind::Browser {
-            anyhow::bail!("active surface is not a browser");
-        }
-        Ok(surface)
-    }
-
-    fn browser_back(&mut self) -> anyhow::Result<()> {
-        self.active_browser_handle()?.browser_back()
-    }
-
-    fn browser_forward(&mut self) -> anyhow::Result<()> {
-        self.active_browser_handle()?.browser_forward()
-    }
-
-    fn browser_reload(&mut self) -> anyhow::Result<()> {
-        self.active_browser_handle()?.browser_reload()
-    }
-
     fn focus_omnibar(&mut self, pane: PaneId) {
         let Some(surface_id) = self.tree.pane(pane).and_then(|pane| pane.active_surface()) else {
             return;
@@ -1595,7 +1739,7 @@ impl App {
             Some(OmnibarState { pane, surface, input: TextInput::new(buffer), select_all });
     }
 
-    fn browser_handle_for_pane(&self, pane: PaneId) -> anyhow::Result<SurfaceHandle> {
+    fn browser_surface_for_pane(&self, pane: PaneId) -> anyhow::Result<(SurfaceId, SurfaceHandle)> {
         let Some(surface_id) = self.tree.pane(pane).and_then(|pane| pane.active_surface()) else {
             anyhow::bail!("pane has no active surface");
         };
@@ -1605,7 +1749,58 @@ impl App {
         if surface.kind() != SurfaceKind::Browser {
             anyhow::bail!("active surface is not a browser");
         }
-        Ok(surface)
+        Ok((surface_id, surface))
+    }
+
+    /// Dispatch a discrete browser control command (navigate/back/forward/
+    /// reload/activate). Unlike disposable input, a full dispatcher queue
+    /// (worker wedged in a blocking browser call) must not drop the command
+    /// silently: surface backpressure through the status line so the user
+    /// knows the action did not take effect.
+    fn dispatch_browser_control(
+        &mut self,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        kind: BrowserInputKind,
+    ) {
+        if self.browser_input.enqueue(BrowserInputEvent { surface_id, surface, kind }) {
+            self.status_message = None;
+        } else {
+            self.status_message = Some("browser is busy; command dropped".to_string());
+        }
+    }
+
+    fn enqueue_active_browser_command(&mut self, kind: BrowserInputKind) {
+        let Some((surface_id, surface)) = self.active_surface_with_handle() else {
+            self.status_message = Some("no active surface".to_string());
+            return;
+        };
+        if surface.kind() != SurfaceKind::Browser {
+            self.status_message = Some("active surface is not a browser".to_string());
+            return;
+        }
+        self.dispatch_browser_control(surface_id, surface, kind);
+    }
+
+    fn enqueue_browser_command_for_pane(&mut self, pane: PaneId, kind: BrowserInputKind) {
+        match self.browser_surface_for_pane(pane) {
+            Ok((surface_id, surface)) => {
+                self.dispatch_browser_control(surface_id, surface, kind);
+            }
+            Err(err) => self.status_message = Some(err.to_string()),
+        }
+    }
+
+    fn enqueue_browser_command(&mut self, surface_id: SurfaceId, kind: BrowserInputKind) {
+        let Some(surface) = self.session.surface(surface_id) else {
+            self.status_message = Some("unknown browser surface".to_string());
+            return;
+        };
+        if surface.kind() != SurfaceKind::Browser {
+            self.status_message = Some("active surface is not a browser".to_string());
+            return;
+        }
+        self.dispatch_browser_control(surface_id, surface, kind);
     }
 
     fn browser_copy_url(&mut self, pane: PaneId) {
@@ -1654,26 +1849,18 @@ impl App {
             }
             MenuAction::CloseScreen(id) => self.session.close_screen(id),
             MenuAction::BrowserBack(id) => {
-                let result =
-                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_back());
-                self.set_status_from_browser_result(result);
+                self.enqueue_browser_command_for_pane(id, BrowserInputKind::Back);
             }
             MenuAction::BrowserForward(id) => {
-                let result =
-                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_forward());
-                self.set_status_from_browser_result(result);
+                self.enqueue_browser_command_for_pane(id, BrowserInputKind::Forward);
             }
             MenuAction::BrowserReload(id) => {
-                let result =
-                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_reload());
-                self.set_status_from_browser_result(result);
+                self.enqueue_browser_command_for_pane(id, BrowserInputKind::Reload);
             }
             MenuAction::BrowserEditUrl(id) => self.focus_omnibar(id),
             MenuAction::BrowserCopyUrl(id) => self.browser_copy_url(id),
             MenuAction::BrowserActivate(id) => {
-                let result =
-                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_activate());
-                self.set_status_from_browser_result(result);
+                self.enqueue_browser_command_for_pane(id, BrowserInputKind::Activate);
             }
             MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
             MenuAction::CopyTabId(id) => {
@@ -1763,17 +1950,41 @@ impl App {
             self.sidebar_focused = false;
             return;
         }
-        if self.config.sidebar.plugin.is_none() {
-            return;
-        }
         self.sidebar_visible = true;
-        self.sync_sidebar_plugin(true);
-        if self.sidebar_plugin_surface.is_some() {
+        if self.config.sidebar.plugin.is_some() {
+            self.sync_sidebar_plugin(true);
+        }
+        if self.config.sidebar.plugin.is_none() || self.sidebar_plugin_surface.is_some() {
             self.sidebar_focused = true;
+            if self.config.sidebar.plugin.is_none() {
+                if self.sidebar_view == SidebarView::Workspaces {
+                    self.sidebar_workspace_selection = self.tree.active_workspace;
+                } else if !self.sync_sidebar_files_to_focus(true) {
+                    self.sidebar_files.refresh();
+                }
+            }
             self.menu = None;
             self.prompt = None;
             self.omnibar = None;
             self.selection = None;
+        }
+    }
+
+    fn toggle_sidebar_view(&mut self) {
+        self.sidebar_view = self.sidebar_view.toggled();
+        if self.config.sidebar.plugin.is_some() {
+            return;
+        }
+        match self.sidebar_view {
+            SidebarView::Files => {
+                self.sidebar_followed_surface = None;
+                if !self.sync_sidebar_files_to_focus(true) {
+                    self.sidebar_files.refresh();
+                }
+            }
+            SidebarView::Workspaces => {
+                self.sidebar_workspace_selection = self.tree.active_workspace;
+            }
         }
     }
 
@@ -1835,7 +2046,7 @@ impl App {
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
         {
-            self.browser_input.enqueue(BrowserInputEvent {
+            let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
                 surface,
                 kind: BrowserInputKind::InsertText(c.to_string()),
@@ -1853,13 +2064,13 @@ impl App {
                 modifiers,
                 text,
             };
-        self.browser_input.enqueue(BrowserInputEvent {
+        let _ = self.browser_input.enqueue(BrowserInputEvent {
             surface_id,
             surface: surface.clone(),
             kind: key_event("keyDown", text),
         });
         if key.kind == KeyEventKind::Press {
-            self.browser_input.enqueue(BrowserInputEvent {
+            let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
                 surface,
                 kind: key_event("keyUp", None),
@@ -1870,7 +2081,7 @@ impl App {
     fn paste(&mut self, text: &str) {
         let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
         if surface.kind() == SurfaceKind::Browser {
-            self.browser_input.enqueue(BrowserInputEvent {
+            let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
                 surface,
                 kind: BrowserInputKind::InsertText(text.to_string()),
@@ -2197,21 +2408,13 @@ impl App {
             }
             match hit {
                 OmnibarHit::Back => {
-                    let result =
-                        self.browser_handle_for_pane(pane).and_then(|handle| handle.browser_back());
-                    self.set_status_from_browser_result(result);
+                    self.enqueue_browser_command_for_pane(pane, BrowserInputKind::Back);
                 }
                 OmnibarHit::Forward => {
-                    let result = self
-                        .browser_handle_for_pane(pane)
-                        .and_then(|handle| handle.browser_forward());
-                    self.set_status_from_browser_result(result);
+                    self.enqueue_browser_command_for_pane(pane, BrowserInputKind::Forward);
                 }
                 OmnibarHit::Reload => {
-                    let result = self
-                        .browser_handle_for_pane(pane)
-                        .and_then(|handle| handle.browser_reload());
-                    self.set_status_from_browser_result(result);
+                    self.enqueue_browser_command_for_pane(pane, BrowserInputKind::Reload);
                 }
                 OmnibarHit::Edit => self.focus_omnibar(pane),
             }
@@ -2244,10 +2447,12 @@ impl App {
 
         if let Some(hit) = self.hit_at(x, y) {
             match hit {
-                Hit::Workspace { id, .. } => {
+                Hit::Workspace { index, id } => {
+                    self.sidebar_workspace_selection = index;
                     self.drag = Some(Drag::WorkspaceArm { workspace: id, at: (x, y) });
                 }
                 Hit::NewWorkspace => self.new_workspace()?,
+                Hit::SidebarFile { index } => self.sidebar_files.select(index),
                 Hit::ScreenEntry { index, .. } => {
                     self.session.select_screen(Some(index), None);
                 }
@@ -2725,7 +2930,7 @@ impl App {
             if area.content.contains(x, y) {
                 let (px, py) = self.browser_point(area.content, x, y);
                 let delta = if down { 3.0 } else { -3.0 } * f64::from(self.cell_pixels.1);
-                self.browser_input.enqueue(BrowserInputEvent {
+                let _ = self.browser_input.enqueue(BrowserInputEvent {
                     surface_id,
                     surface,
                     kind: BrowserInputKind::Wheel { x: px, y: py, delta_y: delta },
@@ -2784,7 +2989,7 @@ impl App {
     ) {
         let Some(surface) = self.session.surface(surface_id) else { return };
         let (px, py) = self.browser_point(content, x, y);
-        self.browser_input.enqueue(BrowserInputEvent {
+        let _ = self.browser_input.enqueue(BrowserInputEvent {
             surface_id,
             surface,
             kind: BrowserInputKind::Mouse {
@@ -2872,17 +3077,20 @@ mod tests {
         pane_parts_for_rect,
     };
     use std::collections::HashMap;
+    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     use cmux_tui_core::{BrowserStatus, Mux, Node, Rect, SurfaceKind, SurfaceOptions};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ghostty_vt::{KeyEncoder, RenderState};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
     use crate::browser_input::BrowserInputDispatcher;
-    use crate::config::{Config, ScrollbarPosition};
+    use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition, SidebarView};
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{Session, TreeView};
+    use crate::sidebar_files::FileBrowser;
 
     #[test]
     fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {
@@ -2937,6 +3145,7 @@ mod tests {
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_width = 12;
+        app.sidebar_view = SidebarView::Workspaces;
         app.tree = notify_tree(surface.id, true);
         app.pane_areas.push(PaneArea {
             pane: 2,
@@ -2975,10 +3184,143 @@ mod tests {
         mux.close_surface(surface.id);
     }
 
+    #[test]
+    fn plugin_sidebar_registers_resize_drag_hit() {
+        let mux = Mux::new(
+            "plugin-sidebar-drag-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_width = 12;
+        app.config.sidebar.plugin = Some(cmux_tui_core::SidebarPluginOptions {
+            command: vec!["/bin/sh".to_string(), "-c".to_string(), "sleep 30".to_string()],
+            cwd: None,
+        });
+        app.tree = notify_tree(surface.id, false);
+
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::ui::draw(&mut app, frame);
+            })
+            .unwrap();
+
+        // Regression: with a plugin sidebar the divider column must still be a
+        // drag handle, exactly like the built-in sidebar.
+        let divider_x = app.sidebar_width - 1;
+        assert!(
+            app.hits.iter().any(|(rect, hit)| matches!(hit, super::Hit::SidebarResize)
+                && rect.x == divider_x
+                && rect.width == 1),
+            "plugin sidebar must register the SidebarResize hit on the divider column"
+        );
+
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn files_sidebar_renders_temp_directory_and_unread_header_badge() {
+        let temp = test_temp_dir("draw-files");
+        std::fs::write(temp.join("known-sidebar-file.txt"), "hello").unwrap();
+        let (mux, surface) = test_mux("files-sidebar-draw-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_width = 24;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.tree = notify_tree(surface.id, true);
+
+        let mut terminal = Terminal::new(TestBackend::new(50, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("known-sidebar-file"), "{text}");
+        assert!(text.lines().next().is_some_and(|line| line.contains("• 1")), "{text}");
+
+        mux.close_surface(surface.id);
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn focused_sidebar_tab_toggles_builtin_views_and_back() {
+        let temp = test_temp_dir("toggle-view");
+        std::fs::write(temp.join("toggle-marker.txt"), "hello").unwrap();
+        let (mux, surface) = test_mux("sidebar-toggle-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_width = 24;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.tree = notify_tree(surface.id, false);
+        app.sidebar_focused = true;
+
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.sidebar_view, SidebarView::Workspaces);
+        let mut terminal = Terminal::new(TestBackend::new(50, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(buffer_text(terminal.backend().buffer()).contains("workspaces"));
+
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.sidebar_view, SidebarView::Files);
+        let mut terminal = Terminal::new(TestBackend::new(50, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(buffer_text(terminal.backend().buffer()).contains("toggle-marker"));
+
+        mux.close_surface(surface.id);
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn focus_sidebar_focuses_builtin_sidebar() {
+        let (mux, surface) = test_mux("focus-builtin-sidebar-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.tree = notify_tree(surface.id, false);
+        app.sidebar_visible = false;
+
+        app.run_action(Action::FocusSidebar).unwrap();
+        assert!(app.sidebar_visible);
+        assert!(app.sidebar_focused);
+
+        app.run_action(Action::FocusSidebar).unwrap();
+        assert!(!app.sidebar_focused);
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn builtin_sidebar_registers_resize_hit_in_both_views() {
+        let temp = test_temp_dir("resize-hit");
+        let (mux, surface) = test_mux("builtin-sidebar-resize-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_width = 18;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.tree = notify_tree(surface.id, false);
+
+        for view in [SidebarView::Files, SidebarView::Workspaces] {
+            app.sidebar_view = view;
+            let mut terminal = Terminal::new(TestBackend::new(50, 12)).unwrap();
+            terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+            assert!(
+                app.hits.iter().any(|(rect, hit)| {
+                    matches!(hit, super::Hit::SidebarResize)
+                        && rect.x == app.sidebar_width - 1
+                        && rect.width == 1
+                }),
+                "missing resize hit in {view:?} view"
+            );
+        }
+
+        mux.close_surface(surface.id);
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
     fn test_app(session: Session) -> App {
         App {
             session,
             config: Config::default(),
+            chrome: ChromeTheme::dark(),
             tree: TreeView::default(),
             render_states: HashMap::<u64, RenderState>::new(),
             graphics_writer: None,
@@ -2989,6 +3331,10 @@ mod tests {
             session_label: "test".to_string(),
             sidebar_visible: true,
             sidebar_focused: false,
+            sidebar_view: SidebarView::Files,
+            sidebar_files: FileBrowser::new(std::env::temp_dir()),
+            sidebar_workspace_selection: 0,
+            sidebar_followed_surface: None,
             sidebar_width: 0,
             sidebar_plugin_surface: None,
             sidebar_plugin_error: None,
@@ -3008,7 +3354,7 @@ mod tests {
             cell_pixels: (8, 16),
             pointer_shape: false,
             last_browser_hover: None,
-            browser_input: BrowserInputDispatcher::spawn().unwrap(),
+            browser_input: BrowserInputDispatcher::spawn(std::sync::mpsc::channel().0).unwrap(),
             drag: None,
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
@@ -3055,5 +3401,43 @@ mod tests {
 
     fn row_contains(buffer: &ratatui::buffer::Buffer, y: u16, needle: &str) -> bool {
         (0..buffer.area.width).any(|x| buffer[(x, y)].symbol() == needle)
+    }
+
+    fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
+        (0..buffer.area.height)
+            .map(|y| (0..buffer.area.width).map(|x| buffer[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn test_temp_dir(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "cmux-tui-app-{name}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn test_mux(
+        name: &str,
+        cwd: Option<&std::path::Path>,
+    ) -> (Arc<Mux>, Arc<cmux_tui_core::Surface>) {
+        let mux = Mux::new(
+            name,
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                cwd: cwd.map(|path| path.to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        (mux, surface)
     }
 }

@@ -39,9 +39,21 @@ final class SidebarLazyLayoutScaleTests {
     private final class RowBodyCounter {
         var workspaceRowBodies = 0
         var groupHeaderBodies = 0
+        var workspaceSnapshotBuilds = 0
+        // Snapshot builds bracketed by workspaceRowBody/workspaceRowBodyEnd,
+        // i.e. synchronous work inside a single TabItemView.body evaluation.
+        // Builds outside the bracket (onAppear refresh, observation publishers)
+        // are legitimate and not counted here.
+        var insideWorkspaceRowBody = false
+        var snapshotBuildsInCurrentRowBody = 0
+        var maxSnapshotBuildsInOneRowBody = 0
         func reset() {
             workspaceRowBodies = 0
             groupHeaderBodies = 0
+            workspaceSnapshotBuilds = 0
+            insideWorkspaceRowBody = false
+            snapshotBuildsInCurrentRowBody = 0
+            maxSnapshotBuildsInOneRowBody = 0
         }
     }
 
@@ -143,8 +155,24 @@ final class SidebarLazyLayoutScaleTests {
         .environment(
             \.sidebarLazyContractProbe,
             SidebarLazyContractProbe(
-                workspaceRowBody: { counter.workspaceRowBodies += 1 },
-                groupHeaderRowBody: { counter.groupHeaderBodies += 1 }
+                workspaceRowBody: {
+                    counter.workspaceRowBodies += 1
+                    counter.insideWorkspaceRowBody = true
+                    counter.snapshotBuildsInCurrentRowBody = 0
+                },
+                workspaceRowBodyEnd: {
+                    counter.insideWorkspaceRowBody = false
+                },
+                groupHeaderRowBody: { counter.groupHeaderBodies += 1 },
+                workspaceSnapshotBuild: {
+                    counter.workspaceSnapshotBuilds += 1
+                    guard counter.insideWorkspaceRowBody else { return }
+                    counter.snapshotBuildsInCurrentRowBody += 1
+                    counter.maxSnapshotBuildsInOneRowBody = max(
+                        counter.maxSnapshotBuildsInOneRowBody,
+                        counter.snapshotBuildsInCurrentRowBody
+                    )
+                }
             )
         )
         .defaultAppStorage(defaults)
@@ -192,6 +220,19 @@ final class SidebarLazyLayoutScaleTests {
         }
     }
 
+    @MainActor
+    private static func hoverReconcilerViews(in rootView: NSView) -> [SidebarWorkspaceRowHoverReconcilerView] {
+        var result: [SidebarWorkspaceRowHoverReconcilerView] = []
+        var pendingViews = [rootView]
+        while let view = pendingViews.popLast() {
+            if let reconciler = view as? SidebarWorkspaceRowHoverReconcilerView {
+                result.append(reconciler)
+            }
+            pendingViews.append(contentsOf: view.subviews)
+        }
+        return result
+    }
+
     /// Mounting the sidebar with 300 workspaces must realize only the rows a
     /// single viewport needs. Realizing all of them is the #5323/#6210 defeat:
     /// at scale, every subsequent update pays an O(N) layout pass and the main
@@ -231,6 +272,38 @@ final class SidebarLazyLayoutScaleTests {
             \(headerRealized) group-header bodies evaluated for 5 groups in one viewport. \
             The group-header row wrapper (sidebarWorkspaceGroupHeader) is defeating \
             virtualization or re-evaluating without bound — the #4385 regression site.
+            """
+        )
+    }
+
+    /// One TabItemView.body evaluation must build the workspace snapshot at
+    /// most once. The snapshot is a full per-workspace projection (bonsplit
+    /// tree walk, git branch summaries, PR rows); until `onAppear` seeds
+    /// `workspaceSnapshotStorage`, every `workspaceSnapshot` access in the
+    /// first body evaluation used to rebuild it from scratch, so each row a
+    /// scroll mounts paid the walk several times over. Builds outside body
+    /// evaluations (onAppear refresh, observation publishers) are legitimate
+    /// and excluded by the probe bracket.
+    @Test
+    @MainActor
+    func testRowBodyEvaluationBuildsWorkspaceSnapshotAtMostOnce() async throws {
+        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        defer { harness.tearDown() }
+
+        await Self.drainMainRunLoop(for: harness.window)
+
+        #expect(
+            harness.counter.workspaceSnapshotBuilds > 0,
+            "Sidebar mounted but no workspace snapshot was built; the probe wiring is broken."
+        )
+        let worstBody = harness.counter.maxSnapshotBuildsInOneRowBody
+        #expect(
+            worstBody <= 1,
+            """
+            A single TabItemView.body evaluation built the workspace snapshot \(worstBody) \
+            times. The snapshot fallback in the `workspaceSnapshot` getter must memoize \
+            within a body evaluation; N accesses before onAppear seeds storage must not \
+            mean N bonsplit tree walks per mounted row.
             """
         )
     }
@@ -289,6 +362,50 @@ final class SidebarLazyLayoutScaleTests {
             \(quietEvals) row bodies (workspace + group header) evaluated with no state \
             changes at all. The sidebar is re-invalidating itself — a layout/state feedback \
             loop (the #6556 signature). This livelocks the main thread at scale.
+            """
+        )
+    }
+
+    /// AppKit may invoke `updateTrackingAreas` repeatedly while SwiftUI is
+    /// reconciling a lazy row's platform children. A burst must collapse to a
+    /// bounded asynchronous delivery and then settle; calling row bindings on
+    /// this stack is the #8004 AttributeGraph/NSHostingView livelock.
+    @Test
+    @MainActor
+    func testTrackingAreaStormStaysBoundedAndConverges() async throws {
+        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        defer { harness.tearDown() }
+
+        await Self.drainMainRunLoop(for: harness.window)
+        let rootView = try #require(harness.window.contentView)
+        let reconcilers = Self.hoverReconcilerViews(in: rootView)
+        #expect(!reconcilers.isEmpty, "The mounted viewport has no hover reconcilers; the stress path is not covered.")
+
+        harness.counter.reset()
+        for _ in 0..<100 {
+            for reconciler in reconcilers {
+                reconciler.updateTrackingAreas()
+            }
+        }
+        await Self.drainMainRunLoop(for: harness.window)
+
+        let stormEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
+        #expect(
+            stormEvals < reconcilers.count * 4,
+            """
+            \(stormEvals) row bodies evaluated after 100 tracking-area passes across \
+            \(reconcilers.count) visible rows. AppKit lifecycle events must be coalesced before they update SwiftUI.
+            """
+        )
+
+        harness.counter.reset()
+        await Self.drainMainRunLoop(for: harness.window, iterations: 30)
+        let quietEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
+        #expect(
+            quietEvals < 20,
+            """
+            \(quietEvals) row bodies evaluated after the tracking-area burst ended. The sidebar failed to converge \
+            and is still feeding SwiftUI state changes back into AppKit layout.
             """
         )
     }
