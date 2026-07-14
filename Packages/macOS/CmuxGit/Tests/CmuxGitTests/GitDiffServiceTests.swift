@@ -175,6 +175,24 @@ import Testing
         #expect(deleted.unifiedDiff.contains("-kept"))
     }
 
+    @Test func untrackedEmbeddedRepositoryDirectoryIsNotPublished() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let nested = repo.appendingPathComponent("Nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try runTestGit(in: nested, ["init", "--quiet"])
+        try Data("nested\n".utf8).write(to: nested.appendingPathComponent("file.txt"))
+        try FileManager.default.createSymbolicLink(
+            atPath: repo.appendingPathComponent("NestedLink").path,
+            withDestinationPath: "Nested"
+        )
+
+        let changed = try #require(GitDiffService().changedFiles(repoRoot: repo.path))
+
+        #expect(changed.files.map(\.path) == ["NestedLink"])
+        #expect(changed.files.first?.status == .untracked)
+    }
+
     @Test func changedFilesListIsBoundedAndMarkedTruncated() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

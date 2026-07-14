@@ -142,6 +142,22 @@ import Testing
         #expect(!result.capped)
     }
 
+    @Test func unsuccessfulExitWinsWhenSupervisedResultIsAlsoCapped() {
+        let result = GitProcessRunner.translateSupervisedResult(
+            GitProcessResult(
+                rawOutput: Data(repeating: 0x78, count: 32),
+                output: nil,
+                capped: true,
+                terminationStatus: 2
+            ),
+            acceptedTerminationStatuses: [0],
+            maxOutputBytes: 32
+        )
+
+        #expect(result.failure == .unsuccessfulExit)
+        #expect(!result.capped)
+    }
+
     @Test func deadlineDoesNotDependOnAvailableDispatchWorkers() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
