@@ -321,8 +321,25 @@ import Testing
     let frame = try MobileTerminalRenderGridFrame.decodeJSONObject(object)
 
     #expect(frame.full)
+    #expect(frame.renderRevision == 0)
     #expect(frame.clearedRows.isEmpty)
     #expect(frame.rowSpans == [.init(row: 0, column: 0, text: "alpha")])
+}
+
+@Test func renderGridRoundTripPreservesProducerVisualRevision() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 44,
+        renderRevision: 91,
+        columns: 8,
+        rows: 4,
+        rowSpans: [.init(row: 0, column: 0, text: "alpha")]
+    )
+
+    let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(frame.jsonObject())
+
+    #expect(decoded.renderRevision == 91)
+    #expect(decoded == frame)
 }
 
 @Test func renderGridRejectsInvalidSpanCoordinates() throws {

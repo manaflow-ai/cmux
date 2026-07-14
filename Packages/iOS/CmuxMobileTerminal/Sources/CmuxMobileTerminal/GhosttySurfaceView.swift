@@ -81,7 +81,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var surfaceTitle: String?
     var displayLink: CADisplayLink?
     private var cursorBlinkState = TerminalCursorBlinkState()
-    private var cursorOverlayLayer: CALayer?
+    var cursorOverlayLayer: CALayer?
     /// Whether the host terminal currently wants the cursor shown (DECTCEM).
     /// TUIs that hide the cursor (vim, fzf, htop, less, …) emit `ESC [ ? 25 l`;
     /// the render-grid producer forwards that in the VT-patch bytes, so we track
@@ -335,6 +335,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         view.isHidden = true
         return view
     }()
+    var authoritativeGridView: AuthoritativeTerminalGridView?
 
     var surface: ghostty_surface_t?
     var surfaceGeneration: UInt64 = 0
@@ -464,11 +465,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     #endif
 
     /// Suppresses render dispatch while keeping the display link, geometry,
-    /// and viewport reporting alive. Hosts where a Metal present can never
-    /// complete (a scene-less xctest process) set this so a stalled present
-    /// cannot trip the render-pipeline stall recovery and pause geometry;
-    /// geometry (`set_size` + measure) never needs a present. Defaults false;
-    /// no production caller flips it (tests reach it via `@testable import`).
+    /// and viewport reporting alive. Scene-less tests use this to avoid a Metal
+    /// present that cannot complete. Authoritative-grid presentation also uses
+    /// it because the producer-authored view owns visible pixels while Ghostty
+    /// remains mounted only for geometry and input plumbing.
     var isRenderDispatchSuppressed = false
 
     var currentGridSize: TerminalGridSize {
@@ -1068,6 +1068,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         recordBottomViewportMismatchIfNeeded()
         #endif
         syncRendererLayerFrame(scale: preferredScreenScale, renderRect: renderRect)
+        layoutAuthoritativeGridView()
         updateLetterboxBorder(
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
@@ -1664,6 +1665,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         pendingFontSize = nil
         guard target != liveFontSize else { return false }
         liveFontSize = target
+        authoritativeGridView?.terminalFontSize = CGFloat(target)
         MobileDebugLog.anchormux("zoom.apply \(target) eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")")
         // Absolute set: the prior `±1` binding action drove libghostty's own
         // font counter independently of our clamp, so a fast burst could push
@@ -2779,8 +2781,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func updateCursorOverlay() {
+    func updateCursorOverlay() {
         guard let surface,
+              !isAuthoritativeGridPresented,
               hostCursorVisible,
               window != nil,
               !isHidden,
@@ -2892,6 +2895,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             applyBackgroundColorFromConfig(config)
         }
         inputProxy.refreshThemeColors()
+        authoritativeGridView?.setNeedsDisplay()
         updateCursorOverlay()
         needsDraw = true
     }
@@ -3250,6 +3254,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             clampsStaleLiveViewport: shouldClampStaleLiveViewport(using: snapshot)
         )
         lastRenderRect = renderRect
+        layoutAuthoritativeGridView()
         #if DEBUG
         recordBottomViewportMismatchIfNeeded()
         #endif
@@ -3335,6 +3340,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.setDisableActions(true)
         layer.contentsScale = scale
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
+            sublayer.isHidden = isAuthoritativeGridPresented
             if sublayer.frame != renderRect {
                 sublayer.frame = renderRect
             }
@@ -3402,7 +3408,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func isGhosttyRendererLayer(_ layer: CALayer) -> Bool {
+    func isGhosttyRendererLayer(_ layer: CALayer) -> Bool {
         String(describing: type(of: layer)) == "IOSurfaceLayer"
     }
 
@@ -3478,6 +3484,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSnapshotFallback() {
+        if isAuthoritativeGridPresented {
+            snapshotFallbackView.isHidden = true
+            return
+        }
         // Once the Metal renderer is active (surface has received output),
         // keep the fallback hidden so the IOSurfaceLayer is visible.
         if surfaceHasReceivedOutput {

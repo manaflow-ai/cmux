@@ -183,7 +183,11 @@ final class MobileTerminalRenderObserver {
         guard let emission = try? snapshot.frame.renderGridEmission(
             comparedTo: renderGridStatesBySurfaceID[surfaceID]
         ) else { return }
-        let frame = emission.frame
+        // The phone presents immutable producer-authored grids directly. The
+        // delta calculation remains the change detector, but every emitted
+        // visual frame is the complete snapshot so no consumer ever composes
+        // rows from different geometry generations.
+        let frame = snapshot.frame
         renderGridStatesBySurfaceID[surfaceID] = emission.state
         guard let payload = try? frame.jsonObject() else { return }
         MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload)

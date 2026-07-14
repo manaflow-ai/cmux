@@ -35,6 +35,7 @@ extension MobileShellComposite {
         previous: MobileTerminalRenderGridFrame.Screen?
     ) -> (requestReplay: Bool, updateTrackedScreen: Bool, deliverViewportPolicy: Bool)? {
         guard terminalOutputTransport == .hybrid,
+              !usesAuthoritativeRenderGrid(surfaceID: renderGrid.surfaceID),
               renderGrid.activeScreen == .primary else {
             return nil
         }
@@ -92,7 +93,8 @@ extension MobileShellComposite {
                     && renderGrid.isReplaceableViewportPatchForMobileDelivery
             )
         let needsRenderGridBaseline = (
-                terminalOutputTransport == .renderGrid
+                (terminalOutputTransport == .renderGrid
+                    || usesAuthoritativeRenderGrid(surfaceID: renderGrid.surfaceID))
                     && !establishesRenderGridBaseline
                     && (
                         !hasDeliveredSeq
@@ -101,6 +103,7 @@ extension MobileShellComposite {
             )
             || (
                 terminalOutputTransport == .hybrid
+                    && !usesAuthoritativeRenderGrid(surfaceID: renderGrid.surfaceID)
                     && renderGrid.activeScreen == .alternate
                     && !hasAlternateBaseline
             )
@@ -212,7 +215,9 @@ extension MobileShellComposite {
         return deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,
-                replaceable: frame.isReplaceableViewportPatchForMobileDelivery,
+                replaceable: usesAuthoritativeRenderGrid(surfaceID: surfaceID)
+                    ? frame.full
+                    : frame.isReplaceableViewportPatchForMobileDelivery,
                 viewportPolicy: frame.mobileViewportPolicy
             ),
             surfaceID: surfaceID,
@@ -286,13 +291,11 @@ extension MobileShellComposite {
             )
         }
         if let immediate {
-            continuation.yield(
-                MobileTerminalOutputChunk(
-                    data: immediate.bytes,
-                    streamToken: streamToken,
-                    viewportPolicy: immediate.viewportPolicy
-                )
-            )
+            continuation.yield(outputChunk(
+                from: immediate,
+                surfaceID: surfaceID,
+                streamToken: streamToken
+            ))
         }
         return true
     }
@@ -371,11 +374,27 @@ extension MobileShellComposite {
               terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
             return
         }
-        continuation.yield(MobileTerminalOutputChunk(
-            data: next.bytes,
-            streamToken: streamToken,
-            viewportPolicy: next.viewportPolicy
+        continuation.yield(outputChunk(
+            from: next,
+            surfaceID: surfaceID,
+            streamToken: streamToken
         ))
+    }
+
+    private func outputChunk(
+        from delivery: TerminalOutputDelivery,
+        surfaceID: String,
+        streamToken: UUID
+    ) -> MobileTerminalOutputChunk {
+        let renderGrid = usesAuthoritativeRenderGrid(surfaceID: surfaceID)
+            ? delivery.renderGrid
+            : nil
+        return MobileTerminalOutputChunk(
+            data: renderGrid == nil ? delivery.bytes : Data(),
+            streamToken: streamToken,
+            viewportPolicy: delivery.viewportPolicy,
+            renderGrid: renderGrid
+        )
     }
 
     /// Abandon the current yielded terminal-output chunk after the local render

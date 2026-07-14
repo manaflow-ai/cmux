@@ -171,6 +171,7 @@ extension MobileShellComposite {
         // budget here would let an empty-answering host be hammered with one
         // replay per gated delta.
         let baselineDelivered = terminalOutputTransport == .hybrid
+            && !usesAuthoritativeRenderGrid(surfaceID: surfaceID)
             ? terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
             : (!restoredBaselineFromFloor && deliveredTerminalByteEndSeqBySurfaceID[surfaceID] != nil)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)

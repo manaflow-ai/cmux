@@ -45,7 +45,14 @@ actor LivenessHostRouter {
     private var heldViewportRequestNumbers: Set<Int> = []
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
-    private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var capabilities = [
+        "events.v1",
+        "terminal.bytes.v1",
+        "terminal.render_grid.v1",
+        "terminal.render_grid.full_frame.v1",
+        "terminal.replay.v1",
+    ]
+    private var terminalFidelity: String? = "render_grid"
     // This router models the current authenticated Mac host by default. Tests
     // for legacy identity omission opt out explicitly via `setHostIdentity`.
     // Supplying the matching instance identity also keeps unrelated liveness
@@ -155,6 +162,10 @@ actor LivenessHostRouter {
 
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
+    }
+
+    func setTerminalFidelity(_ terminalFidelity: String?) {
+        self.terminalFidelity = terminalFidelity
     }
 
     func setHostIdentity(deviceID: String?, instanceTag: String?, displayName: String? = nil) {
@@ -293,10 +304,8 @@ actor LivenessHostRouter {
                 await park()
                 return nil
             }
-            var result: [String: Any] = [
-                "terminal_fidelity": "render_grid",
-                "capabilities": capabilities,
-            ]
+            var result: [String: Any] = ["capabilities": capabilities]
+            if let terminalFidelity { result["terminal_fidelity"] = terminalFidelity }
             if let macDeviceID { result["mac_device_id"] = macDeviceID }
             if let macInstanceTag { result["mac_instance_tag"] = macInstanceTag }
             if let macDisplayName { result["mac_display_name"] = macDisplayName }

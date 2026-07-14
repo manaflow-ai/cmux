@@ -1,12 +1,14 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// A seam exposing per-surface terminal output as an `AsyncStream`.
 ///
 /// A mounted terminal view obtains the stream for its surface, feeds each
-/// yielded chunk into its libghostty surface (`process_output`), then calls
-/// ``terminalOutputDidProcess(surfaceID:streamToken:)``. The bytes are VT patch bytes
-/// derived from render-grid frames, or raw PTY bytes as a compatibility fallback
-/// for older Mac hosts. Obtaining the stream also arms a cold-attach replay so a
+/// yielded chunk into its selected renderer, then calls
+/// ``terminalOutputDidProcess(surfaceID:streamToken:)``. A chunk preserves its
+/// producer-authored ``renderGrid`` value so an authoritative renderer never has
+/// to reconstruct visible state from VT bytes; ``data`` remains the raw-host and
+/// compatibility fallback. Obtaining the stream also arms a cold-attach replay so a
 /// freshly mounted surface catches up to current state; ending iteration
 /// releases the surface so the Mac drops its viewport pin.
 ///
@@ -24,15 +26,19 @@ public struct MobileTerminalOutputChunk: Sendable {
     public let data: Data
     public let streamToken: UUID
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?
+    /// The complete producer-authored visual frame, when the host supports render grids.
+    public let renderGrid: MobileTerminalRenderGridFrame?
 
     public init(
         data: Data,
         streamToken: UUID,
-        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        renderGrid: MobileTerminalRenderGridFrame? = nil
     ) {
         self.data = data
         self.streamToken = streamToken
         self.viewportPolicy = viewportPolicy
+        self.renderGrid = renderGrid
     }
 }
 

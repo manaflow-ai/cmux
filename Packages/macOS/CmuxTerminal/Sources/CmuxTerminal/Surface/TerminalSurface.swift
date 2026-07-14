@@ -211,6 +211,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var lastXScale: CGFloat = 0
     var lastYScale: CGFloat = 0
     var mobileViewportCellLimit: (columns: Int, rows: Int)?
+    /// Monotonic visual revision stamped onto every mobile grid export.
+    ///
+    /// This advances independently of PTY byte sequence so a geometry-only
+    /// repaint can be ordered against an earlier frame at the same sequence.
+    var mobileRenderRevision: UInt64 = 0
     /// Runtime font size to restore when mobile viewport fitting clears.
     var mobileFitBaseFontPointSize: Float?
     /// Last runtime font size applied by mobile viewport fitting.

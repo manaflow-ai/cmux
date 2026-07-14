@@ -25,7 +25,8 @@ extension MobileTerminalRenderGridFrame.RowSpan {
         text.unicodeScalars.contains { $0.isRenderGridWidthSensitiveScalar }
     }
 
-    var gridCellWidth: Int {
+    /// The producer-authored number of terminal cells occupied by this span.
+    public var gridCellWidth: Int {
         cellWidth ?? max(1, text.renderGridEstimatedCellWidth)
     }
 }
