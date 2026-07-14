@@ -122,10 +122,16 @@ struct UnifiedFileExplorerTests {
         container.updatePresentation(.unified)
         #expect(!container.searchResultsView.isHidden)
         #expect(searchController.searchRequests.count == searchCountBeforeFindActivation + 1)
+        #expect(window.firstResponder === searchField)
 
+        #expect(window.makeFirstResponder(container.searchResultsView))
+        let cancelCountBeforeFilesActivation = searchController.cancelRequests.count
         state.mode = .files
         container.updatePresentation(.unified)
         #expect(container.searchResultsView.isHidden)
+        #expect(window.firstResponder is NSOutlineView)
+        #expect(searchController.cancelRequests.count == cancelCountBeforeFilesActivation + 1)
+        #expect(searchController.cancelRequests.last == false)
 
         let searchCountBeforeHiddenRevision = searchController.searchRequests.count
         store.reload()
@@ -194,12 +200,13 @@ private final class SearchControllerSpy: FileSearchControlling {
 
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
     private(set) var searchRequests: [SearchRequest] = []
+    private(set) var cancelRequests: [Bool] = []
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {
         searchRequests.append(
             SearchRequest(query: rawQuery, rootPath: rootPath, contentRevision: contentRevision)
         )
     }
-    func cancel(clear: Bool) {}
+    func cancel(clear: Bool) { cancelRequests.append(clear) }
     func publish(_ snapshot: FileSearchSnapshot) { onSnapshotChanged?(snapshot) }
 }
