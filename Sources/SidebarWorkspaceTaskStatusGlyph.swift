@@ -74,8 +74,7 @@ struct SidebarWorkspaceTaskStatusGlyphModel: Equatable {
         }
     }
 
-    /// Localized format strings resolved once, not per row render (the glyph
-    /// sits on every sidebar row's title line, a hot layout path).
+    /// Localized format strings resolved once, not per render.
     private static let manualTooltipFormat = String(
         localized: "sidebar.status.tooltip.manual",
         defaultValue: "%@ — set manually"
@@ -98,11 +97,13 @@ struct SidebarWorkspaceTaskStatusGlyphModel: Equatable {
 
 // MARK: - Glyph view
 
-/// The custom-drawn circular progress-pie status glyph rendered as the
-/// leftmost element of a sidebar workspace row's title line. Drawn in a
-/// fixed-width slot sized like the pin glyph (~9pt, font-scaled). Modeled on
-/// `PullRequestOpenIcon`/`PullRequestMergedIcon` (custom `Path` drawing, row
-/// passes resolved colors; no store access below the snapshot boundary).
+/// The custom-drawn circular progress-pie status glyph shown in the todo
+/// pane's header and the status popover's lane rows. Deliberately NOT drawn
+/// on sidebar workspace rows (the leading status circles were removed; see
+/// `SidebarWorkspaceRowStatusGlyphRemovalTests`). Drawn in a fixed-width slot
+/// (~9pt base, font-scaled). Modeled on `PullRequestOpenIcon`/
+/// `PullRequestMergedIcon` (custom `Path` drawing, caller passes resolved
+/// colors; no store access).
 struct SidebarWorkspaceTaskStatusGlyph: View {
     let status: WorkspaceTaskStatus
     let hasOverride: Bool

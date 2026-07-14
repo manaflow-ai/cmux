@@ -5,9 +5,11 @@ import SwiftUI
 // MARK: - Shared status lane list
 
 /// One selectable status lane row, shared by the sidebar row's context-menu
-/// Status submenu and the glyph's status popover so both surfaces present
+/// Status submenu and the todo pane's status popover so both surfaces present
 /// identical lanes, titles, and selection through one model, and apply through
-/// the same `WorkspaceTodoActions.applyStatusOverride` path.
+/// the same `WorkspaceTodoActions.applyStatusOverride` path. Sidebar workspace
+/// rows deliberately draw no status glyph (the leading status circles were
+/// removed; see `SidebarWorkspaceRowStatusGlyphRemovalTests`).
 struct WorkspaceTodoStatusLane: Equatable, Identifiable {
     /// The lane to pin, or `nil` for Auto (clear the override) and for None.
     let status: WorkspaceTaskStatus?
@@ -91,11 +93,11 @@ struct SidebarWorkspaceStatusPopoverModel: Equatable {
 
 // MARK: - Popover content
 
-/// The glyph-click status popover: the Auto row, a divider, the five status
-/// lanes (each drawing the real glyph), and — while a lane is pinned — a
-/// footnote explaining the pin auto-clears. Arrow keys move the highlight,
-/// Return or click applies and closes, Esc closes, and a lane's first letter
-/// jumps.
+/// The status popover opened from the todo pane's header glyph: the Auto row,
+/// a divider, the five status lanes (each drawing the real glyph), and —
+/// while a lane is pinned — a footnote explaining the pin auto-clears. Arrow
+/// keys move the highlight, Return or click applies and closes, Esc closes,
+/// and a lane's first letter jumps.
 struct SidebarWorkspaceStatusPopover: View {
     let model: SidebarWorkspaceStatusPopoverModel
     /// Applies a lane (`nil` = Auto) through the shared status action path.
@@ -264,71 +266,3 @@ struct SidebarWorkspaceStatusPopover: View {
     }
 }
 
-// MARK: - Clickable glyph control
-
-/// The clickable status glyph on a sidebar workspace row: a plain click opens
-/// the status popover anchored to the glyph, option-click one-step toggles
-/// Done (pin `.done`, or return an already-done row to Auto). Receives value
-/// snapshots and closures only (snapshot-boundary rule); the ~16pt hit area
-/// comes from an outset content shape so the row layout keeps the glyph's
-/// visual slot width.
-struct SidebarWorkspaceTaskStatusGlyphControl: View {
-    let status: WorkspaceTaskStatus
-    let inferred: WorkspaceTaskStatus
-    let hasOverride: Bool
-    let usesMonochrome: Bool
-    let monochromeColor: Color
-    let neutralColor: Color
-    let fontScale: CGFloat
-    let isPopoverPresented: Bool
-    let onPopoverPresentedChange: @MainActor (Bool) -> Void
-    /// Applies a lane (`nil` = Auto) through the shared status action path.
-    let onSelectLane: @MainActor (WorkspaceTaskStatus?) -> Void
-    /// Opts the workspace out (None): hide the status glyph.
-    let onSelectNone: @MainActor () -> Void
-    let onOptionToggleDone: @MainActor () -> Void
-
-    var body: some View {
-        Button {
-            if NSApp.currentEvent?.modifierFlags.contains(.option) == true {
-                onOptionToggleDone()
-            } else {
-                onPopoverPresentedChange(!isPopoverPresented)
-            }
-        } label: {
-            SidebarWorkspaceTaskStatusGlyph(
-                status: status,
-                hasOverride: hasOverride,
-                usesMonochrome: usesMonochrome,
-                monochromeColor: monochromeColor,
-                neutralColor: neutralColor,
-                fontScale: fontScale
-            )
-            .contentShape(Rectangle().inset(by: -3))
-        }
-        .buttonStyle(.plain)
-        // SwiftUI's native popover (not the NSPopover host). An embedded
-        // NSViewRepresentable inside a `.onHover`-tracked sidebar row
-        // suppresses the row's hover tracking (hover-close "x" never appears),
-        // so any AppKit lifecycle bridge must live inside popover content.
-        .popover(
-            isPresented: Binding(
-                get: { isPopoverPresented },
-                set: { onPopoverPresentedChange($0) }
-            ),
-            arrowEdge: .trailing
-        ) {
-            SidebarWorkspaceStatusPopover(
-                model: SidebarWorkspaceStatusPopoverModel(
-                    inferred: inferred,
-                    activeOverride: hasOverride ? status : nil
-                ),
-                onSelectLane: onSelectLane,
-                onSelectNone: onSelectNone,
-                onClose: { onPopoverPresentedChange(false) }
-            )
-            .frame(minWidth: 200)
-        }
-        .accessibilityIdentifier("SidebarWorkspaceTaskStatusGlyphControl")
-    }
-}
