@@ -104,13 +104,21 @@ extension GhosttySurfaceScrollView {
             capturedTotalRows: capturedTotalRows
         )
         let targetTopRow: Int?
-        if let exactTopRow = anchor.topRow(in: scrollbar) {
+        if isPostReplayGeometry,
+           isAuthoritativePostReplayFrame,
+           let originalTotalRows = position.totalRows,
+           Int(clamping: scrollbar.total) < originalTotalRows {
+            // Session persistence retains a bounded suffix. Once replay has
+            // completed, translate an evicted absolute row into that suffix.
+            targetTopRow = TerminalScrollbackViewportAnchor(
+                rowsBelowViewport: position.row,
+                capturedTotalRows: Int(clamping: scrollbar.total)
+            ).topRow(in: scrollbar)
+        } else if let exactTopRow = anchor.topRow(in: scrollbar) {
             targetTopRow = exactTopRow
         } else if isPostReplayGeometry,
                   isAuthoritativePostReplayFrame,
                   position.totalRows != nil {
-            // Session persistence retains a bounded suffix. Once replay has
-            // completed, translate an evicted absolute row into that suffix.
             targetTopRow = TerminalScrollbackViewportAnchor(
                 rowsBelowViewport: position.row,
                 capturedTotalRows: Int(clamping: scrollbar.total)
@@ -205,7 +213,6 @@ extension GhosttySurfaceScrollView {
             pendingPosition: notificationScrollRestoreState.pendingPosition,
             attemptsRemaining: 2
         )
-        scheduleNotificationScrollRestoreFrameDeadline()
     }
 
     func armSessionScrollbackReplay(from environment: [String: String]) {
@@ -221,7 +228,7 @@ extension GhosttySurfaceScrollView {
         if case .armed(let expectedStartBoundary, let expectedEndBoundary, let pendingPosition, _) =
             notificationScrollRestoreState,
             boundary == expectedStartBoundary {
-            cancelNotificationScrollRestoreDeadlineTimer()
+            scheduleNotificationScrollRestoreFrameDeadline()
             notificationScrollRestoreState = .replaying(
                 expectedBoundary: expectedEndBoundary,
                 pendingPosition: pendingPosition
@@ -284,7 +291,16 @@ extension GhosttySurfaceScrollView {
 
     func expireNotificationScrollRestoreFrameDeadline() {
         guard notificationScrollRestoreFrameDeadlineTimer != nil else { return }
-        if case .armed(_, _, let pendingPosition, let attemptsRemaining) = notificationScrollRestoreState {
+        let preReplayFallback: (TerminalNotificationScrollPosition?, Int)?
+        switch notificationScrollRestoreState {
+        case .armed(_, _, let pendingPosition, let attemptsRemaining):
+            preReplayFallback = (pendingPosition, attemptsRemaining)
+        case .replaying(_, let pendingPosition):
+            preReplayFallback = (pendingPosition, 2)
+        default:
+            preReplayFallback = nil
+        }
+        if let (pendingPosition, attemptsRemaining) = preReplayFallback {
             cancelNotificationScrollRestoreFrameWait()
             if let pendingPosition {
                 notificationScrollRestoreState = .awaitingInitialGeometry(
@@ -333,6 +349,11 @@ extension GhosttySurfaceScrollView {
     }
 
     func restorePendingNotificationScrollPositionAfterScrollbarUpdate() {
+        if case .armed(_, _, let pendingPosition, _) = notificationScrollRestoreState,
+           pendingPosition != nil,
+           notificationScrollRestoreFrameDeadlineTimer == nil {
+            scheduleNotificationScrollRestoreFrameDeadline()
+        }
         let isAwaitingPostReplayGeometry: Bool
         if case .awaitingPostReplayGeometry = notificationScrollRestoreState {
             isAwaitingPostReplayGeometry = true
