@@ -8,12 +8,17 @@ public protocol WorkspaceGitMetadataReading: Sendable {
     /// Returns the git metadata for `directory`.
     func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata
 
-    /// Returns the git metadata for `directory`, reusing tracked-change work
-    /// only when the supplied watcher generation has not changed.
+    /// Returns git metadata using explicit process-coordinated refresh authority.
     func workspaceMetadata(
         for directory: String,
-        trackedPathEventGeneration: GitTrackedPathEventGeneration?
+        snapshotRequest: GitTrackedChangesSnapshotRequest?
     ) async -> GitWorkspaceMetadata
+
+    /// Returns metadata plus whether the stamped repository revision remained current.
+    func workspaceMetadataSnapshot(
+        for directory: String,
+        snapshotRequest: GitTrackedChangesSnapshotRequest?
+    ) async -> GitWorkspaceMetadataSnapshot
 }
 
 /// Default cache-generation behavior for readers that only implement a full
@@ -25,9 +30,22 @@ public extension WorkspaceGitMetadataReading {
     /// rely on this default to conservatively bypass tracked-change cache reuse.
     func workspaceMetadata(
         for directory: String,
-        trackedPathEventGeneration: GitTrackedPathEventGeneration?
+        snapshotRequest: GitTrackedChangesSnapshotRequest?
     ) async -> GitWorkspaceMetadata {
         await workspaceMetadata(for: directory)
+    }
+
+    func workspaceMetadataSnapshot(
+        for directory: String,
+        snapshotRequest: GitTrackedChangesSnapshotRequest?
+    ) async -> GitWorkspaceMetadataSnapshot {
+        GitWorkspaceMetadataSnapshot(
+            metadata: await workspaceMetadata(
+                for: directory,
+                snapshotRequest: snapshotRequest
+            ),
+            isCurrent: true
+        )
     }
 }
 
