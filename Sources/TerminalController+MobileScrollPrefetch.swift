@@ -308,4 +308,21 @@ extension TerminalController {
         return true
     }
 
+    /// Retire only interaction sessions no longer owned by any live mobile
+    /// connection. Viewport ownership remains keyed by installed client ID.
+    func clearMobileInteractionEpochs(
+        clientSessions: [(clientID: String, sessionID: String)]
+    ) {
+        guard !clientSessions.isEmpty else { return }
+        for surfaceID in Array(mobileInteractionEpochsBySurfaceID.keys) {
+            var clients = mobileInteractionEpochsBySurfaceID[surfaceID] ?? [:]
+            for identity in clientSessions {
+                guard var sessions = clients[identity.clientID] else { continue }
+                sessions.removeValue(forKey: identity.sessionID)
+                clients[identity.clientID] = sessions.isEmpty ? nil : sessions
+            }
+            mobileInteractionEpochsBySurfaceID[surfaceID] = clients.isEmpty ? nil : clients
+        }
+    }
+
 }
