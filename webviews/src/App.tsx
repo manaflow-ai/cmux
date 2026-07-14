@@ -450,6 +450,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           const status = createDiffViewerStatus(label("loadingDiff"), { pending: true });
           applyDiffViewerStatusToDocument(status);
           dispatch({ type: "reset-diff", status });
+          setActivePatchURL(undefined);
           void closeActiveSession();
           setResolvedSessionSource(source);
           setActiveSessionSource(source);

@@ -14,7 +14,7 @@ reqwest = { version = "0.13.4", default-features = false, features = ["rustls-no
 rustls = { version = "0.23.41", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-tokio = { version = "1.52.3", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.52.3", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { version = "0.7.18", features = ["io"] }
 ts-rs = { version = "12.0.1", features = ["serde-json-impl"] }
 uuid = { version = "1.22.0", features = ["v4"] }

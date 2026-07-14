@@ -155,6 +155,19 @@ fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
 pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
     validate_root(&config.root).await?;
     let _ = rustls::crypto::ring::default_provider().install_default();
+    #[cfg(unix)]
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    tokio::select! {
+        result = run_rpc_request(config) => result,
+        _ = terminate.recv() => Err("RPC request was cancelled".to_owned()),
+    }
+    #[cfg(not(unix))]
+    run_rpc_request(config).await
+}
+
+async fn run_rpc_request(config: ServerConfig) -> Result<(), String> {
     let response = match read_rpc_request(tokio::io::stdin(), RPC_STDIN_READ_TIMEOUT).await? {
         RpcRequestRead::Request(request) => {
             let state = app_state(config, 0)?;
@@ -499,12 +512,14 @@ async fn open_session(
     let request_path = format!("/{file_name}");
     let final_path = state.config.root.join(&file_name);
     let temporary_path = state.config.root.join(format!(".{file_name}.tmp"));
+    let mut temporary_file = TemporaryPatchFile::new(temporary_path.clone());
 
     let source = resolve_session_source(state, params.source, &canonical_repo).await?;
     run_git_patch(&source, &canonical_repo, &temporary_path).await?;
     tokio::fs::rename(&temporary_path, &final_path)
         .await
         .map_err(|_| SessionOpenError::Failed)?;
+    temporary_file.disarm();
     let metadata = tokio::fs::metadata(&final_path)
         .await
         .map_err(|_| SessionOpenError::Failed)?;
@@ -544,6 +559,29 @@ async fn open_session(
         },
         source,
     })
+}
+
+struct TemporaryPatchFile {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl TemporaryPatchFile {
+    fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TemporaryPatchFile {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 
 async fn resolve_session_source(

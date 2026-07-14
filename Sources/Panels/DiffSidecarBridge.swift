@@ -160,12 +160,24 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
         return try await withTaskCancellationHandler {
             try process.run()
+            guard Darwin.setpgid(process.processIdentifier, process.processIdentifier) == 0 else {
+                process.terminate()
+                process.waitUntilExit()
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EPERM)
+            }
+            if Task.isCancelled {
+                terminate(process: process, input: input, output: output)
+                process.waitUntilExit()
+                killProcessGroup(process, signal: SIGKILL)
+                throw CancellationError()
+            }
             do {
                 try input.fileHandleForWriting.write(contentsOf: request)
                 try input.fileHandleForWriting.close()
             } catch {
                 terminate(process: process, input: input, output: output)
                 process.waitUntilExit()
+                killProcessGroup(process, signal: SIGKILL)
                 throw error
             }
 
@@ -198,6 +210,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             case .timedOut, .cancelled:
                 terminate(process: process, input: input, output: output)
                 process.waitUntilExit()
+                killProcessGroup(process, signal: SIGKILL)
             case .terminated, .missingTermination:
                 break
             }
@@ -230,8 +243,14 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         try? input.fileHandleForWriting.close()
         try? output.fileHandleForReading.close()
         if process.isRunning {
-            process.terminate()
+            killProcessGroup(process, signal: SIGTERM)
         }
+    }
+
+    nonisolated private static func killProcessGroup(_ process: Process, signal: Int32) {
+        let processGroup = process.processIdentifier
+        guard processGroup > 0 else { return }
+        _ = Darwin.kill(-processGroup, signal)
     }
 
     nonisolated private static func prepareRootDirectory() throws -> URL {
