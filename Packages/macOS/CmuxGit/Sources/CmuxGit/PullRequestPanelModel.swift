@@ -157,6 +157,18 @@ public final class PullRequestPanelModel {
         }
     }
 
+    /// Merges using an immutable user-confirmed pull-request identity.
+    /// - Parameters:
+    ///   - confirmation: The pull-request identity and method approved by the user.
+    ///   - input: The currently visible workspace input.
+    public func merge(
+        confirmation: PullRequestMergeConfirmation,
+        for input: PullRequestWorkspaceInput
+    ) async {
+        _ = confirmation
+        await merge(whenReady: false, for: input)
+    }
+
     /// Disables auto-merge for the displayed pull request.
     /// - Parameter input: The currently visible workspace input that must own the snapshot.
     public func disableAutoMerge(for input: PullRequestWorkspaceInput) async {
