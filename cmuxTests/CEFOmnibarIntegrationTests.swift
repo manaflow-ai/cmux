@@ -61,8 +61,10 @@ struct CEFOmnibarIntegrationTests {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let profileID = UUID()
         let panel = CEFBrowserPanel(
             workspaceId: workspace.id,
+            profileID: profileID,
             initialURL: "https://example.com/session"
         )
         workspace.panels[panel.id] = panel
@@ -83,6 +85,23 @@ struct CEFOmnibarIntegrationTests {
 
         #expect(panelSnapshot.type == .cefBrowser)
         #expect(panelSnapshot.browser?.urlString == "https://example.com/session")
+        #expect(panelSnapshot.browser?.profileID == profileID)
+        #expect(panel.cefProfileName == profileID.uuidString.lowercased())
+    }
+
+    @Test
+    func extensionDownloadsRequirePinnedSHA256Digests() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let scriptURL = repositoryRoot
+            .appendingPathComponent("Packages/macOS/CEFKit/scripts/fetch-extensions.sh")
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+
+        #expect(script.contains("UBOL_SHA256="))
+        #expect(script.contains("BITWARDEN_SHA256="))
+        #expect(script.contains("shasum -a 256 -c"))
+        #expect(script.range(of: "shasum -a 256 -c")!.lowerBound < script.range(of: "unzip -q")!.lowerBound)
     }
 
     @Test
