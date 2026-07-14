@@ -7,6 +7,19 @@ final class SharedLiveAgentIndex {
     static let shared = SharedLiveAgentIndex()
 
     private(set) var index: RestorableAgentSessionIndex?
+    /// Display-only map of terminal panes hosting a process-detected BUILT-IN agent CLI
+    /// (`codex`, `cursor`, `gemini`, …) to that agent, keyed by workspace/panel. Kept
+    /// PARALLEL to `index` and deliberately OUT of `RestorableAgentSessionIndex` so a bare
+    /// CLI that fires no cmux hook (and exposes no resumable session id) still surfaces its
+    /// brand icon on the sidebar row + surface tab WITHOUT creating a synthetic restorable
+    /// session that could trigger a spurious resume. Refreshed in the same off-main loader;
+    /// readers observe `.sharedLiveAgentIndexDidChange` (posted after a completed reload).
+    private(set) var detectedBuiltInAgentIconsByPanelKey: [RestorableAgentSessionIndex.PanelKey: DetectedBuiltInAgent] = [:]
+    /// Panel-id-only fallback for `builtInAgentIcon`. The scanner keys by the process's
+    /// injected `CMUX_WORKSPACE_ID`, which is not guaranteed to equal the in-app
+    /// `Workspace.id` used at the render site; surface (panel) ids are globally unique, so
+    /// a panel-id lookup recovers the match. Mirrors `RestorableAgentSessionIndex.entriesByPanelId`.
+    private(set) var detectedBuiltInAgentIconsByPanelId: [UUID: DetectedBuiltInAgent] = [:]
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
@@ -115,6 +128,15 @@ final class SharedLiveAgentIndex {
         return index
     }
 
+    /// Read the display-only process-detected built-in agent for a terminal pane, if any.
+    /// Never blocks. Parallel to `snapshot(...)`; carries no session identity.
+    func builtInAgentIcon(workspaceId: UUID, panelId: UUID) -> DetectedBuiltInAgent? {
+        scheduleRefreshIfStale()
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        return detectedBuiltInAgentIconsByPanelKey[key]
+            ?? detectedBuiltInAgentIconsByPanelId[panelId]
+    }
+
     func scheduleRefreshIfStale(validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil) {
         ensureWatchingHookStoreDirectory()
         guard refreshTask == nil, forkAvailabilityRefreshTask == nil else {
@@ -200,7 +222,8 @@ final class SharedLiveAgentIndex {
                 loadedAt: loadedAt,
                 liveAgentProcessFingerprint: result.liveAgentProcessFingerprint,
                 processScopeFingerprint: result.processScopeFingerprint,
-                forkValidatedPanels: result.forkValidatedPanels
+                forkValidatedPanels: result.forkValidatedPanels,
+                detectedBuiltInAgentIcons: result.detectedBuiltInAgentIcons
             )
         } else {
             self.loadedAt = loadedAt
@@ -219,9 +242,15 @@ final class SharedLiveAgentIndex {
         loadedAt: Date,
         liveAgentProcessFingerprint: Set<String>,
         processScopeFingerprint: Set<String>,
-        forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
+        forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>,
+        detectedBuiltInAgentIcons: [RestorableAgentSessionIndex.PanelKey: DetectedBuiltInAgent]
     ) {
         index = newIndex
+        detectedBuiltInAgentIconsByPanelKey = detectedBuiltInAgentIcons
+        detectedBuiltInAgentIconsByPanelId = Dictionary(
+            detectedBuiltInAgentIcons.map { ($0.key.panelId, $0.value) },
+            uniquingKeysWith: { first, _ in first }
+        )
         self.loadedAt = loadedAt
         validatedForkPanels = forkValidatedPanels
         validatedForkPanelProbeCompletedAt = forkPanelProbeTimestamps(

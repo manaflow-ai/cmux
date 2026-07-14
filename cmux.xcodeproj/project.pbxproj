@@ -1644,6 +1644,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F76550050000000000000001 /* VaultAgentProcessScanner+LiveProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76550050000000000000002 /* VaultAgentProcessScanner+LiveProcessIdentity.swift */; };
 		0A1107110000000000000020 /* VaultAgentProcessScanner+Ollama.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000021 /* VaultAgentProcessScanner+Ollama.swift */; };
 		B35750000000000000000006 /* VaultAgentProcessScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000005 /* VaultAgentProcessScanner.swift */; };
+		B357500000000000000000F1 /* DetectedBuiltInAgentScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B357500000000000000000F0 /* DetectedBuiltInAgentScanner.swift */; };
 		B35750000000000000000012 /* VaultAgentProcessScannerDetectRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000011 /* VaultAgentProcessScannerDetectRules.swift */; };
 		B35750000000000000000010 /* VaultAgentProcessScannerSessionDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000F /* VaultAgentProcessScannerSessionDirectories.swift */; };
 		B3575000000000000000000E /* VaultAgentRegistry+Campfire.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000D /* VaultAgentRegistry+Campfire.swift */; };
@@ -3412,6 +3413,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F76550050000000000000002 /* VaultAgentProcessScanner+LiveProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentProcessScanner+LiveProcessIdentity.swift"; sourceTree = "<group>"; };
 		0A1107110000000000000021 /* VaultAgentProcessScanner+Ollama.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentProcessScanner+Ollama.swift"; sourceTree = "<group>"; };
 		B35750000000000000000005 /* VaultAgentProcessScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentProcessScanner.swift; sourceTree = "<group>"; };
+		B357500000000000000000F0 /* DetectedBuiltInAgentScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetectedBuiltInAgentScanner.swift; sourceTree = "<group>"; };
 		B35750000000000000000011 /* VaultAgentProcessScannerDetectRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentProcessScannerDetectRules.swift; sourceTree = "<group>"; };
 		B3575000000000000000000F /* VaultAgentProcessScannerSessionDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultAgentProcessScannerSessionDirectories.swift; sourceTree = "<group>"; };
 		B3575000000000000000000D /* VaultAgentRegistry+Campfire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentRegistry+Campfire.swift"; sourceTree = "<group>"; };
@@ -4810,6 +4812,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */,
 				CAFE58130000000000000002 /* CampfireLaunchArgumentNormalizer.swift */,
 				B35750000000000000000005 /* VaultAgentProcessScanner.swift */,
+				B357500000000000000000F0 /* DetectedBuiltInAgentScanner.swift */,
 				B35750000000000000000011 /* VaultAgentProcessScannerDetectRules.swift */,
 				B3575000000000000000000F /* VaultAgentProcessScannerSessionDirectories.swift */,
 				F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */,
@@ -6876,6 +6879,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F76550050000000000000001 /* VaultAgentProcessScanner+LiveProcessIdentity.swift in Sources */,
 				0A1107110000000000000020 /* VaultAgentProcessScanner+Ollama.swift in Sources */,
 				B35750000000000000000006 /* VaultAgentProcessScanner.swift in Sources */,
+				B357500000000000000000F1 /* DetectedBuiltInAgentScanner.swift in Sources */,
 				B35750000000000000000012 /* VaultAgentProcessScannerDetectRules.swift in Sources */,
 				B35750000000000000000010 /* VaultAgentProcessScannerSessionDirectories.swift in Sources */,
 				B3575000000000000000000E /* VaultAgentRegistry+Campfire.swift in Sources */,

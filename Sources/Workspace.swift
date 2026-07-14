@@ -2015,6 +2015,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
 
+    /// Observes app effective-appearance changes so agent brand tab icons with an
+    /// appearance variant (e.g. Codex-dark) re-render for the active light/dark mode.
+    private var agentTabIconAppearanceObservation: NSKeyValueObservation?
+
     /// Backing store for `dockSplit`, created on first access. Kept optional so
     /// workspace teardown can tear down the Dock only when it was actually used
     /// (and so reading it during teardown does not lazily create one).
@@ -3140,12 +3144,112 @@ final class Workspace: Identifiable, ObservableObject {
                         self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
                     }
                 }
+                // A completed shared-index reload may have gained/lost a process-detected
+                // agent for a terminal pane; re-resolve those tabs' brand icons. The
+                // notification posts AFTER `index` / `detectedBuiltInAgentIconsByPanelKey`
+                // are stored, so the reads here see the freshly loaded state.
+                self.refreshTerminalAgentTabIcons()
                 self.objectWillChange.send()
+            }
+        }
+        // One-time sync: when the workspace finishes initialising AFTER the shared index
+        // has already loaded (and posted its change notification), the tab icons would
+        // otherwise stay blank until the NEXT reload. Pull the cached state now so
+        // restored terminal and agent-session tabs show their brand marks immediately.
+        if SharedLiveAgentIndex.shared.index != nil {
+            refreshAgentSessionTabIcons()
+            refreshTerminalAgentTabIcons()
+        }
+
+        installAgentTabIconAppearanceObservation()
+    }
+
+    private var sharedLiveAgentIndexObserver: NSObjectProtocol?
+
+    /// Panel ids whose terminal tab currently shows a process-detected agent brand PNG.
+    /// Tracked so the icon can be cleared (revealing the terminal's default glyph) when
+    /// the agent process exits, without clobbering non-agent terminals that never had one.
+    private var terminalAgentBrandIconPanelIds: Set<UUID> = []
+
+    /// Observes the app's effective appearance and re-pushes agent brand tab icons so
+    /// appearance-variant assets (e.g. Codex-dark) swap on a light/dark switch.
+    private func installAgentTabIconAppearanceObservation() {
+        guard let app = NSApp else { return }
+        agentTabIconAppearanceObservation = app.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.refreshAgentSessionTabIcons()
+                    self?.refreshTerminalAgentTabIcons()
+                }
             }
         }
     }
 
-    private var sharedLiveAgentIndexObserver: NSObjectProtocol?
+    /// Re-resolves and re-pushes the brand icon for every agent-session tab in this
+    /// workspace. Cheap no-op for tabs whose PNG is unchanged.
+    private func refreshAgentSessionTabIcons() {
+        for panelId in agentSessionPanelCallbackIds {
+            guard let agentPanel = panels[panelId] as? AgentSessionPanel,
+                  let tabId = surfaceIdFromPanelId(panelId),
+                  let existing = bonsplitController.tab(tabId) else { continue }
+            let nextIconImageData = agentPanel.restorableAgentKind.agentIconPNGData()
+            guard existing.iconImageData != nextIconImageData else { continue }
+            bonsplitController.updateTab(tabId, iconImageData: .some(nextIconImageData))
+        }
+    }
+
+    /// Re-resolves the brand icon for every terminal pane in this workspace from the
+    /// process-detected shared agent index and pushes it via the tab's PNG
+    /// `iconImageData:` channel. A terminal running a detected agent CLI (`claude`,
+    /// `codex`, …) shows that brand mark; when the agent process exits, the previously
+    /// set PNG is cleared so the terminal's default glyph returns. Terminals that never
+    /// hosted a detected agent are left untouched. Reads the non-blocking cached index.
+    private func refreshTerminalAgentTabIcons() {
+        let workspaceId = id
+        for (panelId, panel) in panels {
+            guard panel is TerminalPanel,
+                  let tabId = surfaceIdFromPanelId(panelId),
+                  let existing = bonsplitController.tab(tabId) else { continue }
+            // Prefer a LIVE hook/registry session snapshot (covers opencode + agents that
+            // fire a cmux hook). A stale hook entry whose process has already exited
+            // must NOT mask a freshly running bare CLI; treat it as "no snapshot" and
+            // fall through to the display-only process-detected built-in map (covers
+            // bare CLIs like `codex`/`cursor` that fire no hook).
+            let index = SharedLiveAgentIndex.shared
+            let detected = index.builtInAgentIcon(workspaceId: workspaceId, panelId: panelId)
+            let liveSnapshot = index
+                .snapshot(workspaceId: workspaceId, panelId: panelId)
+                .flatMap { snapshot in
+                    index.index?.hasLiveProcess(workspaceId: workspaceId, panelId: panelId) == true ? snapshot : nil
+                }
+            // A live hook snapshot normally wins (it carries session identity), but its
+            // liveness is panel-scoped, not agent-identity-scoped: a pane first launched as
+            // `claude` keeps that claude snapshot marked "live" as long as ANY cmux-scoped
+            // process runs in the pane — including a different bare CLI (e.g. `cursor-agent`)
+            // the user later started there, whose PIDs inherit the same CMUX_SURFACE_ID.
+            // When process detection identifies a DIFFERENT built-in agent actually in the
+            // foreground, that executable is the truth for the brand icon, so detection
+            // overrides the stale snapshot.
+            let snapshotReflectsForeground: Bool = {
+                guard let liveSnapshot else { return false }
+                guard let detectedKind = detected?.restorableAgentKind else { return true }
+                return detectedKind.rawValue == liveSnapshot.kind.rawValue
+            }()
+            let nextIconImageData = (snapshotReflectsForeground ? liveSnapshot?.agentIconPNGData() : nil)
+                ?? detected?.agentIconPNGData()
+            if let nextIconImageData {
+                guard existing.iconImageData != nextIconImageData else { continue }
+                bonsplitController.updateTab(tabId, iconImageData: .some(nextIconImageData))
+                terminalAgentBrandIconPanelIds.insert(panelId)
+            } else if terminalAgentBrandIconPanelIds.remove(panelId) != nil {
+                // We previously set a brand PNG here and the agent is gone: clear it so
+                // the terminal's default icon returns. Never clobber a terminal that
+                // never carried a detected-agent PNG.
+                guard existing.iconImageData != nil else { continue }
+                bonsplitController.updateTab(tabId, iconImageData: .some(nil))
+            }
+        }
+    }
 
     deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
@@ -3790,10 +3894,16 @@ final class Workspace: Identifiable, ObservableObject {
             let resolvedTitle = self.resolvedPanelTitle(panelId: agentPanel.id, fallback: newTitle)
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
             let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
-            guard titleUpdate != nil || dirtyUpdate != nil else { return }
+            // Refresh the brand icon when the hosted agent kind changes so the tab
+            // swaps between agent marks (and to the sparkles fallback for kinds
+            // without a bundled asset). Flows through the PNG `iconImageData:` channel.
+            let nextIconImageData = agentPanel.restorableAgentKind.agentIconPNGData()
+            let iconImageUpdate: Data?? = existing.iconImageData == nextIconImageData ? nil : .some(nextIconImageData)
+            guard titleUpdate != nil || dirtyUpdate != nil || iconImageUpdate != nil else { return }
             self.bonsplitController.updateTab(
                 tabId,
                 title: titleUpdate,
+                iconImageData: iconImageUpdate,
                 hasCustomTitle: self.panelCustomTitles[agentPanel.id] != nil,
                 isDirty: dirtyUpdate
             )
@@ -8616,6 +8726,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let newTabId = bonsplitController.createTab(
             title: agentPanel.displayTitle,
             icon: agentPanel.displayIcon,
+            iconImageData: agentPanel.restorableAgentKind.agentIconPNGData(),
             kind: SurfaceKind.agentSession.rawValue,
             isDirty: agentPanel.isDirty,
             isLoading: false,

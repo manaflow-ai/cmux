@@ -6,7 +6,8 @@ struct SharedLiveAgentIndexLoader {
         index: RestorableAgentSessionIndex,
         liveAgentProcessFingerprint: Set<String>,
         processScopeFingerprint: Set<String>,
-        forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
+        forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>,
+        detectedBuiltInAgentIcons: [RestorableAgentSessionIndex.PanelKey: DetectedBuiltInAgent]
     )
 
     private let homeDirectory: String
@@ -79,6 +80,13 @@ struct SharedLiveAgentIndexLoader {
                 processArgumentsProvider: processArgumentsProvider,
                 processIdentityProvider: processIdentityProvider,
                 validator: cachedAgentProcessValidator
+            ),
+            // Display-only map of terminal panes running a process-detected BUILT-IN agent
+            // CLI (codex/cursor/gemini/…) that fires no cmux hook, so it never enters the
+            // restorable index. Reuses the process snapshot already captured above.
+            detectedBuiltInAgentIcons: RestorableAgentSessionIndex.detectedBuiltInAgentIconsByPanel(
+                processSnapshot: processSnapshot,
+                processArgumentsProvider: processArgumentsProvider
             )
         )
     }
