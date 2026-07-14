@@ -19,6 +19,15 @@ mock.module("next/navigation", () => ({
 const { default: AppProWelcomePage } = await import("../app/app-pro-welcome/page");
 
 describe("app pro welcome page", () => {
+  test("keeps client navigation components importable after installing the navigation mock", async () => {
+    const navigation = await import("next/navigation");
+    const banner = await import("../app/[locale]/components/pro-welcome-banner");
+
+    expect(typeof navigation.useRouter).toBe("function");
+    expect(typeof navigation.useSearchParams).toBe("function");
+    expect(typeof banner.ProWelcomeBanner).toBe("function");
+  });
+
   test("redirects to the dashboard billing page outside the cmux app", async () => {
     await expect(
       AppProWelcomePage({ searchParams: Promise.resolve({}) }),
