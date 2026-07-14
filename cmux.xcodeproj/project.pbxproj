@@ -1321,6 +1321,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */; };
 		E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */; };
 		0A1107110000000000000022 /* SessionRestorableAgentSnapshot+Commands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000023 /* SessionRestorableAgentSnapshot+Commands.swift */; };
+		806600000000000000000002 /* SessionRestorableAgentSnapshotPermissionModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806600000000000000000001 /* SessionRestorableAgentSnapshotPermissionModeTests.swift */; };
 		A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001671 /* SessionRestoredTerminalCommandStore.swift */; };
 		C54860090000000000000001 /* SessionRestoreIdentityExclusions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860090000000000000002 /* SessionRestoreIdentityExclusions.swift */; };
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
@@ -3192,6 +3193,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
 		E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionRemoteWorkspaceSnapshot+Restore.swift"; sourceTree = "<group>"; };
 		0A1107110000000000000023 /* SessionRestorableAgentSnapshot+Commands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionRestorableAgentSnapshot+Commands.swift"; sourceTree = "<group>"; };
+		806600000000000000000001 /* SessionRestorableAgentSnapshotPermissionModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestorableAgentSnapshotPermissionModeTests.swift; sourceTree = "<group>"; };
 		A5001671 /* SessionRestoredTerminalCommandStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoredTerminalCommandStore.swift; sourceTree = "<group>"; };
 		C54860090000000000000002 /* SessionRestoreIdentityExclusions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoreIdentityExclusions.swift; sourceTree = "<group>"; };
 		A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SessionSnapshotDebugBenchmark.swift; sourceTree = "<group>"; };
@@ -5267,6 +5269,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */,
 					F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */,
 					F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
+					806600000000000000000001 /* SessionRestorableAgentSnapshotPermissionModeTests.swift */,
 					F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */,
 					FD21AD844E5D4D50A6DFC442 /* AppDelegateWindowFrameReconcileTests.swift */,
 					A1B2C3D4E5F600000000CF02 /* AppDelegateDisplayConfigRestoreTests.swift */,
@@ -7831,6 +7834,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */,
 				F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */,
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
+				806600000000000000000002 /* SessionRestorableAgentSnapshotPermissionModeTests.swift in Sources */,
 				583A675AA1224E8D82A44883 /* SetAutoTitleSocketTests.swift in Sources */,
 				A50019B2 /* SettingsSearchIndexTests.swift in Sources */,
 				D80100010000000000000001 /* SettingsWindowChromeTests.swift in Sources */,
@@ -8000,10 +8004,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 98;
+				CURRENT_PROJECT_VERSION = 99;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.18;
+				MARKETING_VERSION = 0.64.19;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -8083,7 +8087,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 98;
+				CURRENT_PROJECT_VERSION = 99;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -8092,7 +8096,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.64.18;
+				MARKETING_VERSION = 0.64.19;
 				OTHER_LDFLAGS = (
 					"-lc++",
 					"-framework",
@@ -8129,7 +8133,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CODE_SIGN_ENTITLEMENTS = Resources/cmux.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 98;
+				CURRENT_PROJECT_VERSION = 99;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -8138,7 +8142,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.64.18;
+				MARKETING_VERSION = 0.64.19;
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_LDFLAGS = (
 					"-lc++",
@@ -8205,10 +8209,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 98;
+				CURRENT_PROJECT_VERSION = 99;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.18;
+				MARKETING_VERSION = 0.64.19;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -8223,7 +8227,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildSettings = {
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 98;
+				CURRENT_PROJECT_VERSION = 99;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -8232,7 +8236,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.18;
+				MARKETING_VERSION = 0.64.19;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.docktileplugin.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -8248,7 +8252,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildSettings = {
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 98;
+				CURRENT_PROJECT_VERSION = 99;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -8257,7 +8261,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				INFOPLIST_KEY_NSPrincipalClass = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.18;
+				MARKETING_VERSION = 0.64.19;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.docktileplugin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -8272,10 +8276,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 98;
+				CURRENT_PROJECT_VERSION = 99;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.18;
+				MARKETING_VERSION = 0.64.19;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -8291,10 +8295,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 98;
+				CURRENT_PROJECT_VERSION = 99;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.64.18;
+				MARKETING_VERSION = 0.64.19;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
