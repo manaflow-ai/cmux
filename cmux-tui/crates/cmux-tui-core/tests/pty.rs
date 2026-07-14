@@ -563,6 +563,7 @@ fn control_socket_attach_vt_state_includes_effective_colors() {
         bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
         cursor_style: Some(CursorShape::Bar),
         cursor_blink: Some(false),
+        ..Default::default()
     });
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     surface.try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07")).unwrap();
@@ -655,6 +656,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
         bg: None,
         cursor_style: Some(CursorShape::Bar),
         cursor_blink: Some(false),
+        ..Default::default()
     });
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
@@ -798,6 +800,7 @@ fn default_colors_apply_to_existing_and_future_surfaces() {
         bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
         cursor_style: Some(CursorShape::Underline),
         cursor_blink: Some(true),
+        ..Default::default()
     };
     mux.set_default_colors(colors);
 

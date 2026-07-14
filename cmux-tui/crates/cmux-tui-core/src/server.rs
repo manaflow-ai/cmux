@@ -1137,7 +1137,9 @@ impl Drop for WebSocketServer {
         for stream in self.connections.lock().unwrap().values() {
             let _ = stream.shutdown(Shutdown::Both);
         }
-        let _ = TcpStream::connect(self.local_addr);
+        if let Ok(stream) = TcpStream::connect(self.local_addr) {
+            let _ = stream.set_nodelay(true);
+        }
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -1178,6 +1180,9 @@ pub fn serve_websocket(
                     continue;
                 }
             };
+            if stream.set_nodelay(true).is_err() {
+                continue;
+            }
             if thread_shutdown.load(Ordering::Acquire) {
                 break;
             }
@@ -2541,8 +2546,7 @@ fn handle_command(
                     Some(value) => Some(parse_hex_color(&value)?),
                     None => current.bg,
                 },
-                cursor_style: current.cursor_style,
-                cursor_blink: current.cursor_blink,
+                ..current
             };
             mux.set_default_colors(colors);
             Ok(json!({}))

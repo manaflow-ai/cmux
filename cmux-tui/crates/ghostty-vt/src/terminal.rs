@@ -24,6 +24,32 @@ impl From<sys::GhosttyColorRgb> for Rgb {
     }
 }
 
+/// Parse a color with Ghostty's config semantics.
+///
+/// This accepts Ghostty's hex, X11 name, `rgb:`, and `rgbi:` forms.
+pub fn parse_color(value: &str) -> Option<Rgb> {
+    let mut color = sys::GhosttyColorRgb::default();
+    check(unsafe { sys::ghostty_color_parse(value.as_ptr().cast(), value.len(), &mut color) })
+        .ok()?;
+    Some(color.into())
+}
+
+/// Parse one Ghostty `palette = N=COLOR` value.
+pub fn parse_palette_entry(value: &str) -> Option<(u8, Rgb)> {
+    let mut index = 0;
+    let mut color = sys::GhosttyColorRgb::default();
+    check(unsafe {
+        sys::ghostty_color_parse_palette_entry(
+            value.as_ptr().cast(),
+            value.len(),
+            &mut index,
+            &mut color,
+        )
+    })
+    .ok()?;
+    Some((index, color.into()))
+}
+
 /// Which screen buffer is active.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -455,6 +481,27 @@ impl Terminal {
                     &color as *const sys::GhosttyColorRgb as *const c_void,
                 );
             }
+        }
+    }
+
+    /// Set selected entries in the host-provided default palette.
+    ///
+    /// Unspecified entries use Ghostty's built-in palette. Active OSC 4
+    /// overrides remain effective; this only replaces their defaults.
+    pub fn set_default_palette(&mut self, overrides: &[Option<Rgb>; 256]) {
+        let mut palette = [sys::GhosttyColorRgb::default(); 256];
+        unsafe { sys::ghostty_color_palette_default(palette.as_mut_ptr()) };
+        for (slot, color) in palette.iter_mut().zip(overrides) {
+            if let Some(color) = color {
+                *slot = sys::GhosttyColorRgb { r: color.r, g: color.g, b: color.b };
+            }
+        }
+        unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_COLOR_PALETTE,
+                palette.as_ptr().cast(),
+            );
         }
     }
 

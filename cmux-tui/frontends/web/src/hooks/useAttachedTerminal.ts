@@ -17,6 +17,7 @@ import { t } from "../i18n";
 import { isForeignSmaller, nextFitSize, type TerminalSize } from "../lib/fit";
 import { colorsToCursorOptionsPatch, colorsToThemePatch } from "../lib/terminalColors";
 import { terminalTheme } from "../lib/terminalTheme";
+import { tryLoadWebglRenderer } from "../lib/webglRenderer";
 
 interface AttachedTerminalOptions {
   client: CmuxClient | null;
@@ -51,6 +52,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(host);
+    const webgl = tryLoadWebglRenderer(terminal);
 
     const handleFocusIn = () => setFocused(true);
     const handleFocusOut = () => {
@@ -227,6 +229,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       if (stableTimer !== undefined) clearTimeout(stableTimer);
       wakeRetry?.();
       stream?.close();
+      webgl?.dispose();
       terminal.dispose();
       stage?.style.removeProperty("--surface-background");
       setFocused(false);

@@ -227,11 +227,9 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
     let mux = Mux::new(args.session.clone(), surface_options);
-    mux.set_default_colors(cmux_tui_core::DefaultColors {
-        cursor_style: config.cursor_style,
-        cursor_blink: config.cursor_blink,
-        ..Default::default()
-    });
+    // Headless sessions have no host terminal to query, so seed the mux from
+    // Ghostty's config before any protocol client can create a surface.
+    mux.set_default_colors(config.terminal_defaults);
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     let websocket_server = match ws_addr {
         Some(addr) => {
@@ -266,9 +264,14 @@ fn run_server(args: Args) -> anyhow::Result<()> {
 fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
     crossterm::terminal::enable_raw_mode()?;
     let config = config::load();
-    let mut colors = host_colors::probe_default_colors();
-    colors.cursor_style = config.cursor_style;
-    colors.cursor_blink = config.cursor_blink;
+    let mut colors = config.terminal_defaults;
+    let host_colors = host_colors::probe_default_colors();
+    if host_colors.fg.is_some() {
+        colors.fg = host_colors.fg;
+    }
+    if host_colors.bg.is_some() {
+        colors.bg = host_colors.bg;
+    }
     let color_result = session.set_default_colors(colors);
     let raw_result = crossterm::terminal::disable_raw_mode();
     if let Err(err) = color_result {

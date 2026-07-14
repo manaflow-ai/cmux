@@ -91,12 +91,29 @@ impl Default for SurfaceOptions {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DefaultColors {
     pub fg: Option<Rgb>,
     pub bg: Option<Rgb>,
+    pub selection_bg: Option<Rgb>,
+    pub selection_fg: Option<Rgb>,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
+    pub palette: [Option<Rgb>; 256],
+}
+
+impl Default for DefaultColors {
+    fn default() -> Self {
+        Self {
+            fg: None,
+            bg: None,
+            selection_bg: None,
+            selection_fg: None,
+            cursor_style: None,
+            cursor_blink: None,
+            palette: [None; 256],
+        }
+    }
 }
 
 /// Effective colors exposed to attached terminal clients.
@@ -127,8 +144,8 @@ impl TerminalColors {
             fg,
             bg,
             cursor,
-            selection_bg: None,
-            selection_fg: None,
+            selection_bg: defaults.selection_bg,
+            selection_fg: defaults.selection_fg,
             cursor_style: cursor_visual.map(|(style, _)| style).or(defaults.cursor_style),
             cursor_blink: cursor_visual.map(|(_, blink)| blink).or(defaults.cursor_blink),
         }
@@ -456,6 +473,7 @@ impl Surface {
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
             term.set_default_colors(colors.fg, colors.bg);
+            term.set_default_palette(&colors.palette);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
         let mut mouse_encoders = MouseEncoders::new()?;
@@ -583,6 +601,7 @@ impl Surface {
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
             term.set_default_colors(colors.fg, colors.bg);
+            term.set_default_palette(&colors.palette);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
         let mut mouse_encoders = MouseEncoders::new()?;
@@ -817,6 +836,7 @@ impl Surface {
         if let Some(pty) = self.as_pty() {
             let mut term = pty.term.lock().unwrap();
             term.set_default_colors(colors.fg, colors.bg);
+            term.set_default_palette(&colors.palette);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
             let colors = TerminalColors::from_terminal(&mut term, colors);
             let mut taps = pty.taps.lock().unwrap();
