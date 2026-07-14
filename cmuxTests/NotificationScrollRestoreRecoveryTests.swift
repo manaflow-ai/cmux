@@ -242,7 +242,7 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func retainedNotificationRebasesAcrossRespawnRowSpace() {
+    @Test func persistedNotificationRebasesAcrossRespawnRowSpace() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
         surfaceView.setAuthoritativeScrollbar(
@@ -259,8 +259,7 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(
                 row: 100,
-                totalRows: 400,
-                rowSpaceRevision: 1
+                totalRows: 400
             )
         ))
 
