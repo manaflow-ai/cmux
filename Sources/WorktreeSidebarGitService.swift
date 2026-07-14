@@ -88,6 +88,8 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             )
         return WorktreeSidebarDeletionInspection(
             worktree: worktree,
+            statusFingerprint: status.statusFingerprint,
+            ignoredFingerprint: status.ignoredFingerprint,
             hasUncommittedChanges: status.hasUncommittedChanges,
             hasIgnoredFiles: status.hasIgnoredFiles,
             unpushedCommitCount: unpushedCommitCount,
@@ -188,7 +190,7 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             optionalLocks: false
         )
 
-        let gitmodules = URL(fileURLWithPath: projectRootPath, isDirectory: true)
+        let gitmodules = URL(fileURLWithPath: worktree.path, isDirectory: true)
             .appendingPathComponent(".gitmodules", isDirectory: false)
         if FileManager.default.fileExists(atPath: gitmodules.path) {
             let submodules = await git(
@@ -249,17 +251,19 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             commands: commands,
             timeout: commandTimeout
         )
-        let hasUncommittedChanges = try await probe.hasDeletionChanges(
+        let statusFingerprint = try await probe.deletionChangesFingerprint(
             commandDirectory: projectRootPath,
             worktreePath: worktree.path
         )
-        let hasIgnoredFiles = try await probe.hasIgnoredFiles(
+        let ignoredFingerprint = try await probe.ignoredFilesFingerprint(
             commandDirectory: projectRootPath,
             worktreePath: worktree.path
         )
         return StatusSnapshot(
-            hasUncommittedChanges: hasUncommittedChanges,
-            hasIgnoredFiles: hasIgnoredFiles
+            statusFingerprint: statusFingerprint,
+            ignoredFingerprint: ignoredFingerprint,
+            hasUncommittedChanges: statusFingerprint.hasContent,
+            hasIgnoredFiles: ignoredFingerprint.hasContent
         )
     }
 
@@ -477,6 +481,8 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
     }
 
     private struct StatusSnapshot {
+        var statusFingerprint = WorktreeSidebarBoundedGitProbe.Fingerprint.empty
+        var ignoredFingerprint = WorktreeSidebarBoundedGitProbe.Fingerprint.empty
         var hasUncommittedChanges = false
         var hasIgnoredFiles = false
     }

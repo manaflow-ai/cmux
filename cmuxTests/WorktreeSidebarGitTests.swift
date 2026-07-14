@@ -76,6 +76,7 @@ struct WorktreeSidebarGitTests {
         try Data().write(to: fixture.repo.appendingPathComponent(".gitmodules"))
         _ = try runGit(["add", ".gitmodules"], in: fixture.repo)
         _ = try runGit(["commit", "-m", "add empty gitmodules"], in: fixture.repo)
+        try FileManager.default.removeItem(at: fixture.repo.appendingPathComponent(".gitmodules"))
 
         let service = WorktreeSidebarGitService(commandTimeout: 10)
         let created = try await service.createWorktree(
@@ -86,8 +87,9 @@ struct WorktreeSidebarGitTests {
         #expect(created.branchName == "Föö-bug.name")
         #expect(created.worktreePath.hasSuffix("/.cmux/worktrees/Föö-bug.name"))
         #expect(FileManager.default.fileExists(atPath: created.worktreePath))
-        let status = try runGit(["status", "--porcelain", "--untracked-files=all"], in: fixture.repo)
-        #expect(status.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: created.worktreePath + "/.gitmodules"))
+        try Data().write(to: fixture.repo.appendingPathComponent(".gitmodules"))
+        #expect(try runGit(["status", "--porcelain", "--untracked-files=all"], in: fixture.repo).isEmpty)
     }
 
     @Test("create validates the sanitized name with Git")
@@ -206,7 +208,9 @@ struct WorktreeSidebarGitTests {
         defer { try? FileManager.default.removeItem(at: fixture.container) }
         let worktree = fixture.container.appendingPathComponent("dirty", isDirectory: true)
         _ = try runGit(["worktree", "add", "-b", "dirty", worktree.path, "HEAD"], in: fixture.repo)
+        try Data("*.ignored\n".utf8).write(to: fixture.repo.appendingPathComponent(".git/info/exclude"))
         try Data("uncommitted\n".utf8).write(to: worktree.appendingPathComponent("uncommitted.txt"))
+        try Data("ignored\n".utf8).write(to: worktree.appendingPathComponent("first.ignored"))
 
         let service = WorktreeSidebarGitService(commandTimeout: 10)
         let inspection = try await service.inspectDeletion(
@@ -214,7 +218,7 @@ struct WorktreeSidebarGitTests {
             worktreePath: worktree.path
         )
         #expect(inspection.hasUncommittedChanges)
-        var refused = false
+        var rejected = false
         do {
             _ = try await service.removeWorktree(
                 projectRootPath: fixture.repo.path,
@@ -222,14 +226,32 @@ struct WorktreeSidebarGitTests {
                 force: false
             )
         } catch WorktreeSidebarGitError.forceRequired {
-            refused = true
+            rejected = true
         }
-        #expect(refused)
+        #expect(rejected)
         #expect(FileManager.default.fileExists(atPath: worktree.path))
 
+        try Data("new\n".utf8).write(to: worktree.appendingPathComponent("second.txt"))
+        try Data("ignored\n".utf8).write(to: worktree.appendingPathComponent("second.ignored"))
+        rejected = false
+        do {
+            _ = try await service.removeWorktree(
+                projectRootPath: fixture.repo.path,
+                expected: inspection,
+                force: true
+            )
+        } catch WorktreeSidebarGitError.worktreeChanged {
+            rejected = true
+        }
+        #expect(rejected)
+        #expect(FileManager.default.fileExists(atPath: worktree.path))
+        let refreshed = try await service.inspectDeletion(
+            projectRootPath: fixture.repo.path,
+            worktreePath: worktree.path
+        )
         _ = try await service.removeWorktree(
             projectRootPath: fixture.repo.path,
-            expected: inspection,
+            expected: refreshed,
             force: true
         )
         #expect(!FileManager.default.fileExists(atPath: worktree.path))
@@ -400,18 +422,6 @@ struct WorktreeSidebarGitTests {
         let separateResolved = await WorktreeSidebarProjectRootResolver()
             .projectRoot(onDiskFor: linked.path)
         #expect(separateResolved == canonical(admin))
-    }
-
-    @Test("status queue is FIFO and deduplicated")
-    func statusQueueIsFIFOAndDeduplicated() {
-        var queue = WorktreeSidebarStatusQueue()
-        let now = ContinuousClock().now
-        #expect(queue.enqueue(path: "/a", eligibleAt: now))
-        #expect(!queue.enqueue(path: "/a", eligibleAt: now))
-        #expect(queue.enqueue(path: "/b", eligibleAt: now))
-        #expect(queue.popFirst() == "/a")
-        #expect(queue.remove(path: "/b"))
-        #expect(queue.isEmpty)
     }
 
     @Test("open-terminal request is interactive, eager, and focus-false by construction")

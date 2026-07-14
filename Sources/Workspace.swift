@@ -2005,6 +2005,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     @Published private(set) var extensionSidebarProjectRootPath: String?
     private var extensionSidebarProjectRootRefreshID: UInt64 = 0
+    private let extensionSidebarProjectRootResolver = WorktreeSidebarProjectRootResolver()
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
@@ -2420,9 +2421,9 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
 
-        Task { @MainActor [weak self, trimmedDirectory, refreshID] in
-            let projectRootPath = await WorktreeSidebarProjectRootResolver()
-                .projectRoot(onDiskFor: trimmedDirectory)
+        let resolver = extensionSidebarProjectRootResolver
+        Task { @MainActor [weak self, trimmedDirectory, refreshID, resolver] in
+            let projectRootPath = await resolver.projectRoot(onDiskFor: trimmedDirectory)
             guard let self,
                   self.extensionSidebarProjectRootRefreshID == refreshID else {
                 return
