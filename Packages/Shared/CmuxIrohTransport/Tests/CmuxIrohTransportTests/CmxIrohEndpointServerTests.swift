@@ -275,6 +275,75 @@ struct CmxIrohEndpointServerTests {
         await server.stop()
         await supervisor.deactivate()
     }
+
+    @Test
+    func oneEndpointIdentityCannotConsumeEveryLiveConnectionSlot() async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "1", count: 64)
+        )
+        let firstRemoteIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "2", count: 64)
+        )
+        let secondRemoteIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "3", count: 64)
+        )
+        let endpoint = TestAcceptingIrohEndpoint(identity: localIdentity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try CmxIrohEndpointConfiguration(
+                secretKey: CmxIrohSecretKey(bytes: Data(repeating: 5, count: 32)),
+                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                managedRelayURLs: [],
+                relays: []
+            )
+        )
+        _ = try await supervisor.activate()
+        let blocker = EndpointServerHandlerBlocker()
+        let recorder = EndpointServerRecorder()
+        let server = CmxIrohEndpointServer(supervisor: supervisor) {
+            connection,
+            generation,
+            markAdmitted in
+            await recorder.record(
+                identity: await connection.remoteIdentity(),
+                generation: generation
+            )
+            #expect(await markAdmitted())
+            await blocker.wait()
+        }
+
+        await server.start()
+        for _ in 0 ..< 2 {
+            await endpoint.enqueue(
+                TestIrohConnection(
+                    remoteIdentity: firstRemoteIdentity,
+                    bidirectionalStreams: []
+                )
+            )
+            #expect(await recorder.next().identity == firstRemoteIdentity)
+        }
+
+        let excessive = TestIrohConnection(
+            remoteIdentity: firstRemoteIdentity,
+            bidirectionalStreams: []
+        )
+        await endpoint.enqueue(excessive)
+        for _ in 0 ..< 20 { await Task.yield() }
+        #expect(await excessive.observedCloseCallCount() == 1)
+        #expect(await recorder.recordedCount() == 2)
+
+        await endpoint.enqueue(
+            TestIrohConnection(
+                remoteIdentity: secondRemoteIdentity,
+                bidirectionalStreams: []
+            )
+        )
+        #expect(await recorder.next().identity == secondRemoteIdentity)
+
+        await blocker.releaseAll()
+        await server.stop()
+        await supervisor.deactivate()
+    }
 }
 
 private actor EndpointServerHandlerBlocker {
