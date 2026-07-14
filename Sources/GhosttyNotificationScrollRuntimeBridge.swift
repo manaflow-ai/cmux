@@ -15,7 +15,11 @@ extension GhosttyApp {
         surfaceView: GhosttyNSView
     ) {
         let terminalSurface = surfaceView.terminalSurface
-        Task { @MainActor [weak surfaceView, weak terminalSurface] in
+        // Ghostty delivers actions for a surface in PTY order. Enqueuing each
+        // callback directly on the serial main queue preserves that order while
+        // keeping the Ghostty callback nonblocking. Independent MainActor tasks
+        // are not guaranteed to begin in submission order.
+        DispatchQueue.main.async { [weak surfaceView, weak terminalSurface] in
             guard let surfaceView else { return }
             if terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(
                 directory,
