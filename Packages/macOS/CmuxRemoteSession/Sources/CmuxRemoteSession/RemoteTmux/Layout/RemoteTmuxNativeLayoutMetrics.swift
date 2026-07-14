@@ -13,7 +13,23 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     /// the claim must reserve it and the ideals must grant it, or every pane
     /// renders one row over and the accounting drifts.
     public var paneTitleRowHeight: CGFloat
+    /// Feasibility floor for planned pane extents, per axis. Zero disables
+    /// it (the pure-math and fuzz suites drive the walk with synthetic
+    /// metrics and no renderer behind them); production metrics carry
+    /// ``bonsplitMinimumPaneExtent``.
+    public var minimumPaneExtent: CGFloat
     private let paneTitleRowPaneIDs: Set<Int>?
+
+    /// The smallest outer extent bonsplit actually renders a pane at. The
+    /// embedded configuration asks for a 1pt minimum, but the pane chrome's
+    /// required AppKit constraints (the tab-bar controls) hold a ~32pt
+    /// floor: imposing less parks the divider at the floor and the outcome
+    /// never matches the target, so a smaller planned extent is permanently
+    /// unappliable (observed live: plan=21x192 rendered at 32x192, and
+    /// plan=13x381 at 32x380). bonsplit exposes no constant for this floor
+    /// — it is emergent layout behavior, measured — so this is the one
+    /// shared definition.
+    public static let bonsplitMinimumPaneExtent: CGFloat = 32
     /// One point of slack per pane per axis: extents are quantized to whole
     /// points on cumulative rails rounded to NEAREST, so a pane sits within
     /// half a point of its exact span — and half a point below an exact
@@ -58,6 +74,9 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     ///   - tabBarHeight: Native tab-strip height carried by every pane.
     ///   - dividerThickness: Native split divider thickness.
     ///   - paneTitleRowHeight: Height of tmux's configured pane status row.
+    ///   - minimumPaneExtent: Smallest pane extent the renderer will apply,
+    ///     per axis. Zero (the default) disables the floor for synthetic
+    ///     metrics; production metrics pass ``bonsplitMinimumPaneExtent``.
     ///   - paneTitleRowPaneIDs: Panes touching the configured status-row edge.
     ///     Pass `nil` only when the full patched layout will be supplied to each operation.
     public init(
@@ -66,6 +85,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         tabBarHeight: CGFloat,
         dividerThickness: CGFloat,
         paneTitleRowHeight: CGFloat = 0,
+        minimumPaneExtent: CGFloat = 0,
         paneTitleRowPaneIDs: Set<Int>? = nil
     ) {
         self.cellSize = cellSize
@@ -73,6 +93,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         self.tabBarHeight = tabBarHeight
         self.dividerThickness = dividerThickness
         self.paneTitleRowHeight = paneTitleRowHeight
+        self.minimumPaneExtent = minimumPaneExtent
         self.paneTitleRowPaneIDs = paneTitleRowPaneIDs
     }
 
@@ -193,6 +214,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
             tabBarHeight: tabBarHeight,
             dividerThickness: dividerThickness,
             paneTitleRowHeight: paneTitleRowHeight,
+            minimumPaneExtent: minimumPaneExtent,
             paneTitleRowPaneIDs: resolvedPaneTitleRowPaneIDs(for: layout)
         )
     }
@@ -252,6 +274,32 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
             residual: tree.minimumResidual,
             along: orientation
         )
+    }
+
+    /// The narrowest extent the plan may grant `tree` along `orientation`
+    /// and still be appliable: ``minimumPaneExtent`` per pane stacked on the
+    /// axis, plus the native divider between same-axis siblings; a
+    /// cross-axis split needs only its widest child. The divider charge is
+    /// native — unlike the cell-domain gap fold, the renderer spends exactly
+    /// one ``dividerThickness`` per same-axis boundary regardless of what
+    /// tmux's assignment holds between the spans. Zero when the metrics
+    /// carry no floor.
+    func minimumImposableExtent(
+        of tree: RemoteTmuxNativeMeasuredSplitTree,
+        along orientation: RemoteTmuxSplitOrientation
+    ) -> CGFloat {
+        guard minimumPaneExtent > 0 else { return 0 }
+        switch tree {
+        case .atomic:
+            return minimumPaneExtent
+        case .split(_, _, _, let splitOrientation, let first, let second):
+            let firstMinimum = minimumImposableExtent(of: first, along: orientation)
+            let secondMinimum = minimumImposableExtent(of: second, along: orientation)
+            guard splitOrientation == orientation else {
+                return max(firstMinimum, secondMinimum)
+            }
+            return firstMinimum + secondMinimum + dividerThickness
+        }
     }
 
     /// The whole-point extent the FIRST subtree of a split should receive:
