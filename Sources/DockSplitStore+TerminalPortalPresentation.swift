@@ -18,7 +18,7 @@ extension DockSplitStore {
         }
         let rightSidebarOwnsInputFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
         return .visible(
-            isActive: bonsplitController.focusedPaneId == paneId && !rightSidebarOwnsInputFocus,
+            isActive: bonsplitController.focusedPaneId == paneId && rightSidebarOwnsInputFocus,
             zPriority: 1
         )
     }
