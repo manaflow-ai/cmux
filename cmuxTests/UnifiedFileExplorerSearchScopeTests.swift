@@ -304,6 +304,67 @@ struct UnifiedFileExplorerSearchScopeTests {
         #expect(store.selectedPath == match.path)
     }
 
+    @Test("Hidden name filtering defers store refreshes until Files returns")
+    func hiddenNameFilterDefersStoreRefresh() throws {
+        let state = FileExplorerState()
+        state.mode = .files
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        let root = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
+        let firstMatch = FileExplorerNode(
+            name: "FirstNeedle.swift",
+            path: "/repo/Sources/FirstNeedle.swift",
+            isDirectory: false
+        )
+        root.children = [firstMatch]
+        store.rootNodes = [root]
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: UnifiedSearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+
+        let window = NSWindow(
+            contentRect: container.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        window.contentView?.layoutSubtreeIfNeeded()
+        defer {
+            _ = window.makeFirstResponder(nil)
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        let outline = try #require(Self.outlineView(in: container))
+        coordinator.setFileFilterQuery("needle", in: outline)
+        #expect(outline.numberOfRows == 2)
+        #expect(container.focusSearchField())
+
+        let secondMatch = FileExplorerNode(
+            name: "SecondNeedle.swift",
+            path: "/repo/Sources/SecondNeedle.swift",
+            isDirectory: false
+        )
+        root.children = [firstMatch, secondMatch]
+        coordinator.reloadIfNeeded()
+
+        #expect(outline.numberOfRows == 2)
+        #expect(container.focusOutline())
+        #expect(outline.numberOfRows == 3)
+    }
+
     private static func globValues(in arguments: [String]) -> [String] {
         arguments.indices.compactMap { index in
             guard arguments[index] == "--glob", arguments.indices.contains(index + 1) else { return nil }
