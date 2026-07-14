@@ -4,4 +4,10 @@ public struct PreviewGridLine: Equatable, Sendable {
     public let row: Int
     /// Explicitly positioned text runs ordered by terminal column.
     public let spans: [PreviewGridSpan]
+
+    /// Creates one immutable preview row.
+    public init(row: Int, spans: [PreviewGridSpan]) {
+        self.row = row
+        self.spans = spans
+    }
 }

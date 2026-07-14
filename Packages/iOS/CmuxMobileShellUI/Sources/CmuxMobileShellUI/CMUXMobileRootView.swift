@@ -70,6 +70,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowPaneTabRedesignPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.paneTabRedesignPreviewMode != nil
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowStreamingChatPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.streamingChatPreviewEnabled
@@ -97,6 +105,14 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var paneTabRedesignPreview: some View {
+        #if os(iOS) && DEBUG
+        PaneTabRedesignPreviewView(mode: UITestConfig.paneTabRedesignPreviewMode ?? "hub")
         #else
         EmptyView()
         #endif
@@ -202,6 +218,8 @@ struct CMUXMobileRootView: View {
             agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
+        } else if shouldShowPaneTabRedesignPreview {
+            paneTabRedesignPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
         } else if shouldShowStreamingChatPreview {

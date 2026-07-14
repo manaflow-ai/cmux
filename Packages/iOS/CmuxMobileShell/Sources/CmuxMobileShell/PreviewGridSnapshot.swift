@@ -17,6 +17,25 @@ public struct PreviewGridSnapshot: Equatable, Sendable {
     /// Whether an authoritative full frame has established this snapshot.
     public let hasBaseline: Bool
 
+    /// Creates a renderer-ready immutable preview snapshot.
+    public init(
+        surfaceID: String,
+        stateSeq: UInt64,
+        columns: Int,
+        rows: Int,
+        activeScreen: MobileTerminalRenderGridFrame.Screen,
+        lines: [PreviewGridLine],
+        hasBaseline: Bool
+    ) {
+        self.surfaceID = surfaceID
+        self.stateSeq = stateSeq
+        self.columns = columns
+        self.rows = rows
+        self.activeScreen = activeScreen
+        self.lines = lines
+        self.hasBaseline = hasBaseline
+    }
+
     /// Creates the skeleton state used before an authoritative full frame arrives.
     /// - Parameter surfaceID: The terminal surface awaiting a baseline.
     /// - Returns: An empty snapshot suitable for a placeholder renderer.

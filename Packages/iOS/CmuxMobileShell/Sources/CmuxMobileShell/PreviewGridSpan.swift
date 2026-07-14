@@ -8,4 +8,12 @@ public struct PreviewGridSpan: Equatable, Sendable {
     public let text: String
     /// Lightweight style applied to the run.
     public let style: PreviewGridStyle
+
+    /// Creates one explicitly positioned preview text run.
+    public init(column: Int, cellWidth: Int, text: String, style: PreviewGridStyle) {
+        self.column = column
+        self.cellWidth = cellWidth
+        self.text = text
+        self.style = style
+    }
 }
