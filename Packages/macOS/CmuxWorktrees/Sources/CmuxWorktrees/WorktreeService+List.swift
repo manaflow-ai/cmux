@@ -81,7 +81,9 @@ extension WorktreeService {
         let result: CommandResult
         if nulResult.executionError == nil, !nulResult.timedOut, nulResult.exitStatus == 0 {
             result = nulResult
-        } else if nulResult.executionError == nil, !nulResult.timedOut {
+        } else if nulResult.executionError == nil,
+                  !nulResult.timedOut,
+                  isUnsupportedNULTerminatedList(nulResult) {
             // Git added `worktree list -z` after porcelain mode; retain compatibility
             // with the older system Git shipped on supported macOS versions.
             result = try await runGit(
@@ -115,5 +117,22 @@ extension WorktreeService {
             throw WorktreeServiceError.worktreeNotFound(identity.worktreePath)
         }
         return match
+    }
+
+    func isUnsupportedNULTerminatedList(_ result: CommandResult) -> Bool {
+        guard result.exitStatus == 129 else { return false }
+        let message = commandMessage(result).lowercased()
+        let diagnostics = [
+            "unknown switch `z'",
+            "unknown switch 'z'",
+            "unknown option `z'",
+            "unknown option 'z'",
+            "unknown option '-z'",
+            "unknown option: -z",
+            "unrecognized option `z'",
+            "unrecognized option 'z'",
+            "unrecognized option '-z'",
+        ]
+        return diagnostics.contains(where: message.contains)
     }
 }

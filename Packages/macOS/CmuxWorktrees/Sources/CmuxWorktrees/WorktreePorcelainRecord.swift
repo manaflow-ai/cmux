@@ -10,10 +10,20 @@ struct WorktreePorcelainRecord {
     var prunableReason: String?
     var hasUnknownFields = false
 
-    init(lines: [String]) {
+    init(lines: [String], decodeQuotedPaths: Bool = false) {
+        let pathDecoder = GitCStylePathDecoder()
         for line in lines {
             if line.hasPrefix("worktree ") {
-                path = String(line.dropFirst("worktree ".count))
+                let rawPath = String(line.dropFirst("worktree ".count))
+                if decodeQuotedPaths {
+                    guard let decodedPath = pathDecoder.decodeIfQuoted(rawPath) else {
+                        hasUnknownFields = true
+                        continue
+                    }
+                    path = decodedPath
+                } else {
+                    path = rawPath
+                }
             } else if line.hasPrefix("HEAD ") {
                 headOID = String(line.dropFirst("HEAD ".count))
             } else if line.hasPrefix("branch ") {

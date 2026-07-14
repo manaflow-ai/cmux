@@ -75,7 +75,7 @@ public struct WorktreePorcelainParser: Sendable {
             .components(separatedBy: "\n\n")
             .flatMap { block -> [WorktreePorcelainRecord] in
                 let lines = block.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-                return lines.isEmpty ? [] : [WorktreePorcelainRecord(lines: lines)]
+                return lines.isEmpty ? [] : [WorktreePorcelainRecord(lines: lines, decodeQuotedPaths: true)]
             }
     }
 }
