@@ -81,6 +81,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // "View as Text" capture) resolve this exact terminal.
         view.hostSurfaceID = surfaceID
         context.coordinator.attach(surfaceView: view)
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_THEME_PARITY_PREVIEW"] == "1" {
+            view.processOutput(
+                Data("cmux theme parity renderer\r\nvisible terminal content\r\n".utf8)
+            )
+        }
+        #endif
         // Mount the composer band immediately if the composer was already open when
         // this surface was (re)built (e.g. a terminal switch while composing), and
         // seed the surface's composerActive flag to match. SwiftUI does call
