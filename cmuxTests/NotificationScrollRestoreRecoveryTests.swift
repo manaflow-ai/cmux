@@ -31,6 +31,10 @@ struct NotificationScrollRestoreRecoveryTests {
         hostedView.terminalSurfaceDidReceiveExplicitInput()
 
         #expect(!hostedView.hasPendingNotificationScrollRestore)
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+        #expect(surfaceView.performedRows == [256])
     }
 
     @Test func activationAfterEndBoundaryUsesAuthoritativeTerminalGeometry() {

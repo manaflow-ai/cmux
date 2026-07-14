@@ -15,7 +15,8 @@ extension GhosttyApp {
         surfaceView: GhosttyNSView
     ) {
         let terminalSurface = surfaceView.terminalSurface
-        performNotificationScrollOnMain {
+        Task { @MainActor [weak surfaceView, weak terminalSurface] in
+            guard let surfaceView else { return }
             if terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(
                 directory,
                 authoritativeGeometry: authoritativeGeometry
