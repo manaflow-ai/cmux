@@ -133,6 +133,16 @@ extension Workspace {
                 url: browserPanel(for: panelId)?.currentURL?.absoluteString,
                 focus: nil
             )
+        case .cefBrowser:
+            definition = CmuxSurfaceDefinition(
+                type: .cefBrowser,
+                name: savedLayoutPanelName(panelId),
+                command: nil,
+                cwd: nil,
+                env: nil,
+                url: (panel as? CEFBrowserPanel)?.currentURL,
+                focus: nil
+            )
         case .project:
             // Apply-side rebuilds project panes from `url ?? cwd`; a project
             // surface without a path cannot be restored, so emit a counted
@@ -152,7 +162,7 @@ extension Workspace {
                     focus: nil
                 )
             }
-        case .cefBrowser, .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .extensionBrowser, .cloudVMLoading:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .extensionBrowser, .cloudVMLoading:
             unsupportedSurfaceCount += 1
             definition = CmuxSurfaceDefinition(type: .terminal)
         }

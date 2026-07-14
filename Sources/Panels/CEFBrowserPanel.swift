@@ -2,6 +2,12 @@ import AppKit
 import CEFKit
 import Combine
 import Foundation
+import OSLog
+
+nonisolated let cefBrowserLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "CEFBrowser"
+)
 
 /// A first-pass Chromium Embedded Framework browser hosted as a cmux panel.
 /// CEFKit guarantees that delegate callbacks arrive on the main thread; its
@@ -75,14 +81,14 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
     func start(url rawURL: String) {
         guard !hasStarted, !isClosing else { return }
         guard CEFRuntimeSupport.isRuntimeBundled else {
-            NSLog("CEFBrowserPanel: CEF runtime is not bundled")
+            cefBrowserLogger.error("CEF runtime is not bundled")
             return
         }
 
         do {
             try CEFRuntimeSupport.startIfNeeded()
         } catch {
-            NSLog("CEFBrowserPanel: CEF initialization failed: %@", String(describing: error))
+            cefBrowserLogger.error("CEF initialization failed: \(String(describing: error), privacy: .private)")
             return
         }
 
@@ -316,7 +322,7 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
                 self.hasStarted = false
                 self.pendingNavigationURL = nil
                 self.closingRetain = nil
-                NSLog("CEFBrowserPanel: browser creation failed")
+                cefBrowserLogger.error("browser creation failed")
                 return
             }
 
@@ -353,14 +359,14 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
 
     private func openChromeStyleWindow(url: String) {
         guard CEFRuntimeSupport.isRuntimeBundled else {
-            NSLog("CEFBrowserPanel: CEF runtime is not bundled")
+            cefBrowserLogger.error("CEF runtime is not bundled")
             return
         }
 
         do {
             try CEFRuntimeSupport.startIfNeeded()
         } catch {
-            NSLog("CEFBrowserPanel: CEF initialization failed: %@", String(describing: error))
+            cefBrowserLogger.error("CEF initialization failed: \(String(describing: error), privacy: .private)")
             return
         }
 
@@ -378,7 +384,7 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
             of: #"^[A-Za-z][A-Za-z0-9+.-]*://"#,
             options: .regularExpression
         ) != nil
-        let hasSupportedOpaqueScheme = ["about:", "data:", "javascript:", "mailto:"].contains {
+        let hasSupportedOpaqueScheme = ["about:", "chrome:", "data:", "javascript:", "mailto:"].contains {
             lowercasedURL.hasPrefix($0)
         }
 

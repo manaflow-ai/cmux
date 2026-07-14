@@ -4,6 +4,66 @@ import Combine
 import Foundation
 
 extension Workspace {
+    /// Creates a Chromium browser tab in an existing pane.
+    @discardableResult
+    func newCEFBrowserSurface(
+        inPane paneId: PaneID,
+        url: String = "about:blank",
+        focus: Bool? = nil
+    ) -> CEFBrowserPanel? {
+        guard !isRemoteTmuxMirror else { return nil }
+        guard CEFRuntimeSupport.isRuntimeBundled else {
+            cefBrowserLogger.error("cannot create CEF browser surface because the runtime is not bundled")
+            return nil
+        }
+
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        let cefBrowserPanel = CEFBrowserPanel(workspaceId: id, initialURL: url)
+        panels[cefBrowserPanel.id] = cefBrowserPanel
+        panelTitles[cefBrowserPanel.id] = cefBrowserPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: cefBrowserPanel.displayTitle,
+            icon: cefBrowserPanel.displayIcon,
+            kind: SurfaceKind.cefBrowser.rawValue,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: cefBrowserPanel.id)
+            panelTitles.removeValue(forKey: cefBrowserPanel.id)
+            cefBrowserPanel.close()
+            return nil
+        }
+
+        bindSurface(newTabId, toPanelId: cefBrowserPanel.id)
+        installCEFBrowserPanelSubscription(cefBrowserPanel)
+        publishCmuxSurfaceCreated(
+            cefBrowserPanel.id,
+            paneId: paneId,
+            kind: SurfaceKind.cefBrowser.rawValue,
+            origin: "cef_browser_tab",
+            focused: shouldFocusNewTab
+        )
+
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            cefBrowserPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: cefBrowserPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+        return cefBrowserPanel
+    }
+
     /// Creates a Chromium browser in a new split to the right of `panelId`.
     @discardableResult
     func newCEFBrowserSplit(
@@ -12,7 +72,7 @@ extension Workspace {
     ) -> CEFBrowserPanel? {
         guard !isRemoteTmuxMirror else { return nil }
         guard CEFRuntimeSupport.isRuntimeBundled else {
-            NSLog("Workspace: cannot create CEF browser split because the runtime is not bundled")
+            cefBrowserLogger.error("cannot create CEF browser split because the runtime is not bundled")
             return nil
         }
         guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }

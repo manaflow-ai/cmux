@@ -1646,6 +1646,7 @@ struct CmuxSurfaceDefinition: Codable, Sendable, Hashable {
 enum CmuxSurfaceType: String, Codable, Sendable {
     case terminal
     case browser
+    case cefBrowser
     case project
 }
 

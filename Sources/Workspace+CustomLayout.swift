@@ -198,6 +198,17 @@ extension Workspace {
                 if surface.focus == true { focusPanelId = panel.id }
             }
 
+        case .cefBrowser:
+            if let panel = newCEFBrowserSurface(
+                inPane: paneId,
+                url: surface.url ?? "about:blank",
+                focus: false
+            ) {
+                _ = closePanel(panelId, force: true)
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
+
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
@@ -241,6 +252,16 @@ extension Workspace {
                 url: url,
                 focus: false,
                 creationPolicy: .restoration
+            ) {
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
+
+        case .cefBrowser:
+            if let panel = newCEFBrowserSurface(
+                inPane: paneId,
+                url: surface.url ?? "about:blank",
+                focus: false
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
