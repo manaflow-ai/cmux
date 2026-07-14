@@ -7,6 +7,7 @@ extension SessionRestorableAgentSnapshot {
         case workingDirectory
         case launchCommand
         case registration
+        case permissionMode
     }
 
     init(from decoder: Decoder) throws {
@@ -34,7 +35,9 @@ extension SessionRestorableAgentSnapshot {
                 AgentLaunchCommandSnapshot.self,
                 forKey: .launchCommand
             ),
-            registration: registration
+            registration: registration,
+            // Optional so snapshots persisted before the field decode unchanged.
+            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode)
         )
     }
 
@@ -51,7 +54,8 @@ extension SessionRestorableAgentSnapshot {
             sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
-            registrationOverride: registration
+            registrationOverride: registration,
+            observedPermissionMode: permissionMode
         )
     }
 
@@ -62,7 +66,8 @@ extension SessionRestorableAgentSnapshot {
             sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: workingDirectory,
-            registrationOverride: registration
+            registrationOverride: registration,
+            observedPermissionMode: permissionMode
         )
     }
 
