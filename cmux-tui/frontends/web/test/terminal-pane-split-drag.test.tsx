@@ -1,23 +1,46 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ClientInfo } from "cmux/browser";
+import type { ClientInfo, CmuxClient } from "cmux/browser";
 import { TerminalPane } from "../src/components/TerminalPane";
 import type { ScreenView } from "../src/lib/tree";
 
 const attachedTerminal = vi.hoisted(() => ({
   foreignSize: null as { cols: number; rows: number } | null,
+  byteHook: vi.fn(),
+  renderHook: vi.fn(),
 }));
 
 vi.mock("../src/hooks/useAttachedTerminal", () => ({
-  useAttachedTerminal: () => ({
-    terminalRef: () => undefined,
-    focused: false,
-    foreignSize: attachedTerminal.foreignSize,
-  }),
+  useAttachedTerminal: () => {
+    attachedTerminal.byteHook();
+    return {
+      terminalRef: () => undefined,
+      focused: false,
+      foreignSize: attachedTerminal.foreignSize,
+    };
+  },
+}));
+
+vi.mock("../src/hooks/useRenderTerminal", () => ({
+  useRenderTerminal: () => {
+    attachedTerminal.renderHook();
+    return {
+      terminalRef: () => undefined,
+      focused: false,
+      foreignSize: attachedTerminal.foreignSize,
+      model: null,
+      history: { active: false, loading: false, total: 0, rows: [] },
+      backToLive: vi.fn(),
+      sendKey: vi.fn(),
+      sendText: vi.fn(),
+    };
+  },
 }));
 
 beforeEach(() => {
   attachedTerminal.foreignSize = null;
+  attachedTerminal.byteHook.mockClear();
+  attachedTerminal.renderHook.mockClear();
 });
 
 function screenView(ratio: number, zoomedPane: number | null = null): ScreenView {
@@ -44,7 +67,7 @@ function screenView(ratio: number, zoomedPane: number | null = null): ScreenView
 
 function terminalPaneProps(onSetRatio: (pane: number, dir: "right" | "down", ratio: number) => Promise<boolean>) {
   return {
-    client: null,
+    client: null as CmuxClient | null,
     clients: [] as ClientInfo[],
     onSelectTab: vi.fn(),
     onNewTab: vi.fn(),
@@ -214,5 +237,22 @@ describe("TerminalPane foreign-size indicator", () => {
     const { getByText } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
 
     expect(getByText("sized by another client (126x38), type to take over")).toBeInTheDocument();
+  });
+});
+
+describe("TerminalPane renderer selection", () => {
+  it("uses render mode only for the identified protocol 7 client", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    props.client = { protocol: 7 } as CmuxClient;
+
+    const { rerender } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+    expect(attachedTerminal.renderHook).toHaveBeenCalledTimes(1);
+    expect(attachedTerminal.byteHook).not.toHaveBeenCalled();
+
+    attachedTerminal.renderHook.mockClear();
+    props.client = { protocol: 6 } as CmuxClient;
+    rerender(<TerminalPane {...props} screen={terminalScreenView()} />);
+    expect(attachedTerminal.byteHook).toHaveBeenCalledTimes(1);
+    expect(attachedTerminal.renderHook).not.toHaveBeenCalled();
   });
 });
