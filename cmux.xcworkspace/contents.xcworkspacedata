@@ -190,6 +190,9 @@
          location = "group:CmuxUpdaterUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxVoice">
+      </FileRef>
+      <FileRef
          location = "group:CmuxWindowing">
       </FileRef>
       <FileRef
