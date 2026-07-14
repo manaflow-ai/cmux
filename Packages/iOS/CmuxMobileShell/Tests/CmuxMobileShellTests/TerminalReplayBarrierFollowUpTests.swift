@@ -49,6 +49,56 @@ import Testing
 }
 
 @MainActor
+@Test func replayRequestedAfterResponseEnqueueWaitsForAcknowledgementOwnedFollowUp() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "first-replay", "follow-up-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let coldReplaySettled = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(coldReplaySettled)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+
+    let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
+    let firstReplayChunk = try #require(await iterator.next())
+    let firstResponseAwaitingAcknowledgement = try await pollUntil {
+        store.terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == firstReplayChunk.streamToken
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(firstResponseAwaitingAcknowledgement)
+
+    store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    #expect(!store.terminalReplaySurfaceIDsInFlight.contains(surfaceID))
+    #expect(store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] == 1)
+    #expect(await router.count(of: "mobile.terminal.replay") == replayCountAfterMount + 1)
+
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: firstReplayChunk.streamToken)
+    let followUpRequested = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountAfterMount + 2,
+        recordIssueOnTimeout: false
+    )
+    #expect(followUpRequested)
+    guard followUpRequested else { return }
+
+    let followUpReplayChunk = try #require(await iterator.next())
+    #expect(String(data: followUpReplayChunk.data, encoding: .utf8) == "follow-up-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: followUpReplayChunk.streamToken)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+}
+
+@MainActor
 @Test func terminalReplayBarrierCapsFollowUpReplaysUnderContinuousOutput() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
