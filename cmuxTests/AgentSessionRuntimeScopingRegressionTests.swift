@@ -292,6 +292,98 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(Set(nodes.compactMap { $0["session_id"] as? String }) == ["codex-session", "kimi-session"])
     }
 
+    @Test func agentsTreeNestsAChildThatSortsBeforeItsParent() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-child-before-parent-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let runtime: [String: Any] = ["id": "current-runtime"]
+        func writeStore(
+            provider: String,
+            sessionId: String,
+            runId: String,
+            parentRunId: String? = nil,
+            parentSessionId: String? = nil,
+            relationship: String? = nil,
+            restoreAuthority: Bool,
+            startedAt: TimeInterval
+        ) throws {
+            var run: [String: Any] = [
+                "runId": runId,
+                "restoreAuthority": restoreAuthority,
+                "cmuxRuntime": runtime,
+                "startedAt": startedAt,
+                "updatedAt": 300.0,
+            ]
+            run["parentRunId"] = parentRunId
+            run["parentSessionId"] = parentSessionId
+            run["relationship"] = relationship
+            let store: [String: Any] = [
+                "version": 2,
+                "sessions": [
+                    sessionId: [
+                        "sessionId": sessionId,
+                        "workspaceId": "workspace",
+                        "surfaceId": "surface",
+                        "runId": runId,
+                        "activeRunId": runId,
+                        "restoreAuthority": restoreAuthority,
+                        "cmuxRuntime": runtime,
+                        "runs": [run],
+                        "startedAt": startedAt,
+                        "updatedAt": 300.0,
+                    ],
+                ],
+            ]
+            try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+                .write(to: root.appendingPathComponent("\(provider)-hook-sessions.json"), options: .atomic)
+        }
+
+        // The child deliberately sorts before its parent in the flat node list.
+        // Root selection must use composite graph identity so rendering still
+        // starts at the parent and preserves the edge.
+        try writeStore(
+            provider: "claude",
+            sessionId: "child-session",
+            runId: "child-run",
+            parentRunId: "parent-run",
+            parentSessionId: "parent-session",
+            relationship: "spawned",
+            restoreAuthority: false,
+            startedAt: 100.0
+        )
+        try writeStore(
+            provider: "codex",
+            sessionId: "parent-session",
+            runId: "parent-run",
+            restoreAuthority: true,
+            startedAt: 200.0
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_RUNTIME_ID"] = "current-runtime"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let lines = result.stdout.split(separator: "\n").map(String.init)
+        #expect(lines.count == 2, Comment(rawValue: result.stdout))
+        #expect(lines.first?.hasPrefix("codex parent-session") == true, Comment(rawValue: result.stdout))
+        #expect(lines.last?.hasPrefix("└── claude child-session") == true, Comment(rawValue: result.stdout))
+    }
+
 }
 
 extension CLINotifyProcessIntegrationRegressionTests {
