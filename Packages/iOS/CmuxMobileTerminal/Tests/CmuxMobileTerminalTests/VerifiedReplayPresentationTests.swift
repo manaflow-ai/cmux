@@ -20,15 +20,19 @@ struct VerifiedReplayPresentationTests {
         #expect(frozenBytes[1] == 0x11)
     }
 
-    @Test("reveal waits for a changed GPU target to reach the presentation tree")
-    func presentationFenceRequiresChangedPresentedTarget() {
+    @Test("a stale in-flight completion cannot satisfy the replay submission fence")
+    func presentationFenceRequiresExactSubmissionToken() {
         let initial = VerifiedReplayRendererSurfaceIdentity(id: 7, seed: 10)
-        let completed = VerifiedReplayRendererSurfaceIdentity(id: 8, seed: 11)
-        let fence = VerifiedReplayPresentationFence(initialIdentity: initial)
+        let stale = VerifiedReplayRendererSurfaceIdentity(id: 8, seed: 11)
+        let replay = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 12)
+        var fence = VerifiedReplayPresentationFence(expectedToken: 42)
 
         #expect(!fence.isSatisfied(modelIdentity: initial, presentationIdentity: initial))
-        #expect(!fence.isSatisfied(modelIdentity: completed, presentationIdentity: initial))
-        #expect(fence.isSatisfied(modelIdentity: completed, presentationIdentity: completed))
+        #expect(!fence.acknowledge(token: 41, modelIdentity: stale))
+        #expect(!fence.isSatisfied(modelIdentity: stale, presentationIdentity: stale))
+        #expect(fence.acknowledge(token: 42, modelIdentity: replay))
+        #expect(!fence.isSatisfied(modelIdentity: replay, presentationIdentity: stale))
+        #expect(fence.isSatisfied(modelIdentity: replay, presentationIdentity: replay))
     }
 
     private func makeSurface(fill byte: UInt8) throws -> IOSurface {
