@@ -969,64 +969,6 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testNewTextBoxesReuseLastExplicitModeAfterAgentSubmit() throws {
-        let defaults = try makeIsolatedDefaults()
-        let submittedPanelState = TerminalPanelTextBoxState(defaults: defaults)
-        let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
-
-        submittedPanelState.selectSubmitAction(codex.id, defaults: defaults)
-        submittedPanelState.selectedSubmitActionID = TextBoxInputContainer.panelSubmitActionIDAfterSuccessfulSubmit(
-            currentSubmitActionID: codex.id,
-            submittedAction: codex
-        )
-
-        XCTAssertEqual(submittedPanelState.selectedSubmitActionID, TextBoxSubmitAction.textEntryAction.id)
-        XCTAssertEqual(TerminalPanelTextBoxState(defaults: defaults).selectedSubmitActionID, codex.id)
-        XCTAssertEqual(TerminalPanelTextBoxState(defaults: defaults).selectedSubmitActionID, codex.id)
-    }
-
-    @Test
-    func testNewTextBoxesReuseLastExplicitCustomMode() throws {
-        let defaults = try makeIsolatedDefaults()
-        defaults.set(
-            """
-            [
-              {
-                "id": "custom-router",
-                "title": "Custom Router",
-                "kind": "commandTemplate",
-                "commandTemplate": "router --prompt {{prompt}}",
-                "systemImage": "wand.and.stars",
-                "backgroundColorHex": "#123456"
-              }
-            ]
-            """,
-            forKey: TerminalTextBoxInputSettings.submitActionsKey
-        )
-        let sourcePanelState = TerminalPanelTextBoxState(defaults: defaults)
-
-        sourcePanelState.selectSubmitAction("custom-router", defaults: defaults)
-
-        XCTAssertEqual(TerminalPanelTextBoxState(defaults: defaults).selectedSubmitActionID, "custom-router")
-    }
-
-    @Test
-    func testConfiguredDefaultChangeClearsRememberedMode() throws {
-        let defaults = try makeIsolatedDefaults()
-        defaults.set(TextBoxSubmitAction.textEntryAction.id, forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
-        let panelState = TerminalPanelTextBoxState(defaults: defaults)
-
-        panelState.selectSubmitAction("codex", defaults: defaults)
-        defaults.set("claude", forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
-
-        XCTAssertNil(TerminalPanelTextBoxState(defaults: defaults).selectedSubmitActionID)
-        XCTAssertEqual(TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults), "claude")
-
-        defaults.set(TextBoxSubmitAction.textEntryAction.id, forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
-        XCTAssertNil(TerminalPanelTextBoxState(defaults: defaults).selectedSubmitActionID)
-    }
-
-    @Test
     func testUnknownNonIdleTerminalStillCyclesSubmitAction() {
         let actions = TextBoxSubmitAction.builtInActions
         let shouldForceTextEntry = TextBoxInputContainer.shouldForceTextEntrySubmit(

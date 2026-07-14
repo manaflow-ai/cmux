@@ -1608,6 +1608,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE7B400000000000000001 /* TextBoxSubmitActionCycling.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B400000000000000002 /* TextBoxSubmitActionCycling.swift */; };
 		C0DE7B390000000000000001 /* TextBoxSubmitActionImageSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B390000000000000002 /* TextBoxSubmitActionImageSupport.swift */; };
 		C0DE7B3A0000000000000001 /* TextBoxSubmitActionKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B3A0000000000000002 /* TextBoxSubmitActionKind.swift */; };
+		C0DE7B410000000000000001 /* TextBoxSubmitActionMemoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B410000000000000002 /* TextBoxSubmitActionMemoryTests.swift */; };
 		C0DE7B380000000000000001 /* TextBoxSubmitActionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B380000000000000002 /* TextBoxSubmitActionPresentation.swift */; };
 		7725A0057725A0057725A005 /* TextBoxSubmitActionResolvedIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7725A0067725A0067725A006 /* TextBoxSubmitActionResolvedIcon.swift */; };
 		C0DE7B340000000000000001 /* TextBoxSubmitActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B340000000000000002 /* TextBoxSubmitActions.swift */; };
@@ -3376,6 +3377,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE7B400000000000000002 /* TextBoxSubmitActionCycling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionCycling.swift; sourceTree = "<group>"; };
 		C0DE7B390000000000000002 /* TextBoxSubmitActionImageSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionImageSupport.swift; sourceTree = "<group>"; };
 		C0DE7B3A0000000000000002 /* TextBoxSubmitActionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TextBoxSubmitActionKind.swift; sourceTree = "<group>"; };
+		C0DE7B410000000000000002 /* TextBoxSubmitActionMemoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionMemoryTests.swift; sourceTree = "<group>"; };
 		C0DE7B380000000000000002 /* TextBoxSubmitActionPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionPresentation.swift; sourceTree = "<group>"; };
 		7725A0067725A0067725A006 /* TextBoxSubmitActionResolvedIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionResolvedIcon.swift; sourceTree = "<group>"; };
 		C0DE7B340000000000000002 /* TextBoxSubmitActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActions.swift; sourceTree = "<group>"; };
@@ -5201,6 +5203,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */,
 				E3337002E3337002E3337002 /* KeyboardShortcutSettingsFileStoreStartupTests.swift */,
 				C0DE7B3C0000000000000002 /* TextBoxSubmitActionSettingsFileTests.swift */,
+				C0DE7B410000000000000002 /* TextBoxSubmitActionMemoryTests.swift */,
 				C0DE7B360000000000000002 /* TextBoxSubmitActionTests.swift */,
 				C34670020000000000000002 /* KeyboardShortcutContextTests.swift */,
 				C34670050000000000000002 /* KeyboardShortcutContextSwiftTests.swift */,
@@ -7540,6 +7543,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B7758A020000000000000001 /* TerminationWatchdogTests.swift in Sources */,
 				C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */,
 				7898A0010000000000000001 /* TextBoxMentionGitIgnoreProbeTests.swift in Sources */,
+				C0DE7B410000000000000001 /* TextBoxSubmitActionMemoryTests.swift in Sources */,
 				C0DE7B3C0000000000000001 /* TextBoxSubmitActionSettingsFileTests.swift in Sources */,
 				C0DE7B360000000000000001 /* TextBoxSubmitActionTests.swift in Sources */,
 				F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */,

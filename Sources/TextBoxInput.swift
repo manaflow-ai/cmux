@@ -2447,7 +2447,6 @@ struct TextBoxInputContainer: View {
     let onTextViewCreated: (TextBoxInputTextView) -> Void
     let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
     let onTextViewDismantled: (TextBoxInputTextView) -> Void
-
     @State private var textViewHeight: CGFloat = 0
     @State private var hasPendingAttachmentUpload = false
     @State private var hasMarkedText = false
