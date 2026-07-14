@@ -13013,7 +13013,10 @@ struct TabItemView: View, Equatable {
     private static let maxDisplayedTitleCharacters = 2048
 
     var isMultiSelected: Bool {
-        selectedTabIds.contains(tab.id)
+        sidebarWorkspaceRowShowsMultiSelectHighlight(
+            tabId: tab.id,
+            selectedTabIds: selectedTabIds
+        )
     }
 
     private var sidebarShortcutHintXOffset: Double {
