@@ -252,54 +252,7 @@ struct TerminalArtifactFilesSheet: View {
         case failed
     }
 
-    struct SessionGallerySnapshot: Equatable {
-        let created: [ChatArtifactGalleryItem]
-        let attached: [ChatArtifactGalleryItem]
-        let referenced: [ChatArtifactGalleryItem]
-        let referencedTotal: Int
-        let nextCursor: String?
-        let generation: String
-
-        var isEmpty: Bool {
-            created.isEmpty && attached.isEmpty && referencedTotal == 0
-        }
-
-        init(page: ChatArtifactGalleryPage) {
-            created = page.created
-            attached = page.attached
-            referenced = page.referenced
-            referencedTotal = page.referencedTotal
-            nextCursor = page.nextCursor
-            generation = page.generation
-        }
-
-        func appending(_ page: ChatArtifactGalleryPage) -> SessionGallerySnapshot {
-            SessionGallerySnapshot(
-                created: created,
-                attached: attached,
-                referenced: referenced + page.referenced,
-                referencedTotal: page.referencedTotal,
-                nextCursor: page.nextCursor,
-                generation: page.generation
-            )
-        }
-
-        private init(
-            created: [ChatArtifactGalleryItem],
-            attached: [ChatArtifactGalleryItem],
-            referenced: [ChatArtifactGalleryItem],
-            referencedTotal: Int,
-            nextCursor: String?,
-            generation: String
-        ) {
-            self.created = created
-            self.attached = attached
-            self.referenced = referenced
-            self.referencedTotal = referencedTotal
-            self.nextCursor = nextCursor
-            self.generation = generation
-        }
-    }
+    typealias SessionGallerySnapshot = ChatArtifactGallerySnapshot
 
     enum Scope: Hashable {
         case inView

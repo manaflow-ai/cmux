@@ -52,6 +52,25 @@ struct TerminalArtifactScopeTests {
         #expect(scope.canonicalPath(for: "/safe/project/src/main.swift") == "/safe/project/src/main.swift")
     }
 
+    @Test("visible scan deduplicates canonical identities in first-seen order")
+    func visibleScanCanonicalIdentityDeduplication() {
+        let canonicalizer = ChatArtifactPathCanonicalizer { path in
+            path == "/safe/report.txt" ? "/safe/Report.txt" : path
+        }
+        let scope = TerminalArtifactScope(
+            terminalText: "cat /safe/report.txt /safe/notes.txt /safe/Report.txt",
+            workingDirectory: "/safe",
+            resolver: FakeResolver(
+                files: ["/safe/report.txt", "/safe/notes.txt", "/safe/Report.txt"],
+                directories: ["/safe"],
+                symlinks: [:]
+            ),
+            canonicalizer: canonicalizer
+        )
+
+        #expect(scope.artifactPaths() == ["/safe/Report.txt", "/safe/notes.txt"])
+    }
+
     private func scope(
         text: String,
         workingDirectory: String? = "/safe/project",

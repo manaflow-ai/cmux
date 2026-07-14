@@ -5,6 +5,30 @@ import Testing
 
 @Suite("Chat artifact canonical identity")
 struct ChatArtifactCanonicalIdentityTests {
+    @Test("derive accepts an injected canonical identity operation")
+    func injectedCanonicalizerDeduplicates() {
+        let target = "/fixture/Report.md"
+        let symlink = "/fixture/report-link.md"
+        let canonical = "/canonical/Report.md"
+        let canonicalizer = ChatArtifactPathCanonicalizer { path in
+            [target: canonical, symlink: canonical][path] ?? path
+        }
+
+        let records = ChatArtifactIndexedReference.derive(
+            from: [
+                editMessage(id: "created", seq: 4, path: target),
+                toolMessage(id: "referenced", seq: 9, path: symlink),
+            ],
+            canonicalizer: canonicalizer
+        )
+
+        #expect(records == [ChatArtifactIndexedReference(
+            path: canonical,
+            provenance: .created,
+            lastReferencedSeq: 9
+        )])
+    }
+
     @Test("symlink and target spellings produce one row")
     func symlinkAndTargetDeduplicate() throws {
         let root = try makeTemporaryDirectory()

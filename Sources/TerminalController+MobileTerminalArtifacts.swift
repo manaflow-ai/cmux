@@ -52,31 +52,31 @@ extension TerminalController {
         }
         if countOnly {
             guard let sessionID = context.sessionID else {
-                return .ok(TerminalArtifactWire.payload(
+                return TerminalArtifactWire.result(
                     TerminalArtifactScanResponse(artifacts: [])
-                ) ?? [:])
+                )
             }
             do {
                 guard let indexedSession = try await mobileChatArtifactIndexedSession(sessionID: sessionID) else {
-                    return .ok(TerminalArtifactWire.payload(
+                    return TerminalArtifactWire.result(
                         TerminalArtifactScanResponse(artifacts: [], sessionID: sessionID)
-                    ) ?? [:])
+                    )
                 }
                 let response = TerminalArtifactScanResponse.sessionCount(
                     sessionID: indexedSession.sessionID,
                     sessionArtifacts: indexedSession.snapshot.artifacts
                 )
-                return .ok(TerminalArtifactWire.payload(response) ?? [:])
+                return TerminalArtifactWire.result(response)
             } catch {
-                return .ok(TerminalArtifactWire.payload(
+                return TerminalArtifactWire.result(
                     TerminalArtifactScanResponse(artifacts: [], sessionID: sessionID)
-                ) ?? [:])
+                )
             }
         }
         let response = await Task.detached(priority: .utility) {
             context.scan()
         }.value
-        return .ok(TerminalArtifactWire.payload(response) ?? [:])
+        return TerminalArtifactWire.result(response)
     }
 
     func v2MobileTerminalArtifactStat(params: [String: Any]) async -> V2CallResult {
@@ -90,7 +90,7 @@ extension TerminalController {
                     try reader.stat(path: canonicalPath)
                 }
             }.value
-            return .ok(TerminalArtifactWire.payload(stat) ?? [:])
+            return TerminalArtifactWire.result(stat)
         } catch TerminalArtifactReadContext.Error.forbidden {
             debugLogMobileTerminalArtifactDenial(op: "stat", path: context.requestedPath)
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
@@ -117,7 +117,7 @@ extension TerminalController {
                     try reader.fetch(path: canonicalPath, offset: offset, length: length)
                 }
             }.value
-            return .ok(TerminalArtifactWire.payload(chunk) ?? [:])
+            return TerminalArtifactWire.result(chunk)
         } catch TerminalArtifactReadContext.Error.forbidden {
             debugLogMobileTerminalArtifactDenial(op: "fetch", path: context.requestedPath)
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
@@ -140,7 +140,7 @@ extension TerminalController {
                     try reader.thumbnail(path: canonicalPath, maxDimension: maxDimension)
                 }
             }.value
-            return .ok(TerminalArtifactWire.payload(thumbnail) ?? [:])
+            return TerminalArtifactWire.result(thumbnail)
         } catch TerminalArtifactReadContext.Error.forbidden {
             debugLogMobileTerminalArtifactDenial(op: "thumbnail", path: context.requestedPath)
             return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
@@ -335,12 +335,16 @@ private struct TerminalArtifactReadContext: Sendable {
 }
 
 private struct TerminalArtifactWire {
-    static func payload<T: Encodable>(_ value: T) -> [String: Any]? {
+    static func result<T: Encodable>(_ value: T) -> TerminalController.V2CallResult {
         let coding = ChatWireCoding()
         guard let data = try? coding.encode(value),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
+            return .err(
+                code: "internal_error",
+                message: "Failed to encode terminal artifact response",
+                data: nil
+            )
         }
-        return object
+        return .ok(object)
     }
 }
