@@ -2080,7 +2080,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// and the transient tab-selection/focus-reassert request state. The
     /// legacy accessors below forward here. None of the moved properties
     /// were `@Published`, so no observer hooks are required.
-    private let surfaceRegistry = SurfaceRegistryModel<PendingTabSelectionRequest>()
+    let surfaceRegistry = SurfaceRegistryModel<PendingTabSelectionRequest>()
 
     /// The split-layout sub-model (CmuxPanes): owns the split/detach
     /// choreography bookkeeping (programmatic-split flag, detaching surface
@@ -2291,12 +2291,6 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
-    /// The controlling-terminal device name per panel id; stored in the
-    /// surface-registry sub-model.
-    var surfaceTTYNames: [UUID: String] {
-        get { surfaceRegistry.surfaceTTYNames }
-        set { surfaceRegistry.surfaceTTYNames = newValue }
-    }
     private var remoteSessionController: RemoteSessionCoordinator?
     private enum RemoteForegroundAuthenticationPhase: Equatable {
         case readyBeforeConfiguration(token: String), authenticating(token: String)
@@ -3160,6 +3154,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
+        PortScanner.shared.scheduleAgentWorkspaceUnregistration(workspaceId: id)
     }
 
     func refreshSplitButtonTooltips() {
@@ -3340,7 +3335,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// The pending tab-selection request payload. Stays app-side (it carries
     /// AppKit hosted-view references); the surface-registry sub-model stores
     /// it opaquely as its `TabSelectionRequest` generic binding.
-    private struct PendingTabSelectionRequest {
+    struct PendingTabSelectionRequest {
         let tabId: TabID
         let pane: PaneID
         let reassertAppKitFocus: Bool
@@ -4912,17 +4907,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
         syncRemotePortScanTTYs()
         recomputeListeningPorts()
-    }
-
-    func recomputeListeningPorts() {
-        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
-            .union(agentListeningPorts)
-            .union(remoteDetectedPorts)
-            .union(remoteForwardedPorts)
-        let next = unique.sorted()
-        if listeningPorts != next {
-            listeningPorts = next
-        }
     }
 
     func sidebarOrderedPanelIds() -> [UUID] {
@@ -8725,6 +8709,7 @@ final class Workspace: Identifiable, ObservableObject {
                 cleanupControllerSurfaceState: true
             )
         }
+        clearAllAgentPIDs(refreshPorts: false)
         pruneSurfaceMetadata(validSurfaceIds: [])
         syncRemotePortScanTTYs()
         recomputeListeningPorts()

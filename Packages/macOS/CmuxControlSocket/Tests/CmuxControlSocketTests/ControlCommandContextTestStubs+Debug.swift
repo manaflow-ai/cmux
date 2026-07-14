@@ -66,5 +66,6 @@ extension ControlDebugContext {
         payloadKind: ControlDebugFileDropPayloadKind
     ) -> ControlDebugFileDropResolution { .panelNotFound }
     func controlDebugPortalStats() -> JSONValue? { nil }
+    func controlDebugRemoteTmuxSizingSettled() -> JSONValue? { nil }
 }
 #endif

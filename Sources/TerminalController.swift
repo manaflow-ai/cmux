@@ -853,35 +853,34 @@ class TerminalController {
 
         // Wire batched port scanner results back to workspace state.
         PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
-            guard let self, let tabManager = self.tabManager else { return }
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-            let validSurfaceIds = Set(workspace.panels.keys)
-            guard validSurfaceIds.contains(panelId) else { return }
-            workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
-            workspace.recomputeListeningPorts()
+            self?.applyPanelPortPublication(workspaceId: workspaceId, panelId: panelId, ports: ports)
         }
         PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
-            guard let self, let tabManager = self.tabManager else { return false }
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return false }
-            if workspace.agentListeningPorts != ports {
-                workspace.agentListeningPorts = ports
-                workspace.recomputeListeningPorts()
-            }
-            return true
-        }
-        PortScanner.shared.agentPIDsProvider = { [weak self] workspaceIds in
-            guard let self, let tabManager = self.tabManager else { return [:] }
-            var pidsByWorkspace: [UUID: Set<Int>] = [:]
-            for workspaceId in workspaceIds {
-                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
-                let pids = Set(workspace.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-                if !pids.isEmpty {
-                    pidsByWorkspace[workspaceId] = pids
-                }
-            }
-            return pidsByWorkspace
+            self?.applyAgentPortPublication(workspaceId: workspaceId, ports: ports) ?? false
         }
         PortScanner.shared.setTrackedAgentScanningPaused(!NSApplication.shared.isActive)
+    }
+
+    func applyPanelPortPublication(workspaceId: UUID, panelId: UUID, ports: [Int]) {
+        guard let workspace = portPublicationWorkspace(workspaceId: workspaceId),
+              workspace.panels[panelId] != nil else { return }
+        let nextPorts: [Int]? = ports.isEmpty ? nil : ports
+        guard workspace.surfaceListeningPorts[panelId] != nextPorts else { return }
+        workspace.surfaceListeningPorts[panelId] = nextPorts
+        workspace.recomputeListeningPorts()
+    }
+
+    func applyAgentPortPublication(workspaceId: UUID, ports: [Int]) -> Bool {
+        guard let workspace = portPublicationWorkspace(workspaceId: workspaceId) else { return false }
+        if workspace.agentListeningPorts != ports {
+            workspace.agentListeningPorts = ports
+            workspace.recomputeListeningPorts()
+        }
+        return true
+    }
+
+    private func portPublicationWorkspace(workspaceId: UUID) -> Workspace? {
+        AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs.first { $0.id == workspaceId }
     }
 
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
@@ -1383,8 +1382,8 @@ class TerminalController {
             return v2RemoteTmuxDetach(id: request.id, params: request.params)
         case "remote.tmux.state":
             return v2RemoteTmuxState(id: request.id, params: request.params)
-        case "remote.tmux.mirror":
-            return v2RemoteTmuxMirror(id: request.id, params: request.params)
+        case "remote.tmux.mirror": return v2RemoteTmuxMirror(id: request.id, params: request.params)
+        case "remote.tmux.window": return v2RemoteTmuxWindow(id: request.id, params: request.params)
         case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
 #if DEBUG
         case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
@@ -2237,6 +2236,7 @@ class TerminalController {
         // ControlCommandCoordinator (create_for_caller keeps its app-side resolver).
         case "notification.create_for_caller":
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
+        case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
 
         // App focus (app.focus_override.set/app.simulate_active) handled by ControlCommandCoordinator.
 
@@ -2417,7 +2417,7 @@ class TerminalController {
             "workspace.remote.status",
             "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
             "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.pane_grids",
+            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids",
             "session.restore_previous",
             "settings.open",
             "feedback.open",
@@ -2466,7 +2466,7 @@ class TerminalController {
             "pane.join",
             "pane.last",
             "notification.create",
-            "notification.create_for_caller",
+            "notification.create_for_caller", "agent.resolve_delivery_target",
             "notification.create_for_surface",
             "notification.create_for_target",
             "notification.list",
@@ -6702,46 +6702,6 @@ class TerminalController {
             ])
         }
         return result
-    }
-
-    private func v2IsDiffViewerURL(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
-            return true
-        }
-        return url.scheme?.lowercased() == "http" &&
-            url.host == "127.0.0.1" &&
-            url.fragment == "cmux-diff-viewer"
-    }
-
-    private func v2RegisterDiffViewerURLIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
-        guard let url,
-              url.scheme == CmuxDiffViewerURLSchemeHandler.scheme else {
-            return nil
-        }
-        guard let token = v2String(params, "diff_viewer_token"),
-              token == url.host,
-              let rawFiles = params["diff_viewer_files"] as? [[String: Any]],
-              !rawFiles.isEmpty,
-              rawFiles.count <= CmuxDiffViewerURLSchemeHandler.maxRegisteredFiles else {
-            return .err(code: "invalid_params", message: "Missing or invalid trusted diff viewer allowlist", data: nil)
-        }
-
-        let files = rawFiles.compactMap(CmuxDiffViewerURLSchemeHandler.registeredFile(from:))
-        guard files.count == rawFiles.count else {
-            return .err(code: "invalid_params", message: "Invalid trusted diff viewer allowlist", data: nil)
-        }
-
-        do {
-            try CmuxDiffViewerURLSchemeHandler.shared.register(token: token, files: files)
-            return nil
-        } catch {
-            return .err(
-                code: "invalid_params",
-                message: "Invalid trusted diff viewer allowlist",
-                data: ["details": error.localizedDescription]
-            )
-        }
     }
 
     private nonisolated func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
@@ -12202,10 +12162,9 @@ class TerminalController {
             guard deliver else { return "OK" }
 
             if let fastPath {
-                guard let tab = self.tabForSidebarMutation(id: fastPath.workspaceId) else {
-                    return "ERROR: Tab not found"
-                }
-                guard tab.panels[fastPath.panelId] != nil else {
+                // The surface's current workspace wins over the claimed one (the
+                // sync deliverer retargets); only a target gone everywhere errors.
+                guard AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: fastPath.workspaceId, surfaceId: fastPath.panelId) != nil else {
                     return "ERROR: Panel not found"
                 }
                 self.deliverNotificationSynchronously(
@@ -12228,7 +12187,7 @@ class TerminalController {
                 return "ERROR: Tab not found"
             }
             guard let panelId = UUID(uuidString: panelArg),
-                  tab.panels[panelId] != nil else {
+                  AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tab.id, surfaceId: panelId) != nil else {
                 return "ERROR: Panel not found"
             }
             self.deliverNotificationSynchronously(
@@ -12369,7 +12328,7 @@ class TerminalController {
                     TerminalNotificationStore.shared.clearNotifications(
                         forTabId: tab.id,
                         surfaceId: panelId,
-                        discardQueuedNotifications: false
+                        discardQueuedNotifications: false, throughNotificationGeneration: clearBoundary
                     )
                 } else {
                     TerminalMutationBus.shared.discardPendingNotifications(
@@ -12378,7 +12337,7 @@ class TerminalController {
                     )
                     TerminalNotificationStore.shared.clearNotifications(
                         forTabId: tab.id,
-                        discardQueuedNotifications: false
+                        discardQueuedNotifications: false, throughNotificationGeneration: clearBoundary
                     )
                 }
             }

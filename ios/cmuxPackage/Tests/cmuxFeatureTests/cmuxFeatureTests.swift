@@ -4137,7 +4137,7 @@ private func rpcErrorFrame(code: String? = nil, message: String) throws -> Data 
 // MARK: - Push notification deep-link
 
 /// Inert registration stub: deep-link tests exercise tap routing only.
-private struct InertPushRegistration: PushRegistering {
+struct InertPushRegistration: PushRegistering {
     var isEnabled: Bool {
         get async { false }
     }
@@ -4148,7 +4148,7 @@ private struct InertPushRegistration: PushRegistering {
     func unregisterFromServer(accessToken: String?, refreshToken: String?) async {}
 }
 
-@MainActor private func deeplinkTestStore() -> CMUXMobileShellStore {
+@MainActor func deeplinkTestStore() -> CMUXMobileShellStore {
     CMUXMobileShellStore(
         runtime: testRuntime(
             transportFactory: RecordingNeverConnectTransportFactory(dials: TransportDialRecorder())
