@@ -97,14 +97,13 @@ final class CmuxSettingsFileStore {
         self.passwordStore = passwordStore
         self.onWatchedFileReload = onWatchedFileReload
         importedManagedDefaults = Self.loadImportedManagedDefaults()
-
         bootstrapPrimaryTemplateIfNeeded()
         reload(
             applyLiveDefaultSideEffects: false,
-            synchronizeManagedAppearanceTerminalTheme: false
+            synchronizeManagedAppearanceTerminalTheme: false,
+            coldStartSocketMode: Self.coldStartSocketMode(primaryPath, fileManager: fileManager, imported: importedManagedDefaults)
         )
         guard startWatching else { return }
-
         watchers = ([primaryPath] + fallbackPaths).map { FileWatcher(path: $0) }
         watchTasks = watchers.map { watcher in
             let events = watcher.events
@@ -148,7 +147,7 @@ final class CmuxSettingsFileStore {
 
     private func reload(
         applyLiveDefaultSideEffects: Bool,
-        synchronizeManagedAppearanceTerminalTheme: Bool
+        synchronizeManagedAppearanceTerminalTheme: Bool, coldStartSocketMode: ManagedSettingsValue? = nil
     ) {
         let previousState = synchronized {
             (
@@ -158,7 +157,7 @@ final class CmuxSettingsFileStore {
                 sourcePath: activeSourcePath
             )
         }
-        let resolved = resolveSettings()
+        let resolved = resolveSettings(coldStartSocketMode: coldStartSocketMode)
         applyManagedSettings(
             snapshot: resolved,
             importedManagedDefaults: previousState.importedManagedDefaults,
@@ -293,13 +292,14 @@ final class CmuxSettingsFileStore {
         })
     }
 
-    private func resolveSettings() -> ResolvedSettingsSnapshot {
+    private func resolveSettings(coldStartSocketMode: ManagedSettingsValue?) -> ResolvedSettingsSnapshot {
         // A transient missing or malformed file must not restore a potentially broader unmanaged policy.
-        let priorSocketMode = synchronized { activeManagedUserDefaults[SocketControlSettings.appStorageKey] }
+        let priorSocketMode = synchronized { activeManagedUserDefaults[SocketControlSettings.appStorageKey] } ?? coldStartSocketMode
         let preservedSocketMode = priorSocketMode ?? .string(Self.failClosedSocketMode().rawValue)
         switch loadSettings(at: primaryPath) {
         case .parsed(var snapshot):
             mergeFallbackSettings(into: &snapshot)
+            Self.preserveColdStartSocketMode(coldStartSocketMode, in: &snapshot)
             return snapshot
         case .invalid:
             return ResolvedSettingsSnapshot(path: primaryPath,

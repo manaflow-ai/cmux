@@ -25,6 +25,28 @@ extension CmuxSettingsFileStore {
         }
     }
 
+    /// Returns the persisted managed socket mode only when the primary is absent at cold start.
+    static func coldStartSocketMode(
+        _ primaryPath: String,
+        fileManager: FileManager,
+        imported: [String: ManagedSettingsValue]
+    ) -> ManagedSettingsValue? {
+        guard !fileManager.fileExists(atPath: primaryPath) else { return nil }
+        return imported[SocketControlSettings.appStorageKey]
+    }
+
+    /// Reconciles a bootstrapped primary through the missing-primary restrictive precedence rule.
+    static func preserveColdStartSocketMode(
+        _ coldStartSocketMode: ManagedSettingsValue?,
+        in snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let coldStartSocketMode else { return }
+        snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = socketModeAfterMissingPrimary(
+            prior: coldStartSocketMode,
+            fallback: snapshot.managedUserDefaults[SocketControlSettings.appStorageKey]
+        )
+    }
+
     /// Resolves a missing primary without broadening the last live managed policy.
     static func socketModeAfterMissingPrimary(
         prior: ManagedSettingsValue?,
