@@ -49,6 +49,9 @@ extension GhosttySurfaceScrollView {
                 position: position,
                 attemptsRemaining: 2
             )
+            if notificationScrollRestoreDidCompleteReplay {
+                scheduleNotificationScrollRestoreFrameDeadline()
+            }
         }
         return restorePendingNotificationScrollPositionIfReady()
     }
@@ -136,7 +139,7 @@ extension GhosttySurfaceScrollView {
             targetTopRow = nil
         }
         guard let targetTopRow else {
-            if !isPostReplayGeometry {
+            if !isPostReplayGeometry, !notificationScrollRestoreDidCompleteReplay {
                 clearPendingNotificationScrollRestore()
             }
             return false
@@ -253,6 +256,11 @@ extension GhosttySurfaceScrollView {
             return false
         }
         notificationScrollRestoreDidCompleteReplay = true
+        guard let pendingPosition else {
+            cancelNotificationScrollRestoreFrameWait()
+            notificationScrollRestoreState = .inactive
+            return true
+        }
         notificationScrollRestoreState = .awaitingPostReplayGeometry(
             position: pendingPosition,
             attemptsRemaining: 2,
