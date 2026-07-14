@@ -32,7 +32,9 @@ enum SettingsWindowFactory {
         )
         // The AppKit owner configures the toolbar explicitly below; bridge only
         // SwiftUI's navigation title so an implicit scene toolbar can never
-        // replace or remove the Settings chrome contract.
+        // replace or remove the Settings chrome contract. The sidebar search
+        // remains inside the hosted NavigationSplitView: `.searchable` with
+        // `.sidebar` placement does not require toolbar bridging.
         hostingController.sceneBridgingOptions = [.title]
         let window = SettingsHostWindow(contentViewController: hostingController)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
@@ -57,10 +59,6 @@ enum SettingsWindowFactory {
         toolbar.autosavesConfiguration = false
         toolbar.displayMode = .iconOnly
         toolbar.insertItem(withItemIdentifier: .toggleSidebar, at: 0)
-        if let sidebarToggle = toolbar.items.first(where: { $0.itemIdentifier == .toggleSidebar }) {
-            sidebarToggle.target = window
-            sidebarToggle.action = #selector(SettingsHostWindow.toggleSidebar(_:))
-        }
         window.toolbar = toolbar
         window.toolbarStyle = .unifiedCompact
     }
@@ -117,6 +115,18 @@ class SettingsHostWindow: NSWindow, NSToolbarDelegate {
         // AppKit creates its standard toggle-sidebar item itself and does not
         // ask the delegate for it. No custom identifiers are allowed here.
         nil
+    }
+
+    func toolbarWillAddItem(_ notification: Notification) {
+        guard
+            let sidebarToggle = notification.userInfo?[NSToolbarUserInfoKey.itemKey] as? NSToolbarItem,
+            sidebarToggle.itemIdentifier == .toggleSidebar
+        else { return }
+        // AppKit may recreate standard items when the toolbar attaches to a
+        // window. Configure every inserted instance so the live item always
+        // uses the shared Settings toggle path.
+        sidebarToggle.target = self
+        sidebarToggle.action = #selector(toggleSidebar(_:))
     }
 
     override func close() {

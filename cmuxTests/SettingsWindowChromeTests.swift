@@ -17,6 +17,7 @@ extension SettingsWindowSharedStateSuites {
         @Test func factoryBuildsModernUnifiedChromeWithWorkingSidebarToggle() throws {
             let window = SettingsWindowFactory.makeSettingsWindow(onContentAppear: {})
             defer {
+                window.orderOut(nil)
                 window.contentViewController = nil
                 window.contentView = nil
                 window.close()
@@ -34,6 +35,11 @@ extension SettingsWindowSharedStateSuites {
             #expect(!toolbar.autosavesConfiguration)
             #expect(toolbar.displayMode == .iconOnly)
 
+            // AppKit recreates standard items as a toolbar attaches to its
+            // live window. Assert the post-attachment item, not just the
+            // factory-time instance.
+            window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
+            window.orderBack(nil)
             let sidebarToggle = try #require(
                 toolbar.items.first { $0.itemIdentifier == .toggleSidebar }
             )
