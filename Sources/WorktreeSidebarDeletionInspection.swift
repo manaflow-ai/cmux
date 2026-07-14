@@ -19,3 +19,10 @@ struct WorktreeSidebarDeletionInspection: Equatable, Sendable {
         hasUncommittedChanges || hasInitializedSubmodules
     }
 }
+
+struct WorktreeSidebarDeletionStatusSnapshot {
+    var statusFingerprint = WorktreeSidebarBoundedGitProbe.Fingerprint.empty
+    var ignoredFingerprint = WorktreeSidebarBoundedGitProbe.Fingerprint.empty
+    var hasUncommittedChanges = false
+    var hasIgnoredFiles = false
+}

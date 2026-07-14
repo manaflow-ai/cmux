@@ -104,8 +104,8 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
         force: Bool
     ) async throws -> WorktreeSidebarDeletionResult {
         // This fresh inspection is the final lock/state check. Comparing the
-        // complete snapshot prevents force-removing changes made after the user
-        // read the confirmation dialog.
+        // Git-reported risk snapshot catches path/state changes without hashing
+        // arbitrarily large, actively changing build output after force consent.
         let current = try await inspectDeletion(
             projectRootPath: projectRootPath,
             worktreePath: expected.worktree.path
@@ -238,25 +238,31 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
         return Array(Set(paths.filter { FileManager.default.fileExists(atPath: $0) })).sorted()
     }
 
-    func statusWatchPaths(worktreePath: String) async -> [String] {
+    func statusWatchPlan(
+        worktreePath: String,
+        excludingWorktreePaths: [String]
+    ) async -> WorktreeSidebarStatusWatchPlan {
         guard let paths = await metadata.watchedPaths(for: worktreePath),
               let rawGitDirectory = try? await checkedGit(
                   projectRootPath: worktreePath,
                   arguments: ["rev-parse", "--absolute-git-dir"],
                   operation: .status,
                   optionalLocks: true
-              ) else { return [] }
+              ) else { return .empty }
         let gitDirectory = rawGitDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        let roots = [worktreePath, gitDirectory]
-            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
-        return paths.filter { path in roots.contains { path == $0 || path.hasPrefix($0 + "/") } }
+        return WorktreeSidebarStatusWatchPlanner().makePlan(
+            worktreePath: worktreePath,
+            gitDirectory: gitDirectory,
+            metadataPaths: paths,
+            excludedWorktreePaths: excludingWorktreePaths
+        )
     }
 
     private func deletionStatus(
         projectRootPath: String,
         worktree: WorktreeSidebarWorktree
-    ) async throws -> StatusSnapshot {
-        guard !worktree.isPrunable else { return StatusSnapshot() }
+    ) async throws -> WorktreeSidebarDeletionStatusSnapshot {
+        guard !worktree.isPrunable else { return WorktreeSidebarDeletionStatusSnapshot() }
         let probe = WorktreeSidebarBoundedGitProbe(
             commands: commands,
             timeout: commandTimeout
@@ -269,7 +275,7 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             commandDirectory: projectRootPath,
             worktreePath: worktree.path
         )
-        return StatusSnapshot(
+        return WorktreeSidebarDeletionStatusSnapshot(
             statusFingerprint: statusFingerprint,
             ignoredFingerprint: ignored.fingerprint,
             hasUncommittedChanges: statusFingerprint.hasContent,
@@ -490,10 +496,4 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             .path
     }
 
-    private struct StatusSnapshot {
-        var statusFingerprint = WorktreeSidebarBoundedGitProbe.Fingerprint.empty
-        var ignoredFingerprint = WorktreeSidebarBoundedGitProbe.Fingerprint.empty
-        var hasUncommittedChanges = false
-        var hasIgnoredFiles = false
-    }
 }

@@ -42,6 +42,7 @@ final class WorktreeSidebarModel {
     @ObservationIgnored private var lifecyclePhase: LifecyclePhase = .stopped
     @ObservationIgnored private var refreshState: RefreshState = .idle
     @ObservationIgnored private var worktrees: [WorktreeSidebarWorktree] = []
+    @ObservationIgnored private var worktreePaths: [String] = []
     @ObservationIgnored private var statusByPath: [String: WorktreeSidebarStatus] = [:]
     @ObservationIgnored private var rowIndexByPath: [String: Int] = [:]
     @ObservationIgnored private var visiblePaths: Set<String> = []
@@ -53,8 +54,11 @@ final class WorktreeSidebarModel {
     @ObservationIgnored private var listingWatcher: RecursivePathWatcher?
     @ObservationIgnored private var listingWatcherTask: Task<Void, Never>?
     @ObservationIgnored private var statusWatcherInstallTasks: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored private var statusWatchers: [String: RecursivePathWatcher] = [:]
-    @ObservationIgnored private var statusWatcherTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var statusWatchPlans: [String: WorktreeSidebarStatusWatchPlan] = [:]
+    @ObservationIgnored private var statusRecursiveWatchers: [String: RecursivePathWatcher] = [:]
+    @ObservationIgnored private var statusRecursiveWatcherTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var statusShallowWatchers: [String: [FileWatcher]] = [:]
+    @ObservationIgnored private var statusShallowWatcherTasks: [String: [Task<Void, Never>]] = [:]
 
     init(
         projectRootPath: String,
@@ -278,6 +282,7 @@ final class WorktreeSidebarModel {
 
     private func apply(worktrees: [WorktreeSidebarWorktree]) {
         self.worktrees = worktrees
+        worktreePaths = worktrees.map(\.path)
         let validPaths = Set(worktrees.map(\.path))
         for path in visiblePaths.subtracting(validPaths) {
             stopStatusTracking(path: path)
@@ -378,42 +383,81 @@ final class WorktreeSidebarModel {
             return
         }
         statusWatcherInstallTasks[path]?.cancel()
+        let excludedPaths = worktreePaths
         statusWatcherInstallTasks[path] = Task { [weak self] in
             guard let self else { return }
-            let paths = await git.statusWatchPaths(worktreePath: path)
+            let plan = await git.statusWatchPlan(
+                worktreePath: path,
+                excludingWorktreePaths: excludedPaths
+            )
             guard !Task.isCancelled,
                   lifecyclePhase == .running,
                   visiblePaths.contains(path) else {
                 return
             }
-            if statusWatchers[path]?.watchedPaths == paths { return }
-            statusWatcherTasks[path]?.cancel()
-            statusWatcherTasks[path] = nil
-            if let watcher = statusWatchers.removeValue(forKey: path) {
+            if statusWatchPlans[path] == plan { return }
+            statusRecursiveWatcherTasks.removeValue(forKey: path)?.cancel()
+            statusShallowWatcherTasks.removeValue(forKey: path)?.forEach { $0.cancel() }
+            if let watcher = statusRecursiveWatchers.removeValue(forKey: path) {
                 await watcher.stop()
             }
-            guard let watcher = RecursivePathWatcher(paths: paths) else { return }
-            statusWatchers[path] = watcher
-            statusWatcherTasks[path] = Task { @MainActor [weak self] in
-                for await _ in watcher.events {
-                    guard let self else { break }
-                    guard let worktree = worktrees.first(where: { $0.path == path }) else {
-                        refresh()
-                        continue
+            for watcher in statusShallowWatchers.removeValue(forKey: path) ?? [] {
+                await watcher.stop()
+            }
+            guard !Task.isCancelled,
+                  lifecyclePhase == .running,
+                  visiblePaths.contains(path) else {
+                return
+            }
+            statusWatchPlans[path] = plan
+            if let watcher = RecursivePathWatcher(paths: plan.recursivePaths) {
+                statusRecursiveWatchers[path] = watcher
+                statusRecursiveWatcherTasks[path] = Task { @MainActor [weak self] in
+                    for await _ in watcher.events {
+                        guard let self else { break }
+                        handleStatusWatchEvent(path: path)
                     }
-                    guard !worktree.isPrunable else { continue }
-                    scheduleStatusRefresh(path: path)
+                }
+            }
+            let shallowWatchers = plan.shallowPaths.map {
+                FileWatcher(path: $0, throttle: .milliseconds(250))
+            }
+            statusShallowWatchers[path] = shallowWatchers
+            statusShallowWatcherTasks[path] = shallowWatchers.map { watcher in
+                Task { @MainActor [weak self] in
+                    for await _ in watcher.events {
+                        guard let self else { break }
+                        handleStatusWatchEvent(path: path)
+                        reconcileStatusWatcher(path: path)
+                    }
                 }
             }
         }
     }
 
+    private func handleStatusWatchEvent(path: String) {
+        guard let worktree = worktrees.first(where: { $0.path == path }) else {
+            refresh()
+            return
+        }
+        guard !worktree.isPrunable else { return }
+        scheduleStatusRefresh(path: path)
+    }
+
     private func stopStatusTracking(path: String) {
         statusScheduler.remove(path: path)
         statusWatcherInstallTasks.removeValue(forKey: path)?.cancel()
-        statusWatcherTasks.removeValue(forKey: path)?.cancel()
-        if let watcher = statusWatchers.removeValue(forKey: path) {
+        statusWatchPlans.removeValue(forKey: path)
+        statusRecursiveWatcherTasks.removeValue(forKey: path)?.cancel()
+        statusShallowWatcherTasks.removeValue(forKey: path)?.forEach { $0.cancel() }
+        if let watcher = statusRecursiveWatchers.removeValue(forKey: path) {
             Task { await watcher.stop() }
+        }
+        let shallowWatchers = statusShallowWatchers.removeValue(forKey: path) ?? []
+        if !shallowWatchers.isEmpty {
+            Task {
+                for watcher in shallowWatchers { await watcher.stop() }
+            }
         }
     }
 

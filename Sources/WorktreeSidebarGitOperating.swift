@@ -25,5 +25,8 @@ protocol WorktreeSidebarGitOperating: Sendable {
 
     func listingWatchPaths(projectRootPath: String) async -> [String]
 
-    func statusWatchPaths(worktreePath: String) async -> [String]
+    func statusWatchPlan(
+        worktreePath: String,
+        excludingWorktreePaths: [String]
+    ) async -> WorktreeSidebarStatusWatchPlan
 }
