@@ -114,11 +114,83 @@ class KeyboardLayout {
     /// Use this wherever code compares raw event characters against Latin shortcut keys.
     static func normalizedCharacters(for event: NSEvent) -> String {
         let raw = (event.charactersIgnoringModifiers ?? "").lowercased()
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.control), let decoded = controlModifiedBaseCharacter(raw) {
+            return decoded
+        }
         if raw.allSatisfy(\.isASCII) { return raw }
         if let layoutChar = character(forKeyCode: event.keyCode, modifierFlags: []) {
             return layoutChar
         }
         return raw
+    }
+
+    /// Restore a shortcut's logical key after Control has encoded it as a C0 character,
+    /// then normalize shifted symbols to the base key stored by the shortcut recorder.
+    static func normalizedShortcutCharacter(
+        _ eventCharacter: String,
+        applyControlCharacterNormalization: Bool,
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
+    ) -> String {
+        let lowered = eventCharacter.lowercased()
+        let logicalKey = applyControlCharacterNormalization
+            ? controlModifiedBaseCharacter(lowered) ?? lowered
+            : lowered
+
+        switch logicalKey {
+        case "+": return "="
+        case "_": return "-"
+        default: break
+        }
+
+        guard applyShiftSymbolNormalization else { return logicalKey }
+
+        switch logicalKey {
+        case "{": return "["
+        case "}": return "]"
+        case "<": return eventKeyCode == 43 ? "," : logicalKey // kVK_ANSI_Comma
+        case ">": return eventKeyCode == 47 ? "." : logicalKey // kVK_ANSI_Period
+        case "?": return "/"
+        case ":": return ";"
+        case "\"": return "'"
+        case "|": return "\\"
+        case "~": return "`"
+        case "!": return eventKeyCode == 18 ? "1" : logicalKey // kVK_ANSI_1
+        case "@": return eventKeyCode == 19 ? "2" : logicalKey // kVK_ANSI_2
+        case "#": return eventKeyCode == 20 ? "3" : logicalKey // kVK_ANSI_3
+        case "$": return eventKeyCode == 21 ? "4" : logicalKey // kVK_ANSI_4
+        case "%": return eventKeyCode == 23 ? "5" : logicalKey // kVK_ANSI_5
+        case "^": return eventKeyCode == 22 ? "6" : logicalKey // kVK_ANSI_6
+        case "&": return eventKeyCode == 26 ? "7" : logicalKey // kVK_ANSI_7
+        case "*": return eventKeyCode == 28 ? "8" : logicalKey // kVK_ANSI_8
+        case "(": return eventKeyCode == 25 ? "9" : logicalKey // kVK_ANSI_9
+        case ")": return eventKeyCode == 29 ? "0" : logicalKey // kVK_ANSI_0
+        default: return logicalKey
+        }
+    }
+
+    private static func controlModifiedBaseCharacter(_ characters: String) -> String? {
+        guard characters.unicodeScalars.count == 1,
+              let scalar = characters.unicodeScalars.first else {
+            return nil
+        }
+
+        let decodedValue: UInt32
+        switch scalar.value {
+        case 0x00:
+            decodedValue = 0x40 // @
+        case 0x01...0x1A:
+            decodedValue = scalar.value + 0x60 // a...z
+        case 0x1B...0x1F:
+            decodedValue = scalar.value + 0x40 // [..._
+        case 0x7F:
+            decodedValue = 0x3F // ?
+        default:
+            return nil
+        }
+        guard let decoded = UnicodeScalar(decodedValue) else { return nil }
+        return String(decoded)
     }
 
     private static func characterFromInputSource(

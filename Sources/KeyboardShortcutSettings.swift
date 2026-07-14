@@ -1698,6 +1698,7 @@ struct ShortcutStroke: Equatable, Hashable {
         if Self.shortcutCharacterMatches(
             eventCharacter: eventCharacter,
             shortcutKey: shortcutKey,
+            applyControlCharacterNormalization: flags.contains(.control),
             applyShiftSymbolNormalization: flags.contains(.shift),
             eventKeyCode: keyCode
         ) {
@@ -1877,47 +1878,16 @@ struct ShortcutStroke: Equatable, Hashable {
 
     static func normalizedShortcutEventCharacter(
         _ eventCharacter: String,
+        applyControlCharacterNormalization: Bool = false,
         applyShiftSymbolNormalization: Bool,
         eventKeyCode: UInt16
     ) -> String {
-        let lowered = eventCharacter.lowercased()
-
-        // "+" -> "=" and "_" -> "-" are normalized regardless of Shift. On US layouts these
-        // symbols only exist as Shift variants, so the Shift gate below historically sufficed.
-        // On European layouts (German QWERTZ, French AZERTY, Nordic) "+" and "-" are dedicated
-        // keys typed WITHOUT Shift, so a bare "+"/"_" can only originate from such a key.
-        // Mapping them to their base zoom key ("=", "-") unconditionally is therefore safe
-        // (no shortcut key is ever stored as "+"/"_") and is what makes Cmd zoom work there.
-        switch lowered {
-        case "+": return "="
-        case "_": return "-"
-        default: break
-        }
-
-        guard applyShiftSymbolNormalization else { return lowered }
-
-        switch lowered {
-        case "{": return "["
-        case "}": return "]"
-        case "<": return eventKeyCode == 43 ? "," : lowered // kVK_ANSI_Comma
-        case ">": return eventKeyCode == 47 ? "." : lowered // kVK_ANSI_Period
-        case "?": return "/"
-        case ":": return ";"
-        case "\"": return "'"
-        case "|": return "\\"
-        case "~": return "`"
-        case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
-        case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
-        case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3
-        case "$": return eventKeyCode == 21 ? "4" : lowered // kVK_ANSI_4
-        case "%": return eventKeyCode == 23 ? "5" : lowered // kVK_ANSI_5
-        case "^": return eventKeyCode == 22 ? "6" : lowered // kVK_ANSI_6
-        case "&": return eventKeyCode == 26 ? "7" : lowered // kVK_ANSI_7
-        case "*": return eventKeyCode == 28 ? "8" : lowered // kVK_ANSI_8
-        case "(": return eventKeyCode == 25 ? "9" : lowered // kVK_ANSI_9
-        case ")": return eventKeyCode == 29 ? "0" : lowered // kVK_ANSI_0
-        default: return lowered
-        }
+        KeyboardLayout.normalizedShortcutCharacter(
+            eventCharacter,
+            applyControlCharacterNormalization: applyControlCharacterNormalization,
+            applyShiftSymbolNormalization: applyShiftSymbolNormalization,
+            eventKeyCode: eventKeyCode
+        )
     }
 
     private static func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
@@ -1930,12 +1900,14 @@ struct ShortcutStroke: Equatable, Hashable {
     private static func shortcutCharacterMatches(
         eventCharacter: String?,
         shortcutKey: String,
+        applyControlCharacterNormalization: Bool = false,
         applyShiftSymbolNormalization: Bool,
         eventKeyCode: UInt16
     ) -> Bool {
         guard let eventCharacter, !eventCharacter.isEmpty else { return false }
         return normalizedShortcutEventCharacter(
             eventCharacter,
+            applyControlCharacterNormalization: applyControlCharacterNormalization,
             applyShiftSymbolNormalization: applyShiftSymbolNormalization,
             eventKeyCode: eventKeyCode
         ) == shortcutKey
