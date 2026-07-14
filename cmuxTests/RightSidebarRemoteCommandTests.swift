@@ -34,8 +34,16 @@ extension TerminalControllerSocketSecurityTests {
         #expect(fileExplorerState.isVisible)
 
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set find") == "OK")
-        #expect(fileExplorerState.mode == .files)
+        #expect(fileExplorerState.mode == .find)
         #expect(fileExplorerState.isVisible)
+
+        let findModeResponse = TerminalController.shared.handleSocketLine("right_sidebar mode")
+        let findModeData = try #require(findModeResponse.data(using: .utf8))
+        let findModePayload = try #require(JSONSerialization.jsonObject(with: findModeData) as? [String: Any])
+        #expect(findModePayload["mode"] as? String == "find")
+
+        #expect(TerminalController.shared.handleSocketLine("right_sidebar focus") == "OK")
+        #expect(fileExplorerState.mode == .find)
 
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set vault --no-focus") == "OK")
         #expect(fileExplorerState.mode == .sessions)
@@ -252,7 +260,7 @@ extension TerminalControllerSocketSecurityTests {
             target: RightSidebarRemoteTarget(windowId: windowAId, workspaceId: nil)
         ) == .ok)
         #expect(stateA.isVisible)
-        #expect(stateA.mode == .files)
+        #expect(stateA.mode == .find)
         #expect(!stateB.isVisible)
         #expect(stateB.mode == .files)
 
@@ -262,7 +270,7 @@ extension TerminalControllerSocketSecurityTests {
         ) == .ok)
         #expect(stateB.isVisible)
         #expect(stateB.mode == .sessions)
-        #expect(stateA.mode == .files)
+        #expect(stateA.mode == .find)
 
         #expect(appDelegate.applyRightSidebarRemoteCommand(
             .hide,

@@ -87,7 +87,7 @@ struct UnifiedFileExplorerTests {
         #expect(focusController.focusRightSidebar(mode: .find, focusFirstItem: true))
         let searchField = try #require(Self.searchField(in: container))
         let searchResponder = try #require(window.firstResponder)
-        #expect(state.mode == .files)
+        #expect(state.mode == .find)
         #expect(focusController.activeRightSidebarMode == .find)
         #expect(container.ownsKeyboardFocus(searchResponder))
 
@@ -110,14 +110,23 @@ struct UnifiedFileExplorerTests {
 
         #expect(focusController.focusRightSidebar(mode: .files, focusFirstItem: true))
         #expect(window.firstResponder is NSOutlineView)
+        #expect(state.mode == .files)
         #expect(focusController.activeRightSidebarMode == .files)
         #expect(searchField.stringValue == "needle")
         #expect(container.searchSnapshot == snapshot)
         #expect(store.expandedPaths == [directory.path])
         #expect(store.selectedPath == directory.path)
 
+        let searchCountBeforeHiddenRevision = searchController.searchRequests.count
+        store.reload()
+        container.updateHeader(store: store)
+        #expect(searchController.searchRequests.count == searchCountBeforeHiddenRevision)
+        #expect(window.makeFirstResponder(searchField))
+        #expect(searchController.searchRequests.count == searchCountBeforeHiddenRevision + 1)
+        #expect(searchController.searchRequests.last?.contentRevision == store.contentRevision)
+
         #expect(focusController.focusRightSidebar(mode: .find, focusFirstItem: true))
-        #expect(state.mode == .files)
+        #expect(state.mode == .find)
         #expect(focusController.activeRightSidebarMode == .find)
         #expect(searchField.stringValue == "needle")
         #expect(container.searchSnapshot == snapshot)
@@ -149,9 +158,20 @@ struct UnifiedFileExplorerTests {
 
 @MainActor
 private final class SearchControllerSpy: FileSearchControlling {
-    var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
+    struct SearchRequest: Equatable {
+        let query: String
+        let rootPath: String
+        let contentRevision: Int
+    }
 
-    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {}
+    var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
+    private(set) var searchRequests: [SearchRequest] = []
+
+    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {
+        searchRequests.append(
+            SearchRequest(query: rawQuery, rootPath: rootPath, contentRevision: contentRevision)
+        )
+    }
     func cancel(clear: Bool) {}
     func publish(_ snapshot: FileSearchSnapshot) { onSnapshotChanged?(snapshot) }
 }
