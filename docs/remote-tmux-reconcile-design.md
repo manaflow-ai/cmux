@@ -13,11 +13,11 @@ Today every event carries its own payload and its own decision. A geometry
 callback arrives with a size and must judge it against a window bound sampled
 at a different instant (`noteContainerSize` in
 `Sources/RemoteTmuxWindowMirror+SizingTransaction.swift`). An imposition is a
-send-and-hope: bonsplit applies it on a later turn, so the host grows a parity
-checker (`rearmIfOutputMissedPlan`) to notice misses, a re-arm cap to keep the
-checker finite, and a keyed hold (`dividerResizeInFlight`) to keep the checker
-from firing during a tmux round trip — and the hold needs a 2-second grace
-timer for the reply that never comes. Inside bonsplit the same shape repeats
+send-and-hope: bonsplit applies it on a later turn. So the host grows a parity
+checker (`rearmIfOutputMissedPlan`) to notice misses, then a re-arm cap to keep
+the checker finite, then a keyed hold (`dividerResizeInFlight`) to keep the
+checker from firing during a tmux round trip. And the hold needs a 2-second
+grace timer for the reply that never comes. Inside bonsplit the same shape repeats
 one layer down: `imposedEpoch` to force a re-apply the dedup would swallow,
 `imposedRetryBudget` to bound re-applies AppKit refuses, and
 `renudgeImposedDescendants` to fix children a late parent apply moved
@@ -26,10 +26,10 @@ one layer down: `imposedEpoch` to force a re-apply the dedup would swallow,
 Each of these mechanisms is a correct patch for a real bug, and each one exists
 because an edge, once consumed, is gone. If the handler drops the payload,
 mis-judges it against torn state, or completes against state that changes a
-turn later, no future edge re-delivers the truth — so every such hole needs its
-own bespoke re-arm, and every re-arm needs its own bound. The day's bug ledger
-(twelve entries, replayed in full below) is one disease with twelve
-presentations: state that only a lost edge could have corrected.
+turn later, no future edge re-delivers the truth. So every such hole needs its
+own hand-written re-arm, and every re-arm needs its own bound. The day's bug
+ledger (twelve entries, replayed in full below) is the same failure twelve
+times over: state that only a lost edge could have corrected.
 
 Reconciliation removes the class. An event stops being a carrier of truth and
 becomes a hint that truth may have moved. All truth is read fresh, in one
@@ -67,21 +67,41 @@ Generations state the semantic once. A unit test pins it: a mark during
 commit yields exactly one more pass, and a mark on an idle mirror yields
 exactly one.
 
+```
+ events                        the pass (one main-queue turn,
+ ------                        outside all layout callbacks)
+ %layout-change  --+           -----------------------------
+ geometry cb     --+   mark    +----------+
+ calib sample    --+-- dirty ->| snapshot |  read the world, one instant
+ drag begin/end  --+  (gen++)  +----------+
+ visibility flip --+           | desired  |  pure function of the snapshot
+ reply dequeued  --+           +----------+
+                               | diff     |  desired vs actual, classified
+                               +----------+
+                               | commit   |  writes + sends, synchronous
+                               +----+-----+
+                                    |
+                     did the generation move during the pass?
+                       yes -> exactly one follow-up pass
+                       no  -> converged: empty diff, done
+```
+
 The pass runs on the next main-runloop turn, outside every layout and
 observation callback, in four phases, all synchronous within the one drain.
 
-First it snapshots the world in one instant: the probe view's frame
-(`MirrorHostProbeView` already backs the whole mirror region, so its frame
-*is* the container — the pass reads it directly instead of trusting a
-callback-carried SwiftUI proposal), the hosting window's content bound
-through that same probe, the tmux base and visible layout trees, the
-calibration constants, the drag-session state, the visibility state, the
-pending user intent (a drag-end waiting to be sent), and the in-flight send
-set. The calibration sweep is ordered as an event, not folded into desired
-computation: immediately before the snapshot, still in the same drain, the
-sweep polls each pane's current sample the way `refreshGeometryConstants`
-does and lets the folds ingest — after that, the constants are copied once
-into the snapshot and nothing downstream may touch a live surface. Today's
+First it snapshots the world in one instant. The snapshot holds the probe
+view's frame (`MirrorHostProbeView` already backs the whole mirror region,
+so its frame *is* the container — the pass reads it directly instead of
+trusting a callback-carried SwiftUI proposal), and the hosting window's
+content bound through that same probe. It also holds the tmux base and
+visible layout trees, the calibration constants, the drag-session state,
+the visibility state, the pending user intent (a drag-end waiting to be
+sent), and the in-flight send set. The calibration sweep is ordered as an
+event, not folded into desired computation. Immediately before the
+snapshot, still in the same drain, the sweep polls each pane's current
+sample the way `refreshGeometryConstants` does and lets the folds ingest.
+After that, the constants are copied once into the snapshot and nothing
+downstream may touch a live surface. Today's
 code is the anti-pattern this ordering forbids: `updateClientSize()` calls
 `refreshGeometryConstants()` from the middle of the sizing pass
 (`RemoteTmuxWindowMirror+SizingTransaction.swift:597`), and `ingest` mutates
@@ -98,8 +118,8 @@ marks dirty, a snapshot whose scale has no fold entry yet early-outs
 re-marking, and the first sample at the new scale is a guaranteed event
 because every surface re-renders on a scale change.
 
-Sampling the frame and the bound in the same instant removes the torn-pair
-disease, but not the poison one. A SwiftUI ancestor adopting a content ideal
+Sampling the frame and the bound in the same instant stops readings from
+being torn across two moments. It does not stop poisoned readings. A SwiftUI ancestor adopting a content ideal
 inflates real NSView frames, and it does so persistently, not transiently —
 clamping such a reading banks the window bound plus whatever chrome sits
 between window and mirror, which the live fuzz measured running 30-40pt wide
@@ -121,27 +141,27 @@ of `docs/remote-tmux-sizing-design.md`) — the edges just come from the probe
 now. A first-ever reading with no hosting window keeps the display-ceiling
 fallback, so a never-hosted mirror still makes its initial claim.
 
-Second it computes desired state as a pure function of that snapshot: the
-claim grid (`clientGrid`, unchanged — feed-forward, reads no tmux geometry),
-the render frame (grid plus chrome, clamped to the container, as
-`updateRenderFrameSize` computes today), each split's first-child extent in
-points (the planner, unchanged), each pane's outer frame, the portal host
-frame, and the tree's hidden bit. One inequality is load-bearing enough to
-state as an invariant of the desired function itself rather than a habit of
-its callers: no desired extent may exceed the measured region — plan(w) ≤ w
-on every axis, applied to the render frame and to every planned outer. (The
-current code is growing exactly this as a region clamp on `renderFrameSize`
-and the planned outers; under reconcile it becomes an assertion on the
-desired function's output.) The calibration constants deserve their own
-carve-out sentence: they *are* rendered-derived — a sample is a measurement
-of a painted surface — and what makes them safe as desired inputs is the
-monotone fold, which converges to a device constant and cannot oscillate or
-feed geometry back. They are the one deliberate exception to the
-rendered-data ban, the fold is the reason the exception is sound, and they
-reach the computation only through the snapshot.
+Second it computes desired state as a pure function of that snapshot. The
+outputs: the claim grid (`clientGrid`, unchanged — feed-forward, reads no
+tmux geometry), the render frame (grid plus chrome, clamped to the
+container, as `updateRenderFrameSize` computes today), each split's
+first-child extent in points (the planner, unchanged), each pane's outer
+frame, the portal host frame, and the tree's hidden bit. The desired
+function enforces one hard rule itself, instead of trusting every caller to
+remember it: no desired extent may exceed the measured region. That is
+plan(w) ≤ w on every axis, applied to the render frame and to every planned
+outer. (The current branch already enforces this rule as a clamp on
+`renderFrameSize` and on the planned outers. Under reconcile the same rule
+is checked once, as an assertion on the desired function's output.) The calibration constants are
+the one exception to the rendered-data ban. A sample really is a
+measurement of a painted surface. What makes it safe as an input is the
+monotone fold: it converges to a device constant, so it cannot oscillate or
+feed geometry back. And the constants reach the computation only through
+the snapshot.
 
 Desired is also computed under the same feasibility clamps the writes will
-meet, and "same" is a proof obligation, not a hope. AppKit can refuse an
+meet — and the two must be provably the same function, not two functions
+that usually agree. AppKit can refuse an
 exact target (`Coordinator.syncPosition` and
 `reapplyDividerForThicknessChange` in `SplitContainerView.swift` both branch
 on the refused case), so the planner's clamp must be the very function
@@ -164,11 +184,11 @@ fitted from live misses (the `bonsplitMinimumPaneExtent` note in
 `RemoteTmuxNativeLayoutMetrics.swift:23`) — so the feasibility model can be
 wrong in ways only the frames reveal. The bound for that case is one circuit
 breaker, and it is the same policy as the constraint fallback rather than a
-second mechanism: when three consecutive passes produce the same write from
+second mechanism. When three consecutive passes produce the same write from
 the same snapshot with the same miss, the residual is classified infeasible
-and reported — DEBUG-loud and counted — and no further writes go to that
-split until a constraint-relevant edge resets the breaker: a container
-resize, a structure change, an appearance config change. Three matches the
+and reported — DEBUG-loud and counted. No further writes go to that split
+until a constraint-relevant edge resets the breaker: a container resize, a
+structure change, an appearance config change. Three matches the
 cap the parity re-arm spends today (`outputParityRearmsSpent < 3`,
 `RemoteTmuxWindowMirror+SizingTransaction.swift:367`). The breaker is
 expected to be dead code while the clamp assertion holds; a trip is the
@@ -183,12 +203,23 @@ the reference view's bounds for the portal host — never a layout engine's
 solution, never our own last write, never anything derived from rendered
 content (the calibration fold excepted, as above). On the tmux side, actual
 means the layout tree the server last published and the acked claim ledger
-described in the next section. Each mismatch is classified: if an in-flight
+described in the next section. Each mismatch is classified. If an in-flight
 send already asks tmux for exactly this, the mismatch is *awaiting* and the
-pass leaves it alone; if the split is user-owned (a live drag session, or an
-unsent or unanswered drag intent), the pass excludes it from view writes; if
-the breaker holds it, it is infeasible-reported; otherwise the mismatch is
+pass leaves it alone. If the split is user-owned (a live drag session, or an
+unsent or unanswered drag intent), the pass excludes it from view writes. If
+the breaker holds it, it is infeasible-reported. Otherwise the mismatch is
 drift, and the pass emits a write.
+
+```
+ for each mismatch between desired and actual:
+
+   an in-flight send already asks for it?  -> AWAITING    leave it alone;
+                                                          the reply marks dirty
+   the split is user-owned (drag)?         -> USER-OWNED  no view writes
+   the circuit breaker holds it?           -> INFEASIBLE  reported, no writes
+                                                          until a reset edge
+   otherwise                               -> DRIFT       emit the write
+```
 
 Fourth it commits: the minimal set of writes, applied top-down from the one
 snapshot, still outside all layout callbacks — and applied synchronously.
@@ -298,8 +329,8 @@ overwrites the slot; when the commit next runs, it sends the new span, and
 the superseded entry's eventual resolution does nothing but mark dirty — its
 expected outcome is no longer anyone's excuse for waiting.
 
-No timer is load-bearing for the mirror's convergence — that is the scope of
-the claim, and it is deliberately not global. Two connection-level timers
+The mirror's convergence never depends on a timer. That is the scope of the
+claim, and it is deliberately not global. Two connection-level timers
 stay, each with a stated reason. The 180ms claim debounce
 (`clientSizeDebounceMs`) is a rate limiter whose own comment carries the
 argument: the ledger is written synchronously before any deferral, dedup
@@ -359,8 +390,8 @@ The named deletions, with what replaces each one.
   and the last-valid-container fact, because content-ideal poison is
   persistent and must still be dropped, never clamped, and the probe's new
   move-to-window and frame dirty edges supply the retry the parking
-  supplied. The parking, the single re-judgment, and their bound-less-pass
-  carve-out are what get deleted.
+  supplied. What gets deleted: the parking, the single re-judgment, and
+  their special case for passes that arrive without a bound.
 - `pendingContainerSizePt`/`pendingContainerScale`
   (`RemoteTmuxWindowMirror.swift:132`). Subsumed by the same predicate: a
   sample with no bound to validate it simply does not update the last valid
@@ -424,9 +455,9 @@ The named deletions, with what replaces each one.
   tree-wide mid-drag apply refusal (the `isTreeDragSessionActive` gate in
   `syncPosition`) also stays, as the last-line guard for a commit racing a
   just-started gesture — a refused write there heals at the drag-end pass.
-- The ack barrier stays and becomes load-bearing: `sendTracked` and the FIFO
-  correlation in `handleCommandResult` are protocol truth, and the in-flight
-  set is built on them rather than beside them. The layout-publication
+- The ack barrier stays, and the in-flight set is built directly on it:
+  `sendTracked` and the FIFO correlation in `handleCommandResult` are the
+  protocol truth, not something to duplicate beside. The layout-publication
   quarantine stays as the second phase of resolution. The connection's rate
   limiters stay, scoped as above.
 - The feed-forward claim (`updateClientSize`, `clientGrid`), the per-window
@@ -507,12 +538,13 @@ impossible rather than merely fixed.
 11. Claims derived from rendered content feeding back (the growth spiral:
     the split tree's imposed width leaking into the container reading,
     walled off today by the overlay split in
-    `RemoteTmuxWindowMirrorSplitView`). The model adds two structural
-    guarantees to the existing feed-forward invariant: rendered geometry may
-    only appear on the *actual* side of the diff (calibration's monotone
-    fold being the one argued exception), and the desired function's output
-    is bounded by the measured region — plan(w) ≤ w — as an asserted
-    invariant, so even a poisoned input cannot become an outsized plan.
+    `RemoteTmuxWindowMirrorSplitView`). The model adds two guarantees on
+    top of the existing feed-forward rule. Measured-from-screen geometry is
+    only ever used to describe what IS, never to decide what SHOULD BE
+    (the calibration constants are the one exception, and the section
+    above says why they are safe). And what should be can never exceed the
+    measured region — plan(w) ≤ w, checked by an assertion — so even a bad
+    input cannot become an oversized plan.
 12. Work amplifying under load (callbacks de-coalescing into per-event
     passes). Impossible by the coalescing invariant: events mark, marks fold
     into at most one scheduled pass, and the pass's cost is a function of
@@ -536,11 +568,11 @@ Each scenario states what the pass does and why the sequence terminates.
 - A user drag begins mid-pass: drag begin and the pass both run on the main
   actor, so they cannot interleave within one drain; the earliest a drag can
   start is after commit. Passes do keep running mid-drag — the main queue
-  does not pause for gestures — and that is fine: the dragged split is
-  user-owned in the diff, bonsplit's tree-wide refusal backstops any write
-  that races the gesture's first frames, and the zero-crossing at session
-  end marks dirty, so both the refusal and the deferral heal at the
-  drag-end pass. Terminates at drag end plus one pass.
+  does not pause for gestures — and that is fine. The dragged split is
+  user-owned in the diff. Bonsplit's tree-wide refusal backstops any write
+  that races the gesture's first frames. The zero-crossing at session end
+  marks dirty, so both the refusal and the deferral heal at the drag-end
+  pass. Terminates at drag end plus one pass.
 - Local desired changes during a tmux round trip: the user drags (send in
   flight), then the window resizes so the claim changes. The pass sends the
   new claim — the claim is not the dragged split's state and is not blocked
@@ -578,7 +610,7 @@ Each scenario states what the pass does and why the sequence terminates.
   snapshotting only its own world. While per-window sizing is live, the only
   shared sizing state is the session-wide client-size envelope, which the
   connection owns and dedups (`setWindowSize` maintains the running max), so
-  N windows are N separate fixed points. The carve-out is the session-wide
+  N windows are N separate fixed points. The exception is the session-wide
   fallback: when a server rejects the per-window form
   (`supportsPerWindowSize` flips off and claims route through
   `setClientSize`, `RemoteTmuxControlConnection+Sizing.swift:72-106`), the
@@ -597,12 +629,12 @@ Each scenario states what the pass does and why the sequence terminates.
   rescale is finite and rewriting does not resize the container.
 - Infeasible desired: tmux assigns a 1-column pane the platform floor
   refuses, or the exact-fit tree exceeds the container. Desired is computed
-  through the exported bonsplit clamp and the region clamp (plan(w) ≤ w), so
-  the pass converges to the best feasible geometry and stops; the
-  clamp-equality assertion is what keeps "feasible for us" and "feasible for
-  AppKit" the same set, the circuit breaker bounds the writes if they ever
-  diverge (the 32pt floor is the measured precedent for exactly that
-  divergence), and the residual disagreement with tmux's assignment is
+  through the exported bonsplit clamp and the region clamp (plan(w) ≤ w),
+  so the pass converges to the best feasible geometry and stops. The
+  clamp-equality assertion keeps "feasible for us" and "feasible for
+  AppKit" the same set. If they ever diverge anyway, the circuit breaker
+  bounds the writes (the 32pt floor is the measured precedent for exactly
+  that divergence). The residual disagreement with tmux's assignment is
   reported by the existing grid-mismatch DEBUG probe, not fought.
 - An observation arrives during commit: a commit write runs synchronous
   layout, whose callbacks fire mid-commit. Handlers only mark and return;
@@ -620,8 +652,175 @@ Each scenario states what the pass does and why the sequence terminates.
 - Load smears callbacks across turns: however the runloop batches or delays
   event delivery, each handler is a mark, the drain runs one pass per
   generation change, and pass cost is O(tree). Work per real state change is
-  constant; there is nothing to de-coalesce. The invariant is checkable, not
-  aspirational: the counters below fail a DEBUG run that violates it.
+  constant; there is nothing to de-coalesce. The counters below make this
+  checkable: a DEBUG run that violates it fails.
+
+## Testing each layer
+
+The pass structure makes each layer testable on its own, and the layers
+where the code meets AppKit, bonsplit, ghostty, and tmux stay covered by
+tests against the real thing. The split is not "unit tests instead of
+integration tests." It is: stress the algorithm where stress is cheap, and
+pin every real-world behavior the algorithm relies on where only the real
+dependency can answer.
+
+```
+   layer                        runs against          what it proves
+   -----                        ------------          --------------
+   1  desired function          nothing (pure)        plan(w) <= w, clamp
+                                                      equality, determinism
+   2  reconcile loop            simulated tmux +      convergence, bounded
+      (snapshot->diff->commit)  simulated view layer  passes, no lost edges
+   3  dependency assumptions    real AppKit, real     they obey our writes:
+                                bonsplit, real        clamp matches, applies
+                                ghostty               land, layout defers
+   4  protocol layer            real tmux, no app     FIFO, acks, barrier,
+                                                      claim semantics
+   5  the whole app             everything real       the fuzz marathon
+```
+
+Layer 1 is free to stress. The desired function is a pure function of the
+snapshot, so a property harness can throw millions of generated snapshots
+at it — arbitrary trees, container sizes, calibration constants, drag
+states — and check the invariants on every one: output never exceeds the
+measured region, the clamp is idempotent, the same snapshot always produces
+the same plan.
+
+Layer 2 is where the algorithm itself gets stress-tested, and it must not
+depend on tmux or AppKit at all. The pass already consumes a snapshot value
+and emits writes and sends; formalizing that as ports (a world source, a
+view writer, a command transport) lets a test drive the loop against a
+simulated tmux and a simulated view layer. The simulation is turn-based —
+no wall clock, matching the no-timers rule — so a seeded harness can replay
+thousands of adversarial interleavings deterministically: replies arriving
+late, out of order with container changes, layout events faster than round
+trips, refusals, mid-commit marks. The assertions are the model's own
+invariants: events stopped implies convergence in bounded passes, one pass
+per generation change, zero writes after convergence, nothing lost.
+
+Layer 3 is the one the simulation cannot replace, because the reconciler's
+assumptions about AppKit, SwiftUI, bonsplit, and ghostty are exactly where
+the real bugs lived. Every behavior the layer-2 simulator encodes must be
+pinned by a test against the real dependency, or the stress harness is
+proving theorems about a world that does not exist. The dependency
+harness already started this (the bonsplit clamp test, the ghostty floor,
+the measured tmux facts); under reconcile it grows to cover each assumption
+by name: the exported clamp equals what bonsplit's coordinator actually
+applies to a real NSSplitView; a synchronous imposition lands and the frame
+read back matches; a portal write to a real window sticks; a ghostty
+surface accepts a size push and schedules its own repaint; and no path
+displays a surface synchronously from inside a layout pass (the layout-pass
+refresh tests). When a real-dependency test discovers a new behavior — the
+32pt floor was found exactly this way — the simulator gains it, and layer 2
+replays the stress suite against the corrected world.
+
+Layer 4 drives the protocol layer against a real tmux server with no app
+attached: FIFO correlation, ack barriers, per-window claim semantics,
+refusal shapes. Layer 5 stays what it is today — the live fuzz marathon and
+the render harness, judging rendered outcomes at rest.
+
+## What the concurrency audit found
+
+After the fuzz run wedged the app twice in one day, we audited the whole
+mirror stack for deadlock risk: every lock, every synchronous wait on the
+main thread, and the connection pipeline end to end.
+
+The first result is an absence. The mirror stack has no explicit locks.
+Everything is main-actor confined, and the pipe I/O on both sides is
+bounded: the writer rejects instead of blocking, the reader tears the
+connection down instead of buffering forever. So the dangerous resource
+here is never a mutex. It is the open window transaction during a layout
+pass, and the main thread itself.
+
+Two rules fall out of the bugs we hit, and both are now pinned by tests.
+
+First: never display a terminal surface synchronously from inside a layout
+pass. `displayIfNeeded` on a Metal-backed surface reaches ghostty's
+`drawFrame`, which waits for the GPU frame to complete. That frame presents
+through the window transaction that the layout pass is still holding open.
+The wait can never finish, and the main thread wedges for good. We hit this
+four times: the portal's frame-change refresh (the fuzz hang), its twin on
+the divider-drag path, the reveal nudge in `setVisibleInUI`, and a
+whole-window `displayIfNeeded` in the browser panel that flushed sibling
+terminal panes. All four are fixed the same way — the redraw waits for the
+next main-queue turn. That is an event edge, not a timer.
+
+Second: the main thread is one shared resource, and every subsystem in
+this stack serializes through it. The control-stream ingest, the render
+path, layout publication, and the RPC socket all contend for it. Three of
+the day's bugs came down to exactly this.
+
+```
+   control-stream     render path      layout           RPC socket
+   ingest (parse +    (draws, portal   publication      (main.sync
+   handle, in         syncs)           (rects replies   per verb)
+   stream order)                        -> windowsByID)
+        |                 |                 |                |
+        v                 v                 v                v
+   +--------------------------------------------------------------+
+   |                       the main thread                        |
+   +--------------------------------------------------------------+
+
+   wedge it   (a GPU wait inside a layout pass)  -> all four stop
+   saturate it (an %output flood)                -> replies queue
+                                                    behind redraws
+```
+
+The largest confirmed finding is architectural. The entire tmux stdout
+pipeline — parsing and handling — runs on the main actor, in strict stream
+order (`RemoteTmuxControlConnection.swift:421-428`). Every `%output` line
+pushes bytes through ghostty synchronously. Every topology event rebuilds
+the workspace inline. A command reply cannot be parsed until everything
+ahead of it has been handled. Under churn this feeds itself: handling
+generates more main-thread work, which delays the next chunk, which delays
+the reply that would let sizing settle. This is what inflated control
+round trips from 0.2s to 13s in the fuzz logs and starved layout
+publication. The fix is to parse off the main actor, deliver batched
+messages, coalesce `%output` per pane per batch, and coalesce topology
+notifies to one per drain. That work is step zero of the migration below.
+It ships on its own and touches transport, not sizing mechanisms, so it
+does not disturb the three-step ordering rule.
+
+The audit also found a fragile tier: paths that are safe today only
+because of a convention nothing enforces. Each has a fix direction and
+none blocks the current branch.
+
+- `ghostty_surface_free` runs on main and joins ghostty's IO threads
+  (`TerminalSurface+RuntimeLifecycle.swift:286`). Ghostty action callbacks
+  from those threads hop to main with `DispatchQueue.main.sync`
+  (`GhosttyTerminalView.swift:2483-2490`). If a free and a callback ever
+  overlap, both sides wait forever. Safe today only because ghostty
+  happens to deliver actions on main. Fix: make the off-main action branch
+  async, or fence frees against in-flight callbacks.
+- When main wedges, every RPC socket connection parks its thread in an
+  untimed `DispatchQueue.main.sync` (`TerminalController.swift:3279`).
+  No cycle, but the app fails slow — silence instead of an error — and new
+  connections keep spawning parked threads. Fix: a bounded wait that
+  returns a busy error.
+- `beginReconnecting` fails pending tracked sends before it marks the
+  connection down (`RemoteTmuxControlConnection.swift:636-652`). A
+  completion that re-enters `send` passes the connected check and gets a
+  false success into a dying pipe. `sendTracked` also registers its token
+  before sending, so a rejected write can both invoke the completion and
+  return false — a double edge the call sites survive only because they
+  are idempotent. Fix: mark the connection down first, and register the
+  token only after the send succeeds.
+- The pipe writer's byte accounting drains through main-queue hops
+  (`RemoteTmuxControlPipeWriter.swift:45-57`). A saturated main can make a
+  healthy pipe look full and force a reconnect that reports backpressure
+  the pipe never had. Fix: keep the counter on the writer's own queue.
+- The ssh process runner waits on reader EOF with no timeout
+  (`RemoteSessionProcessRunner.swift:138`). Safe only because every caller
+  pins `ControlMaster=no`; a forked child that holds the pipe would wedge
+  the coordinator queue permanently. Fix: derive a timeout from the
+  request budget.
+- The socket-worker auth verbs wait on untimed semaphores
+  (`TerminalController.swift:1256`). A stuck MainActor task parks the
+  worker forever. Fix: add timeouts.
+- `Workspace` exposes blocking PTY calls to main-actor code with no guard
+  and no callers (`Workspace.swift:5142-5188`). The first future caller
+  buys a beachball. Fix: assert off-main in `runOnControllerQueue`, or
+  delete the unused wrappers.
 
 ## Migration
 
@@ -670,19 +869,19 @@ bonsplit gets; after steps one and two they are dead weight whose removal
 the fuzz marathon can judge in isolation.
 
 Regressions get loud through invariant counters, extending
-`RemoteTmuxSizingDiagnostics` (`Sources/TerminalWindowPortal.swift:22`):
-passes per generation change (exactly one — more means de-coalescing, the
-amplification disease), writes per pass (bounded by tree size, and zero on
-the pass after a converged one — a second consecutive pass over an unchanged
-world that writes anything is a feedback loop caught at birth), sends per
-pass (bounded by the intent slots plus one claim), circuit-breaker trips
-(expected zero; any trip names a clamp-model divergence), and zero writes
-from observation contexts — enforced by a DEBUG assertion in the write
-primitives against an in-observation depth counter, the same shape as the
-existing `splitContainerProgrammaticSyncDepth`. Two more assertions carry
-the proof obligations from the model section: the clamp-equality check after
-every commit apply, and the plan(w) ≤ w bound on the desired function's
-output. A unit test pins the generation semantics — a mark during commit
+`RemoteTmuxSizingDiagnostics` (`Sources/TerminalWindowPortal.swift:22`).
+Passes per generation change must be exactly one; more means passes are
+multiplying instead of coalescing. Writes per pass are bounded by tree
+size, and must be zero on the pass after a converged one — a second
+consecutive pass over an unchanged world that writes anything is a feedback
+loop, caught early. Sends per pass are bounded by the intent slots plus one
+claim. Circuit-breaker trips should be zero; any trip names a clamp-model
+divergence. And writes from observation contexts must be zero, enforced by
+a DEBUG assertion in the write primitives against an in-observation depth
+counter — the same shape as the existing
+`splitContainerProgrammaticSyncDepth`. Two more assertions enforce what the
+model section promised: the clamp-equality check after every commit apply,
+and the plan(w) ≤ w bound on the desired function's output. A unit test pins the generation semantics — a mark during commit
 buys exactly one follow-up pass. The settle-latency budget in the harnesses
 stays tight; a slow settle under this model is a missing dirty edge, which
 is a bug, not a tuning problem.
@@ -691,7 +890,7 @@ is a bug, not a tuning problem.
 
 The single-pane path (a tmux window rendered without a mirror) keeps its
 current window-bounded claim; it has no split tree, no impositions, and no
-round-trip holds, so it has none of the diseases this redesign treats. The
+round-trip holds, so it has none of the problems this redesign fixes. The
 portal's already-conformant pieces stay as they are: its fingerprint-guarded
 no-op sync (`synchronizeLayoutHierarchy`) is actual-state diffing, and its
 host frame already follows the reference's real bounds — the reconciliation
