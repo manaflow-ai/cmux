@@ -15,6 +15,8 @@ struct ChatArtifactViewerRouteView: View {
     let path: String
     let scope: ChatArtifactViewerScope
     let onDone: () -> Void
+    private let textPreferences: ChatArtifactTextPreferences
+    private let textLayoutKind: ChatArtifactTextLayoutKind
 
     @Environment(\.chatArtifactLoader) private var loader
     @Environment(\.colorScheme) private var colorScheme
@@ -32,6 +34,26 @@ struct ChatArtifactViewerRouteView: View {
     @State private var goToLineText = ""
     @State private var goToLineUTF16Offset = 0
     @State private var goToLineRequestID = 0
+    @State private var wrapsLines: Bool
+    @State private var textFontSize: Double
+
+    init(
+        path: String,
+        scope: ChatArtifactViewerScope,
+        textPreferences: ChatArtifactTextPreferences = ChatArtifactTextPreferences(
+            defaults: .standard
+        ),
+        onDone: @escaping () -> Void
+    ) {
+        self.path = path
+        self.scope = scope
+        self.onDone = onDone
+        self.textPreferences = textPreferences
+        let layoutKind = ChatArtifactTextLayoutKind(path: path)
+        textLayoutKind = layoutKind
+        _wrapsLines = State(initialValue: textPreferences.wrapsLines(for: layoutKind))
+        _textFontSize = State(initialValue: textPreferences.fontSize(for: layoutKind))
+    }
 
     var body: some View {
         content
@@ -97,6 +119,22 @@ struct ChatArtifactViewerRouteView: View {
                                         bundle: .module
                                     ),
                                     systemImage: showsLineNumbers ? "checkmark" : "number"
+                                )
+                            }
+                            Button {
+                                wrapsLines.toggle()
+                                textPreferences.setWrapsLines(
+                                    wrapsLines,
+                                    for: textLayoutKind
+                                )
+                            } label: {
+                                Label(
+                                    String(
+                                        localized: "chat.artifact.wrap",
+                                        defaultValue: "Word wrap",
+                                        bundle: .module
+                                    ),
+                                    systemImage: wrapsLines ? "checkmark" : "text.justify.left"
                                 )
                             }
                         } label: {
@@ -339,6 +377,14 @@ struct ChatArtifactViewerRouteView: View {
             showsLineNumbers: showsLineNumbers,
             goToLineUTF16Offset: goToLineUTF16Offset,
             goToLineRequestID: goToLineRequestID,
+            wrapsLines: wrapsLines,
+            fontPointSize: textFontSize,
+            onFontSizeChanged: { fontSize in
+                textFontSize = textPreferences.setFontSize(
+                    fontSize,
+                    for: textLayoutKind
+                )
+            },
             topRequestID: topRequestID,
             bottomRequestID: bottomRequestID
         )

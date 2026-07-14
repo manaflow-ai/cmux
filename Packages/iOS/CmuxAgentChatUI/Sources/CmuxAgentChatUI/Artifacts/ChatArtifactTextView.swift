@@ -17,6 +17,9 @@ struct ChatArtifactTextView: UIViewRepresentable {
     let showsLineNumbers: Bool
     let goToLineUTF16Offset: Int
     let goToLineRequestID: Int
+    let wrapsLines: Bool
+    let fontPointSize: Double
+    let onFontSizeChanged: (Double) -> Void
     let topRequestID: Int
     let bottomRequestID: Int
 
@@ -30,11 +33,13 @@ struct ChatArtifactTextView: UIViewRepresentable {
         let containerView = ChatArtifactTextContainerView()
         containerView.textView.delegate = context.coordinator
         context.coordinator.attach(containerView)
+        context.coordinator.onFontSizeChanged = onFontSizeChanged
         return containerView
     }
 
     func updateUIView(_ containerView: ChatArtifactTextContainerView, context: Context) {
         let textView = containerView.textView
+        context.coordinator.onFontSizeChanged = onFontSizeChanged
         let isNewDocument = context.coordinator.documentID != documentID
         if isNewDocument {
             context.coordinator.resetHighlighting()
@@ -54,6 +59,9 @@ struct ChatArtifactTextView: UIViewRepresentable {
             context.coordinator.resetSearch()
             textView.textStorage.setAttributedString(NSAttributedString())
         }
+
+        containerView.updateWordWrap(wrapsLines)
+        context.coordinator.updateFontSize(in: textView, pointSize: fontPointSize)
 
         let font = textView.font ?? UIFont.monospacedSystemFont(
             ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize,

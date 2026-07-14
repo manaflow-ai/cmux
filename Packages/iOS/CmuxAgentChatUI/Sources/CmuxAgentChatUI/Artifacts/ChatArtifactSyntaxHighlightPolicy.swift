@@ -69,13 +69,18 @@ struct ChatArtifactSyntaxHighlightPolicy: Sendable {
             return .skippedForSize
         }
 
-        let pathExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
-        if let language = Self.languagesByExtension[pathExtension] {
+        if let language = inferredLanguage(path: path) {
             return .highlight(language: language)
         }
         if byteCount < Self.maxAutomaticDetectionBytes {
             return .highlight(language: nil)
         }
         return .skippedNoLanguage
+    }
+
+    /// Returns a highlight.js language inferred strictly from the path extension.
+    func inferredLanguage(path: String) -> String? {
+        let pathExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
+        return Self.languagesByExtension[pathExtension]
     }
 }

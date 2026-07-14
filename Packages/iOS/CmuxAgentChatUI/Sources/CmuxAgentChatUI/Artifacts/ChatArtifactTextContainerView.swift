@@ -8,6 +8,7 @@ final class ChatArtifactTextContainerView: UIView {
     let gutterView = ChatArtifactLineNumberGutterView()
 
     private let gutterWidthConstraint: NSLayoutConstraint
+    private var wrapsLines = true
 
     override init(frame: CGRect) {
         textView = UITextView(usingTextLayoutManager: false)
@@ -51,6 +52,54 @@ final class ChatArtifactTextContainerView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        if wrapsLines {
+            textView.textContainer.size = CGSize(
+                width: max(
+                    0,
+                    textView.bounds.width
+                        - textView.textContainerInset.left
+                        - textView.textContainerInset.right
+                ),
+                height: .greatestFiniteMagnitude
+            )
+        }
+        gutterView.setNeedsDisplay()
+    }
+
+    /// Switches between viewport-width wrapping and an unbounded horizontal container.
+    func updateWordWrap(_ wrapsLines: Bool) {
+        guard self.wrapsLines != wrapsLines else { return }
+        self.wrapsLines = wrapsLines
+        let contentOffset = textView.contentOffset
+        textView.textContainer.widthTracksTextView = wrapsLines
+        textView.textContainer.lineBreakMode = wrapsLines ? .byWordWrapping : .byClipping
+        textView.alwaysBounceHorizontal = !wrapsLines
+        textView.showsHorizontalScrollIndicator = !wrapsLines
+        if wrapsLines {
+            textView.textContainer.size = CGSize(
+                width: max(
+                    0,
+                    textView.bounds.width
+                        - textView.textContainerInset.left
+                        - textView.textContainerInset.right
+                ),
+                height: .greatestFiniteMagnitude
+            )
+            textView.setContentOffset(
+                CGPoint(x: -textView.adjustedContentInset.left, y: contentOffset.y),
+                animated: false
+            )
+        } else {
+            textView.textContainer.size = CGSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            textView.setContentOffset(contentOffset, animated: false)
+        }
+        textView.layoutManager.invalidateLayout(
+            forCharacterRange: NSRange(location: 0, length: textView.textStorage.length),
+            actualCharacterRange: nil
+        )
         gutterView.setNeedsDisplay()
     }
 

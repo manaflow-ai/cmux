@@ -10,6 +10,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     var handledTopRequestID = 0
     var handledBottomRequestID = 0
     var handledGoToLineRequestID = 0
+    var onFontSizeChanged: ((Double) -> Void)?
     private weak var containerView: ChatArtifactTextContainerView?
     private let syntaxHighlighter = ChatArtifactSyntaxHighlighter()
     private var highlightTask: Task<Void, Never>?
@@ -37,6 +38,13 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     private var publishedSearchSummary = ChatArtifactSearchSummary.empty
     private var summaryPublishGeneration = 0
     private let searchDebounce: Duration
+    private var appliedFontPointSize = 0.0
+    private var pinchStartFontPointSize = 0.0
+    private lazy var fontPinchGestureRecognizer: UIPinchGestureRecognizer = {
+        let recognizer = UIPinchGestureRecognizer(target: self, action: #selector(handleFontPinch(_:)))
+        recognizer.cancelsTouchesInView = false
+        return recognizer
+    }()
 
     init(searchDebounce: Duration = .milliseconds(160)) {
         self.searchDebounce = searchDebounce
@@ -45,10 +53,74 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
 
     func attach(_ containerView: ChatArtifactTextContainerView) {
         self.containerView = containerView
+        containerView.textView.addGestureRecognizer(fontPinchGestureRecognizer)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         containerView?.gutterView.setNeedsDisplay()
+    }
+
+    func updateFontSize(in textView: UITextView, pointSize: Double) {
+        let clamped = min(
+            max(pointSize, ChatArtifactTextPreferences.minimumFontSize),
+            ChatArtifactTextPreferences.maximumFontSize
+        )
+        guard abs(appliedFontPointSize - clamped) > 0.001 else { return }
+        applyFontSize(clamped, to: textView)
+    }
+
+    @objc
+    private func handleFontPinch(_ recognizer: UIPinchGestureRecognizer) {
+        guard let textView = containerView?.textView else { return }
+        switch recognizer.state {
+        case .began:
+            pinchStartFontPointSize = appliedFontPointSize > 0
+                ? appliedFontPointSize
+                : Double(textView.font?.pointSize ?? 15)
+        case .changed, .ended:
+            let scaled = pinchStartFontPointSize * Double(recognizer.scale)
+            let quantized = (scaled * 2).rounded() / 2
+            let clamped = min(
+                max(quantized, ChatArtifactTextPreferences.minimumFontSize),
+                ChatArtifactTextPreferences.maximumFontSize
+            )
+            if abs(clamped - appliedFontPointSize) > 0.001 {
+                applyFontSize(clamped, to: textView)
+            }
+            if recognizer.state == .ended {
+                onFontSizeChanged?(clamped)
+            }
+        case .cancelled, .failed:
+            applyFontSize(pinchStartFontPointSize, to: textView)
+        default:
+            break
+        }
+    }
+
+    private func applyFontSize(_ pointSize: Double, to textView: UITextView) {
+        let font = UIFont.monospacedSystemFont(
+            ofSize: CGFloat(pointSize),
+            weight: .regular
+        )
+        let contentOffset = textView.contentOffset
+        let selection = textView.selectedRange
+        textView.font = font
+        if textView.textStorage.length > 0 {
+            textView.textStorage.addAttribute(
+                .font,
+                value: font,
+                range: NSRange(location: 0, length: textView.textStorage.length)
+            )
+        }
+        textView.selectedRange = selection
+        textView.setContentOffset(contentOffset, animated: false)
+        appliedFontPointSize = pointSize
+        if let containerView {
+            containerView.updateLineNumbers(
+                index: containerView.gutterView.lineIndex,
+                isVisible: !containerView.gutterView.isHidden
+            )
+        }
     }
 
     func resetHighlighting() {

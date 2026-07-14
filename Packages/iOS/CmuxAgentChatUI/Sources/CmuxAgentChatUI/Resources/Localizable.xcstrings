@@ -2380,6 +2380,23 @@
           }
         }
       }
+    },
+    "chat.artifact.wrap" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Word wrap"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "行を折り返す"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
