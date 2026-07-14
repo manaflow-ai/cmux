@@ -69,7 +69,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     }
 
     /// Socket-worker methods; internal so package tests can pin the exact set.
-    static let socketWorkerMethods: Set<String> = [
+    static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
         "auth.status",
@@ -89,17 +89,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
-        // The mobile diff-review reads spawn git subprocesses and wait for
-        // them; the byte caps bound captured stdout but not git runtime or
-        // filesystem latency, so they must not hold the main actor. Their
-        // bodies take one main hop for workspace resolution and run the git
-        // work in a detached utility task (`TerminalController.
-        // v2MobileWorkspaceDiffStatus` / `v2MobileWorkspaceDiffFile`); the
-        // worker lane waits on that async result with a timeout. NOT
-        // mainThreadCallable: the whole point is that blocking subprocess
-        // work never runs inline on the main thread.
-        "mobile.workspace.diff_status",
-        "mobile.workspace.diff_file",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy
@@ -268,7 +257,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // sending input never activates or reselects anything.
         "surface.send_text",
         "surface.send_key",
-    ]
+    ]).union(mobileWorkspaceDiffSocketWorkerMethods)
 
     /// Socket-worker methods that are also safe to invoke from the main
     /// thread. The invariant is deadlock-freedom, not zero cost: a member's
