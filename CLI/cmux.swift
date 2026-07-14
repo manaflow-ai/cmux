@@ -30556,13 +30556,15 @@ export default CMUXSessionRestore;
                     client: client
                 )
             }
-            setAgentLifecycle(
-                client: client,
-                key: def.statusKey,
-                lifecycle: .unknown,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
+            if !suppressVisibleMutations {
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .unknown,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+            }
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))

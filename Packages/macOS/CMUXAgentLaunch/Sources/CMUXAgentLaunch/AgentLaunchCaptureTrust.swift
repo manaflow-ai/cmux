@@ -38,6 +38,18 @@ public enum AgentLaunchCaptureTrust {
         "rovodev": ["rovodev", "rovo", "rovo-dev"],
     ]
 
+    private static let interpreterHostBases: Set<String> = [
+        "bun", "deno", "node", "python", "python3", "ruby", "ts-node", "tsx",
+    ]
+
+    /// Script paths whose entrypoint name is generic (`cli.js`, `index.ts`, ...).
+    /// Direct entrypoints are recognized from their basename without an entry here.
+    private static let scriptPathMarkersByKind: [String: Set<String>] = [
+        "campfire": ["/packages/session/bin/campfire.ts", "/packages/session/dist/campfire"],
+        "claude": ["/.claude/", "/@anthropic-ai/claude-code/", "/claude/versions/"],
+        "opencode": ["/@opencode-ai/", "/opencode-ai/", "/opencode/"],
+    ]
+
     /// True when `launcher` plausibly describes a launch of agent `kind`.
     /// A nil/empty launcher is trusted: hooks fall back to their own kind.
     public static func launcherDescribesKind(_ launcher: String?, kind: String) -> Bool {
@@ -107,6 +119,22 @@ public enum AgentLaunchCaptureTrust {
         }
     }
 
+    /// True when a process is running a script but its argv cannot identify a
+    /// supported agent. Lineage callers treat this as uncertain ownership and
+    /// fail closed, preventing future interpreter-hosted child agents from
+    /// taking restore authority before a dedicated adapter is added.
+    public static func nativeProcessIsAmbiguousInterpreterHost(
+        processName: String?,
+        arguments: [String]
+    ) -> Bool {
+        let hostBases = Set([processBasename(processName), processBasename(arguments.first)].compactMap { $0 })
+        guard hostBases.contains(where: isInterpreterHost),
+              arguments.dropFirst().contains(where: looksLikeScriptPath) else {
+            return false
+        }
+        return !nativeProcessDescribesKnownAgent(processName: processName, arguments: arguments)
+    }
+
     private static func nativeProcessDescriptors(
         processName: String?,
         arguments: [String]
@@ -120,27 +148,22 @@ public enum AgentLaunchCaptureTrust {
         if let executableBase {
             descriptors.insert(executableBase)
         }
-        // Hosts that can run a Campfire script entrypoint; mirrors
-        // CampfireLaunchArgumentNormalizer's supported runtime set.
-        let scriptHostBases: Set<String> = ["node", "bun", "deno", "tsx", "ts-node"]
         let hostBases = Set([nameBase, executableBase].compactMap { $0 })
-        if !hostBases.isDisjoint(with: scriptHostBases) {
-            if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
-                if arguments.dropFirst().contains(where: { argument in
-                    let lowered = argument.lowercased()
-                    return processBasename(argument) == "claude"
-                        || lowered.contains("/.claude/")
-                        || lowered.contains("/claude/versions/")
-                }) {
-                    descriptors.insert("claude")
+        if hostBases.contains(where: isInterpreterHost) {
+            let knownNames = Set(nativeProcessAliasesByKind.keys)
+                .union(nativeProcessAliasesByKind.values.flatMap { $0 })
+            for argument in arguments.dropFirst() where looksLikeScriptPath(argument) {
+                let normalizedPath = "/" + argument
+                    .replacingOccurrences(of: "\\", with: "/")
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                    .lowercased()
+                if let basename = scriptDescriptorBasename(argument), knownNames.contains(basename) {
+                    descriptors.insert(basename)
                 }
-            }
-            if arguments.dropFirst().contains(where: { argument in
-                let lowered = argument.replacingOccurrences(of: "\\", with: "/").lowercased()
-                return lowered.contains("packages/session/bin/campfire.ts")
-                    || lowered.contains("packages/session/dist/campfire")
-            }) {
-                descriptors.insert("campfire")
+                for (kind, markers) in scriptPathMarkersByKind
+                    where markers.contains(where: normalizedPath.contains) {
+                    descriptors.insert(kind)
+                }
             }
             return descriptors
         }
@@ -169,5 +192,25 @@ public enum AgentLaunchCaptureTrust {
             return nil
         }
         return URL(fileURLWithPath: value).lastPathComponent.lowercased()
+    }
+
+    private static func isInterpreterHost(_ basename: String) -> Bool {
+        interpreterHostBases.contains(basename) || basename.hasPrefix("python3.")
+    }
+
+    private static func looksLikeScriptPath(_ argument: String) -> Bool {
+        guard !argument.hasPrefix("-") else { return false }
+        let normalized = argument.replacingOccurrences(of: "\\", with: "/").lowercased()
+        let scriptExtensions = [".cjs", ".js", ".mjs", ".py", ".rb", ".ts"]
+        return normalized.contains("/") || scriptExtensions.contains(where: normalized.hasSuffix)
+    }
+
+    private static func scriptDescriptorBasename(_ argument: String) -> String? {
+        guard var basename = processBasename(argument) else { return nil }
+        for suffix in [".cjs", ".js", ".mjs", ".py", ".rb", ".ts"] where basename.hasSuffix(suffix) {
+            basename.removeLast(suffix.count)
+            break
+        }
+        return basename
     }
 }

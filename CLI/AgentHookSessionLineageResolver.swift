@@ -153,6 +153,12 @@ struct AgentHookSessionLineageResolver: Sendable {
             ) {
                 return .found(identity)
             }
+            if AgentLaunchCaptureTrust.nativeProcessIsAmbiguousInterpreterHost(
+                processName: identity.executableName,
+                arguments: identity.arguments
+            ) {
+                return .unknown
+            }
             candidate = identity.parentPID
             remaining -= 1
         }
