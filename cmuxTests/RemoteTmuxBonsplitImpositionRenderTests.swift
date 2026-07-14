@@ -473,8 +473,7 @@ import Testing
             )
             if abs(content.width - view.frame.width) > 1.5
                 || abs(content.height - view.frame.height) > 1.5 {
-                return "%\(paneId) plan=\(Int(content.width))x\(Int(content.height))"
-                    + " view=\(Int(view.frame.width))x\(Int(view.frame.height))"
+                return "%\(paneId) plan=\(Int(content.width))x\(Int(content.height)) view=\(Int(view.frame.width))x\(Int(view.frame.height))"
             }
         }
         return nil
@@ -616,6 +615,421 @@ import Testing
         #expect(
             planViewMismatch(mirror) == nil,
             "off-plan geometry never re-converged with unchanged inputs: \(planViewMismatch(mirror) ?? "") — the apply terminated off-target and no re-arm edge exists"
+        )
+        withExtendedLifetime(connection) {}
+    }
+
+    /// A divider drag that sends a resize-pane enters a round-trip window
+    /// where the plan is KNOWN stale: the user moved the divider, the tree
+    /// holds the dragged fraction, and lastPlannedOuterSizes still holds the
+    /// pre-drag extents until tmux's layout reply produces the next plan.
+    /// The output-parity re-arm cannot tell that state from a genuine apply
+    /// miss, so it re-imposed the stale plan — the divider visibly bounced
+    /// back, then jumped to the reply's plan. During that window, redundant
+    /// triggers must not re-impose the pre-drag extents; the reply then
+    /// applies the settled plan.
+    @Test func dividerDragThatSentAResizeDoesNotBounceBackBeforeTheReply() async throws {
+        let layout = node(.horizontal([
+            node(.pane(1), w: 61, h: 35, x: 0, y: 0),
+            node(.pane(2), w: 61, h: 35, x: 62, y: 0),
+        ]), w: 123, h: 35, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "bounce-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-bounce-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        let workspaceId = UUID()
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            makePanel: { _ in
+                TerminalPanel(workspaceId: workspaceId, runtimeSpawnPolicy: .pacedSessionRestore)
+            }
+        )
+        for panel in mirror.panelsByPaneId.values {
+            panel.surface.onManualSizeApplied = nil
+            panel.surface.onRuntimeReady = nil
+        }
+        let appearance = PanelAppearance(
+            backgroundColor: .black, foregroundColor: .white,
+            dividerColor: .gray, unfocusedOverlayNSColor: .black,
+            unfocusedOverlayOpacity: 0, usesClearContentBackground: false
+        )
+        let hostingView = NSHostingView(
+            rootView: RemoteTmuxWindowMirrorSplitView(
+                mirror: mirror,
+                appearance: appearance,
+                isOuterFocused: false,
+                isVisibleInUI: true,
+                portalPriority: 0,
+                onOuterFocus: {}
+            )
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        let contentView = try #require(window.contentView)
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        func pump(_ turns: Int, until done: () -> Bool = { false }) async throws {
+            for _ in 0..<turns {
+                window.displayIfNeeded()
+                window.contentView?.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(50))
+                if done() { return }
+            }
+        }
+
+        // Converge to the plan's fixed point first — the bounce is only
+        // observable from a settled state.
+        try await pump(60, until: { planViewMismatch(mirror) == nil })
+        try #require(
+            planViewMismatch(mirror) == nil,
+            "fixture never converged: \(planViewMismatch(mirror) ?? "")"
+        )
+        let split: ExternalSplitNode = try {
+            guard case .split(let split) = mirror.bonsplitController.treeSnapshot() else {
+                throw TestError.notASplit
+            }
+            return split
+        }()
+        let splitId = try #require(UUID(uuidString: split.id))
+        let preDragFraction = split.dividerPosition
+        let pendingBefore = connection.pendingCommandKindsForTesting.count
+
+        // The user's drag through the hooks bonsplit drives live: session
+        // begin, a committed multi-cell fraction, session end. Drag end
+        // syncs the changed divider and sends the resize-pane. The no-reply
+        // deadline is pushed past this test's pumping — the deliberate
+        // round-trip window below must stay open until the reply.
+        mirror.dividerResizeReplyGrace = 30
+        mirror.bonsplitController.noteDividerDragSession(true)
+        _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: splitId)
+        mirror.bonsplitController.noteDividerDragSession(false)
+        try #require(
+            connection.pendingCommandKindsForTesting.count == pendingBefore + 1,
+            "precondition: the drag must send exactly one resize-pane"
+        )
+
+        // The round-trip window: no reply yet. Pump passes and redundant
+        // triggers — the parity re-arm must not re-impose the pre-drag plan.
+        for _ in 0..<3 {
+            mirror.setNeedsSizingPass()
+            try await pump(4)
+        }
+        let fractionDuringRoundTrip: Double = try {
+            guard case .split(let split) = mirror.bonsplitController.treeSnapshot() else {
+                throw TestError.notASplit
+            }
+            return split.dividerPosition
+        }()
+        #expect(
+            abs(fractionDuringRoundTrip - preDragFraction) > 0.1,
+            "the divider bounced back to the pre-drag plan (\(preDragFraction)) during the tmux round trip — the parity re-arm re-imposed a known-stale plan"
+        )
+
+        // The reply lands: tmux assigned the dragged span. The settled plan
+        // applies and the fixture converges on it.
+        let draggedLayout = node(.horizontal([
+            node(.pane(1), w: 92, h: 35, x: 0, y: 0),
+            node(.pane(2), w: 30, h: 35, x: 93, y: 0),
+        ]), w: 123, h: 35, x: 0, y: 0)
+        mirror.reconcile(layout: draggedLayout)
+        try await pump(60, until: { planViewMismatch(mirror) == nil })
+        #expect(
+            planViewMismatch(mirror) == nil,
+            "the reply's plan must settle cleanly: \(planViewMismatch(mirror) ?? "")"
+        )
+        withExtendedLifetime(connection) {}
+    }
+
+    /// A sent divider resize that tmux never answers — the client clamp can
+    /// produce a span tmux's own cascade minimums treat as a no-op, so no
+    /// %layout-change comes back. The round-trip hold must be BOUNDED: at
+    /// its deadline the re-arm returns and parity heals the divider back
+    /// onto the plan. An unbounded hold left the divider parked off-grid
+    /// with the parity guard disabled forever.
+    @Test func swallowedDividerResizeHealsAtTheHoldDeadline() async throws {
+        let layout = node(.horizontal([
+            node(.pane(1), w: 61, h: 35, x: 0, y: 0),
+            node(.pane(2), w: 61, h: 35, x: 62, y: 0),
+        ]), w: 123, h: 35, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "heal-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-heal-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        let workspaceId = UUID()
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            makePanel: { _ in
+                TerminalPanel(workspaceId: workspaceId, runtimeSpawnPolicy: .pacedSessionRestore)
+            }
+        )
+        for panel in mirror.panelsByPaneId.values {
+            panel.surface.onManualSizeApplied = nil
+            panel.surface.onRuntimeReady = nil
+        }
+        let appearance = PanelAppearance(
+            backgroundColor: .black, foregroundColor: .white,
+            dividerColor: .gray, unfocusedOverlayNSColor: .black,
+            unfocusedOverlayOpacity: 0, usesClearContentBackground: false
+        )
+        let hostingView = NSHostingView(
+            rootView: RemoteTmuxWindowMirrorSplitView(
+                mirror: mirror,
+                appearance: appearance,
+                isOuterFocused: false,
+                isVisibleInUI: true,
+                portalPriority: 0,
+                onOuterFocus: {}
+            )
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        let contentView = try #require(window.contentView)
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        func pump(_ turns: Int, until done: () -> Bool = { false }) async throws {
+            for _ in 0..<turns {
+                window.displayIfNeeded()
+                window.contentView?.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(50))
+                if done() { return }
+            }
+        }
+
+        try await pump(60, until: { planViewMismatch(mirror) == nil })
+        try #require(
+            planViewMismatch(mirror) == nil,
+            "fixture never converged: \(planViewMismatch(mirror) ?? "")"
+        )
+        let splitId: UUID = try {
+            guard case .split(let split) = mirror.bonsplitController.treeSnapshot() else {
+                throw TestError.notASplit
+            }
+            return UUID(uuidString: split.id) ?? UUID()
+        }()
+        let pendingBefore = connection.pendingCommandKindsForTesting.count
+
+        // A short deadline, then the swallowed send: the resize-pane goes
+        // out and NOTHING ever answers it.
+        mirror.dividerResizeReplyGrace = 0.5
+        mirror.bonsplitController.noteDividerDragSession(true)
+        _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: splitId)
+        mirror.bonsplitController.noteDividerDragSession(false)
+        try #require(
+            connection.pendingCommandKindsForTesting.count == pendingBefore + 1,
+            "precondition: the drag must send exactly one resize-pane"
+        )
+
+        // Past the deadline, the hold must have released and re-armed the
+        // pass: parity heals the parked divider back onto the plan.
+        try await pump(60, until: {
+            mirror.dividerResizeInFlight == nil && planViewMismatch(mirror) == nil
+        })
+        #expect(
+            mirror.dividerResizeInFlight == nil,
+            "the no-reply hold must release at its deadline"
+        )
+        #expect(
+            planViewMismatch(mirror) == nil,
+            "the deadline must RE-ARM, not just clear: parity heals the parked divider back onto the plan — \(planViewMismatch(mirror) ?? "")"
+        )
+        withExtendedLifetime(connection) {}
+    }
+
+    /// An UNRELATED %layout-change landing during a divider send's round
+    /// trip replans from a tree that is still pre-drag for the dragged
+    /// split. The keyed hold must survive that replan and shield the
+    /// dragged split's divider — clearing on any imposition brought the
+    /// bounce back under churn.
+    @Test func unrelatedLayoutChangeDuringRoundTripDoesNotBounceTheDraggedDivider() async throws {
+        let layout = node(.horizontal([
+            node(.pane(1), w: 61, h: 35, x: 0, y: 0),
+            node(.vertical([
+                node(.pane(2), w: 61, h: 17, x: 62, y: 0),
+                node(.pane(3), w: 61, h: 17, x: 62, y: 18),
+            ]), w: 61, h: 35, x: 62, y: 0),
+        ]), w: 123, h: 35, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "unrelated-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-unrelated-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        let workspaceId = UUID()
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            makePanel: { _ in
+                TerminalPanel(workspaceId: workspaceId, runtimeSpawnPolicy: .pacedSessionRestore)
+            }
+        )
+        for panel in mirror.panelsByPaneId.values {
+            panel.surface.onManualSizeApplied = nil
+            panel.surface.onRuntimeReady = nil
+        }
+        let appearance = PanelAppearance(
+            backgroundColor: .black, foregroundColor: .white,
+            dividerColor: .gray, unfocusedOverlayNSColor: .black,
+            unfocusedOverlayOpacity: 0, usesClearContentBackground: false
+        )
+        let hostingView = NSHostingView(
+            rootView: RemoteTmuxWindowMirrorSplitView(
+                mirror: mirror,
+                appearance: appearance,
+                isOuterFocused: false,
+                isVisibleInUI: true,
+                portalPriority: 0,
+                onOuterFocus: {}
+            )
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        let contentView = try #require(window.contentView)
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        func pump(_ turns: Int, until done: () -> Bool = { false }) async throws {
+            for _ in 0..<turns {
+                window.displayIfNeeded()
+                window.contentView?.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(50))
+                if done() { return }
+            }
+        }
+
+        try await pump(60, until: { planViewMismatch(mirror) == nil })
+        try #require(
+            planViewMismatch(mirror) == nil,
+            "fixture never converged: \(planViewMismatch(mirror) ?? "")"
+        )
+        let rootId: UUID = try {
+            guard case .split(let split) = mirror.bonsplitController.treeSnapshot() else {
+                throw TestError.notASplit
+            }
+            return UUID(uuidString: split.id) ?? UUID()
+        }()
+        let preDragFraction: Double = try {
+            guard case .split(let split) = mirror.bonsplitController.treeSnapshot() else {
+                throw TestError.notASplit
+            }
+            return split.dividerPosition
+        }()
+        let pendingBefore = connection.pendingCommandKindsForTesting.count
+
+        mirror.dividerResizeReplyGrace = 30
+        mirror.bonsplitController.noteDividerDragSession(true)
+        _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: rootId)
+        mirror.bonsplitController.noteDividerDragSession(false)
+        try #require(
+            connection.pendingCommandKindsForTesting.count == pendingBefore + 1,
+            "precondition: the root drag must send exactly one resize-pane"
+        )
+
+        // The unrelated change: the inner vertical split moved, the root's
+        // spans did not. This replans from a tree that is still pre-drag
+        // for the root split.
+        let unrelated = node(.horizontal([
+            node(.pane(1), w: 61, h: 35, x: 0, y: 0),
+            node(.vertical([
+                node(.pane(2), w: 61, h: 20, x: 62, y: 0),
+                node(.pane(3), w: 61, h: 14, x: 62, y: 21),
+            ]), w: 61, h: 35, x: 62, y: 0),
+        ]), w: 123, h: 35, x: 0, y: 0)
+        mirror.reconcile(layout: unrelated)
+        try await pump(12)
+
+        let rootFraction: Double = try {
+            guard case .split(let split) = mirror.bonsplitController.treeSnapshot() else {
+                throw TestError.notASplit
+            }
+            return split.dividerPosition
+        }()
+        #expect(
+            abs(rootFraction - preDragFraction) > 0.1,
+            "the unrelated replan re-imposed the dragged split's pre-drag extent (root fraction back at \(rootFraction), pre-drag \(preDragFraction)) — the bounce under churn"
+        )
+        #expect(
+            mirror.dividerResizeInFlight != nil,
+            "the keyed hold must survive an unrelated replan — only a layout that assigns the sent span (or the deadline) may end it"
         )
         withExtendedLifetime(connection) {}
     }

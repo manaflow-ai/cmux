@@ -899,6 +899,148 @@ import Testing
         )
     }
 
+    /// A parked oversized reading is the ONE chance to bank a mid-resize
+    /// truth (no later callback re-delivers it). A pass that runs during
+    /// portal darkness — every hosted view briefly detached or hidden, no
+    /// bound anywhere — can judge nothing, so it must leave the reading
+    /// parked for the next bounded pass. Consuming it there lost the
+    /// re-judgment and the frozen-claim class returned.
+    @Test func parkedOversizedReadingSurvivesABoundlessPass() throws {
+        let layout = node(.horizontal([
+            node(.pane(1), w: 48, h: 35, x: 0, y: 0),
+            node(.pane(2), w: 49, h: 35, x: 49, y: 0),
+        ]), w: 98, h: 35, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "parked-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        final class BoundBox { var size: CGSize? = CGSize(width: 800, height: 620) }
+        let box = BoundBox()
+        let geometry = calibratedGeometry
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: { geometry },
+            hostingContentSizeSource: { box.size },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.containerSizePt = CGSize(width: 800, height: 620)
+        mirror.containerScale = 2
+        mirror.reconcile(layout: layout)
+        mirror.performSizingPassNow()
+
+        // Park: an oversized proposal against the live 800pt bound.
+        mirror.noteContainerSize(pointSize: CGSize(width: 1200, height: 900), scale: 2)
+        try #require(
+            mirror.pendingOversizedReading != nil,
+            "precondition: the oversized proposal must park, not bank"
+        )
+
+        // Darkness: no bound anywhere, a pass runs.
+        box.size = nil
+        mirror.performSizingPassNow()
+        #expect(
+            mirror.pendingOversizedReading != nil,
+            "a bound-less pass judges nothing — it must keep the reading parked"
+        )
+
+        // Reveal with a bound the reading fits: the parked truth banks.
+        box.size = CGSize(width: 1300, height: 950)
+        mirror.performSizingPassNow()
+        #expect(
+            mirror.containerSizePt == CGSize(width: 1200, height: 900),
+            "the parked reading must bank at the first bounded pass after the reveal, got \(String(describing: mirror.containerSizePt))"
+        )
+        withExtendedLifetime(connection) {}
+    }
+
+    /// The drag path must apply the same resize-pane routing rule the
+    /// control path already tests: tmux resizes the TARGET pane's nearest
+    /// split along the axis, so the pane addressed for a split's first
+    /// subtree must not sit behind an inner same-axis split. In this nested
+    /// shape — a root horizontal whose first child holds an inner
+    /// horizontal [11,22] above 33, with 44 as the second child — dragging
+    /// the ROOT divider must address %33 (the only first-subtree pane whose
+    /// nearest horizontal split IS the root). Addressing
+    /// first.paneIDsInOrder.first (%11) makes tmux resize the inner split
+    /// instead, or no-op entirely.
+    @Test func rootDividerDragInNestedSameAxisShapeTargetsTheRoutablePane() throws {
+        let layout = node(.vertical([
+            node(.horizontal([
+                node(.vertical([
+                    node(.pane(11), w: 30, h: 17, x: 0, y: 0),
+                    node(.pane(22), w: 30, h: 17, x: 0, y: 18),
+                ]), w: 30, h: 35, x: 0, y: 0),
+                node(.pane(33), w: 30, h: 35, x: 31, y: 0),
+            ]), w: 61, h: 35, x: 0, y: 0),
+            node(.pane(44), w: 61, h: 35, x: 0, y: 36),
+        ]), w: 61, h: 71, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "drag-routing-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-drag-routing-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        let geometry = calibratedGeometry
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: { geometry },
+            hostingContentSizeSource: { CGSize(width: 800, height: 1400) },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.containerSizePt = CGSize(width: 800, height: 1400)
+        mirror.containerScale = 2
+        mirror.reconcile(layout: layout)
+        mirror.performSizingPassNow()
+        guard case .split(let root) = mirror.bonsplitController.treeSnapshot(),
+              let rootId = UUID(uuidString: root.id) else {
+            Issue.record("the reconciled tree holds no root split")
+            return
+        }
+        // Dragging the root (vertical axis) addresses its FIRST subtree.
+        // Inside it, %11 and %22 sit behind the inner vertical split — their
+        // nearest vertical split is the inner one, so tmux would resize that
+        // instead. %33 is the routable pane: its nearest vertical split is
+        // the root itself.
+        mirror.bonsplitController.noteDividerDragSession(true)
+        _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: rootId)
+        mirror.bonsplitController.noteDividerDragSession(false)
+
+        writer.close()
+        let sentText = String(
+            bytes: (try? pipe.fileHandleForReading.readToEnd()) ?? Data(),
+            encoding: .utf8
+        ) ?? ""
+        let resizeCommands = sentText
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { $0.contains("resize-pane") }
+        #expect(
+            resizeCommands.count == 1,
+            "the drag must produce exactly one resize-pane, got: \(resizeCommands)"
+        )
+        #expect(
+            resizeCommands.first?.contains("%33") == true,
+            "the root drag must address the pane whose nearest same-axis split IS the root (%33), not a pane behind the inner same-axis split (%11): \(resizeCommands)"
+        )
+        withExtendedLifetime(connection) {}
+    }
+
     /// The session counter is authoritative and survives imbalance: an
     /// unmatched end clamps at zero instead of going negative, so the next
     /// begin still reads as an active drag.
