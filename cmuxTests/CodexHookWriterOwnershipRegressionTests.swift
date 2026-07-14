@@ -83,6 +83,18 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
         }
     }
 
+    func testPersistentHooksBindToNativeCodexProcessBeforeWrapperFallback() throws {
+        let codexDef = try XCTUnwrap(CMUXCLI.agentDefs.first { $0.name == "codex" })
+        let command = CMUXCLI.codexFireAndForgetAgentHookShellCommand(
+            "cmux hooks codex session-start",
+            for: codexDef,
+            ownership: .persistent,
+            target: .wrapperEnvironment
+        )
+
+        XCTAssertTrue(command.contains(#"agent_pid="${PPID:-${CMUX_CODEX_PID:-}}""#))
+    }
+
     func testHookScriptsAreImmutableAcrossConcurrentCmuxVersions() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-hook-content-address-\(UUID().uuidString)", isDirectory: true)
@@ -152,6 +164,49 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
         XCTAssertFalse(promptHooks.contains { $0.command == legacyCommand })
         XCTAssertTrue(promptHooks.contains { $0.command == userCommand })
         XCTAssertEqual(promptHooks.filter { $0.body.contains("hooks codex prompt-submit") }.count, 1)
+    }
+
+    func testSetupReplacesOlderContentAddressedAndInlineDispatchers() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-old-script-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let hookDirectory = root.appendingPathComponent(".cmux/hooks", isDirectory: true)
+        let oldScript = hookDirectory
+            .appendingPathComponent("cmux-codex-hook-persistent-session-start-deadbeef.sh")
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: hookDirectory, withIntermediateDirectories: true)
+        try makeCodexHookExecutableShellFile(at: oldScript, lines: ["#!/bin/sh", "exit 0"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let codexDef = try XCTUnwrap(CMUXCLI.agentDefs.first { $0.name == "codex" })
+        let oldInlineDispatcher = CMUXCLI.codexFireAndForgetAgentHookShellCommand(
+            "cmux hooks codex session-start",
+            for: codexDef,
+            ownership: .persistent,
+            target: .wrapperEnvironment
+        )
+        let hooksJSON: [String: Any] = [
+            "hooks": ["SessionStart": [
+                ["hooks": [["command": oldScript.path, "timeout": 5, "type": "command"]]],
+                ["hooks": [["command": oldInlineDispatcher, "timeout": 5, "type": "command"]]],
+                ["hooks": [["command": "user-session-hook", "timeout": 5, "type": "command"]]],
+            ]],
+        ]
+        try JSONSerialization.data(withJSONObject: hooksJSON, options: [.prettyPrinted, .sortedKeys])
+            .write(to: codexHome.appendingPathComponent("hooks.json"), options: .atomic)
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 10
+        )
+        XCTAssertEqual(install.status, 0, install.stderr)
+        let hooks = try codexHookEntries(in: codexHome).filter { $0.eventName == "SessionStart" }
+        XCTAssertFalse(hooks.contains { $0.command == oldScript.path })
+        XCTAssertFalse(hooks.contains { $0.command == oldInlineDispatcher })
+        XCTAssertTrue(hooks.contains { $0.command == "user-session-hook" })
+        XCTAssertEqual(hooks.filter { $0.body.contains("hooks codex session-start") }.count, 1)
     }
 
     private func runCodexInjectArgsProcess(

@@ -194,4 +194,39 @@ extension CMUXCLI {
     private static func codexHookShellSingleQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
+
+    /// Content-addressed hook filenames change with their pinned cmux binary
+    /// and socket. Reinstall must still replace older cmux generations, while
+    /// preserving user hooks outside cmux's private hook directory.
+    static func isCmuxManagedCodexHookScript(_ command: String) -> Bool {
+        var path = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        if path.count >= 2,
+           let first = path.first,
+           let last = path.last,
+           first == last,
+           (first == "\"" || first == "'") {
+            path.removeFirst()
+            path.removeLast()
+        }
+        guard path.hasPrefix("/") else { return false }
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        let parent = url.deletingLastPathComponent().path
+            .replacingOccurrences(of: "\\", with: "/")
+            .lowercased()
+        let filename = url.lastPathComponent.lowercased()
+        return parent.hasSuffix("/.cmux/hooks")
+            && filename.hasPrefix("cmux-codex-hook-")
+            && filename.hasSuffix(".sh")
+    }
+
+    static func isLegacyCodexBundledDispatcher(_ command: String) -> Bool {
+        guard command.contains("CMUX_BUNDLED_CLI_PATH"),
+              command.contains("cmux_cli=") else {
+            return false
+        }
+        return command.contains("hooks codex session-start")
+            || command.contains("hooks codex prompt-submit")
+            || command.contains("hooks codex stop")
+            || command.contains("hooks feed --source codex")
+    }
 }
