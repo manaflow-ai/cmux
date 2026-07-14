@@ -180,6 +180,9 @@ jobs:
       - name: Validate universal nightly workflow
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate release compilation cache safety
+        run: bash ./tests/test_release_compilation_cache.sh
+
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
 
@@ -1642,6 +1645,13 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
+      - name: Compute release compilation cache key
+        id: release-compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "utc_week=$(date -u +%Y-W%W)" >> "$GITHUB_OUTPUT"
+          echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
       - name: Capture Ghostty revision
         id: ghostty-revision
         run: |
@@ -1672,11 +1682,14 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
-      - name: Cache DerivedData
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Only cache Xcode's content-addressed compiler results. Build products,
+      # signed apps, DMGs, and keychains must never enter cache storage.
+      - name: Restore release compilation cache
+        id: restore-release-compilation-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: build-universal
-          key: deriveddata-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+          path: build-universal/CompilationCache.noindex
+          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.release-compilation-cache-key.outputs.toolchain }}-${{ steps.release-compilation-cache-key.outputs.utc_week }}
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -1696,8 +1709,11 @@ jobs:
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            -showBuildTimingSummary \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
       - name: Download universal Ghostty CLI helper
@@ -1729,6 +1745,39 @@ jobs:
           lipo "$CLI_BINARY" -verify_arch arm64 x86_64
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
           [[ "$SDK_VERSION" == 26.* ]]
+
+      - name: Bound release compilation cache size
+        id: bound-release-compilation-cache
+        run: |
+          set -euo pipefail
+          cache_path="build-universal/CompilationCache.noindex"
+          max_cache_kib=$((3 * 1024 * 1024))
+          save_allowed=false
+          if [ -d "$cache_path" ]; then
+            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
+            echo "Release compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
+            if [ "$cache_kib" -le "$max_cache_kib" ]; then
+              save_allowed=true
+            else
+              echo "Release compilation cache exceeds 3 GiB; discarding it"
+              rm -rf "$cache_path"
+            fi
+          fi
+          echo "save_allowed=$save_allowed" >> "$GITHUB_OUTPUT"
+
+      # Default-branch pushes seed the cache that release tags may restore.
+      # Manual dispatches may seed a branch-scoped cache for safe dry-run proof.
+      # Pull requests cannot write the trusted default-branch cache scope.
+      - name: Save trusted release compilation cache
+        if: >-
+          ${{ steps.bound-release-compilation-cache.outputs.save_allowed == 'true' &&
+              steps.restore-release-compilation-cache.outputs.cache-hit != 'true' &&
+              ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+               github.event_name == 'workflow_dispatch') }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build-universal/CompilationCache.noindex
+          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.release-compilation-cache-key.outputs.toolchain }}-${{ steps.release-compilation-cache-key.outputs.utc_week }}
 
   ci-status:
     needs:
