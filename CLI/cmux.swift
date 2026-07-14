@@ -134,6 +134,9 @@ struct ClaudeHookSessionRecord: Codable {
     var transcriptPath: String?
     var pid: Int?
     var launchCommand: AgentHookLaunchCommandRecord?
+    /// Last hook-observed `permission_mode`, re-applied as `--permission-mode`
+    /// on user-owned session restore (https://github.com/manaflow-ai/cmux/issues/8066).
+    var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
     var lastSubtitle: String?
@@ -269,6 +272,23 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
             state.sessions[normalized]
+        }
+    }
+
+    /// Records the hook-observed permission mode on an existing session record.
+    /// The already-current check happens INSIDE the lock: an unlocked pre-check
+    /// can race an overlapping hook's write and skip persisting the newest mode,
+    /// leaving restore on a stale (possibly more permissive) mode. Unknown
+    /// sessions are left alone (the session-start upsert owns record creation).
+    func updateLastPermissionMode(sessionId: String, permissionMode: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        let mode = permissionMode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, !mode.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.lastPermissionMode != mode else { return }
+            record.lastPermissionMode = mode
+            state.sessions[normalized] = record
         }
     }
 
@@ -23943,6 +23963,21 @@ struct CMUXCLI {
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
+        // Record the hook-observed permission mode (shift+tab auto-accept, plan
+        // mode, bypass toggle): it is runtime state that never appears in the
+        // captured launch argv, and session restore re-applies it as
+        // `--permission-mode`. Read from rawObject — the compacted hook object
+        // keeps only an allowlist of keys and does not retain permission_mode.
+        // https://github.com/manaflow-ai/cmux/issues/8066
+        let observedHookPermissionMode = (parsedInput.rawObject?["permission_mode"] as? String)
+            ?? (parsedInput.rawObject?["permissionMode"] as? String)
+        if let hookSessionId = parsedInput.sessionId,
+           let observedHookPermissionMode {
+            try? sessionStore.updateLastPermissionMode(
+                sessionId: hookSessionId,
+                permissionMode: observedHookPermissionMode
+            )
+        }
         telemetry.breadcrumb(
             "claude-hook.input",
             data: [
@@ -24044,7 +24079,8 @@ struct CMUXCLI {
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
                         cwd: parsedInput.cwd,
-                        launchCommand: launchCommand
+                        launchCommand: launchCommand,
+                        observedPermissionMode: observedHookPermissionMode
                     )
                 }
             }
@@ -24176,7 +24212,9 @@ struct CMUXCLI {
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
                         cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                        launchCommand: mappedSession?.launchCommand
+                        launchCommand: mappedSession?.launchCommand,
+                        observedPermissionMode: observedHookPermissionMode
+                            ?? mappedSession?.lastPermissionMode
                     )
                 }
 
@@ -24316,7 +24354,9 @@ struct CMUXCLI {
                     displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                     sessionId: sessionId,
                     cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                    launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand
+                    launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
+                    observedPermissionMode: observedHookPermissionMode
+                        ?? mappedSession?.lastPermissionMode
                 )
             }
             _ = try sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
@@ -27687,7 +27727,8 @@ struct CMUXCLI {
         displayName: String,
         sessionId: String,
         cwd: String?,
-        launchCommand: AgentHookLaunchCommandRecord?
+        launchCommand: AgentHookLaunchCommandRecord?,
+        observedPermissionMode: String? = nil
     ) {
         if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
             clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
@@ -27705,7 +27746,8 @@ struct CMUXCLI {
             sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: resumeWorkingDirectory,
-            environment: resumeEnvironment
+            environment: resumeEnvironment,
+            observedPermissionMode: observedPermissionMode
         ) else {
             clearAgentSurfaceResumeBinding(
                 client: client,
@@ -27756,7 +27798,8 @@ struct CMUXCLI {
         sessionId: String,
         launchCommand: AgentHookLaunchCommandRecord?,
         workingDirectory: String?,
-        environment: [String: String]?
+        environment: [String: String]?,
+        observedPermissionMode: String? = nil
     ) -> String? {
         let normalizedSessionId = normalizedHookValue(sessionId)
         guard let normalizedSessionId else { return nil }
@@ -27769,13 +27812,17 @@ struct CMUXCLI {
             arguments: launchCommand?.arguments ?? []
         ) {
         case .resolved(let resolved):
+            // Wrapper launchers include the claude-teams orphan-respawn path,
+            // which must never regain permission state a restored teammate did
+            // not explicitly opt into; observed mode applies only below.
             argv = resolved
         case .passthrough:
             argv = AgentResumeArgv().builtInKind(
                 kind: kind,
                 sessionId: normalizedSessionId,
                 executablePath: launchCommand?.executablePath,
-                arguments: launchCommand?.arguments ?? []
+                arguments: launchCommand?.arguments ?? [],
+                observedPermissionMode: observedPermissionMode
             )
         }
 
