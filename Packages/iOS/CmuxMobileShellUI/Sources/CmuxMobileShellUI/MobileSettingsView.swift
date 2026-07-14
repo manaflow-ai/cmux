@@ -25,7 +25,7 @@ struct MobileSettingsView: View {
     var store: CMUXMobileShellStore?
     @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
     #if DEBUG
-    private var diffViewerFeature = MobileDiffViewerFeature()
+    var diffViewerFeature = MobileDiffViewerFeature()
     #endif
 
     @Environment(\.dismiss) private var dismiss
