@@ -35,6 +35,8 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let extensionBrowser = SurfaceKind(rawValue: "extensionBrowser")
     /// A workspace todo pane.
     public static let todo = SurfaceKind(rawValue: "todo")
+    /// An iOS Simulator display pane.
+    public static let simulator = SurfaceKind(rawValue: "simulator")
     /// A transient Cloud VM loading pane.
     public static let cloudVMLoading = SurfaceKind(rawValue: "cloudVMLoading")
 }

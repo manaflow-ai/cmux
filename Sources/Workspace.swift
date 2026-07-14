@@ -678,6 +678,10 @@ extension Workspace {
             return nil
         case .cloudVMLoading:
             return nil
+        case .simulator:
+            // v1: simulator panes are session-transient (like cloudVMLoading);
+            // restoring one would re-boot a device without the user asking.
+            return nil
         }
         return SessionPanelSnapshot(
             id: panelId,
@@ -1671,6 +1675,10 @@ extension Workspace {
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
+            return nil
+        case .simulator:
+            // Never captured (see sessionPanelSnapshot); restoring one would
+            // re-boot a simulator device without the user asking.
             return nil
         }
     }

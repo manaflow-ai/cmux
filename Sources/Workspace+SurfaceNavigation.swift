@@ -33,6 +33,8 @@ extension Workspace {
             return SurfaceKind.todo.rawValue
         case .cloudVMLoading:
             return SurfaceKind.cloudVMLoading.rawValue
+        case .simulator:
+            return SurfaceKind.simulator.rawValue
         }
     }
 

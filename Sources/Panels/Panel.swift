@@ -15,6 +15,7 @@ public enum PanelType: String, Codable, Sendable {
     case extensionBrowser
     case workspaceTodo
     case cloudVMLoading
+    case simulator
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -45,6 +46,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {
             self = .cloudVMLoading
+            return
+        }
+        if rawValue.lowercased() == Self.simulator.rawValue {
+            self = .simulator
             return
         }
         throw DecodingError.dataCorruptedError(

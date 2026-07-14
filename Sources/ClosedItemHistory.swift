@@ -730,6 +730,8 @@ final class ClosedItemHistoryStore: ObservableObject {
             return String(localized: "workspaceTodoPane.title", defaultValue: "Todos")
         case .cloudVMLoading:
             return String(localized: "menu.history.recentlyClosed.panel.cloudVM", defaultValue: "Cloud VM")
+        case .simulator:
+            return String(localized: "simulatorPane.title", defaultValue: "Simulator")
         }
     }
 
