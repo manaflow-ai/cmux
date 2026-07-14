@@ -20,12 +20,14 @@ extension AgentChatSessionRegistry {
         surfaceID: String,
         kind: ChatAgentKind,
         matchingSessionIDs expectedSessionIDs: Set<String>,
-        allowUnidentifiedFallback: Bool = false
-    ) -> Int? {
+        allowUnidentifiedFallback: Bool = false,
+        snapshotStore: CmuxTopProcessSnapshotStore = .shared
+    ) async -> Int? {
         guard !expectedSessionIDs.isEmpty else { return nil }
-        let snapshot = CmuxTopProcessSnapshot.capture(
-            includeProcessDetails: true,
-            includeCMUXScope: true
+        let snapshot = await snapshotStore.snapshot(
+            requirements: [.processDetails, .cmuxScope],
+            maximumAge: 0,
+            consumer: .sharedLiveAgentIndex
         )
         return liveAgentPID(
             in: snapshot,

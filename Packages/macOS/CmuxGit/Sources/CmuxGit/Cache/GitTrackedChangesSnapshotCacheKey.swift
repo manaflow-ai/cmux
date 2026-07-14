@@ -4,15 +4,15 @@ import Foundation
 struct GitTrackedChangesSnapshotCacheKey: Equatable, Hashable, Sendable {
     let repository: GitTrackedChangesSnapshotRepositoryKey
     let indexStatSignature: GitIndexStatSignature
-    let trackedPathEventGeneration: GitTrackedPathEventGeneration
+    let authority: GitTrackedChangesSnapshotAuthority
 
     init(
         repository: ResolvedGitRepository,
         indexStatSignature: GitIndexStatSignature,
-        trackedPathEventGeneration: GitTrackedPathEventGeneration
+        authority: GitTrackedChangesSnapshotAuthority
     ) {
         self.repository = GitTrackedChangesSnapshotRepositoryKey(repository: repository)
         self.indexStatSignature = indexStatSignature
-        self.trackedPathEventGeneration = trackedPathEventGeneration
+        self.authority = authority
     }
 }

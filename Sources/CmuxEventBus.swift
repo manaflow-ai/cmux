@@ -1,8 +1,95 @@
 import Foundation
 
+struct CmuxBoundedRingBuffer<Element> {
+    private var storage: [Element?]
+    private(set) var count = 0
+    private var head = 0
+
+    let capacity: Int
+
+    init(capacity: Int) {
+        self.capacity = max(1, capacity)
+        self.storage = Array(repeating: nil, count: self.capacity)
+    }
+
+    var isEmpty: Bool { count == 0 }
+
+    var first: Element? {
+        guard count > 0 else { return nil }
+        return storage[head]
+    }
+
+    var elements: [Element] {
+        guard count > 0 else { return [] }
+        return (0..<count).compactMap { storage[(head + $0) % capacity] }
+    }
+
+    @discardableResult
+    mutating func appendDroppingOldest(_ element: Element) -> Bool {
+        if count < capacity {
+            storage[(head + count) % capacity] = element
+            count += 1
+            return false
+        }
+
+        storage[head] = element
+        head = (head + 1) % capacity
+        return true
+    }
+
+    mutating func removeFirst() -> Element? {
+        guard count > 0 else { return nil }
+        let element = storage[head]
+        storage[head] = nil
+        head = (head + 1) % capacity
+        count -= 1
+        if count == 0 { head = 0 }
+        return element
+    }
+
+    mutating func removeAll() {
+        for offset in 0..<count {
+            storage[(head + offset) % capacity] = nil
+        }
+        count = 0
+        head = 0
+    }
+}
+
+// Sendable safety: the sanitized JSON graph and encoded bytes are immutable after initialization.
+final class CmuxEventFrame: @unchecked Sendable {
+    let object: [String: Any]
+    let wireData: Data
+    let sequence: Int64
+    let name: String
+    let category: String
+
+    init(
+        object: [String: Any],
+        encodedLine: String,
+        sequence: Int64,
+        name: String,
+        category: String
+    ) {
+        self.object = object
+        var wireData = Data(encodedLine.utf8)
+        wireData.append(0x0A)
+        self.wireData = wireData
+        self.sequence = sequence
+        self.name = name
+        self.category = category
+    }
+
+    /// Debug/test view of the cached wire bytes without retaining a second copy.
+    var encodedLine: String {
+        String(decoding: wireData.dropLast(), as: UTF8.self)
+    }
+}
+
 struct CmuxEventSubscriptionSnapshot {
     let subscription: CmuxEventSubscription
     let replay: [[String: Any]]
+    let replayFrames: [CmuxEventFrame]
     let ack: [String: Any]
 }
 
@@ -15,7 +102,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
 
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
-    private var queue: [[String: Any]] = []
+    private var queue: CmuxBoundedRingBuffer<CmuxEventFrame>
     private var closed = false
     private var closedReason: String?
 
@@ -24,14 +111,15 @@ final class CmuxEventSubscription: @unchecked Sendable {
         self.names = names
         self.categories = categories
         self.maxPendingEvents = max(1, maxPendingEvents)
+        self.queue = CmuxBoundedRingBuffer(capacity: self.maxPendingEvents)
     }
 
-    func accepts(_ event: [String: Any]) -> Bool {
+    func accepts(_ frame: CmuxEventFrame) -> Bool {
         if !names.isEmpty {
-            guard let name = event["name"] as? String, names.contains(name) else { return false }
+            guard names.contains(frame.name) else { return false }
         }
         if !categories.isEmpty {
-            guard let category = event["category"] as? String, categories.contains(category) else { return false }
+            guard categories.contains(frame.category) else { return false }
         }
         return true
     }
@@ -48,7 +136,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
         return closedReason
     }
 
-    func enqueue(_ event: [String: Any]) -> Bool {
+    func enqueue(_ frame: CmuxEventFrame) -> Bool {
         lock.lock()
         let shouldSignal: Bool
         let accepted: Bool
@@ -62,7 +150,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
             shouldSignal = true
             accepted = false
         } else {
-            queue.append(event)
+            queue.appendDroppingOldest(frame)
             shouldSignal = true
             accepted = true
         }
@@ -74,11 +162,15 @@ final class CmuxEventSubscription: @unchecked Sendable {
     }
 
     func next(timeout: TimeInterval) -> [String: Any]? {
+        nextFrame(timeout: timeout)?.object
+    }
+
+    func nextFrame(timeout: TimeInterval) -> CmuxEventFrame? {
         lock.lock()
         if !queue.isEmpty {
-            let event = queue.removeFirst()
+            let frame = queue.removeFirst()
             lock.unlock()
-            return event
+            return frame
         }
         if closed {
             lock.unlock()
@@ -130,9 +222,11 @@ final class CmuxEventBus: @unchecked Sendable {
     private let maxEventLineBytes: Int
     private let maxPendingEventsPerSubscription: Int
     private let eventLogWriter: CmuxEventLogWriter?
+    private let sanitize: (Any) -> Any
+    private let encodeSanitizedLine: ([String: Any]) -> String?
     private let bootId = UUID().uuidString
     private var nextSequence: Int64 = 1
-    private var retained: [[String: Any]] = []
+    private var retained: CmuxBoundedRingBuffer<CmuxEventFrame>
     private var subscriptions: [UUID: CmuxEventSubscription] = [:]
 
     init(
@@ -141,11 +235,16 @@ final class CmuxEventBus: @unchecked Sendable {
         maxEventLogBytes: UInt64 = CmuxEventBus.defaultMaxEventLogBytes,
         maxEventLineBytes: Int = CmuxEventBus.defaultMaxEventLineBytes,
         maxPendingEventLogLines: Int = CmuxEventBus.defaultMaxPendingEventLogLines,
-        maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription
+        maxPendingEventsPerSubscription: Int = CmuxEventBus.defaultMaxPendingEventsPerSubscription,
+        sanitize: @escaping (Any) -> Any = CmuxEventBus.sanitizedJSONValue,
+        encodeSanitizedLine: @escaping ([String: Any]) -> String? = CmuxEventBus.encodeSanitizedLine
     ) {
         self.retainedEventLimit = max(1, retainedEventLimit)
         self.maxEventLineBytes = max(1, maxEventLineBytes)
         self.maxPendingEventsPerSubscription = max(1, maxPendingEventsPerSubscription)
+        self.sanitize = sanitize
+        self.encodeSanitizedLine = encodeSanitizedLine
+        self.retained = CmuxBoundedRingBuffer(capacity: self.retainedEventLimit)
         self.eventLogWriter = eventLogURL.map {
             CmuxEventLogWriter(
                 eventLogURL: $0,
@@ -172,13 +271,12 @@ final class CmuxEventBus: @unchecked Sendable {
         payload: [String: Any] = [:]
     ) {
         let occurredAt = Self.isoTimestamp(Date())
-        let cleanPayload = Self.sanitizedJSONValue(payload)
 
         lock.lock()
+        defer { lock.unlock() }
         let sequence = nextSequence
-        nextSequence += 1
 
-        var event: [String: Any] = [
+        let unsanitizedEvent: [String: Any] = [
             "type": "event",
             "protocol": Self.protocolName,
             "version": Self.protocolVersion,
@@ -193,24 +291,23 @@ final class CmuxEventBus: @unchecked Sendable {
             "surface_id": surfaceId ?? NSNull(),
             "pane_id": paneId ?? NSNull(),
             "window_id": windowId ?? NSNull(),
-            "payload": cleanPayload
+            "payload": payload
         ]
+        guard let event = sanitize(unsanitizedEvent) as? [String: Any],
+              let frame = makeFrame(event: event, sequence: sequence) else { return }
 
-        event = Self.eventByApplyingEncodedByteLimit(event, maxBytes: maxEventLineBytes)
-        retained.append(event)
-        if retained.count > retainedEventLimit {
-            retained.removeFirst(retained.count - retainedEventLimit)
-        }
-        let encodedLine = Self.encodeLine(event)
-        let liveSubscriptions = Array(subscriptions.values)
-        lock.unlock()
+        nextSequence += 1
+        retained.appendDroppingOldest(frame)
+        eventLogWriter?.enqueue(frame.wireData)
 
-        if let encodedLine { eventLogWriter?.enqueue(encodedLine) }
-
-        for subscription in liveSubscriptions where subscription.accepts(event) {
-            if !subscription.enqueue(event) {
-                removeSubscriptionIfStillActive(subscription)
+        var closedSubscriptionIds: [UUID] = []
+        for (id, subscription) in subscriptions where subscription.accepts(frame) {
+            if !subscription.enqueue(frame) {
+                closedSubscriptionIds.append(id)
             }
+        }
+        for id in closedSubscriptionIds {
+            subscriptions.removeValue(forKey: id)
         }
     }
 
@@ -226,12 +323,12 @@ final class CmuxEventBus: @unchecked Sendable {
         )
 
         lock.lock()
-        let oldestSequence = Self.int64(retained.first?["seq"]) ?? nextSequence
+        let retainedFrames = retained.elements
+        let oldestSequence = retained.first?.sequence ?? nextSequence
         let latestSequence = nextSequence - 1
-        let replay = retained.filter { event in
-            let seq = Self.int64(event["seq"]) ?? 0
+        let replayFrames = retainedFrames.filter { frame in
             let after = afterSequence ?? latestSequence
-            return seq > after && subscription.accepts(event)
+            return frame.sequence > after && subscription.accepts(frame)
         }
         let requestedAfter = afterSequence ?? latestSequence
         let gapReason: String? = afterSequence.flatMap { after in
@@ -266,7 +363,7 @@ final class CmuxEventBus: @unchecked Sendable {
             "boot_id": bootId,
             "subscription_id": subscription.id.uuidString,
             "heartbeat_interval_seconds": NSNumber(value: Self.defaultHeartbeatIntervalSeconds),
-            "replay_count": replay.count,
+            "replay_count": replayFrames.count,
             "resume": resume,
             "filters": [
                 "names": Array(names).sorted(),
@@ -274,7 +371,12 @@ final class CmuxEventBus: @unchecked Sendable {
             ]
         ]
 
-        return CmuxEventSubscriptionSnapshot(subscription: subscription, replay: replay, ack: ack)
+        return CmuxEventSubscriptionSnapshot(
+            subscription: subscription,
+            replay: replayFrames.map(\.object),
+            replayFrames: replayFrames,
+            ack: ack
+        )
     }
 
     func unsubscribe(_ subscription: CmuxEventSubscription) {
@@ -282,14 +384,6 @@ final class CmuxEventBus: @unchecked Sendable {
         subscriptions.removeValue(forKey: subscription.id)
         lock.unlock()
         subscription.close()
-    }
-
-    private func removeSubscriptionIfStillActive(_ subscription: CmuxEventSubscription) {
-        lock.lock()
-        if subscriptions[subscription.id] === subscription {
-            subscriptions.removeValue(forKey: subscription.id)
-        }
-        lock.unlock()
     }
 
     func heartbeat(subscription: CmuxEventSubscription) -> [String: Any] {
@@ -307,7 +401,7 @@ final class CmuxEventBus: @unchecked Sendable {
     func retainedSnapshot() -> [[String: Any]] {
         lock.lock()
         defer { lock.unlock() }
-        return retained
+        return retained.elements.map(\.object)
     }
 
     #if DEBUG
@@ -343,8 +437,13 @@ final class CmuxEventBus: @unchecked Sendable {
 
     static func encodeLine(_ object: [String: Any]) -> String? {
         let clean = sanitizedJSONValue(object)
-        guard JSONSerialization.isValidJSONObject(clean),
-              let data = try? JSONSerialization.data(withJSONObject: clean, options: [.sortedKeys]),
+        guard let cleanObject = clean as? [String: Any] else { return nil }
+        return encodeSanitizedLine(cleanObject)
+    }
+
+    static func encodeSanitizedLine(_ object: [String: Any]) -> String? {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let string = String(data: data, encoding: .utf8) else {
             return nil
         }
@@ -421,11 +520,13 @@ final class CmuxEventBus: @unchecked Sendable {
         }
     }
 
-    private static func eventByApplyingEncodedByteLimit(_ event: [String: Any], maxBytes: Int) -> [String: Any] {
-        guard maxBytes > 0,
-              let line = encodeLine(event),
-              line.utf8.count > maxBytes else {
-            return event
+    private func makeFrame(
+        event: [String: Any],
+        sequence: Int64
+    ) -> CmuxEventFrame? {
+        guard let encodedLine = encodeSanitizedLine(event) else { return nil }
+        guard encodedLine.utf8.count > maxEventLineBytes else {
+            return makeFrame(object: event, encodedLine: encodedLine, sequence: sequence)
         }
 
         var compact = event
@@ -434,20 +535,68 @@ final class CmuxEventBus: @unchecked Sendable {
         compact["payload"] = [
             "truncated": true,
             "reason": "event exceeded max encoded byte limit",
-            "max_bytes": maxBytes,
+            "max_bytes": maxEventLineBytes,
             "original_payload_keys": Array(payload.keys.sorted().prefix(64))
         ]
 
-        if let line = encodeLine(compact), line.utf8.count <= maxBytes {
-            return compact
+        if let line = encodeSanitizedLine(compact), line.utf8.count <= maxEventLineBytes {
+            return makeFrame(object: compact, encodedLine: line, sequence: sequence)
         }
 
         compact["payload"] = [
             "truncated": true,
             "reason": "event exceeded max encoded byte limit",
-            "max_bytes": maxBytes
+            "max_bytes": maxEventLineBytes
         ]
-        return compact
+        for stringBudget in Self.topLevelMetadataBudgets(maxEventLineBytes: maxEventLineBytes) {
+            var bounded = compact
+            for key in Self.userControlledTopLevelStringKeys {
+                if let value = bounded[key] as? String {
+                    bounded[key] = Self.truncatedString(value, maxUTF8Bytes: stringBudget)
+                }
+            }
+            guard let line = encodeSanitizedLine(bounded) else { continue }
+            if line.utf8.count <= maxEventLineBytes {
+                return makeFrame(object: bounded, encodedLine: line, sequence: sequence)
+            }
+        }
+
+        return nil
+    }
+
+    private func makeFrame(
+        object: [String: Any],
+        encodedLine: String,
+        sequence: Int64
+    ) -> CmuxEventFrame {
+        let name = object["name"] as? String ?? ""
+        let category = object["category"] as? String ?? ""
+        return CmuxEventFrame(
+            object: object,
+            encodedLine: encodedLine,
+            sequence: sequence,
+            name: name,
+            category: category
+        )
+    }
+
+    private static let userControlledTopLevelStringKeys = [
+        "name",
+        "category",
+        "source",
+        "workspace_id",
+        "surface_id",
+        "pane_id",
+        "window_id"
+    ]
+
+    private static func topLevelMetadataBudgets(maxEventLineBytes: Int) -> [Int] {
+        let proportionalBudget = max(3, min(256, maxEventLineBytes / 16))
+        return [proportionalBudget, 128, 64, 32, 16, 8, 3]
+            .filter { $0 <= proportionalBudget }
+            .reduce(into: []) { budgets, budget in
+                if budgets.last != budget { budgets.append(budget) }
+            }
     }
 
     private static func truncatedString(_ value: String, maxUTF8Bytes: Int) -> String {
