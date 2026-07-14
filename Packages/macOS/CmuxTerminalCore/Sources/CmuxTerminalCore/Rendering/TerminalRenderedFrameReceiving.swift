@@ -14,3 +14,24 @@ public protocol TerminalRenderedFrameReceiving: AnyObject, Sendable {
     /// Schedules a coalesced rendered-frame notification.
     func enqueueRenderedFrameUpdate()
 }
+
+/// Decides whether renderer output should enter the app's main-actor frame
+/// delivery path.
+///
+/// Renderer profiling records Ghostty and drawable-presentation intervals on
+/// the renderer thread. It must not create frame-delivery demand of its own,
+/// because doing so adds one main-actor task and one coalescing flush per
+/// drawable to the workload being measured.
+public struct TerminalRenderedFrameDeliveryPolicy: Sendable {
+    private let renderDemandActive: Bool
+
+    @inline(__always)
+    public init(renderDemandActive: Bool) {
+        self.renderDemandActive = renderDemandActive
+    }
+
+    @inline(__always)
+    public func shouldEnqueue(profilingEnabled _: Bool) -> Bool {
+        return renderDemandActive
+    }
+}

@@ -2761,7 +2761,12 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Prevent forcing web-view focus when another UI path requested omnibar focus.
     /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
     private var suppressWebViewFocusUntil: Date?
-    private var suppressWebViewFocusForAddressBar: Bool = false
+    /// Model-owned suppression requested before an address-bar view has accepted
+    /// focus. Mounted views hold separate owner-scoped leases so a disappearing
+    /// stale view cannot clear a replacement view's suppression, and an
+    /// acknowledged request cannot leave suppression latched without an owner.
+    var suppressWebViewFocusForAddressBarIntent: Bool = false
+    var addressBarViewFocusLeaseOwners: Set<UUID> = []
     private let blankURLString = "about:blank"
 
     /// Owns the address-bar page-focus capture/restore subsystem.
@@ -2910,8 +2915,15 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Sticky omnibar-focus intent. This survives view mount timing races and is
     /// cleared only after BrowserPanelView acknowledges handling it.
-    @Published private(set) var pendingAddressBarFocusRequestId: UUID?
-    private(set) var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+    @Published var pendingAddressBarFocusRequestId: UUID?
+    var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+
+    /// The newest mounted SwiftUI presentation for this model. Ordinary workspace
+    /// recreation can overlap outgoing and replacement views for the same panel
+    /// and pane, so pane identity alone cannot decide which view may consume a
+    /// durable focus request.
+    @Published var currentAddressBarViewPresentationOwner: UUID?
+    var addressBarViewPresentationOwners: [UUID] = []
 
     /// Per-surface browser chrome visibility. Diff and artifact viewers can hide
     /// the omnibar without changing the global browser default.
@@ -7146,6 +7158,7 @@ extension BrowserPanel {
         let shouldSelectAll = created && !recoveredNeedle.isEmpty
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+        endSuppressWebViewFocusForAddressBar()
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
         let generation = beginSearchFocusRequest(reason: "startFind")
         postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: shouldSelectAll)
@@ -7445,7 +7458,7 @@ extension BrowserPanel {
     }
 
     func shouldSuppressWebViewFocus() -> Bool {
-        if suppressWebViewFocusForAddressBar {
+        if hasAddressBarFocusSuppression {
             return true
         }
         if searchState != nil {
@@ -7457,28 +7470,6 @@ extension BrowserPanel {
         return false
     }
 
-    func beginSuppressWebViewFocusForAddressBar() {
-        let enteringAddressBar = !suppressWebViewFocusForAddressBar
-        if enteringAddressBar {
-#if DEBUG
-            cmuxDebugLog("browser.focus.addressBarSuppress.begin panel=\(id.uuidString.prefix(5))")
-#endif
-            invalidateAddressBarPageFocusRestoreAttempts()
-        }
-        suppressWebViewFocusForAddressBar = true
-        if enteringAddressBar {
-            captureAddressBarPageFocusIfNeeded()
-        }
-    }
-
-    func endSuppressWebViewFocusForAddressBar() {
-        if suppressWebViewFocusForAddressBar {
-#if DEBUG
-            cmuxDebugLog("browser.focus.addressBarSuppress.end panel=\(id.uuidString.prefix(5))")
-#endif
-        }
-        suppressWebViewFocusForAddressBar = false
-    }
 
     @discardableResult
     func requestAddressBarFocus(
@@ -7742,6 +7733,7 @@ extension BrowserPanel {
         }
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+        endAddressBarFocusIntentSuppression()
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.addressBar.requestAck panel=\(id.uuidString.prefix(5)) " +
@@ -7750,7 +7742,7 @@ extension BrowserPanel {
 #endif
     }
 
-    private func captureAddressBarPageFocusIfNeeded() {
+    func captureAddressBarPageFocusIfNeeded() {
         omnibarPageFocusRepository.captureIfNeeded(panelDebugID: String(id.uuidString.prefix(5)))
     }
 
