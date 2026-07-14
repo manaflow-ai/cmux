@@ -4,11 +4,6 @@ import SwiftUI
 
 /// Bridges one workspace's existing git-status observation stream into the pull-request panel input.
 struct PullRequestPanelWorkspaceView: View {
-    private struct ObservationID: Hashable {
-        let workspaceID: UUID
-        let isVisible: Bool
-    }
-
     @State private var input: PullRequestWorkspaceInput
 
     let workspace: Workspace
@@ -36,7 +31,7 @@ struct PullRequestPanelWorkspaceView: View {
             isVisible: isVisible,
             onOpenURL: onOpenURL
         )
-        .task(id: ObservationID(workspaceID: workspace.id, isVisible: isVisible)) { @MainActor in
+        .task(id: PullRequestPanelObservationID(workspaceID: workspace.id, isVisible: isVisible)) { @MainActor in
             guard isVisible else { return }
             for await _ in workspace.pullRequestSidebarObservationStream() {
                 if Task.isCancelled { break }

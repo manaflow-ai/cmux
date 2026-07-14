@@ -1,19 +1,14 @@
 import Foundation
 
 actor PullRequestRefreshSchedulingProbe {
-    enum ThirdAttempt: Equatable {
-        case branchStarted
-        case queued
-    }
-
     private(set) var maximumActiveBranchViewCount = 0
     private(set) var startedBranches: Set<String> = []
     private var activeBranchViewCount = 0
     private var branchViewsAreReleased = false
     private var branchViewReleaseWaiters: [CheckedContinuation<Void, Never>] = []
     private var startedCountWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
-    private var thirdAttempt: ThirdAttempt?
-    private var thirdAttemptWaiters: [CheckedContinuation<ThirdAttempt, Never>] = []
+    private var thirdAttempt: PullRequestRefreshThirdAttempt?
+    private var thirdAttemptWaiters: [CheckedContinuation<PullRequestRefreshThirdAttempt, Never>] = []
 
     func branchViewStarted(branch: String) {
         startedBranches.insert(branch)
@@ -40,7 +35,7 @@ actor PullRequestRefreshSchedulingProbe {
         }
     }
 
-    func waitForThirdAttempt() async -> ThirdAttempt {
+    func waitForThirdAttempt() async -> PullRequestRefreshThirdAttempt {
         if let thirdAttempt { return thirdAttempt }
         return await withCheckedContinuation { thirdAttemptWaiters.append($0) }
     }
@@ -57,7 +52,7 @@ actor PullRequestRefreshSchedulingProbe {
         waiters.forEach { $0.resume() }
     }
 
-    private func recordThirdAttempt(_ attempt: ThirdAttempt) {
+    private func recordThirdAttempt(_ attempt: PullRequestRefreshThirdAttempt) {
         guard thirdAttempt == nil else { return }
         thirdAttempt = attempt
         let waiters = thirdAttemptWaiters

@@ -2,14 +2,9 @@ import Foundation
 @testable import CmuxGit
 
 actor RecordingPullRequestRefreshLimiter: PullRequestPanelRefreshLimiting {
-    private struct Waiter {
-        let id: UUID
-        let continuation: CheckedContinuation<Bool, Never>
-    }
-
     private let probe: PullRequestRefreshSchedulingProbe
     private var activeCount = 0
-    private var waiters: [Waiter] = []
+    private var waiters: [RecordingPullRequestRefreshWaiter] = []
     private var cancellationCount = 0
     private var cancellationWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
 
@@ -30,7 +25,7 @@ actor RecordingPullRequestRefreshLimiter: PullRequestPanelRefreshLimiting {
                 if Task.isCancelled {
                     continuation.resume(returning: false)
                 } else {
-                    waiters.append(Waiter(id: id, continuation: continuation))
+                    waiters.append(RecordingPullRequestRefreshWaiter(id: id, continuation: continuation))
                     Task { await probe.queuedRefreshObserved() }
                 }
             }

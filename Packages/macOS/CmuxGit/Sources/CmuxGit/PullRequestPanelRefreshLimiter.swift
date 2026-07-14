@@ -2,14 +2,9 @@ import Foundation
 
 /// A cancellation-aware FIFO concurrency limit for pull-request refresh chains.
 public actor PullRequestPanelRefreshLimiter: PullRequestPanelRefreshLimiting {
-    private struct Waiter {
-        let id: UUID
-        let continuation: CheckedContinuation<Bool, Never>
-    }
-
     private let limit: Int
     private var activeCount = 0
-    private var waiters: [Waiter] = []
+    private var waiters: [PullRequestPanelRefreshWaiter] = []
 
     /// Creates a limiter allowing at most `limit` active refresh chains.
     /// - Parameter limit: The concurrency cap, clamped to at least one.
@@ -31,7 +26,7 @@ public actor PullRequestPanelRefreshLimiter: PullRequestPanelRefreshLimiting {
                 if Task.isCancelled {
                     continuation.resume(returning: false)
                 } else {
-                    waiters.append(Waiter(id: id, continuation: continuation))
+                    waiters.append(PullRequestPanelRefreshWaiter(id: id, continuation: continuation))
                 }
             }
         } onCancel: {
