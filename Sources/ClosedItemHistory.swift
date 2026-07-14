@@ -208,12 +208,15 @@ final class ClosedItemHistoryStore: ObservableObject {
             return .blockedByPendingEnrichment
         }
         for (candidateIndex, candidate) in candidates.enumerated() {
-            if candidateIndex > 0,
-               pendingEnrichmentRecordIDs.contains(candidate.id) {
+            let isPendingEnrichment = pendingEnrichmentRecordIDs.contains(candidate.id)
+            if candidateIndex > 0, isPendingEnrichment {
                 return .blockedByPendingEnrichment
             }
             guard restore(candidate.entry) else {
                 onFailure?(candidate.id)
+                if isPendingEnrichment {
+                    return .blockedByPendingEnrichment
+                }
                 continue
             }
             if let index = records.firstIndex(where: { $0.id == candidate.id }) {
