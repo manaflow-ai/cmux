@@ -158,10 +158,10 @@ jobs:
 
       # Xcode 26 compilation caching reuses unchanged Swift/Clang compilation
       # results even though each nightly uses a clean DerivedData directory.
-      # Rotate the immutable Actions cache key weekly: the first nightly restores
-      # the newest compatible cache and saves that week's updated snapshot, while
-      # later nightlies avoid uploading another multi-GB copy. The post-build
-      # size guard below also prevents an unexpectedly large CAS from being saved.
+      # Rotate the immutable Actions cache key weekly: the first nightly saves
+      # that week's snapshot, while later nightlies restore it without uploading
+      # another multi-GB copy. Do not fall back across weeks, so a rejected cache
+      # cannot be restored forever. The post-build guard also caps snapshot size.
       - name: Compute Xcode compilation cache key
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         id: compilation-cache-key
@@ -176,8 +176,6 @@ jobs:
         with:
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-nightly-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ steps.compilation-cache-key.outputs.utc_week }}
-          restore-keys: |
-            xcode-compilation-nightly-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
       # Provide node/npm explicitly. The build/sign/notarize job can land on a
       # self-hosted macOS runner (the iOS-CI minis match the same label) that has

@@ -30,9 +30,9 @@ if ! awk '
   in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain=1 }
   in_cache && /steps\.compilation-cache-key\.outputs\.utc_week/ { saw_week=1 }
   in_cache && /restore-keys:/ { saw_restore=1 }
-  END { exit !(saw_path && saw_key && saw_toolchain && saw_week && saw_restore) }
+  END { exit !(saw_path && saw_key && saw_toolchain && saw_week && !saw_restore) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must restore a toolchain-scoped, weekly Xcode compilation cache"
+  echo "FAIL: nightly workflow must use one toolchain-scoped cache per week without stale fallback"
   exit 1
 fi
 
