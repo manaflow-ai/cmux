@@ -37,6 +37,9 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     }
 
     init(notification: TerminalNotification) {
+        let persistedScrollPosition = notification.scrollPosition.map {
+            TerminalNotificationScrollPosition(row: $0.row, totalRows: $0.totalRows)
+        }
         self.init(
             id: notification.id,
             title: notification.title,
@@ -46,13 +49,16 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
             retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
-            scrollPosition: notification.scrollPosition,
+            scrollPosition: persistedScrollPosition,
             clickAction: notification.clickAction
         )
     }
 
     func terminalNotification(tabId: UUID, surfaceId: UUID?, panelId: UUID?) -> TerminalNotification {
-        TerminalNotification(
+        let restoredScrollPosition = scrollPosition.map {
+            TerminalNotificationScrollPosition(row: $0.row, totalRows: $0.totalRows)
+        }
+        return TerminalNotification(
             id: id,
             tabId: tabId,
             surfaceId: surfaceId,
@@ -64,7 +70,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             createdAt: Date(timeIntervalSince1970: createdAt),
             isRead: isRead,
             paneFlash: paneFlash ?? true,
-            scrollPosition: scrollPosition,
+            scrollPosition: restoredScrollPosition,
             clickAction: clickAction
         )
     }

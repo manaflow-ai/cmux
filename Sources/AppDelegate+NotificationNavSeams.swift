@@ -102,7 +102,8 @@ final class NotificationNavSeamAdapter:
         retargetsToLiveSurfaceOwner: Bool,
         notificationId: UUID?,
         scrollRow: Int?,
-        scrollTotalRows: Int?
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         owner?.openRouted(
             tabId: tabId,
@@ -111,7 +112,8 @@ final class NotificationNavSeamAdapter:
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             notificationId: notificationId,
             scrollRow: scrollRow,
-            scrollTotalRows: scrollTotalRows
+            scrollTotalRows: scrollTotalRows,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
         ) ?? false
     }
 
@@ -122,7 +124,8 @@ final class NotificationNavSeamAdapter:
         panelId: UUID?,
         notificationId: UUID?,
         scrollRow: Int?,
-        scrollTotalRows: Int?
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         owner?.openInWindow(
             windowId: windowId,
@@ -131,7 +134,8 @@ final class NotificationNavSeamAdapter:
             panelId: panelId,
             notificationId: notificationId,
             scrollRow: scrollRow,
-            scrollTotalRows: scrollTotalRows
+            scrollTotalRows: scrollTotalRows,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
         ) ?? false
     }
 
@@ -141,7 +145,8 @@ final class NotificationNavSeamAdapter:
         panelId: UUID?,
         notificationId: UUID?,
         scrollRow: Int?,
-        scrollTotalRows: Int?
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         owner?.openInActiveWindowFallback(
             tabId: tabId,
@@ -149,7 +154,8 @@ final class NotificationNavSeamAdapter:
             panelId: panelId,
             notificationId: notificationId,
             scrollRow: scrollRow,
-            scrollTotalRows: scrollTotalRows
+            scrollTotalRows: scrollTotalRows,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
         ) ?? false
     }
 
@@ -253,17 +259,7 @@ extension AppDelegate {
     var orderedNotificationsForNav: [NotificationNavSnapshot] {
         guard let notificationStore else { return [] }
         return notificationStore.notificationsForUnreadNavigation.map { notification in
-            NotificationNavSnapshot(
-                id: notification.id,
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                panelId: notification.panelId,
-                retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
-                isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction),
-                scrollRow: notification.scrollPosition?.row,
-                scrollTotalRows: notification.scrollPosition?.totalRows
-            )
+            notification.notificationNavigationSnapshot
         }
     }
 
@@ -283,16 +279,6 @@ extension AppDelegate {
         notificationStore?.markRead(id: id)
     }
 
-    /// Maps the app-target click action onto the package's value-typed action.
-    static func navClickAction(
-        _ action: TerminalNotificationClickAction
-    ) -> NotificationNavClickAction {
-        switch action {
-        case .revealInFinder(let path):
-            return .revealInFinder(path: path)
-        }
-    }
-
     /// Whether `notification` is openable by the jump-to-latest scan. A thin
     /// shim over `NotificationNavSnapshot.isOpenableForJump`, kept so the legacy
     /// predicate name and its unit test remain valid (and prove the package
@@ -303,17 +289,7 @@ extension AppDelegate {
         excludingNotificationId excludedNotificationId: UUID? = nil,
         excludingWorkspaceId excludedWorkspaceId: UUID? = nil
     ) -> Bool {
-        NotificationNavSnapshot(
-            id: notification.id,
-            tabId: notification.tabId,
-            surfaceId: notification.surfaceId,
-            panelId: notification.panelId,
-            retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
-            isRead: notification.isRead,
-            clickAction: notification.clickAction.map(navClickAction),
-            scrollRow: notification.scrollPosition?.row,
-            scrollTotalRows: notification.scrollPosition?.totalRows
-        )
+        notification.notificationNavigationSnapshot
         .isOpenableForJump(
             excludingNotificationId: excludedNotificationId,
             excludingWorkspaceId: excludedWorkspaceId
@@ -391,7 +367,8 @@ extension AppDelegate {
         retargetsToLiveSurfaceOwner: Bool,
         notificationId: UUID?,
         scrollRow: Int?,
-        scrollTotalRows: Int?
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         openNotification(
             tabId: tabId,
@@ -399,7 +376,11 @@ extension AppDelegate {
             panelId: panelId,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             notificationId: notificationId,
-            scrollPosition: navScrollPosition(row: scrollRow, totalRows: scrollTotalRows)
+            scrollPosition: navScrollPosition(
+                row: scrollRow,
+                totalRows: scrollTotalRows,
+                rowSpaceRevision: scrollRowSpaceRevision
+            )
         )
     }
 
@@ -410,7 +391,8 @@ extension AppDelegate {
         panelId: UUID?,
         notificationId: UUID?,
         scrollRow: Int?,
-        scrollTotalRows: Int?
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
             return false
@@ -422,7 +404,11 @@ extension AppDelegate {
             surfaceId: surfaceId,
             panelId: panelId,
             notificationId: notificationId,
-            scrollPosition: navScrollPosition(row: scrollRow, totalRows: scrollTotalRows)
+            scrollPosition: navScrollPosition(
+                row: scrollRow,
+                totalRows: scrollTotalRows,
+                rowSpaceRevision: scrollRowSpaceRevision
+            )
         )
     }
 
@@ -432,14 +418,19 @@ extension AppDelegate {
         panelId: UUID?,
         notificationId: UUID?,
         scrollRow: Int?,
-        scrollTotalRows: Int?
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         openNotificationFallback(
             tabId: tabId,
             surfaceId: surfaceId,
             panelId: panelId,
             notificationId: notificationId,
-            scrollPosition: navScrollPosition(row: scrollRow, totalRows: scrollTotalRows)
+            scrollPosition: navScrollPosition(
+                row: scrollRow,
+                totalRows: scrollTotalRows,
+                rowSpaceRevision: scrollRowSpaceRevision
+            )
         )
     }
 
@@ -447,9 +438,17 @@ extension AppDelegate {
         tabTitle(for: tabId)
     }
 
-    private func navScrollPosition(row: Int?, totalRows: Int?) -> TerminalNotificationScrollPosition? {
+    private func navScrollPosition(
+        row: Int?,
+        totalRows: Int?,
+        rowSpaceRevision: UInt64?
+    ) -> TerminalNotificationScrollPosition? {
         guard let row else { return nil }
-        return TerminalNotificationScrollPosition(row: row, totalRows: totalRows)
+        return TerminalNotificationScrollPosition(
+            row: row,
+            totalRows: totalRows,
+            rowSpaceRevision: rowSpaceRevision
+        )
     }
 
     // MARK: FinderRevealing helpers
