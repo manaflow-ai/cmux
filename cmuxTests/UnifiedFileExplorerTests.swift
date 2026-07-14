@@ -20,6 +20,35 @@ struct UnifiedFileExplorerTests {
         #expect(RightSidebarMode.find.registeredToolMode == .files)
     }
 
+    @Test("Grouped search rows retain accessible file and line identity")
+    func groupedSearchRowsRetainAccessibleIdentity() {
+        let result = FileSearchResult(
+            path: "/tmp/unified-file-explorer-tests/Sources/file.swift",
+            relativePath: "Sources/file.swift",
+            lineNumber: 7,
+            columnNumber: 3,
+            preview: "let needle = true"
+        )
+        let cell = FileExplorerSearchResultCellView(
+            identifier: NSUserInterfaceItemIdentifier("AccessibleSearchResult")
+        )
+
+        cell.configure(with: result, startsFileGroup: false)
+
+        let format = String(
+            localized: "fileExplorer.search.result.accessibilityLabel",
+            defaultValue: "%@: line %lld"
+        )
+        #expect(
+            cell.accessibilityLabel() == String.localizedStringWithFormat(
+                format,
+                result.relativePath,
+                Int64(result.lineNumber)
+            )
+        )
+        #expect(cell.accessibilityValue() as? String == result.preview)
+    }
+
     @Test("Files and Find focus one host without discarding either view's state")
     func focusAliasesPreserveTreeAndSearchState() throws {
         let defaults = UserDefaults.standard
@@ -118,18 +147,20 @@ struct UnifiedFileExplorerTests {
         #expect(store.selectedPath == directory.path)
 
         let searchCountBeforeFindActivation = searchController.searchRequests.count
+        let outlineResponder = window.firstResponder
         state.mode = .find
         container.updatePresentation(.unified)
         #expect(!container.searchResultsView.isHidden)
         #expect(searchController.searchRequests.count == searchCountBeforeFindActivation + 1)
-        #expect(window.firstResponder === searchField)
+        #expect(window.firstResponder === outlineResponder)
 
         #expect(window.makeFirstResponder(container.searchResultsView))
+        let searchResultsResponder = window.firstResponder
         let cancelCountBeforeFilesActivation = searchController.cancelRequests.count
         state.mode = .files
         container.updatePresentation(.unified)
         #expect(container.searchResultsView.isHidden)
-        #expect(window.firstResponder is NSOutlineView)
+        #expect(window.firstResponder === searchResultsResponder)
         #expect(searchController.cancelRequests.count == cancelCountBeforeFilesActivation + 1)
         #expect(searchController.cancelRequests.last == false)
 
