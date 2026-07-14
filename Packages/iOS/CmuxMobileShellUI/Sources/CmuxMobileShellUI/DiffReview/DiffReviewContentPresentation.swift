@@ -5,7 +5,7 @@ struct DiffReviewContentPresentation {
     let metadataLines: [String]
 
     init(file: DiffFileSummary?, hunks: [DiffHunk], metadataLines: [String]) {
-        rename = hunks.isEmpty ? file.flatMap(DiffReviewRenamePresentation.init(file:)) : nil
+        rename = file.flatMap(DiffReviewRenamePresentation.init(file:))
         self.metadataLines = metadataLines
     }
 }

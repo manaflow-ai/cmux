@@ -15,6 +15,7 @@ struct GitSubprocessSupervisor {
     let maxOutputBytes: Int?
     let processLifecycle: GitProcessLifecycleService
     let lifecyclePermit: GitProcessLifecyclePermit
+    let cancellationSignal: GitProcessCancellationSignal?
 
     func run() -> GitProcessResult {
         defer { processLifecycle.finishProcess(lifecyclePermit) }
@@ -133,6 +134,18 @@ struct GitSubprocessSupervisor {
                 udata: nil
             ),
         ]
+        if let cancellationSignal, cancellationSignal.readDescriptor >= 0 {
+            registrations.append(
+                kevent(
+                    ident: UInt(cancellationSignal.readDescriptor),
+                    filter: Int16(EVFILT_READ),
+                    flags: UInt16(EV_ADD | EV_ENABLE),
+                    fflags: 0,
+                    data: 0,
+                    udata: nil
+                )
+            )
+        }
         let registrationStatus = registrations.withUnsafeMutableBufferPointer { buffer in
             kevent(eventQueue, buffer.baseAddress, Int32(buffer.count), nil, 0, nil)
         }
@@ -210,6 +223,7 @@ struct GitSubprocessSupervisor {
             var events = [
                 kevent(ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: nil),
                 kevent(ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: nil),
+                kevent(ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: nil),
             ]
             let waitPlan = GitProcessWaitPlan(
                 processDeadline: processDeadline,
@@ -256,7 +270,12 @@ struct GitSubprocessSupervisor {
             if eventCount == 0 { continue }
 
             for event in events.prefix(Int(eventCount)) {
-                if event.filter == Int16(EVFILT_PROC) {
+                if let cancellationSignal,
+                   cancellationSignal.readDescriptor >= 0,
+                   event.filter == Int16(EVFILT_READ),
+                   event.ident == UInt(cancellationSignal.readDescriptor) {
+                    beginTermination(.cancelled)
+                } else if event.filter == Int16(EVFILT_PROC) {
                     processExited = true
                 } else if event.filter == Int16(EVFILT_READ), outputDescriptor >= 0 {
                     let reachedEnd = gitProcessDrain(

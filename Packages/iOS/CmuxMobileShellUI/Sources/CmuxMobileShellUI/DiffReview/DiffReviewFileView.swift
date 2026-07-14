@@ -117,7 +117,10 @@ struct DiffReviewFileView: View {
                         .padding(.horizontal, 8)
                         .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                     }
-                    metadataStrip(presentation.metadataLines)
+                    metadataStrip(
+                        presentation.metadataLines,
+                        rename: presentation.rename
+                    )
                     DiffReviewHunkView(
                         hunk: hunk,
                         position: session.currentHunkIndex + 1,
@@ -343,10 +346,18 @@ struct DiffReviewFileView: View {
     }
 
     @ViewBuilder
-    private func metadataStrip(_ metadataLines: [String]) -> some View {
-        if !metadataLines.isEmpty {
+    private func metadataStrip(
+        _ metadataLines: [String],
+        rename: DiffReviewRenamePresentation? = nil
+    ) -> some View {
+        if rename != nil || !metadataLines.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
+                    if let rename {
+                        Label(rename.text, systemImage: "arrow.right")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
                     ForEach(metadataLines.indices, id: \.self) { index in
                         Text(verbatim: metadataLines[index])
                             .font(.system(.caption, design: .monospaced))

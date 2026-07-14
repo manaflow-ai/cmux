@@ -154,10 +154,11 @@ extension TerminalController {
         directory: String,
         processLifecycle: GitProcessLifecycleService
     ) async -> MobileWorkspaceDiffStatusResult {
-        await detachedCancellable {
+        let service = GitDiffService(processLifecycle: processLifecycle)
+        return await service.runCancellable { service in
             mobileWorkspaceDiffStatusResultSync(
                 directory: directory,
-                processLifecycle: processLifecycle
+                service: service
             )
         }
     }
@@ -173,7 +174,8 @@ extension TerminalController {
         expectedRepoRoot: String,
         processLifecycle: GitProcessLifecycleService
     ) async -> MobileWorkspaceDiffFileResult {
-        await detachedCancellable {
+        let service = GitDiffService(processLifecycle: processLifecycle)
+        return await service.runCancellable { service in
             mobileWorkspaceDiffFileResultSync(
                 directory: directory,
                 path: path,
@@ -183,38 +185,15 @@ extension TerminalController {
                 deletions: deletions,
                 snapshotToken: snapshotToken,
                 expectedRepoRoot: expectedRepoRoot,
-                processLifecycle: processLifecycle
+                service: service
             )
-        }
-    }
-
-    /// Runs blocking git work off the main actor while keeping it tied to the
-    /// caller's cancellation: `Task.detached` alone severs it, so an RPC
-    /// timeout (`v2AsyncResultCall`'s `task.cancel()`) would leave the whole
-    /// multi-subprocess pipeline running to completion. The handler forwards
-    /// cancellation into the detached task, and `GitDiffService` bails between
-    /// subprocess invocations when its task is cancelled, so a timed-out
-    /// request stops at the next process boundary instead of running the full
-    /// sequence (each process is separately deadline-bounded by the service's
-    /// kernel-event supervisor).
-    private nonisolated static func detachedCancellable<Result: Sendable>(
-        _ work: @escaping @Sendable () -> Result
-    ) async -> Result {
-        let task = Task.detached(priority: .utility) {
-            work()
-        }
-        return await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
         }
     }
 
     private nonisolated static func mobileWorkspaceDiffStatusResultSync(
         directory: String,
-        processLifecycle: GitProcessLifecycleService
+        service: GitDiffService
     ) -> MobileWorkspaceDiffStatusResult {
-        let service = GitDiffService(processLifecycle: processLifecycle)
         return service.withOperationDeadline {
             let repoRoot: String
             switch service.repositoryRootResult(for: directory) {
@@ -257,9 +236,8 @@ extension TerminalController {
         deletions: Int?,
         snapshotToken: String,
         expectedRepoRoot: String,
-        processLifecycle: GitProcessLifecycleService
+        service: GitDiffService
     ) -> MobileWorkspaceDiffFileResult {
-        let service = GitDiffService(processLifecycle: processLifecycle)
         return service.withOperationDeadline {
             let repoRoot: String
             switch service.repositoryRootResult(for: directory) {

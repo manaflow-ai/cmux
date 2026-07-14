@@ -161,8 +161,10 @@ import Testing
             gitExecutableURL: stalledGit,
             processDeadlineSeconds: 3
         )
-        let task = Task.detached {
-            service.repositoryRoot(for: repo.path)
+        let task = Task {
+            await service.runCancellable { service in
+                service.repositoryRoot(for: repo.path)
+            }
         }
         try await requireFile(startedMarker, within: .seconds(2))
 

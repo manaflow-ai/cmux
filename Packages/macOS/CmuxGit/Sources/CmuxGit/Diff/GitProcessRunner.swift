@@ -16,19 +16,33 @@ struct GitProcessRunner: Sendable {
     private let environment: [String: String]
     private let processDeadlineSeconds: Double
     private let processLifecycle: GitProcessLifecycleService
+    private let cancellationSignal: GitProcessCancellationSignal?
 
     init(
         gitExecutableURL: URL,
         fileSystemStatExecutableURL: URL,
         environment: [String: String],
         processDeadlineSeconds: Double,
-        processLifecycle: GitProcessLifecycleService
+        processLifecycle: GitProcessLifecycleService,
+        cancellationSignal: GitProcessCancellationSignal? = nil
     ) {
         self.gitExecutableURL = gitExecutableURL
         self.fileSystemStatExecutableURL = fileSystemStatExecutableURL
         self.environment = environment
         self.processDeadlineSeconds = processDeadlineSeconds
         self.processLifecycle = processLifecycle
+        self.cancellationSignal = cancellationSignal
+    }
+
+    func withCancellationSignal(_ cancellationSignal: GitProcessCancellationSignal) -> Self {
+        Self(
+            gitExecutableURL: gitExecutableURL,
+            fileSystemStatExecutableURL: fileSystemStatExecutableURL,
+            environment: environment,
+            processDeadlineSeconds: processDeadlineSeconds,
+            processLifecycle: processLifecycle,
+            cancellationSignal: cancellationSignal
+        )
     }
 
     func run(
@@ -248,7 +262,8 @@ struct GitProcessRunner: Sendable {
             deadlineSeconds: effectiveDeadlineSeconds(deadlineSeconds),
             maxOutputBytes: maxOutputBytes,
             processLifecycle: processLifecycle,
-            lifecyclePermit: lifecyclePermit
+            lifecyclePermit: lifecyclePermit,
+            cancellationSignal: cancellationSignal
         ).run()
         return translateSupervisedResult(
             supervised,
