@@ -42,6 +42,7 @@
   let observer = null;
   let refreshScheduled = false;
   let selectionIdentityNeedsRefresh = false;
+  let selectionRecoveryFrame = 0;
   let overlayFrame = 0;
   let captureHidden = false;
   const edits = new Map();
@@ -157,8 +158,7 @@
   const isSensitiveElement = (element) => {
     if (!element || element.nodeType !== 1) return false;
     if (["script", "style"].includes(element.localName)) return true;
-    const type = String(element.getAttribute?.("type") || "").toLowerCase();
-    if (element instanceof HTMLInputElement && ["hidden", "password"].includes(type)) return true;
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) return true;
     const autocomplete = String(element.getAttribute?.("autocomplete") || "");
     if (sensitiveAutocompletePattern.test(autocomplete)) return true;
     return hasSensitiveName(element.getAttribute?.("name")) || hasSensitiveName(element.id);
@@ -186,18 +186,10 @@
     return false;
   };
 
-  const textValue = (element) => {
-    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-      return String(element.value || "");
-    }
-    return String(element.textContent || "");
-  };
+  const textValue = (element) => String(element.textContent || "");
 
   const boundedTextValue = (element) => {
     if (isSensitiveElement(element)) return redactedValue;
-    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-      return bounded(element.value, maxTextCharacters);
-    }
     const parts = [];
     let remaining = maxTextCharacters;
     let visited = 0;
@@ -217,7 +209,6 @@
   const textIsEditable = (element) => {
     if (isSensitiveElement(element)) return false;
     if (textValue(element).length > maxTextCharacters) return false;
-    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) return true;
     return element.childElementCount === 0 && !["html", "body", "script", "style"].includes(element.localName);
   };
 
@@ -386,21 +377,16 @@
 
   const rememberTextOriginal = (element) => {
     if (textOriginals.has(element)) return true;
-    const input = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
+    if (!textIsEditable(element)) return false;
     const value = textValue(element);
     if (value.length > maxTextCharacters) return false;
-    textOriginals.set(element, { input, value });
+    textOriginals.set(element, { value });
     return true;
   };
 
   const restoreText = () => {
     for (const [element, original] of textOriginals) {
-      if (original.input) {
-        element.value = original.value;
-        element.dispatchEvent(new Event("input", { bubbles: true }));
-      } else {
-        element.textContent = original.value;
-      }
+      element.textContent = original.value;
     }
     textOriginals.clear();
   };
@@ -416,28 +402,17 @@
     }
     const textValue = textOriginals.get(element);
     if (!textValue) return;
-    if (textValue.input) {
-      element.value = textValue.value;
-      if (element.isConnected) element.dispatchEvent(new Event("input", { bubbles: true }));
-    } else {
-      element.textContent = textValue.value;
-    }
+    element.textContent = textValue.value;
     textOriginals.delete(element);
   };
 
-  const applyText = (element, value, notifyPage) => {
+  const applyText = (element, value) => {
     if (!rememberTextOriginal(element)) return false;
-    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-      if (element.value === value) return true;
-      element.value = value;
-      if (notifyPage) element.dispatchEvent(new Event("input", { bubbles: true }));
-      return true;
-    }
     if (element.textContent !== value) element.textContent = value;
     return true;
   };
 
-  const applyEditsTo = (element, notifyPage = true) => {
+  const applyEditsTo = (element) => {
     for (const edit of edits.values()) {
       if (edit.kind === "style") {
         rememberStyleOriginal(element, edit.property);
@@ -446,7 +421,7 @@
           element.style.setProperty(edit.property, edit.value, "important");
         }
       } else if (edit.kind === "text") {
-        if (!applyText(element, edit.value, notifyPage)) edits.delete(edit.id);
+        if (!applyText(element, edit.value)) edits.delete(edit.id);
       }
     }
   };
@@ -588,7 +563,7 @@
     overlayFrame = requestAnimationFrame(refreshOverlay);
   };
 
-  const refreshAfterMutation = () => {
+  const refreshAfterMutation = (emitRecoveredSelection = false) => {
     refreshScheduled = false;
     let identityChanged = false;
     if (selectionIdentityNeedsRefresh && selectedElement?.isConnected && selectedBaseline) {
@@ -613,8 +588,8 @@
     const previous = selectedElement;
     const current = resolveSelectedElement();
     if (previous && previous !== current) restoreAndForgetElement(previous);
-    if (current) applyEditsTo(current, false);
-    if (previous !== current || identityChanged) {
+    if (current) applyEditsTo(current);
+    if (previous !== current || identityChanged || (emitRecoveredSelection && current)) {
       revision += 1;
       emit();
     }
@@ -628,6 +603,22 @@
     enqueue(refreshAfterMutation);
   };
 
+  const cancelSelectionRecovery = () => {
+    if (selectionRecoveryFrame) cancelAnimationFrame(selectionRecoveryFrame);
+    selectionRecoveryFrame = 0;
+  };
+
+  const scheduleSelectionRecovery = () => {
+    if (selectionRecoveryFrame) return;
+    if (overlayFrame) cancelAnimationFrame(overlayFrame);
+    overlayFrame = 0;
+    selectionRecoveryFrame = requestAnimationFrame(() => {
+      selectionRecoveryFrame = 0;
+      if (!enabled || !selectedBaseline) return;
+      refreshAfterMutation(true);
+    });
+  };
+
   const nodeContains = (container, candidate) => container === candidate
     || (typeof container?.contains === "function" && container.contains(candidate));
 
@@ -637,24 +628,13 @@
     return current?.parentNode === ancestor ? current : null;
   };
 
-  const nodeMatchesStoredSelection = (node) => {
-    if (node?.nodeType !== 1 || !selectedBaseline) return false;
-    for (const selector of selectedBaseline.selectors) {
-      try {
-        if (node.matches?.(selector) || node.querySelector?.(selector)) return true;
-      } catch (_) {}
-    }
-    return false;
-  };
-
   const mutationCanRestoreSelection = (mutation) => {
     if (mutation.type === "attributes") {
-      return selectorAttributes.has(mutation.attributeName || "")
-        && nodeMatchesStoredSelection(mutation.target);
+      return selectorAttributes.has(mutation.attributeName || "");
     }
     if (mutation.type !== "childList") return false;
-    return nodeMatchesStoredSelection(mutation.target)
-      || Array.from(mutation.addedNodes).some(nodeMatchesStoredSelection);
+    return [...mutation.addedNodes, ...mutation.removedNodes]
+      .some((node) => node.nodeType === 1);
   };
 
   const mutationTouchesSelection = (mutation) => {
@@ -688,6 +668,10 @@
   };
 
   const onMutations = (mutations) => {
+    if (!selectedElement && selectedBaseline) {
+      if (mutations.some(mutationCanRestoreSelection)) scheduleSelectionRecovery();
+      return;
+    }
     let touchesSelection = false;
     for (const mutation of mutations) {
       if (mutationTouchesSelection(mutation)) touchesSelection = true;
@@ -697,6 +681,7 @@
 
   const selectElement = (element) => {
     if (!element || element === overlayHost || overlayHost?.contains(element)) return snapshot();
+    cancelSelectionRecovery();
     if (selectedElement === element && selectedBaseline) {
       hoveredElement = null;
       scheduleOverlayRefresh();
@@ -741,6 +726,7 @@
     selectedElement = null;
     selectedBaseline = null;
     selectionIdentityNeedsRefresh = false;
+    cancelSelectionRecovery();
     revision += 1;
     scheduleOverlayRefresh();
     emit();
@@ -772,6 +758,7 @@
     observer = null;
     if (overlayFrame) cancelAnimationFrame(overlayFrame);
     overlayFrame = 0;
+    cancelSelectionRecovery();
   };
 
   const api = {
@@ -794,6 +781,7 @@
       selectedElement = null;
       selectedBaseline = null;
       selectionIdentityNeedsRefresh = false;
+      cancelSelectionRecovery();
       hoveredElement = null;
       overlayHost?.remove();
       overlayHost = null;
