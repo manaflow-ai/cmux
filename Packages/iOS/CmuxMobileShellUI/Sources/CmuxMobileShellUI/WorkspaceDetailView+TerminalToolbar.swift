@@ -48,7 +48,7 @@ extension WorkspaceDetailView {
 
     var newTerminalToolbarButton: some View {
         let requiresRefresh = terminalHierarchyRequiresRefresh
-        Button(action: createTerminalFromToolbar) {
+        return Button(action: createTerminalFromToolbar) {
             Label(
                 requiresRefresh
                     ? L10n.string(
