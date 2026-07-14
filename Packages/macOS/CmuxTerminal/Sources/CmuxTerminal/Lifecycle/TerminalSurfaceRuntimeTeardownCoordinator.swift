@@ -47,7 +47,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///     after the native free has stopped the PTY read thread.
     ///   - freeSurface: The free operation; defaults to
     ///     `ghostty_surface_free`.
-    public nonisolated func enqueueRuntimeTeardown(
+    nonisolated func enqueueRuntimeTeardown(
         id: UUID,
         workspaceId: UUID,
         reason: String,
