@@ -1,7 +1,6 @@
 import Testing
 import AppKit
 import CmuxUpdater
-import OSLog
 import SwiftUI
 
 #if canImport(cmux_DEV)
@@ -28,13 +27,13 @@ import SwiftUI
 /// source shapes; this is the mechanism-independent backstop.
 @Suite(.serialized)
 final class SidebarLazyLayoutScaleTests {
-    private static let workspaceCount = 300
+    static let workspaceCount = 300
     /// Generous ceiling for "how many rows may be realized for one viewport".
     /// A 640pt window shows ~20 rows; LazyVStack prefetch and a second layout
     /// pass can multiply that, but a virtualization defeat realizes all 300.
     private static let realizedRowCeiling = 150
 
-    private final class InjectableMouseLocationWindow: NSWindow {
+    final class InjectableMouseLocationWindow: NSWindow {
         var injectedMouseLocation = NSPoint.zero
 
         override var mouseLocationOutsideOfEventStream: NSPoint {
@@ -45,7 +44,7 @@ final class SidebarLazyLayoutScaleTests {
     // Plain class (not @MainActor) so the probe's nonisolated `() -> Void`
     // closures can mutate it; bodies only run on the main thread. Same shape
     // as MinimalModeBodyProbeCounts in WorkspaceContentViewVisibilityTests.
-    private final class RowBodyCounter {
+    final class RowBodyCounter {
         var workspaceRowBodies = 0
         var groupHeaderBodies = 0
         var workspaceSnapshotBuilds = 0
@@ -67,7 +66,7 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private struct Harness {
+    struct Harness {
         let tabManager: TabManager
         let unread: SidebarUnreadModel
         let counter: RowBodyCounter
@@ -83,7 +82,7 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private static func mountSidebar(workspaceCount: Int) async throws -> Harness {
+    static func mountSidebar(workspaceCount: Int) async throws -> Harness {
         _ = NSApplication.shared
 
         // Hermetic defaults: VerticalTabsSidebar picks between the workspace
@@ -214,7 +213,7 @@ final class SidebarLazyLayoutScaleTests {
     /// own autorelease pool so drained main-queue work cannot pile objects
     /// into the enclosing job's pool.
     @MainActor
-    private static func turnMainRunLoopOnce(layingOut window: NSWindow?) {
+    static func turnMainRunLoopOnce(layingOut window: NSWindow?) {
         autoreleasepool {
             window?.contentView?.layoutSubtreeIfNeeded()
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
@@ -222,39 +221,13 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 25) async {
+    static func drainMainRunLoop(for window: NSWindow, iterations: Int = 25) async {
         for _ in 0..<iterations {
             Self.turnMainRunLoopOnce(layingOut: window)
             await Task.yield()
         }
     }
 
-    @MainActor
-    private static func firstScrollView(in rootView: NSView) -> NSScrollView? {
-        var pendingViews = [rootView]
-        while let view = pendingViews.popLast() {
-            if let scrollView = view as? NSScrollView { return scrollView }
-            pendingViews.append(contentsOf: view.subviews)
-        }
-        return nil
-    }
-
-    private static func viewUpdateFaultMessages(since startDate: Date) throws -> [String] {
-        let store = try OSLogStore(scope: .currentProcessIdentifier)
-        let entries = try store.getEntries(at: store.position(date: startDate))
-        let faultFragments = [
-            "Modifying state during view update",
-            "Publishing changes from within view updates",
-            "laid out reentrantly",
-        ]
-        return entries.compactMap { entry in
-            guard let message = (entry as? OSLogEntryLog)?.composedMessage,
-                  faultFragments.contains(where: message.localizedCaseInsensitiveContains) else {
-                return nil
-            }
-            return message
-        }
-    }
 
     /// Mounting the sidebar with 300 workspaces must realize only the rows a
     /// single viewport needs. Realizing all of them is the #5323/#6210 defeat:
@@ -389,82 +362,6 @@ final class SidebarLazyLayoutScaleTests {
         )
     }
 
-    /// A stationary pointer over a row must survive the highest-risk sidebar
-    /// churn without producing SwiftUI view-update or NSHostingView reentrant
-    /// layout faults. The injectable window makes every production hover
-    /// reconciler see a real in-row pointer without requiring a key window or
-    /// physical mouse, while scroll, remount, unread, and appearance changes
-    /// exercise the #8004 lifecycle path.
-    @Test
-    @MainActor
-    func testStationaryPointerChurnHasNoViewUpdateFaultsAndConverges() async throws {
-        let logStart = Date()
-        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
-        defer { harness.tearDown() }
-
-        await Self.drainMainRunLoop(for: harness.window)
-        let rootView = try #require(harness.window.contentView)
-        let scrollView = try #require(Self.firstScrollView(in: rootView))
-        let pointerInScrollView = NSPoint(
-            x: scrollView.bounds.midX,
-            y: scrollView.bounds.maxY - 80
-        )
-        harness.window.injectedMouseLocation = scrollView.convert(pointerInScrollView, to: nil)
-
-        harness.counter.reset()
-        let stormTargets = Array(harness.tabManager.tabs.prefix(3).map(\.id))
-        let groupIds = harness.tabManager.workspaceGroups.map(\.id)
-        for i in 1...40 {
-            let target = stormTargets[i % stormTargets.count]
-            harness.unread.apply(
-                totalUnreadCount: i,
-                summaries: [
-                    target: SidebarWorkspaceUnreadSummary(
-                        unreadCount: i,
-                        latestNotificationText: "stationary pointer churn \(i)"
-                    )
-                ],
-                unreadSurfaceKeys: [],
-                focusedReadIndicatorByWorkspaceId: [:],
-                manualUnreadWorkspaceIds: []
-            )
-
-            let documentHeight = scrollView.documentView?.bounds.height ?? 0
-            let maximumOffset = max(0, documentHeight - scrollView.contentView.bounds.height)
-            let requestedOffset = CGFloat((i % 8) * 36)
-            scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(maximumOffset, requestedOffset)))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-
-            if i.isMultiple(of: 4), let groupId = groupIds.first {
-                harness.tabManager.toggleWorkspaceGroupCollapsed(groupId: groupId)
-            }
-            harness.window.appearance = NSAppearance(
-                named: i.isMultiple(of: 2) ? .darkAqua : .aqua
-            )
-            await Self.drainMainRunLoop(for: harness.window, iterations: 2)
-        }
-        await Self.drainMainRunLoop(for: harness.window)
-
-        let faultMessages = try Self.viewUpdateFaultMessages(since: logStart)
-        #expect(
-            faultMessages.isEmpty,
-            """
-            Sidebar stationary-pointer churn emitted \(faultMessages.count) SwiftUI/AppKit \
-            view-update faults:\n\(faultMessages.joined(separator: "\n"))
-            """
-        )
-
-        harness.counter.reset()
-        await Self.drainMainRunLoop(for: harness.window, iterations: 30)
-        let quietEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
-        #expect(
-            quietEvals < 20,
-            """
-            \(quietEvals) row bodies evaluated after stationary-pointer churn ended. The sidebar failed to converge \
-            and is still feeding interaction or geometry changes back into layout.
-            """
-        )
-    }
 
     /// Harness self-test: prove the drain loop + body counter actually detect
     /// a layout feedback loop. This fixture reproduces the historical
