@@ -145,4 +145,47 @@ final class MainWindowSelfSizingTests: XCTestCase {
             "Window height must stay where it was set even below the content minimum"
         )
     }
+
+    /// The hosting view must refuse a frame beyond its window outright. The
+    /// SwiftUI-side tests above cover content that over-reports through the
+    /// hosting view's own measurement; the live claim explosion took the other
+    /// door: AppKit's layout engine handed the content view an inflated frame
+    /// directly — required constraints from hosted AppKit subtrees resolve by
+    /// growing the frame that setFrameSize is asked to apply — and a 6373pt
+    /// hosting view sat inside a 1728pt window, with every space-filling
+    /// descendant (including terminal surfaces, whose rendered grids feed
+    /// remote size claims) inheriting the inflated width. sizingOptions and
+    /// the windowDidLayout shadow only govern the hosting view's own sizing
+    /// paths; the frame setter is the last line, so it clamps to the window.
+    @MainActor
+    func testHostingViewRefusesFrameSizesBeyondItsWindow() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        let filler = Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+        let hostingView = MainWindowHostingView(rootView: AnyView(filler))
+        window.contentView = hostingView
+        window.setFrame(NSRect(x: 0, y: 0, width: 500, height: 400), display: true)
+        window.makeKeyAndOrderFront(nil)
+
+        // What the live engine did: set the content view's frame far past the
+        // window (observed at 6373pt in a 1728pt window).
+        hostingView.setFrameSize(NSSize(width: 6_373, height: 3_000))
+
+        XCTAssertLessThanOrEqual(
+            hostingView.frame.width, window.frame.width + 1.0,
+            "The hosting view accepted a frame wider than its window — every space-filling descendant inherits this width"
+        )
+        XCTAssertLessThanOrEqual(
+            hostingView.frame.height, window.frame.height + 1.0,
+            "The hosting view accepted a frame taller than its window"
+        )
+    }
 }

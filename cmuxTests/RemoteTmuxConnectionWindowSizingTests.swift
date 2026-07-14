@@ -1,4 +1,6 @@
+import AppKit
 import CmuxRemoteSession
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -13,6 +15,79 @@ import Testing
     private func makeConnection() -> RemoteTmuxControlConnection {
         RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
+        )
+    }
+
+    /// A single-pane display's size claim must be bounded by the window
+    /// hosting its surface. The claim hooks read the surface's RENDERED grid,
+    /// and rendered content is downstream of SwiftUI layout: when a hosting
+    /// ancestor adopts the content's ideal size, the surface renders at the
+    /// inflated size, the wider grid claims a wider tmux window, tmux's
+    /// reflow grows the content ideal again, and the loop amplifies without
+    /// bound (captured live: claims growing ~1.5 columns per 100ms to 781
+    /// columns, a hosting view at 6373pt inside a 1728pt window). The
+    /// hosting window is the one measurement in that chain content cannot
+    /// inflate, so no claim may exceed what its content area divides to at
+    /// the sample's cell size.
+    @Test func singlePaneDisplayClaimIsBoundedByTheHostingWindow() throws {
+        let controller = RemoteTmuxController()
+        let manager = TabManager()
+        let host = RemoteTmuxHost(destination: "user@host")
+        let sessionName = "claim-bound"
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: sessionName)
+        // One single-pane window, published before the mirror attaches so the
+        // rebuild creates its display tab (and wires the claim hooks).
+        let paneLayout = RemoteTmuxLayoutNode(
+            width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+        )
+        connection.windowsByID = [
+            3: RemoteTmuxWindow(id: 3, width: 80, height: 24, layout: paneLayout)
+        ]
+        connection.windowOrder = [3]
+        connection.publishedWindowIdByPane = [7: 3]
+        controller.cacheConnection(connection)
+        #expect(try controller.mirrorSession(host: host, sessionName: sessionName, into: manager))
+        defer { controller.detach(host: host, sessionName: sessionName) }
+
+        let workspace = try #require(manager.tabs.first { $0.isRemoteTmuxMirror })
+        let mirror = try #require(workspace.remoteTmuxSessionMirror)
+        let panelId = try #require(mirror.panelIdByWindow[3])
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        let surface = panel.surface
+
+        // Host the display surface in a real, visible window of known size.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 504, height: 400),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView)
+        surface.hostedView.frame = contentView.bounds
+        contentView.addSubview(surface.hostedView)
+        window.makeKeyAndOrderFront(nil)
+
+        // The amplified feedback: a rendered grid far beyond anything the
+        // 504pt window can hold, at 7x14pt cells (14x28px at 2x).
+        let report = try #require(surface.onManualSizeApplied)
+        report(TerminalSurfaceRawSizingSample(
+            columns: 781, rows: 200,
+            cellWidthPx: 14, cellHeightPx: 28,
+            surfaceWidthPx: 781 * 14 + 8, surfaceHeightPx: 200 * 28,
+            viewBoundsPt: CGSize(width: 5_471, height: 2_800),
+            backingScale: 2
+        ))
+
+        let claim = try #require(connection.lastWindowSizes[3])
+        let bound = window.contentLayoutRect.size
+        let ceilingColumns = Int(bound.width / 7)
+        let ceilingRows = Int(bound.height / 14)
+        #expect(
+            claim.0 <= ceilingColumns,
+            "claimed \(claim.0) columns from rendered-content feedback — the \(Int(bound.width))pt window holds at most \(ceilingColumns)"
+        )
+        #expect(
+            claim.1 <= ceilingRows,
+            "claimed \(claim.1) rows from rendered-content feedback — the \(Int(bound.height))pt window holds at most \(ceilingRows)"
         )
     }
 
