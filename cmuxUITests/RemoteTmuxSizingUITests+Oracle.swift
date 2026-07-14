@@ -200,6 +200,36 @@ extension RemoteTmuxSizingUITests {
                        "window height did not apply: \(response ?? [:])")
     }
 
+    /// Moves the mirror window to an exact x origin (no size change) via
+    /// `remote.tmux.test_set_frame`'s origin parameters, and asserts the
+    /// move actually applied — a clamped or ignored move would run the
+    /// zero-work guard against a stationary window and fake coverage.
+    func setMirrorWindowOrigin(x: Double) {
+        guard let windowId = mirrorWindowId else {
+            XCTFail("no mirror window id recorded")
+            return
+        }
+        let response = socketJSON(method: "remote.tmux.test_set_frame", params: [
+            "window_id": windowId,
+            "x": x,
+        ])
+        XCTAssertEqual(response?["ok"] as? Bool, true, "origin-only test_set_frame failed: \(response ?? [:])")
+        let appliedX = response?["applied_x"] as? Double ?? -1
+        XCTAssertEqual(appliedX, x, accuracy: 1.0, "window origin did not apply: \(response ?? [:])")
+    }
+
+    /// The monotonic sizing work counters `remote.tmux.sizing_settled`
+    /// carries (DEBUG builds): sizing passes run, parity re-arms taken,
+    /// full portal hierarchy syncs past the signature cut.
+    func sizingCounters() -> (pass: Int, rearm: Int, hierarchySync: Int)? {
+        guard let settled = socketJSON(method: "remote.tmux.sizing_settled", params: [:]),
+              let counters = settled["counters"] as? [String: Any],
+              let pass = counters["sizing_pass"] as? Int,
+              let rearm = counters["parity_rearm"] as? Int,
+              let hierarchySync = counters["full_hierarchy_sync"] as? Int else { return nil }
+        return (pass, rearm, hierarchySync)
+    }
+
     /// The frame oracle over `remote.tmux.root_frames`: the mirror's whole
     /// real ancestor chain — probe to the window's content view — must hold
     /// the window's width. The live growth spiral kept every tmux-side claim

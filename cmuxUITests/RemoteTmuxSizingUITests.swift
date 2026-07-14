@@ -295,6 +295,45 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         try assertSettles(selectedWindow: 0, within: 5, context: "after divider perturbation")
     }
 
+    /// A window MOVE is geometry-only: no sizing input changes, so it must
+    /// do ZERO sizing work. Guards the window-move echo storm, where the
+    /// portal's full-pass signature fingerprinted the window frame WITH
+    /// origin — the sole terminator of the sync echo chain — so during a
+    /// titlebar drag every echoed sync escalated to a full layout pass whose
+    /// notifications scheduled the next. Note the approximation: an
+    /// origin-only `setFrame` moves the window through the same frame-change
+    /// path a drag lands on, but does not run AppKit's interactive drag
+    /// tracking loop, so this guard is necessary rather than sufficient.
+    func testOriginOnlyMovesDoZeroSizingWork() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildLabSession()
+        attachSession()
+        setMirrorWindowSize(CGSize(width: 1000, height: 700))
+        try assertSettles(selectedWindow: 0, within: 10, context: "before origin-only moves")
+
+        let before = try XCTUnwrap(sizingCounters(), "sizing counters unavailable before moves")
+        for move in 0..<50 {
+            setMirrorWindowOrigin(x: Double(20 + (move % 2) * 24))
+        }
+        let after = try XCTUnwrap(sizingCounters(), "sizing counters unavailable after moves")
+
+        XCTAssertEqual(
+            after.pass - before.pass, 0,
+            "origin-only moves ran \(after.pass - before.pass) sizing passes — a move is not a sizing input"
+        )
+        XCTAssertEqual(
+            after.rearm - before.rearm, 0,
+            "origin-only moves spent \(after.rearm - before.rearm) parity re-arms — geometry never left the plan"
+        )
+        XCTAssertEqual(
+            after.hierarchySync - before.hierarchySync, 0,
+            "origin-only moves escalated to \(after.hierarchySync - before.hierarchySync) full hierarchy syncs — "
+                + "the geometry signature is origin-sensitive again"
+        )
+    }
+
     /// A geometry-only layout change NOT caused by the app — a co-attached
     /// client's `resize-pane` — must heal (bounded correction), not stick
     /// mismatched and not oscillate.

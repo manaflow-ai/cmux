@@ -211,10 +211,13 @@ extension TerminalController {
         return text
     }
 
-    /// `remote.tmux.test_set_frame` (DEBUG only) — resizes a cmux window to an
-    /// exact size from within the app.
+    /// `remote.tmux.test_set_frame` (DEBUG only) — resizes and/or moves a
+    /// cmux window to an exact frame from within the app. `width`/`height`
+    /// resize (omitted = keep the current size); `x`/`y` place the frame
+    /// origin in screen coordinates, so an x/y-only call is an origin-only
+    /// MOVE — the geometry-only stimulus the sizing counters guard needs.
     ///
-    /// Exists for the sizing UI tests: driving window sizes with XCUITest
+    /// Exists for the sizing UI tests: driving window frames with XCUITest
     /// mouse drags depends on the desktop around the app (an overlapping
     /// window from any other application invokes XCUITest's permission-dialog
     /// interruption scan, which crashes on elements whose accessibility value
@@ -222,29 +225,49 @@ extension TerminalController {
     /// window server does, deterministically. Never compiled into release.
     nonisolated func v2RemoteTmuxTestSetFrame(id: Any?, params: [String: Any]) -> String {
         guard let idString = params["window_id"] as? String,
-              let windowId = UUID(uuidString: idString),
-              let width = params["width"] as? Double, width > 100,
-              let height = params["height"] as? Double, height > 100
+              let windowId = UUID(uuidString: idString)
         else {
-            return v2Error(id: id, code: "invalid_params", message: "window_id, width, height are required")
+            return v2Error(id: id, code: "invalid_params", message: "window_id is required")
+        }
+        let width = params["width"] as? Double
+        let height = params["height"] as? Double
+        let originX = params["x"] as? Double
+        let originY = params["y"] as? Double
+        if width == nil, height == nil, originX == nil, originY == nil {
+            return v2Error(
+                id: id, code: "invalid_params",
+                message: "at least one of width, height, x, y is required"
+            )
+        }
+        if let width, width <= 100 {
+            return v2Error(id: id, code: "invalid_params", message: "width must exceed 100")
+        }
+        if let height, height <= 100 {
+            return v2Error(id: id, code: "invalid_params", message: "height must exceed 100")
         }
         // Generous timeout: the hop onto the main actor can wait out a busy
         // render/output burst in a test app running a dozen live panes.
         return v2VmCall(id: id, timeoutSeconds: 30) {
             // Read back the frame AFTER setFrame: AppKit clamps to min/max
-            // content sizes and screen bounds, so the actual size is the only
+            // content sizes and screen bounds, so the actual frame is the only
             // trustworthy answer — callers assert on it rather than assuming
             // the request applied.
-            let applied: CGSize? = await MainActor.run {
+            let applied: CGRect? = await MainActor.run { () -> CGRect? in
                 guard let window = AppDelegate.shared?.windowForMainWindowId(windowId) else {
                     return nil
                 }
                 var frame = window.frame
+                let newSize = CGSize(
+                    width: width.map { CGFloat($0) } ?? frame.size.width,
+                    height: height.map { CGFloat($0) } ?? frame.size.height
+                )
                 // Keep the top-left corner anchored so the window stays on screen.
-                frame.origin.y += frame.size.height - height
-                frame.size = CGSize(width: width, height: height)
+                frame.origin.y += frame.size.height - newSize.height
+                frame.size = newSize
+                if let originX { frame.origin.x = CGFloat(originX) }
+                if let originY { frame.origin.y = CGFloat(originY) }
                 window.setFrame(frame, display: true, animate: false)
-                return window.frame.size
+                return window.frame
             }
             guard let applied else {
                 throw RemoteTmuxError.unreachable("window not found: \(idString)")
@@ -252,6 +275,8 @@ extension TerminalController {
             return [
                 "applied_width": Double(applied.width),
                 "applied_height": Double(applied.height),
+                "applied_x": Double(applied.origin.x),
+                "applied_y": Double(applied.origin.y),
             ]
         }
     }
@@ -516,7 +541,20 @@ extension TerminalController {
                 ])
             }
         }
-        return ["connected": connectionsConnected, "windows": windows]
+        return [
+            "connected": connectionsConnected,
+            "windows": windows,
+            // Monotonic work counters for the geometry-only regression
+            // guard: a window MOVE (origin-only setFrame, titlebar drag)
+            // must not run sizing passes, parity re-arms, or full portal
+            // hierarchy syncs. The UI suite snapshots these, moves the
+            // window repeatedly, and asserts zero deltas.
+            "counters": [
+                "sizing_pass": RemoteTmuxSizingDiagnostics.sizingPassCount,
+                "parity_rearm": RemoteTmuxSizingDiagnostics.parityRearmCount,
+                "full_hierarchy_sync": RemoteTmuxSizingDiagnostics.fullHierarchySyncCount,
+            ],
+        ]
     }
 }
 #endif

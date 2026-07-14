@@ -211,6 +211,9 @@ extension RemoteTmuxWindowMirror {
     func performSizingPassNow() {
         sizingPassScheduled = false
         guard !isTornDown else { return }
+        #if DEBUG
+        RemoteTmuxSizingDiagnostics.sizingPassCount += 1
+        #endif
         // While the user is dragging a divider, hold the pass. Imposing now
         // would move the divider out from under the pointer and mark the
         // dragged split as imposed again, so its resize-pane at drag end
@@ -354,6 +357,7 @@ extension RemoteTmuxWindowMirror {
         guard let mismatch = outputParityMismatch() else { return }
         outputParityRearmsSpent += 1
         #if DEBUG
+        RemoteTmuxSizingDiagnostics.parityRearmCount += 1
         cmuxDebugLog(
             "remote.parity.rearm @\(windowId) \(mismatch) attempt=\(outputParityRearmsSpent)/3"
         )

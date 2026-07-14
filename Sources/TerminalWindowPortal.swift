@@ -9,6 +9,23 @@ import Bonsplit
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
+#if DEBUG
+/// Process-wide counters proving geometry-only window activity (a titlebar
+/// drag, an origin-only setFrame) does no sizing work. The sizing UI suite
+/// snapshots them via `remote.tmux.sizing_settled`, moves the window without
+/// resizing it, and asserts every delta is zero — the regression guard for
+/// the window-move echo storm: the full-pass signature once fingerprinted
+/// the window's frame WITH origin, so during a titlebar drag every echoed
+/// sync escalated to a full layout pass whose notifications scheduled the
+/// next.
+@MainActor
+enum RemoteTmuxSizingDiagnostics {
+    static var sizingPassCount = 0
+    static var parityRearmCount = 0
+    static var fullHierarchySyncCount = 0
+}
+#endif
+
 final class WindowTerminalHostView: NSView {
     private typealias DividerRegion = PortalSplitDividerRegion
     private typealias DividerCursorKind = PortalDividerCursorKind
@@ -862,6 +879,9 @@ final class WindowTerminalPortal: NSObject {
         // runs pending inner layout before display on its own.
         let signature = externalGeometrySignature()
         if let last = lastHierarchySyncSignature, last == signature { return }
+#if DEBUG
+        RemoteTmuxSizingDiagnostics.fullHierarchySyncCount += 1
+#endif
         installedContainerView?.layoutSubtreeIfNeeded()
         installedReferenceView?.layoutSubtreeIfNeeded()
         hostView.superview?.layoutSubtreeIfNeeded()
@@ -940,7 +960,18 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private struct ExternalGeometrySignature: Equatable {
-        let windowFrame: NSRect?
+        // The window contributes its SIZE and backing scale, never its
+        // origin. Every other field is window-relative, so this signature —
+        // the sole terminator of the sync echo chain — must not change when
+        // the window merely moves. It once held the full window frame, and
+        // during a titlebar drag the changing origin made every echoed sync
+        // escalate to a full layout pass whose own notifications scheduled
+        // the next: a per-tick layout storm while dragging a window full of
+        // mirrored panes. The backing scale is the one legitimate
+        // origin-correlated effect (crossing to a different-DPI screen
+        // re-snaps pixel geometry), so it stays.
+        let windowSize: CGSize?
+        let backingScale: CGFloat?
         let hostFrame: NSRect
         let containerFrame: NSRect?
         let referenceFrame: NSRect?
@@ -961,7 +992,8 @@ final class WindowTerminalPortal: NSObject {
             )
         }
         return ExternalGeometrySignature(
-            windowFrame: window?.frame,
+            windowSize: window?.frame.size,
+            backingScale: window?.backingScaleFactor,
             hostFrame: hostView.frame,
             containerFrame: installedContainerView?.frame,
             referenceFrame: installedReferenceView?.frame,
