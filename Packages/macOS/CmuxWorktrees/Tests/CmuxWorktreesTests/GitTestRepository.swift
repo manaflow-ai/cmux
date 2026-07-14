@@ -29,6 +29,7 @@ struct GitTestRepository: Sendable {
         try fixture.write("initial\n", to: "README.md")
         _ = try await fixture.git(["add", "README.md"])
         _ = try await fixture.git(["commit", "-m", "initial"])
+        _ = try await fixture.git(["branch", "-M", "main"])
         return fixture
     }
 
