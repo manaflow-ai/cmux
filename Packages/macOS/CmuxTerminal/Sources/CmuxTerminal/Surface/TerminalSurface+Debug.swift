@@ -213,12 +213,14 @@ extension TerminalSurface {
         callbackContext?.release()
     }
 
-    /// Test-only helper to install a runtime surface pointer directly.
+    /// Test-only helper to install a runtime surface pointer and simulate the
+    /// creation-time visibility synchronization.
     @MainActor
     public func installRuntimeSurfaceForTesting(_ runtimeSurface: ghostty_surface_t) {
         surface = runtimeSurface
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
+        applyDesiredOcclusionState(to: runtimeSurface)
     }
 #endif
 }
