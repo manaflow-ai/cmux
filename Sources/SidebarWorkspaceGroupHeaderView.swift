@@ -16,6 +16,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.name == rhs.name &&
             lhs.iconSymbol == rhs.iconSymbol &&
             lhs.tintHex == rhs.tintHex &&
+            lhs.hasCustomColor == rhs.hasCustomColor &&
             lhs.isCollapsed == rhs.isCollapsed &&
             lhs.isPinned == rhs.isPinned &&
             lhs.isAnchorActive == rhs.isAnchorActive &&
@@ -46,6 +47,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let name: String
     let iconSymbol: String
     let tintHex: String?
+    let hasCustomColor: Bool
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
@@ -76,6 +78,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     let onRename: () -> Void
     let onTogglePinned: () -> Void
+    let onSetColor: (String?) -> Void
+    let onChooseCustomColor: () -> Void
     let onMarkRead: () -> Void
     let onMarkUnread: () -> Void
     let onClearLatestNotifications: () -> Void
@@ -87,6 +91,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onOpenDocs: () -> Void
 
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
+    @Environment(\.colorScheme) private var colorScheme
 
 #if DEBUG
     // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
@@ -107,6 +112,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
     private var displayedIconSymbol: String {
         RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: iconSymbol, configured: nil)
+    }
+
+    private func colorSwatch(for hex: String) -> NSColor {
+        WorkspaceTabColorSettings.displayNSColor(
+            hex: hex,
+            colorScheme: colorScheme,
+            forceBright: true
+        ) ?? NSColor(hex: hex) ?? .gray
     }
 
     private var shortcutHintPillText: String? {
@@ -342,6 +355,51 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     ),
                 action: onTogglePinned
             )
+            Menu(
+                String(
+                    localized: "workspaceGroup.contextMenu.color",
+                    defaultValue: "Group Color"
+                )
+            ) {
+                let colorPalette = WorkspaceTabColorSettings.palette()
+
+                if hasCustomColor {
+                    Button {
+                        onSetColor(nil)
+                    } label: {
+                        Label(
+                            String(localized: "contextMenu.clearColor", defaultValue: "Clear Color"),
+                            systemImage: "xmark.circle"
+                        )
+                    }
+                }
+
+                Button(action: onChooseCustomColor) {
+                    Label(
+                        String(
+                            localized: "contextMenu.chooseCustomColor",
+                            defaultValue: "Choose Custom Color…"
+                        ),
+                        systemImage: "paintpalette"
+                    )
+                }
+
+                if !colorPalette.isEmpty {
+                    Divider()
+                }
+
+                ForEach(colorPalette, id: \.id) { entry in
+                    Button {
+                        onSetColor(entry.hex)
+                    } label: {
+                        Label {
+                            Text(entry.name)
+                        } icon: {
+                            Image(nsImage: coloredCircleImage(color: colorSwatch(for: entry.hex)))
+                        }
+                    }
+                }
+            }
             Divider()
             Button(
                 String(

@@ -288,6 +288,13 @@ func sidebarWorkspaceRowExplicitRailNSColor(
     )
 }
 
+func sidebarWorkspaceEffectiveColorHex(
+    workspaceColorHex: String?,
+    workspaceGroupColorHex: String?
+) -> String? {
+    workspaceGroupColorHex ?? workspaceColorHex
+}
+
 func sidebarWorkspaceRowBackgroundStyle(
     activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     isActive: Bool,

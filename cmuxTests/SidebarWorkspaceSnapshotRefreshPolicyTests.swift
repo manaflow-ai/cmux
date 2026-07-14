@@ -10,6 +10,21 @@ import Testing
 #endif
 
 @Suite struct SidebarWorkspaceSnapshotRefreshPolicyTests {
+    @Test func workspaceGroupColorOverridesWorkspaceColor() {
+        #expect(sidebarWorkspaceEffectiveColorHex(
+            workspaceColorHex: "#C0392B",
+            workspaceGroupColorHex: "#1565C0"
+        ) == "#1565C0")
+        #expect(sidebarWorkspaceEffectiveColorHex(
+            workspaceColorHex: "#C0392B",
+            workspaceGroupColorHex: nil
+        ) == "#C0392B")
+        #expect(sidebarWorkspaceEffectiveColorHex(
+            workspaceColorHex: nil,
+            workspaceGroupColorHex: "#1565C0"
+        ) == "#1565C0")
+    }
+
     @Test func contextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
         let current = Self.snapshot(
             title: "lmao",
@@ -174,6 +189,7 @@ import Testing
         showsGitBranch: Bool = true,
         usesViewportAwarePath: Bool = false,
         showsAgentActivity: Bool = true,
+        effectiveColorHex: String? = nil,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -189,6 +205,7 @@ import Testing
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
             showsAgentActivity: showsAgentActivity,
+            effectiveColorHex: effectiveColorHex,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
