@@ -86,6 +86,31 @@ import Testing
         #expect(!startupInput.contains("SUBROUTER_CODEX_DUMMY_API_KEY=subrouter"), "\(startupInput)")
     }
 
+    @Test func persistedWrappedSubrouterCodexBindingGainsDummyProviderCredential() throws {
+        let wrapped = AgentResumeArgv.portableCodexResumeShellCommand(
+            posixCommand: "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume wrapped-subrouter-session -c 'model_providers.subrouter.env_key=\"SUBROUTER_CODEX_DUMMY_API_KEY\"'"
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && \(wrapped)",
+            cwd: "/tmp/repo",
+            checkpointId: "wrapped-subrouter-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+
+        #expect(
+            startupInput.contains("/bin/sh -c 'env SUBROUTER_CODEX_DUMMY_API_KEY=subrouter"),
+            "\(startupInput)"
+        )
+        #expect(
+            startupInput.contains("resume wrapped-subrouter-session"),
+            "\(startupInput)"
+        )
+    }
+
     @Test func codexBindingWithExistingUpdateCheckSettingReplaysUnchanged() throws {
         let command = "'/opt/company/bin/codex' 'resume' 'session-explicit' '-c' 'check_for_update_on_startup=true'"
         let binding = SurfaceResumeBindingSnapshot(

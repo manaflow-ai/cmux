@@ -95,14 +95,18 @@ extension SurfaceResumeBindingSnapshot {
             in: startupCommand,
             kind: kind
         )
+        let credentialed = SurfaceResumeCommandCanonicalizer.insertingSubrouterCodexDummyAPIKey(
+            in: suppressed,
+            kind: kind
+        )
         guard repairPortableAgentExecutable else {
-            return suppressed
+            return credentialed
         }
         // Suppression insertion runs before executable repair: repair can wrap a
         // stale-executable command in `/bin/sh -c '…'`, whose single-word body no
         // longer parses as a codex resume argv.
         return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
-            in: suppressed,
+            in: credentialed,
             kind: kind
         )
     }

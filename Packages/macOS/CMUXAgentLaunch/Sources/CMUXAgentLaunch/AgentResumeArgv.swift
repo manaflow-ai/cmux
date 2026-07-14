@@ -276,10 +276,9 @@ public struct AgentResumeArgv: Sendable, Equatable {
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "codex-fork-restore", args: tail) else {
                 return .resolved(nil)
             }
-            return .resolved(
-                [parts.executable, "codex-teams", "resume", sessionId]
-                    + codexResumeConfigOverrides(preserved: preserved) + preserved
-            )
+            let resume = [parts.executable, "codex-teams", "resume", sessionId]
+                + codexResumeConfigOverrides(preserved: preserved) + preserved
+            return .resolved(codexResumeEnvironmentPrefix(preserved: preserved) + resume)
         case "omo":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
             var tail = parts.tail
@@ -323,8 +322,9 @@ public struct AgentResumeArgv: Sendable, Equatable {
                 capturedExecutable: parts.executable,
                 launchTail: parts.tail
             )
-            return [replayExecutable, "resume", sessionId]
+            let resume = [replayExecutable, "resume", sessionId]
                 + codexResumeConfigOverrides(preserved: preserved) + preserved
+            return codexResumeEnvironmentPrefix(preserved: preserved) + resume
         case "grok":
             return withOption("grok", executable: "grok", option: "-r", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "pi":
@@ -414,6 +414,13 @@ public struct AgentResumeArgv: Sendable, Equatable {
         let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: fallbackExecutable)
         guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: kind, args: parts.tail) else { return nil }
         return [parts.executable, option, sessionId] + preserved
+    }
+
+    private func codexResumeEnvironmentPrefix(preserved: [String]) -> [String] {
+        guard let assignment = subrouterCodexDummyAPIKeyEnvironmentAssignment(in: preserved) else {
+            return []
+        }
+        return ["env", assignment]
     }
 
     private func commandParts(
