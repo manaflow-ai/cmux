@@ -3135,6 +3135,7 @@ struct CMUXCLI {
             if let explicitSocketPath {
                 let client = SocketClient(path: explicitSocketPath)
                 defer { client.close() }
+                try client.connect()
                 try authenticateClientIfNeeded(
                     client,
                     explicitPassword: socketPasswordArg,
