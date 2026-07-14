@@ -1,0 +1,496 @@
+import AppKit
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite("Unified file explorer search scopes", .serialized)
+struct UnifiedFileExplorerSearchScopeTests {
+    @Test("Names and Contents retain independent queries")
+    func independentQueryState() {
+        var state = FileExplorerSearchQueryState()
+
+        state.setQuery("Package", for: .names)
+        state.setQuery("TODO", for: .contents)
+        #expect(state.query(for: .names) == "Package")
+        #expect(state.query(for: .contents) == "TODO")
+    }
+
+    @Test("Name filtering reads only already-loaded nodes")
+    func nameFilterPreservesLazyNodes() throws {
+        let root = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
+        let unloadedDirectory = FileExplorerNode(
+            name: "Unloaded",
+            path: "/repo/Sources/Unloaded",
+            isDirectory: true
+        )
+        let matchingFile = FileExplorerNode(
+            name: "NeedleView.swift",
+            path: "/repo/Sources/NeedleView.swift",
+            isDirectory: false
+        )
+        root.children = [unloadedDirectory, matchingFile]
+        var filter = FileExplorerTreeFilter()
+
+        let builder = FileExplorerTreeFilterSnapshotBuilder(nodes: [root])
+        let captured = try #require(builder.buildSynchronously(upTo: .max))
+        filter.replaceIndex(snapshot: captured.snapshot, nodesByPath: captured.nodesByPath)
+        let activatedFilter = filter.setQuery("needle")
+        let unchangedFilter = filter.setQuery(" needle ")
+        _ = filter.apply(filter.snapshot.filterSynchronously(query: filter.query))
+        #expect(activatedFilter)
+        #expect(!unchangedFilter)
+
+        #expect(filter.visibleRootNodes(in: [root]).map(\.path) == [root.path])
+        #expect(filter.visibleChildren(of: root).map(\.path) == [matchingFile.path])
+        #expect(unloadedDirectory.children == nil)
+    }
+
+    @Test("Full-text search retains the original fixed-string behavior")
+    func fullTextSearchArguments() {
+        let request = FileSearchRequest(
+            query: "  TODO  ",
+            rootPath: "/repo",
+            isLocal: true,
+            contentRevision: 4
+        )
+
+        #expect(request.query == "TODO")
+        #expect(request.ripgrepArguments.contains("--smart-case"))
+        #expect(request.ripgrepArguments.contains("--fixed-strings"))
+        #expect(Self.globValues(in: request.ripgrepArguments).contains("!**/.git/**"))
+        #expect(Self.globValues(in: request.ripgrepArguments).contains("!**/node_modules/**"))
+        #expect(Array(request.ripgrepArguments.suffix(3)) == ["--", "TODO", "/repo"])
+    }
+
+    @Test("Switching scopes preserves the filtered tree and full-text results")
+    func scopeSwitchPreservesBothProjections() throws {
+        let state = FileExplorerState.unifiedTestState(mode: .files)
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        let sources = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
+        let matchingFile = FileExplorerNode(
+            name: "NeedleView.swift",
+            path: "/repo/Sources/NeedleView.swift",
+            isDirectory: false
+        )
+        let otherFile = FileExplorerNode(
+            name: "Other.swift",
+            path: "/repo/Sources/Other.swift",
+            isDirectory: false
+        )
+        sources.children = [matchingFile, otherFile]
+        let readme = FileExplorerNode(name: "README.md", path: "/repo/README.md", isDirectory: false)
+        store.rootNodes = [sources, readme]
+        store.expand(node: sources)
+        let controller = UnifiedSearchControllerSpy()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: controller
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 520)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+
+        let window = NSWindow(
+            contentRect: container.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        window.contentView?.layoutSubtreeIfNeeded()
+        defer {
+            _ = window.makeFirstResponder(nil)
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        let field = try #require(Self.searchField(in: container))
+        let outline = try #require(Self.outlineView(in: container))
+        #expect(window.makeFirstResponder(outline))
+        outline.keyDown(with: try Self.keyEvent(characters: "/", keyCode: 44))
+        outline.keyDown(with: try Self.keyEvent(characters: "needle", keyCode: 0))
+        container.applyPendingFileFilter()
+        #expect(state.mode == .files)
+        #expect(container.displayedSearchScope == .names)
+        #expect(outline.numberOfRows == 2)
+        #expect(store.expandedPaths == [sources.path])
+
+        #expect(container.focusSearchField())
+        #expect(field.stringValue.isEmpty)
+        field.stringValue = "TODO"
+        container.controlTextDidChange(
+            Notification(name: NSControl.textDidChangeNotification, object: field)
+        )
+        let result = FileSearchResult(
+            path: matchingFile.path,
+            relativePath: "Sources/NeedleView.swift",
+            lineNumber: 12,
+            columnNumber: 4,
+            preview: "// TODO: finish"
+        )
+        controller.publish(
+            FileSearchSnapshot(query: "TODO", results: [result], status: .matches, isSearching: false)
+        )
+
+        #expect(container.focusOutline())
+        #expect(field.stringValue == "TODO")
+        #expect(container.searchQuery(for: .names) == "needle")
+        #expect(outline.numberOfRows == 2)
+        #expect(container.searchSnapshot.results == [result])
+
+        outline.keyDown(with: try Self.keyEvent(characters: "\u{1b}", keyCode: 53))
+        #expect(outline.numberOfRows == 4)
+        #expect(store.expandedPaths == [sources.path])
+
+        #expect(container.focusSearchField())
+        #expect(field.stringValue == "TODO")
+        #expect(container.searchSnapshot.results == [result])
+    }
+
+    @Test("Clearing a name filter restores nested expansion")
+    func clearingNameFilterRestoresNestedExpansion() throws {
+        let state = FileExplorerState.unifiedTestState(mode: .files)
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        let root = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
+        let nested = FileExplorerNode(name: "Nested", path: "/repo/Sources/Nested", isDirectory: true)
+        let match = FileExplorerNode(
+            name: "Needle.swift",
+            path: "/repo/Sources/Nested/Needle.swift",
+            isDirectory: false
+        )
+        nested.children = [match]
+        root.children = [nested]
+        store.rootNodes = [root]
+        store.expand(node: root)
+        store.expand(node: nested)
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: UnifiedSearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+        let outline = try #require(Self.outlineView(in: container))
+        outline.expandItem(root)
+        outline.expandItem(nested)
+
+        outline.keyDown(with: try Self.keyEvent(characters: "/", keyCode: 44))
+        outline.keyDown(with: try Self.keyEvent(characters: "needle", keyCode: 0))
+        container.applyPendingFileFilter()
+        outline.keyDown(with: try Self.keyEvent(characters: "\u{1b}", keyCode: 53))
+
+        #expect(outline.isItemExpanded(root))
+        #expect(outline.isItemExpanded(nested))
+    }
+
+    @Test("Empty Escape in the dedicated Find presentation preserves content search")
+    func emptyEscapePreservesDedicatedFindPresentation() throws {
+        let state = FileExplorerState.unifiedTestState(mode: .find)
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        store.rootNodes = [
+            FileExplorerNode(name: "README.md", path: "/repo/README.md", isDirectory: false)
+        ]
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: UnifiedSearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+
+        let window = NSWindow(
+            contentRect: container.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        window.contentView?.layoutSubtreeIfNeeded()
+        defer {
+            _ = window.makeFirstResponder(nil)
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        let outline = try #require(Self.outlineView(in: container))
+        #expect(container.focusSearchField())
+        #expect(container.displayedSearchScope == .contents)
+
+        let handled = container.handleSearchFieldCommand(
+            #selector(NSResponder.cancelOperation(_:)),
+            textView: NSTextView()
+        )
+
+        #expect(handled)
+        #expect(container.displayedSearchScope == .contents)
+        #expect(window.firstResponder !== outline)
+    }
+
+    @Test("Filtered disclosure moves into an auto-expanded directory")
+    func filteredDisclosureMovesToFirstVisibleChild() throws {
+        let state = FileExplorerState.unifiedTestState(mode: .files)
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        let root = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
+        let match = FileExplorerNode(
+            name: "Needle.swift",
+            path: "/repo/Sources/Needle.swift",
+            isDirectory: false
+        )
+        root.children = [match]
+        store.rootNodes = [root]
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: UnifiedSearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+
+        let outline = try #require(Self.outlineView(in: container))
+        store.select(node: root)
+        coordinator.ensureSelection(in: outline, fallbackToFirstVisible: true, scroll: false)
+        coordinator.setFileFilterQuery("needle", in: outline)
+
+        #expect(outline.isItemExpanded(root))
+        #expect(!store.isExpanded(root))
+        #expect(outline.selectedRow == 0)
+
+        NotificationCenter.default.post(name: .fileExplorerStyleDidChange, object: nil)
+        #expect(outline.isItemExpanded(root))
+        outline.keyDown(with: try Self.keyEvent(characters: "\u{f703}", keyCode: 124))
+
+        #expect(outline.selectedRow == 1)
+        #expect(store.selectedPath == match.path)
+    }
+
+    @Test("Hidden name filtering defers store refreshes until Files returns")
+    func hiddenNameFilterDefersStoreRefresh() throws {
+        let state = FileExplorerState.unifiedTestState(mode: .files)
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        let root = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
+        let firstMatch = FileExplorerNode(
+            name: "FirstNeedle.swift",
+            path: "/repo/Sources/FirstNeedle.swift",
+            isDirectory: false
+        )
+        root.children = [firstMatch]
+        store.rootNodes = [root]
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: UnifiedSearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+
+        let window = NSWindow(
+            contentRect: container.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        window.contentView?.layoutSubtreeIfNeeded()
+        defer {
+            _ = window.makeFirstResponder(nil)
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        let outline = try #require(Self.outlineView(in: container))
+        coordinator.setFileFilterQuery("needle", in: outline)
+        #expect(outline.numberOfRows == 2)
+        #expect(container.focusSearchField())
+
+        let secondMatch = FileExplorerNode(
+            name: "SecondNeedle.swift",
+            path: "/repo/Sources/SecondNeedle.swift",
+            isDirectory: false
+        )
+        root.children = [firstMatch, secondMatch]
+        store.rootNodes = [root]
+        coordinator.reloadIfNeeded()
+
+        #expect(outline.numberOfRows == 2)
+        #expect(container.focusOutline())
+        #expect(outline.numberOfRows == 3)
+
+        outline.collapseItem(root)
+        #expect(!outline.isItemExpanded(root))
+        coordinator.reloadIfNeeded()
+        #expect(!outline.isItemExpanded(root))
+    }
+
+    @Test("Return flushes a pending name filter before opening")
+    func returnFlushesPendingNameFilter() throws {
+        let state = FileExplorerState.unifiedTestState(mode: .files)
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        let directory = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
+        let match = FileExplorerNode(name: "Needle.swift", path: "/repo/Sources/Needle.swift", isDirectory: false)
+        let staleSelection = FileExplorerNode(name: "Other.swift", path: "/repo/Sources/Other.swift", isDirectory: false)
+        directory.children = [match, staleSelection]
+        store.rootNodes = [directory]
+        store.select(node: staleSelection)
+        var openedPath: String?
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { openedPath = $0 }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: UnifiedSearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+        let outline = try #require(Self.outlineView(in: container))
+
+        outline.keyDown(with: try Self.keyEvent(characters: "/", keyCode: 44))
+        outline.keyDown(with: try Self.keyEvent(characters: "needle", keyCode: 0))
+        outline.keyDown(with: try Self.keyEvent(characters: "\r", keyCode: 36))
+
+        #expect(outline.numberOfRows == 1)
+        #expect(openedPath == match.path)
+    }
+
+    @Test("Double-click flushes a pending name filter before resolving its row")
+    func doubleClickFlushesPendingNameFilter() throws {
+        let state = FileExplorerState.unifiedTestState(mode: .files)
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        let match = FileExplorerNode(name: "Needle.swift", path: "/repo/Needle.swift", isDirectory: false)
+        let hidden = FileExplorerNode(name: "Other.swift", path: "/repo/Other.swift", isDirectory: false)
+        store.rootNodes = [match, hidden]
+        store.select(node: hidden)
+        var openedPath: String?
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { openedPath = $0 }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: UnifiedSearchControllerSpy()
+        )
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+        let outline = try #require(Self.outlineView(in: container))
+
+        outline.keyDown(with: try Self.keyEvent(characters: "/", keyCode: 44))
+        outline.keyDown(with: try Self.keyEvent(characters: "needle", keyCode: 0))
+        coordinator.handleDoubleClick(outline)
+
+        #expect(outline.numberOfRows == 1)
+        #expect(openedPath == nil)
+    }
+
+    private static func globValues(in arguments: [String]) -> [String] {
+        arguments.indices.compactMap { index in
+            guard arguments[index] == "--glob", arguments.indices.contains(index + 1) else { return nil }
+            return arguments[index + 1]
+        }
+    }
+
+    private static func searchField(in root: NSView) -> FileExplorerSearchField? {
+        if let field = root as? FileExplorerSearchField { return field }
+        for subview in root.subviews {
+            if let field = searchField(in: subview) { return field }
+        }
+        return nil
+    }
+
+    private static func outlineView(in root: NSView) -> FileExplorerNSOutlineView? {
+        if let outline = root as? FileExplorerNSOutlineView { return outline }
+        for subview in root.subviews {
+            if let outline = outlineView(in: subview) { return outline }
+        }
+        return nil
+    }
+
+    private static func keyEvent(characters: String, keyCode: UInt16) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        ))
+    }
+
+}
+
+@MainActor
+private final class UnifiedSearchControllerSpy: FileSearchControlling {
+    var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
+
+    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {}
+    func cancel(clear: Bool) {}
+    func publish(_ snapshot: FileSearchSnapshot) { onSnapshotChanged?(snapshot) }
+}
+
+extension FileExplorerState {
+    static func unifiedTestState(mode: RightSidebarMode) -> FileExplorerState {
+        let suiteName = "UnifiedFileExplorerTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let state = FileExplorerState(defaults: defaults)
+        state.mode = mode
+        return state
+    }
+}

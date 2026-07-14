@@ -15,23 +15,6 @@ private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
 
 // MARK: - File Explorer Panel (single NSViewRepresentable)
 
-enum FileExplorerPanelPresentation: Equatable {
-    case files
-    case find
-
-    var rightSidebarMode: RightSidebarMode {
-        switch self {
-        case .files: return .files
-        case .find: return .find
-        }
-    }
-}
-
-enum FileExplorerPanelPlacement: Equatable {
-    case rightSidebar
-    case pane
-}
-
 /// The entire file explorer panel as one AppKit view hierarchy.
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
@@ -96,6 +79,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
+        var fileFilter = FileExplorerTreeFilter()
+        var fileFilterTreeRevision = -1
+        var fileFilterTask: Task<Void, Never>?
+        var fileFilterTaskQuery: String?
+        var fileFilterTaskTreeRevision: Int?
+        var fileFilterGeneration = 0
+        var pendingFileFilterAction: (() -> Void)?
+        var preFilterTopVisiblePath: String?
 
         init(
             store: FileExplorerStore,
@@ -122,7 +113,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     outlineView.indentationPerLevel = style.indentation
                     outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
                     outlineView.reloadData()
-                    self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
+                    self.restoreProjectionExpansionState(in: outlineView)
                     self.applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
                 }
             }
@@ -144,6 +135,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         func noteKeyboardFocus(mode: RightSidebarMode, in window: NSWindow?) {
             switch placement {
             case .rightSidebar:
+                state.mode = mode
                 guard let window else { return }
                 AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: mode, in: window)
             case .pane:
@@ -152,6 +144,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         deinit {
+            fileFilterTask?.cancel()
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -178,6 +171,20 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 statusMessage: store.rootStatusMessage
             )
 
+            if fileFilter.isActive {
+                guard containerView?.displayedSearchScope == .names else { return }
+                guard fileFilterTreeRevision != store.treeRevision else {
+                    if fileFilter.needsFiltering, fileFilterTask == nil {
+                        setFileFilterQuery(fileFilter.query, in: outlineView)
+                    } else if !fileFilter.needsFiltering {
+                        refreshFilteredRows(in: outlineView)
+                    }
+                    return
+                }
+                setFileFilterQuery(fileFilter.query, in: outlineView)
+                return
+            }
+
             let newCount = store.rootNodes.count
             withProgrammaticOutlineUpdate {
                 if newCount != lastRootNodeCount {
@@ -193,11 +200,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                if expandedPaths.contains(node.path) && outlineView.isExpandable(node) {
+            var row = 0
+            while row < outlineView.numberOfRows {
+                if let node = outlineView.item(atRow: row) as? FileExplorerNode,
+                   expandedPaths.contains(node.path), outlineView.isExpandable(node) {
                     outlineView.expandItem(node)
                 }
+                row += 1
             }
         }
 
@@ -227,25 +236,25 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
             if item == nil {
-                return store.rootNodes.count
+                return fileFilter.visibleRootNodes(in: store.rootNodes).count
             }
             guard let node = item as? FileExplorerNode else { return 0 }
-            return node.sortedChildren?.count ?? 0
+            return fileFilter.visibleChildren(of: node).count
         }
 
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
             if item == nil {
-                return store.rootNodes[index]
+                return fileFilter.visibleRootNodes(in: store.rootNodes)[index]
             }
-            guard let node = item as? FileExplorerNode,
-                  let children = node.sortedChildren else {
+            guard let node = item as? FileExplorerNode else {
                 return FileExplorerNode(name: "", path: "", isDirectory: false)
             }
-            return children[index]
+            return fileFilter.visibleChildren(of: node)[index]
         }
 
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
             guard let node = item as? FileExplorerNode else { return false }
+            if fileFilter.isActive { return fileFilter.hasVisibleChildren(node) }
             return node.isExpandable
         }
 
@@ -278,12 +287,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, shouldExpandItem item: Any) -> Bool {
             guard let node = item as? FileExplorerNode, node.isDirectory else { return false }
+            if fileFilter.isActive { return fileFilter.hasVisibleChildren(node) }
             store.expand(node: node)
             return node.children != nil
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldCollapseItem item: Any) -> Bool {
             guard let node = item as? FileExplorerNode else { return false }
+            if fileFilter.isActive { return true }
             store.collapse(node: node)
             return true
         }
@@ -299,6 +310,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             store.select(nodes: nodes, anchor: anchor ?? nodes.first)
         }
         func outlineViewItemDidExpand(_ notification: Notification) {
+            guard !fileFilter.isActive else { return }
             guard let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
             if !store.isExpanded(node) {
                 store.expand(node: node)
@@ -306,6 +318,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         func outlineViewItemDidCollapse(_ notification: Notification) {
+            guard !fileFilter.isActive else { return }
             guard let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
             if store.isExpanded(node) {
                 store.collapse(node: node)
@@ -328,44 +341,55 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
-        func moveSelection(in outlineView: NSOutlineView, by delta: Int) {
-            guard outlineView.numberOfRows > 0 else {
-                store.select(node: nil)
+        func refreshFilteredRows(in outlineView: NSOutlineView) {
+            guard outlineView.numberOfRows > 0, outlineView.numberOfColumns > 0 else { return }
+            outlineView.reloadData(
+                forRowIndexes: IndexSet(0..<outlineView.numberOfRows),
+                columnIndexes: IndexSet(0..<outlineView.numberOfColumns)
+            )
+        }
+
+        var isFileFilterActive: Bool { fileFilter.isActive }
+
+        func reloadFilteredTree(in outlineView: NSOutlineView) {
+            withProgrammaticOutlineUpdate {
+                outlineView.reloadData()
+                restoreProjectionExpansionState(in: outlineView)
+                applyStoredSelection(in: outlineView, fallbackToFirstVisible: fileFilter.isActive, scroll: false)
+            }
+        }
+
+        private func restoreProjectionExpansionState(in outlineView: NSOutlineView) {
+            guard fileFilter.isActive else {
+                restoreExpansionState(store.expandedPaths, in: outlineView)
                 return
             }
-            let currentRow = resolvedSelectionRow(in: outlineView) ?? (delta >= 0 ? -1 : outlineView.numberOfRows)
-            let targetRow = min(max(currentRow + delta, 0), outlineView.numberOfRows - 1)
-            selectRow(targetRow, in: outlineView, scroll: true)
-        }
-
-        func performDisclosureAction(
-            _ action: RightSidebarKeyboardNavigation.DisclosureAction,
-            in outlineView: NSOutlineView
-        ) {
-            switch action {
-            case .collapse:
-                collapseSelectedItemOrMoveToParent(in: outlineView)
-            case .expand:
-                expandSelectedItemOrMoveToChild(in: outlineView)
-            }
-        }
-
-        func selectBestQuickSearchMatch(in outlineView: NSOutlineView, query: String) {
-            let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedQuery.isEmpty, outlineView.numberOfRows > 0 else { return }
-            let lowerQuery = trimmedQuery.lowercased()
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                if node.name.lowercased().contains(lowerQuery) {
-                    selectRow(row, in: outlineView, scroll: true)
-                    return
+            var row = 0
+            while row < outlineView.numberOfRows {
+                if let node = outlineView.item(atRow: row) as? FileExplorerNode,
+                   fileFilter.hasVisibleChildren(node) {
+                    outlineView.expandItem(node)
                 }
+                row += 1
             }
         }
 
-        @MainActor func openSelectedItem(in outlineView: NSOutlineView) { openNode(in: outlineView, at: outlineView.selectedRow) }
+        func topVisibleNode(in outlineView: NSOutlineView) -> FileExplorerNode? {
+            let rows = outlineView.rows(in: outlineView.visibleRect)
+            guard rows.location != NSNotFound, rows.location < outlineView.numberOfRows else { return nil }
+            return outlineView.item(atRow: rows.location) as? FileExplorerNode
+        }
 
-        private func expandSelectedItemOrMoveToChild(in outlineView: NSOutlineView) {
+        func restorePreFilterScroll(in outlineView: NSOutlineView) {
+            defer { preFilterTopVisiblePath = nil }
+            guard let path = preFilterTopVisiblePath,
+                  let row = (0..<outlineView.numberOfRows).first(where: {
+                      (outlineView.item(atRow: $0) as? FileExplorerNode)?.path == path
+                  }) else { return }
+            outlineView.scrollRowToVisible(row)
+        }
+
+        func expandSelectedItemOrMoveToChild(in outlineView: NSOutlineView) {
             guard let row = resolvedSelectionRow(in: outlineView),
                   let node = outlineView.item(atRow: row) as? FileExplorerNode,
                   node.isDirectory else {
@@ -374,7 +398,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
             selectRow(row, in: outlineView, scroll: true)
 
-            if !store.isExpanded(node) {
+            let isExpanded = fileFilter.isActive
+                ? outlineView.isItemExpanded(node)
+                : store.isExpanded(node)
+            if !isExpanded {
                 outlineView.expandItem(node)
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: true)
                 return
@@ -391,7 +418,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             selectFirstChild(of: node, in: outlineView)
         }
 
-        private func collapseSelectedItemOrMoveToParent(in outlineView: NSOutlineView) {
+        func collapseSelectedItemOrMoveToParent(in outlineView: NSOutlineView) {
             guard let row = resolvedSelectionRow(in: outlineView),
                   let node = outlineView.item(atRow: row) as? FileExplorerNode else {
                 return
@@ -443,7 +470,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 if scroll, let row = FileExplorerSelectionRestoration.scrollRow(anchorRow: anchorRow, exactRows: exactRows) { outlineView.scrollRowToVisible(row) }; return
             }
             if let selectedPath = store.selectedPath,
-               let resolution = selectionResolution(for: selectedPath, in: outlineView) {
+               let resolution = selectionResolution(for: selectedPath, in: outlineView),
+               resolution.isExact || !fallbackToFirstVisible {
                 selectRow(
                     resolution.row,
                     in: outlineView,
@@ -453,7 +481,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 return
             }
             guard fallbackToFirstVisible, outlineView.numberOfRows > 0 else { return }
-            selectRow(0, in: outlineView, scroll: scroll)
+            let matchingRow = (0..<outlineView.numberOfRows).first { row in
+                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { return false }
+                return fileFilter.isDirectMatch(node)
+            }
+            selectRow(matchingRow ?? 0, in: outlineView, scroll: scroll)
         }
 
         func resolvedSelectionRow(in outlineView: NSOutlineView) -> Int? {
@@ -492,7 +524,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             return SelectionResolution(row: bestAncestor.row, isExact: false)
         }
 
-        private func selectRow(
+        func selectRow(
             _ row: Int,
             in outlineView: NSOutlineView,
             scroll: Bool,
@@ -546,7 +578,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         @MainActor
         @objc func handleDoubleClick(_ sender: NSOutlineView) {
             let row = sender.clickedRow >= 0 ? sender.clickedRow : sender.selectedRow
-            openNode(in: sender, at: row)
+            openNodeAfterApplyingFileFilter(in: sender, at: row)
         }
 
         // MARK: - Context Menu (NSMenuDelegate)
@@ -633,9 +665,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 @MainActor
 final class FileExplorerContainerView: NSView {
     private let headerView: FileExplorerHeaderView
-    private let searchBarView: NSView
-    private let searchField: FileExplorerSearchField
-    private let searchStatusLabel: NSTextField
+    private let searchBarView: FileExplorerSearchBarView
     private let scrollView: NSScrollView
     private let outlineView: FileExplorerNSOutlineView
     private let searchScrollView: NSScrollView
@@ -644,31 +674,34 @@ final class FileExplorerContainerView: NSView {
     private let loadingIndicator: NSProgressIndicator
     private let searchController: any FileSearchControlling
     private var searchBarHeightConstraint: NSLayoutConstraint!
-    private var searchFieldHeightConstraint: NSLayoutConstraint!
     private(set) var searchSnapshot = FileSearchSnapshot.empty
+    private(set) var displayedSearchScope: FileExplorerSearchScope
+    private var queryState = FileExplorerSearchQueryState()
+    private var fileQuickSearchQuery: String?
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
     private var currentWorkspaceRootIdentity: UUID?
     private var currentContentRevision = 0
+    private var currentIsLoading = false
+    private var currentStatusMessage: String?
     private let searchDebounceSubject = PassthroughSubject<Int, Never>()
     private var searchDebounceCancellable: AnyCancellable?
     private var searchDebounceGeneration = 0
+    private let fileFilterDebounceSubject = PassthroughSubject<Int, Never>()
+    private var fileFilterDebounceCancellable: AnyCancellable?
+    private var fileFilterDebounceGeneration = 0
     private var pendingSearchRefreshAfterSettled = false
-    private var isSearchVisible = false {
-        didSet {
-            if !isSearchVisible {
-                cancelPendingSearchRefresh()
-                pendingSearchRefreshAfterSettled = false
-            }
-        }
-    }
+    private var preservedSearchNeedsRefresh = false
     private var presentation: FileExplorerPanelPresentation
-    private let coordinator: FileExplorerPanelView.Coordinator
+    let coordinator: FileExplorerPanelView.Coordinator
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
     private let searchDebounceDelayMilliseconds = 200
-    private var searchBarVisibleHeight: CGFloat { max(48, GlobalFontMagnification.scaled(48)) }
-    private var searchFieldVisibleHeight: CGFloat { max(24, GlobalFontMagnification.scaled(24)) }
-
+    var searchField: FileExplorerSearchField { searchBarView.searchField }
+    var searchStatusLabel: NSTextField { searchBarView.statusLabel }
+    private var activeBarVisibleHeight: CGFloat { searchBarView.preferredHeight }
+    private var hasContentsQuery: Bool {
+        !queryState.contentsQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 #if DEBUG
     private var debugLastSearchTextChangeUptime: TimeInterval = 0
     private var debugLastSearchLayoutFieldWidth: CGFloat = -1
@@ -676,16 +709,13 @@ final class FileExplorerContainerView: NSView {
     private var debugLastLoggedSearchResultCount = -1
     private var debugLastLoggedSearchStatus = ""
 #endif
-
     init(
         coordinator: FileExplorerPanelView.Coordinator,
         presentation: FileExplorerPanelPresentation,
         searchController: (any FileSearchControlling)? = nil
     ) {
         headerView = FileExplorerHeaderView()
-        searchBarView = NSView()
-        searchField = FileExplorerSearchField()
-        searchStatusLabel = NSTextField(labelWithString: "")
+        searchBarView = FileExplorerSearchBarView()
         scrollView = NSScrollView()
         outlineView = FileExplorerNSOutlineView()
         searchScrollView = NSScrollView()
@@ -694,64 +724,42 @@ final class FileExplorerContainerView: NSView {
         loadingIndicator = NSProgressIndicator()
         self.searchController = searchController ?? FileSearchController()
         self.presentation = presentation
+        self.displayedSearchScope = FileExplorerSearchScope(mode: presentation.rightSidebarMode)
         self.coordinator = coordinator
-
         super.init(frame: .zero)
+        searchBarView.apply(query: queryState.contentsQuery)
         updateShortcutPlacement(coordinator.placement)
         configureSearchDebounce()
-
+        configureFileFilterDebounce()
         // Header
         headerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(headerView)
-
         // Search bar
         searchBarView.translatesAutoresizingMaskIntoConstraints = false
         searchBarView.isHidden = true
         addSubview(searchBarView)
-
-        searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.setAccessibilityIdentifier("FileExplorerSearchField")
-        searchField.placeholderString = String(localized: "fileExplorer.search.placeholder", defaultValue: "Search files")
-        searchField.focusRingType = .none
-        searchField.cell?.usesSingleLineMode = true
-        searchField.cell?.isScrollable = true
-        searchField.cell?.lineBreakMode = .byClipping
-        searchField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         searchField.delegate = self
         searchField.onCancel = { [weak self] in
             self?.closeSearchAndFocusOutline()
         }
         searchField.onMoveSelection = { [weak self] delta in
-            self?.moveSearchSelection(by: delta, focusResults: true)
+            self?.moveSelectionFromSearchField(by: delta)
         }
         searchField.onCommit = { [weak self] in
-            self?.openSelectedSearchResult()
+            self?.commitSearchFieldSelection()
         }
         searchField.onFocus = { [weak self] in
             guard let self else { return }
-            self.isSearchVisible = true
-            self.coordinator.noteKeyboardFocus(mode: self.representedRightSidebarMode(), in: self.window)
+            self.coordinator.noteKeyboardFocus(mode: .find, in: self.window)
             self.updateSearchLayout()
+            self.resumePreservedSearchIfNeeded()
         }
-        searchBarView.addSubview(searchField)
-
-        searchStatusLabel.translatesAutoresizingMaskIntoConstraints = false
-        searchStatusLabel.textColor = .secondaryLabelColor
-        searchStatusLabel.lineBreakMode = .byTruncatingTail
-        searchStatusLabel.maximumNumberOfLines = 1
-        searchStatusLabel.alignment = .left
-        searchStatusLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        searchStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        searchBarView.addSubview(searchStatusLabel)
-
         // Empty state label
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
         emptyLabel.isHidden = true
         addSubview(emptyLabel)
-
         // Loading indicator
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         loadingIndicator.style = .spinning
@@ -765,7 +773,6 @@ final class FileExplorerContainerView: NSView {
             self?.searchResultsView.rowHeight = FileExplorerSearchResultCellView.preferredRowHeight
             self?.searchResultsView.reloadData()
         }
-
         // Outline view setup
         outlineView.headerView = nil
         outlineView.usesAlternatingRowBackgroundColors = false
@@ -778,7 +785,20 @@ final class FileExplorerContainerView: NSView {
         outlineView.floatsGroupRows = false
         outlineView.backgroundColor = .clear
         outlineView.onQuickSearchChanged = { [weak self] query in
-            self?.headerView.updateQuickSearch(query: query)
+            guard let self else { return }
+            if self.coordinator.state.mode != .files {
+                self.coordinator.noteKeyboardFocus(mode: .files, in: self.window)
+            }
+            self.fileQuickSearchQuery = query
+            self.queryState.setQuery(query ?? "", for: .names)
+            if self.displayedSearchScope == .names {
+                self.headerView.updateQuickSearch(query: query)
+            }
+            if query?.isEmpty == false {
+                self.scheduleFileFilterRefresh()
+            } else {
+                self.applyPendingFileFilter()
+            }
         }
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
@@ -786,19 +806,16 @@ final class FileExplorerContainerView: NSView {
         column.resizingMask = .autoresizingMask
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
-
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
         outlineView.target = coordinator
         outlineView.doubleAction = #selector(FileExplorerPanelView.Coordinator.handleDoubleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         coordinator.outlineView = outlineView
-
         // Context menu
         let menu = NSMenu()
         menu.delegate = coordinator
         outlineView.menu = menu
-
         // Scroll view
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
@@ -809,7 +826,6 @@ final class FileExplorerContainerView: NSView {
         scrollView.drawsBackground = false
         scrollView.documentView = outlineView
         addSubview(scrollView)
-
         // Streaming search results
         searchResultsView.headerView = nil
         searchResultsView.usesAlternatingRowBackgroundColors = false
@@ -830,7 +846,7 @@ final class FileExplorerContainerView: NSView {
         }
         searchResultsView.onFocus = { [weak self] in
             guard let self else { return }
-            self.coordinator.noteKeyboardFocus(mode: self.representedRightSidebarMode(), in: self.window)
+            self.coordinator.noteKeyboardFocus(mode: .find, in: self.window)
         }
         searchResultsView.onModeShortcut = { [weak coordinator] mode, window in
             coordinator?.handleModeShortcut(mode, in: window) ?? false
@@ -858,13 +874,10 @@ final class FileExplorerContainerView: NSView {
         searchScrollView.documentView = searchResultsView
         searchScrollView.isHidden = true
         addSubview(searchScrollView)
-
         self.searchController.onSnapshotChanged = { [weak self] snapshot in
             self?.applySearchSnapshot(snapshot)
         }
-
         searchBarHeightConstraint = searchBarView.heightAnchor.constraint(equalToConstant: 0)
-        searchFieldHeightConstraint = searchField.heightAnchor.constraint(equalToConstant: searchFieldVisibleHeight)
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: topAnchor),
             headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -874,42 +887,26 @@ final class FileExplorerContainerView: NSView {
             searchBarView.leadingAnchor.constraint(equalTo: leadingAnchor),
             searchBarView.trailingAnchor.constraint(equalTo: trailingAnchor),
             searchBarHeightConstraint,
-
-            searchField.leadingAnchor.constraint(equalTo: searchBarView.leadingAnchor, constant: 8),
-            searchField.trailingAnchor.constraint(equalTo: searchBarView.trailingAnchor, constant: -8),
-            searchField.topAnchor.constraint(equalTo: searchBarView.topAnchor, constant: 4),
-            searchFieldHeightConstraint,
-            searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
-
-            searchStatusLabel.leadingAnchor.constraint(equalTo: searchField.leadingAnchor, constant: 4),
-            searchStatusLabel.trailingAnchor.constraint(equalTo: searchField.trailingAnchor),
-            searchStatusLabel.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 2),
-
             scrollView.topAnchor.constraint(equalTo: searchBarView.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
             searchScrollView.topAnchor.constraint(equalTo: searchBarView.bottomAnchor),
             searchScrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             searchScrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             searchScrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
             emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-
             loadingIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
     private func applyChromeFonts() {
-        searchField.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .regular)
-        searchStatusLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
+        searchBarView.applyFonts()
         emptyLabel.font = GlobalFontMagnification.systemFont(ofSize: 13)
-        searchFieldHeightConstraint?.constant = searchFieldVisibleHeight
-        if isSearchVisible {
-            searchBarHeightConstraint?.constant = searchBarVisibleHeight
+        if !searchBarView.isHidden {
+            searchBarHeightConstraint?.constant = activeBarVisibleHeight
         }
         headerView.applyFonts()
     }
@@ -921,6 +918,7 @@ final class FileExplorerContainerView: NSView {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil {
             cancelPendingSearchRefresh()
+            cancelPendingFileFilterRefresh()
             searchController.cancel(clear: false)
         }
         super.viewWillMove(toWindow: newWindow)
@@ -966,7 +964,22 @@ final class FileExplorerContainerView: NSView {
         currentRootPath = nextRootPath; currentProviderIsLocal = nextProviderIsLocal
         currentWorkspaceRootIdentity = nextWorkspaceRootIdentity; currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
-        if workspaceRootChanged { cancelPendingSearchRefresh(); pendingSearchRefreshAfterSettled = false; searchController.cancel(clear: true); searchField.stringValue = ""; applySearchSnapshot(.empty) }
+        if searchScopeChanged {
+            coordinator.invalidateFileFilterIndex()
+        }
+        if workspaceRootChanged {
+            cancelPendingSearchRefresh()
+            cancelPendingFileFilterRefresh()
+            pendingSearchRefreshAfterSettled = false
+            searchController.cancel(clear: true)
+            outlineView.endQuickSearch()
+            fileQuickSearchQuery = nil
+            queryState.clearQueries()
+            searchBarView.apply(query: queryState.contentsQuery)
+            coordinator.setFileFilterQuery("", in: outlineView)
+            headerView.updateQuickSearch(query: nil)
+            applySearchSnapshot(.empty)
+        }
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
             refreshSearchIfNeeded()
@@ -974,7 +987,6 @@ final class FileExplorerContainerView: NSView {
             refreshSearchAfterContentRevisionIfNeeded()
         }
     }
-
     func representedRightSidebarMode() -> RightSidebarMode {
         presentation.rightSidebarMode
     }
@@ -985,36 +997,142 @@ final class FileExplorerContainerView: NSView {
         searchResultsView.fileExplorerPanelPlacement = placement
     }
 
-    func updatePresentation(_ nextPresentation: FileExplorerPanelPresentation) {
-        guard presentation != nextPresentation else {
-            // Re-selecting the active presentation is a no-op unless visibility drifted.
-            if presentation == .find, !isSearchVisible {
-                isSearchVisible = true
-                updateSearchLayout()
-            }
-            return
-        }
-
-        presentation = nextPresentation
-        switch presentation {
-        case .files:
-            isSearchVisible = false
-            searchController.cancel(clear: false)
-        case .find:
-            isSearchVisible = true
-            refreshSearchIfNeeded()
-        }
-        updateSearchLayout()
-        registerWithKeyboardFocusCoordinatorIfNeeded()
+    func searchQuery(for scope: FileExplorerSearchScope) -> String {
+        queryState.query(for: scope)
     }
 
+    private func captureDisplayedQuery() {
+        guard displayedSearchScope == .contents else { return }
+        queryState.setQuery(searchField.stringValue, for: .contents)
+    }
+
+    private func setDisplayedSearchScope(_ scope: FileExplorerSearchScope) {
+        captureDisplayedQuery()
+        let previousScope = displayedSearchScope
+        if previousScope == .names, scope != .names {
+            cancelPendingFileFilterRefresh()
+            coordinator.suspendFileFilter()
+        }
+        if previousScope == .contents, scope != .contents {
+            pauseSearchPreservingState()
+        }
+        displayedSearchScope = scope
+        if scope == .contents {
+            searchBarView.apply(query: queryState.contentsQuery)
+        }
+        headerView.updateQuickSearch(query: scope == .names ? fileQuickSearchQuery : nil)
+        if scope == .names, previousScope != .names {
+            coordinator.setFileFilterQuery(queryState.namesQuery, in: outlineView)
+        }
+        updateVisibility(
+            hasContent: !currentRootPath.isEmpty,
+            isLoading: currentIsLoading,
+            statusMessage: currentStatusMessage
+        )
+        if previousScope != .contents, scope == .contents {
+            resumePreservedSearchIfNeeded()
+        }
+    }
+
+    func searchFieldTextDidChange() {
+        guard displayedSearchScope == .contents else { return }
+        queryState.setQuery(searchField.stringValue, for: .contents)
+        if coordinator.state.mode != .find {
+            coordinator.noteKeyboardFocus(mode: .find, in: window)
+        }
+        scrollSearchFieldEditorToInsertionPoint()
+        Task { @MainActor [weak self] in
+            self?.scrollSearchFieldEditorToInsertionPoint()
+        }
+#if DEBUG
+        let now = ProcessInfo.processInfo.systemUptime
+        let gapMs = debugLastSearchTextChangeUptime > 0
+            ? debugSearchNumber((now - debugLastSearchTextChangeUptime) * 1000)
+            : "n/a"
+        debugLastSearchTextChangeUptime = now
+        dlog(
+            "file.search.input.changed scope=\(displayedSearchScope) queryLen=\(searchField.stringValue.count) " +
+            "gapMs=\(gapMs) results=\(searchSnapshot.results.count) " +
+            "status=\(debugSearchStatusName(searchSnapshot.status))"
+        )
+#endif
+        if !hasContentsQuery {
+            cancelPendingSearchRefresh()
+            pendingSearchRefreshAfterSettled = false
+            searchController.cancel(clear: true)
+            applySearchSnapshot(.empty)
+            updateVisibility(
+                hasContent: !currentRootPath.isEmpty,
+                isLoading: currentIsLoading,
+                statusMessage: currentStatusMessage
+            )
+            return
+        }
+        scheduleSearchRefresh()
+    }
+
+    func handleSearchFieldCommand(_ commandSelector: Selector, textView: NSTextView) -> Bool {
+        guard !textView.hasMarkedText() else { return false }
+        switch commandSelector {
+        case #selector(NSResponder.insertNewline(_:)):
+            commitSearchFieldSelection()
+            return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            closeSearchAndFocusOutline()
+            return true
+        case #selector(NSResponder.moveDown(_:)):
+            moveSelectionFromSearchField(by: 1)
+            return true
+        case #selector(NSResponder.moveUp(_:)):
+            moveSelectionFromSearchField(by: -1)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func moveSelectionFromSearchField(by delta: Int) {
+        moveSearchSelection(by: delta, focusResults: true)
+    }
+
+    private func commitSearchFieldSelection() {
+        openSelectedSearchResult()
+    }
+
+    func updatePresentation(_ nextPresentation: FileExplorerPanelPresentation) {
+        let presentationChanged = presentation != nextPresentation
+        presentation = nextPresentation
+        let activationMode: RightSidebarMode
+        if presentation == .unified {
+            activationMode = coordinator.state.mode
+        } else {
+            activationMode = presentation.rightSidebarMode
+        }
+        let requestedScope = FileExplorerSearchScope(mode: activationMode)
+        let focusedScope: FileExplorerSearchScope?
+        if let responder = window?.firstResponder,
+           let focusedMode = rightSidebarActivationMode(owning: responder) {
+            focusedScope = FileExplorerSearchScope(mode: focusedMode)
+        } else {
+            focusedScope = nil
+        }
+        let preservesFocusedUnifiedProjection = presentation == .unified
+            && focusedScope != nil
+            && focusedScope != requestedScope
+        if !preservesFocusedUnifiedProjection {
+            setDisplayedSearchScope(requestedScope)
+        }
+        if presentationChanged { registerWithKeyboardFocusCoordinatorIfNeeded() }
+    }
     func updateVisibility(hasContent: Bool, isLoading: Bool, statusMessage: String?) {
+        currentIsLoading = isLoading
+        currentStatusMessage = statusMessage
         let normalizedStatus = statusMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasStatus = normalizedStatus?.isEmpty == false
         let canShowTree = hasContent && !hasStatus
         applyHidden(headerView, !hasContent && !hasStatus)
         updateSearchLayout(hasContent: canShowTree, isLoading: isLoading)
-        let searchCanShow = isSearchVisible && canShowTree && !isLoading
+        let searchCanShow = displayedSearchScope == .contents && canShowTree && !isLoading
         let nextEmptyText = hasStatus
             ? normalizedStatus!
             : String(localized: "fileExplorer.empty", defaultValue: "No folder open")
@@ -1043,9 +1161,7 @@ final class FileExplorerContainerView: NSView {
 #endif
             return false
         }
-        isSearchVisible = true
-        updateSearchLayout()
-        refreshSearchIfNeeded()
+        setDisplayedSearchScope(.contents)
         let result = window.makeFirstResponder(searchField)
         searchField.selectText(nil)
 #if DEBUG
@@ -1078,14 +1194,7 @@ final class FileExplorerContainerView: NSView {
 #endif
             return false
         }
-        if isSearchVisible {
-            isSearchVisible = false
-            searchController.cancel(clear: true)
-            searchField.stringValue = ""
-            searchSnapshot = .empty
-            searchResultsView.reloadData()
-            updateSearchLayout()
-        }
+        setDisplayedSearchScope(.names)
         (outlineView.dataSource as? FileExplorerPanelView.Coordinator)?
             .ensureSelection(in: outlineView, fallbackToFirstVisible: true, scroll: true)
         let result = window.makeFirstResponder(outlineView)
@@ -1100,43 +1209,54 @@ final class FileExplorerContainerView: NSView {
     }
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
-        if responder === outlineView || responder === searchResultsView || responder === searchField {
-            return true
-        }
+        rightSidebarActivationMode(owning: responder) != nil
+    }
+    func rightSidebarActivationMode(owning responder: NSResponder) -> RightSidebarMode? {
+        if responder === outlineView { return .files }
+        if responder === searchResultsView { return .find }
+        if responder === searchField { return displayedSearchScope.activationMode }
         if let editor = searchField.currentEditor(), responder === editor {
-            return true
+            return displayedSearchScope.activationMode
         }
         var view = responder as? NSView
         while let candidate = view {
-            if candidate === searchBarView || candidate === searchScrollView || candidate === searchResultsView {
-                return true
+            if candidate === searchBarView {
+                return displayedSearchScope.activationMode
+            }
+            if candidate === searchScrollView || candidate === searchResultsView {
+                return .find
             }
             view = candidate.superview
         }
-        return false
+        return nil
     }
 
     private func refreshSearchIfNeeded() {
-        guard isSearchVisible else { return }
+        guard displayedSearchScope == .contents else {
+            if hasContentsQuery { preservedSearchNeedsRefresh = true }
+            return
+        }
+        preservedSearchNeedsRefresh = false
         cancelPendingSearchRefresh()
 #if DEBUG
         dlog(
-            "file.search.request queryLen=\(searchField.stringValue.count) " +
+            "file.search.request queryLen=\(queryState.contentsQuery.count) " +
             "rootReady=\(currentRootPath.isEmpty ? 0 : 1) local=\(currentProviderIsLocal ? 1 : 0) " +
             "revision=\(currentContentRevision) results=\(searchSnapshot.results.count) " +
             "fieldW=\(debugSearchNumber(searchField.frame.width)) statusW=\(debugSearchNumber(searchStatusLabel.frame.width))"
         )
 #endif
-        searchController.search(
-            query: searchField.stringValue,
+        searchController.search(request: FileSearchRequest(
+            query: queryState.contentsQuery,
             rootPath: currentRootPath,
             isLocal: currentProviderIsLocal,
             contentRevision: currentContentRevision
-        )
+        ))
     }
 
     private func refreshSearchAfterContentRevisionIfNeeded() {
-        guard isSearchVisible else {
+        guard displayedSearchScope == .contents else {
+            preservedSearchNeedsRefresh = hasContentsQuery
             pendingSearchRefreshAfterSettled = false
             return
         }
@@ -1148,7 +1268,7 @@ final class FileExplorerContainerView: NSView {
         pendingSearchRefreshAfterSettled = true
 #if DEBUG
         dlog(
-            "file.search.contentRevision.defer queryLen=\(searchField.stringValue.count) " +
+            "file.search.contentRevision.defer queryLen=\(queryState.contentsQuery.count) " +
             "revision=\(currentContentRevision) results=\(searchSnapshot.results.count)"
         )
 #endif
@@ -1160,11 +1280,11 @@ final class FileExplorerContainerView: NSView {
             .sink { [weak self] debounceGeneration in
                 Task { @MainActor [weak self] in
                     guard let self,
-                          self.isSearchVisible,
+                          self.displayedSearchScope == .contents,
                           self.searchDebounceGeneration == debounceGeneration else { return }
 #if DEBUG
                     dlog(
-                        "file.search.debounce.fire queryLen=\(self.searchField.stringValue.count) " +
+                        "file.search.debounce.fire queryLen=\(self.queryState.contentsQuery.count) " +
                         "delayMs=\(self.searchDebounceDelayMilliseconds)"
                     )
 #endif
@@ -1174,13 +1294,13 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func scheduleSearchRefresh() {
-        guard isSearchVisible else { return }
+        guard displayedSearchScope == .contents else { return }
         pendingSearchRefreshAfterSettled = false
         searchDebounceGeneration += 1
         let debounceGeneration = searchDebounceGeneration
 #if DEBUG
         dlog(
-            "file.search.debounce.schedule queryLen=\(searchField.stringValue.count) " +
+            "file.search.debounce.schedule queryLen=\(queryState.contentsQuery.count) " +
             "delayMs=\(searchDebounceDelayMilliseconds)"
         )
 #endif
@@ -1191,22 +1311,79 @@ final class FileExplorerContainerView: NSView {
         searchDebounceGeneration += 1
     }
 
+    private func configureFileFilterDebounce() {
+        fileFilterDebounceCancellable = fileFilterDebounceSubject
+            .debounce(for: .milliseconds(searchDebounceDelayMilliseconds), scheduler: RunLoop.main)
+            .sink { [weak self] debounceGeneration in
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.displayedSearchScope == .names,
+                          self.fileFilterDebounceGeneration == debounceGeneration else { return }
+                    self.applyPendingFileFilter()
+                }
+            }
+    }
+
+    private func scheduleFileFilterRefresh() {
+        guard displayedSearchScope == .names else { return }
+        fileFilterDebounceGeneration += 1
+        fileFilterDebounceSubject.send(fileFilterDebounceGeneration)
+    }
+
+    private func cancelPendingFileFilterRefresh() {
+        fileFilterDebounceGeneration += 1
+    }
+
+    func applyPendingFileFilter(afterApplying action: (() -> Void)? = nil) {
+        cancelPendingFileFilterRefresh()
+        guard displayedSearchScope == .names else {
+            action?()
+            return
+        }
+        coordinator.setFileFilterQuery(
+            queryState.namesQuery,
+            in: outlineView,
+            afterApplying: action
+        )
+        updateVisibility(
+            hasContent: !currentRootPath.isEmpty,
+            isLoading: currentIsLoading,
+            statusMessage: currentStatusMessage
+        )
+    }
+
+    private func pauseSearchPreservingState() {
+        preservedSearchNeedsRefresh = preservedSearchNeedsRefresh || searchSnapshot.isSearching
+        cancelPendingSearchRefresh()
+        pendingSearchRefreshAfterSettled = false
+        searchController.cancel(clear: false)
+    }
+
+    private func resumePreservedSearchIfNeeded() {
+        guard displayedSearchScope == .contents, hasContentsQuery else { return }
+        let normalizedQuery = queryState.contentsQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if preservedSearchNeedsRefresh || searchSnapshot.query != normalizedQuery {
+            refreshSearchIfNeeded()
+        }
+    }
+
     private func updateSearchLayout(hasContent: Bool? = nil, isLoading: Bool? = nil) {
         let effectiveHasContent = hasContent ?? !currentRootPath.isEmpty
         let effectiveIsLoading = isLoading ?? false
-        let showSearch = isSearchVisible && effectiveHasContent && !effectiveIsLoading
-        let nextSearchBarHeight = showSearch ? searchBarVisibleHeight : 0
-
+        let showSearchField = displayedSearchScope == .contents && effectiveHasContent && !effectiveIsLoading
+        let showSearchResults = showSearchField
+        let showTree = displayedSearchScope == .names && effectiveHasContent && !effectiveIsLoading
+        let nextSearchBarHeight = showSearchField ? activeBarVisibleHeight : 0
         // Assigning isHidden/constraints unconditionally fires KVO even when unchanged,
         // which re-enters updateNSView and spins the main thread on macOS 26 (#4931).
         var changed = false
-        if applyHidden(searchBarView, !showSearch) { changed = true }
+        if applyHidden(searchBarView, !showSearchField) { changed = true }
         if searchBarHeightConstraint.constant != nextSearchBarHeight {
             searchBarHeightConstraint.constant = nextSearchBarHeight
             changed = true
         }
-        if applyHidden(searchScrollView, !showSearch) { changed = true }
-        if applyHidden(scrollView, showSearch || !effectiveHasContent || effectiveIsLoading) { changed = true }
+        if applyHidden(searchScrollView, !showSearchResults) { changed = true }
+        if applyHidden(scrollView, !showTree) { changed = true }
         if changed {
             needsLayout = true
         }
@@ -1219,14 +1396,15 @@ final class FileExplorerContainerView: NSView {
         view.isHidden = hidden
         return true
     }
-
     private func applySearchSnapshot(_ snapshot: FileSearchSnapshot) {
+        let snapshot = snapshot.groupingMatchesByFile()
 #if DEBUG
         let debugApplyStart = ProcessInfo.processInfo.systemUptime
         let previousStatusName = debugSearchStatusName(searchSnapshot.status)
         let previousStatusTextLength = searchStatusLabel.stringValue.count
 #endif
         let previousSelectedRow = searchResultsView.selectedRow
+        let previousSelectedResults = searchResultsView.selectedRowIndexes.compactMap { searchSnapshot.results.indices.contains($0) ? searchSnapshot.results[$0] : nil }
         let previousResults = searchSnapshot.results
         searchSnapshot = snapshot
         searchStatusLabel.stringValue = statusText(for: snapshot)
@@ -1246,10 +1424,9 @@ final class FileExplorerContainerView: NSView {
         }
 
         if !snapshot.results.isEmpty {
-            let selectedRow = previousSelectedRow >= 0
-                ? min(previousSelectedRow, snapshot.results.count - 1)
-                : 0
-            searchResultsView.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+            let preservedRows = IndexSet(previousSelectedResults.compactMap { snapshot.results.firstIndex(of: $0) })
+            let fallbackRow = previousSelectedRow >= 0 ? min(previousSelectedRow, snapshot.results.count - 1) : 0
+            searchResultsView.selectRowIndexes(preservedRows.isEmpty ? IndexSet(integer: fallbackRow) : preservedRows, byExtendingSelection: false)
         }
 
         if shouldRunDeferredContentRefresh {
@@ -1342,7 +1519,7 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func logSearchLayoutIfNeeded(startedAt: TimeInterval, reason: String) {
-        guard isSearchVisible else { return }
+        guard displayedSearchScope == .contents else { return }
         let now = ProcessInfo.processInfo.systemUptime
         let fieldWidth = searchField.frame.width
         let statusWidth = searchStatusLabel.frame.width
@@ -1406,251 +1583,35 @@ final class FileExplorerContainerView: NSView {
 #endif
 
     private func closeSearchAndFocusOutline() {
-        if presentation == .find {
-            let hadQuery = !searchField.stringValue.isEmpty
+        captureDisplayedQuery()
+        switch displayedSearchScope {
+        case .names:
+            outlineView.endQuickSearch()
+            _ = focusOutline()
+        case .contents:
+            guard hasContentsQuery else {
+                if presentation == .find {
+                    if AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() != true {
+                        _ = window?.makeFirstResponder(nil)
+                    }
+                } else {
+                    _ = focusOutline()
+                }
+                return
+            }
             cancelPendingSearchRefresh()
             pendingSearchRefreshAfterSettled = false
             searchController.cancel(clear: true)
-            searchField.stringValue = ""
+            queryState.setQuery("", for: .contents)
+            searchBarView.apply(query: queryState.contentsQuery)
             applySearchSnapshot(.empty)
-            updateSearchLayout()
-            if hadQuery {
-                _ = focusSearchField()
-                return
-            }
-            if AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() == true {
-                return
-            }
-            window?.makeFirstResponder(nil)
-            return
-        }
-
-        isSearchVisible = false
-        searchController.cancel(clear: true)
-        searchField.stringValue = ""
-        pendingSearchRefreshAfterSettled = false
-        searchSnapshot = .empty
-        searchResultsView.reloadData()
-        updateSearchLayout()
-        _ = focusOutline()
-    }
-
-    private func moveSearchSelection(by delta: Int, focusResults: Bool) {
-        guard !searchSnapshot.results.isEmpty else { return }
-        let currentRow = searchResultsView.selectedRow >= 0
-            ? searchResultsView.selectedRow
-            : (delta >= 0 ? -1 : searchSnapshot.results.count)
-        let targetRow = min(max(currentRow + delta, 0), searchSnapshot.results.count - 1)
-        searchResultsView.selectRowIndexes(IndexSet(integer: targetRow), byExtendingSelection: false)
-        searchResultsView.scrollRowToVisible(targetRow)
-        if focusResults, let window {
-            _ = window.makeFirstResponder(searchResultsView)
+            updateVisibility(
+                hasContent: !currentRootPath.isEmpty,
+                isLoading: currentIsLoading,
+                statusMessage: currentStatusMessage
+            )
+            _ = window?.makeFirstResponder(searchField)
         }
     }
 
-    private func searchResult(forMenuItem sender: NSMenuItem) -> FileSearchResult? {
-        guard let row = (sender.representedObject as? NSNumber)?.intValue,
-              row >= 0,
-              row < searchSnapshot.results.count else {
-            return nil
-        }
-        return searchSnapshot.results[row]
-    }
-
-    @MainActor
-    fileprivate func openSelectedSearchResult() {
-        let row = searchResultsView.selectedRow
-        guard row >= 0, row < searchSnapshot.results.count else { return }
-        let path = searchSnapshot.results[row].path
-        // Editor/preferred-editor actions operate on local file paths via
-        // NSWorkspace; for non-local providers fall back to the cmux preview.
-        guard coordinator.store.provider is LocalFileExplorerProvider else {
-            coordinator.onOpenFilePreview(path)
-            return
-        }
-        performFileExplorerFileOpen(path: path, onOpenFilePreview: coordinator.onOpenFilePreview)
-    }
-
-    @objc private func openSelectedSearchResultFromTable(_ sender: NSTableView) {
-        openSelectedSearchResult()
-    }
-
-    @objc private func contextMenuOpenSearchResultInCmux(_ sender: NSMenuItem) {
-        guard let result = searchResult(forMenuItem: sender) else { return }
-        coordinator.onOpenFilePreview(result.path)
-    }
-
-    @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {
-        guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
-        FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
-    }
-
-    @objc private func contextMenuRevealSearchResultInFinder(_ sender: NSMenuItem) {
-        guard let result = searchResult(forMenuItem: sender) else { return }
-        FileExternalOpenAction.revealInFinder(fileURL: URL(fileURLWithPath: result.path))
-    }
-
-    @objc private func contextMenuCopySearchResultPath(_ sender: NSMenuItem) {
-        guard let result = searchResult(forMenuItem: sender) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result.path, forType: .string)
-    }
-
-    @objc private func contextMenuCopySearchResultRelativePath(_ sender: NSMenuItem) {
-        guard let result = searchResult(forMenuItem: sender) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result.relativePath, forType: .string)
-    }
-}
-
-extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
-    func controlTextDidChange(_ notification: Notification) {
-        guard notification.object as? NSTextField === searchField else { return }
-        scrollSearchFieldEditorToInsertionPoint()
-        Task { @MainActor [weak self] in
-            self?.scrollSearchFieldEditorToInsertionPoint()
-        }
-#if DEBUG
-        let now = ProcessInfo.processInfo.systemUptime
-        let gapMs = debugLastSearchTextChangeUptime > 0
-            ? debugSearchNumber((now - debugLastSearchTextChangeUptime) * 1000)
-            : "n/a"
-        debugLastSearchTextChangeUptime = now
-        dlog(
-            "file.search.input.changed queryLen=\(searchField.stringValue.count) gapMs=\(gapMs) " +
-            "fieldW=\(debugSearchNumber(searchField.frame.width)) statusW=\(debugSearchNumber(searchStatusLabel.frame.width)) " +
-            "statusIntrinsicW=\(debugSearchNumber(searchStatusLabel.intrinsicContentSize.width)) " +
-            "results=\(searchSnapshot.results.count) status=\(debugSearchStatusName(searchSnapshot.status)) " +
-            "fr=\(fileExplorerDebugResponder(window?.firstResponder))"
-        )
-#endif
-        scheduleSearchRefresh()
-    }
-
-    private func scrollSearchFieldEditorToInsertionPoint() {
-        guard let editor = searchField.currentEditor() else { return }
-        let selection = editor.selectedRange
-        let textLength = (editor.string as NSString).length
-        let cursorLocation = min(selection.location + selection.length, textLength)
-        editor.scrollRangeToVisible(NSRange(location: cursorLocation, length: 0))
-    }
-
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        guard control === searchField, !textView.hasMarkedText() else { return false }
-        if let event = NSApp.currentEvent, searchField.handleOpenSelectionShortcut(event) { return true }
-        switch commandSelector {
-        case #selector(NSResponder.insertNewline(_:)):
-            guard !textView.hasMarkedText() else { return false }
-            openSelectedSearchResult()
-            return true
-        case #selector(NSResponder.cancelOperation(_:)):
-            closeSearchAndFocusOutline()
-            return true
-        case #selector(NSResponder.moveDown(_:)):
-            moveSearchSelection(by: 1, focusResults: true)
-            return true
-        case #selector(NSResponder.moveUp(_:)):
-            moveSearchSelection(by: -1, focusResults: true)
-            return true
-        default:
-            return false
-        }
-    }
-
-    func numberOfRows(in tableView: NSTableView) -> Int {
-        searchSnapshot.results.count
-    }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard row >= 0, row < searchSnapshot.results.count else { return nil }
-        let identifier = NSUserInterfaceItemIdentifier("FileSearchResultCell")
-        let cellView: FileExplorerSearchResultCellView
-        if let existing = tableView.makeView(withIdentifier: identifier, owner: nil) as? FileExplorerSearchResultCellView {
-            cellView = existing
-        } else {
-            cellView = FileExplorerSearchResultCellView(identifier: identifier)
-        }
-        cellView.configure(with: searchSnapshot.results[row])
-        return cellView
-    }
-
-    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        guard tableView === searchResultsView,
-              row >= 0,
-              row < searchSnapshot.results.count else {
-            return nil
-        }
-        let result = searchSnapshot.results[row]
-        return FilePreviewDragPasteboardWriter(
-            filePath: result.path,
-            displayTitle: (result.relativePath as NSString).lastPathComponent
-        )
-    }
-
-    func tableView(
-        _ tableView: NSTableView,
-        draggingSession session: NSDraggingSession,
-        endedAt screenPoint: NSPoint,
-        operation: NSDragOperation
-    ) {
-        guard tableView === searchResultsView else { return }
-        FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: NSPasteboard(name: .drag))
-    }
-
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        guard let searchMenu = searchResultsView.menu, menu === searchMenu else { return }
-        menu.removeAllItems()
-        let clickedRow = searchResultsView.clickedRow
-        let row = clickedRow >= 0 ? clickedRow : searchResultsView.selectedRow
-        guard row >= 0, row < searchSnapshot.results.count else { return }
-        if clickedRow >= 0 && !searchResultsView.selectedRowIndexes.contains(clickedRow) {
-            searchResultsView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
-        }
-
-        let openInCmuxItem = NSMenuItem(
-            title: String(localized: "fileExplorer.contextMenu.openInCmux", defaultValue: "Open in cmux"),
-            action: #selector(contextMenuOpenSearchResultInCmux(_:)),
-            keyEquivalent: ""
-        )
-        openInCmuxItem.target = self
-        openInCmuxItem.representedObject = NSNumber(value: row)
-        menu.addItem(openInCmuxItem)
-
-        FileExplorerExternalOpenMenuItems(
-            fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
-            target: self,
-            action: #selector(contextMenuOpenSearchResultExternally(_:))
-        ).add(to: menu)
-
-        let revealItem = NSMenuItem(
-            title: FileExternalOpenText.revealInFinder,
-            action: #selector(contextMenuRevealSearchResultInFinder(_:)),
-            keyEquivalent: ""
-        )
-        revealItem.target = self
-        revealItem.representedObject = NSNumber(value: row)
-        menu.addItem(revealItem)
-
-        menu.addItem(.separator())
-
-        menu.addFileExplorerInsertPathItems(target: self, representedObject: NSNumber(value: row), insertAction: #selector(contextMenuInsertSearchResultPath(_:)), insertRelativeAction: #selector(contextMenuInsertSearchResultRelativePath(_:)))
-
-        let copyPathItem = NSMenuItem(
-            title: String(localized: "fileExplorer.contextMenu.copyPath", defaultValue: "Copy Path"),
-            action: #selector(contextMenuCopySearchResultPath(_:)),
-            keyEquivalent: ""
-        )
-        copyPathItem.target = self
-        copyPathItem.representedObject = NSNumber(value: row)
-        menu.addItem(copyPathItem)
-
-        let copyRelativePathItem = NSMenuItem(
-            title: String(localized: "fileExplorer.contextMenu.copyRelativePath", defaultValue: "Copy Relative Path"),
-            action: #selector(contextMenuCopySearchResultRelativePath(_:)),
-            keyEquivalent: ""
-        )
-        copyRelativePathItem.target = self
-        copyRelativePathItem.representedObject = NSNumber(value: row)
-        menu.addItem(copyRelativePathItem)
-    }
 }

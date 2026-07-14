@@ -224,7 +224,7 @@ struct RightSidebarPanelView: View {
                     ModeBarButton(
                         item: item,
                         isSelected: item.isSelected(
-                            mode: fileExplorerState.mode
+                            mode: fileExplorerState.mode.registeredToolMode
                         ),
                         badgeCount: item.mode == .feed ? feedPendingCount : 0,
                         shortcutHint: shortcut,
@@ -378,19 +378,12 @@ struct RightSidebarPanelView: View {
     private var contentForMode: some View {
         if RightSidebarContentMountPolicy.shouldMountContent(isRightSidebarVisible: fileExplorerState.isVisible, hasMountedContent: hasMountedRightSidebarContent) {
             switch fileExplorerState.mode {
-            case .files:
+            case .files, .find:
                 FileExplorerPanelView(
                     store: fileExplorerStore,
                     state: fileExplorerState,
                     onOpenFilePreview: onOpenFilePreview,
-                    presentation: .files
-                )
-            case .find:
-                FileExplorerPanelView(
-                    store: fileExplorerStore,
-                    state: fileExplorerState,
-                    onOpenFilePreview: onOpenFilePreview,
-                    presentation: .find
+                    presentation: .unified
                 )
             case .sessions:
                 SessionIndexView(store: sessionIndexStore, onResume: onResumeSession)

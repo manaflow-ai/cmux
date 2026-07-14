@@ -16,6 +16,8 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             }
         }
 
+        // Bare letters remain query input while filtering. AppKit function-key
+        // scalars are non-printable and fall through to navigation below.
         if quickSearchActive,
            RightSidebarKeyboardNavigation.isPlainPrintableText(event),
            handleQuickSearchKey(event) {
@@ -31,13 +33,11 @@ final class FileExplorerNSOutlineView: NSOutlineView {
         }
 
         if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
-            endQuickSearch()
             fileExplorerCoordinator?.moveSelection(in: self, by: delta)
             return
         }
 
         if let action = RightSidebarKeyboardNavigation.disclosureAction(for: event) {
-            endQuickSearch()
             fileExplorerCoordinator?.performDisclosureAction(action, in: self)
             return
         }
@@ -66,13 +66,15 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             return true
         }
         if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
-            endQuickSearch()
             fileExplorerCoordinator?.moveSelection(in: self, by: delta)
             return true
         }
         if let action = RightSidebarKeyboardNavigation.disclosureAction(for: event) {
-            endQuickSearch()
             fileExplorerCoordinator?.performDisclosureAction(action, in: self)
+            return true
+        }
+        if RightSidebarKeyboardNavigation.isPlainSlash(event) {
+            beginQuickSearch()
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -89,7 +91,6 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
         if result {
-            endQuickSearch()
             redrawVisibleRows()
         }
         return result
@@ -156,15 +157,10 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             endQuickSearch()
             return true
         }
-        if event.keyCode == 36 || event.keyCode == 76 {
-            endQuickSearch()
-            return true
-        }
         if event.keyCode == 51 {
             if !quickSearchQuery.isEmpty {
                 quickSearchQuery.removeLast()
                 onQuickSearchChanged?(quickSearchQuery)
-                fileExplorerCoordinator?.selectBestQuickSearchMatch(in: self, query: quickSearchQuery)
             }
             return true
         }
@@ -176,7 +172,6 @@ final class FileExplorerNSOutlineView: NSOutlineView {
         }
         quickSearchQuery += text
         onQuickSearchChanged?(quickSearchQuery)
-        fileExplorerCoordinator?.selectBestQuickSearchMatch(in: self, query: quickSearchQuery)
         return true
     }
 }

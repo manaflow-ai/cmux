@@ -7047,7 +7047,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func toggleRightSidebarKeyboardFocusInActiveMainWindow(preferredWindow: NSWindow? = nil) -> Bool {
         let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow)
-
         guard let context else {
 #if DEBUG
             dlog(
@@ -7069,7 +7068,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let window {
             mainWindowVisibilityController.focusForInWindowCommand(window, reason: .rightSidebarToggle)
         }
-        let result = context.keyboardFocusCoordinator.toggleRightSidebarOrTerminalFocus()
+        // The primary Cmd-Shift-E route is the Files shortcut; Find has its own customizable action.
+        let result = context.keyboardFocusCoordinator.toggleRightSidebarOrTerminalFocus(mode: .files)
 #if DEBUG
         let afterResponder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(

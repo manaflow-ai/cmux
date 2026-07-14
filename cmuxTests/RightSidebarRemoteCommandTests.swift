@@ -37,6 +37,14 @@ extension TerminalControllerSocketSecurityTests {
         #expect(fileExplorerState.mode == .find)
         #expect(fileExplorerState.isVisible)
 
+        let findModeResponse = TerminalController.shared.handleSocketLine("right_sidebar mode")
+        let findModeData = try #require(findModeResponse.data(using: .utf8))
+        let findModePayload = try #require(JSONSerialization.jsonObject(with: findModeData) as? [String: Any])
+        #expect(findModePayload["mode"] as? String == "find")
+
+        #expect(TerminalController.shared.handleSocketLine("right_sidebar focus") == "OK")
+        #expect(fileExplorerState.mode == .find)
+
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set vault --no-focus") == "OK")
         #expect(fileExplorerState.mode == .sessions)
 

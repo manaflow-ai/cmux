@@ -104,7 +104,7 @@ extension ContentView {
             { _ in value }
         }
 
-        return RightSidebarMode.availableModes().map { mode in
+        return RightSidebarMode.availableActivationModes().map { mode in
             let title = mode.shortcutAction?.label ?? mode.label
             return CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
@@ -226,7 +226,7 @@ extension ContentView {
     private static func commandPaletteRightSidebarModeShortcutAction(
         forCommandID commandID: String
     ) -> KeyboardShortcutSettings.Action? {
-        guard let mode = RightSidebarMode.availableModes().first(where: { mode in
+        guard let mode = RightSidebarMode.availableActivationModes().first(where: { mode in
             Self.commandPaletteRightSidebarModeCommandID(mode) == commandID
         }) else {
             return nil

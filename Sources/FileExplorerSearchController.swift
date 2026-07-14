@@ -184,7 +184,19 @@ protocol FileSearchControlling: AnyObject {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)? { get set }
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int)
+    func search(request: FileSearchRequest)
     func cancel(clear: Bool)
+}
+
+extension FileSearchControlling {
+    func search(request: FileSearchRequest) {
+        search(
+            query: request.query,
+            rootPath: request.rootPath,
+            isLocal: request.isLocal,
+            contentRevision: request.contentRevision
+        )
+    }
 }
 
 struct FileSearchPipelineUpdate: Sendable {
@@ -418,44 +430,28 @@ private enum FileSearchPipeReader {
 
 @MainActor
 final class FileSearchController: FileSearchControlling {
-    private struct Request: Equatable {
-        let query: String
-        let rootPath: String
-        let isLocal: Bool
-        let contentRevision: Int
-    }
-
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
 
     private let maxResults = 500
     private let snapshotInterval: TimeInterval = 0.05
-    private let excludedSearchGlobs = [
-        "!.git/**",
-        "!**/.git/**",
-        "!node_modules/**",
-        "!**/node_modules/**",
-        "!dist/**",
-        "!**/dist/**",
-        "!build/**",
-        "!**/build/**",
-        "!DerivedData/**",
-        "!**/DerivedData/**",
-    ]
     private var process: Process?
     private var generation = 0
-    private var request: Request?
+    private var request: FileSearchRequest?
     private var results: [FileSearchResult] = []
     private var pipeline: FileSearchOutputPipeline?
     private var searchTask: Task<Void, Never>?
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0) {
-        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        let nextRequest = Request(
-            query: query,
+        search(request: FileSearchRequest(
+            query: rawQuery,
             rootPath: rootPath,
             isLocal: isLocal,
             contentRevision: contentRevision
-        )
+        ))
+    }
+
+    func search(request nextRequest: FileSearchRequest) {
+        let query = nextRequest.query
         if nextRequest == request, process?.isRunning == true {
             return
         }
@@ -468,11 +464,11 @@ final class FileSearchController: FileSearchControlling {
             emit(status: .idle, isSearching: false)
             return
         }
-        guard isLocal else {
+        guard nextRequest.isLocal else {
             emit(status: .unsupported, isSearching: false)
             return
         }
-        guard !rootPath.isEmpty else {
+        guard !nextRequest.rootPath.isEmpty else {
             emit(status: .noMatches, isSearching: false)
             return
         }
@@ -501,28 +497,14 @@ final class FileSearchController: FileSearchControlling {
 
         let process = Process()
         process.executableURL = executable.url
-        process.arguments = executable.prefixArguments + [
-            "--json",
-            "--line-number",
-            "--column",
-            "--smart-case",
-            "--fixed-strings",
-            "--max-columns", "300",
-            "--max-columns-preview",
-            "--color", "never",
-            "--hidden",
-        ] + excludedSearchGlobs.flatMap { ["--glob", $0] } + [
-            "--",
-            query,
-            rootPath,
-        ]
+        process.arguments = executable.prefixArguments + nextRequest.ripgrepArguments
 
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
         let pipeline = FileSearchOutputPipeline(
-            rootPath: rootPath,
+            rootPath: nextRequest.rootPath,
             maxResults: maxResults,
             snapshotInterval: snapshotInterval
         )
