@@ -474,6 +474,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		7837A0017837A0017837A001 /* CMUXCLI+TmuxCompatResizePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */; };
 		B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */; };
 		B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */; };
+		CB05000000000000000000B2 /* CMUXCLI+VPS.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB05000000000000000000B1 /* CMUXCLI+VPS.swift */; };
+		CB05000000000000000000B4 /* CMUXCLI+VPSOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB05000000000000000000B3 /* CMUXCLI+VPSOutput.swift */; };
 		C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */; };
 		A72C9F4179B54DF38E99A021 /* CmuxCLIPathInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */; };
 		C12985000000000000000004 /* CMUXCLISentryTelemetryRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12985000000000000000003 /* CMUXCLISentryTelemetryRegressionTests.swift */; };
@@ -587,6 +589,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7A509000000000000000002 /* CmuxTopSnapshotScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */; };
 		CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */ = {isa = PBXBuildFile; productRef = CDFEED0200000000CDFEED02 /* CmuxUpdater */; };
 		CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */ = {isa = PBXBuildFile; productRef = CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */; };
+		CB05000000000000000000A3 /* CmuxVPSProvisioning in Frameworks */ = {isa = PBXBuildFile; productRef = CB05000000000000000000A2 /* CmuxVPSProvisioning */; };
 		D7C0DE00000000000000A101 /* CmuxWebView+ContextMenuLinkCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C0DE00000000000000A102 /* CmuxWebView+ContextMenuLinkCapture.swift */; };
 		D7AB00000000000000000009 /* CmuxWebView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000A /* CmuxWebView+MoveTabToNewWorkspace.swift */; };
 		C6255D010000000000000001 /* CmuxWebView+ScriptedDownloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6255D010000000000000002 /* CmuxWebView+ScriptedDownloads.swift */; };
@@ -2303,6 +2306,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatResizePane.swift"; sourceTree = "<group>"; };
 		B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatSupport.swift"; sourceTree = "<group>"; };
 		B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TopRendering.swift"; sourceTree = "<group>"; };
+		CB05000000000000000000B1 /* CMUXCLI+VPS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VPS.swift"; sourceTree = "<group>"; };
+		CB05000000000000000000B3 /* CMUXCLI+VPSOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VPSOutput.swift"; sourceTree = "<group>"; };
 		C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIErrorOutputRegressionTests.swift; sourceTree = "<group>"; };
 		8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxCLIPathInstaller.swift; sourceTree = "<group>"; };
 		C12985000000000000000003 /* CMUXCLISentryTelemetryRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLISentryTelemetryRegressionTests.swift; sourceTree = "<group>"; };
@@ -3617,6 +3622,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C5A1FED200000000000000E2 /* CmuxSidebarInterpreterClient in Frameworks */,
 				C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */,
+				CB05000000000000000000A3 /* CmuxVPSProvisioning in Frameworks */,
 				B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -4902,6 +4908,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			children = (
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
 				REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */,
+				CB05000000000000000000B1 /* CMUXCLI+VPS.swift */,
+				CB05000000000000000000B3 /* CMUXCLI+VPSOutput.swift */,
 				C77070000000000000000001 /* SSHPTYAttachExitCode.swift */,
 				1E4DB33FA55F1B13C60EFFC8 /* SSHPTYAttachReconnectInputFilter.swift */,
 				E60610200000000000000001 /* SSHPTYAttachReconnectInputFilterControl.swift */,
@@ -5545,6 +5553,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001251 /* Sentry */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
+				CB05000000000000000000A2 /* CmuxVPSProvisioning */,
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
@@ -5690,6 +5699,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E3B7A30000000000000000F1 /* XCLocalSwiftPackageReference "CmuxPanes" */,
 				E3B7A3000000000000000101 /* XCLocalSwiftPackageReference "CmuxWorkspaces" */,
 				C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */,
+				CB05000000000000000000A1 /* XCLocalSwiftPackageReference "CmuxVPSProvisioning" */,
 				C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */,
 				C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */,
 				C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */,
@@ -7034,6 +7044,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7837A0017837A0017837A001 /* CMUXCLI+TmuxCompatResizePane.swift in Sources */,
 				B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */,
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
+					CB05000000000000000000B2 /* CMUXCLI+VPS.swift in Sources */,
+					CB05000000000000000000B4 /* CMUXCLI+VPSOutput.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
 				FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */,
@@ -8090,6 +8102,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxControlSocket;
 		};
+		CB05000000000000000000A1 /* XCLocalSwiftPackageReference "CmuxVPSProvisioning" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxVPSProvisioning;
+		};
 		C9A2B00000000000000000B1 /* XCLocalSwiftPackageReference "CmuxAppKitSupportUI" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxAppKitSupportUI;
@@ -8307,6 +8323,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCSwiftPackageProductDependency;
 			package = C750100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxControlSocket" */;
 			productName = CmuxControlSocket;
+		};
+		CB05000000000000000000A2 /* CmuxVPSProvisioning */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CB05000000000000000000A1 /* XCLocalSwiftPackageReference "CmuxVPSProvisioning" */;
+			productName = CmuxVPSProvisioning;
 		};
 		C9A2B00000000000000000B2 /* CmuxAppKitSupportUI */ = {
 			isa = XCSwiftPackageProductDependency;

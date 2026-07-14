@@ -3217,6 +3217,7 @@ struct CMUXCLI {
         }
 
         if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "vps" { try runVPSCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
@@ -8966,8 +8967,12 @@ struct CMUXCLI {
             sshOptions.extraArguments.isEmpty &&
             remoteTerminalBootstrapScript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
             deferredRemoteReconnectCommandScript != nil
+        // Hosts registered via `cmux vps add` share one supervised daemon
+        // slot so their PTY sessions live in the systemd-managed daemon;
+        // plain SSH hosts keep the per-workspace slot.
         let persistentDaemonSlot = usesPersistentSSHPTY
-            ? "ssh-\(UUID().uuidString.lowercased())"
+            ? (Self.vpsRegisteredSlot(destination: sshOptions.destination, port: sshOptions.port)
+                ?? "ssh-\(UUID().uuidString.lowercased())")
             : (usesPersistentFreestyleCloud ? Self.persistentCloudVMSlotID : nil)
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
@@ -15946,6 +15951,8 @@ struct CMUXCLI {
               cmux remote-daemon-status
               cmux remote-daemon-status --os linux --arch arm64
             """
+        case "vps":
+            return Self.vpsUsageText()
         case "new-split":
             return """
             Usage: cmux new-split <left|right|up|down> [flags]
@@ -34864,7 +34871,7 @@ export default CMUXSessionRestore;
         print()
     }
 
-    private func resolvedVersionInfo() -> [String: String] {
+    func resolvedVersionInfo() -> [String: String] {
         var info: [String: String] = [:]
         if let main = versionInfo(from: Bundle.main.infoDictionary) {
             info.merge(main, uniquingKeysWith: { current, _ in current })
@@ -35043,7 +35050,7 @@ export default CMUXSessionRestore;
         return parent
     }
 
-    private func candidateInfoPlistURLs() -> [URL] {
+    func candidateInfoPlistURLs() -> [URL] {
         guard let executableURL = resolvedExecutableURL() else {
             return []
         }
@@ -35207,6 +35214,7 @@ export default CMUXSessionRestore;
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
+          vps <add|list|status|upgrade|remove> [<user@host>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--name <title>] [--keep-sessions] [--force]
           new-split <left|right|up|down> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
           list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
