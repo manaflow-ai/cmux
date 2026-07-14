@@ -333,9 +333,7 @@ final class PortalSplitDividerRegion {
         holes.reduce([rect]) { pieces, hole in
             pieces.flatMap { piece in
                 let overlap = piece.intersection(hole)
-                guard !overlap.isNull, overlap.width > 0, overlap.height > 0 else {
-                    return [piece]
-                }
+                guard !overlap.isNull, overlap.width > 0, overlap.height > 0 else { return [piece] }
 
                 var remainder: [NSRect] = []
                 if overlap.minY > piece.minY {
