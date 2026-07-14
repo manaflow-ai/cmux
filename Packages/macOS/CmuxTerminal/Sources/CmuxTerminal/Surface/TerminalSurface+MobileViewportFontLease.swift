@@ -191,6 +191,7 @@ extension TerminalSurface {
         )
     }
 
+    /// The generation awaiting its matching configuration reload callback.
     @MainActor
     public var pendingMobileViewportFontFitReloadGeneration: UInt64? {
         mobileViewportFontFitReloadLeaseState.pendingGeneration
