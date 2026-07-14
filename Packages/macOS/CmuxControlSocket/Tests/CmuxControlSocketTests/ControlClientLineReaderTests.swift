@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import Darwin
+import Dispatch
 import Foundation
 import os
 import Testing
@@ -127,6 +128,34 @@ struct ControlClientLineReaderTests {
         // proves the poll is consulted before the blocking read.
         let reader = ControlClientLineReader(socket: pair.readEnd)
         #expect(reader.nextLine(shouldContinueReading: { false }) == nil)
+    }
+
+    @Test func authorizationRevocationStopsIdleReaderWithoutPeerTraffic() throws {
+        let pair = try SocketPairFixture()
+        let shouldContinue = OSAllocatedUnfairLock(initialState: true)
+        let enteredBlockingRead = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        let readEnd = pair.readEnd
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let reader = ControlClientLineReader(socket: readEnd)
+            _ = reader.nextLine {
+                let allowed = shouldContinue.withLock { $0 }
+                if allowed { enteredBlockingRead.signal() }
+                return allowed
+            }
+            finished.signal()
+        }
+
+        #expect(enteredBlockingRead.wait(timeout: .now() + 1.0) == .success)
+        shouldContinue.withLock { $0 = false }
+
+        let stoppedAfterRevocation = finished.wait(timeout: .now() + 1.0)
+        if stoppedAfterRevocation != .success {
+            pair.closeWriteEnd()
+            _ = finished.wait(timeout: .now() + 1.0)
+        }
+        #expect(stoppedAfterRevocation == .success)
     }
 
     @Test func discardsTrailingBytesWithoutNewlineAtEOF() throws {
