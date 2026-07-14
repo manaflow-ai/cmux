@@ -251,6 +251,19 @@ final class AgentChatSessionRegistry {
         return nil
     }
 
+    /// The live session for a surface, or its most recently active historical session.
+    ///
+    /// - Parameter surfaceID: Terminal surface UUID string.
+    /// - Returns: The best transcript-backed gallery binding for the surface.
+    func currentOrMostRecentSession(surfaceID: String) -> AgentChatSessionRecord? {
+        if let live = liveSession(surfaceID: surfaceID) {
+            return live
+        }
+        return records.values
+            .filter { $0.surfaceID == surfaceID }
+            .max { $0.lastActivityAt < $1.lastActivityAt }
+    }
+
     /// Re-reads the hook store for one session and adopts its bindings,
     /// for callers that just failed to resolve the recorded terminal (an
     /// app relaunch regenerates panel UUIDs; the store is rewritten by

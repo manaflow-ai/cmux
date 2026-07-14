@@ -1096,6 +1096,7 @@ jobs:
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
             CmuxRemoteSession
+            CmuxAgentChat
             CmuxAuthRuntime
             CmuxCommandPalette
             CmuxControlSocket
