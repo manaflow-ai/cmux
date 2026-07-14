@@ -11,8 +11,10 @@ from __future__ import annotations
 import json
 import os
 import selectors
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -80,6 +82,12 @@ def main() -> int:
     env = os.environ.copy()
     env["CUA_DRIVER_EMBEDDED"] = "1"
     env["CUA_DRIVER_RS_TELEMETRY_ENABLED"] = "false"
+    # Keep the smoke test hermetic: without this the driver's startup update
+    # checker contacts GitHub and writes ~/.cua-driver-rs/version_check.json.
+    env["CUA_DRIVER_RS_UPDATE_CHECK"] = "false"
+    # Isolated HOME so nothing the driver writes lands in the real home.
+    home = tempfile.mkdtemp(prefix="cua-smoke-home-")
+    env["HOME"] = home
     proc = subprocess.Popen(
         [str(driver), "--embedded", "--no-overlay"],
         stdin=subprocess.PIPE,
@@ -132,6 +140,7 @@ def main() -> int:
                 proc.stderr.read()
             except Exception:
                 pass
+        shutil.rmtree(home, ignore_errors=True)
 
     print(f"PASS: cua-driver MCP smoke ({driver})")
     return 0

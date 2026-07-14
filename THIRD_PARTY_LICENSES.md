@@ -59,7 +59,7 @@ SOFTWARE.
 ## Cua Driver
 
 - **License:** MIT License
-- **Copyright:** Copyright (c) trycua contributors
+- **Copyright:** Copyright (c) 2025 Cua AI, Inc.
 - **Source:** https://github.com/manaflow-ai/cmux-cua
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

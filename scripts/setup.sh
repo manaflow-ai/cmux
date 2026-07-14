@@ -16,13 +16,6 @@ if ! command -v zig &> /dev/null; then
     exit 1
 fi
 
-echo "==> Checking for bun..."
-if ! command -v bun &> /dev/null; then
-    echo "Error: bun is not installed."
-    echo "Install via: brew install oven-sh/bun/bun"
-    exit 1
-fi
-
 # Every app build runs scripts/build-cua-driver.sh, which compiles the bundled
 # computer-use driver with Cargo. Catch a missing/broken Rust toolchain here so
 # the first tagged reload does not fail mid-build. Check only; never auto-install.

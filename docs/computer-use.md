@@ -4,9 +4,11 @@ cmux bundles `cua-driver` from the `manaflow-ai/cmux-cua` fork of trycua/cua
 and exposes it as an MCP server named `cmux-computer-use` for compatibility
 with existing cmux-launched agents.
 
-Claude Code, Codex CLI, and other MCP-capable agents launched by cmux receive
-the server automatically at session start. No user MCP configuration is
-required. The bundled command is:
+Claude Code and Codex CLI sessions launched by cmux receive the server
+automatically at session start (injection is implemented in
+`cmux-claude-wrapper` and `cmux-codex-wrapper`); no user MCP configuration is
+required for them. Other MCP-capable agents can use the bundled driver by
+pointing their own MCP configuration at the same command:
 
 ```json
 {
