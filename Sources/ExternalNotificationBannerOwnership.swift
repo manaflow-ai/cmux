@@ -84,7 +84,7 @@ struct ExternalNotificationBannerOwnership {
         for owner in moving {
             let surfaceId = owner.surfaceId.map { panelIdMap[$0] ?? $0 }
             let panelId = owner.panelId.map { panelIdMap[$0] ?? $0 }
-            let moved = Self.replacingLocation(owner, tabId: toTabId, surfaceId: surfaceId, panelId: panelId)
+            let moved = owner.replacingLocation(tabId: toTabId, surfaceId: surfaceId, panelId: panelId)
             if let existing = ownerByKey[Self.key(moved)] {
                 if existing.id != moved.id { displaced.append(moved) }
             } else {
@@ -98,8 +98,7 @@ struct ExternalNotificationBannerOwnership {
     mutating func rebind(surfaceId: UUID, fromTabId: UUID, toTabId: UUID) -> TerminalNotification? {
         guard let owner = owner(tabId: fromTabId, surfaceId: surfaceId) else { return nil }
         clear(tabId: fromTabId, surfaceId: surfaceId)
-        let moved = Self.replacingLocation(
-            owner,
+        let moved = owner.replacingLocation(
             tabId: toTabId,
             surfaceId: owner.surfaceId,
             panelId: owner.panelId
@@ -113,27 +112,5 @@ struct ExternalNotificationBannerOwnership {
 
     private static func key(_ notification: TerminalNotification) -> String {
         SupersededPhoneDismissBuffer.key(tabId: notification.tabId, surfaceId: notification.surfaceId)
-    }
-
-    private static func replacingLocation(
-        _ notification: TerminalNotification,
-        tabId: UUID,
-        surfaceId: UUID?,
-        panelId: UUID?
-    ) -> TerminalNotification {
-        TerminalNotification(
-            id: notification.id,
-            tabId: tabId,
-            surfaceId: surfaceId,
-            panelId: panelId,
-            title: notification.title,
-            subtitle: notification.subtitle,
-            body: notification.body,
-            createdAt: notification.createdAt,
-            isRead: notification.isRead,
-            paneFlash: notification.paneFlash,
-            scrollPosition: notification.scrollPosition,
-            clickAction: notification.clickAction
-        )
     }
 }

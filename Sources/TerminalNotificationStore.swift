@@ -1723,20 +1723,10 @@ final class TerminalNotificationStore: ObservableObject {
                 return notification
             }
             didMoveNotification = true
-            return TerminalNotification(
-                id: notification.id,
+            return notification.replacingLocation(
                 tabId: destinationTabId,
                 surfaceId: notification.surfaceId,
-                panelId: notification.panelId,
-                retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
-                title: notification.title,
-                subtitle: notification.subtitle,
-                body: notification.body,
-                createdAt: notification.createdAt,
-                isRead: notification.isRead,
-                paneFlash: notification.paneFlash,
-                scrollPosition: notification.scrollPosition,
-                clickAction: notification.clickAction
+                panelId: notification.panelId
             )
         }
         if didMoveNotification {

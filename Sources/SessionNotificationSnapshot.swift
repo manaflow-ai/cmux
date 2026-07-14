@@ -202,7 +202,7 @@ extension TerminalNotificationStore {
     }
 }
 
-private extension TerminalNotification {
+extension TerminalNotification {
     func replacingLocation(tabId: UUID, surfaceId: UUID?, panelId: UUID?) -> TerminalNotification {
         TerminalNotification(
             id: id,
