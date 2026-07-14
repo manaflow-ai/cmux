@@ -97,13 +97,13 @@ struct BrowserDesignModeEditor: View {
                 title: String(localized: "browser.designMode.property.width", defaultValue: "Width"),
                 currentValue: value(for: "width", in: snapshot)
             ) { value in
-                applyStyle(property: "width", value: value)
+                await applyStyle(property: "width", value: value)
             }
             BrowserDesignModeValueField(
                 title: String(localized: "browser.designMode.property.height", defaultValue: "Height"),
                 currentValue: value(for: "height", in: snapshot)
             ) { value in
-                applyStyle(property: "height", value: value)
+                await applyStyle(property: "height", value: value)
             }
         }
     }
@@ -129,37 +129,37 @@ struct BrowserDesignModeEditor: View {
                 title: String(localized: "browser.designMode.property.fontFamily", defaultValue: "Font family"),
                 currentValue: value(for: "font-family", in: snapshot)
             ) { value in
-                applyStyle(property: "font-family", value: value)
+                await applyStyle(property: "font-family", value: value)
             }
             BrowserDesignModeValueField(
                 title: String(localized: "browser.designMode.property.fontSize", defaultValue: "Font size"),
                 currentValue: value(for: "font-size", in: snapshot)
             ) { value in
-                applyStyle(property: "font-size", value: value)
+                await applyStyle(property: "font-size", value: value)
             }
             BrowserDesignModeValueField(
                 title: String(localized: "browser.designMode.property.lineHeight", defaultValue: "Line height"),
                 currentValue: value(for: "line-height", in: snapshot)
             ) { value in
-                applyStyle(property: "line-height", value: value)
+                await applyStyle(property: "line-height", value: value)
             }
             BrowserDesignModeValueField(
                 title: String(localized: "browser.designMode.property.fontWeight", defaultValue: "Weight"),
                 currentValue: value(for: "font-weight", in: snapshot)
             ) { value in
-                applyStyle(property: "font-weight", value: value)
+                await applyStyle(property: "font-weight", value: value)
             }
             BrowserDesignModeValueField(
                 title: String(localized: "browser.designMode.property.color", defaultValue: "Text color"),
                 currentValue: value(for: "color", in: snapshot)
             ) { value in
-                applyStyle(property: "color", value: value)
+                await applyStyle(property: "color", value: value)
             }
             BrowserDesignModeValueField(
                 title: String(localized: "browser.designMode.property.background", defaultValue: "Background"),
                 currentValue: value(for: "background-color", in: snapshot)
             ) { value in
-                applyStyle(property: "background-color", value: value)
+                await applyStyle(property: "background-color", value: value)
             }
         }
     }
@@ -170,7 +170,9 @@ struct BrowserDesignModeEditor: View {
                 title: String(localized: "browser.designMode.property.text", defaultValue: "Text"),
                 currentValue: value(for: "text-content", in: snapshot)
             ) { value in
-                Task { @MainActor in await controller.applyText(value) }
+                await controller.applyText(value)
+                return controller.snapshot?.edits.first(where: { $0.property == "text-content" })?.value
+                    ?? controller.snapshot?.selection?.textContent ?? ""
             }
         }
     }
@@ -287,7 +289,7 @@ struct BrowserDesignModeEditor: View {
                     title: edgeTitle(edge),
                     currentValue: value(for: property, in: snapshot)
                 ) { value in
-                    applyStyle(property: property, value: value)
+                    await applyStyle(property: property, value: value)
                 }
             }
         }
@@ -302,10 +304,8 @@ struct BrowserDesignModeEditor: View {
         }
     }
 
-    private func applyStyle(property: String, value: String) {
-        Task { @MainActor in
-            await controller.applyStyle(property: property, value: value)
-        }
+    private func applyStyle(property: String, value: String) async -> String {
+        await controller.applyStyle(property: property, value: value)
     }
 
     private func editorSection<Content: View>(

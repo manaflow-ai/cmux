@@ -3724,7 +3724,6 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.designModeController.webViewWillNavigate()
                 (webView as? CmuxWebView)?.diffViewerNavigationDidStart(navigation)
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
@@ -3734,6 +3733,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didCommit = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                self.designModeController.webViewWillNavigate()
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
                 self.isMainFrameProvisionalNavigationActive = false
                 // An about:blank placeholder leaves the restore-stall detector armed.

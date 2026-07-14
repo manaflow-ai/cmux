@@ -222,13 +222,13 @@ final class BrowserDesignModeController {
         }
     }
 
-    func applyStyle(property: String, value: String) async {
+    func applyStyle(property: String, value: String) async -> String {
         await updateRuntime(
             "return globalThis.__cmuxDesignMode?.applyStyle(property, value);",
             arguments: ["property": property, "value": value]
         )
+        return snapshot?.edits.first(where: { $0.property == property })?.value ?? snapshot?.selection?.computedStyles[property] ?? ""
     }
-
     func applyText(_ value: String) async {
         await updateRuntime(
             "return globalThis.__cmuxDesignMode?.applyText(value);",

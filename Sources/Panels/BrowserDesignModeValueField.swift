@@ -3,7 +3,7 @@ import SwiftUI
 struct BrowserDesignModeValueField: View {
     let title: String
     let currentValue: String
-    let onChange: (String) -> Void
+    let onChange: @MainActor (String) async -> String
 
     @State private var value: String
     @State private var submittedValue: String?
@@ -12,7 +12,7 @@ struct BrowserDesignModeValueField: View {
     init(
         title: String,
         currentValue: String,
-        onChange: @escaping (String) -> Void
+        onChange: @escaping @MainActor (String) async -> String
     ) {
         self.title = title
         self.currentValue = currentValue
@@ -31,11 +31,7 @@ struct BrowserDesignModeValueField: View {
                 .focused($isFocused)
                 .onSubmit(commit)
                 .onChange(of: isFocused) { wasFocused, focused in
-                    if focused {
-                        submittedValue = nil
-                    } else if wasFocused {
-                        commit()
-                    }
+                    if wasFocused && !focused { commit() }
                 }
                 .onChange(of: currentValue) { _, next in
                     if !isFocused || submittedValue != next {
@@ -49,7 +45,13 @@ struct BrowserDesignModeValueField: View {
 
     private func commit() {
         guard value != currentValue, value != submittedValue else { return }
-        submittedValue = value
-        onChange(value)
+        let submission = value
+        submittedValue = submission
+        Task { @MainActor in
+            let authoritativeValue = await onChange(submission)
+            guard submittedValue == submission, value == submission else { return }
+            value = authoritativeValue
+            submittedValue = nil
+        }
     }
 }
