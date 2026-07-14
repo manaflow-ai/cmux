@@ -231,8 +231,7 @@ struct SocketControlServerConfigurationTests {
             object: nil,
             userInfo: [SecretFileStore.changedKeyIDKey: "automation.socketPassword"]
         )
-        fixture.signalExternalPasswordChange()
-        try await Task.sleep(for: .milliseconds(50))
+        await fixture.signalExternalPasswordChangeAndWaitUntilConsumed()
 
         #expect(fixture.passwordReadCount == readsAfterStart)
     }
@@ -248,7 +247,7 @@ struct SocketControlServerConfigurationTests {
         defer { close(connection.socket) }
 
         fixture.setEffectivePassword("rotated-secret")
-        fixture.signalExternalPasswordChange()
+        await fixture.signalExternalPasswordChangeAndWaitUntilConsumed()
 
         #expect(await waitUntil {
             !fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration)
@@ -295,7 +294,7 @@ private struct SocketConfigurationFixture: ~Copyable {
     let notificationCenter: NotificationCenter
     let server: SocketControlServer
     private let password: OSAllocatedUnfairLock<PasswordProviderState>
-    private let authorizationChangeContinuation: AsyncStream<Void>.Continuation
+    private let authorizationChangeProbe: AuthorizationChangeStreamProbe
 
     init(effectivePassword: String? = nil) throws {
         let identifier = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
@@ -308,10 +307,11 @@ private struct SocketConfigurationFixture: ~Copyable {
             initialState: PasswordProviderState(value: effectivePassword)
         )
         self.password = password
-        let (authorizationChanges, continuation) = AsyncStream<Void>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        authorizationChangeContinuation = continuation
+        let authorizationChangeProbe = AuthorizationChangeStreamProbe()
+        self.authorizationChangeProbe = authorizationChangeProbe
+        let authorizationChanges = AsyncStream<Void>(unfolding: {
+            await authorizationChangeProbe.next()
+        })
         server = SocketControlServer(
             initialSocketPath: socketPath,
             notificationCenter: notificationCenter,
@@ -341,12 +341,12 @@ private struct SocketConfigurationFixture: ~Copyable {
         password.withLock { $0.readCount }
     }
 
-    func signalExternalPasswordChange() {
-        authorizationChangeContinuation.yield(())
+    func signalExternalPasswordChangeAndWaitUntilConsumed() async {
+        await authorizationChangeProbe.signalAndWaitUntilConsumed()
     }
 
     func shutdown() {
-        authorizationChangeContinuation.finish()
+        authorizationChangeProbe.finish()
         server.stop()
         try? FileManager.default.removeItem(at: directory)
     }
