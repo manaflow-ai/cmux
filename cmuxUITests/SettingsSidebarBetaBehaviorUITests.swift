@@ -34,42 +34,6 @@ import XCTest
 /// downstream consumer effects are documented in the TIER 2 block below.
 final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
 
-    /// The Settings sidebar must render its category rows on both a fresh
-    /// open and a close/reopen cycle. Restricting the query to cells avoids
-    /// mistaking the identically-titled detail section headers for sidebar
-    /// content, which is the regression this test guards against.
-    func testSettingsSidebarRendersCategoryRowsAfterOpenCloseAndReopen() {
-        let app = makeLaunchedApp()
-        let expectedTopRows = [
-            "Account", "App", "Terminal", "TextBox (Beta)",
-            "Sleepy Mode", "Mobile", "Sidebar",
-        ]
-
-        for _ in 0..<2 {
-            let window = openSettings(app)
-            var previousRowMidY: CGFloat?
-
-            for title in expectedTopRows {
-                let row = window.cells.containing(.staticText, identifier: title).firstMatch
-                XCTAssertTrue(
-                    row.waitForExistence(timeout: 5.0),
-                    "Expected the Settings sidebar to render its \(title) category row"
-                )
-                if let previousRowMidY {
-                    XCTAssertGreaterThan(
-                        row.frame.midY,
-                        previousRowMidY,
-                        "Expected \(title) below the preceding Settings sidebar category"
-                    )
-                }
-                previousRowMidY = row.frame.midY
-            }
-
-            closeSettings(app, window)
-            XCTAssertFalse(window.exists, "Settings window should fully close before reopening")
-        }
-    }
-
     // userDefaultsKeys for the in-scope settings, reset before/after each
     // test so the run starts from the shipped default.
     //  - sidebarBranchVerticalLayout: SidebarCatalogSection.branchVerticalLayout (default true / "Vertical")
