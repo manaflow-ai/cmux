@@ -272,7 +272,7 @@ The toolbar layout toggle persists the last user choice for future generated dif
 
 ## Voice dictation
 
-Voice dictation transcribes your speech fully on-device and types it into the focused pane. Enable or disable it and pick the dictation language from **Settings > Voice**. No audio or transcripts leave your Mac.
+Voice dictation transcribes your speech fully on-device and types it into the input that was focused when you started dictating (terminal pane, text field, or editable web content). The target is pinned for the whole session, so moving focus mid-dictation never scatters text across panes; stop and start again to dictate somewhere else. Enable or disable the feature and pick the dictation language from **Settings > Voice**. No audio or transcripts leave your Mac.
 
 The toggle shortcut (default `ctrl+cmd+v`) is customizable like any other cmux shortcut, from **Settings > Keyboard Shortcuts** or in `cmux.json`:
 

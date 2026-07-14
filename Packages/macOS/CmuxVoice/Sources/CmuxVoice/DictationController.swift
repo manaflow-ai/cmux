@@ -42,6 +42,7 @@ public final class DictationController {
     private var activeTranscriber: (any SpeechTranscribing)?
     private var sessionTask: Task<Void, Never>?
     private var sessionGeneration = 0
+    private var insertionSessionActive = false
 
     /// Creates a controller.
     ///
@@ -129,6 +130,7 @@ public final class DictationController {
             fail(.insertionTargetUnavailable, generation: generation)
             return
         }
+        insertionSessionActive = true
         phase = .preparing
         let transcriber = makeTranscriber()
         activeTranscriber = transcriber
@@ -147,8 +149,10 @@ public final class DictationController {
                 handle(event, generation: generation)
             }
             guard sessionGeneration == generation, isActive else { return }
-            if let delta = transcript.commitTrailingVolatileText() {
-                _ = inserter.insertFinalizedText(delta)
+            if let delta = transcript.commitTrailingVolatileText(),
+               !inserter.insertFinalizedText(delta) {
+                fail(.insertionTargetUnavailable, generation: generation)
+                return
             }
             settle(generation: generation)
         } catch {
@@ -192,7 +196,7 @@ public final class DictationController {
 
     private func settle(generation: Int) {
         guard sessionGeneration == generation, isActive else { return }
-        inserter.endSession()
+        endInsertionSessionIfActive()
         activeTranscriber = nil
         phase = .idle
     }
@@ -202,9 +206,15 @@ public final class DictationController {
         // late stream end can neither clobber .failed back to .idle nor
         // re-fire the failure handler.
         guard sessionGeneration == generation, isActive else { return }
-        inserter.endSession()
+        endInsertionSessionIfActive()
         activeTranscriber = nil
         phase = .failed(failure)
         failureHandler?(failure)
+    }
+
+    private func endInsertionSessionIfActive() {
+        guard insertionSessionActive else { return }
+        insertionSessionActive = false
+        inserter.endSession()
     }
 }

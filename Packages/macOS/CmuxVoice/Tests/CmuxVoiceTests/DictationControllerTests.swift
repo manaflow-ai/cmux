@@ -236,6 +236,34 @@ struct DictationControllerTests {
         controller.toggle()
         #expect(await waitUntil { controller.phase == .failed(.insertionTargetUnavailable) })
         #expect(recorder.failures == [.insertionTargetUnavailable])
+        // endSession is only paired with a successful beginSession.
+        #expect(inserter.ended == 0)
+    }
+
+    @Test func deniedMicrophoneNeverTouchesTheInserter() async {
+        var authorizer = FakeAuthorizer()
+        authorizer.microphone = .denied
+        let inserter = RecordingInserter()
+        let (controller, _, _, _) = makeController(authorizer: authorizer, inserter: inserter)
+        controller.toggle()
+        #expect(await waitUntil { controller.phase == .failed(.microphoneAccessDenied) })
+        #expect(inserter.began == 0)
+        #expect(inserter.ended == 0)
+    }
+
+    @Test func trailingFlushInsertionFailureFailsTheSession() async {
+        let inserter = RecordingInserter()
+        inserter.insertionSucceedsAfter = 0
+        let (controller, _, transcriber, recorder) = makeController(inserter: inserter)
+        controller.toggle()
+        #expect(await waitUntil { controller.phase == .listening })
+
+        transcriber.send(.partial("dangling"))
+        #expect(await waitUntil { controller.transcript.volatileText == "dangling" })
+
+        controller.stop()
+        #expect(await waitUntil { controller.phase == .failed(.insertionTargetUnavailable) })
+        #expect(recorder.failures == [.insertionTargetUnavailable])
     }
 
     @Test func vanishedTargetMidSessionFailsAndStopsEngine() async {

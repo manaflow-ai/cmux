@@ -16,18 +16,24 @@ extension AppDelegate {
 
     /// Resolves the focused terminal panel for the key window, mirroring
     /// the multi-window resolution used by other text-insertion features.
+    ///
+    /// Fails closed: when a non-main window (Settings, a detached panel)
+    /// is key, dictation refuses to start rather than typing into a
+    /// terminal the user is not looking at. The global fallback applies
+    /// only when no window is key at all.
     private func voiceDictationFocusedTerminalPanel() -> TerminalPanel? {
-        if let window = NSApp.keyWindow {
-            if let panel = contextForMainTerminalWindow(window)?
-                .tabManager.selectedWorkspace?.focusedTerminalPanel {
-                return panel
-            }
-            if let windowId = mainWindowId(from: window),
-               let panel = tabManagerFor(windowId: windowId)?
-                   .selectedWorkspace?.focusedTerminalPanel {
-                return panel
-            }
+        guard let window = NSApp.keyWindow else {
+            return tabManager?.selectedWorkspace?.focusedTerminalPanel
         }
-        return tabManager?.selectedWorkspace?.focusedTerminalPanel
+        if let panel = contextForMainTerminalWindow(window)?
+            .tabManager.selectedWorkspace?.focusedTerminalPanel {
+            return panel
+        }
+        if let windowId = mainWindowId(from: window),
+           let panel = tabManagerFor(windowId: windowId)?
+               .selectedWorkspace?.focusedTerminalPanel {
+            return panel
+        }
+        return nil
     }
 }
