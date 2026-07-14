@@ -74,13 +74,15 @@ for job in "$CI_JOB" "$RELEASE_JOB"; do
   build_step="$(step_section "$job" "Build universal app (Release)")"
   require_contains "$build_step" '-showBuildTimingSummary' \
     "release builds must publish Xcode timing evidence"
-  require_contains "$build_step" 'COMPILATION_CACHE_ENABLE_CACHING=YES' \
-    "release builds must opt into Xcode compilation caching"
   require_contains "$build_step" 'COMPILER_INDEX_STORE_ENABLE=NO' \
     "release builds must not generate an unused source index"
   require_contains "$build_step" 'CODE_SIGNING_ALLOWED=NO' \
     "the cached compilation phase must remain unsigned"
 done
+
+ci_build_step="$(step_section "$CI_JOB" "Build universal app (Release)")"
+require_contains "$ci_build_step" 'COMPILATION_CACHE_ENABLE_CACHING=YES' \
+  "trusted CI must generate Xcode compilation cache entries"
 
 require_not_contains "$CI_JOB" '- name: Cache DerivedData' \
   "CI must not cache the full DerivedData tree"
@@ -124,6 +126,18 @@ require_contains "$reject_step" 'max_cache_kib=$((3 * 1024 * 1024))' \
   "stable releases must reject restored caches larger than 3 GiB"
 require_contains "$reject_step" 'rm -rf "$cache_path"' \
   "stable releases must fall back cold when a restored cache is oversized"
+require_contains "$reject_step" 'steps.restore-release-compilation-cache.outputs.cache-hit' \
+  "stable releases must require an exact cache hit before enabling caching"
+require_contains "$reject_step" 'cache_usable=$cache_usable' \
+  "stable releases must expose whether the restored cache passed validation"
+
+release_build_step="$(step_section "$RELEASE_JOB" "Build universal app (Release)")"
+require_contains "$release_build_step" 'compilation_cache_enabled=NO' \
+  "stable releases must default to the existing uncached build path"
+require_contains "$release_build_step" 'steps.validate-release-compilation-cache.outputs.cache_usable' \
+  "stable releases must enable compiler caching only after validation"
+require_contains "$release_build_step" 'COMPILATION_CACHE_ENABLE_CACHING="$compilation_cache_enabled"' \
+  "stable releases must pass the validated cache decision to Xcode"
 require_not_contains "$RELEASE_JOB" 'actions/cache/save@' \
   "stable tag and dry-run release jobs must never write compilation caches"
 
