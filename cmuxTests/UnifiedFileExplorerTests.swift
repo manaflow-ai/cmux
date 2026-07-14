@@ -49,6 +49,30 @@ struct UnifiedFileExplorerTests {
         #expect(cell.accessibilityValue() as? String == result.preview)
     }
 
+    @Test("Typing in the persistent search field restores Find activation")
+    func typingInPersistentSearchRestoresFindActivation() throws {
+        let state = FileExplorerState()
+        state.mode = .files
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: FileExplorerStore(),
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: SearchControllerSpy()
+        )
+        let searchField = try #require(Self.searchField(in: container))
+
+        searchField.stringValue = "needle"
+        container.controlTextDidChange(
+            Notification(name: NSControl.textDidChangeNotification, object: searchField)
+        )
+
+        #expect(state.mode == .find)
+    }
+
     @Test("Files and Find focus one host without discarding either view's state")
     func focusAliasesPreserveTreeAndSearchState() throws {
         let defaults = UserDefaults.standard
