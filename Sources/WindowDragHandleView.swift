@@ -811,6 +811,7 @@ private func minimalModeTrafficLightFrameInContentCoordinates(for window: NSWind
 
 enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     case toggleSidebar
+    case toggleBoard
     case showNotifications
     case newTab
     case cloudVM
@@ -821,6 +822,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return "titlebarControl.toggleSidebar"
+        case .toggleBoard:
+            return "titlebarControl.toggleBoard"
         case .showNotifications:
             return "titlebarControl.showNotifications"
         case .newTab:
@@ -838,6 +841,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar")
+        case .toggleBoard:
+            return String(localized: "titlebar.board.accessibilityLabel", defaultValue: "Toggle Board")
         case .showNotifications:
             return String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications")
         case .newTab:
@@ -855,6 +860,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return "toggleSidebar"
+        case .toggleBoard:
+            return "toggleBoard"
         case .showNotifications:
             return "showNotifications"
         case .newTab:
@@ -872,7 +879,7 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar, .newTab, .cloudVM, .focusHistoryBack, .focusHistoryForward:
             return true
-        case .showNotifications:
+        case .showNotifications, .toggleBoard:
             return false
         }
     }

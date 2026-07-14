@@ -43,7 +43,8 @@ enum TitlebarControlsHitRegions {
     ) -> ClosedRange<CGFloat>? {
         let startX = outerLeadingPadding + config.groupPadding.leading
         let sidebarX = startX
-        let notificationsX = sidebarX + config.buttonSize + config.spacing
+        let boardX = sidebarX + config.buttonSize + config.spacing
+        let notificationsX = boardX + config.buttonSize + config.spacing
         let newTabX = notificationsX + config.buttonSize + config.spacing
         let newTabWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
         let cloudMenuX = newTabX + newTabWidth
@@ -54,6 +55,8 @@ enum TitlebarControlsHitRegions {
         let minX: CGFloat = switch slot {
         case .toggleSidebar:
             sidebarX
+        case .toggleBoard:
+            boardX
         case .showNotifications:
             notificationsX
         case .newTab:
@@ -70,7 +73,7 @@ enum TitlebarControlsHitRegions {
             newTabWidth
         case .cloudVM:
             cloudMenuWidth
-        case .toggleSidebar, .showNotifications, .focusHistoryBack, .focusHistoryForward:
+        case .toggleSidebar, .toggleBoard, .showNotifications, .focusHistoryBack, .focusHistoryForward:
             config.buttonSize
         }
         return minX...(minX + width)
@@ -240,7 +243,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: self, event: event, direction: .back)
         case .focusHistoryForward:
             _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: self, event: event, direction: .forward)
-        case .showNotifications:
+        case .showNotifications, .toggleBoard:
             super.rightMouseDown(with: event)
         }
     }

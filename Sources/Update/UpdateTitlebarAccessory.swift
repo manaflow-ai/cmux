@@ -482,6 +482,7 @@ func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig)
 
 enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
     case toggleSidebar
+    case toggleBoard
     case showNotifications
     case newTab
     case focusHistoryBack
@@ -491,6 +492,8 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return .toggleSidebar
+        case .toggleBoard:
+            return .toggleBoardView
         case .showNotifications:
             return .showNotifications
         case .newTab:
@@ -532,6 +535,8 @@ enum TitlebarControlsLayoutMetrics {
         let actionSlot: MinimalModeSidebarControlActionSlot = switch slot {
         case .toggleSidebar:
             .toggleSidebar
+        case .toggleBoard:
+            .toggleBoard
         case .showNotifications:
             .showNotifications
         case .newTab:
@@ -1490,6 +1495,8 @@ struct HiddenTitlebarSidebarControlsView: View {
                 switch slot {
                 case .toggleSidebar:
                     onToggleSidebar()
+                case .toggleBoard:
+                    _ = AppDelegate.shared?.toggleBoardViewInActiveMainWindow()
                 case .showNotifications:
                     onToggleNotifications(anchorView)
                 case .newTab:

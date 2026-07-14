@@ -2,7 +2,7 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 35384	CLI/cmux.swift
-17793	Sources/AppDelegate.swift
+17920	Sources/AppDelegate.swift
 16141	Sources/ContentView.swift
 15005	Sources/TerminalController.swift
 12931	Sources/Workspace.swift
@@ -32,7 +32,7 @@
 3673	cmuxTests/TabManagerSessionSnapshotTests.swift
 3668	cmuxTests/CLIGenericHookPersistenceTests.swift
 3314	Sources/CmuxConfig.swift
-2882	Sources/Update/UpdateTitlebarAccessory.swift
+2909	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift
 2611	Sources/KeyboardShortcutSettings.swift
@@ -52,7 +52,7 @@
 1866	Sources/Panels/BrowserWebAuthnSupport.swift
 1847	cmuxTests/TerminalControllerSocketSecurityTests.swift
 1810	Sources/SessionIndexStore.swift
-1760	Sources/WindowDragHandleView.swift
+1767	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
@@ -255,4 +255,5 @@
 503	Sources/Settings/ConfigSource.swift
 503	Sources/TerminalNotificationQueue.swift
 502	Sources/CmuxEventPublishing.swift
+502	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutAction.swift
 500	Sources/KeyboardShortcutRecorder.swift

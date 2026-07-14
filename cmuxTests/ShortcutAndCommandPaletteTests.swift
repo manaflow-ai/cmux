@@ -962,6 +962,7 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
             TitlebarShortcutHintActionSlot.allCases.map(\.action),
             [
                 .toggleSidebar,
+                .toggleBoardView,
                 .showNotifications,
                 .newTab,
                 .focusHistoryBack,

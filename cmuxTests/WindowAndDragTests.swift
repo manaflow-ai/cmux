@@ -884,6 +884,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             MinimalModeSidebarControlActionSlot.allCases.map(\.accessibilityIdentifier),
             [
                 "titlebarControl.toggleSidebar",
+                "titlebarControl.toggleBoard",
                 "titlebarControl.showNotifications",
                 "titlebarControl.newTab",
                 "titlebarControl.cloudVM",
@@ -951,11 +952,11 @@ final class WindowDragHandleHitTests: XCTestCase {
 
         XCTAssertFalse(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(NSPoint(x: firstGapX, y: 14), config: config),
-            "The gap between the sidebar and notification icons should remain available for window dragging"
+            "The gap between the sidebar and board icons should remain available for window dragging"
         )
         XCTAssertFalse(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(NSPoint(x: secondGapX, y: 14), config: config),
-            "The gap between the notification and new-workspace icons should remain available for window dragging"
+            "The gap between the board and notification icons should remain available for window dragging"
         )
 
         XCTAssertGreaterThanOrEqual(
