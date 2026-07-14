@@ -736,7 +736,7 @@ struct MobileHostAuthorizationTests {
         let service = MobileHostService.shared
         let connectionID = UUID()
         service.debugResetMobileLifecycleStateForTesting()
-        service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
+        service.recordClientID("ios-client", for: connectionID)
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == Set(["ios-client"]))
         service.debugRemoveConnectionForTesting(id: connectionID)
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == nil)
@@ -771,7 +771,7 @@ struct MobileHostAuthorizationTests {
             columns: 84,
             rows: 15
         )
-        service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
+        service.recordClientID("ios-client", for: connectionID)
         service.debugRemoveConnectionForTesting(id: connectionID)
         #expect(
             terminalController.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID) == Set(["ipad-client"]),
@@ -1259,7 +1259,7 @@ private enum MobileHostStartedTestSocketError: Error {
     case listenerNotReady
     case connectionNotReady
 }
-private final class MobileHostStartedTestSocket: @unchecked Sendable {
+final class MobileHostStartedTestSocket: @unchecked Sendable {
     let connection: NWConnection
     private let listener: NWListener
     private let queue: DispatchQueue
@@ -1319,7 +1319,7 @@ private actor MobileHostConnectionCloseRecorder {
         ids
     }
 }
-private actor MobileHostConnectionRequestRecorder {
+actor MobileHostConnectionRequestRecorder {
     private var methods: [String] = []
     func record(_ request: MobileHostRPCRequest) {
         methods.append(request.method)
@@ -1340,7 +1340,7 @@ private actor MobileHostConnectionBox {
 private enum AsyncTestSignalError: Error {
     case timedOut
 }
-private final class AsyncTestSignal: @unchecked Sendable {
+final class AsyncTestSignal: @unchecked Sendable {
     private let condition = NSCondition()
     private var fulfilled = false
     func fulfill() {

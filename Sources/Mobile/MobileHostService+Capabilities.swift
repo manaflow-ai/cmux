@@ -40,6 +40,11 @@ extension MobileHostService {
             // workspace.group.collapse/expand from mobile. iOS feature-detects
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
+            // `workspace.list` carries a versioned `remote_state` object per
+            // workspace plus top-level attached-view presence. Both are
+            // additive; clients use these capabilities to opt into rendering.
+            "workspace.remote_state.v1",
+            "view.presence.v1",
         ]
         #if DEBUG
         // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.

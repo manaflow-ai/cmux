@@ -494,6 +494,32 @@ final class MobileHostService {
         MobileHostEventSubscriptionTracker.hasTerminalOutputSubscribers()
     }
 
+    /// Versioned presence for identified views attached to this runtime.
+    ///
+    /// A client can issue many requests over one transport, and a reconnect can
+    /// briefly overlap the prior transport. Grouping the existing
+    /// connection-to-client map by stable `client_id` keeps the snapshot cheap
+    /// and tells views when the same device currently owns multiple transports.
+    func viewPresencePayload() -> [String: Any] {
+        var connectionCountByClientID: [String: Int] = [:]
+        for clientIDs in clientIDsByConnectionID.values {
+            for clientID in clientIDs {
+                connectionCountByClientID[clientID, default: 0] += 1
+            }
+        }
+        let views: [[String: Any]] = connectionCountByClientID.keys.sorted().compactMap { clientID in
+            guard let connectionCount = connectionCountByClientID[clientID] else { return nil }
+            return [
+                "client_id": clientID,
+                "connection_count": connectionCount,
+            ]
+        }
+        return [
+            "version": 1,
+            "views": views,
+        ]
+    }
+
     /// User-default key for the opt-in Mac-side iOS pairing listener.
     nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().mobile.iOSPairingHost.userDefaultsKey
 
@@ -1229,14 +1255,18 @@ final class MobileHostService {
                 clientIDs: clientIDs,
                 reason: "mobile.connection.closed"
             )
+            Self.emitEvent(topic: "workspace.updated", payload: ["reason": "view_presence"])
         }
         MobileHostRequestActivity.endConnection()
     }
 
-    private func recordClientID(_ clientID: String, for connectionID: UUID) {
+    func recordClientID(_ clientID: String, for connectionID: UUID) {
         var clientIDs = clientIDsByConnectionID[connectionID] ?? []
-        clientIDs.insert(clientID)
+        let inserted = clientIDs.insert(clientID).inserted
         clientIDsByConnectionID[connectionID] = clientIDs
+        if inserted {
+            Self.emitEvent(topic: "workspace.updated", payload: ["reason": "view_presence"])
+        }
     }
 
     private nonisolated static func clientID(from params: [String: Any]) -> String? {
@@ -1550,10 +1580,6 @@ extension MobileHostService {
         clientIDsByConnectionID.removeAll()
         MobileHostRequestActivity.resetForTesting()
         MobileHostEventSubscriptionTracker.resetForTesting()
-    }
-
-    func debugRecordClientIDForTesting(_ clientID: String, connectionID: UUID) {
-        recordClientID(clientID, for: connectionID)
     }
 
     func debugRemoveConnectionForTesting(id: UUID) {
@@ -2079,12 +2105,16 @@ actor MobileHostConnection {
             guard !isClosed, !Task.isCancelled else {
                 return
             }
-            if let intercepted = handleSubscriptionRPC(request) {
-                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
-                return
-            }
+            // Record optional view identity before intercepting subscription
+            // plumbing. Newer clients identify themselves on their first
+            // `mobile.events.subscribe`, before terminal input/viewport traffic,
+            // so presence becomes visible as soon as the view attaches.
             await onAuthorizedRequest(request)
             guard !isClosed, !Task.isCancelled else {
+                return
+            }
+            if let intercepted = handleSubscriptionRPC(request) {
+                _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
                 return
             }
             let result = await handleRequest(request)

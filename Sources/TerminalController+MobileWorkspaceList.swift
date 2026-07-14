@@ -164,7 +164,8 @@ extension TerminalController {
 
         var payload: [String: Any] = [
             "workspaces": workspaces,
-            "groups": groups
+            "groups": groups,
+            "view_presence": MobileHostService.shared.viewPresencePayload(),
         ]
         if let createdWorkspaceID {
             payload["created_workspace_id"] = createdWorkspaceID
@@ -212,6 +213,10 @@ extension TerminalController {
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
         let preview = Self.mobileWorkspacePreview(latestNotification: latestNotification)
+        let remoteState = MobileWorkspaceRemoteStateSnapshot(
+            workspace: workspace,
+            notificationStore: store
+        )
         return [
             "id": workspace.id.uuidString,
             "window_id": v2OrNull(windowID?.uuidString),
@@ -237,6 +242,10 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
+            // Versioned semantic state for remote views. Kept in one optional
+            // nested object so older clients ignore it wholesale and newer
+            // schemas can evolve additively without changing legacy fields.
+            "remote_state": remoteState.payload,
             "terminals": terminals
         ]
     }
@@ -411,5 +420,54 @@ extension TerminalController {
                 "member_workspace_ids": memberIDsByGroup[group.id] ?? []
             ]
         }
+    }
+}
+
+extension Workspace {
+    /// Hashes the workspace fields serialized by the mobile workspace list.
+    @MainActor
+    func mobileWorkspaceSummaryHash(previewSignature: Int?) -> Int {
+        var hasher = Hasher()
+        hasher.combine(title)
+        hasher.combine(isPinned)
+        // Group membership is iOS-facing (the phone nests members under the
+        // group header), and a pure move-into/out-of-group need not change the
+        // panel set or title, so hash it here.
+        hasher.combine(groupId)
+        // Last-activity preview line + timestamp shown on each row. Sourced
+        // from the notification store (not the TabManager graph), so it is
+        // folded in here as a precomputed signature.
+        hasher.combine(previewSignature)
+        // Spatial order is significant: hash the ordered id sequence so a
+        // reorder of the same panel set changes the hash.
+        let panelIDs = orderedPanelIds
+        hasher.combine(panelIDs)
+        for id in panelIDs {
+            hasher.combine(panelTitle(panelId: id))
+            hasher.combine(reportedPanelDirectory(panelId: id))
+        }
+        hasher.combine(presentedCurrentDirectory)
+        // Todo mutations change the list-facing shape; without these the
+        // hash-diff would suppress the re-emit the publishers above fire.
+        hasher.combine(todoState.statusOverride)
+        hasher.combine(todoState.checklist)
+        // Agent/git/PR semantic state is part of the mobile list. Hash the same
+        // immutable projection the payload serializes so the incremental cache
+        // observes a pure lifecycle or sidebar-metadata update.
+        let remoteState = MobileWorkspaceRemoteStateSnapshot(
+            workspace: self,
+            notificationStore: nil
+        )
+        remoteState.combineSemanticState(into: &hasher)
+        // Hash every panelDirectories entry (including ids not yet in
+        // `panels`) so a directory update is detected even before its panel
+        // registers. The ordered loop above already covers in-panel
+        // directories; this preserves the pre-existing behavior the mobile
+        // hash test relies on.
+        for id in panelDirectories.keys.sorted() {
+            hasher.combine(id)
+            hasher.combine(panelDirectories[id])
+        }
+        return hasher.finalize()
     }
 }
