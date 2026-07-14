@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxAuthRuntime
+import CmuxMobileDiff
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileWorkspace
@@ -172,6 +173,27 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
+
+                    if let store,
+                       store.supportsWorkspaceChanges,
+                       let workspaceID = store.selectedWorkspaceID,
+                       let service = store.makeChangesService(workspaceID: workspaceID) {
+                        NavigationLink {
+                            ChangesScreen(
+                                service: service,
+                                workspace: ChangesWorkspaceContext(
+                                    workspaceID: workspaceID.rawValue,
+                                    displayName: store.workspaces.first(where: { $0.id == workspaceID })?.name
+                                )
+                            )
+                        } label: {
+                            Label(
+                                L10n.string("mobile.settings.nativeChanges", defaultValue: "Changes (native diff)"),
+                                systemImage: "doc.text.magnifyingglass"
+                            )
+                        }
+                        .accessibilityIdentifier("MobileSettingsNativeChanges")
+                    }
 
                     debugLayoutSlider(
                         title: L10n.string(

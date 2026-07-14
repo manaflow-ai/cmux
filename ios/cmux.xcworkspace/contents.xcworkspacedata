@@ -8,6 +8,9 @@
       location = "group:../Packages/iOS/CmuxMobileShellUI">
    </FileRef>
    <FileRef
+      location = "group:../Packages/iOS/CmuxMobileDiff">
+   </FileRef>
+   <FileRef
       location = "group:../Packages/iOS/CmuxMobileTerminal">
    </FileRef>
    <FileRef

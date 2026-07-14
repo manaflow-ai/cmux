@@ -4506,6 +4506,23 @@
         }
       }
     },
+    "mobile.settings.nativeChanges": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes (native diff)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更（ネイティブ差分）"
+          }
+        }
+      }
+    },
     "mobile.settings.developer": {
       "extractionState": "manual",
       "localizations": {
