@@ -235,12 +235,15 @@ class _Stream:
         if self._closed:
             raise StopIteration
         if self._queue:
-            return self._queue.pop(0)
+            event = self._queue.pop(0)
+            if event.event in ("detached", "overflow"):
+                self.close()
+            return event
         value = self._conn.recv()
         if "event" not in value:
             return self.__next__()
         event = _parse_event(value)
-        if event.event == "detached":
+        if event.event in ("detached", "overflow"):
             self.close()
         return event
 

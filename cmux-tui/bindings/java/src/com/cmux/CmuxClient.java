@@ -520,6 +520,7 @@ public final class CmuxClient implements AutoCloseable {
     public static final class CmuxStream implements AutoCloseable {
         private final JsonLineConnection connection;
         private final ArrayDeque<CmuxEvent> buffered;
+        private boolean finished;
 
         private CmuxStream(JsonLineConnection connection, ArrayDeque<CmuxEvent> buffered) {
             this.connection = connection;
@@ -554,15 +555,26 @@ public final class CmuxClient implements AutoCloseable {
         }
 
         public CmuxEvent next(Duration timeout) throws CmuxException {
+            if (finished) {
+                throw new CmuxException("stream is closed");
+            }
             if (!buffered.isEmpty()) {
-                return buffered.removeFirst();
+                return finishTerminal(buffered.removeFirst());
             }
             while (true) {
                 Map<String, Object> response = connection.recv(timeout);
                 if (response.containsKey("event")) {
-                    return CmuxEvent.from(response);
+                    return finishTerminal(CmuxEvent.from(response));
                 }
             }
+        }
+
+        private CmuxEvent finishTerminal(CmuxEvent event) throws CmuxException {
+            if (event instanceof OverflowEvent || "detached".equals(event.event())) {
+                finished = true;
+                connection.close();
+            }
+            return event;
         }
 
         @Override

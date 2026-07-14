@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import unittest
 
-from cmux.client import _parse_event
+from cmux.client import _Stream, _parse_event
+
+
+class _FakeConnection:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class EventTests(unittest.TestCase):
@@ -40,6 +48,18 @@ class EventTests(unittest.TestCase):
         self.assertEqual(event.error, "subscriber fell behind")
         self.assertEqual(event.scope, "surface")
         self.assertEqual(event.surface, 7)
+
+    def test_stream_yields_buffered_overflow_once_then_stops(self) -> None:
+        connection = _FakeConnection()
+        stream = _Stream.__new__(_Stream)
+        stream._conn = connection
+        stream._queue = [_parse_event({"event": "overflow", "error": "fell behind"})]
+        stream._closed = False
+
+        self.assertEqual(next(stream).event, "overflow")
+        self.assertTrue(connection.closed)
+        with self.assertRaises(StopIteration):
+            next(stream)
 
 
 if __name__ == "__main__":

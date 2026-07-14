@@ -420,6 +420,9 @@ const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
 
 trait MessageSink: Send + Sync {
     fn send(&self, value: &Value) -> std::io::Result<()>;
+    fn send_terminal(&self, value: &Value) -> std::io::Result<()> {
+        self.send(value)
+    }
     fn close(&self);
 }
 
@@ -440,6 +443,17 @@ impl MessageWriter {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = self.sink.send(value);
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            self.close();
+        }
+        result
+    }
+
+    fn send_terminal(&self, value: &Value) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self.sink.send_terminal(value);
         if result.is_err() {
             self.close();
         }
@@ -472,15 +486,31 @@ impl MessageSink for LineSink {
 
 const WEBSOCKET_OUTBOUND_CAPACITY: usize = 256;
 
-struct WebSocketSink(SyncSender<String>);
+struct WebSocketSink {
+    outbound: SyncSender<String>,
+    terminal: SyncSender<String>,
+}
 
 impl MessageSink for WebSocketSink {
     fn send(&self, value: &Value) -> std::io::Result<()> {
         let text = serde_json::to_string(value)?;
-        self.0.try_send(text).map_err(|error| match error {
+        self.outbound.try_send(text).map_err(|error| match error {
             TrySendError::Full(_) => std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 "WebSocket outbound queue overflowed",
+            ),
+            TrySendError::Disconnected(_) => {
+                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "WebSocket connection closed")
+            }
+        })
+    }
+
+    fn send_terminal(&self, value: &Value) -> std::io::Result<()> {
+        let text = serde_json::to_string(value)?;
+        self.terminal.try_send(text).map_err(|error| match error {
+            TrySendError::Full(_) => std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "WebSocket terminal queue overflowed",
             ),
             TrySendError::Disconnected(_) => {
                 std::io::Error::new(std::io::ErrorKind::BrokenPipe, "WebSocket connection closed")
@@ -651,9 +681,18 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
     }
     let _ = websocket.get_mut().set_read_timeout(Some(STREAM_DISCONNECT_POLL));
     let (outbound_tx, outbound_rx) = sync_channel(WEBSOCKET_OUTBOUND_CAPACITY);
-    let writer = MessageWriter::new(WebSocketSink(outbound_tx));
+    let (terminal_tx, terminal_rx) = sync_channel(1);
+    let writer = MessageWriter::new(WebSocketSink { outbound: outbound_tx, terminal: terminal_tx });
 
-    'connection: while writer.is_open() {
+    'connection: loop {
+        match terminal_rx.try_recv() {
+            Ok(text) => {
+                let _ = websocket.send(Message::Text(text.into()));
+                break;
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => break,
+        }
         loop {
             match outbound_rx.try_recv() {
                 Ok(text) => {
@@ -664,6 +703,9 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => break 'connection,
             }
+        }
+        if !writer.is_open() {
+            break;
         }
 
         match websocket.read() {
@@ -1117,7 +1159,7 @@ fn report_attach_overflow(
     lifecycle: &AttachLifecycle,
 ) {
     if lifecycle.claim_overflow_report() {
-        let _ = writer.send(&json!({
+        let _ = writer.send_terminal(&json!({
             "event": "overflow",
             "scope": "surface",
             "surface": surface_id,
@@ -1629,6 +1671,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
             let events = mux.subscribe();
             let writer = writer.clone();
             std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
+                let mut transport_overflow = false;
                 while writer.is_open() {
                     let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
                         Ok(event) => event,
@@ -1636,12 +1679,13 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     };
                     let value = subscribed_event_json(&event);
-                    if writer.send(&value).is_err() {
+                    if let Err(error) = writer.send(&value) {
+                        transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                         break;
                     }
                 }
-                if events.overflowed() {
-                    let _ = writer.send(&subscription_overflow_json());
+                if events.overflowed() || transport_overflow {
+                    let _ = writer.send_terminal(&subscription_overflow_json());
                 }
             })?;
             Ok(json!({}))
@@ -1865,15 +1909,19 @@ mod tests {
     }
 
     #[test]
-    fn websocket_writer_closes_when_bounded_queue_overflows() {
-        let (sender, _receiver) = sync_channel(1);
-        let writer = MessageWriter::new(WebSocketSink(sender));
+    fn websocket_writer_reserves_a_terminal_overflow_lane() {
+        let (outbound, _outbound_receiver) = sync_channel(1);
+        let (terminal, terminal_receiver) = sync_channel(1);
+        let writer = MessageWriter::new(WebSocketSink { outbound, terminal });
 
         writer.send(&json!({"event": "first"})).unwrap();
         let error = writer.send(&json!({"event": "second"})).unwrap_err();
-
         assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
-        assert!(!writer.is_open());
+        assert!(writer.is_open());
+
+        writer.send_terminal(&subscription_overflow_json()).unwrap();
+        let terminal: Value = serde_json::from_str(&terminal_receiver.recv().unwrap()).unwrap();
+        assert_eq!(terminal["event"], "overflow");
     }
 
     #[test]

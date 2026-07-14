@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -398,17 +399,25 @@ type Stream struct {
 	conn     *jsonLineConn
 	timeout  time.Duration
 	buffered []Event
+	closed   bool
 }
 
 func (s *Stream) Close() error {
+	if s.closed {
+		return nil
+	}
+	s.closed = true
 	return s.conn.Close()
 }
 
 func (s *Stream) Recv(ctx context.Context) (Event, error) {
+	if s.closed {
+		return nil, io.EOF
+	}
 	if len(s.buffered) > 0 {
 		event := s.buffered[0]
 		s.buffered = s.buffered[1:]
-		return event, nil
+		return s.finishTerminal(event), nil
 	}
 	for {
 		value, err := s.conn.Recv(ctx, s.timeout)
@@ -416,9 +425,17 @@ func (s *Stream) Recv(ctx context.Context) (Event, error) {
 			return nil, err
 		}
 		if _, ok := value["event"].(string); ok {
-			return parseEvent(value), nil
+			return s.finishTerminal(parseEvent(value)), nil
 		}
 	}
+}
+
+func (s *Stream) finishTerminal(event Event) Event {
+	switch event.(type) {
+	case DetachedEvent, OverflowEvent:
+		_ = s.Close()
+	}
+	return event
 }
 
 type jsonLineConn struct {

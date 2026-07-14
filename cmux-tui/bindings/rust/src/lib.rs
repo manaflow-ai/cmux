@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fmt;
 use std::io::{BufRead, BufReader, Write};
+use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -552,6 +553,7 @@ impl CmuxClient {
 pub struct CmuxStream {
     conn: JsonLineConnection,
     buffered: Vec<Event>,
+    finished: bool,
 }
 
 impl CmuxStream {
@@ -570,7 +572,7 @@ impl CmuxStream {
                 continue;
             }
             if response.get("ok") == Some(&Value::Bool(true)) {
-                return Ok(Self { conn, buffered });
+                return Ok(Self { conn, buffered, finished: false });
             }
             return Err(CmuxError::Command {
                 message: response
@@ -584,29 +586,47 @@ impl CmuxStream {
     }
 
     pub fn recv(&mut self) -> Result<Event> {
+        if self.finished {
+            return Err(CmuxError::Connection("stream is closed".to_string()));
+        }
         if !self.buffered.is_empty() {
-            return Ok(self.buffered.remove(0));
+            let event = self.buffered.remove(0);
+            return Ok(self.finish_terminal(event));
         }
         loop {
             let value = self.conn.recv()?;
             if value.get("event").is_some() {
-                return Ok(parse_event(value));
+                let event = parse_event(value);
+                return Ok(self.finish_terminal(event));
             }
         }
     }
 
     pub fn recv_timeout(&mut self, timeout: Duration) -> Result<Event> {
-        if !self.buffered.is_empty() {
-            return Ok(self.buffered.remove(0));
+        if self.finished {
+            return Err(CmuxError::Connection("stream is closed".to_string()));
         }
-        self.conn.with_read_timeout(timeout, |conn| {
+        if !self.buffered.is_empty() {
+            let event = self.buffered.remove(0);
+            return Ok(self.finish_terminal(event));
+        }
+        let event = self.conn.with_read_timeout(timeout, |conn| {
             loop {
                 let value = conn.recv()?;
                 if value.get("event").is_some() {
                     return Ok(parse_event(value));
                 }
             }
-        })
+        })?;
+        Ok(self.finish_terminal(event))
+    }
+
+    fn finish_terminal(&mut self, event: Event) -> Event {
+        if matches!(&event, Event::Detached(_) | Event::Overflow(_)) {
+            self.finished = true;
+            let _ = self.conn.writer.shutdown(Shutdown::Both);
+        }
+        event
     }
 }
 
@@ -614,7 +634,7 @@ impl Iterator for CmuxStream {
     type Item = Result<Event>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.recv())
+        (!self.finished).then(|| self.recv())
     }
 }
 
@@ -795,5 +815,23 @@ mod tests {
                     && scope.as_deref() == Some("surface")
                     && surface == Some(7)
         ));
+    }
+
+    #[test]
+    fn iterator_yields_buffered_overflow_once_then_stops() {
+        let (socket, _peer) = UnixStream::pair().unwrap();
+        let writer = socket.try_clone().unwrap();
+        let mut stream = CmuxStream {
+            conn: JsonLineConnection { writer, reader: BufReader::new(socket) },
+            buffered: vec![Event::Overflow(OverflowEvent {
+                error: "fell behind".to_string(),
+                scope: None,
+                surface: None,
+            })],
+            finished: false,
+        };
+
+        assert!(matches!(stream.next(), Some(Ok(Event::Overflow(_)))));
+        assert!(stream.next().is_none());
     }
 }
