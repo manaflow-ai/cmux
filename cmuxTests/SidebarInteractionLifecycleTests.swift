@@ -98,6 +98,17 @@ final class SidebarInteractionLifecycleTests {
                 + "reentrantLayout=\(reentrantHostingViewLayout)"
         }
 
+        func subtracting(_ baseline: Self) -> Self {
+            Self(
+                publishingDuringViewUpdate: publishingDuringViewUpdate
+                    - baseline.publishingDuringViewUpdate,
+                modifyingStateDuringViewUpdate: modifyingStateDuringViewUpdate
+                    - baseline.modifyingStateDuringViewUpdate,
+                reentrantHostingViewLayout: reentrantHostingViewLayout
+                    - baseline.reentrantHostingViewLayout
+            )
+        }
+
         static func read(since start: Date) throws -> Self {
             let store = try OSLogStore(scope: .currentProcessIdentifier)
             let position = store.position(date: start)
@@ -403,6 +414,7 @@ final class SidebarInteractionLifecycleTests {
         // production sidebar window is mounted. Gate only the accelerated
         // sidebar lifecycle scenario below.
         let logStart = Date.now
+        let baselineFaults = try RuntimeFaultCounts.read(since: logStart)
 
         let heartbeat = Heartbeat()
         heartbeat.start()
@@ -413,7 +425,8 @@ final class SidebarInteractionLifecycleTests {
             worstRealizationPass = max(worstRealizationPass, try await harness.churn(pass: pass))
         }
 
-        let faults = try RuntimeFaultCounts.read(since: logStart)
+        let accumulatedFaults = try RuntimeFaultCounts.read(since: logStart)
+        let faults = accumulatedFaults.subtracting(baselineFaults)
         print("#8004 fault counts: \(faults); heartbeat=\(heartbeat.count); longestGap=\(heartbeat.longestGap); worstRealizationPass=\(worstRealizationPass)")
 
         #expect(
