@@ -86,7 +86,6 @@ struct NotificationChronologyTests {
             store.resetSuppressedNotificationFeedbackHandlerForTesting()
             AppFocusState.overrideIsFocused = originalAppFocusOverride
         }
-
         store.addNotification(
             id: newerId,
             acceptedAt: Date(timeIntervalSince1970: 20),
@@ -111,6 +110,7 @@ struct NotificationChronologyTests {
         #expect(store.notifications.map(\.id) == [newerId, olderId])
         #expect(deliveredIds == [newerId])
         #expect(suppressedIds == [olderId])
+        #expect(store.externalBannerOwnerIDForTesting(tabId: tabId, surfaceId: surfaceId) == newerId)
     }
 
     @Test
