@@ -16,9 +16,7 @@ extension Workspace {
         let previousPresentedDirectory = presentedCurrentDirectory
         let sessionEnded = endedPersistentRemotePTYAttachSurfaceIds.contains(surfaceId)
         if !sessionEnded {
-            let sessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[surfaceId])
-                ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: surfaceId)
-            remotePTYSessionIDsByPanelId[surfaceId] = sessionID
+            remotePTYSessionIDsByPanelId[surfaceId] = persistentRemotePTYSessionIDForRestart(panelId: surfaceId)
         }
         remoteDisconnectPlaceholderPanelIds.insert(surfaceId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
@@ -52,8 +50,7 @@ extension Workspace {
                     activeRemoteTerminalSurfaceIds.contains(panelId) else {
                 continue
             }
-            let sessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId])
-                ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+            let sessionID = persistentRemotePTYSessionIDForRestart(panelId: panelId)
             let resumeBinding = surfaceResumeBindingsByPanelId[panelId]
             let sessionEnded = endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
             guard restartEndedSessions || !sessionEnded else { continue }
@@ -90,5 +87,17 @@ extension Workspace {
             reattached.insert(panelId)
         }
         return reattached
+    }
+
+    private func persistentRemotePTYSessionIDForRestart(panelId: UUID) -> String {
+        if let mappedSessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId]) {
+            return mappedSessionID
+        }
+        if let inheritedSessionID = normalizedRemotePTYSessionID(
+            terminalPanel(for: panelId)?.surface.respawnAdditionalEnvironment[Self.remotePTYSessionEnvironmentKey]
+        ) {
+            return inheritedSessionID
+        }
+        return Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
     }
 }

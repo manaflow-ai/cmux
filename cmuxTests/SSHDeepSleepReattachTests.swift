@@ -164,6 +164,59 @@ struct SSHDeepSleepReattachTests {
         #expect(terminal.remotePTYSessionID == nil)
     }
 
+    @MainActor
+    @Test func confirmedCloudPTYExitRestartsWithInheritedCustomIdentity() throws {
+        let workspace = Workspace()
+        let initialPanel = try #require(workspace.focusedTerminalPanel)
+        workspace.configureRemoteConnection(Self.persistentCloudConfiguration(), autoConnect: false)
+        let customSessionID = "cloud-custom-session"
+        let panel = try #require(workspace.newTerminalSplit(
+            from: initialPanel.id,
+            orientation: .horizontal,
+            focus: false,
+            remotePTYSessionID: customSessionID
+        ))
+        #expect(panel.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
+        #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
+
+        let ended = workspace.markRemotePTYAttachEnded(
+            surfaceId: panel.id,
+            sessionID: customSessionID
+        )
+        #expect(ended.clearedRemotePTYSession)
+        #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == nil)
+        #expect(panel.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
+        workspace.markPersistentRemotePTYAttachFailed(surfaceId: panel.id)
+
+        let endedSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels
+                .first { $0.id == panel.id }?.terminal
+        )
+        #expect(endedSnapshot.isRemoteTerminal == false)
+        #expect(endedSnapshot.remotePTYSessionID == nil)
+
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to Cloud VM",
+            target: "cloud-vm"
+        )
+        #expect(workspace.reconnectRemoteConnection(surfaceId: panel.id))
+
+        let restarted = try #require(workspace.terminalPanel(for: panel.id))
+        #expect(restarted.surface !== panel.surface)
+        let command = try #require(restarted.surface.initialCommand)
+        #expect(command.contains("vm-pty-attach"))
+        #expect(command.contains("--default-freestyle-sshd"))
+        #expect(restarted.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
+        #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
+        let restartedSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels
+                .first { $0.id == panel.id }?.terminal
+        )
+        #expect(restartedSnapshot.isRemoteTerminal)
+        #expect(restartedSnapshot.remotePTYSessionID == customSessionID)
+    }
+
     @Test func persistentAttachRetriesPastLegacyBudgetWithCappedBackoff() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -295,6 +348,25 @@ struct SSHDeepSleepReattachTests {
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(requireExisting: false),
             preserveAfterTerminalExit: true, persistentDaemonSlot: "ssh-test"
+        )
+    }
+
+    private static func persistentCloudConfiguration() -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+            port: 22,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            managedCloudVMID: "71smiccrg35sw9pydt8k",
+            terminalStartupCommand: "ssh -p 22 -tt 71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
         )
     }
 
