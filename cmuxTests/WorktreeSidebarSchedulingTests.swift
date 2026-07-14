@@ -13,11 +13,17 @@ struct WorktreeSidebarSchedulingTests {
     func statusQueueIsFIFOAndDeduplicated() {
         var queue = WorktreeSidebarStatusQueue()
         let now = ContinuousClock().now
-        #expect(queue.enqueue(path: "/a", eligibleAt: now))
-        #expect(!queue.enqueue(path: "/a", eligibleAt: now))
-        #expect(queue.enqueue(path: "/b", eligibleAt: now))
-        #expect(queue.popFirst() == "/a")
-        #expect(queue.remove(path: "/b"))
+        let enqueuedA = queue.enqueue(path: "/a", eligibleAt: now)
+        let duplicatedA = queue.enqueue(path: "/a", eligibleAt: now)
+        let enqueuedB = queue.enqueue(path: "/b", eligibleAt: now)
+        let firstPath = queue.popFirst()
+        let removedB = queue.remove(path: "/b")
+
+        #expect(enqueuedA)
+        #expect(!duplicatedA)
+        #expect(enqueuedB)
+        #expect(firstPath == "/a")
+        #expect(removedB)
         #expect(queue.isEmpty)
     }
 }
