@@ -16358,17 +16358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @MainActor
     func openTerminalNotification(_ notification: TerminalNotification) -> Bool {
         notificationNavigation.openNotification(
-            NotificationNavSnapshot(
-                id: notification.id,
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                panelId: notification.panelId,
-                isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction),
-                scrollRow: notification.scrollPosition?.row,
-                scrollTotalRows: notification.scrollPosition?.totalRows,
-                scrollRowSpaceRevision: notification.scrollPosition?.rowSpaceRevision
-            )
+            notification.notificationNavigationSnapshot
         )
     }
 
@@ -16381,7 +16371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     @MainActor
     func performTerminalNotificationClickAction(_ action: TerminalNotificationClickAction) -> Bool {
-        notificationClickPerformer.perform(Self.navClickAction(action))
+        notificationClickPerformer.perform(action.notificationNavigationAction)
     }
 
 #if DEBUG

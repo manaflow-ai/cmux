@@ -257,17 +257,7 @@ extension AppDelegate {
     var orderedNotificationsForNav: [NotificationNavSnapshot] {
         guard let notificationStore else { return [] }
         return notificationStore.notifications.map { notification in
-            NotificationNavSnapshot(
-                id: notification.id,
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                panelId: notification.panelId,
-                isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction),
-                scrollRow: notification.scrollPosition?.row,
-                scrollTotalRows: notification.scrollPosition?.totalRows,
-                scrollRowSpaceRevision: notification.scrollPosition?.rowSpaceRevision
-            )
+            notification.notificationNavigationSnapshot
         }
     }
 
@@ -287,16 +277,6 @@ extension AppDelegate {
         notificationStore?.markRead(id: id)
     }
 
-    /// Maps the app-target click action onto the package's value-typed action.
-    static func navClickAction(
-        _ action: TerminalNotificationClickAction
-    ) -> NotificationNavClickAction {
-        switch action {
-        case .revealInFinder(let path):
-            return .revealInFinder(path: path)
-        }
-    }
-
     /// Whether `notification` is openable by the jump-to-latest scan. A thin
     /// shim over `NotificationNavSnapshot.isOpenableForJump`, kept so the legacy
     /// predicate name and its unit test remain valid (and prove the package
@@ -307,17 +287,7 @@ extension AppDelegate {
         excludingNotificationId excludedNotificationId: UUID? = nil,
         excludingWorkspaceId excludedWorkspaceId: UUID? = nil
     ) -> Bool {
-        NotificationNavSnapshot(
-            id: notification.id,
-            tabId: notification.tabId,
-            surfaceId: notification.surfaceId,
-            panelId: notification.panelId,
-            isRead: notification.isRead,
-            clickAction: notification.clickAction.map(navClickAction),
-            scrollRow: notification.scrollPosition?.row,
-            scrollTotalRows: notification.scrollPosition?.totalRows,
-            scrollRowSpaceRevision: notification.scrollPosition?.rowSpaceRevision
-        )
+        notification.notificationNavigationSnapshot
         .isOpenableForJump(
             excludingNotificationId: excludedNotificationId,
             excludingWorkspaceId: excludedWorkspaceId

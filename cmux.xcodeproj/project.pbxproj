@@ -1546,6 +1546,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */; };
 		A5FB1303 /* TerminalForegroundCommandCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1304 /* TerminalForegroundCommandCapture.swift */; };
 		A5001542 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001544 /* TerminalImageTransfer.swift */; };
+		D79020000000000000000001 /* TerminalNotification+NavigationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */; };
 		A5F10000000000000000000B /* TerminalNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000C /* TerminalNotification.swift */; };
 		A5C41101A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C41102A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift */; };
 		A5C41103A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */; };
@@ -3325,6 +3326,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalFindEscapeRouting.swift; sourceTree = "<group>"; };
 		A5FB1304 /* TerminalForegroundCommandCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalForegroundCommandCapture.swift; sourceTree = "<group>"; };
 		A5001544 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
+		D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotification+NavigationSnapshot.swift"; sourceTree = "<group>"; };
 		A5F10000000000000000000C /* TerminalNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotification.swift; sourceTree = "<group>"; };
 		A5C41102A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationCallerResolver.swift; sourceTree = "<group>"; };
 		A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationCallerTests.swift; sourceTree = "<group>"; };
@@ -4468,6 +4470,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1F0A00600000000000000F2 /* ScreenLockObserver.swift */,
 				B7F00001 /* NotificationSoundSettings.swift */,
 				A5F10000000000000000000C /* TerminalNotification.swift */,
+				D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
 				A5F10000000000000000000E /* TerminalNotificationStore+WorkspaceNotifications.swift */,
 				A5001099 /* TerminalNotificationScrollPosition.swift */,
@@ -6832,6 +6835,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */,
 				A5FB1303 /* TerminalForegroundCommandCapture.swift in Sources */,
 				A5001542 /* TerminalImageTransfer.swift in Sources */,
+				D79020000000000000000001 /* TerminalNotification+NavigationSnapshot.swift in Sources */,
 				A5F10000000000000000000B /* TerminalNotification.swift in Sources */,
 				A5C41101A1B2C3D4E5F60718 /* TerminalNotificationCallerResolver.swift in Sources */,
 				A5001096 /* TerminalNotificationPolicy.swift in Sources */,
