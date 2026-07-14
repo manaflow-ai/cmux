@@ -4,7 +4,7 @@ import Foundation
 extension AppDelegate {
     @discardableResult
     func handleCmuxExternalURLs(from urls: [URL]) -> Bool {
-        let intentCounts = cmuxExternalURLIntentCounts(in: urls)
+        let intentCounts = Self.cmuxExternalURLIntentCounts(in: urls)
         guard intentCounts.total > 0 else { return false }
         if intentCounts.run > 0,
            isHandlingCmuxRunURLRequest || pendingStartupRunURLRequest != nil {
@@ -36,7 +36,7 @@ extension AppDelegate {
         return false
     }
 
-    private struct CmuxExternalURLIntentCounts {
+    struct CmuxExternalURLIntentCounts {
         var run = 0
         var ssh = 0
         var navigation = 0
@@ -47,34 +47,61 @@ extension AppDelegate {
         }
     }
 
-    private func cmuxExternalURLIntentCounts(in urls: [URL]) -> CmuxExternalURLIntentCounts {
+    private enum CmuxExternalURLIntent {
+        case run
+        case ssh
+        case navigation
+        case text
+    }
+
+    static func cmuxExternalURLIntentCounts(
+        in urls: [URL],
+        supportedSchemes: Set<String> = CmuxRunURLRequest.activeSupportedSchemes
+    ) -> CmuxExternalURLIntentCounts {
         urls.reduce(CmuxExternalURLIntentCounts()) { counts, url in
             var nextCounts = counts
-            switch CmuxRunURLRequest.parse(url) {
-            case .success(.some), .failure:
+            switch cmuxExternalURLIntent(for: url, supportedSchemes: supportedSchemes) {
+            case .run:
                 nextCounts.run += 1
-            case .success(nil):
-                break
-            }
-            switch CmuxSSHURLRequest.parse(url) {
-            case .success(.some), .failure:
+            case .ssh:
                 nextCounts.ssh += 1
-            case .success(nil):
-                break
-            }
-            switch CmuxNavigationURLRequest.parse(url) {
-            case .success(.some), .failure:
+            case .navigation:
                 nextCounts.navigation += 1
-            case .success(nil):
-                break
-            }
-            switch CmuxTextURLRequest.parse(url) {
-            case .success(.some), .failure:
+            case .text:
                 nextCounts.text += 1
-            case .success(nil):
+            case nil:
                 break
             }
             return nextCounts
+        }
+    }
+
+    private static func cmuxExternalURLIntent(
+        for url: URL,
+        supportedSchemes: Set<String>
+    ) -> CmuxExternalURLIntent? {
+        guard let scheme = url.scheme?.lowercased() else { return nil }
+        if scheme == "ssh" {
+            return .ssh
+        }
+        guard supportedSchemes.contains(scheme) else { return nil }
+
+        let normalizedHost = url.host?
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .lowercased()
+        let route = normalizedHost.flatMap { $0.isEmpty ? nil : $0 }
+            ?? url.path.split(separator: "/").first.map { String($0).lowercased() }
+        switch route {
+        case "run":
+            return .run
+        case "ssh":
+            return .ssh
+        case "workspace":
+            return .navigation
+        case "prompt", "rule", "rules":
+            return .text
+        default:
+            return nil
         }
     }
 
