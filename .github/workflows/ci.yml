@@ -36,6 +36,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           emit_all_areas() {
@@ -48,8 +49,9 @@ jobs:
           }
 
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            if ! MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")" \
-              || ! git diff --name-only "$MERGE_BASE" "$HEAD_SHA" > /tmp/cmux-ci-changed-files.txt; then
+            # Checkout depth 2 contains the synthetic merge commit and its
+            # base parent, even when base/head histories are shallow boundaries.
+            if ! git diff --name-only "$BASE_SHA" "$MERGE_SHA" > /tmp/cmux-ci-changed-files.txt; then
               echo "Could not compute PR diff; running all CI areas." >&2
               emit_all_areas
               exit 0
