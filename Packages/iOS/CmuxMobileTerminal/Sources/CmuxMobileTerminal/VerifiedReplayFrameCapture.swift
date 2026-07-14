@@ -39,10 +39,18 @@ nonisolated struct VerifiedReplayPresentationFence: Sendable {
     ) -> Bool {
         guard observedFrameReady,
               let acknowledgedIdentity,
-              modelIdentity == acknowledgedIdentity else {
+              let modelIdentity,
+              let presentationIdentity,
+              modelIdentity.id == acknowledgedIdentity.id else {
             return false
         }
-        return presentationIdentity == acknowledgedIdentity
+        // The token identifies the exact completed Metal command and its
+        // assigned IOSurface allocation. IOSurface's seed is a mutable content
+        // version and can advance while Core Animation adopts that allocation,
+        // so comparing the later seed to the callback-time seed deadlocks a
+        // correctly presented frame. Ordinary rendering remains suppressed
+        // for the lifetime of this fence, so no later command can reuse it.
+        return presentationIdentity == modelIdentity
     }
 }
 

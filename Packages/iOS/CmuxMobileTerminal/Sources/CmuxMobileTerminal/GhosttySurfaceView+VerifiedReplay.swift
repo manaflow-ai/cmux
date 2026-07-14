@@ -176,6 +176,7 @@ extension GhosttySurfaceView {
     ) async -> VerifiedReplayPresentedSubmission? {
         guard let surface,
               !isDismantled,
+              verifiedReplayRenderSuppressed,
               !renderPipelineRecoveryPaused,
               !isRenderingSuspendedForVerifiedReplay else {
             return nil
