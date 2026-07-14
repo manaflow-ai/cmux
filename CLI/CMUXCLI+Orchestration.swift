@@ -107,13 +107,13 @@ extension CMUXCLI {
         if jsonOutput || hasFlag(commandArgs, name: "--json") {
             print(jsonString([
                 "valid": report.isValid,
-                "name": report.manifest?.name as Any,
-                "findings": report.findings.map { finding in
+                "name": report.manifest?.name ?? NSNull(),
+                "findings": report.findings.map { finding -> [String: Any] in
                     [
                         "severity": finding.severity.rawValue,
                         "code": finding.code,
                         "message": finding.message,
-                        "path": finding.path as Any,
+                        "path": finding.path ?? NSNull(),
                     ]
                 },
             ]))
@@ -346,7 +346,7 @@ extension CMUXCLI {
             }
         }
         if !values.isEmpty {
-            _ = try? OrchestrationStore().setResolvedParameters(name: name, values: values)
+            _ = try? store.setResolvedParameters(name: name, values: values)
         }
 
         guard interviewUnanswered else { return }
@@ -404,14 +404,14 @@ extension CMUXCLI {
             "name": manifest.name,
             "version": manifest.version,
             "description": manifest.description,
-            "author": manifest.author as Any,
+            "author": manifest.author ?? NSNull(),
             "substrate": manifest.substrate.kind.rawValue,
             "scripts": manifest.substrate.scriptPaths,
             "agents": manifest.agents.map { ["id": $0.id, "command": $0.command] },
             "source": record.source.displayName,
             "trust_confirmed": record.trustConfirmedAt != nil,
             "template_directory": installation.templateDirectory,
-            "parameters": manifest.parameters.map { parameter in
+            "parameters": manifest.parameters.map { parameter -> [String: Any] in
                 [
                     "key": parameter.key,
                     "prompt": parameter.prompt,

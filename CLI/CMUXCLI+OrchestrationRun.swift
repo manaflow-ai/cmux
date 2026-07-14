@@ -116,7 +116,8 @@ extension CMUXCLI {
         }
         let group = runPayload["group"] as? String ?? ""
         let workspaces = runPayload["workspaces"] as? [[String: Any]] ?? []
-        print("Started run \((runPayload["run_id"] as? String)?.prefix(6) ?? "") — \(workspaces.count) workspace(s) provisioning in group \"\(group)\"")
+        let runID = ((runPayload["run_id"] as? String) ?? "").prefix(6)
+        print("Started run \(runID) — \(workspaces.count) workspace(s) provisioning in group \"\(group)\"")
         for note in runPayload["notes"] as? [String] ?? [] {
             print("note: \(note)")
         }
