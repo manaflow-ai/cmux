@@ -111,6 +111,7 @@ extension CMUXCLI {
             surfaceId: context.surfaceId
         )
         try writeDiffViewerBranchSession(session, rootDirectory: target.directory)
+        let lastTurnInput = try? readGitDiffInput(source: .lastTurn, context: context)
 
         func sessionSource(_ source: DiffSource, repo: String) -> [String: Any]? {
             switch source {
@@ -126,7 +127,7 @@ extension CMUXCLI {
                 }
                 return payload
             case .lastTurn:
-                guard selectedSource == .lastTurn else { return nil }
+                guard lastTurnInput != nil else { return nil }
                 return [
                     "kind": "patch",
                     "path": "/\(diffViewerPatchFileURL(for: fileURL).lastPathComponent)",
@@ -241,6 +242,13 @@ extension CMUXCLI {
                 sharedPayload: sharedPayload,
                 runtime: target.runtime
             )
+            if let lastTurnInput {
+                try lastTurnInput.patch.write(
+                    to: diffViewerPatchFileURL(for: fileURL),
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
         }
 
         var pageURLs = [fileURL]

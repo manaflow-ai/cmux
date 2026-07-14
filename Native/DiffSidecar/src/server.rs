@@ -775,17 +775,36 @@ async fn append_manifest_file(
     token: String,
     file: AllowedFile,
 ) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || {
+    let cleanup_root = root.clone();
+    let replaced = tokio::task::spawn_blocking(move || {
         mutate_manifest(&root, &token, |manifest| {
-            manifest
-                .files
-                .retain(|entry| entry.request_path != file.request_path);
+            let mut replaced = Vec::new();
+            manifest.files.retain(|entry| {
+                let replace = entry.request_path != file.request_path
+                    && session_patch_request_path(&entry.request_path);
+                if replace {
+                    replaced.push(entry.request_path.clone());
+                }
+                !replace && entry.request_path != file.request_path
+            });
             manifest.files.push(file);
-            Ok(())
+            Ok(replaced)
         })
     })
     .await
-    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())??;
+    for request_path in replaced {
+        let _ =
+            tokio::fs::remove_file(cleanup_root.join(request_path.trim_start_matches('/'))).await;
+    }
+    Ok(())
+}
+
+fn session_patch_request_path(request_path: &str) -> bool {
+    request_path
+        .strip_prefix("/diff-session-")
+        .and_then(|value| value.strip_suffix(".patch"))
+        .is_some_and(|value| uuid::Uuid::parse_str(value).is_ok())
 }
 
 async fn close_session(state: &AppState, params: &SessionRequest) -> bool {

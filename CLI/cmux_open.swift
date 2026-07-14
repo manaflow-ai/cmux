@@ -1564,7 +1564,7 @@ extension CMUXCLI {
         )
     }
 
-    private func readGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
+    func readGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
         let repoRoot = try gitRepoRootForDiff(context)
         let patch: String
         let sourceLabel: String
