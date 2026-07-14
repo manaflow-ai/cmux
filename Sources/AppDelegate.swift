@@ -1034,18 +1034,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
 
-    /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
-    /// Reset to `.zero` so the first window seeds the point from its own position.
+    /// Tracks the new-window cascade point, initially `.zero` so the first window seeds it from its own position.
     private var lastCascadePoint = NSPoint.zero
     private(set) var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     var isApplyingSessionRestore = false
-    /// Durable navigation links that arrived before startup restore registered
-    /// their target workspaces.
+    /// Durable navigation links received before startup restore registers their workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
-    /// At most one command link may wait for startup restoration. Additional
-    /// requests are dropped so an untrusted source cannot queue approval dialogs.
+    /// Queues at most one command link during startup so untrusted sources cannot queue approval dialogs.
     var pendingStartupRunURLRequest: CmuxRunURLRequest?
     var isHandlingCmuxRunURLRequest = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
@@ -1056,8 +1053,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
     )
-    /// Session snapshot persistence (CmuxSession); composition-root owned.
-    /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
+    /// Composition-root snapshot persistence, nonisolated for writes on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
         schemaVersion: SessionSnapshotSchema.currentVersion,
         bundleIdentifier: Bundle.main.bundleIdentifier
