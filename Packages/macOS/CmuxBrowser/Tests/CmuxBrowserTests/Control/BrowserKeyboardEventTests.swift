@@ -30,8 +30,12 @@ struct BrowserKeyboardEventTests {
             ("ArrowLeft", "ArrowLeft", "ArrowLeft", 37, 0),
             ("KeyA", "a", "KeyA", 65, 0),
             ("Digit1", "1", "Digit1", 49, 0),
-            ("ShiftLeft", "Shift", "ShiftLeft", 160, 1),
-            ("Control", "Control", "ControlLeft", 162, 1),
+            ("ShiftLeft", "Shift", "ShiftLeft", 16, 1),
+            ("ShiftRight", "Shift", "ShiftRight", 16, 2),
+            ("Control", "Control", "ControlLeft", 17, 1),
+            ("ControlRight", "Control", "ControlRight", 17, 2),
+            ("AltLeft", "Alt", "AltLeft", 18, 1),
+            ("AltRight", "Alt", "AltRight", 18, 2),
             ("NumpadEnter", "Enter", "NumpadEnter", 13, 3),
         ]
 
