@@ -1,4 +1,7 @@
 extension MobileShellComposite {
+    static let chatArtifactFoldersCapability = "chat.artifact.folders.v1"
+    static let terminalArtifactListCapability = "terminal.artifact.list.v1"
+
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.

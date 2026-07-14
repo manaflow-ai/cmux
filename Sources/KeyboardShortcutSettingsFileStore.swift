@@ -634,42 +634,6 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func parseMarkdownSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        // Accept numeric doubles (e.g. 15 or 15.0) and round to integer points,
-        // matching the integer `markdown.fontSize` catalog/UI representation.
-        if let value = jsonDouble(section["fontSize"]) {
-            if value >= MarkdownFontSizeSettings.minimumPointSize,
-               value <= MarkdownFontSizeSettings.maximumPointSize {
-                snapshot.managedUserDefaults[MarkdownFontSizeSettings.key] = .int(Int(value.rounded()))
-            } else {
-                logInvalid("markdown.fontSize", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("fontSize") {
-            logInvalid("markdown.fontSize", sourcePath: sourcePath)
-        }
-
-        if let value = jsonString(section["fontFamily"]) {
-            snapshot.managedUserDefaults[MarkdownFontFamily.key] = .string(MarkdownFontFamily.normalized(value))
-        } else if section.keys.contains("fontFamily") {
-            logInvalid("markdown.fontFamily", sourcePath: sourcePath)
-        }
-
-        if let value = jsonDouble(section["maxWidth"]) {
-            if value >= MarkdownMaxWidthSettings.minimumCSSPixels,
-               value <= MarkdownMaxWidthSettings.maximumCSSPixels {
-                snapshot.managedUserDefaults[MarkdownMaxWidthSettings.key] = .int(Int(value.rounded()))
-            } else {
-                logInvalid("markdown.maxWidth", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("maxWidth") {
-            logInvalid("markdown.maxWidth", sourcePath: sourcePath)
-        }
-    }
-
     private func parseSidebarSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -939,21 +903,6 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
         }
         applyNormalizedStringArraySettings(BrowserSettingsFileMapping.stringArraySettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
-    }
-
-    private func parseMobileSection(
-        _ section: [String: Any],
-        sourcePath: String,
-        snapshot: inout ResolvedSettingsSnapshot
-    ) {
-        guard section.keys.contains("artifactFolderAccess") else { return }
-        guard let raw = jsonString(section["artifactFolderAccess"]),
-              let value = MobileArtifactFolderAccess(rawValue: raw) else {
-            logInvalid("mobile.artifactFolderAccess", sourcePath: sourcePath)
-            return
-        }
-        let key = SettingCatalog().mobile.artifactFolderAccess
-        snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
     }
 
     private func parseWorkspaceGroupsSection(
@@ -1795,7 +1744,7 @@ final class CmuxSettingsFileStore {
         return number.intValue
     }
 
-    private func jsonDouble(_ rawValue: Any?) -> Double? {
+    func jsonDouble(_ rawValue: Any?) -> Double? {
         guard let number = rawValue as? NSNumber else { return nil }
         guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
         return number.doubleValue
