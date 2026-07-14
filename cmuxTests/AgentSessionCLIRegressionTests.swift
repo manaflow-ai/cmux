@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -8,6 +9,77 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func olderCompatibilityWriterCannotHideCurrentCodexRunFromAgentsTree() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-version-clobber-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let sessionID = "current-codex"
+        let richRecord: [String: Any] = [
+            "sessionId": sessionID,
+            "workspaceId": "workspace-a",
+            "surfaceId": "surface-a",
+            "runId": "current-run",
+            "activeRunId": "current-run",
+            "restoreAuthority": true,
+            "foregroundState": "working",
+            "startedAt": 100.0,
+            "updatedAt": 200.0,
+            "runs": [[
+                "runId": "current-run",
+                "restoreAuthority": true,
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]],
+        ]
+        let registry = CmuxAgentSessionRegistry(
+            url: root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        )
+        try registry.apply(provider: "codex", records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: 200,
+                json: try JSONSerialization.data(withJSONObject: richRecord, options: [.sortedKeys])
+            ),
+        ])
+
+        let oldWriterStore: [String: Any] = [
+            "version": 2,
+            "sessions": [
+                sessionID: [
+                    "sessionId": sessionID,
+                    "workspaceId": "workspace-a",
+                    "surfaceId": "surface-a",
+                    "startedAt": 100.0,
+                    "updatedAt": 300.0,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: oldWriterStore, options: [.sortedKeys])
+            .write(to: stateURL, options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let output = try #require(JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any])
+        let nodes = try #require(output["nodes"] as? [[String: Any]])
+        #expect(nodes.contains {
+            $0["session_id"] as? String == sessionID && $0["run_id"] as? String == "current-run"
+        })
+    }
+
     @Test func kimiHookProviderHasLifecycleRestoreAndHelpParity() throws {
         #expect(AgentHibernationLifecycleStatusKeys.isAllowed("kimi"))
 
