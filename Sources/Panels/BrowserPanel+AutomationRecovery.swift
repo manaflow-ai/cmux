@@ -9,22 +9,34 @@ extension BrowserPanel {
     ) async -> BrowserAutomationRecoveryOutcome {
         guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
 
+        let javaScriptProbe: BrowserAutomationWatchdog.Probe = { [weak self] finish in
+            guard let self,
+                  ObjectIdentifier(webView) == expectedWebViewIdentifier else {
+                finish()
+                return
+            }
+            webView.evaluateJavaScript("void 0") { _, _ in finish() }
+        }
+        let snapshotProbe: BrowserAutomationWatchdog.Probe = { [weak self] finish in
+            guard let self,
+                  ObjectIdentifier(webView) == expectedWebViewIdentifier else {
+                finish()
+                return
+            }
+            let configuration = WKSnapshotConfiguration()
+            configuration.rect = NSRect(x: 0, y: 0, width: 1, height: 1)
+            webView.takeSnapshot(with: configuration) { _, _ in finish() }
+        }
+        let probes: [BrowserAutomationWatchdog.Probe]
+        switch channel {
+        case .javaScript:
+            probes = [javaScriptProbe]
+        case .screenshot:
+            probes = [javaScriptProbe, snapshotProbe]
+        }
+
         let outcome = await automationWatchdog.recoverIfUnresponsive(
-            probe: { [weak self] finish in
-                guard let self,
-                      ObjectIdentifier(webView) == expectedWebViewIdentifier else {
-                    finish()
-                    return
-                }
-                switch channel {
-                case .javaScript:
-                    webView.evaluateJavaScript("void 0") { _, _ in finish() }
-                case .snapshot:
-                    let configuration = WKSnapshotConfiguration()
-                    configuration.rect = NSRect(x: 0, y: 0, width: 1, height: 1)
-                    webView.takeSnapshot(with: configuration) { _, _ in finish() }
-                }
-            },
+            probes: probes,
             recover: { [weak self] in
                 self?.replaceWebViewAfterAutomationTimeout(
                     expectedWebViewIdentifier: expectedWebViewIdentifier,

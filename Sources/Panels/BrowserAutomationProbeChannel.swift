@@ -1,11 +1,11 @@
 enum BrowserAutomationProbeChannel: Sendable {
     case javaScript
-    case snapshot
+    case screenshot
 
     var debugName: String {
         switch self {
         case .javaScript: "javascript"
-        case .snapshot: "snapshot"
+        case .screenshot: "screenshot"
         }
     }
 }

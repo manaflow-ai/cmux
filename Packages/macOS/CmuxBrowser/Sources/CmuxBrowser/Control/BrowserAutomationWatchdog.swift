@@ -4,7 +4,8 @@ import Foundation
 ///
 /// The watchdog owns no WebKit state. Its caller supplies the callback-based liveness probe and the
 /// synchronous recovery mutation, keeping the package testable without launching AppKit or WebKit.
-/// A completed probe always wins over recovery, while a missing callback reaches the injected deadline.
+/// Every supplied probe must complete before the pipeline is considered responsive; one missing callback
+/// reaches the injected deadline even when another WebKit callback channel remains alive.
 @MainActor
 public final class BrowserAutomationWatchdog {
     /// Starts a liveness probe and invokes its completion when the browser automation pipeline responds.
@@ -39,30 +40,40 @@ public final class BrowserAutomationWatchdog {
         self.sleep = sleep
     }
 
-    /// Probes the browser automation pipeline once and recovers only when that callback misses its deadline.
+    /// Probes every relevant browser automation callback channel and recovers when any callback misses its deadline.
     /// - Parameters:
-    ///   - probe: Starts a cheap, side-effect-free liveness operation.
+    ///   - probes: Cheap, side-effect-free liveness operations. An empty collection is treated as responsive.
     ///   - recover: Replaces the WebView if it is still the instance observed by the failed operation.
     /// - Returns: The liveness or recovery outcome.
     public func recoverIfUnresponsive(
-        probe: Probe,
+        probes: [Probe],
         recover: Recovery
     ) async -> BrowserAutomationRecoveryOutcome {
         guard !Task.isCancelled else { return .cancelled }
+        guard !probes.isEmpty else { return .responsive }
 
         let (signals, continuation) = AsyncStream.makeStream(
-            of: ProbeSignal.self,
-            bufferingPolicy: .bufferingOldest(1)
+            of: Int.self,
+            bufferingPolicy: .bufferingOldest(probes.count)
         )
-        probe {
-            continuation.yield(.responsive)
-            continuation.finish()
+        for (index, probe) in probes.enumerated() {
+            probe {
+                continuation.yield(index)
+            }
         }
 
+        let expectedProbeCount = probes.count
         let signal = await withTaskGroup(of: ProbeSignal.self, returning: ProbeSignal.self) { group in
             group.addTask {
                 var iterator = signals.makeAsyncIterator()
-                return await iterator.next() ?? .cancelled
+                var completedProbeIndexes = Set<Int>()
+                while let index = await iterator.next() {
+                    completedProbeIndexes.insert(index)
+                    if completedProbeIndexes.count == expectedProbeCount {
+                        return .responsive
+                    }
+                }
+                return .cancelled
             }
             group.addTask { [probeTimeout, sleep] in
                 do {

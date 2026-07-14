@@ -7649,7 +7649,7 @@ class TerminalController {
                 originalMessage: BrowserScreenshotError.automationTimedOut.localizedDescription,
                 surfaceId: surfaceId,
                 expectedWebViewIdentifier: expectedWebViewIdentifier,
-                channel: .snapshot
+                channel: .screenshot
             )
             return .err(code: "timeout", message: message, data: nil)
         }
@@ -8643,30 +8643,32 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2BrowserEnsureTelemetryHooks(surfaceId _: UUID, webView: WKWebView) {
+    private nonisolated func v2BrowserEnsureTelemetryHooks(surfaceId: UUID, webView: WKWebView) {
         let source = v2MainSync { BrowserPanel.telemetryHookBootstrapScriptSource }
-        _ = v2RunJavaScript(
+        _ = v2RunBrowserJavaScript(
             webView,
+            surfaceId: surfaceId,
             script: source,
             timeout: 5.0,
-            world: .page
+            useEval: false
         )
     }
 
-    private nonisolated func v2BrowserEnsureDialogHooks(webView: WKWebView) {
+    private nonisolated func v2BrowserEnsureDialogHooks(surfaceId: UUID, webView: WKWebView) {
         let source = v2MainSync { BrowserPanel.dialogTelemetryHookBootstrapScriptSource }
-        _ = v2RunJavaScript(
+        _ = v2RunBrowserJavaScript(
             webView,
+            surfaceId: surfaceId,
             script: source,
             timeout: 5.0,
-            world: .page
+            useEval: false
         )
     }
 
     private nonisolated func v2BrowserDialogRespond(params: [String: Any], accept: Bool) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
             v2BrowserEnsureTelemetryHooks(surfaceId: ctx.surfaceId, webView: ctx.webView)
-            v2BrowserEnsureDialogHooks(webView: ctx.webView)
+            v2BrowserEnsureDialogHooks(surfaceId: ctx.surfaceId, webView: ctx.webView)
             let text = v2String(params, "text") ?? v2String(params, "prompt_text")
             let acceptLiteral = accept ? "true" : "false"
             let textLiteral = text.map(v2JSONLiteral) ?? "null"
@@ -8691,7 +8693,13 @@ class TerminalController {
             })()
             """
 
-            switch v2RunJavaScript(ctx.webView, script: script, timeout: 5.0, world: .page) {
+            switch v2RunBrowserJavaScript(
+                ctx.webView,
+                surfaceId: ctx.surfaceId,
+                script: script,
+                timeout: 5.0,
+                useEval: false
+            ) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -9760,7 +9768,13 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(ctx.webView, script: script, timeout: 5.0, world: .page) {
+            switch v2RunBrowserJavaScript(
+                ctx.webView,
+                surfaceId: ctx.surfaceId,
+                script: script,
+                timeout: 5.0,
+                useEval: false
+            ) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -9794,7 +9808,13 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(ctx.webView, script: script, timeout: 5.0, world: .page) {
+            switch v2RunBrowserJavaScript(
+                ctx.webView,
+                surfaceId: ctx.surfaceId,
+                script: script,
+                timeout: 5.0,
+                useEval: false
+            ) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):

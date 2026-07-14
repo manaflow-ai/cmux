@@ -15,7 +15,7 @@ struct BrowserAutomationWatchdogTests {
         )
 
         let outcome = await watchdog.recoverIfUnresponsive(
-            probe: { finish in finish() },
+            probes: [{ finish in finish() }],
             recover: {
                 recoveryCount += 1
                 return true
@@ -32,7 +32,7 @@ struct BrowserAutomationWatchdogTests {
         let watchdog = BrowserAutomationWatchdog(sleep: { _ in })
 
         let outcome = await watchdog.recoverIfUnresponsive(
-            probe: { _ in },
+            probes: [{ _ in }],
             recover: {
                 recoveryCount += 1
                 return true
@@ -49,7 +49,7 @@ struct BrowserAutomationWatchdogTests {
         let watchdog = BrowserAutomationWatchdog(sleep: { _ in })
 
         let outcome = await watchdog.recoverIfUnresponsive(
-            probe: { _ in },
+            probes: [{ _ in }],
             recover: {
                 recoveryCount += 1
                 return false
@@ -58,5 +58,45 @@ struct BrowserAutomationWatchdogTests {
 
         #expect(outcome == .superseded)
         #expect(recoveryCount == 1)
+    }
+
+    @Test("A responsive snapshot cannot mask a missing JavaScript callback")
+    func oneResponsiveChannelStillRecovers() async {
+        var recoveryCount = 0
+        let watchdog = BrowserAutomationWatchdog(sleep: { _ in })
+
+        let outcome = await watchdog.recoverIfUnresponsive(
+            probes: [
+                { _ in },
+                { finish in finish() },
+            ],
+            recover: {
+                recoveryCount += 1
+                return true
+            }
+        )
+
+        #expect(outcome == .recovered)
+        #expect(recoveryCount == 1)
+    }
+
+    @Test("All browser callback channels must respond before the pipeline is healthy")
+    func allResponsiveChannelsPreserveBrowserProcess() async {
+        var recoveryCount = 0
+        let watchdog = BrowserAutomationWatchdog()
+
+        let outcome = await watchdog.recoverIfUnresponsive(
+            probes: [
+                { finish in finish() },
+                { finish in finish() },
+            ],
+            recover: {
+                recoveryCount += 1
+                return true
+            }
+        )
+
+        #expect(outcome == .responsive)
+        #expect(recoveryCount == 0)
     }
 }
