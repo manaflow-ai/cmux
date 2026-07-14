@@ -5942,14 +5942,8 @@ final class Workspace: Identifiable, ObservableObject {
         return (workspaceId, panelId)
     }
 
-    nonisolated static func sshPTYAttachStartupCommand(
-        sessionID: String,
-        requireExisting: Bool = true
-    ) -> String {
-        SSHPTYAttachStartupCommandBuilder.command(
-            sessionID: sessionID,
-            requireExisting: requireExisting
-        )
+    nonisolated static func sshPTYAttachStartupCommand(sessionID: String, requireExisting: Bool = true) -> String {
+        SSHPTYAttachStartupCommandBuilder.command(sessionID: sessionID, requireExisting: requireExisting)
     }
 
     func remotePTYAttachStartupCommand(
@@ -5959,10 +5953,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let remoteConfiguration,
               remoteConfiguration.preserveAfterTerminalExit,
               let foregroundAuthToken = remoteConfiguration.foregroundAuthToken else {
-            return Self.sshPTYAttachStartupCommand(
-                sessionID: sessionID,
-                requireExisting: requireExisting
-            )
+            return Self.sshPTYAttachStartupCommand(sessionID: sessionID, requireExisting: requireExisting)
         }
         let foregroundAuth = SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
             destination: remoteConfiguration.destination,
