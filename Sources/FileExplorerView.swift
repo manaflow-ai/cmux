@@ -1486,7 +1486,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     func controlTextDidChange(_ notification: Notification) {
         guard notification.object as? NSTextField === searchField else { return }
         if presentation == .unified {
-            coordinator.noteKeyboardFocus(mode: .find, in: window)
+            if coordinator.state.mode != .find { coordinator.noteKeyboardFocus(mode: .find, in: window) }
             isSearchVisible = hasSearchQuery
             updateSearchLayout()
             if !isSearchVisible {
