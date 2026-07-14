@@ -198,6 +198,39 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(!moved.retargetsToLiveSurfaceOwner)
     }
 
+    @Test func sourceConfinedBannerOwnerStaysWithSourceWhenOtherRowsRebind() throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        let sourceConfinedOwner = notification(
+            id: UUID(), tabId: sourceTabId, surfaceId: surfaceId,
+            title: "Source-confined owner", createdAt: Date(timeIntervalSince1970: 20),
+            retargetsToLiveSurfaceOwner: false
+        )
+        let retargetingRow = notification(
+            id: UUID(), tabId: sourceTabId, surfaceId: surfaceId,
+            title: "Retargeting row", createdAt: Date(timeIntervalSince1970: 10)
+        )
+        defer { store.replaceNotificationsForTesting(previousNotifications) }
+
+        store.replaceNotificationsForTesting([sourceConfinedOwner, retargetingRow])
+        store.rebindSurfaceNotifications(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            surfaceId: surfaceId
+        )
+
+        #expect(
+            store.externalBannerOwnerIDForTesting(tabId: sourceTabId, surfaceId: surfaceId)
+                == sourceConfinedOwner.id
+        )
+        #expect(store.externalBannerOwnerIDForTesting(tabId: destinationTabId, surfaceId: surfaceId) == nil)
+        #expect(store.notifications.first(where: { $0.id == sourceConfinedOwner.id })?.tabId == sourceTabId)
+        #expect(store.notifications.first(where: { $0.id == retargetingRow.id })?.tabId == destinationTabId)
+    }
+
     @Test func restoredNewerRowDoesNotOwnLiveBannerRowActions() {
         let store = TerminalNotificationStore.shared
         let previousNotifications = store.notifications
