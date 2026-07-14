@@ -4908,7 +4908,7 @@ class TabManager: ObservableObject {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
         if selectedTabId != tabId {
-            selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
+            selectedTabId = tabId
         }
 
         if let existingBrowserPanel = workspace.focusBrowserPanel(matchingSidebarLinkURL: url) {
