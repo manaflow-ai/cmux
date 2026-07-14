@@ -69,6 +69,7 @@ def run_wrapper(
     override_driver: bool = False,
     untrusted_override: bool = False,
     group_writable_override: bool = False,
+    group_writable_ancestor: bool = False,
     disabled: bool = False,
     hooks_inject_fails: bool = False,
     hooks_disabled: bool = False,
@@ -153,6 +154,16 @@ exit 1
                 make_executable(group_writable_driver, "#!/usr/bin/env bash\nexit 0\n")
                 group_writable_driver.chmod(0o775)
                 env["CMUX_CUA_DRIVER"] = str(group_writable_driver)
+            if group_writable_ancestor:
+                # Group-writable (but not world-writable) parent dir with a
+                # correctly-permissioned driver file: rejection can only come
+                # from the ancestor group-write check.
+                ancestor_dir = tmp / "group-writable-dir"
+                ancestor_dir.mkdir()
+                ancestor_dir.chmod(0o775)
+                ancestor_driver = ancestor_dir / "cua-driver"
+                make_executable(ancestor_driver, "#!/usr/bin/env bash\nexit 0\n")
+                env["CMUX_CUA_DRIVER"] = str(ancestor_driver)
             if disabled:
                 env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
             if hooks_disabled:
@@ -319,6 +330,19 @@ def test_codex_gets_cua_driver_when_socket_dead(failures: list[str]) -> None:
     expect_scrubbed_mcp_env(args, failures, "dead socket")
 
 
+def test_codex_rejects_cua_driver_override_under_group_writable_ancestor(failures: list[str]) -> None:
+    # Write permission on a parent directory allows renaming the driver away
+    # and dropping a replacement regardless of the file's own permissions, so
+    # group-writable ancestors are as disqualifying as world-writable ones.
+    code, args, stderr, _ = run_wrapper(
+        ["hello"],
+        bundled_driver=False,
+        group_writable_ancestor=True,
+    )
+    expect(code == 0, f"group-writable ancestor wrapper exited {code}: {stderr}", failures)
+    expect(command_config(args) is None, f"expected group-writable ancestor rejection, got {args}", failures)
+
+
 def test_codex_rejects_group_writable_cua_driver_override(failures: list[str]) -> None:
     # A group-writable override binary could be swapped by another local user
     # and then run under cmux's TCC identity; the wrapper must reject it.
@@ -371,6 +395,7 @@ def main() -> int:
     test_codex_fork_gets_hooks_and_cua_driver(failures)
     test_codex_gets_cua_driver_when_hooks_disabled(failures)
     test_codex_gets_cua_driver_when_socket_dead(failures)
+    test_codex_rejects_cua_driver_override_under_group_writable_ancestor(failures)
     test_codex_rejects_group_writable_cua_driver_override(failures)
     test_codex_gets_cua_driver_when_hook_injection_fails(failures)
     test_codex_skips_for_strict_mcp_config(failures)

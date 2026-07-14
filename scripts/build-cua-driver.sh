@@ -103,7 +103,17 @@ acquire_src_lock() {
     local owner
     owner="$(cat "$lock_dir/pid" 2>/dev/null || true)"
     if [[ -n "$owner" ]] && ! kill -0 "$owner" 2>/dev/null; then
-      rm -rf "$lock_dir"
+      # Reclaim a dead owner's lock ATOMICALLY: rename first, then delete.
+      # Only one waiter can win the rename, so a second waiter acting on the
+      # same stale observation cannot delete the lock a new owner has since
+      # created (an rm -rf here raced exactly that way). A microscopic
+      # window remains (dead-observe -> full steal+reacquire by another
+      # waiter -> our rename), but the fallout is bounded: both builds
+      # materialize the same pinned tree, so the worst case is one build
+      # failing loudly on git index contention.
+      if /bin/mv "$lock_dir" "$lock_dir.stale.$$" 2>/dev/null; then
+        rm -rf "$lock_dir.stale.$$"
+      fi
       continue
     fi
     if (( waited >= 300 )); then
@@ -125,7 +135,10 @@ release_src_lock() {
 
 if [[ -n "${CMUX_CUA_SRC:-}" ]]; then
   SRC_ROOT="$(cd "$CMUX_CUA_SRC" && pwd)"
-  if [[ ! -d "$SRC_ROOT/.git" ]]; then
+  # rev-parse instead of testing .git's file type: linked git worktrees store
+  # .git as a FILE with a gitdir: pointer, and they are a normal way to hold a
+  # local cmux-cua checkout.
+  if ! git -C "$SRC_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "error: CMUX_CUA_SRC is not a git checkout: $SRC_ROOT" >&2
     exit 1
   fi
@@ -149,14 +162,16 @@ else
   # already-checked-out commit silently keeps modified tracked files, so a
   # tampered cache would still pass the rev-parse check below while its edits
   # get compiled, signed, and bundled. `--force` restores tracked files to the
-  # pinned contents and `clean -fdx` drops untracked/ignored files.
+  # pinned contents and `clean -fdx` drops untracked/ignored files, keeping
+  # only cmux's own metadata: the usage stamp and the per-revision Cargo
+  # target dir (build OUTPUT, never compiled source).
   git -C "$SRC_ROOT" checkout --quiet --force --detach "$CMUX_CUA_PINNED_SHA"
-  git -C "$SRC_ROOT" clean -qfdx
+  git -C "$SRC_ROOT" clean -qfdx -e .cmux-last-used -e .cmux-cargo-target
   # Bound the cache: each pin bump creates a new src-<sha> dir, so prune
-  # sibling revisions that have been idle for 7+ days. The stamp is refreshed
-  # on every build of a revision (clean -fdx removes it; we re-touch it), and
-  # a concurrent build of another pin is protected twice over: its fresh
-  # stamp fails the idle check, and pruning requires acquiring that
+  # sibling revisions (sources plus their embedded Cargo targets) that have
+  # been idle for 7+ days. The stamp is refreshed on every build of a
+  # revision, and a concurrent build of another pin is protected twice over:
+  # its fresh stamp fails the idle check, and pruning requires acquiring that
   # revision's own lock.
   touch "$SRC_ROOT/.cmux-last-used"
   for old_src in "$CACHE_DIR"/src-*; do
@@ -216,7 +231,14 @@ for arch in "${ARCHS[@]}"; do
   esac
 
   ensure_rust_target "$target"
-  target_dir="$CACHE_DIR/target-$target"
+  # The Cargo target dir lives INSIDE the per-revision source dir (excluded
+  # from `git clean`), never in a slot shared across revisions or source
+  # paths: `$target/release/cua-driver` is a single uplift destination, and
+  # with a shared dir a "fresh" build of pin A can leave pin B's (or a dirty
+  # CMUX_CUA_SRC checkout's) binary in place, defeating the SHA gate. Keying
+  # by source dir also lets the idle-revision pruning above bound target
+  # growth. Concurrent builds of one revision serialize on Cargo's own lock.
+  target_dir="$SRC_ROOT/.cmux-cargo-target"
   CARGO_TARGET_DIR="$target_dir" \
     cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cua-driver --release --target "$target"
   arch_output="$TMPDIR_BUILD/cmux-cua-driver-$arch"

@@ -911,6 +911,7 @@ def computer_use_sandbox(
     bundled_driver: bool = True,
     override_driver: bool = False,
     group_writable_override: bool = False,
+    group_writable_ancestor: bool = False,
     disabled: bool = False,
     path_helper_trap: bool = False,
 ):
@@ -931,6 +932,16 @@ def computer_use_sandbox(
             make_executable(override, "#!/usr/bin/env bash\nexit 0\n")
             override.chmod(0o775)
             env["CMUX_CUA_DRIVER"] = str(override)
+        if group_writable_ancestor:
+            # Group-writable (not world-writable) parent with a
+            # correctly-permissioned driver: rejection can only come from the
+            # ancestor group-write check.
+            ancestor_dir = tmp / "group-writable-dir"
+            ancestor_dir.mkdir(parents=True, exist_ok=True)
+            ancestor_dir.chmod(0o775)
+            ancestor = ancestor_dir / "cua-driver"
+            make_executable(ancestor, "#!/usr/bin/env bash\nexit 0\n")
+            env["CMUX_CUA_DRIVER"] = str(ancestor)
         if path_helper_trap:
             helper_dir = tmp / "path-helper-trap"
             helper_dir.mkdir(parents=True, exist_ok=True)
@@ -1145,6 +1156,22 @@ def test_stale_socket_still_attaches_cua_driver(failures: list[str]) -> None:
     expect("hello" in real_argv, f"computer use stale-socket: prompt must survive, got {real_argv}", failures)
     config = extract_injected_mcp_config(real_argv)
     expect_cua_driver_config(config, failures, "computer use stale-socket", "cmux-cua-driver")
+
+
+def test_computer_use_rejects_group_writable_ancestor(failures: list[str]) -> None:
+    # Write permission on a parent directory allows renaming the driver away
+    # and dropping a replacement regardless of the file's own permissions.
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(bundled_driver=False, group_writable_ancestor=True),
+    )
+    expect(code == 0, f"computer use group-writable ancestor: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use group-writable ancestor: expected rejection, got {real_argv}",
+        failures,
+    )
 
 
 def test_computer_use_rejects_group_writable_override(failures: list[str]) -> None:
@@ -2176,6 +2203,7 @@ def main() -> int:
     test_computer_use_driver_skipped_when_no_driver_available(failures)
     test_hooks_disabled_still_attaches_cua_driver(failures)
     test_stale_socket_still_attaches_cua_driver(failures)
+    test_computer_use_rejects_group_writable_ancestor(failures)
     test_computer_use_rejects_group_writable_override(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
     test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures)

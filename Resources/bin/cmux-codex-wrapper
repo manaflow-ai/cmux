@@ -115,7 +115,12 @@ cmux_computer_use_json_escape() {
     printf '%s' "$value"
 }
 
-cmux_computer_use_world_writable_dir() {
+cmux_computer_use_group_or_world_writable_dir() {
+    # Group write is as disqualifying as world write on the OVERRIDE path:
+    # write permission on a directory allows renaming the driver away and
+    # dropping a replacement, regardless of the file's own permissions. The
+    # bundled path never runs this check, so macOS's root:admin 775 dirs
+    # (/Applications) do not affect normal installs.
     local dir="$1"
     local stat_bin=/usr/bin/stat
     [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
@@ -123,8 +128,9 @@ cmux_computer_use_world_writable_dir() {
     local mode
     mode="$("$stat_bin" -f %Lp "$dir" 2>/dev/null || "$stat_bin" -c %a "$dir" 2>/dev/null)" || return 1
     [[ "$mode" =~ ^[0-9]+$ ]] || return 1
+    local group=$(( (mode / 10) % 10 ))
     local other=$((mode % 10))
-    (( (other & 2) != 0 ))
+    (( (group & 2) != 0 || (other & 2) != 0 ))
 }
 
 cmux_computer_use_dir_owner() {
@@ -148,7 +154,7 @@ cmux_computer_use_trusted_path_ancestors() {
         local owner
         owner="$(cmux_computer_use_dir_owner "$dir")" || return 1
         [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
-        cmux_computer_use_world_writable_dir "$dir" && return 1
+        cmux_computer_use_group_or_world_writable_dir "$dir" && return 1
         [[ "$dir" == "/" ]] && break
         dir="${dir%/*}"
         [[ -n "$dir" ]] || dir="/"
@@ -159,9 +165,7 @@ cmux_computer_use_trusted_executable_file() {
     # The override binary itself must be a regular file (canonicalization has
     # already resolved symlinks), owned by root or the current user, and not
     # group- or other-writable: with group/other write, another local user
-    # could swap the binary that runs under cmux's TCC identity. Ancestor
-    # GROUP-writability is deliberately tolerated because macOS ships
-    # root:admin 775 directories (e.g. /Applications) on every install.
+    # could swap the binary that runs under cmux's TCC identity.
     local path="$1"
     local stat_bin=/usr/bin/stat
     [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
