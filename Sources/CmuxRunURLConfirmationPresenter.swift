@@ -253,6 +253,11 @@ final class CmuxRunURLConfirmationPresenter {
         switch error {
         case .busy:
             return String(localized: "dialog.runURL.error.busy", defaultValue: "Another external command request is already awaiting approval.")
+        case .workingDirectoryContainsSurroundingWhitespace:
+            return String(
+                localized: "dialog.runURL.error.directoryWhitespace",
+                defaultValue: "The working directory cannot start or end with whitespace."
+            )
         case .workingDirectoryMustBeAbsolute:
             return String(localized: "dialog.runURL.error.absoluteDirectory", defaultValue: "The working directory must be an absolute path or start with ~.")
         case .workingDirectoryNotFound:

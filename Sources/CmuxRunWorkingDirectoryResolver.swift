@@ -8,6 +8,9 @@ struct CmuxRunWorkingDirectoryResolver {
     }
 
     func resolve(_ requestedPath: String) -> Result<String, CmuxRunURLExecutionError> {
+        guard requestedPath == requestedPath.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return .failure(.workingDirectoryContainsSurroundingWhitespace)
+        }
         let expanded = (requestedPath as NSString).expandingTildeInPath
         guard (expanded as NSString).isAbsolutePath else {
             return .failure(.workingDirectoryMustBeAbsolute)

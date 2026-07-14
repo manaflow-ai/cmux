@@ -41,6 +41,7 @@ enum CmuxRunShellCommandBuilder {
 
 enum CmuxRunURLExecutionError: Error, Equatable {
     case busy
+    case workingDirectoryContainsSurroundingWhitespace
     case workingDirectoryMustBeAbsolute
     case workingDirectoryNotFound
     case targetNotFound

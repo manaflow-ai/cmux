@@ -24,10 +24,13 @@ final class CmuxRunURLCoordinator {
         if appDelegate.shouldDeferNavigationURLRequestsForStartupRestore {
             if appDelegate.pendingStartupRunURLRequest == nil {
                 appDelegate.pendingStartupRunURLRequest = request
+            } else {
+                confirmationPresenter.showFailure(.busy)
             }
             return true
         }
         guard !appDelegate.isHandlingCmuxRunURLRequest else {
+            confirmationPresenter.showFailure(.busy)
             return true
         }
 

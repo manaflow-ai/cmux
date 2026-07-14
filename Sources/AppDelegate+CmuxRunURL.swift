@@ -5,12 +5,16 @@ extension AppDelegate {
     @discardableResult
     func handleCmuxExternalURLs(from urls: [URL]) -> Bool {
         let intentCounts = Self.cmuxExternalURLIntentCounts(in: urls)
-        guard intentCounts.total > 0 else { return false }
-        if intentCounts.run > 0,
-           isHandlingCmuxRunURLRequest || pendingStartupRunURLRequest != nil {
-            return true
-        }
-        guard intentCounts.total == 1 else {
+        let admission = Self.cmuxExternalURLAdmission(
+            intentCounts: intentCounts,
+            isRunBusy: isHandlingCmuxRunURLRequest
+                || pendingStartupRunURLRequest != nil
+                || NSApp.modalWindow != nil
+        )
+        switch admission {
+        case .none:
+            return false
+        case .multipleLinks:
             if intentCounts.run > 0 {
                 CmuxRunURLConfirmationPresenter().showParseFailure(.multipleLinks)
             } else if intentCounts.ssh > 1 && intentCounts.navigation == 0 && intentCounts.text == 0 {
@@ -19,6 +23,11 @@ extension AppDelegate {
                 showCmuxTextURLParseError(.multipleLinks)
             }
             return true
+        case .busy:
+            CmuxRunURLConfirmationPresenter().showFailure(.busy)
+            return true
+        case .route:
+            break
         }
 
         if handleCmuxRunURLs(from: urls) {
@@ -45,6 +54,13 @@ extension AppDelegate {
         var total: Int {
             run + ssh + navigation + text
         }
+    }
+
+    enum CmuxExternalURLAdmission: Equatable {
+        case none
+        case multipleLinks
+        case busy
+        case route
     }
 
     private enum CmuxExternalURLIntent {
@@ -74,6 +90,18 @@ extension AppDelegate {
             }
             return nextCounts
         }
+    }
+
+    static func cmuxExternalURLAdmission(
+        intentCounts: CmuxExternalURLIntentCounts,
+        isRunBusy: Bool
+    ) -> CmuxExternalURLAdmission {
+        guard intentCounts.total > 0 else { return .none }
+        guard intentCounts.total == 1 else { return .multipleLinks }
+        if intentCounts.run == 1, isRunBusy {
+            return .busy
+        }
+        return .route
     }
 
     private static func cmuxExternalURLIntent(
@@ -125,6 +153,7 @@ extension AppDelegate {
         guard !isHandlingCmuxRunURLRequest,
               pendingStartupRunURLRequest == nil,
               NSApp.modalWindow == nil else {
+            CmuxRunURLConfirmationPresenter().showFailure(.busy)
             return true
         }
         guard intentCount == 1 else {
