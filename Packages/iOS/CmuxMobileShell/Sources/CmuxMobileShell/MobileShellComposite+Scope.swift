@@ -18,8 +18,7 @@ extension MobileShellComposite {
     }
 
     func rotateRPCAuthScope() {
-        manualHostTrustExpirationTask?.cancel()
-        manualHostTrustExpirationTask = nil
+        cancelManualHostTrustExpiration()
         let invalidatedScopes = [rpcAuthScope, manualHostRPCAuthScope]
         for scope in invalidatedScopes { scope.revoke() }
         rpcAuthScope = MobileRPCAuthScope()
@@ -36,8 +35,7 @@ extension MobileShellComposite {
 
     /// Invalidates only plaintext manual-host credentials after a network-path change.
     func rotateManualHostRPCAuthScope() {
-        manualHostTrustExpirationTask?.cancel()
-        manualHostTrustExpirationTask = nil
+        cancelManualHostTrustExpiration()
         let invalidatedScope = manualHostRPCAuthScope
         invalidatedScope.revoke()
         manualHostRPCAuthScope = MobileRPCAuthScope()

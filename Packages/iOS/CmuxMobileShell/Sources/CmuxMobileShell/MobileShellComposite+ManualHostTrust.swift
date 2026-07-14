@@ -213,59 +213,55 @@ extension MobileShellComposite {
         return await manualHostTrustStore.isTrusted(scope)
     }
 
-    func scheduleManualHostTrustExpirationForActiveRoute() {
+    func cancelManualHostTrustExpiration() {
         manualHostTrustExpirationTask?.cancel()
         manualHostTrustExpirationTask = nil
+        manualHostTrustExpirationOwner = nil
+    }
+
+    func scheduleManualHostTrustExpirationForActiveRoute() {
         guard let route = activeRoute,
               let client = remoteClient,
               connectionState == .connected,
-              let scope = manualHostTrustScope(for: route) else { return }
-        let authScope = manualHostRPCAuthScope
-        let generation = connectionGeneration
+              let scope = manualHostTrustScope(for: route) else {
+            cancelManualHostTrustExpiration()
+            return
+        }
+        let owner = ManualHostTrustExpirationOwner(
+            scope: scope,
+            route: route,
+            client: client,
+            generation: connectionGeneration,
+            authScope: manualHostRPCAuthScope
+        )
+        guard manualHostTrustExpirationOwner != owner else { return }
+        cancelManualHostTrustExpiration()
+        manualHostTrustExpirationOwner = owner
         let trustStore = manualHostTrustStore
         manualHostTrustExpirationTask = Task { @MainActor [weak self] in
             guard let expiration = await trustStore.expirationDate(for: scope),
                   let self,
-                  self.manualHostTrustExpirationIsCurrent(
-                      route: route,
-                      client: client,
-                      generation: generation,
-                      authScope: authScope
-                  ) else { return }
+                  self.manualHostTrustExpirationIsCurrent(owner) else { return }
             let delay = expiration.timeIntervalSince(self.runtime?.now() ?? Date())
             if delay > 0 {
                 try? await ContinuousClock().sleep(for: .seconds(delay))
             }
             guard !Task.isCancelled,
-                  self.manualHostTrustExpirationIsCurrent(
-                      route: route,
-                      client: client,
-                      generation: generation,
-                      authScope: authScope
-                  ),
+                  self.manualHostTrustExpirationIsCurrent(owner),
                   !(await trustStore.isTrusted(scope)),
-                  self.manualHostTrustExpirationIsCurrent(
-                      route: route,
-                      client: client,
-                      generation: generation,
-                      authScope: authScope
-                  ) else { return }
+                  self.manualHostTrustExpirationIsCurrent(owner) else { return }
             self.rotateManualHostRPCAuthScope()
             _ = self.queueForegroundManualHostReapproval(route: route)
         }
     }
 
-    private func manualHostTrustExpirationIsCurrent(
-        route: CmxAttachRoute,
-        client: MobileCoreRPCClient,
-        generation: UUID,
-        authScope: MobileRPCAuthScope
-    ) -> Bool {
+    private func manualHostTrustExpirationIsCurrent(_ owner: ManualHostTrustExpirationOwner) -> Bool {
         connectionState == .connected
-            && remoteClient === client
-            && connectionGeneration == generation
-            && activeRoute == route
-            && manualHostRPCAuthScope == authScope
+            && manualHostTrustExpirationOwner == owner
+            && remoteClient === owner.client
+            && connectionGeneration == owner.generation
+            && activeRoute == owner.route
+            && manualHostRPCAuthScope == owner.authScope
     }
 
     func scheduleManualHostTrustExpirationForSecondarySubscription(

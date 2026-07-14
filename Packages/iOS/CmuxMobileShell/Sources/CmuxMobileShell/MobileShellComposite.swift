@@ -635,6 +635,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var manualHostRPCAuthScope = MobileRPCAuthScope()
     var manualHostTrustResetTask: Task<Void, Never>?
     var manualHostTrustExpirationTask: Task<Void, Never>?
+    var manualHostTrustExpirationOwner: ManualHostTrustExpirationOwner?
     var manualHostTrustResetGeneration = 0
     var rpcAuthStackUserID: String?
     /// Collapses connection-state edges into one-per-outage lost/recovered events.
@@ -2826,21 +2827,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///
     /// The write runs on the serialized paired-Mac chain. The status-driven
     /// identity adoption passes `ifStillCurrent` so a stale reply cannot
-    /// commit `markActive: true` for an old Mac after the user has started
-    /// pairing a new one; the connect path leaves it `nil` (its write is for
-    /// the connection it just established).
+    /// commit for an old Mac after the user has started pairing a new one.
+    /// The connect path stages the record inactive while the attempt can still
+    /// suspend, then marks it active only after installing the foreground client.
     private func persistPairedMacFromTicket(
         _ ticket: CmxAttachTicket,
+        markActive: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
-    ) async {
-        guard let pairedMacStore else { return }
-        guard !ticket.macDeviceID.isEmpty else { return }
+    ) async -> (didPersist: Bool, scope: MobileShellScopeSnapshot?) {
+        guard let pairedMacStore else { return (false, nil) }
+        guard !ticket.macDeviceID.isEmpty else { return (false, nil) }
         // Strip routes that we can't reconnect to without server-side state
         // (manual-workspace routes have no real macDeviceID and aren't useful).
         guard ticket.macDeviceID != "manual-ticket-request",
-              !ticket.macDeviceID.hasPrefix("manual-") else { return }
+              !ticket.macDeviceID.hasPrefix("manual-") else { return (false, nil) }
         let stackUserID = identityProvider?.currentUserID
         let scope = await currentScopeSnapshot(userID: stackUserID)
+        var didPersist = false
         // The compact pairing QR carries no display name; the name arrives
         // post-handshake via `mobile.host.status`. Until it does, keep any
         // name we already know for this Mac instead of clobbering it with
@@ -2888,7 +2891,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     macDeviceID: ticket.macDeviceID,
                     displayName: displayName,
                     routes: routesToPersist,
-                    markActive: true,
+                    markActive: markActive,
                     stackUserID: stackUserID,
                     teamID: scope?.teamID,
                     now: Date()
@@ -2902,10 +2905,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // the persisted hint so the next launch shows RestoringSessionView
                 // during the reconnect window instead of the empty add-device sheet.
                 self.hasKnownPairedMac = true
+                didPersist = true
             } catch {
                 mobileShellLog.error("paired mac store upsert failed: \(String(describing: error), privacy: .public)")
             }
         }
+        return (didPersist, scope)
     }
 
     /// Recovers the Mac's identity for a connection whose ticket arrived
@@ -3001,7 +3006,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // The connection is now attributable to a real Mac: persist it so
             // reconnect-on-launch and the host switcher have a record (the
             // empty-id ticket was skipped by the connect-time persist).
-            await persistPairedMacFromTicket(
+            _ = await persistPairedMacFromTicket(
                 adopted,
                 ifStillCurrent: { [weak self] in self?.remoteClient === client }
             )
@@ -5004,7 +5009,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
                     guard isConnectCurrent() else { return nil }
-                    await persistPairedMacFromTicket(ticket, ifStillCurrent: isConnectCurrent)
+                    let persistedPairing = await persistPairedMacFromTicket(
+                        ticket,
+                        markActive: false,
+                        ifStillCurrent: isConnectCurrent
+                    )
                     guard isConnectCurrent() else { return nil }
                     if preservesActiveConnection {
                         connectionGeneration = generation
@@ -5057,6 +5066,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: generation
                         )
                     }
+                    if persistedPairing.didPersist,
+                       let activeWrite = enqueueActivePairedMacWrite(
+                           macDeviceID: ticket.macDeviceID,
+                           scope: persistedPairing.scope,
+                           reloadAfterWrite: false
+                       ) {
+                        await activeWrite.value
+                    }
                     return nil
                 } catch {
                     lastError = error
@@ -5065,6 +5082,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
+                    if MobilePairingFailureCategory.classify(error: error, route: route).isAuthorizationFailure {
+                        throw MobileShellRoutedConnectionError(underlying: error, route: route)
+                    }
                 }
             }
         }
@@ -5198,8 +5218,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func clearActiveConnectionContext() {
-        manualHostTrustExpirationTask?.cancel()
-        manualHostTrustExpirationTask = nil
+        cancelManualHostTrustExpiration()
         activeTicket = nil
         activeRoute = nil
         connectedHostName = ""
