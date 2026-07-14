@@ -6,6 +6,11 @@ final class TerminalMutationBus: @unchecked Sendable {
     static let maximumWaitingNotificationProducerCount = 16
     static let notificationCapacityWaitTimeout: TimeInterval = 1
 
+    private static let reliableAdmissionQueue = DispatchQueue(
+        label: "com.cmux.agent-notification-reliable-admission",
+        qos: .utility
+    )
+    private static let reliableSubmissionLock = NSLock()
     private let lock = NSCondition()
     private var pending: [TerminalSocketMutationEntry] = []
     private var pendingHead = 0
@@ -88,7 +93,31 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
-    nonisolated func captureNotificationAdmissionToken(tabId: UUID, surfaceId: UUID?) -> TerminalNotificationAdmissionToken {
+    /// Registers acceptance and submits capacity waiting through the bus-owned
+    /// serial worker, so callers cannot bypass the single-waiter invariant.
+    nonisolated func enqueueNotificationReliably(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            Self.reliableSubmissionLock.lock()
+            let admissionToken = captureNotificationAdmissionToken(tabId: tabId, surfaceId: surfaceId)
+            Self.reliableAdmissionQueue.async { [self] in
+                continuation.resume(returning: enqueueCapturedNotificationReliably(
+                    admissionToken: admissionToken,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body
+                ))
+            }
+            Self.reliableSubmissionLock.unlock()
+        }
+    }
+
+    private nonisolated func captureNotificationAdmissionToken(tabId: UUID, surfaceId: UUID?) -> TerminalNotificationAdmissionToken {
         lock.lock()
         let registered = ReliableTerminalNotificationAdmission(
             id: UUID(),
@@ -101,10 +130,10 @@ final class TerminalMutationBus: @unchecked Sendable {
         return TerminalNotificationAdmissionToken(id: registered.id)
     }
 
-    /// Called only from the dedicated serial admission queue. At most one
+    /// Called only from the bus-owned serial admission queue. At most one
     /// worker waits on the condition while later internal producers remain
     /// suspended behind that worker without occupying cooperative threads.
-    nonisolated func enqueueNotificationReliably(
+    private nonisolated func enqueueCapturedNotificationReliably(
         admissionToken: TerminalNotificationAdmissionToken,
         title: String,
         subtitle: String,
@@ -475,33 +504,4 @@ final class TerminalMutationBus: @unchecked Sendable {
         pendingHead = 0
     }
 
-    @MainActor
-    private func perform(_ batch: [TerminalSocketMutationEntry]) {
-        for entry in batch {
-            switch entry.mutation {
-            case .deliverNotification(let notification):
-#if DEBUG
-                cmuxDebugLog(
-                    "notification.queue.perform seq=\(entry.sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
-                )
-#endif
-                TerminalNotificationStore.shared.deliverQueuedNotification(notification)
-            case .clearAllNotifications:
-                TerminalNotificationStore.shared.clearAll(discardQueuedNotifications: false)
-            case .clearNotificationsForTab(let tabId):
-                TerminalNotificationStore.shared.clearNotifications(
-                    forTabId: tabId,
-                    discardQueuedNotifications: false
-                )
-            case .clearNotificationsForSurface(let tabId, let surfaceId):
-                TerminalNotificationStore.shared.clearNotifications(
-                    forTabId: tabId,
-                    surfaceId: surfaceId,
-                    discardQueuedNotifications: false
-                )
-            case .perform(let mutation):
-                mutation()
-            }
-        }
-    }
 }

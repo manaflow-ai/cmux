@@ -1,4 +1,10 @@
+import Foundation
+
 extension TerminalNotificationStore {
+    static func indexByIdPreservingFirst(_ notifications: [TerminalNotification]) -> [UUID: TerminalNotification] {
+        Dictionary(notifications.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {
         var indexes = NotificationIndexes()
         for notification in notifications {

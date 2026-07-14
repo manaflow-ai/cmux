@@ -10,11 +10,6 @@ enum AgentNotificationDeliveryResult: Sendable, Equatable {
 
 /// Applies agent notification policy and publishes accepted events through the shared mutation bus.
 struct AgentNotificationDelivery: Sendable {
-    private static let reliableAdmissionQueue = DispatchQueue(
-        label: "com.cmux.agent-notification-reliable-admission",
-        qos: .utility
-    )
-    private static let reliableSubmissionLock = NSLock()
     private let permissionEnabled: Bool
     private let turnMode: AgentTurnCompleteMode
     private let idleEnabled: Bool
@@ -80,43 +75,13 @@ struct AgentNotificationDelivery: Sendable {
            ) {
             return .gated
         }
-        let bus = TerminalMutationBus.shared
-        let accepted = await withCheckedContinuation { continuation in
-            Self.submitReliableAdmission(
-                bus: bus,
-                workspaceID: workspaceID,
-                surfaceID: surfaceID,
-                title: title,
-                subtitle: subtitle,
-                body: body,
-                continuation: continuation
-            )
-        }
-        return accepted ? .accepted : .cancelled
-    }
-
-    private static func submitReliableAdmission(
-        bus: TerminalMutationBus,
-        workspaceID: UUID,
-        surfaceID: UUID,
-        title: String,
-        subtitle: String,
-        body: String,
-        continuation: CheckedContinuation<Bool, Never>
-    ) {
-        reliableSubmissionLock.lock()
-        let admissionToken = bus.captureNotificationAdmissionToken(
+        let accepted = await TerminalMutationBus.shared.enqueueNotificationReliably(
             tabId: workspaceID,
-            surfaceId: surfaceID
+            surfaceId: surfaceID,
+            title: title,
+            subtitle: subtitle,
+            body: body
         )
-        reliableAdmissionQueue.async {
-            continuation.resume(returning: bus.enqueueNotificationReliably(
-                admissionToken: admissionToken,
-                title: title,
-                subtitle: subtitle,
-                body: body
-            ))
-        }
-        reliableSubmissionLock.unlock()
+        return accepted ? .accepted : .cancelled
     }
 }

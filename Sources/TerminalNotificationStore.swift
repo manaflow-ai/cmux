@@ -406,7 +406,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         let deferredIds = Set(deferredUnreadNavigationIds)
         var ordered = notifications.filter { !deferredIds.contains($0.id) }
-        let notificationById = Dictionary(uniqueKeysWithValues: notifications.map { ($0.id, $0) })
+        let notificationById = Self.indexByIdPreservingFirst(notifications)
         ordered.append(contentsOf: deferredUnreadNavigationIds.compactMap { notificationById[$0] })
         unreadNavigationNotifications = ordered
     }

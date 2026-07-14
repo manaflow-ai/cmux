@@ -42,7 +42,10 @@ struct ExternalNotificationBannerOwnership {
         previous: [TerminalNotification],
         merged: [TerminalNotification]
     ) {
-        let mergedById = Dictionary(uniqueKeysWithValues: merged.map { ($0.id, $0) })
+        let mergedById = Dictionary(
+            merged.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         var reconciled: [String: TerminalNotification] = [:]
         for owner in ownerByKey.values.compactMap({ mergedById[$0.id] })
             .sorted(by: TerminalNotificationStore.notificationSortPrecedes) {
