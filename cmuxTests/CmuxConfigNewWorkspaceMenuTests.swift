@@ -370,6 +370,32 @@ struct CmuxConfigNewWorkspaceMenuTests {
     }
 
     @MainActor
+    @Test func contextMenuCanHideLayoutManagement() throws {
+        let (store, root) = try loadStore(globalJSON: """
+        {
+          "ui": {
+            "newWorkspace": {
+              "showLayoutManagement": false
+            }
+          }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try withNewWorkspaceContextMenu(store: store) { menu in
+            let titles = allMenuItemTitles(menu)
+            #expect(!titles.contains(String(
+                localized: "menu.newWorkspace.saveWorkspaceAsLayout",
+                defaultValue: "Save Workspace as Layout…"
+            )))
+            #expect(!titles.contains(String(
+                localized: "menu.newWorkspace.manageLayouts",
+                defaultValue: "Manage Layouts"
+            )))
+        }
+    }
+
+    @MainActor
     @Test func storeRespectsNewWorkspaceMenuOptOut() throws {
         let (store, root) = try loadStore(globalJSON: """
         {
