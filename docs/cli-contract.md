@@ -329,7 +329,8 @@ Browser subcommands:
 | `browser highlight` | Highlight an element. |
 | `browser state` | Save or load browser state. |
 | `browser addinitscript`, `browser addscript`, `browser addstyle` | Inject scripts or CSS. |
-| `browser viewport` | Set viewport size. |
+| `browser viewport <width> <height>` | Emulate an exact logical viewport from 1×1 through 4096×4096 CSS pixels. WKWebView aspect-fits the page inside its current pane without resizing the pane or changing focus; screenshots use the emulated dimensions. |
+| `browser viewport reset` | Restore native viewport sizing so the page follows its pane dimensions. |
 | `browser geolocation`, `browser geo` | Set geolocation. |
 | `browser offline` | Toggle offline state. |
 | `browser trace` | Start or stop trace capture. |
@@ -337,6 +338,15 @@ Browser subcommands:
 | `browser screencast` | Start or stop screencast. |
 | `browser input`, `browser input_mouse`, `browser input_keyboard`, `browser input_touch` | Send low-level input. |
 | `browser identify` | Identify browser surface context. |
+
+`browser viewport` changes the selected browser surface only. On WKWebView, the
+requested logical size becomes `window.innerWidth`/`window.innerHeight` and the
+page is uniformly scaled to fit inside the existing pane. The pane layout and
+other surfaces do not move. JSON results report `mode`, effective `width` and
+`height`, displayed size, `scale`, `presentation`, and `pane_resized`. A visible
+attached Web Inspector owns the same WebKit layout; close or detach it before
+changing the viewport. In that state the v2 method returns `invalid_state` with
+`reason: attached_web_inspector`.
 
 Hook subcommands:
 
