@@ -5,17 +5,19 @@ extension GitHubPullRequestPanelService {
     /// Refreshes the branch's pull-request content and stores successful results in the actor cache.
     public func refresh(for input: PullRequestWorkspaceInput) async throws -> PullRequestPanelContent {
         let context = try await resolvedContext(for: input)
+        try Task.checkCancellation()
         let refreshSequence = beginRefresh(for: context)
         defer { finishRefresh(refreshSequence, for: context) }
         let viewResult = await commandRunner.run(
             directory: context.repositoryRoot,
             executable: "gh",
             arguments: [
-                "pr", "view", context.branch, "--json",
+                "pr", "view", context.branch, "--repo", context.repositorySlug, "--json",
                 "number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid",
             ],
             timeout: 10
         )
+        try Task.checkCancellation()
 
         if isNoPullRequest(viewResult) {
             let content = PullRequestPanelContent.noPullRequest(context)
@@ -29,6 +31,7 @@ extension GitHubPullRequestPanelService {
         async let comments = fetchComments(number: pullRequest.number, context: context)
         async let settings = fetchMergeSettings(context: context)
         let (resolvedChecks, resolvedComments, resolvedSettings) = try await (checks, comments, settings)
+        try Task.checkCancellation()
 
         let checksStatus = PullRequestChecksStatus.derive(from: pullRequest.statusCheckRollup)
         let snapshot = PullRequestPanelSnapshot(
@@ -36,7 +39,7 @@ extension GitHubPullRequestPanelService {
             pullRequest: pullRequest,
             checks: resolvedChecks,
             checksStatus: checksStatus,
-            unresolvedReviewThreadCount: resolvedComments.unresolvedThreadCount,
+            unresolvedReviewThreadCount: resolvedComments?.unresolvedThreadCount,
             mergeMethods: PullRequestMergeMethod.orderedAllowed(
                 settings: resolvedSettings,
                 defaultMethod: resolvedSettings.viewerDefaultMergeMethod
@@ -80,9 +83,14 @@ extension GitHubPullRequestPanelService {
         let result = await commandRunner.run(
             directory: context.repositoryRoot,
             executable: "gh",
-            arguments: ["pr", "checks", String(number), "--json", "name,state,link"],
+            arguments: [
+                "pr", "checks", String(number),
+                "--repo", context.repositorySlug,
+                "--json", "name,state,link",
+            ],
             timeout: 10
         )
+        try Task.checkCancellation()
         if result.stderr?.localizedCaseInsensitiveContains("no checks reported") == true {
             return []
         }
@@ -98,17 +106,23 @@ extension GitHubPullRequestPanelService {
     nonisolated func fetchComments(
         number: Int,
         context: PullRequestPanelContext
-    ) async throws -> PullRequestReviewCommentsPayload {
+    ) async -> PullRequestReviewCommentsPayload? {
         // The v1 data contract intentionally uses the exact `comments` query. Current gh
         // versions omit review-thread metadata; the decoder reports nil unless it appears.
         let result = await commandRunner.run(
             directory: context.repositoryRoot,
             executable: "gh",
-            arguments: ["pr", "view", String(number), "--json", "comments"],
+            arguments: [
+                "pr", "view", String(number),
+                "--repo", context.repositorySlug,
+                "--json", "comments",
+            ],
             timeout: 10
         )
-        let output = try requiredOutput(from: result, failure: .refreshFailed)
-        return try decode(output)
+        guard let output = try? requiredOutput(from: result, failure: .refreshFailed) else {
+            return nil
+        }
+        return try? decode(output)
     }
 
     nonisolated func fetchMergeSettings(
@@ -118,11 +132,12 @@ extension GitHubPullRequestPanelService {
             directory: context.repositoryRoot,
             executable: "gh",
             arguments: [
-                "repo", "view", "--json",
+                "repo", "view", context.repositorySlug, "--json",
                 "mergeCommitAllowed,rebaseMergeAllowed,squashMergeAllowed,viewerDefaultMergeMethod",
             ],
             timeout: 10
         )
+        try Task.checkCancellation()
         let output = try requiredOutput(from: result, failure: .refreshFailed)
         return try decode(output)
     }

@@ -33,8 +33,13 @@ public protocol PullRequestPanelServing: Sendable {
     /// - Parameters:
     ///   - number: The pull-request number.
     ///   - context: The repository and branch identity.
+    ///   - headRefOid: The displayed head commit that must still match.
     /// - Throws: ``PullRequestPanelServiceError/mergeFailed`` when the command fails.
-    func disableAutoMerge(number: Int, context: PullRequestPanelContext) async throws
+    func disableAutoMerge(
+        number: Int,
+        context: PullRequestPanelContext,
+        headRefOid: String
+    ) async throws
 
     /// Opens GitHub's web-based pull-request creation flow for the branch.
     /// - Parameter context: The repository and branch identity.

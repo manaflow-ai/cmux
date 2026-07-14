@@ -42,6 +42,61 @@ import Testing
         #expect(cache.keys.contains { $0.repositoryRoot == "/repo/0" } == false)
     }
 
+    @Test func disableAutoMergePinsRepositoryAndDisplayedHeadCommit() async throws {
+        let runner = RecordingPullRequestCommandRunner()
+        let service = GitHubPullRequestPanelService(commandRunner: runner)
+        let context = PullRequestPanelContext(
+            repositoryRoot: "/repo",
+            branch: "feature",
+            repositorySlug: "example/repo"
+        )
+
+        try await service.disableAutoMerge(
+            number: 42,
+            context: context,
+            headRefOid: "abc123"
+        )
+
+        #expect(await runner.lastArguments == [
+            "pr", "merge", "42", "--disable-auto",
+            "--repo", "example/repo", "--match-head-commit", "abc123",
+        ])
+    }
+
+    @Test func createPullRequestPinsRepositoryAndBranch() async throws {
+        let runner = RecordingPullRequestCommandRunner()
+        let service = GitHubPullRequestPanelService(commandRunner: runner)
+        let context = PullRequestPanelContext(
+            repositoryRoot: "/repo",
+            branch: "feature",
+            repositorySlug: "example/repo"
+        )
+
+        try await service.createPullRequest(context: context)
+
+        #expect(await runner.lastArguments == [
+            "pr", "create", "--web",
+            "--repo", "example/repo", "--head", "feature",
+        ])
+    }
+
+    @Test func commentsFailureIsOptionalAndRepositoryBound() async {
+        let runner = RecordingPullRequestCommandRunner()
+        let service = GitHubPullRequestPanelService(commandRunner: runner)
+        let context = PullRequestPanelContext(
+            repositoryRoot: "/repo",
+            branch: "feature",
+            repositorySlug: "example/repo"
+        )
+
+        let comments = await service.fetchComments(number: 42, context: context)
+
+        #expect(comments == nil)
+        #expect(await runner.lastArguments == [
+            "pr", "view", "42", "--repo", "example/repo", "--json", "comments",
+        ])
+    }
+
     @Test func olderRefreshCannotOverwriteNewerCompletedRefresh() async throws {
         let service = GitHubPullRequestPanelService()
         let context = PullRequestPanelContext(

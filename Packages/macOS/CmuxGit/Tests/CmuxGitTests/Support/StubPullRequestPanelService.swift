@@ -49,8 +49,12 @@ actor StubPullRequestPanelService: PullRequestPanelServing {
         mergeCallCount += 1
     }
 
-    func disableAutoMerge(number: Int, context: PullRequestPanelContext) async throws {
-        _ = (number, context)
+    func disableAutoMerge(
+        number: Int,
+        context: PullRequestPanelContext,
+        headRefOid: String
+    ) async throws {
+        _ = (number, context, headRefOid)
         disableAutoMergeCallCount += 1
     }
 

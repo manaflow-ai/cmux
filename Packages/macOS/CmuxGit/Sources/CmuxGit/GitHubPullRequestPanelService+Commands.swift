@@ -27,13 +27,18 @@ extension GitHubPullRequestPanelService {
     }
 
     /// Disables auto-merge for a pull request.
-    public func disableAutoMerge(number: Int, context: PullRequestPanelContext) async throws {
+    public func disableAutoMerge(
+        number: Int,
+        context: PullRequestPanelContext,
+        headRefOid: String
+    ) async throws {
         let result = await commandRunner.run(
             directory: context.repositoryRoot,
             executable: "gh",
             arguments: [
                 "pr", "merge", String(number), "--disable-auto",
                 "--repo", context.repositorySlug,
+                "--match-head-commit", headRefOid,
             ],
             timeout: 30
         )
@@ -45,7 +50,11 @@ extension GitHubPullRequestPanelService {
         let result = await commandRunner.run(
             directory: context.repositoryRoot,
             executable: "gh",
-            arguments: ["pr", "create", "--web"],
+            arguments: [
+                "pr", "create", "--web",
+                "--repo", context.repositorySlug,
+                "--head", context.branch,
+            ],
             timeout: 30
         )
         _ = try requiredOutput(from: result, failure: .createFailed, allowsEmptyOutput: true)

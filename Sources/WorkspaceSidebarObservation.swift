@@ -104,9 +104,23 @@ private struct SidebarObservationState: Equatable {
 }
 
 extension Workspace {
-    /// Bridges the legacy sidebar publisher into a task-cancellable async sequence.
-    func sidebarObservationStream() -> AsyncStream<Void> {
-        let publisher = sidebarObservationPublisher
+    /// Observes only repository/branch inputs needed by the pull-request panel.
+    func pullRequestSidebarObservationStream() -> AsyncStream<Void> {
+        let publisher = Publishers.CombineLatest4(
+            $currentDirectory,
+            $remoteConfiguration,
+            sidebarMetadata.gitBranchPublisher,
+            currentDirectoryChangeRevisionPublisher()
+        )
+        .compactMap { [weak self] _ -> (directory: String?, branch: String?)? in
+            guard let self else { return nil }
+            return (presentedCurrentDirectory, presentedGitBranch?.branch)
+        }
+        .removeDuplicates { previous, next in
+            previous.directory == next.directory && previous.branch == next.branch
+        }
+        .map { _ in () }
+        .eraseToAnyPublisher()
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let observationTask = Task { @MainActor in
                 for await _ in publisher.values {

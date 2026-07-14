@@ -159,7 +159,8 @@ public final class PullRequestPanelModel {
         do {
             try await service.disableAutoMerge(
                 number: snapshot.pullRequest.number,
-                context: snapshot.context
+                context: snapshot.context,
+                headRefOid: snapshot.pullRequest.headRefOid
             )
             guard currentInput == inputAtStart else { return }
             actionPhase = .idle
