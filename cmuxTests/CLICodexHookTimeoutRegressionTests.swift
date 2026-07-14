@@ -90,7 +90,10 @@ struct CLICodexHookTimeoutRegressionTests {
         let install = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "install", "--yes"],
-            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome).merging([
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+            ], uniquingKeysWith: { _, new in new }),
             timeout: 5
         )
         #expect(!install.timedOut, Comment(rawValue: install.stderr))
@@ -108,8 +111,6 @@ struct CLICodexHookTimeoutRegressionTests {
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMPDIR": root.path,
                 "CMUX_SURFACE_ID": "surface-123",
-                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
-                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_TEST_STDIN": capturedStdin.path,
                 "CMUX_TEST_ARGS": capturedArgs.path,
@@ -154,7 +155,10 @@ struct CLICodexHookTimeoutRegressionTests {
         let install = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "install", "--yes"],
-            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome).merging([
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+            ], uniquingKeysWith: { _, new in new }),
             timeout: 5
         )
         #expect(!install.timedOut, Comment(rawValue: install.stderr))
@@ -172,8 +176,6 @@ struct CLICodexHookTimeoutRegressionTests {
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMPDIR": root.path,
                 "CMUX_SURFACE_ID": "surface-123",
-                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
-                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CODEX_PID": "4242",
                 "CMUX_TEST_STDIN": capturedStdin.path,
                 "CMUX_TEST_ARGS": capturedArgs.path,

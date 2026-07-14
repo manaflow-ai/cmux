@@ -77,6 +77,42 @@ struct CodexHookWriterOwnershipRegressionTests {
         }
     }
 
+    @Test func setupPrunesLegacyProjectDispatcherButPreservesUserHook() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-legacy-owner-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let legacyCommand = "'\(root.path)/project/.codex/hooks/cmux-codex-fire-and-forget.sh' prompt-submit"
+        let userCommand = "\(root.path)/user-prompt-hook.sh"
+        let config: [String: Any] = [
+            "hooks": [
+                "UserPromptSubmit": [
+                    ["hooks": [["type": "command", "command": legacyCommand, "timeout": 1]]],
+                    ["hooks": [["type": "command", "command": userCommand, "timeout": 5]]],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+            .write(to: codexHome.appendingPathComponent("hooks.json"), options: .atomic)
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let promptHooks = try codexHookEntries(in: codexHome)
+            .filter { $0.eventName == "UserPromptSubmit" }
+        #expect(!promptHooks.contains { $0.command == legacyCommand })
+        #expect(promptHooks.contains { $0.command == userCommand })
+        #expect(promptHooks.filter { $0.body.contains("hooks codex prompt-submit") }.count == 1)
+    }
+
     private func runCodexInjectArgsProcess(executablePath: String) -> (status: Int32, stdout: Data, stderr: String) {
         let process = Process()
         let stdout = Pipe()

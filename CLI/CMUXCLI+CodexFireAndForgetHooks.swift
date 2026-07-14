@@ -1,6 +1,19 @@
 import Foundation
 
+enum CodexHookWriterOwnership {
+    case persistent
+    case wrapperInjected
+}
+
+enum CodexHookDispatchTarget {
+    case wrapperEnvironment
+    case pinned(executablePath: String, socketPath: String?)
+    case unavailable
+}
+
 extension CMUXCLI {
+    static let codexWrapperHookOwnerEnvironmentKey = "CMUX_CODEX_WRAPPER_HOOK_OWNER"
+
     /// The per-invocation Codex hook events the wrapper injects, paired with the
     /// cmux subcommand they call and the codex hook timeout (ms). Lifecycle
     /// events are short; feed events (`PreToolUse`/`PermissionRequest`) are long
@@ -43,7 +56,10 @@ extension CMUXCLI {
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for event in Self.codexWrapperInjectionEvents {
             let ff = Self.codexFireAndForgetAgentHookShellCommand(
-                "cmux hooks codex \(event.cmuxSubcommand)", for: codexDef
+                "cmux hooks codex \(event.cmuxSubcommand)",
+                for: codexDef,
+                ownership: .wrapperInjected,
+                target: .wrapperEnvironment
             )
             let command: String
             if let scriptPath = hooksDir.flatMap({
@@ -120,14 +136,49 @@ extension CMUXCLI {
         }
     }
 
-    static func codexFireAndForgetAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
+    static func codexFireAndForgetAgentHookShellCommand(
+        _ command: String,
+        for def: AgentHookDef,
+        ownership: CodexHookWriterOwnership,
+        target: CodexHookDispatchTarget
+    ) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( sleep 30; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
+        let targetSetup: String
+        let socketSetup: String
+        switch target {
+        case .wrapperEnvironment:
+            // The wrapper exports an exact bundled CLI before starting Codex.
+            // Fail closed if Codex strips it instead of selecting another cmux
+            // from PATH and allowing an older schema writer into this store.
+            targetSetup = "cmux_cli=\"${CMUX_CODEX_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}\""
+            socketSetup = "cmux_socket=\"${CMUX_SOCKET_PATH:-}\""
+        case let .pinned(executablePath, socketPath):
+            targetSetup = "cmux_cli=\(codexHookShellSingleQuote(executablePath))"
+            socketSetup = "cmux_socket=\(socketPath.map { codexHookShellSingleQuote($0) } ?? "\"\"")"
+        case .unavailable:
+            // State-mutating persistent hooks must not fall back to an arbitrary
+            // PATH cmux. An older CLI can decode the shared store and erase fields
+            // introduced by a newer schema.
+            targetSetup = "cmux_cli=\"\""
+            socketSetup = "cmux_socket=\"\""
+        }
+        let ownershipGate: String
+        switch ownership {
+        case .persistent:
+            ownershipGate = "[ \"$\(def.disableEnvVar)\" != \"1\" ]"
+        case .wrapperInjected:
+            ownershipGate = "[ \"${\(Self.codexWrapperHookOwnerEnvironmentKey):-}\" = \"1\" ]"
+        }
         return [
-            "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
-            "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+            targetSetup,
             "agent_pid=\"${CMUX_CODEX_PID:-${PPID:-}}\"",
-            "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-hook.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-hook 2>/dev/null)\" || { echo '{}'; exit 0; }; cat >\"$payload\" || true; if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments) >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" \(routedArguments) >/dev/null 2>&1 & fi; echo '{}'; else echo '{}'; fi",
+            socketSetup,
+            "if [ -n \"$CMUX_SURFACE_ID\" ] && \(ownershipGate) && [ -n \"$cmux_cli\" ] && [ -x \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-hook.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-hook 2>/dev/null)\" || { echo '{}'; exit 0; }; cat >\"$payload\" || true; if [ -n \"$cmux_socket\" ]; then CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" --socket \"$cmux_socket\" \(routedArguments) >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" \(routedArguments) >/dev/null 2>&1 & fi; echo '{}'; else echo '{}'; fi",
         ].joined(separator: "; ")
+    }
+
+    private static func codexHookShellSingleQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
