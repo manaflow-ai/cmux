@@ -149,23 +149,17 @@ struct BrowserWebExtensionInitialPermissionTests {
             path: extensionDirectory.path,
             enabled: true
         )
-        let generationChangeNotification = Notification.Name(
-            "cmuxTests.browserWebExtension.staleLoadGeneration"
-        )
+        weak var supportForReentrantApply: BrowserWebExtensionSupport?
         let support = BrowserWebExtensionSupport(permissionConfirmation: { _ in
-            NotificationCenter.default.post(name: generationChangeNotification, object: nil)
+            guard let support = supportForReentrantApply else { return true }
+            Task { @MainActor in
+                await support.apply(entries: [])
+                CFRunLoopStop(CFRunLoopGetCurrent())
+            }
+            CFRunLoopRun()
             return true
         })
-        let generationChangeObserver = NotificationCenter.default.addObserver(
-            forName: generationChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak support] _ in
-            MainActor.assumeIsolated {
-                support?.settingsLoadGeneration &+= 1
-            }
-        }
-        defer { NotificationCenter.default.removeObserver(generationChangeObserver) }
+        supportForReentrantApply = support
         defer { _ = support.unloadAllWebExtensions() }
         defer {
             support.permissionStateStore.removeState(

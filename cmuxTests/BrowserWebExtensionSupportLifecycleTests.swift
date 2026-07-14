@@ -56,6 +56,59 @@ struct BrowserWebExtensionSupportLifecycleTests {
 
     @Test
     @available(macOS 15.4, *)
+    func loadingContextRepairsAnExtensionPageRestoredBeforeReconciliation() async throws {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-web-extension-late-context-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let manifest = """
+        {
+          "manifest_version": 3,
+          "name": "Late Context Test Extension",
+          "version": "1.0"
+        }
+        """
+        try Data(manifest.utf8).write(to: directory.appendingPathComponent("manifest.json"))
+        let entry = BrowserWebExtensionEntry(
+            id: "late-context-\(UUID().uuidString)",
+            kind: .unpackedDirectory,
+            path: directory.path,
+            enabled: true
+        )
+
+        let probeSupport = BrowserWebExtensionSupport()
+        await probeSupport.apply(entries: [entry])
+        let probeContext = try #require(probeSupport.context(forActionID: entry.id))
+        let extensionURL = probeContext.baseURL.appendingPathComponent("restored.html")
+        #expect(probeSupport.unloadAllWebExtensions())
+
+        let support = BrowserWebExtensionSupport()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: extensionURL,
+            renderInitialNavigation: false,
+            browserWebExtensionHost: support
+        )
+        support.register(panel: panel)
+        defer {
+            support.unregister(panelID: panel.id)
+            _ = support.unloadAllWebExtensions()
+            panel.close()
+        }
+        #expect(panel.webExtensionPageContextIdentifier == nil)
+
+        await support.apply(entries: [entry])
+
+        let loadedContext = try #require(support.context(forActionID: entry.id))
+        #expect(panel.webExtensionPageContextIdentifier == ObjectIdentifier(loadedContext))
+    }
+
+    @Test
+    @available(macOS 15.4, *)
     func teardownExplicitlyRemovesPermissionObserverTokens() {
         let notificationCenter = NotificationCenter.default
         let name = Notification.Name("cmuxTests.browserWebExtension.permissionObserver")
