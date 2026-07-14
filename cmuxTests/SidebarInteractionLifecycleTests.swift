@@ -17,31 +17,27 @@ import Testing
 final class SidebarInteractionLifecycleTests {
     private static let workspaceCount = 300
     private static let realizedRowCeiling = 150
+    private static let stationaryPointerRemovalPasses = 12
     private static let churnPasses = 36
-
     private final class RowBodyCounter {
         var workspaceRows = 0
         var groupHeaders = 0
 
         var total: Int { workspaceRows + groupHeaders }
-
         func reset() {
             workspaceRows = 0
             groupHeaders = 0
         }
     }
-
     private final class LifecycleTestWindow: NSPanel {
         override var canBecomeKey: Bool { true }
     }
-
     @MainActor
     @Observable
     final class PresentationState {
         var colorScheme: ColorScheme = .light
         var tint = Color.blue
     }
-
     private struct PresentationHost<Content: View>: View {
         let presentation: PresentationState
         let content: Content
@@ -52,7 +48,6 @@ final class SidebarInteractionLifecycleTests {
                 .environment(\.colorScheme, presentation.colorScheme)
         }
     }
-
     @MainActor
     private final class Heartbeat {
         private(set) var count = 0
@@ -74,13 +69,11 @@ final class SidebarInteractionLifecycleTests {
             RunLoop.main.add(timer, forMode: .common)
             self.timer = timer
         }
-
         func stop() {
             timer?.invalidate()
             timer = nil
         }
     }
-
     private struct RuntimeFaultCounts: Equatable, CustomStringConvertible {
         let publishingDuringViewUpdate: Int
         let modifyingStateDuringViewUpdate: Int
@@ -91,13 +84,11 @@ final class SidebarInteractionLifecycleTests {
                 + modifyingStateDuringViewUpdate
                 + reentrantHostingViewLayout
         }
-
         var description: String {
             "publishing=\(publishingDuringViewUpdate) "
                 + "modifying=\(modifyingStateDuringViewUpdate) "
                 + "reentrantLayout=\(reentrantHostingViewLayout)"
         }
-
         func subtracting(_ baseline: Self) -> Self {
             Self(
                 publishingDuringViewUpdate: publishingDuringViewUpdate
@@ -296,6 +287,14 @@ final class SidebarInteractionLifecycleTests {
             )
         }
 
+        func closeWorkspaceUnderStationaryPointer() async throws {
+            let workspaceId = try #require(workspaceId(at: NSEvent.mouseLocation))
+            let workspace = try #require(tabManager.tabs.first { $0.id == workspaceId })
+            tabManager.closeWorkspace(workspace, recordHistory: false)
+            await Self.drainMainRunLoop(iterations: 6)
+            #expect(!tabManager.tabs.contains { $0.id == workspaceId })
+        }
+
         func churn(pass: Int) async throws -> Int {
             let targets = Array(tabManager.tabs.prefix(6))
             for (offset, workspace) in targets.enumerated() {
@@ -381,9 +380,49 @@ final class SidebarInteractionLifecycleTests {
                 return nil
             }
             let clipView = scrollView.contentView
-            let pointInClip = NSPoint(x: clipView.bounds.midX, y: clipView.bounds.midY)
-            let pointInWindow = clipView.convert(pointInClip, to: nil)
-            return window.convertPoint(toScreen: pointInWindow)
+            for step in 1..<20 {
+                let fraction = Double(step) / 20
+                let pointInClip = NSPoint(
+                    x: clipView.bounds.midX,
+                    y: clipView.bounds.minY + clipView.bounds.height * fraction
+                )
+                let pointInWindow = clipView.convert(pointInClip, to: nil)
+                let pointInScreen = window.convertPoint(toScreen: pointInWindow)
+                if workspaceId(at: pointInScreen) != nil {
+                    return pointInScreen
+                }
+            }
+            return nil
+        }
+
+        private func workspaceId(at screenPoint: NSPoint) -> UUID? {
+            var candidate: Any? = window.accessibilityHitTest(screenPoint)
+            for _ in 0..<24 {
+                guard let current = candidate else { return nil }
+                if let view = current as? NSView {
+                    if let workspaceId = workspaceId(from: view.accessibilityIdentifier()) {
+                        return workspaceId
+                    }
+                    candidate = view.accessibilityParent() ?? view.superview
+                    continue
+                }
+                if let accessibilityElement = current as? any NSAccessibilityProtocol {
+                    if let workspaceId = workspaceId(from: accessibilityElement.accessibilityIdentifier()) {
+                        return workspaceId
+                    }
+                    candidate = accessibilityElement.accessibilityParent()
+                    continue
+                }
+                return nil
+            }
+            return nil
+        }
+
+        private func workspaceId(from accessibilityIdentifier: String?) -> UUID? {
+            let prefix = "sidebarWorkspace."
+            guard let accessibilityIdentifier else { return nil }
+            guard accessibilityIdentifier.hasPrefix(prefix) else { return nil }
+            return UUID(uuidString: String(accessibilityIdentifier.dropFirst(prefix.count)))
         }
 
         private func findScrollView(in view: NSView) -> NSScrollView? {
@@ -425,6 +464,9 @@ final class SidebarInteractionLifecycleTests {
 
         await harness.mountProductionSidebar()
         try harness.positionStationaryPointerOverWorkspaceRow()
+        for _ in 0..<Self.stationaryPointerRemovalPasses {
+            try await harness.closeWorkspaceUnderStationaryPointer()
+        }
 
         var worstRealizationPass = 0
         for pass in 0..<Self.churnPasses {
