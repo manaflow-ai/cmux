@@ -27,8 +27,6 @@ struct DiffRowBuilder: Sendable {
         includeEOFGap: Bool = true,
         mode: DiffRenderingMode = .unified
     ) -> [DiffRowSnapshot] {
-        // Slice 4 supplies a split projection while retaining this single conversion seam.
-        _ = mode
         var result = [DiffRowSnapshot(id: "file:\(file.path)", kind: .fileHeader, text: file.path)]
         guard !hunks.isEmpty else { return result }
 
@@ -61,6 +59,45 @@ struct DiffRowBuilder: Sendable {
                 end: nil,
                 delta: previousDelta
             ))
+        }
+        return projectedRows(result, mode: mode)
+    }
+
+    /// Projects existing unified rows through the same unified/split seam.
+    /// - Parameters:
+    ///   - rows: Stable unified rows, including headings and expansion controls.
+    ///   - mode: Concrete row layout.
+    /// - Returns: Original rows or side-by-side paired rows with alignment padding.
+    func projectedRows(_ rows: [DiffRowSnapshot], mode: DiffRenderingMode) -> [DiffRowSnapshot] {
+        guard mode == .split else { return rows }
+        var result: [DiffRowSnapshot] = []
+        var index = 0
+        while index < rows.count {
+            let row = rows[index]
+            switch row.kind {
+            case .context:
+                result.append(splitRow(old: row, new: row))
+                index += 1
+            case .deletion:
+                let deletionStart = index
+                while index < rows.count, rows[index].kind == .deletion { index += 1 }
+                let additionStart = index
+                while index < rows.count, rows[index].kind == .addition { index += 1 }
+                let deletions = Array(rows[deletionStart..<additionStart])
+                let additions = Array(rows[additionStart..<index])
+                for offset in 0..<max(deletions.count, additions.count) {
+                    result.append(splitRow(
+                        old: offset < deletions.count ? deletions[offset] : nil,
+                        new: offset < additions.count ? additions[offset] : nil
+                    ))
+                }
+            case .addition:
+                result.append(splitRow(old: nil, new: row))
+                index += 1
+            default:
+                result.append(row)
+                index += 1
+            }
         }
         return result
     }
@@ -123,7 +160,25 @@ struct DiffRowBuilder: Sendable {
             text: row.text,
             intralineRanges: ranges,
             expansionGap: row.expansionGap,
-            highlightedText: row.highlightedText
+            highlightedText: row.highlightedText,
+            splitOldSide: row.splitOldSide,
+            splitNewSide: row.splitNewSide,
+            sourceRowIDs: row.sourceRowIDs
+        )
+    }
+
+    private func splitRow(old: DiffRowSnapshot?, new: DiffRowSnapshot?) -> DiffRowSnapshot {
+        let id = old?.id ?? new?.id ?? "split-padding"
+        let sourceIDs = [old?.id, new?.id].compactMap { $0 }.reduce(into: [String]()) { ids, candidate in
+            if !ids.contains(candidate) { ids.append(candidate) }
+        }
+        return DiffRowSnapshot(
+            id: id,
+            kind: .context,
+            text: "",
+            splitOldSide: old.map { DiffSplitSideSnapshot(row: $0, usesOldNumber: true) },
+            splitNewSide: new.map { DiffSplitSideSnapshot(row: $0, usesOldNumber: false) },
+            sourceRowIDs: sourceIDs
         )
     }
 

@@ -8,12 +8,12 @@ struct FileTreeBuilder: Sendable {
     /// Builds directory-first alphabetical roots from changed files.
     /// - Parameter files: Changed-file summaries.
     /// - Returns: Compressed root nodes.
-    func build(files: [MobileChangesFile]) -> [FileTreeNode] {
+    func build(files: [MobileChangesFile], viewedPaths: Set<String> = []) -> [FileTreeNode] {
         var root = TrieNode(name: "", path: "")
         for file in files {
             root.insert(file: file, components: file.path.split(separator: "/").map(String.init))
         }
-        return root.children.values.map(makeNode).sorted(by: ordered)
+        return root.children.values.map { makeNode($0, viewedPaths: viewedPaths) }.sorted(by: ordered)
     }
 
     private struct TrieNode {
@@ -34,9 +34,16 @@ struct FileTreeBuilder: Sendable {
         }
     }
 
-    private func makeNode(_ trie: TrieNode) -> FileTreeNode {
+    private func makeNode(_ trie: TrieNode, viewedPaths: Set<String>) -> FileTreeNode {
         if let file = trie.file {
-            return FileTreeNode(id: trie.path, name: trie.name, kind: .file, children: [], file: file)
+            return FileTreeNode(
+                id: trie.path,
+                name: trie.name,
+                kind: .file,
+                children: [],
+                file: file,
+                isViewed: viewedPaths.contains(file.path)
+            )
         }
         var names = [trie.name]
         var cursor = trie
@@ -45,7 +52,7 @@ struct FileTreeBuilder: Sendable {
             names.append(child.name)
             cursor = child
         }
-        let children = cursor.children.values.map(makeNode).sorted(by: ordered)
+        let children = cursor.children.values.map { makeNode($0, viewedPaths: viewedPaths) }.sorted(by: ordered)
         return FileTreeNode(
             id: cursor.path,
             name: names.joined(separator: "/"),

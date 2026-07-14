@@ -6,6 +6,8 @@ struct ChangesSummaryHeader: View {
     let totals: MobileChangesTotals
     let viewedCount: Int
     let ignoresWhitespace: Bool
+    let layoutPreference: DiffLayoutPreference
+    let setLayoutPreference: @MainActor @Sendable (DiffLayoutPreference) -> Void
     let actions: ChangesScreenActions
 
     var body: some View {
@@ -25,18 +27,18 @@ struct ChangesSummaryHeader: View {
             }
             Spacer(minLength: 8)
             Menu {
-                Button {
-                } label: {
-                    Label(
-                        String(localized: "diff.menu.unified", defaultValue: "Unified", bundle: .module),
-                        systemImage: "checkmark"
-                    )
-                }
-                Button {
-                } label: {
-                    Text(String(localized: "diff.menu.splitComingSoon", defaultValue: "Split (coming soon)", bundle: .module))
-                }
-                .disabled(true)
+                layoutButton(
+                    .automatic,
+                    title: String(localized: "diff.menu.automatic", defaultValue: "Automatic", bundle: .module)
+                )
+                layoutButton(
+                    .unified,
+                    title: String(localized: "diff.menu.unified", defaultValue: "Unified", bundle: .module)
+                )
+                layoutButton(
+                    .split,
+                    title: String(localized: "diff.menu.split", defaultValue: "Split", bundle: .module)
+                )
                 Divider()
                 Button(action: actions.toggleWhitespace) {
                     Label(
@@ -60,6 +62,14 @@ struct ChangesSummaryHeader: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+
+    private func layoutButton(_ preference: DiffLayoutPreference, title: String) -> some View {
+        Button {
+            setLayoutPreference(preference)
+        } label: {
+            Label(title, systemImage: layoutPreference == preference ? "checkmark" : "circle")
+        }
     }
 
     private var changedFilesText: String {

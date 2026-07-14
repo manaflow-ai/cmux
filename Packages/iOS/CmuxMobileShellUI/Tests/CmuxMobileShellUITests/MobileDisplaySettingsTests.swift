@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxMobileDiff
 @testable import CmuxMobileShellUI
 
 @MainActor
@@ -103,5 +104,35 @@ import Testing
         #expect(reloaded.unreadIndicatorLeftShift == 0)
         #expect(reloaded.profilePictureLeftShift == 24)
         #expect(reloaded.profilePictureSize == 36)
+    }
+
+    @Test func diffPreferencesDefaultWithoutAWrite() throws {
+        let defaults = try makeDefaults("diffDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(settings.diffNavigationModel == .filesFirst)
+        #expect(settings.diffLayoutPreference == .automatic)
+        #expect(defaults.object(forKey: "cmux.mobile.debug.diffNavigationModel") == nil)
+        #expect(defaults.object(forKey: "cmux.mobile.diffLayoutPreference") == nil)
+    }
+
+    @Test func diffPreferencesPersistAcrossInstances() throws {
+        let defaults = try makeDefaults("diffPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.diffNavigationModel = .diffFirst
+        settings.diffLayoutPreference = .split
+
+        let reloaded = MobileDisplaySettings(defaults: defaults)
+        #expect(reloaded.diffNavigationModel == .diffFirst)
+        #expect(reloaded.diffLayoutPreference == .split)
+    }
+
+    @Test func invalidDiffPreferencesFallBackToDefaults() throws {
+        let defaults = try makeDefaults("diffInvalid")
+        defaults.set("future-navigation", forKey: "cmux.mobile.debug.diffNavigationModel")
+        defaults.set("future-layout", forKey: "cmux.mobile.diffLayoutPreference")
+
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(settings.diffNavigationModel == .filesFirst)
+        #expect(settings.diffLayoutPreference == .automatic)
     }
 }

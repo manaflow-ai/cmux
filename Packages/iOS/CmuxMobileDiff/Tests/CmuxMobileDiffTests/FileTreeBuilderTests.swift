@@ -32,6 +32,18 @@ import Testing
         #expect(src.children.map(\.name) == ["a", "b"])
     }
 
+    @Test func projectsViewedStateOntoFileLeaves() throws {
+        let roots = FileTreeBuilder().build(
+            files: [file("Sources/App.swift"), file("README.md")],
+            viewedPaths: ["Sources/App.swift"]
+        )
+        let sources = try #require(roots.first { $0.name == "Sources" })
+        let app = try #require(sources.children.first)
+        let readme = try #require(roots.first { $0.name == "README.md" })
+        #expect(app.isViewed)
+        #expect(!readme.isViewed)
+    }
+
     private func file(_ path: String) -> MobileChangesFile {
         MobileChangesFile(
             path: path,

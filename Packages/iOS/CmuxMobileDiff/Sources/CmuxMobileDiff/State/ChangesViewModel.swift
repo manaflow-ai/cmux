@@ -15,6 +15,7 @@ final class ChangesViewModel {
     private let rowBuilder: DiffRowBuilder
     private let splicer: ContextRowSplicer
     private let languageInference: CodeLanguageInference
+    private let treeBuilder: FileTreeBuilder
     private let highlighting: SyntaxHighlightingPipeline
     private var viewedStore: ViewedStateStore
     private var summary: MobileChangesSummaryResponse?
@@ -45,6 +46,7 @@ final class ChangesViewModel {
         rowBuilder = DiffRowBuilder()
         splicer = ContextRowSplicer()
         languageInference = CodeLanguageInference()
+        treeBuilder = FileTreeBuilder()
         viewedStore = ViewedStateStore(defaults: defaults)
         self.highlighting = highlighting
     }
@@ -52,11 +54,13 @@ final class ChangesViewModel {
     /// Current immutable list projection.
     var snapshot: ChangesScreenSnapshot {
         let files = summary?.files.compactMap { fileStates[$0.path]?.snapshot } ?? []
+        let viewedPaths = Set(files.lazy.filter(\.isViewed).map(\.path))
         return ChangesScreenSnapshot(
             isLoadingSummary: isLoadingSummary,
             error: error,
             totals: summary?.totals,
             files: files,
+            fileTree: treeBuilder.build(files: summary?.files ?? [], viewedPaths: viewedPaths),
             viewedCount: files.lazy.filter(\.isViewed).count,
             ignoresWhitespace: ignoresWhitespace
         )

@@ -10,6 +10,8 @@ struct ChangesScreenSnapshot: Sendable, Equatable {
     let totals: MobileChangesTotals?
     /// Current file snapshots in host order.
     let files: [DiffFileSnapshot]
+    /// Current chain-compressed file tree.
+    let fileTree: [FileTreeNode]
     /// Number of current patch digests marked viewed.
     let viewedCount: Int
     /// Whether whitespace changes are ignored.
@@ -21,6 +23,7 @@ struct ChangesScreenSnapshot: Sendable, Equatable {
         error: ChangesErrorSnapshot?,
         totals: MobileChangesTotals?,
         files: [DiffFileSnapshot],
+        fileTree: [FileTreeNode],
         viewedCount: Int,
         ignoresWhitespace: Bool
     ) {
@@ -28,6 +31,7 @@ struct ChangesScreenSnapshot: Sendable, Equatable {
         self.error = error
         self.totals = totals
         self.files = files
+        self.fileTree = fileTree
         self.viewedCount = viewedCount
         self.ignoresWhitespace = ignoresWhitespace
     }

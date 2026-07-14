@@ -4523,6 +4523,57 @@
         }
       }
     },
+    "mobile.settings.nativeChanges.navigation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Diff Navigation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ差分のナビゲーション"
+          }
+        }
+      }
+    },
+    "mobile.settings.nativeChanges.filesFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files first"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを先に表示"
+          }
+        }
+      }
+    },
+    "mobile.settings.nativeChanges.diffFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff first"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分を先に表示"
+          }
+        }
+      }
+    },
     "mobile.settings.developer": {
       "extractionState": "manual",
       "localizations": {

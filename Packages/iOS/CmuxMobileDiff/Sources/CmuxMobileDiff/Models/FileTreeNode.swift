@@ -20,13 +20,23 @@ struct FileTreeNode: Identifiable, Sendable, Equatable {
     let children: [FileTreeNode]
     /// Wire file summary for a leaf.
     let file: MobileChangesFile?
+    /// Whether the leaf's current patch digest is marked viewed.
+    let isViewed: Bool
 
     /// Creates a file-tree node.
-    init(id: String, name: String, kind: Kind, children: [FileTreeNode], file: MobileChangesFile?) {
+    init(
+        id: String,
+        name: String,
+        kind: Kind,
+        children: [FileTreeNode],
+        file: MobileChangesFile?,
+        isViewed: Bool = false
+    ) {
         self.id = id
         self.name = name
         self.kind = kind
         self.children = children
         self.file = file
+        self.isViewed = isViewed
     }
 }

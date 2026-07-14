@@ -1,3 +1,4 @@
+import CmuxMobileDiff
 import Foundation
 import Observation
 
@@ -26,6 +27,8 @@ public final class MobileDisplaySettings {
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
     private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
+    private static let diffNavigationModelKey = "cmux.mobile.debug.diffNavigationModel"
+    private static let diffLayoutPreferenceKey = "cmux.mobile.diffLayoutPreference"
 
     /// The preview line counts the "Preview Lines" setting offers.
     public static let workspacePreviewLineCountRange = 1...2
@@ -99,6 +102,16 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// DEBUG-selected compact-width native diff navigation shell.
+    public var diffNavigationModel: DiffNavigationModel {
+        didSet { defaults.set(diffNavigationModel.rawValue, forKey: Self.diffNavigationModelKey) }
+    }
+
+    /// Native diff row layout override used by the diff overflow menu.
+    public var diffLayoutPreference: DiffLayoutPreference {
+        didSet { defaults.set(diffLayoutPreference.rawValue, forKey: Self.diffLayoutPreferenceKey) }
+    }
+
     /// Creates the display settings, seeding stored values from `defaults`.
     /// - Parameter defaults: The store backing the persisted preferences.
     ///   Defaults to `.standard`; tests pass a scoped suite. Stored properties
@@ -127,6 +140,10 @@ public final class MobileDisplaySettings {
             storedProfilePictureSize ?? Self.defaultProfilePictureSize,
             to: Self.profilePictureSizeRange
         )
+        self.diffNavigationModel = defaults.string(forKey: Self.diffNavigationModelKey)
+            .flatMap(DiffNavigationModel.init(rawValue:)) ?? .filesFirst
+        self.diffLayoutPreference = defaults.string(forKey: Self.diffLayoutPreferenceKey)
+            .flatMap(DiffLayoutPreference.init(rawValue:)) ?? .automatic
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.

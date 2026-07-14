@@ -20,6 +20,12 @@ struct DiffRowSnapshot: Identifiable, Sendable, Equatable {
     let expansionGap: DiffExpansionGap?
     /// Asynchronously produced syntax-highlighted source.
     var highlightedText: AttributedString?
+    /// Old cell for a paired split row, or `nil` for right-only padding.
+    let splitOldSide: DiffSplitSideSnapshot?
+    /// New cell for a paired split row, or `nil` for left-only padding.
+    let splitNewSide: DiffSplitSideSnapshot?
+    /// Unified source identities represented by this projected row.
+    let sourceRowIDs: [String]
 
     /// Creates an immutable row snapshot.
     init(
@@ -31,7 +37,10 @@ struct DiffRowSnapshot: Identifiable, Sendable, Equatable {
         text: String,
         intralineRanges: [DiffCharacterRange] = [],
         expansionGap: DiffExpansionGap? = nil,
-        highlightedText: AttributedString? = nil
+        highlightedText: AttributedString? = nil,
+        splitOldSide: DiffSplitSideSnapshot? = nil,
+        splitNewSide: DiffSplitSideSnapshot? = nil,
+        sourceRowIDs: [String]? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -42,5 +51,8 @@ struct DiffRowSnapshot: Identifiable, Sendable, Equatable {
         self.intralineRanges = intralineRanges
         self.expansionGap = expansionGap
         self.highlightedText = highlightedText
+        self.splitOldSide = splitOldSide
+        self.splitNewSide = splitNewSide
+        self.sourceRowIDs = sourceRowIDs ?? [id]
     }
 }

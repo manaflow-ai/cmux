@@ -4,48 +4,76 @@ internal import SwiftUI
 struct ChangesListView: View {
     let snapshot: ChangesScreenSnapshot
     let actions: ChangesScreenActions
-    let scrollToPath: String?
+    let renderingMode: DiffRenderingMode
+    let layoutPreference: DiffLayoutPreference
+    let setLayoutPreference: @MainActor @Sendable (DiffLayoutPreference) -> Void
+    @Binding var scrollAnchorID: String?
+    @State private var visibleFilePath: String?
+    private let rowBuilder = DiffRowBuilder()
+    private let anchorResolver = DiffScrollAnchorResolver()
 
     var body: some View {
-        ScrollViewReader { proxy in
-            List {
-                Section {
-                    if snapshot.isLoadingSummary {
-                        ChangesSkeletonView()
-                    } else if let error = snapshot.error {
-                        ChangesErrorBanner(error: error, retry: actions.retrySummary)
-                    } else if let totals = snapshot.totals {
-                        ChangesSummaryHeader(
-                            totals: totals,
-                            viewedCount: snapshot.viewedCount,
-                            ignoresWhitespace: snapshot.ignoresWhitespace,
-                            actions: actions
-                        )
-                    }
-                }
-                .listRowInsets(EdgeInsets())
-
-                ForEach(snapshot.files) { file in
-                    Section {
-                        if !file.isCollapsed || file.rows.contains(where: { $0.kind == .largeDiff }) {
-                            ForEach(file.rows.filter { $0.kind != .fileHeader }) { row in
-                                DiffRowView(file: file, row: row, actions: actions)
-                                    .listRowInsets(EdgeInsets())
-                                    .listRowSeparator(.hidden)
-                            }
-                        }
-                    } header: {
-                        DiffFileHeaderView(file: file, actions: actions)
-                            .id(file.path)
-                    }
+        List {
+            Section {
+                if snapshot.isLoadingSummary {
+                    ChangesSkeletonView()
+                } else if let error = snapshot.error {
+                    ChangesErrorBanner(error: error, retry: actions.retrySummary)
+                } else if let totals = snapshot.totals {
+                    ChangesSummaryHeader(
+                        totals: totals,
+                        viewedCount: snapshot.viewedCount,
+                        ignoresWhitespace: snapshot.ignoresWhitespace,
+                        layoutPreference: layoutPreference,
+                        setLayoutPreference: setLayoutPreference,
+                        actions: actions
+                    )
                 }
             }
-            .listStyle(.plain)
-            .task(id: snapshot.files.map(\.path)) {
-                guard let scrollToPath,
-                      snapshot.files.contains(where: { $0.path == scrollToPath }) else { return }
-                proxy.scrollTo(scrollToPath, anchor: .top)
+            .listRowInsets(EdgeInsets())
+
+            ForEach(snapshot.files) { file in
+                Section {
+                    if !file.isCollapsed || file.rows.contains(where: { $0.kind == .largeDiff }) {
+                        ForEach(projectedRows(file).filter { $0.kind != .fileHeader }) { row in
+                            DiffRowView(file: file, row: row, actions: actions)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                        }
+                    }
+                } header: {
+                    DiffFileHeaderView(file: file, actions: actions)
+                        .id(file.path)
+                }
             }
         }
+        .listStyle(.plain)
+        .scrollPosition(id: $scrollAnchorID, anchor: .top)
+        .onChange(of: scrollAnchorID, initial: true) { _, anchor in
+            if let path = anchorResolver.filePath(containing: anchor, files: snapshot.files) {
+                visibleFilePath = path
+            }
+        }
+        .onChange(of: renderingMode) { _, _ in
+            scrollAnchorID = anchorResolver.resolvedAnchor(
+                scrollAnchorID,
+                visibleFilePath: visibleFilePath,
+                files: snapshot.files,
+                mode: renderingMode
+            )
+        }
+        .onChange(of: snapshot.files) { _, _ in
+            guard !anchorResolver.containsVisibleAnchor(
+                scrollAnchorID,
+                files: snapshot.files,
+                mode: renderingMode
+            ), let visibleFilePath else { return }
+            scrollAnchorID = visibleFilePath
+        }
     }
+
+    private func projectedRows(_ file: DiffFileSnapshot) -> [DiffRowSnapshot] {
+        rowBuilder.projectedRows(file.rows, mode: renderingMode)
+    }
+
 }
