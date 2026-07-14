@@ -1064,6 +1064,11 @@
       "absolutePath": "مسار مطلق",
       "cwdAbsolute": "يُستخدم كما هو",
       "fullExample": "مثال كامل",
+      "wsFieldParams": "القيم الافتراضية لمتغيرات قالب مساحة العمل",
+      "parameterizedLayouts": "تخطيطات مساحة عمل ذات معلمات",
+      "parameterizedLayoutsDesc": "استخدم <variable>{variableSyntax}</variable> أو <defaultValue>{defaultSyntax}</defaultValue> في العناوين والمسارات وقيم البيئة وأوامر الإعداد والطرفية وروابط المتصفح. أضف <escaped>{escapedSyntax}</escaped> لإبقاء العنصر النائب حرفياً. يوفر كائن <params>params</params> قيماً افتراضية قابلة لإعادة الاستخدام.",
+      "parameterizedLayoutsPrecedence": "ترتيب الحل هو <explicit>قيم الاستدعاء الصريحة</explicit>، ثم افتراضيات <params>params</params>، ثم <env>env</env> الحرفية لمساحة العمل، ثم <process>بيئة عملية cmux</process>، وأخيراً <inline>الافتراضي المضمّن</inline>. تؤدي القيم المطلوبة المفقودة إلى إلغاء التشغيل كله قبل إنشاء أي مساحة عمل.",
+      "parameterizedLayoutsCLI": "استخدم <paramValue>--param KEY=VALUE</paramValue> أو <paramEnv>--param KEY</paramEnv> مع <workspaceCreate>cmux workspace create</workspaceCreate> و <layoutOpen>cmux layout open</layoutOpen>. يستورد النموذج بلا قيمة متغير الصدفة المستدعية. ترسل عملاء المقبس template_params، وتعيد القيم المفقودة <missing>missing_parameters</missing>.",
       "restartNew": "إنشاء مساحة عمل جديدة (الافتراضي)"
     },
     "keyboardShortcuts": {

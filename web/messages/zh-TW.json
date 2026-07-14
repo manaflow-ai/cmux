@@ -1064,6 +1064,11 @@
       "absolutePath": "絕對路徑",
       "cwdAbsolute": "按原樣使用",
       "fullExample": "完整範例",
+      "wsFieldParams": "workspace 範本變數的預設值",
+      "parameterizedLayouts": "參數化 workspace 版面配置",
+      "parameterizedLayoutsDesc": "可在 workspace 與 surface 的標題、路徑、環境值、設定命令、終端命令及瀏覽器 URL 中使用 <variable>{variableSyntax}</variable> 或 <defaultValue>{defaultSyntax}</defaultValue>。加上 <escaped>{escapedSyntax}</escaped> 前綴可保留字面預留位置。<params>params</params> 物件提供可重複使用的預設值。",
+      "parameterizedLayoutsPrecedence": "解析順序為：<explicit>明確呼叫值</explicit>、<params>params</params> 預設值、workspace 的字面 <env>env</env>、<process>cmux 程序環境</process>，最後是<inline>內嵌預設值</inline>。缺少必要值時，會在建立任何 workspace 前中止整個啟動。",
+      "parameterizedLayoutsCLI": "在 <workspaceCreate>cmux workspace create</workspaceCreate> 與 <layoutOpen>cmux layout open</layoutOpen> 中使用 <paramValue>--param KEY=VALUE</paramValue> 或 <paramEnv>--param KEY</paramEnv>。無值形式會匯入呼叫 shell 的變數。Socket 用戶端傳送 template_params；缺少值時回傳 <missing>missing_parameters</missing>。",
       "restartNew": "建立新的 workspace（預設）"
     },
     "keyboardShortcuts": {

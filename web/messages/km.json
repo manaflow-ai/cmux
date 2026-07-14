@@ -1064,6 +1064,11 @@
       "absolutePath": "ផ្លូវដាច់ខាត",
       "cwdAbsolute": "ប្រើដូចដែលមាន",
       "fullExample": "ឧទាហរណ៍ពេញលេញ",
+      "wsFieldParams": "តម្លៃលំនាំដើមសម្រាប់អថេរគំរូ workspace",
+      "parameterizedLayouts": "ប្លង់ workspace ដែលមានប៉ារ៉ាម៉ែត្រ",
+      "parameterizedLayoutsDesc": "ប្រើ <variable>{variableSyntax}</variable> ឬ <defaultValue>{defaultSyntax}</defaultValue> ក្នុងចំណងជើង ផ្លូវ តម្លៃបរិស្ថាន ពាក្យបញ្ជារៀបចំ ពាក្យបញ្ជា terminal និង URL browser។ ដាក់ <escaped>{escapedSyntax}</escaped> ខាងមុខ ដើម្បីរក្សាកន្លែងជំនួសជាអក្សរដើម។ វត្ថុ <params>params</params> ផ្តល់តម្លៃលំនាំដើមដែលអាចប្រើឡើងវិញ។",
+      "parameterizedLayoutsPrecedence": "លំដាប់ដោះស្រាយគឺ <explicit>តម្លៃហៅច្បាស់លាស់</explicit> បន្ទាប់មកលំនាំដើម <params>params</params>, <env>env</env> workspace ជាក់ស្តែង, <process>បរិស្ថានដំណើរការ cmux</process> និង <inline>លំនាំដើមក្នុង placeholder</inline>។ បើខ្វះតម្លៃចាំបាច់ ការបើកទាំងមូលត្រូវបោះបង់មុនបង្កើត workspace។",
+      "parameterizedLayoutsCLI": "ប្រើ <paramValue>--param KEY=VALUE</paramValue> ឬ <paramEnv>--param KEY</paramEnv> ជាមួយ <workspaceCreate>cmux workspace create</workspaceCreate> និង <layoutOpen>cmux layout open</layoutOpen>។ ទម្រង់គ្មានតម្លៃនាំចូលអថេរពី shell ដែលហៅ។ Socket client ផ្ញើ template_params; តម្លៃខ្វះត្រឡប់ <missing>missing_parameters</missing>។",
       "restartNew": "បង្កើត workspace ថ្មី (លំនាំដើម)"
     },
     "keyboardShortcuts": {

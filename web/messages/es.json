@@ -1064,6 +1064,11 @@
       "absolutePath": "Ruta absoluta",
       "cwdAbsolute": "se usa tal cual",
       "fullExample": "Ejemplo completo",
+      "wsFieldParams": "Valores predeterminados para variables de plantilla del workspace",
+      "parameterizedLayouts": "Layouts de workspace parametrizados",
+      "parameterizedLayoutsDesc": "Usa <variable>{variableSyntax}</variable> o <defaultValue>{defaultSyntax}</defaultValue> en títulos, rutas, valores de entorno, comandos de preparación, comandos de terminal y URL del navegador. Anteponer <escaped>{escapedSyntax}</escaped> conserva un marcador literalmente. El objeto <params>params</params> proporciona valores predeterminados reutilizables.",
+      "parameterizedLayoutsPrecedence": "El orden de resolución es <explicit>valores explícitos de la invocación</explicit>, valores de <params>params</params>, <env>env</env> literal del workspace, el <process>entorno del proceso cmux</process> y el <inline>valor predeterminado en línea</inline>. Si falta un valor obligatorio, se cancela todo el lanzamiento antes de crear el workspace.",
+      "parameterizedLayoutsCLI": "Usa <paramValue>--param KEY=VALUE</paramValue> o <paramEnv>--param KEY</paramEnv> con <workspaceCreate>cmux workspace create</workspaceCreate> y <layoutOpen>cmux layout open</layoutOpen>. La forma sin valor importa la variable del shell invocador. Los clientes de socket envían template_params; los valores ausentes devuelven <missing>missing_parameters</missing>.",
       "restartNew": "Crear un workspace nuevo (por defecto)"
     },
     "keyboardShortcuts": {

@@ -1064,6 +1064,11 @@
       "absolutePath": "Absolut sti",
       "cwdAbsolute": "bruges som den er",
       "fullExample": "Fuldt eksempel",
+      "wsFieldParams": "Standardværdier for workspace-skabelonvariabler",
+      "parameterizedLayouts": "Parameteriserede workspace-layouts",
+      "parameterizedLayoutsDesc": "Brug <variable>{variableSyntax}</variable> eller <defaultValue>{defaultSyntax}</defaultValue> i titler, stier, miljøværdier, opsætningskommandoer, terminalkommandoer og browser-URL'er. Sæt <escaped>{escapedSyntax}</escaped> foran for at bevare en pladsholder bogstaveligt. Objektet <params>params</params> angiver genanvendelige standarder.",
+      "parameterizedLayoutsPrecedence": "Rækkefølgen er <explicit>eksplicitte kaldværdier</explicit>, standarder i <params>params</params>, bogstaveligt workspace-<env>env</env>, <process>cmux-processens miljø</process> og til sidst <inline>inline-standarden</inline>. Manglende obligatoriske værdier afbryder hele starten, før et workspace oprettes.",
+      "parameterizedLayoutsCLI": "Brug <paramValue>--param KEY=VALUE</paramValue> eller <paramEnv>--param KEY</paramEnv> med <workspaceCreate>cmux workspace create</workspaceCreate> og <layoutOpen>cmux layout open</layoutOpen>. Formen uden værdi importerer variablen fra den kaldende shell. Socketklienter sender template_params; manglende værdier returnerer <missing>missing_parameters</missing>.",
       "restartNew": "Opret et nyt workspace (standard)"
     },
     "keyboardShortcuts": {
