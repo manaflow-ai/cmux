@@ -35,7 +35,7 @@ struct ChatArtifactViewerRouteView: View {
                     }
                 }
                 #if os(iOS)
-                if model.state == .text {
+                if shouldShowTextJumpControls {
                     ToolbarItemGroup(placement: .primaryAction) {
                         Button {
                             topRequestID += 1
@@ -54,6 +54,33 @@ struct ChatArtifactViewerRouteView: View {
                         } label: {
                             Label(jumpToBottomTitle, systemImage: "arrow.down.to.line")
                         }
+                    }
+                }
+                if model.state == .markdown,
+                   model.markdownPresentation.isRenderedAvailable {
+                    ToolbarItem(placement: .primaryAction) {
+                        Picker(
+                            String(
+                                localized: "chat.artifact.markdown.view",
+                                defaultValue: "Markdown view",
+                                bundle: .module
+                            ),
+                            selection: markdownModeBinding
+                        ) {
+                            Text(String(
+                                localized: "chat.artifact.markdown.raw",
+                                defaultValue: "Raw",
+                                bundle: .module
+                            ))
+                            .tag(ChatArtifactMarkdownMode.raw)
+                            Text(String(
+                                localized: "chat.artifact.markdown.rendered",
+                                defaultValue: "Rendered",
+                                bundle: .module
+                            ))
+                            .tag(ChatArtifactMarkdownMode.rendered)
+                        }
+                        .pickerStyle(.segmented)
                     }
                 }
                 #endif
@@ -145,22 +172,18 @@ struct ChatArtifactViewerRouteView: View {
                 if !model.textReachedEOF {
                     streamingProgressHeader
                 }
-                #if canImport(UIKit)
-                ChatArtifactTextView(
-                    documentID: path,
-                    chunks: model.textChunks,
-                    topRequestID: topRequestID,
-                    bottomRequestID: bottomRequestID
-                )
-                #else
-                ScrollView {
-                    Text(model.renderedText)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
+                rawTextView
+            }
+        case .markdown:
+            VStack(spacing: 0) {
+                if !model.textReachedEOF {
+                    streamingProgressHeader
                 }
-                #endif
+                if model.markdownPresentation.mode == .rendered {
+                    ChatArtifactMarkdownView(markdown: model.renderedText)
+                } else {
+                    rawTextView
+                }
             }
         case .binary(let stat):
             unavailableView(
@@ -217,6 +240,26 @@ struct ChatArtifactViewerRouteView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+
+    @ViewBuilder
+    private var rawTextView: some View {
+        #if canImport(UIKit)
+        ChatArtifactTextView(
+            documentID: path,
+            chunks: model.textChunks,
+            topRequestID: topRequestID,
+            bottomRequestID: bottomRequestID
+        )
+        #else
+        ScrollView {
+            Text(model.renderedText)
+                .font(.system(.body, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+        }
+        #endif
     }
 
     private func unavailableView(
@@ -277,6 +320,18 @@ struct ChatArtifactViewerRouteView: View {
 
     private var displayName: String {
         URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private var markdownModeBinding: Binding<ChatArtifactMarkdownMode> {
+        Binding(
+            get: { model.markdownPresentation.mode },
+            set: { model.selectMarkdownMode($0) }
+        )
+    }
+
+    private var shouldShowTextJumpControls: Bool {
+        model.state == .text
+            || (model.state == .markdown && model.markdownPresentation.mode == .raw)
     }
 
     #if os(iOS)

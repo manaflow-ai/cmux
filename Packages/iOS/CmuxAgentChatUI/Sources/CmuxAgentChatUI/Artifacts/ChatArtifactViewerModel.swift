@@ -12,6 +12,7 @@ final class ChatArtifactViewerModel {
     private(set) var totalBytes: Int64?
     private(set) var textReachedEOF = false
     private(set) var activePath: String?
+    private(set) var markdownPresentation = ChatArtifactMarkdownPresentation(byteCount: 0)
     private let temporaryFileStore: ChatArtifactTemporaryFileStore
     private var temporaryFileURL: URL?
 
@@ -58,8 +59,13 @@ final class ChatArtifactViewerModel {
             }
 
             switch route {
-            case .text, .markdown:
-                try await streamText(path: path, loader: loader)
+            case .text:
+                try await streamText(path: path, isMarkdown: false, loader: loader)
+            case .markdown:
+                markdownPresentation = ChatArtifactMarkdownPresentation(
+                    byteCount: loadedStat.size
+                )
+                try await streamText(path: path, isMarkdown: true, loader: loader)
             case .image:
                 try await loadImage(path: path, loader: loader)
             case .pdf:
@@ -118,6 +124,10 @@ final class ChatArtifactViewerModel {
         await removeTemporaryFile()
     }
 
+    func selectMarkdownMode(_ mode: ChatArtifactMarkdownMode) {
+        markdownPresentation.select(mode)
+    }
+
     private func reset(for path: String) {
         activePath = path
         state = .loading
@@ -125,26 +135,41 @@ final class ChatArtifactViewerModel {
         fetchedBytes = 0
         totalBytes = nil
         textReachedEOF = false
+        markdownPresentation = ChatArtifactMarkdownPresentation(byteCount: 0)
     }
 
-    private func streamText(path: String, loader: ChatArtifactLoader) async throws {
+    private func streamText(
+        path: String,
+        isMarkdown: Bool,
+        loader: ChatArtifactLoader
+    ) async throws {
         let decoder = UTF8ChunkDecoder()
         try await loader.stream(path: path) { chunk in
             try Task.checkCancellation()
             let decoded = try await decoder.decode(chunk.data, eof: chunk.eof)
             try Task.checkCancellation()
-            await self.receiveText(decoded, chunk: chunk, path: path)
+            await self.receiveText(
+                decoded,
+                chunk: chunk,
+                path: path,
+                isMarkdown: isMarkdown
+            )
         }
     }
 
-    private func receiveText(_ text: String, chunk: ChatArtifactChunk, path: String) {
+    private func receiveText(
+        _ text: String,
+        chunk: ChatArtifactChunk,
+        path: String,
+        isMarkdown: Bool
+    ) {
         guard path == activePath else { return }
         if !text.isEmpty {
             textChunks.append(text)
         }
         updateProgress(for: chunk)
         textReachedEOF = chunk.eof
-        state = .text
+        state = isMarkdown ? .markdown : .text
     }
 
     private func loadImage(path: String, loader: ChatArtifactLoader) async throws {

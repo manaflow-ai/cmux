@@ -294,6 +294,41 @@ struct ChatArtifactViewerModelTests {
         #expect(!FileManager.default.fileExists(atPath: acceptedURL.path))
     }
 
+    @Test
+    @MainActor
+    func markdownStreamsAsTextAndAppliesRawOnlyThreshold() async {
+        let markdown = Data("# Heading\n\nBody".utf8)
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { _ in
+                ChatArtifactStat(
+                    exists: true,
+                    isDirectory: false,
+                    size: ChatArtifactMarkdownPresentation.maximumRenderedByteCount + 1,
+                    modifiedAt: Date(timeIntervalSince1970: 0),
+                    kind: .text,
+                    mimeType: "text/markdown"
+                )
+            },
+            stream: { _, onChunk in
+                try await onChunk(ChatArtifactChunk(
+                    data: markdown,
+                    offset: 0,
+                    totalSize: Int64(markdown.count),
+                    eof: true
+                ))
+            }
+        )
+        let model = ChatArtifactViewerModel()
+
+        await model.load(path: "/remote/README.md", loader: loader)
+
+        #expect(model.state == .markdown)
+        #expect(model.renderedText == "# Heading\n\nBody")
+        #expect(model.markdownPresentation.mode == .raw)
+        #expect(!model.markdownPresentation.isRenderedAvailable)
+    }
+
     private static func loader(
         totalSize: Int64,
         stream: @escaping @Sendable (
