@@ -179,20 +179,27 @@ struct UnifiedFileExplorerTests {
         let outlineResponder = window.firstResponder
         state.mode = .find
         container.updatePresentation(.unified)
-        #expect(!container.searchResultsView.isHidden)
+        #expect(container.searchResultsView.isHidden)
         #expect(searchController.searchRequests.count == searchCountBeforeFindActivation)
         #expect(container.searchSnapshot == snapshot)
         #expect(window.firstResponder === outlineResponder)
         searchController.emitsEmptySnapshotOnSearch = false
 
+        _ = window.makeFirstResponder(nil)
+        container.updatePresentation(.unified)
+        #expect(!container.searchResultsView.isHidden)
         #expect(window.makeFirstResponder(container.searchResultsView))
         let searchResultsResponder = window.firstResponder
         let cancelCountBeforeFilesActivation = searchController.cancelRequests.count
         state.mode = .files
         container.updatePresentation(.unified)
-        #expect(container.searchResultsView.isHidden)
+        #expect(!container.searchResultsView.isHidden)
         #expect(window.firstResponder === searchResultsResponder)
-        #expect(searchController.cancelRequests.count == cancelCountBeforeFilesActivation + 1)
+        #expect(searchController.cancelRequests.count == cancelCountBeforeFilesActivation)
+
+        _ = window.makeFirstResponder(nil)
+        container.updatePresentation(.unified)
+        #expect(container.searchResultsView.isHidden)
         #expect(searchController.cancelRequests.last == false)
 
         let searchCountBeforeHiddenRevision = searchController.searchRequests.count
