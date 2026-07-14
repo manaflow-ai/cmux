@@ -7,11 +7,11 @@ import type { ScreenView } from "../lib/tree";
 import { contextMenuReducer } from "../lib/contextMenu";
 import { renameCanCommit, renameReducer } from "../lib/rename";
 import { splitDividerTarget, splitRatioFromPointer, splitRatioToCommit } from "../lib/splitDrag";
-import { useAttachedTerminal } from "../hooks/useAttachedTerminal";
 import { useContextTrigger } from "../hooks/useContextTrigger";
+import { ByteTerminal } from "./ByteTerminal";
 import { ContextMenu } from "./ContextMenu";
-import { ExtraKeysBar } from "./ExtraKeysBar";
 import { InlineRename } from "./InlineRename";
+import { RenderTerminal } from "./RenderTerminal";
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
@@ -121,29 +121,9 @@ function PaneLeaf({
     (error: Error) => setErrorState({ client, surface, message: error.message }),
     [client, surface],
   );
-  const { terminalRef, focused, foreignSize } = useAttachedTerminal({ client, surface, onError: reportError });
   const terminalError = errorState !== null && errorState.client === client && errorState.surface === surface
     ? errorState.message
     : null;
-  const matchingClients = foreignSize === null || surface === null
-    ? []
-    : clients.filter((candidate) => (
-      !candidate.self
-      && candidate.sizes.some((size) => (
-        size.surface === surface
-        && size.cols === foreignSize.cols
-        && size.rows === foreignSize.rows
-      ))
-    ));
-  const foreignSizeHint = foreignSize === null
-    ? null
-    : matchingClients.length === 1
-      ? t("foreignSizeNamed", {
-          name: matchingClients[0]!.name || t("unnamed"),
-          cols: foreignSize.cols,
-          rows: foreignSize.rows,
-        })
-      : t("foreignSizeGeneric", { cols: foreignSize.cols, rows: foreignSize.rows });
   const commitPaneRename = () => {
     if (!renameCanCommit(rename)) return;
     onRenamePane(paneId, rename.value.trim());
@@ -153,7 +133,7 @@ function PaneLeaf({
   return (
     <section
       aria-label={t("pane", { number: paneId })}
-      className={`terminal-panel${active ? " active-pane" : ""}${focused ? " terminal-focused" : ""}`}
+      className={`terminal-panel${active ? " active-pane" : ""}`}
       {...contextTrigger}
       onPointerDown={(event) => {
         startLongPress(event);
@@ -184,21 +164,29 @@ function PaneLeaf({
         ))}
         <button className="new-tab" aria-label={t("newTab")} onClick={() => onNewTab(paneId)} type="button">+</button>
       </div>
-      <div className="terminal-stage">
-        {surface !== null && (
-          <div className={`terminal-host${foreignSize === null ? "" : " foreign-sized"}`} ref={terminalRef} />
-        )}
-        {foreignSizeHint !== null && <div className="foreign-size-hint">{foreignSizeHint}</div>}
-        {!tab && <div className="terminal-empty">{t("noSurface")}</div>}
-        {tab?.kind === "browser" && <div className="terminal-empty">{t("browserSurface")}</div>}
-        {terminalError && <div className="terminal-error" role="alert">{terminalError}</div>}
-      </div>
-      <ExtraKeysBar
-        visible={focused && client !== null && surface !== null}
-        onSend={(text) => {
-          if (client !== null && surface !== null) void client.send(surface, { text }).catch(reportError);
-        }}
-      />
+      {surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
+        <RenderTerminal
+          client={client}
+          clients={clients}
+          surface={surface}
+          error={terminalError}
+          onError={reportError}
+        />
+      ) : surface !== null ? (
+        <ByteTerminal
+          client={client}
+          clients={clients}
+          surface={surface}
+          error={terminalError}
+          onError={reportError}
+        />
+      ) : (
+        <div className="terminal-stage">
+          {!tab && <div className="terminal-empty">{t("noSurface")}</div>}
+          {tab?.kind === "browser" && <div className="terminal-empty">{t("browserSurface")}</div>}
+          {terminalError && <div className="terminal-error" role="alert">{terminalError}</div>}
+        </div>
+      )}
       {menu.open && (
         <ContextMenu
           point={menu.point}
