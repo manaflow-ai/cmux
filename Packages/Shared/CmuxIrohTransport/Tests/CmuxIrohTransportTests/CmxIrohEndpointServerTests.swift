@@ -164,6 +164,61 @@ struct CmxIrohEndpointServerTests {
     }
 
     @Test
+    func admittedHandlerOutlivesPendingAdmissionDeadline() async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "8", count: 64)
+        )
+        let remoteIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "9", count: 64)
+        )
+        let endpoint = TestAcceptingIrohEndpoint(identity: localIdentity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try CmxIrohEndpointConfiguration(
+                secretKey: CmxIrohSecretKey(bytes: Data(repeating: 8, count: 32)),
+                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                managedRelayURLs: [],
+                relays: []
+            )
+        )
+        _ = try await supervisor.activate()
+        let clock = EndpointServerManualClock()
+        let blocker = EndpointServerHandlerBlocker()
+        let recorder = EndpointServerRecorder()
+        let server = CmxIrohEndpointServer(
+            supervisor: supervisor,
+            admissionTimeout: 15,
+            clock: clock
+        ) { connection, generation, markAdmitted in
+            await recorder.record(
+                identity: await connection.remoteIdentity(),
+                generation: generation
+            )
+            #expect(await markAdmitted())
+            await blocker.wait()
+        }
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: []
+        )
+        var closes = await connection.closeEvents().makeAsyncIterator()
+
+        await server.start()
+        await endpoint.enqueue(connection)
+        #expect(await recorder.next().identity == remoteIdentity)
+        await clock.waitUntilSleeping()
+        await clock.fire()
+
+        #expect(await connection.observedCloseCallCount() == 0)
+        await server.stop()
+        let close = try #require(await closes.next())
+        #expect(close.reason == "server_stopped")
+
+        await blocker.releaseAll()
+        await supervisor.deactivate()
+    }
+
+    @Test
     func oneEndpointIdentityCannotConsumeEveryPendingAdmissionSlot() async throws {
         let localIdentity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "e", count: 64)
