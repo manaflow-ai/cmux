@@ -798,7 +798,7 @@ extension AppDelegate {
         return scrollView
     }
 
-    private func showCmuxSSHURLParseError(_ error: CmuxSSHURLParseError) {
+    func showCmuxSSHURLParseError(_ error: CmuxSSHURLParseError) {
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = String(
@@ -824,7 +824,7 @@ extension AppDelegate {
         alert.runModal()
     }
 
-    private func showCmuxTextURLParseError(_ error: CmuxTextURLParseError) {
+    func showCmuxTextURLParseError(_ error: CmuxTextURLParseError) {
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = String(
