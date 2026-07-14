@@ -3526,7 +3526,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 displaySnapshot: displaySnapshot,
                 targetDisplay: targetDisplay
             ) {
-                return frame
+                return preservingOrClampingExactFrame(frame, targetDisplay: targetDisplay, availableDisplays: availableDisplays, minWidth: minWidth, minHeight: minHeight)
             }
             return resolvedWindowFrame(
                 frame: frame,
@@ -13065,7 +13065,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let paletteUsesInlineTextHandling = commandPaletteShortcutWindow.map { isCommandPaletteMultilineTextResponderActive(in: $0) } ?? false
 
-        let paletteSelectionDelta = commandPaletteSelectionDeltaForKeyboardNavigation(flags: event.modifierFlags, chars: chars, keyCode: event.keyCode, nextShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext), previousShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious))
+        let paletteSelectionDelta = contextAwareCommandPaletteSelectionDelta(for: event)
 
         if shouldRouteCommandPaletteSelectionNavigation(
             delta: paletteSelectionDelta,

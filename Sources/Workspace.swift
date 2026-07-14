@@ -3150,6 +3150,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
+        PortScanner.shared.scheduleAgentWorkspaceUnregistration(workspaceId: id)
     }
 
     func refreshSplitButtonTooltips() {
@@ -3366,6 +3367,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var portalRenderingEnabled = true
     var portalPresentationVisible = true
     private var agentHibernationAutoResumePresentationVisible = true
+    /// Mounted WorkspaceContentView hosts. The value records whether that visible host is input-active.
+    private var contentViewPresentationHosts: [UUID: Bool] = [:]
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     /// The pending non-focusing-split focus re-assert request (the value
@@ -4903,17 +4906,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
         syncRemotePortScanTTYs()
         recomputeListeningPorts()
-    }
-
-    func recomputeListeningPorts() {
-        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
-            .union(agentListeningPorts)
-            .union(remoteDetectedPorts)
-            .union(remoteForwardedPorts)
-        let next = unique.sorted()
-        if listeningPorts != next {
-            listeningPorts = next
-        }
     }
 
     func sidebarOrderedPanelIds() -> [UUID] {
@@ -8716,6 +8708,7 @@ final class Workspace: Identifiable, ObservableObject {
                 cleanupControllerSurfaceState: true
             )
         }
+        clearAllAgentPIDs(refreshPorts: false)
         pruneSurfaceMetadata(validSurfaceIds: [])
         syncRemotePortScanTTYs()
         recomputeListeningPorts()
@@ -9858,6 +9851,22 @@ final class Workspace: Identifiable, ObservableObject {
         agentHibernationAutoResumePresentationVisible = isVisible
         guard isVisible else { return }
         _ = resumeVisibleAgentHibernationPanels(panelIds: agentHibernationVisiblePanelIdsForCurrentLayout())
+    }
+
+    func setContentViewPresentationVisibility(
+        isVisible: Bool,
+        isInputActive: Bool,
+        hostId: UUID
+    ) {
+        if isVisible {
+            contentViewPresentationHosts[hostId] = isInputActive
+        } else {
+            contentViewPresentationHosts.removeValue(forKey: hostId)
+        }
+        setPortalPresentationVisible(!contentViewPresentationHosts.isEmpty)
+        setAgentHibernationAutoResumePresentationVisible(
+            contentViewPresentationHosts.values.contains(true)
+        )
     }
 
     // MARK: - Utility

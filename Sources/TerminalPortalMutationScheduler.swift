@@ -3,10 +3,11 @@ import Foundation
 @MainActor
 final class TerminalPortalMutationScheduler {
     private typealias Mutation = @MainActor () -> Void
+    private typealias DrainCompletion = @MainActor () -> Void
 
     private var cancellationGeneration: UInt64 = 0
     private var pendingMutation: Mutation?
-    private var pendingDrainCompletion: Mutation?
+    private var pendingDrainCompletion: DrainCompletion?
     private var drainTask: Task<Void, Never>?
 
     @discardableResult
@@ -42,9 +43,9 @@ final class TerminalPortalMutationScheduler {
             }
 
             guard self.cancellationGeneration == scheduledCancellationGeneration else { return }
-            self.drainTask = nil
             let completion = self.pendingDrainCompletion
             self.pendingDrainCompletion = nil
+            self.drainTask = nil
             completion?()
         }
         drainTask = task

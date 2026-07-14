@@ -191,8 +191,14 @@ extension TerminalSurface {
                     ownershipGeneration: ownershipGeneration,
                     retryWhenAvailable: retryWhenAvailable
                 ) else { return false }
+                // Publish the unusable lease before notifying waiters. A retry may
+                // synchronously claim the replacement and must remain the final lease.
                 activePortalHostLease = next
-                return true
+                if !Self.portalHostIsUsable(next) {
+                    allowPortalHostReplacementIfAuthoritative(hostId: hostId)
+                }
+                guard let committed = activePortalHostLease else { return false }
+                return committed.hostId == hostId && Self.portalHostIsUsable(committed)
             }
 
             guard Self.portalHostIsUsable(next) else {

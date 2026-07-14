@@ -142,6 +142,7 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
+    @State private var visibilityHostId = UUID()
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
@@ -339,9 +340,7 @@ struct WorkspaceContentView: View {
             logTheme(
                 "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) payloadFg=\(foregroundHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appFg=\(GhosttyApp.shared.defaultForegroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
             )
-            // Payload ordering can lag across rapid config/theme updates.
-            // Resolve from GhosttyApp.shared.defaultBackgroundColor to keep tabs aligned
-            // with Ghostty's current runtime theme.
+            // Resolve from Ghostty's runtime state because notification payload ordering can lag.
             refreshGhosttyAppearanceConfig(
                 reason: "ghosttyDefaultBackgroundDidChange",
                 backgroundEventId: eventId,
@@ -364,6 +363,9 @@ struct WorkspaceContentView: View {
             }
         }
         .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
+        // A workspace is a page: accept the parent proposal instead of
+        // contributing a hidden child's content-derived ideal to its ZStack.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             updateWorkspacePresentationVisibility()
         }
@@ -376,8 +378,11 @@ struct WorkspaceContentView: View {
             updateWorkspacePresentationVisibility()
         }
         .onDisappear {
-            workspace.setPortalPresentationVisible(false)
-            workspace.setAgentHibernationAutoResumePresentationVisible(false)
+            workspace.setContentViewPresentationVisibility(
+                isVisible: false,
+                isInputActive: false,
+                hostId: visibilityHostId
+            )
         }
     }
 
@@ -545,8 +550,11 @@ struct WorkspaceContentView: View {
     }
 
     private func updateWorkspacePresentationVisibility() {
-        workspace.setPortalPresentationVisible(isWorkspaceVisible)
-        workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
+        workspace.setContentViewPresentationVisibility(
+            isVisible: isWorkspaceVisible,
+            isInputActive: isWorkspaceInputActive,
+            hostId: visibilityHostId
+        )
     }
 
     private func refreshGhosttyAppearanceConfig(

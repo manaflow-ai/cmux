@@ -9876,6 +9876,8 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    var isVisibleInUI: Bool { surfaceView.isVisibleInUI }
+
     func setVisibleInUI(_ visible: Bool, refreshPolicy: TerminalPortalVisibilityRefreshPolicy) {
         let wasVisible = surfaceView.isVisibleInUI
         // Re-realize before marking visible so we never draw into a released swap chain.
@@ -9924,7 +9926,6 @@ final class GhosttySurfaceScrollView: NSView {
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
-
     var debugPortalVisibleInUI: Bool {
         surfaceView.isVisibleInUI
     }
@@ -12084,7 +12085,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // Reconcile current geometry without forcing an ancestor layout flush.
         TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
     }
-
     static func applyPortalMutation(
         host: TerminalPortalHostContainerView,
         hostedView: GhosttySurfaceScrollView,
@@ -12252,6 +12252,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 "visible=1 active=\(isActive ? 1 : 0)"
             )
 #endif
+        }
+        if hostWindowAttached, isBoundToCurrentHost {
+            terminalSurface.flushPendingManualSizeReportIfAttached()
         }
     }
 
