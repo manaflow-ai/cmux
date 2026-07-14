@@ -186,6 +186,41 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(store.notifications.contains { $0.tabId == restoredWorkspaceId })
     }
 
+    @MainActor
+    func testRestoringDuplicateWorkspaceSnapshotDoesNotStealLiveNotificationRows() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalNotificationStore = appDelegate.notificationStore
+        appDelegate.notificationStore = store
+        store.replaceNotificationsForTesting([])
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let source = Workspace()
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: source.id,
+            surfaceId: nil,
+            title: "Live source row",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 1),
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([notification])
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+
+        let duplicate = Workspace()
+        duplicate.restoreSessionSnapshot(snapshot)
+
+        XCTAssertEqual(store.notifications.count, 1)
+        XCTAssertEqual(store.notifications.first?.id, notification.id)
+        XCTAssertEqual(store.notifications.first?.tabId, source.id)
+        XCTAssertFalse(store.notifications.contains { $0.tabId == duplicate.id })
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

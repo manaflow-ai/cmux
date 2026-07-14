@@ -80,6 +80,34 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         XCTAssertEqual(bus.notificationQueueStateForTesting().1, ["Accepted after clear"])
     }
 
+    func testSurfaceAddressedAdmissionCannotCrossWorkspaceClearBoundary() async {
+        let bus = TerminalMutationBus.shared
+        let tabId = UUID()
+        let surfaceId = UUID()
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer { reset(bus) }
+        for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
+            XCTAssertTrue(bus.enqueueNotification(
+                tabId: tabId, surfaceId: surfaceId, title: "Seed \(index)", subtitle: "", body: ""
+            ))
+        }
+        let preClear = Task { @MainActor in
+            await AgentNotificationDelivery().enqueueReliably(
+                workspaceID: tabId, surfaceID: surfaceId, title: "Must not resurrect after workspace clear",
+                subtitle: "", body: "", category: nil, pending: false
+            )
+        }
+        await waitForReliableAdmissionBlock(bus)
+
+        bus.enqueueClearNotifications(forTabId: tabId)
+        bus.drainForBackpressure()
+
+        let preClearResult = await preClear.value
+        XCTAssertEqual(preClearResult, .cancelled)
+        XCTAssertFalse(bus.notificationQueueStateForTesting().1.contains("Must not resurrect after workspace clear"))
+    }
+
     func testMigratesAcrossSessionTransfer() async {
         let bus = TerminalMutationBus.shared
         let oldTabId = UUID()
@@ -191,7 +219,8 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         var results: [AgentNotificationDeliveryResult] = []
         for delivery in deliveries { results.append(await delivery.value) }
         XCTAssertEqual(results.filter { $0 == .accepted }.count, 16)
-        XCTAssertEqual(results.filter { $0 == .cancelled }.count, 1)
+        XCTAssertEqual(results.filter { $0 == .saturated }.count, 1)
+        XCTAssertEqual(results.filter { $0 == .cancelled }.count, 0)
     }
 
     private func waitForReliableAdmissionBlock(_ bus: TerminalMutationBus) async {

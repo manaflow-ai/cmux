@@ -31,7 +31,7 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(store.notificationsForUnreadNavigation.map(\.title) == ["First canonical row"])
     }
 
-    @Test func duplicateIdentityDegradesToFirstRowDuringBannerReconcile() {
+    @Test func coldRestoreDoesNotInferBannerOwnershipFromChronology() {
         let tabId = UUID()
         let surfaceId = UUID()
         let duplicateId = UUID()
@@ -47,7 +47,7 @@ struct NotificationRestoreBannerOwnershipTests {
 
         ownership.reconcile(previous: [], merged: [first, duplicate])
 
-        #expect(ownership.owner(tabId: tabId, surfaceId: surfaceId)?.title == "First canonical row")
+        #expect(ownership.owner(tabId: tabId, surfaceId: surfaceId) == nil)
     }
 
     @Test func transferCollisionDismissesDisplacedBannerOwner() {
@@ -59,6 +59,8 @@ struct NotificationRestoreBannerOwnershipTests {
         let destinationTabId = UUID()
         let sourceSurfaceId = UUID()
         let destinationSurfaceId = UUID()
+        let sourceSupersededId = UUID()
+        let destinationSupersededId = UUID()
         let sourceOwner = notification(
             id: UUID(), tabId: sourceTabId, surfaceId: sourceSurfaceId,
             title: "Source owner", createdAt: Date(timeIntervalSince1970: 10)
@@ -73,6 +75,14 @@ struct NotificationRestoreBannerOwnershipTests {
             } else {
                 UserDefaults.standard.removeObject(forKey: tombstoneKey)
             }
+            _ = store.flushSupersededPhoneDismissIDsForTesting(
+                tabId: sourceTabId,
+                surfaceId: sourceSurfaceId
+            )
+            _ = store.flushSupersededPhoneDismissIDsForTesting(
+                tabId: destinationTabId,
+                surfaceId: destinationSurfaceId
+            )
             store.reloadDismissedTombstonesForTesting()
             store.replaceNotificationsForTesting(previousNotifications)
         }
@@ -80,6 +90,16 @@ struct NotificationRestoreBannerOwnershipTests {
         UserDefaults.standard.removeObject(forKey: tombstoneKey)
         store.reloadDismissedTombstonesForTesting()
         store.replaceNotificationsForTesting([destinationOwner, sourceOwner])
+        store.stashSupersededPhoneDismissIDsForTesting(
+            [sourceSupersededId.uuidString],
+            tabId: sourceTabId,
+            surfaceId: sourceSurfaceId
+        )
+        store.stashSupersededPhoneDismissIDsForTesting(
+            [destinationSupersededId.uuidString],
+            tabId: destinationTabId,
+            surfaceId: destinationSurfaceId
+        )
 
         store.transferSessionNotificationState(
             fromTabId: sourceTabId,
@@ -95,7 +115,15 @@ struct NotificationRestoreBannerOwnershipTests {
         )
         let tombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey) ?? []
         #expect(tombstones.contains(sourceOwner.id.uuidString))
+        #expect(tombstones.contains(sourceSupersededId.uuidString))
         #expect(!tombstones.contains(destinationOwner.id.uuidString))
+        #expect(!tombstones.contains(destinationSupersededId.uuidString))
+        #expect(
+            store.flushSupersededPhoneDismissIDsForTesting(
+                tabId: destinationTabId,
+                surfaceId: destinationSurfaceId
+            ) == [destinationSupersededId.uuidString]
+        )
     }
 
     @Test func rebindCollisionDismissesDisplacedBannerOwner() {
@@ -107,6 +135,7 @@ struct NotificationRestoreBannerOwnershipTests {
         let destinationTabId = UUID()
         let surfaceId = UUID()
         let sourceSupersededId = UUID()
+        let destinationSupersededId = UUID()
         let sourceOwner = notification(
             id: UUID(), tabId: sourceTabId, surfaceId: surfaceId,
             title: "Source owner", createdAt: Date(timeIntervalSince1970: 10)
@@ -135,6 +164,11 @@ struct NotificationRestoreBannerOwnershipTests {
             tabId: sourceTabId,
             surfaceId: surfaceId
         )
+        store.stashSupersededPhoneDismissIDsForTesting(
+            [destinationSupersededId.uuidString],
+            tabId: destinationTabId,
+            surfaceId: surfaceId
+        )
 
         store.rebindSurfaceNotifications(
             fromTabId: sourceTabId,
@@ -152,6 +186,13 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(tombstones.contains(sourceOwner.id.uuidString))
         #expect(tombstones.contains(sourceSupersededId.uuidString))
         #expect(!tombstones.contains(destinationOwner.id.uuidString))
+        #expect(!tombstones.contains(destinationSupersededId.uuidString))
+        #expect(
+            store.flushSupersededPhoneDismissIDsForTesting(
+                tabId: destinationTabId,
+                surfaceId: surfaceId
+            ) == [destinationSupersededId.uuidString]
+        )
     }
 
     @Test func transferPreservesSourceConfinedBannerOwner() throws {

@@ -60,6 +60,50 @@ struct NotificationFeedScaleTests {
         #expect(indexes.latestByTabId[tabId]?.id == incoming.id)
     }
 
+    @Test
+    func singleRowReadStateChangesAvoidFullHistoryRebuildAndDiff() throws {
+        let store = TerminalNotificationStore.shared
+        let eventBus = CmuxEventBus.shared
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let notifications = (0..<10_000).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "History \(index)",
+                subtitle: "",
+                body: "",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: false
+            )
+        }.sorted(by: TerminalNotificationStore.notificationSortPrecedes)
+        let target = try #require(notifications.first)
+
+        store.replaceNotificationsForTesting(notifications)
+        eventBus.resetForTesting()
+        TerminalNotificationStore.resetFullIndexRebuildCountForTesting()
+        defer {
+            store.replaceNotificationsForTesting([])
+            eventBus.resetForTesting()
+        }
+
+        store.markRead(id: target.id)
+        #expect(TerminalNotificationStore.fullIndexRebuildCountForTesting == 0)
+        #expect(store.unreadNotificationCount == notifications.count - 1)
+        #expect(store.notifications.first(where: { !$0.isRead && $0.tabId == tabId })?.id == notifications[1].id)
+        #expect(store.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId))
+        let readEvents = eventBus.retainedSnapshot().compactMap { $0["name"] as? String }
+        #expect(readEvents == ["notification.read"])
+
+        eventBus.resetForTesting()
+        store.markUnread(id: target.id)
+        #expect(TerminalNotificationStore.fullIndexRebuildCountForTesting == 0)
+        #expect(store.unreadNotificationCount == notifications.count)
+        #expect(store.notifications.first(where: { !$0.isRead && $0.tabId == tabId })?.id == target.id)
+        #expect(eventBus.retainedSnapshot().isEmpty)
+    }
+
     private func verifyLiveInsertions(restoredCount: Int, liveCount: Int) {
         let store = TerminalNotificationStore.shared
         let eventBus = CmuxEventBus.shared
