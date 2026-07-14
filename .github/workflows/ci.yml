@@ -1,10 +1,7 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
   workflow_dispatch:
 
 permissions:
