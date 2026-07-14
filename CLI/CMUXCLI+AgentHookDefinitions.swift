@@ -445,6 +445,7 @@ extension CMUXCLI {
         // earlier integration attempts, and setup should be able to prune them.
         if def.name == "codex" {
             if isLegacyCodexProjectHookCommand(command)
+                || isLegacyCodexBundledDispatcher(command)
                 || isCmuxManagedCodexHookScript(command) {
                 return true
             }
@@ -483,6 +484,17 @@ extension CMUXCLI {
     private static func isLegacyCodexProjectHookCommand(_ command: String) -> Bool {
         let pattern = #"^\s*['\"]?[^'\"]*/\.codex/hooks/cmux-codex-fire-and-forget\.sh['\"]?\s+(session-start|prompt-submit|stop)\s*$"#
         return command.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    private static func isLegacyCodexBundledDispatcher(_ command: String) -> Bool {
+        guard command.contains("CMUX_BUNDLED_CLI_PATH"),
+              command.contains("cmux_cli=") else {
+            return false
+        }
+        return command.contains("hooks codex session-start")
+            || command.contains("hooks codex prompt-submit")
+            || command.contains("hooks codex stop")
+            || command.contains("hooks feed --source codex")
     }
 
     private static func isLegacyCmuxOwnedHookTokens(_ tokens: [String], for def: AgentHookDef) -> Bool {
