@@ -23,9 +23,8 @@ final class CmuxRunURLCoordinator {
 
     @discardableResult
     func handle(_ request: CmuxRunURLRequest) -> Bool {
-        let startsBeforeStartupRestore = request.placement == .workspace
-            && !appDelegate.didAttemptStartupSessionRestore
-            && !appDelegate.isApplyingSessionRestore
+        let startsBeforeStartupRestore = request.placement == .workspace &&
+            !appDelegate.didAttemptStartupSessionRestore && !appDelegate.isApplyingSessionRestore
         if Self.shouldDeferForStartupRestore(
             request: request,
             didAttemptRestore: appDelegate.didAttemptStartupSessionRestore,
@@ -45,7 +44,6 @@ final class CmuxRunURLCoordinator {
         if startsBeforeStartupRestore {
             appDelegate.deferInitialMainWindowBootstrapForExternalConfirmation()
         }
-
         appDelegate.isHandlingCmuxRunURLRequest = true
         Task { [self] in
             defer { appDelegate.isHandlingCmuxRunURLRequest = false }
@@ -58,16 +56,13 @@ final class CmuxRunURLCoordinator {
     }
 
     static func shouldDeferForStartupRestore(
-        request: CmuxRunURLRequest,
-        didAttemptRestore: Bool,
-        isApplyingRestore: Bool
+        request: CmuxRunURLRequest, didAttemptRestore: Bool, isApplyingRestore: Bool
     ) -> Bool {
         isApplyingRestore || (!didAttemptRestore && request.placement != .workspace)
     }
 
     private func resolvePlanConfirmAndExecute(
-        _ request: CmuxRunURLRequest,
-        resumesInitialBootstrapOnEarlyExit: Bool
+        _ request: CmuxRunURLRequest, resumesInitialBootstrapOnEarlyExit: Bool
     ) async {
         defer {
             if resumesInitialBootstrapOnEarlyExit {
