@@ -10,6 +10,7 @@ typedef struct {
 
 void CmuxAtomicBooleanInitialize(CmuxAtomicBooleanStorage *storage, bool initialValue);
 bool CmuxAtomicBooleanLoadRelaxed(const CmuxAtomicBooleanStorage *storage);
+bool CmuxAtomicBooleanLoadAcquire(const CmuxAtomicBooleanStorage *storage);
 void CmuxAtomicBooleanStoreRelease(CmuxAtomicBooleanStorage *storage, bool value);
 
 #endif

@@ -29,6 +29,15 @@ public final class AtomicBooleanGate: @unchecked Sendable {
         CmuxAtomicBooleanLoadRelaxed(storage)
     }
 
+    /// Returns the current value with acquire ordering.
+    ///
+    /// Use this when observing `true` activates behavior that must see a
+    /// preceding release-published transition before the caller proceeds.
+    @inline(__always)
+    public func loadAcquire() -> Bool {
+        CmuxAtomicBooleanLoadAcquire(storage)
+    }
+
     /// Publishes a new value with release memory ordering.
     ///
     /// - Parameter value: The value subsequent loads should observe.

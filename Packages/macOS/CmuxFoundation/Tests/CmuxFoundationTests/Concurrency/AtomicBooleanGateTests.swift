@@ -43,4 +43,15 @@ struct AtomicBooleanGateTests {
         gate.storeRelease(true)
         #expect(gate.loadRelaxed())
     }
+
+    @Test func acquireReaderObservesReleasePublishedActivation() async {
+        let gate = AtomicBooleanGate(false)
+        gate.storeRelease(true)
+
+        let observed = await Task.detached {
+            gate.loadAcquire()
+        }.value
+
+        #expect(observed)
+    }
 }
