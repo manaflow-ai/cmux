@@ -2256,57 +2256,42 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
-    /// The restore launcher script's shell dispatch must route nushell logins through
-    /// `/bin/sh -c` (nushell cannot parse the POSIX command that `*)`'s
-    /// `"$_cmux_resume_shell" -c` would hand it) while leaving the POSIX branches
-    /// untouched, and must still `exec -l` back into the user's nushell afterwards —
-    /// re-entering through the cmux `-e` bootstrap payload so the resumed surface's
-    /// shell keeps the cmux-cli-shims PATH re-front (a plain `exec -l nu` left the
-    /// resumed terminal shim-less because script-command surfaces skip the spawn-time
-    /// replacement command).
-    func testResumeLauncherScriptDispatchesNushellThroughBinSh() {
-        let lines = TerminalStartupReturnShellScript.commandThenReturnLines(
+    /// The one-shot launcher's user-login-shell execution must route nushell
+    /// logins through `/bin/sh -c` (nushell has no `-lc` flags and cannot parse
+    /// the POSIX command) while leaving the POSIX branch untouched.
+    func testOneShotUserLoginShellLauncherDispatchesNushellThroughBinSh() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-oneshot-nu-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let scriptURL = try XCTUnwrap(OneShotTerminalLauncherStore(
+            fileManager: .default,
+            temporaryDirectory: tmp
+        ).writeLauncherScript(
             command: "cd -- '/tmp/p' && 'claude' '--resume' 'SID'",
-            workingDirectory: "/tmp/p"
-        )
-        let script = lines.joined(separator: "\n")
+            workingDirectory: nil,
+            execution: .userLoginShell
+        ))
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
         XCTAssertTrue(
-            script.contains("nu) /bin/sh -c "),
-            "launcher script must dispatch nushell logins through /bin/sh: \(script)"
-        )
-        XCTAssertTrue(
-            script.contains(#"zsh|bash) "$_cmux_resume_shell" -lic "#),
-            "posix dispatch branches must stay untouched: \(script)"
+            script.contains("nu) exec /bin/sh -c "),
+            "launcher must dispatch nushell logins through /bin/sh: \(script)"
         )
         XCTAssertTrue(
-            script.contains(#"exec "$_cmux_resume_shell" -l -e "$_cmux_nu_bootstrap""#),
-            "launcher must exec nushell with the cmux bootstrap payload: \(script)"
-        )
-        XCTAssertTrue(
-            script.contains("cmux-nushell-bootstrap.nu"),
-            "launcher must rebuild the nushell payload from CMUX_SHELL_INTEGRATION_DIR: \(script)"
-        )
-        XCTAssertTrue(
-            script.contains(#"exec -l "$_cmux_resume_shell""#),
-            "launcher must keep the plain login-shell exec for POSIX shells: \(script)"
+            script.contains(#"*) exec "$SHELL" -lc "#),
+            "the POSIX dispatch branch must stay untouched: \(script)"
         )
     }
 
-    /// Regression for the first nushell dogfood round: the surface auto-resume
-    /// launcher (`startupCommandWithLauncherScript` → zsh script → `nu)` branch)
-    /// received an inline input that had already been wrapped for nushell typing
-    /// (`^/bin/sh -c "…"`), so `/bin/sh` printed
-    /// `"/bin/sh: ^/bin/sh: No such file or directory"`, the agent never resumed,
-    /// and the follow-up `exec -l nu` produced a shim-less shell. The inline input
-    /// must stay raw POSIX for script embedding; this drives the *actual generated
-    /// launcher script* through real zsh with a fake `nu` login shell and asserts
-    /// (a) the resume command reaches the cmux wrapper and (b) nushell is exec'd
-    /// with the cmux bootstrap payload.
-    func testSurfaceResumeLauncherScriptResumesAndReentersBootstrappedNushell() throws {
+    /// Regression for the first nushell dogfood round, adapted to the unified
+    /// one-shot launcher: a `.userLoginShell` script executed with a nushell
+    /// login shell must still run its POSIX payload (via /bin/sh) instead of
+    /// handing it to `nu -lc`, which would fail before the agent launches.
+    func testOneShotUserLoginShellLauncherRunsPosixPayloadUnderNushell() throws {
         let sandbox = try makeClaudeResumeWrapperShimSandbox()
         defer { sandbox.removeSandbox() }
 
-        // Fake nu login shell that records its argv instead of exec'ing.
+        // Fake nu login shell that records its argv; reaching it would mean
+        // the POSIX payload was (wrongly) handed to nushell.
         let fakeNuURL = sandbox.sandboxURL.appendingPathComponent("nu", isDirectory: false)
         let nuArgsURL = sandbox.sandboxURL.appendingPathComponent("nu-args.txt", isDirectory: false)
         try (
@@ -2315,87 +2300,44 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         ).write(to: fakeNuURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeNuURL.path)
 
-        // Stub bundle shell-integration dir with the nushell bootstrap +
-        // integration shape (content mechanics are covered by the Python tests
-        // against the real files).
-        let integrationDir = sandbox.sandboxURL.appendingPathComponent("shell-integration", isDirectory: true)
-        let nushellDir = integrationDir.appendingPathComponent("nushell", isDirectory: true)
-        try FileManager.default.createDirectory(at: nushellDir, withIntermediateDirectories: true)
-        try "# comment\n_cmux_bootstrap_marker\n".write(
-            to: nushellDir.appendingPathComponent("cmux-nushell-bootstrap.nu"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try "# integration stub\n".write(
-            to: nushellDir.appendingPathComponent("cmux-nushell-integration.nu"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let binding = SurfaceResumeBindingSnapshot(
-            kind: "claude",
-            command: "'claude' '--resume' 'claude-session-123'",
-            checkpointId: "claude-session-123",
-            source: "agent-hook",
-            autoResume: true
-        )
-        let launchCommand = try XCTUnwrap(binding.startupCommandWithLauncherScript(
+        let scriptURL = try XCTUnwrap(OneShotTerminalLauncherStore(
+            fileManager: .default,
             temporaryDirectory: sandbox.sandboxURL
+        ).writeLauncherScript(
+            command: "'claude' '--resume' 'claude-session-123'",
+            workingDirectory: nil,
+            execution: .userLoginShell
         ))
-        XCTAssertTrue(launchCommand.hasPrefix("/bin/zsh "), launchCommand)
-        XCTAssertFalse(
-            launchCommand.contains("^/bin/sh"),
-            "surface command must not carry the nushell typing envelope: \(launchCommand)"
-        )
-        let scriptPath = launchCommand
-            .replacingOccurrences(of: "/bin/zsh ", with: "")
-            .trimmingCharacters(in: CharacterSet(charactersIn: "'"))
-        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        XCTAssertFalse(
-            scriptContents.contains("^/bin/sh"),
-            "launcher script must embed raw POSIX, not the nushell typing envelope: \(scriptContents)"
-        )
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = [scriptPath]
+        process.arguments = [scriptURL.path]
         process.environment = [
             "HOME": sandbox.homeURL.path,
             "SHELL": fakeNuURL.path,
-            // The recording "real" claude is PATH-resolvable so the embedded
-            // command executes whether or not the binding rewrote it to the
-            // wrapper resolver token.
             "PATH": "\(sandbox.realBinDirectoryURL.path):/usr/bin:/bin",
             "CMUX_CLAUDE_WRAPPER_SHIM": sandbox.shimURL.path,
-            "CMUX_SHELL_INTEGRATION_DIR": integrationDir.path,
         ]
         let scriptStderr = Pipe()
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = scriptStderr
-        try runWithBoundedWait(process, shellDescription: "/bin/zsh \(scriptPath)")
+        try runWithBoundedWait(process, shellDescription: "/bin/zsh \(scriptURL.path)")
 
         let stderrText = String(
             data: scriptStderr.fileHandleForReading.readDataToEndOfFile(),
             encoding: .utf8
         ) ?? ""
-        XCTAssertFalse(
-            stderrText.contains("^/bin/sh"),
-            "the dogfood symptom: /bin/sh received the nushell typing envelope. stderr: \(stderrText)"
-        )
         let recorded = (try? String(contentsOf: sandbox.recordURL, encoding: .utf8)) ?? ""
         XCTAssertTrue(
             recorded.contains("--resume claude-session-123"),
-            "the resume command must execute through /bin/sh. Recorded: \(recorded.isEmpty ? "<none>" : recorded), stderr: \(stderrText)"
+            "the POSIX payload must execute through /bin/sh under a nushell login. "
+                + "Recorded: \(recorded.isEmpty ? "<none>" : recorded), stderr: \(stderrText)"
         )
         let nuArgs = (try? String(contentsOf: nuArgsURL, encoding: .utf8)) ?? ""
         XCTAssertTrue(
-            nuArgs.contains("_cmux_bootstrap_marker"),
-            "the launcher must exec nushell with the cmux bootstrap payload. nu argv: \(nuArgs.isEmpty ? "<none>" : nuArgs)"
-        )
-        XCTAssertTrue(
-            nuArgs.contains("cmux-nushell-integration.nu"),
-            "the payload must source the bundled integration. nu argv: \(nuArgs)"
+            nuArgs.isEmpty,
+            "the POSIX payload must not be handed to the nushell binary: \(nuArgs)"
         )
     }
 

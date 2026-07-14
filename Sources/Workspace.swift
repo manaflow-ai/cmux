@@ -11645,7 +11645,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: !isRemoteFork
+                  allowLauncherScript: !isRemoteFork,
+                  // Remote forks type into the remote host's shell: keep POSIX.
+                  dialect: isRemoteFork ? .posix : .loginShell
               ) else {
             return nil
         }
@@ -11678,7 +11680,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: remoteStartupCommand == nil
+                  allowLauncherScript: remoteStartupCommand == nil,
+                  // Remote forks type into the remote host's shell: keep POSIX.
+                  dialect: remoteStartupCommand == nil ? .loginShell : .posix
               ) else {
             return nil
         }
@@ -11745,7 +11749,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let startupInput = launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  allowLauncherScript: remoteStartupCommand == nil
+                  allowLauncherScript: remoteStartupCommand == nil,
+                  // Remote forks type into the remote host's shell: keep POSIX.
+                  dialect: remoteStartupCommand == nil ? .loginShell : .posix
               ) else {
             return nil
         }
