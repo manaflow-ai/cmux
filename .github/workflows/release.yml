@@ -197,6 +197,10 @@ jobs:
             else
               cache_usable=true
             fi
+          else
+            # A miss must be a cold build even if a reused workspace contains
+            # compiler data left by an interrupted prior job.
+            rm -rf "$cache_path"
           fi
           echo "cache_usable=$cache_usable" >> "$GITHUB_OUTPUT"
 
@@ -290,8 +294,20 @@ jobs:
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             COMPILATION_CACHE_ENABLE_CACHING="$compilation_cache_enabled" \
+            COMPILATION_CACHE_LIMIT_SIZE=3G \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO build
+
+      - name: Discard release compilation cache after build
+        if: steps.guard_release_assets.outputs.skip_all != 'true' && always()
+        run: |
+          set -euo pipefail
+          cache_path="build-universal/CompilationCache.noindex"
+          if [ -d "$cache_path" ]; then
+            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
+            echo "Discarding post-build release compilation cache (${cache_kib} KiB)"
+            rm -rf "$cache_path"
+          fi
 
       - name: Download universal Ghostty CLI helper
         if: steps.guard_release_assets.outputs.skip_all != 'true'
