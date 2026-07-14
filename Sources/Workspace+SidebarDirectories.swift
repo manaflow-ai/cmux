@@ -63,7 +63,16 @@ extension Workspace {
         }
         guard allowsLocalDirectoryFallback(panelId: panelId) else { return nil }
         return normalizedSidebarDirectory(localFallback)
-            ?? normalizedSidebarDirectory(terminalPanel(for: panelId)?.requestedWorkingDirectory)
+            ?? terminalRequestedWorkingDirectoryForLocalFallback(panelId: panelId)
+    }
+
+    func terminalRequestedWorkingDirectoryForLocalFallback(panelId: UUID?) -> String? {
+        guard let panelId,
+              allowsLocalDirectoryFallback(panelId: panelId),
+              !isRemoteTerminalSurface(panelId) else {
+            return nil
+        }
+        return normalizedSidebarDirectory(terminalPanel(for: panelId)?.requestedWorkingDirectory)
     }
 
     func allowsLocalDirectoryFallback(panelId: UUID) -> Bool {
@@ -99,8 +108,7 @@ extension Workspace {
     private func demotedRemoteDirectoryReplacement(excluding excludedPanelIds: Set<UUID>) -> String? {
         for panelId in sidebarOrderedPanelIds() where !excludedPanelIds.contains(panelId) {
             if let directory = normalizedSidebarDirectory(panelDirectories[panelId]) { return directory }
-            if allowsLocalDirectoryFallback(panelId: panelId),
-               let directory = normalizedSidebarDirectory(terminalPanel(for: panelId)?.requestedWorkingDirectory) {
+            if let directory = terminalRequestedWorkingDirectoryForLocalFallback(panelId: panelId) {
                 return directory
             }
         }

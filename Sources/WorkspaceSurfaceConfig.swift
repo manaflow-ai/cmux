@@ -1,6 +1,7 @@
 import Foundation
 import CmuxFoundation
 import CmuxTerminalCore
+import CmuxWorkspaces
 
 // CmuxSurfaceConfigTemplate and the surface runtime probes moved to
 // CmuxTerminalCore (SurfaceValues/CmuxSurfaceConfigTemplate.swift and
@@ -53,4 +54,92 @@ func cmuxInheritedSurfaceConfig(
 #endif
 
     return config
+}
+
+extension Workspace {
+    nonisolated static func terminalStartupConfigTemplate(
+        _ inheritedConfig: CmuxSurfaceConfigTemplate?,
+        waitAfterCommand: Bool = false,
+        clearWorkingDirectory: Bool = false
+    ) -> CmuxSurfaceConfigTemplate? {
+        guard waitAfterCommand || inheritedConfig != nil else { return nil }
+        var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+        if waitAfterCommand {
+            template.waitAfterCommand = true
+        }
+        if clearWorkingDirectory {
+            template.workingDirectory = nil
+        }
+        return template
+    }
+
+    nonisolated static func terminalStartupInheritedWorkingDirectoryCandidate(
+        _ inheritedWorkingDirectory: String?,
+        shellActivityState: PanelShellActivityState?,
+        isRemoteTerminalSurface: Bool,
+        isRestoreGuarded: Bool,
+        isAgentResumePendingOrRunning: Bool
+    ) -> String? {
+        guard shellActivityState == .promptIdle,
+              !isRemoteTerminalSurface,
+              !isRestoreGuarded,
+              !isAgentResumePendingOrRunning else { return nil }
+        return normalizedTerminalWorkingDirectory(inheritedWorkingDirectory)
+    }
+
+    func terminalStartupCandidateWorkingDirectory(
+        _ workingDirectory: String?,
+        sourcePanelId: UUID?
+    ) -> String? {
+        guard let sourcePanelId else { return nil }
+        return Self.terminalStartupInheritedWorkingDirectoryCandidate(
+            workingDirectory,
+            shellActivityState: panelShellActivityStates[sourcePanelId],
+            isRemoteTerminalSurface: isRemoteTerminalSurface(sourcePanelId),
+            isRestoreGuarded: hasRestoredGuardedWorkingDirectory(panelId: sourcePanelId),
+            isAgentResumePendingOrRunning: restoredAgentResumeStatesByPanelId[sourcePanelId] == .awaitingAutoResumeCommand ||
+                restoredAgentResumeStatesByPanelId[sourcePanelId] == .autoResumeCommandRunning
+        )
+    }
+
+    func liveForegroundWorkingDirectoryForTerminalStartup(sourcePanelId: UUID?) -> String? {
+        guard let sourcePanelId else { return nil }
+        guard Self.normalizedTerminalWorkingDirectory(panelDirectories[sourcePanelId]) == nil else { return nil }
+        return terminalStartupCandidateWorkingDirectory(
+            liveForegroundProcessWorkingDirectory(panelId: sourcePanelId),
+            sourcePanelId: sourcePanelId
+        )
+    }
+
+    func panelDirectoryForTerminalStartup(sourcePanelId: UUID?) -> String? {
+        guard let sourcePanelId,
+              allowsLocalDirectoryFallback(panelId: sourcePanelId) else { return nil }
+        return panelDirectories[sourcePanelId]
+    }
+
+    func currentDirectoryForTerminalStartup(sourcePanelId: UUID?) -> String? {
+        guard !usesRemoteDirectoryProvenance else {
+            return Self.safeLocalTerminalStartupWorkingDirectory()
+        }
+        guard sourcePanelId.map({ isRemoteTerminalSurface($0) }) != true else {
+            return Self.safeLocalTerminalStartupWorkingDirectory()
+        }
+        return currentDirectory
+    }
+
+    nonisolated static func safeLocalTerminalStartupWorkingDirectory() -> String {
+        normalizedTerminalWorkingDirectory(FileManager.default.homeDirectoryForCurrentUser.path) ?? NSHomeDirectory()
+    }
+
+    func inheritedTerminalWorkingDirectory(fromPanelId panelId: UUID?) -> String? {
+        guard let panelId, let terminalPanel = terminalPanel(for: panelId) else { return nil }
+        let surface = terminalPanel.surface
+        guard let sourceSurface = surface.surface else { return nil }
+        let config = cmuxInheritedSurfaceConfig(
+            sourceSurface: sourceSurface,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT
+        )
+        withExtendedLifetime((terminalPanel, surface)) {}
+        return config.workingDirectory
+    }
 }

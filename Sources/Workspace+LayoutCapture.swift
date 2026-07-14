@@ -176,7 +176,7 @@ extension Workspace {
         let candidates = [
             panelDirectories[panelId],
             terminalPanel(for: panelId)?.directory,
-            terminalPanel(for: panelId)?.requestedWorkingDirectory,
+            terminalRequestedWorkingDirectoryForLocalFallback(panelId: panelId),
         ]
         for candidate in candidates {
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

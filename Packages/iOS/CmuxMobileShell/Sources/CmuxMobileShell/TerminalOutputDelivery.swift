@@ -16,6 +16,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     }
 
     private var payload: Payload
+    var replayBarrierAckToken: UUID?
     var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
 
@@ -51,6 +52,15 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             bytes
         case .renderGrid(let frame):
             frame.vtPatchBytes()
+        }
+    }
+
+    var renderGridFrame: MobileTerminalRenderGridFrame? {
+        switch payload {
+        case .bytes:
+            return nil
+        case .renderGrid(let frame):
+            return frame
         }
     }
 }

@@ -465,8 +465,8 @@ extension Workspace {
                !restorableDirectory.isEmpty {
                 return restorableDirectory
             }
-            if let terminalPanel = panel as? TerminalPanel,
-               let requestedDirectory = terminalPanel.requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+            if panel is TerminalPanel,
+               let requestedDirectory = terminalRequestedWorkingDirectoryForLocalFallback(panelId: panelId)?.trimmingCharacters(in: .whitespacesAndNewlines),
                !requestedDirectory.isEmpty {
                 return requestedDirectory
             }
@@ -2376,6 +2376,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    func hasRestoredGuardedWorkingDirectory(panelId: UUID) -> Bool { restoredGuardedWorkingDirectoriesByPanelId[panelId] != nil }
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the lifetime of the resumed run (unlike the one-shot report guard
     /// above, which the first spurious report consumes) so split/new-tab cwd
@@ -3859,10 +3860,14 @@ final class Workspace: Identifiable, ObservableObject {
     /// three-tier order); the tiers are spelled out here so the public entry point is
     /// self-contained.
     func resolvedWorkingDirectory() -> String? {
-        let candidates = [
-            focusedPanelId.flatMap { panelDirectories[$0] },
-            focusedPanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
-            currentDirectory,
+        let candidates = focusedPanelId.map { panelId in
+            [
+                panelDirectories[panelId],
+                terminalRequestedWorkingDirectoryForLocalFallback(panelId: panelId),
+                usesRemoteDirectoryProvenance ? nil : currentDirectory,
+            ]
+        } ?? [
+            usesRemoteDirectoryProvenance ? nil : currentDirectory,
         ]
         for candidate in candidates {
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -4398,7 +4403,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Remote workspace directories are remote-host paths; no local per-directory config can apply.
         if usesRemoteDirectoryProvenance { return nil }
         if let panelId {
-            for candidate in [panelDirectories[panelId], terminalPanel(for: panelId)?.requestedWorkingDirectory] {
+            for candidate in [panelDirectories[panelId], terminalRequestedWorkingDirectoryForLocalFallback(panelId: panelId)] {
                 let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if !trimmed.isEmpty { return trimmed }
             }
@@ -6695,14 +6700,15 @@ final class Workspace: Identifiable, ObservableObject {
         lastTerminalConfigInheritanceFontPoints
     }
 
-    nonisolated private static func normalizedTerminalWorkingDirectory(_ workingDirectory: String?) -> String? {
+    nonisolated static func normalizedTerminalWorkingDirectory(_ workingDirectory: String?) -> String? {
         let trimmed = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }
 
     private func resolvedTerminalStartupWorkingDirectory(
         requestedWorkingDirectory: String?,
-        sourcePanelId: UUID?
+        sourcePanelId: UUID?,
+        inheritedWorkingDirectory: String? = nil
     ) -> String? {
         if let requested = Self.normalizedTerminalWorkingDirectory(requestedWorkingDirectory) {
             return requested
@@ -6712,46 +6718,30 @@ final class Workspace: Identifiable, ObservableObject {
             return rescued
         }
         return [
-            sourcePanelId.flatMap { panelDirectories[$0] },
-            sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
-            currentDirectory,
+            terminalStartupCandidateWorkingDirectory(inheritedWorkingDirectory, sourcePanelId: sourcePanelId),
+            panelDirectoryForTerminalStartup(sourcePanelId: sourcePanelId),
+            liveForegroundWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId),
+            terminalRequestedWorkingDirectoryForLocalFallback(panelId: sourcePanelId),
+            currentDirectoryForTerminalStartup(sourcePanelId: sourcePanelId),
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
     }
 
-    /// The foreground-process cwd read consulted by
-    /// ``resumedAgentPaneWorkingDirectoryRescue(panelId:)``. Nil selects the
-    /// libproc-backed default, which requires a live foreground process on the
-    /// pane's surface; injecting a substitute decouples callers from libproc.
+    /// Foreground-process cwd provider; nil uses libproc on the live foreground pid.
     var foregroundProcessWorkingDirectoryProvider: ((UUID) -> String?)?
 
-    /// Rescues split/new-tab cwd inheritance from a pane whose restored
-    /// auto-resume command is still running (#7155).
-    ///
-    /// While the resumed agent holds the pane's foreground the shell never
-    /// reaches a prompt, so the pane's tracked cwd cannot self-correct: the
-    /// one-shot restore guard (#6617) swallows only the first spurious
-    /// post-restore report, and any later stray report parks the tracked value
-    /// on the surface default (home) for the rest of the run. While that state
-    /// lasts, trust the tracked value only while it still equals the restored
-    /// session directory; otherwise prefer the live foreground process's
-    /// actual cwd (a resumed agent knows where it really is — e.g. Claude
-    /// restores its own cwd on resume), then the recorded session directory.
-    /// Local panes only: a remote pane's tracked cwd is a remote path that no
-    /// local process inspection or existence check can validate.
     private func resumedAgentPaneWorkingDirectoryRescue(panelId: UUID) -> String? {
-        guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return nil }
+        let resumeState = restoredAgentResumeStatesByPanelId[panelId]
+        guard resumeState == .awaitingAutoResumeCommand || resumeState == .autoResumeCommandRunning else { return nil }
         guard !isRemoteTerminalSurface(panelId) else { return nil }
-        // No recorded session directory means the resume launcher targets no
-        // directory of its own (e.g. a registration with a `.ignore` cwd
-        // policy, whose resume command never cds) — the tracked cwd is
-        // genuine, so there is nothing to rescue and the live foreground
-        // process must not be consulted either.
         guard let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
             restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
         ) else { return nil }
         let trackedDirectory = Self.normalizedTerminalWorkingDirectory(panelDirectories[panelId])
         if trackedDirectory == sessionDirectory { return nil }
-        for candidate in [liveForegroundProcessWorkingDirectory(panelId: panelId), sessionDirectory] {
+        let candidates = resumeState == .awaitingAutoResumeCommand
+            ? [sessionDirectory]
+            : [liveForegroundProcessWorkingDirectory(panelId: panelId), sessionDirectory]
+        for candidate in candidates {
             guard let candidate = Self.normalizedTerminalWorkingDirectory(candidate) else { continue }
             if candidate == trackedDirectory {
                 continue
@@ -6772,7 +6762,7 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
-    private func liveForegroundProcessWorkingDirectory(panelId: UUID) -> String? {
+    func liveForegroundProcessWorkingDirectory(panelId: UUID) -> String? {
         if let provider = foregroundProcessWorkingDirectoryProvider {
             return provider(panelId)
         }
@@ -6912,7 +6902,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func inheritedTerminalConfig(
         preferredPanelId: UUID? = nil,
-        inPane preferredPaneId: PaneID? = nil
+        inPane preferredPaneId: PaneID? = nil,
+        sourcePanelId: ((UUID) -> Void)? = nil
     ) -> CmuxSurfaceConfigTemplate? {
         // Walk candidates in priority order and use the first panel that still exposes
         // a runtime surface pointer.
@@ -6945,6 +6936,7 @@ final class Workspace: Identifiable, ObservableObject {
             if config.fontSize > 0 {
                 lastTerminalConfigInheritanceFontPoints = config.fontSize
             }
+            sourcePanelId?(terminalPanel.id)
             return config
         }
 
@@ -7081,12 +7073,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         guard let paneId = sourcePaneId else { return nil }
-        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        var inheritedConfigSourcePanelId: UUID?
+        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId) { inheritedConfigSourcePanelId = $0 }
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
+        let isRemoteStartupCommand = remoteStartupCommandForEnvironment != nil
         let newPanelID = UUID()
         let requestedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
         let effectiveRemotePTYSessionID = requestedRemotePTYSessionID
@@ -7101,15 +7095,9 @@ final class Workspace: Identifiable, ObservableObject {
             base: startupEnvironmentWithRemoteSession,
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
-        // Hold the pane open after the remote session ends so the user can read the
-        // "ssh exited …" message the startup script prints. Otherwise Ghostty silently
-        // respawns a local login shell when the command exits (the PTY falls through
-        // to $SHELL), and a dead VM looks identical to a healthy workspace with a
-        // local prompt — which is what we saw during dogfood.
+        let suppressInheritedStartupWorkingDirectory = isRemoteStartupCommand || (explicitInitialCommand != nil && isRemoteTerminalSurface(panelId))
         if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
+            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: suppressInheritedStartupWorkingDirectory)
         }
 #if DEBUG
         dlog(
@@ -7118,20 +7106,18 @@ final class Workspace: Identifiable, ObservableObject {
             "remoteCommand=\(remoteTerminalStartupCommand == nil ? 0 : 1)"
         )
 #endif
-
-        // Resolve cwd as explicit request, source reported cwd, source requested
-        // startup cwd, then workspace currentDirectory.
-        let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
-            requestedWorkingDirectory: workingDirectory,
-            sourcePanelId: panelId
-        )
-#if DEBUG
-        cmuxDebugLog(
-            "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
-        )
-#endif
-
-        // Create the new terminal panel.
+        let splitInheritedWorkingDirectory = isRemoteStartupCommand
+            ? nil
+            : (inheritedConfigSourcePanelId == panelId
+                ? inheritedConfig?.workingDirectory
+                : inheritedTerminalWorkingDirectory(fromPanelId: panelId))
+        let splitWorkingDirectory = isRemoteStartupCommand
+            ? Self.normalizedTerminalWorkingDirectory(workingDirectory) ?? Self.safeLocalTerminalStartupWorkingDirectory()
+            : resolvedTerminalStartupWorkingDirectory(
+                requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId,
+                inheritedWorkingDirectory: splitInheritedWorkingDirectory
+            )
+        inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, clearWorkingDirectory: true)
         let newPanel = TerminalPanel(
             id: newPanelID,
             workspaceId: id,
@@ -7149,7 +7135,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || effectiveRemotePTYSessionID != nil
+        let tracksRemoteTerminalSurface = isRemoteStartupCommand || effectiveRemotePTYSessionID != nil
         if let effectiveRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = effectiveRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: effectiveRemotePTYSessionID, restoredPanelId: newPanel.id)
@@ -7379,12 +7365,12 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
+        let isRemoteStartupCommand = remoteStartupCommandForEnvironment != nil
         let newPanelID = restoredSurfaceId ?? UUID()
         let requestedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
         let effectiveRemotePTYSessionID = requestedRemotePTYSessionID
@@ -7399,27 +7385,28 @@ final class Workspace: Identifiable, ObservableObject {
             base: startupEnvironmentWithRemoteSession,
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
-        // See the comment at the other call site: hold the PTY open after the remote
-        // command exits so the user sees the error rather than a silently-respawned
-        // local login shell.
-        if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
-        }
         let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
             ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
-        let requestedWorkingDirectory = inheritWorkingDirectoryFallback && startupCommand == nil
+        let shouldInheritWorkingDirectoryFallback = inheritWorkingDirectoryFallback && !isRemoteStartupCommand
+        var inheritedConfigSourcePanelId: UUID?
+        var inheritedConfig = inheritedTerminalConfig(inPane: paneId, sourcePanelId: { inheritedConfigSourcePanelId = $0 })
+        let inheritedWorkingDirectory = shouldInheritWorkingDirectoryFallback
+            ? (inheritedConfigSourcePanelId == fallbackSourcePanelId
+                ? inheritedConfig?.workingDirectory
+                : inheritedTerminalWorkingDirectory(fromPanelId: fallbackSourcePanelId))
+            : nil
+        let suppressInheritedStartupWorkingDirectory = isRemoteStartupCommand || (explicitInitialCommand != nil && inheritedConfigSourcePanelId.map { isRemoteTerminalSurface($0) } == true)
+        if startupCommand != nil {
+            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: suppressInheritedStartupWorkingDirectory)
+        }
+        let requestedWorkingDirectory = shouldInheritWorkingDirectoryFallback
             ? resolvedTerminalStartupWorkingDirectory(
-                requestedWorkingDirectory: workingDirectory,
-                sourcePanelId: fallbackSourcePanelId
+                requestedWorkingDirectory: workingDirectory, sourcePanelId: fallbackSourcePanelId,
+                inheritedWorkingDirectory: inheritedWorkingDirectory
             )
-            : workingDirectory
+            : (suppressInheritedStartupWorkingDirectory ? Self.normalizedTerminalWorkingDirectory(workingDirectory) ?? Self.safeLocalTerminalStartupWorkingDirectory() : workingDirectory)
+        inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, clearWorkingDirectory: true)
 
-        // Create new terminal panel. A restored panel reuses its persisted
-        // surface id (the panel/surface id IS the ghostty surface id, a
-        // Swift-side UUID), so a session's terminal binding survives relaunch
-        // and restore. The caller only passes an id it has verified is free.
         let newPanel = TerminalPanel(
             id: newPanelID,
             workspaceId: id,
@@ -7439,7 +7426,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || effectiveRemotePTYSessionID != nil
+        let tracksRemoteTerminalSurface = isRemoteStartupCommand || effectiveRemotePTYSessionID != nil
         if let effectiveRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = effectiveRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: effectiveRemotePTYSessionID, restoredPanelId: newPanel.id)
@@ -10980,9 +10967,7 @@ final class Workspace: Identifiable, ObservableObject {
             remoteStartupCommand: startupCommand
         )
         if startupCommand != nil {
-            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            template.waitAfterCommand = true
-            inheritedConfig = template
+            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: true)
         }
 
         let newPanel = TerminalPanel(
@@ -11125,7 +11110,7 @@ final class Workspace: Identifiable, ObservableObject {
         Self.firstNonEmptyPath([
             snapshot.workingDirectory,
             panelDirectories[panelId],
-            terminalPanel(for: panelId)?.requestedWorkingDirectory,
+            terminalRequestedWorkingDirectoryForLocalFallback(panelId: panelId),
             currentDirectory
         ])
     }
@@ -12619,7 +12604,7 @@ extension Workspace: BonsplitDelegate {
             }
 
             let paneDirectory = selectedTerminalPanel(inPane: pane).flatMap { terminal -> String? in
-                for candidate in [panelDirectories[terminal.id], terminal.requestedWorkingDirectory] {
+                for candidate in [panelDirectories[terminal.id], terminalRequestedWorkingDirectoryForLocalFallback(panelId: terminal.id)] {
                     let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
                     if let trimmed, !trimmed.isEmpty {
                         return trimmed

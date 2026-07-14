@@ -40,11 +40,13 @@ enum CommandClickFileOpenRouter {
            !dir.isEmpty {
             return dir
         }
-        if let dir = workspace.terminalPanel(for: surfaceId)?
-            .requestedWorkingDirectory?
+        if let dir = workspace.terminalRequestedWorkingDirectoryForLocalFallback(panelId: surfaceId)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !dir.isEmpty {
             return dir
+        }
+        if workspace.usesRemoteDirectoryProvenance {
+            return nil
         }
         let dir = workspace.currentDirectory
             .trimmingCharacters(in: .whitespacesAndNewlines)

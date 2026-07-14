@@ -106,10 +106,52 @@ extension TerminalController: ControlSurfaceContext {
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
 
+        var paneByPanelId: [UUID: UUID] = [:]
+        var indexInPaneByPanelId: [UUID: Int] = [:]
+        var selectedInPaneByPanelId: [UUID: Bool] = [:]
+        for paneId in ws.bonsplitController.allPaneIds {
+            let tabs = ws.bonsplitController.tabs(inPane: paneId)
+            let selected = ws.bonsplitController.selectedTab(inPane: paneId)
+            for (idx, tab) in tabs.enumerated() {
+                guard let panelId = ws.panelIdFromSurfaceId(tab.id) else { continue }
+                paneByPanelId[panelId] = paneId.id
+                indexInPaneByPanelId[panelId] = idx
+                selectedInPaneByPanelId[panelId] = (tab.id == selected?.id)
+            }
+        }
+
+        let focusedSurfaceId = ws.focusedPanelId
+        let surfaces: [ControlSurfaceSummary] = orderedPanels(in: ws).map { panel in
+            let terminalPanel = panel as? TerminalPanel
+            return ControlSurfaceSummary(
+                surfaceID: panel.id,
+                typeRawValue: panel.panelType.rawValue,
+                title: ws.panelTitle(panelId: panel.id) ?? panel.displayTitle,
+                isFocused: panel.id == focusedSurfaceId,
+                paneID: paneByPanelId[panel.id],
+                indexInPane: indexInPaneByPanelId[panel.id],
+                selectedInPane: selectedInPaneByPanelId[panel.id],
+                developerToolsVisible: (panel as? BrowserPanel)?.isDeveloperToolsVisible(),
+                requestedWorkingDirectory: terminalPanel == nil
+                    ? nil
+                    : v2NonEmptyString(ws.terminalRequestedWorkingDirectoryForLocalFallback(panelId: panel.id)),
+                initialCommand: terminalPanel.flatMap {
+                    v2NonEmptyString($0.surface.debugInitialCommand())
+                },
+                tmuxStartCommand: terminalPanel.flatMap {
+                    v2NonEmptyString($0.surface.debugTmuxStartCommand())
+                },
+                isTerminal: terminalPanel != nil,
+                resumeBinding: terminalPanel != nil
+                    ? controlResumeBinding(from: ws.surfaceResumeBinding(panelId: panel.id))
+                    : nil
+            )
+        }
+
         return ControlSurfaceListSnapshot(
             workspaceID: ws.id,
             windowID: v2ResolveWindowId(tabManager: tabManager),
-            surfaces: controlSurfaceSummaries(workspace: ws)
+            surfaces: surfaces
         )
     }
 

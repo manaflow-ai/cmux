@@ -9374,7 +9374,7 @@ struct ContentView: View {
                 if let directory = workspace.reportedPanelDirectory(panelId: focusedPanelId) {
                     return directory
                 }
-                if let requestedDirectory = workspace.terminalPanel(for: focusedPanelId)?.requestedWorkingDirectory {
+                if let requestedDirectory = workspace.terminalRequestedWorkingDirectoryForLocalFallback(panelId: focusedPanelId) {
                     return requestedDirectory
                 }
             }
