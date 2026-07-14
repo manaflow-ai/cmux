@@ -117,6 +117,20 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sendAnonymousTelemetry"
     )
 
+    /// Whether the app may show occasional usage-tip cards.
+    public let showUsageTips = DefaultsKey<Bool>(
+        id: "app.showUsageTips",
+        defaultValue: true,
+        userDefaultsKey: "usageTips.show"
+    )
+
+    /// Stable identifiers for usage tips that the user permanently acknowledged.
+    public let seenUsageTipIDs = DefaultsKey<[String]>(
+        id: "app.seenUsageTipIDs",
+        defaultValue: [],
+        userDefaultsKey: "usageTips.seenIDs"
+    )
+
     public let confirmQuitMode = DefaultsKey<ConfirmQuitMode>(
         id: "app.confirmQuit",
         defaultValue: .always,
