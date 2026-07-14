@@ -131,6 +131,13 @@ extension TerminalSurface {
         pendingPortalHostRetries.removeAll(keepingCapacity: false)
     }
 
+    /// Ends the current host epoch when hibernation removes the runtime surface.
+    func resetPortalHostOwnershipForRuntimeSuspension() {
+        cancelAllPendingPortalHostRetries()
+        activePortalHostLease = nil
+        portalHostAuthority = nil
+    }
+
     /// Re-arms the lease when SwiftUI is about to rebuild the owning host.
     @discardableResult
     public func preparePortalHostReplacementIfOwned(hostId: ObjectIdentifier, reason: String) -> UInt64? {
