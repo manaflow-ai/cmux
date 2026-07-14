@@ -207,7 +207,11 @@ final class ClosedItemHistoryStore: ObservableObject {
         guard candidates.contains(where: { !pendingEnrichmentRecordIDs.contains($0.id) }) else {
             return .blockedByPendingEnrichment
         }
-        for candidate in candidates {
+        for (candidateIndex, candidate) in candidates.enumerated() {
+            if candidateIndex > 0,
+               pendingEnrichmentRecordIDs.contains(candidate.id) {
+                return .blockedByPendingEnrichment
+            }
             guard restore(candidate.entry) else {
                 onFailure?(candidate.id)
                 continue
