@@ -25,7 +25,11 @@ final class ChatArtifactViewerModel {
         textChunks.joined()
     }
 
-    func load(path: String, loader: ChatArtifactLoader) async {
+    func load(
+        path: String,
+        loader: ChatArtifactLoader,
+        quickLookCanPreview: @MainActor (URL) -> Bool = { _ in false }
+    ) async {
         await removeTemporaryFile()
         reset(for: path)
         var stat: ChatArtifactStat?
@@ -78,7 +82,22 @@ final class ChatArtifactViewerModel {
                 ) {
                     state = .media(fileURL: fileURL)
                 }
-            case .quickLook, .binary:
+            case .quickLook:
+                if let fileURL = try await loadTemporaryFile(
+                    path: path,
+                    expectedSize: loadedStat.size,
+                    limit: limit,
+                    fallbackExtension: nil,
+                    loader: loader
+                ) {
+                    if quickLookCanPreview(fileURL) {
+                        state = .quickLook(fileURL: fileURL)
+                    } else {
+                        await removeTemporaryFile()
+                        state = .binary(stat: loadedStat)
+                    }
+                }
+            case .binary:
                 state = .binary(stat: loadedStat)
             case .folder:
                 break

@@ -3,6 +3,9 @@ import SwiftUI
 
 #if canImport(UIKit)
 import UIKit
+#if os(iOS)
+import QuickLook
+#endif
 #elseif canImport(AppKit)
 import AppKit
 #endif
@@ -56,7 +59,15 @@ struct ChatArtifactViewerRouteView: View {
                 #endif
             }
             .task(id: "\(path)\u{0}\(retryGeneration)") {
+                #if os(iOS)
+                await model.load(
+                    path: path,
+                    loader: loader,
+                    quickLookCanPreview: canQuickLookPreview
+                )
+                #else
                 await model.load(path: path, loader: loader)
+                #endif
             }
             .onDisappear {
                 Task { await model.cleanup() }
@@ -112,6 +123,16 @@ struct ChatArtifactViewerRouteView: View {
         case .media(let fileURL):
             #if os(iOS)
             ChatArtifactMediaView(fileURL: fileURL)
+                .ignoresSafeArea(.container, edges: .bottom)
+            #else
+            unavailableView(
+                title: String(localized: "chat.artifact.preview_unavailable.title", defaultValue: "Preview unavailable", bundle: .module),
+                message: String(localized: "chat.artifact.preview_unavailable.message", defaultValue: "This file can't be previewed.", bundle: .module)
+            )
+            #endif
+        case .quickLook(let fileURL):
+            #if os(iOS)
+            ChatArtifactQuickLookView(fileURL: fileURL, title: displayName)
                 .ignoresSafeArea(.container, edges: .bottom)
             #else
             unavailableView(
@@ -257,6 +278,14 @@ struct ChatArtifactViewerRouteView: View {
     private var displayName: String {
         URL(fileURLWithPath: path).lastPathComponent
     }
+
+    #if os(iOS)
+    private func canQuickLookPreview(_ fileURL: URL) -> Bool {
+        QLPreviewController.canPreview(
+            ChatArtifactQuickLookItem(fileURL: fileURL, title: displayName)
+        )
+    }
+    #endif
 
     private var jumpToBottomTitle: String {
         if model.textReachedEOF {

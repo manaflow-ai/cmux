@@ -248,6 +248,52 @@ struct ChatArtifactViewerModelTests {
         #expect(!FileManager.default.fileExists(atPath: fileURL.path))
     }
 
+    @Test
+    @MainActor
+    func quickLookRequiresCapabilityAcceptance() async throws {
+        let acceptedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-ql-accepted-\(UUID().uuidString)", isDirectory: true)
+        let rejectedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-ql-rejected-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: acceptedDirectory)
+            try? FileManager.default.removeItem(at: rejectedDirectory)
+        }
+        let data = Data("document bytes".utf8)
+        let loader = Self.quickLookLoader(data: data)
+        let acceptedModel = ChatArtifactViewerModel(
+            temporaryFileStore: ChatArtifactTemporaryFileStore(directory: acceptedDirectory)
+        )
+        let rejectedModel = ChatArtifactViewerModel(
+            temporaryFileStore: ChatArtifactTemporaryFileStore(directory: rejectedDirectory)
+        )
+
+        await acceptedModel.load(
+            path: "/remote/report.docx",
+            loader: loader,
+            quickLookCanPreview: { _ in true }
+        )
+        await rejectedModel.load(
+            path: "/remote/report.docx",
+            loader: loader,
+            quickLookCanPreview: { _ in false }
+        )
+
+        guard case .quickLook(let acceptedURL) = acceptedModel.state else {
+            Issue.record("accepted document should route to Quick Look")
+            return
+        }
+        #expect(acceptedURL.pathExtension == "docx")
+        #expect(try Data(contentsOf: acceptedURL) == data)
+        guard case .binary = rejectedModel.state else {
+            Issue.record("rejected document should retain the binary state")
+            return
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: rejectedDirectory.path).isEmpty)
+        await acceptedModel.cleanup()
+        #expect(!FileManager.default.fileExists(atPath: acceptedURL.path))
+    }
+
     private static func loader(
         totalSize: Int64,
         stream: @escaping @Sendable (
@@ -268,6 +314,30 @@ struct ChatArtifactViewerModelTests {
                 )
             },
             stream: stream
+        )
+    }
+
+    private static func quickLookLoader(data: Data) -> ChatArtifactLoader {
+        ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { _ in
+                ChatArtifactStat(
+                    exists: true,
+                    isDirectory: false,
+                    size: Int64(data.count),
+                    modifiedAt: Date(timeIntervalSince1970: 0),
+                    kind: .binary,
+                    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+            },
+            stream: { _, onChunk in
+                try await onChunk(ChatArtifactChunk(
+                    data: data,
+                    offset: 0,
+                    totalSize: Int64(data.count),
+                    eof: true
+                ))
+            }
         )
     }
 }
