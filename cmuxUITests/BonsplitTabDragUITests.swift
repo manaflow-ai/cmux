@@ -212,6 +212,7 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected the trailing titlebar toggle to be hittable. button=\(titlebarToggle.debugDescription)"
         )
         XCTAssertTrue(titlebarToggle.isSelected, "Expected the toggle to reflect the visible sidebar state.")
+        let visibleToggleFrame = titlebarToggle.frame
 
         for mode in ["files", "find", "sessions"] {
             let modeButton = app.buttons["RightSidebarModeButton.\(mode)"]
@@ -253,6 +254,8 @@ final class BonsplitTabDragUITests: XCTestCase {
             },
             "Expected the titlebar toggle to stay available after hiding the right sidebar."
         )
+        XCTAssertEqual(titlebarToggle.frame.midX, visibleToggleFrame.midX, accuracy: 0.5)
+        XCTAssertEqual(titlebarToggle.frame.midY, visibleToggleFrame.midY, accuracy: 0.5)
 
         titlebarToggle.click()
         XCTAssertTrue(
