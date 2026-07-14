@@ -25,12 +25,12 @@ final class CmuxRunURLCoordinator {
             if appDelegate.pendingStartupRunURLRequest == nil {
                 appDelegate.pendingStartupRunURLRequest = request
             } else {
-                confirmationPresenter.showFailure(.busy)
+                confirmationPresenter.showNonModalFailure(.busy)
             }
             return true
         }
         guard !appDelegate.isHandlingCmuxRunURLRequest else {
-            confirmationPresenter.showFailure(.busy)
+            confirmationPresenter.showNonModalFailure(.busy)
             return true
         }
 

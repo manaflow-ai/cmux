@@ -1,44 +1,39 @@
+import Darwin
 import Foundation
 
 struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
     static let defaultResolutionTimeout: Duration = .seconds(5)
 
     let fileManager: FileManager
-    private let resolutionOverride: (@Sendable (String) -> Result<String, CmuxRunURLExecutionError>)?
+    private let commandOverride: (@Sendable (String) -> CmuxRunWorkingDirectoryCommand)?
 
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
-        self.resolutionOverride = nil
+        self.commandOverride = nil
     }
 
     init(
-        resolveForTesting: @escaping @Sendable (String) -> Result<String, CmuxRunURLExecutionError>
+        commandForTesting: @escaping @Sendable (String) -> CmuxRunWorkingDirectoryCommand
     ) {
         self.fileManager = .default
-        self.resolutionOverride = resolveForTesting
+        self.commandOverride = commandForTesting
     }
 
     func resolve(_ requestedPath: String) -> Result<String, CmuxRunURLExecutionError> {
-        if let resolutionOverride {
-            return resolutionOverride(requestedPath)
-        }
-        guard requestedPath == requestedPath.trimmingCharacters(in: .whitespacesAndNewlines) else {
-            return .failure(.workingDirectoryContainsSurroundingWhitespace)
-        }
-        let expanded = (requestedPath as NSString).expandingTildeInPath
-        guard (expanded as NSString).isAbsolutePath else {
-            return .failure(.workingDirectoryMustBeAbsolute)
+        let expanded: String
+        switch validatedExpandedPath(requestedPath) {
+        case .success(let path):
+            expanded = path
+        case .failure(let error):
+            return .failure(error)
         }
 
         let resolved = URL(fileURLWithPath: expanded, isDirectory: true)
             .standardizedFileURL
             .resolvingSymlinksInPath()
             .path
-        guard resolved == resolved.trimmingCharacters(in: .whitespacesAndNewlines) else {
-            return .failure(.workingDirectoryContainsSurroundingWhitespace)
-        }
-        guard !CmuxRunURLRequest.containsUnsafeHiddenCharacter(resolved) else {
-            return .failure(.workingDirectoryContainsUnsafeCharacters)
+        if let error = canonicalPathValidationError(resolved) {
+            return .failure(error)
         }
         var isDirectory = ObjCBool(false)
         guard fileManager.fileExists(atPath: resolved, isDirectory: &isDirectory),
@@ -52,74 +47,149 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
         _ requestedPath: String,
         timeout: Duration = defaultResolutionTimeout
     ) async -> Result<String, CmuxRunURLExecutionError> {
-        let limiter = CmuxRunWorkingDirectoryResolutionLimiter.shared
-        guard await limiter.acquire() else {
-            return .failure(.busy)
+        let expanded: String
+        switch validatedExpandedPath(requestedPath) {
+        case .success(let path):
+            expanded = path
+        case .failure(let error):
+            return .failure(error)
         }
-        let gate = CmuxRunWorkingDirectoryResolutionGate()
-        let resolver = self
-        _ = Task.detached(priority: .userInitiated) {
-            let result = resolver.resolve(requestedPath)
-            await limiter.release()
-            await gate.finish(result)
+
+        let command = commandOverride?(expanded) ?? Self.canonicalDirectoryCommand(for: expanded)
+        let process = Process()
+        let standardOutput = Pipe()
+        let gate = CmuxRunWorkingDirectoryProcessGate()
+        process.executableURL = command.executableURL
+        process.arguments = command.arguments
+        process.environment = ["PATH": "/usr/bin:/bin"]
+        process.standardOutput = standardOutput
+        process.standardError = FileHandle.nullDevice
+        process.terminationHandler = { process in
+            let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
+            Task {
+                await gate.finish(.completed(status: process.terminationStatus, output: output))
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            return .failure(.workingDirectoryNotFound)
+        }
+
+        let terminate: @Sendable () -> Void = {
+            guard process.isRunning else { return }
+            process.terminate()
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
         }
         let timeoutTask = Task {
             do {
                 try await Task.sleep(for: timeout)
-                await gate.finish(.failure(.workingDirectoryResolutionTimedOut))
+                if await gate.finish(.timedOut) {
+                    terminate()
+                }
             } catch is CancellationError {
                 return
             } catch {
-                await gate.finish(.failure(.workingDirectoryResolutionTimedOut))
+                if await gate.finish(.timedOut) {
+                    terminate()
+                }
             }
         }
-        let result = await withTaskCancellationHandler {
+        let outcome = await withTaskCancellationHandler {
             await gate.value()
         } onCancel: {
             Task {
-                await gate.finish(.failure(.workingDirectoryResolutionTimedOut))
+                if await gate.finish(.timedOut) {
+                    terminate()
+                }
             }
         }
         timeoutTask.cancel()
-        return result
+
+        switch outcome {
+        case .timedOut:
+            return .failure(.workingDirectoryResolutionTimedOut)
+        case .completed(let status, let output):
+            guard status == EXIT_SUCCESS,
+                  output.last == 0x0A,
+                  let resolved = String(data: Data(output.dropLast()), encoding: .utf8),
+                  (resolved as NSString).isAbsolutePath else {
+                return .failure(.workingDirectoryNotFound)
+            }
+            if let error = canonicalPathValidationError(resolved) {
+                return .failure(error)
+            }
+            return .success(resolved)
+        }
+    }
+
+    private func validatedExpandedPath(
+        _ requestedPath: String
+    ) -> Result<String, CmuxRunURLExecutionError> {
+        guard requestedPath == requestedPath.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return .failure(.workingDirectoryContainsSurroundingWhitespace)
+        }
+        let expanded = (requestedPath as NSString).expandingTildeInPath
+        guard (expanded as NSString).isAbsolutePath else {
+            return .failure(.workingDirectoryMustBeAbsolute)
+        }
+        return .success(expanded)
+    }
+
+    private func canonicalPathValidationError(
+        _ resolvedPath: String
+    ) -> CmuxRunURLExecutionError? {
+        guard resolvedPath == resolvedPath.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return .workingDirectoryContainsSurroundingWhitespace
+        }
+        guard !CmuxRunURLRequest.containsUnsafeHiddenCharacter(resolvedPath) else {
+            return .workingDirectoryContainsUnsafeCharacters
+        }
+        return nil
+    }
+
+    private static func canonicalDirectoryCommand(
+        for expandedPath: String
+    ) -> CmuxRunWorkingDirectoryCommand {
+        CmuxRunWorkingDirectoryCommand(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "CDPATH= cd -P -- \"$1\" && pwd -P", "cmux-run", expandedPath]
+        )
     }
 }
 
-private actor CmuxRunWorkingDirectoryResolutionLimiter {
-    static let shared = CmuxRunWorkingDirectoryResolutionLimiter()
-
-    private var isResolving = false
-
-    func acquire() -> Bool {
-        guard !isResolving else { return false }
-        isResolving = true
-        return true
-    }
-
-    func release() {
-        isResolving = false
-    }
+struct CmuxRunWorkingDirectoryCommand: Sendable {
+    let executableURL: URL
+    let arguments: [String]
 }
 
-private actor CmuxRunWorkingDirectoryResolutionGate {
-    typealias Resolution = Result<String, CmuxRunURLExecutionError>
+private enum CmuxRunWorkingDirectoryProcessOutcome: Sendable {
+    case completed(status: Int32, output: Data)
+    case timedOut
+}
 
-    private var resolution: Resolution?
-    private var continuation: CheckedContinuation<Resolution, Never>?
+private actor CmuxRunWorkingDirectoryProcessGate {
+    typealias Outcome = CmuxRunWorkingDirectoryProcessOutcome
 
-    func value() async -> Resolution {
-        if let resolution {
-            return resolution
+    private var outcome: Outcome?
+    private var continuation: CheckedContinuation<Outcome, Never>?
+
+    func value() async -> Outcome {
+        if let outcome {
+            return outcome
         }
         return await withCheckedContinuation { continuation in
             self.continuation = continuation
         }
     }
 
-    func finish(_ resolution: Resolution) {
-        guard self.resolution == nil else { return }
-        self.resolution = resolution
-        continuation?.resume(returning: resolution)
+    @discardableResult
+    func finish(_ outcome: Outcome) -> Bool {
+        guard self.outcome == nil else { return false }
+        self.outcome = outcome
+        continuation?.resume(returning: outcome)
         continuation = nil
+        return true
     }
 }

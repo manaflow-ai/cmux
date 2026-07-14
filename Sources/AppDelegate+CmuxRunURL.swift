@@ -15,16 +15,10 @@ extension AppDelegate {
         case .none:
             return false
         case .multipleLinks:
-            if intentCounts.run > 0 {
-                CmuxRunURLConfirmationPresenter().showParseFailure(.multipleLinks)
-            } else if intentCounts.ssh > 1 && intentCounts.navigation == 0 && intentCounts.text == 0 {
-                showCmuxSSHURLParseError(.multipleLinks)
-            } else {
-                showCmuxTextURLParseError(.multipleLinks)
-            }
+            CmuxRunURLConfirmationPresenter().showNonModalParseFailure(.multipleLinks)
             return true
         case .busy:
-            CmuxRunURLConfirmationPresenter().showFailure(.busy)
+            CmuxRunURLConfirmationPresenter().showNonModalFailure(.busy)
             return true
         case .route:
             break
@@ -153,11 +147,11 @@ extension AppDelegate {
         guard !isHandlingCmuxRunURLRequest,
               pendingStartupRunURLRequest == nil,
               NSApp.modalWindow == nil else {
-            CmuxRunURLConfirmationPresenter().showFailure(.busy)
+            CmuxRunURLConfirmationPresenter().showNonModalFailure(.busy)
             return true
         }
         guard intentCount == 1 else {
-            CmuxRunURLConfirmationPresenter().showParseFailure(.multipleLinks)
+            CmuxRunURLConfirmationPresenter().showNonModalParseFailure(.multipleLinks)
             return true
         }
         if let error = errors.first {

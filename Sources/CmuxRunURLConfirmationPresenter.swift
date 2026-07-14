@@ -41,6 +41,22 @@ final class CmuxRunURLConfirmationPresenter {
         showFailureMessage(executionFailureMessage(error), presentingWindow: presentingWindow)
     }
 
+    func showNonModalParseFailure(_ error: CmuxRunURLParseError) {
+        showNonModalFailureMessage(parseFailureMessage(error))
+    }
+
+    func showNonModalFailure(_ error: CmuxRunURLExecutionError) {
+        showNonModalFailureMessage(executionFailureMessage(error))
+    }
+
+    var nonModalFailureWindowForTesting: NSWindow? {
+        CmuxRunURLNonModalFailurePresenter.shared.window
+    }
+
+    func dismissNonModalFailureForTesting() {
+        CmuxRunURLNonModalFailurePresenter.shared.dismiss()
+    }
+
     private func accessoryView(
         for plan: CmuxRunExecutionPlan,
         gate: CmuxRunURLConfirmationGate
@@ -220,6 +236,10 @@ final class CmuxRunURLConfirmationPresenter {
         _ = runCmuxModalAlert(alert, presentingWindow: presentingWindow)
     }
 
+    private func showNonModalFailureMessage(_ message: String) {
+        CmuxRunURLNonModalFailurePresenter.shared.show(message: message)
+    }
+
     private func parseFailureMessage(_ error: CmuxRunURLParseError) -> String {
         switch error {
         case .unsupportedURLShape:
@@ -283,6 +303,49 @@ final class CmuxRunURLConfirmationPresenter {
         case .creationFailed:
             return String(localized: "dialog.runURL.error.creation", defaultValue: "cmux could not create the requested terminal, so it did not run the command.")
         }
+    }
+}
+
+@MainActor
+private final class CmuxRunURLNonModalFailurePresenter: NSObject {
+    static let shared = CmuxRunURLNonModalFailurePresenter()
+
+    private var alert: NSAlert?
+
+    var window: NSWindow? {
+        alert?.window
+    }
+
+    func show(message: String) {
+        if let alert, alert.window.isVisible {
+            alert.informativeText = message
+            alert.window.orderFrontRegardless()
+            NSApp.requestUserAttention(.informationalRequest)
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.runURL.failure.title",
+            defaultValue: "Command Link Blocked"
+        )
+        alert.informativeText = message
+        let button = alert.addButton(
+            withTitle: String(localized: "dialog.runURL.failure.ok", defaultValue: "OK")
+        )
+        button.target = self
+        button.action = #selector(dismiss)
+        alert.window.level = .floating
+        alert.window.isReleasedWhenClosed = false
+        self.alert = alert
+        alert.window.orderFrontRegardless()
+        NSApp.requestUserAttention(.informationalRequest)
+    }
+
+    @objc func dismiss() {
+        alert?.window.close()
+        alert = nil
     }
 }
 

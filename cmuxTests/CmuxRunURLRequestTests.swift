@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import Testing
 
@@ -250,7 +249,7 @@ struct CmuxRunURLRequestTests {
         ) == .busy)
     }
 
-    @Test func resolvesAndCanonicalizesExistingDirectories() throws {
+    @Test func resolvesAndCanonicalizesExistingDirectories() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let real = root.appendingPathComponent("real", isDirectory: true)
         let link = root.appendingPathComponent("link", isDirectory: true)
@@ -259,6 +258,10 @@ struct CmuxRunURLRequestTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         #expect(CmuxRunWorkingDirectoryResolver().resolve(link.path) == .success(real.path))
+        #expect(
+            await CmuxRunWorkingDirectoryResolver().resolveWithDeadline(link.path)
+                == .success(real.path)
+        )
     }
 
     @Test func rejectsRelativeMissingAndFileWorkingDirectories() throws {
@@ -292,7 +295,7 @@ struct CmuxRunURLRequestTests {
         )
     }
 
-    @Test func rejectsSafeLookingSymlinksToDirectoriesWithHiddenCharacters() throws {
+    @Test func rejectsSafeLookingSymlinksToDirectoriesWithHiddenCharacters() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let hiddenTarget = root.appendingPathComponent("hidden\ncanonical", isDirectory: true)
         let safeLink = root.appendingPathComponent("safe-link", isDirectory: true)
@@ -300,39 +303,32 @@ struct CmuxRunURLRequestTests {
         try FileManager.default.createSymbolicLink(at: safeLink, withDestinationURL: hiddenTarget)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        if case .success = CmuxRunWorkingDirectoryResolver().resolve(safeLink.path) {
+        let resolver = CmuxRunWorkingDirectoryResolver()
+        if case .success = resolver.resolve(safeLink.path) {
             Issue.record("Canonical working directories must reject hidden characters")
         }
+        #expect(
+            await resolver.resolveWithDeadline(safeLink.path)
+                == .failure(.workingDirectoryContainsUnsafeCharacters)
+        )
     }
 
     @Test func timedOutResolutionAllowsOneBoundedRetry() async throws {
-        let pipe = Pipe()
-        let readDescriptor = pipe.fileHandleForReading.fileDescriptor
-        let (completionStream, completionContinuation) = AsyncStream.makeStream(of: Void.self)
         let resolver = CmuxRunWorkingDirectoryResolver { _ in
-            var byte: UInt8 = 0
-            _ = Darwin.read(readDescriptor, &byte, 1)
-            completionContinuation.yield()
-            return .success("/tmp")
-        }
-        defer {
-            pipe.fileHandleForReading.closeFile()
-            pipe.fileHandleForWriting.closeFile()
-            completionContinuation.finish()
+            CmuxRunWorkingDirectoryCommand(
+                executableURL: URL(fileURLWithPath: "/usr/bin/yes"),
+                arguments: []
+            )
         }
 
         #expect(
-            await resolver.resolveWithDeadline("/tmp", timeout: .zero)
+            await resolver.resolveWithDeadline("/tmp", timeout: .milliseconds(20))
                 == .failure(.workingDirectoryResolutionTimedOut)
         )
         #expect(
-            await resolver.resolveWithDeadline("/tmp", timeout: .zero)
+            await resolver.resolveWithDeadline("/tmp", timeout: .milliseconds(20))
                 == .failure(.workingDirectoryResolutionTimedOut)
         )
-
-        try pipe.fileHandleForWriting.write(contentsOf: Data([1, 1]))
-        var completionIterator = completionStream.makeAsyncIterator()
-        _ = await completionIterator.next()
     }
 
     private func parsed(_ queryItems: [URLQueryItem]) throws -> CmuxRunURLRequest {

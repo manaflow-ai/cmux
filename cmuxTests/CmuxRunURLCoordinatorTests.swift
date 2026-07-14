@@ -11,6 +11,19 @@ import Testing
 @MainActor
 @Suite("Command deep-link execution planning", .serialized)
 struct CmuxRunURLCoordinatorTests {
+    @Test func repeatedBusyFailuresReuseOneModelessWindow() throws {
+        let presenter = CmuxRunURLConfirmationPresenter()
+        presenter.dismissNonModalFailureForTesting()
+        defer { presenter.dismissNonModalFailureForTesting() }
+
+        presenter.showNonModalFailure(.busy)
+        let firstWindow = try #require(presenter.nonModalFailureWindowForTesting)
+        presenter.showNonModalFailure(.busy)
+
+        #expect(presenter.nonModalFailureWindowForTesting === firstWindow)
+        #expect(NSApp.modalWindow == nil)
+    }
+
     @Test func workspacePlanFreezesTheReceivingWindow() throws {
         let app = AppDelegate()
         let manager = TabManager()
