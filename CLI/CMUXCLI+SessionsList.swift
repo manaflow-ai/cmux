@@ -144,27 +144,44 @@ extension CMUXCLI {
         var entries: [SessionListEntry] = []
         var stores: [[String: Any]] = []
 
-        let decoder = JSONDecoder()
         let timestampFormatter = ISO8601DateFormatter()
         timestampFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let snapshots = AgentHookSessionRegistryBridge.snapshots(
+            specifications: selectedSpecs.map { (provider: $0.name, suffix: $0.sessionStoreSuffix) },
+            stateDirectory: stateDir,
+            environment: processEnv,
+            fileManager: fileManager
+        )
         for spec in selectedSpecs {
             let storePath = URL(fileURLWithPath: stateDir, isDirectory: true)
                 .appendingPathComponent("\(spec.sessionStoreSuffix)-hook-sessions.json", isDirectory: false)
                 .path
+            var storeEnvironment = processEnv
+            storeEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir
+            storeEnvironment["CMUX_CLAUDE_HOOK_STATE_PATH"] = storePath
+            let bridge = AgentHookSessionRegistryBridge(
+                provider: spec.name,
+                statePath: storePath,
+                environment: storeEnvironment,
+                fileManager: fileManager
+            )
+            let store = snapshots?[spec.name].map { bridge.load(snapshot: $0) }
+                ?? ClaudeHookSessionStore(
+                    processEnv: storeEnvironment,
+                    fileManager: fileManager,
+                    agentName: spec.name
+                ).snapshot()
             var storePayload: [String: Any] = [
                 "agent": spec.name,
                 "path": storePath,
-                "exists": fileManager.fileExists(atPath: storePath)
+                "exists": fileManager.fileExists(atPath: storePath) || !store.sessions.isEmpty
             ]
 
-            guard fileManager.fileExists(atPath: storePath) else {
+            guard !store.sessions.isEmpty else {
                 storePayload["session_count"] = 0
                 stores.append(storePayload)
                 continue
             }
-
-            let storeData = try Data(contentsOf: URL(fileURLWithPath: storePath))
-            let store = try decoder.decode(ClaudeHookSessionStoreFile.self, from: storeData)
             storePayload["session_count"] = store.sessions.count
             stores.append(storePayload)
 

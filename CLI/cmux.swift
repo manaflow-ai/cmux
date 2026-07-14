@@ -83,10 +83,10 @@ final class ClaudeHookSessionStore {
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
 
-    private let statePath: String
-    private let fileManager: FileManager
-    private let processEnv: [String: String]
-    private let agentName: String
+    let statePath: String
+    let fileManager: FileManager
+    let processEnv: [String: String]
+    let agentName: String
     private let lineageResolver: AgentHookSessionLineageResolver
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -121,6 +121,10 @@ final class ClaudeHookSessionStore {
         return withSnapshotState { state in
             state.sessions[normalized]
         }
+    }
+
+    func snapshot() -> ClaudeHookSessionStoreFile {
+        withSnapshotState { $0 }
     }
 
     func reconcileSemanticState(
@@ -1384,23 +1388,35 @@ final class ClaudeHookSessionStore {
     }
 
     private func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+        let stateURL = URL(fileURLWithPath: statePath)
+        try fileManager.createDirectory(
+            at: stateURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+        )
         let lockPath = statePath + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
-        if fd < 0 {
-            throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
+        let ownsLegacyLock = fd >= 0 && flock(fd, LOCK_EX | LOCK_NB) == 0
+        defer {
+            if ownsLegacyLock { _ = flock(fd, LOCK_UN) }
+            if fd >= 0 { Darwin.close(fd) }
         }
-        defer { Darwin.close(fd) }
 
-        if flock(fd, LOCK_EX) != 0 {
-            throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
+        let bridge = AgentHookSessionRegistryBridge(
+            provider: agentName,
+            statePath: statePath,
+            environment: processEnv,
+            fileManager: fileManager
+        )
+        let mutation = try bridge.mutate { state in
+            pruneExpired(&state)
+            return try body(&state)
         }
-        defer { _ = flock(fd, LOCK_UN) }
-
-        var state = loadUnlocked()
-        pruneExpired(&state)
-        let result = try body(&state)
-        try saveUnlocked(state)
-        return result
+        if ownsLegacyLock {
+            try saveUnlocked(mutation.state)
+            bridge.markLegacySourceCurrent()
+        }
+        return mutation.result
     }
 
     /// Read-only hook decisions use an immutable file snapshot. Writers publish
@@ -1413,13 +1429,12 @@ final class ClaudeHookSessionStore {
     }
 
     private func loadUnlocked() -> ClaudeHookSessionStoreFile {
-        guard fileManager.fileExists(atPath: statePath) else {
-            return ClaudeHookSessionStoreFile()
-        }
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: statePath)),
-              var decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
-            return ClaudeHookSessionStoreFile()
-        }
+        var decoded = AgentHookSessionRegistryBridge(
+            provider: agentName,
+            statePath: statePath,
+            environment: processEnv,
+            fileManager: fileManager
+        ).load(decoder: decoder)
         backfillSurfaceActiveSlots(&decoded)
         return decoded
     }

@@ -1,7 +1,6 @@
 import Darwin
 import Foundation
 import CMUXAgentLaunch
-import Darwin
 import os
 
 nonisolated enum TerminalStartupShellQuoting {
@@ -1063,14 +1062,15 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
+        let hookSources = hookKinds.map {
+            ($0.kind, $0.registration, $0.kind.hookStoreFileURL(homeDirectory: homeDirectory))
+        }
+        let registrySnapshots = agentRegistrySnapshots(hookSources.map { (kind: $0.0, fileURL: $0.2) }, fileManager: fileManager)
 
-        for (kind, registration) in hookKinds {
-            let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory)
-            guard fileManager.fileExists(atPath: fileURL.path),
-                  let data = try? Data(contentsOf: fileURL),
-                  let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
-                continue
-            }
+        for (kind, registration, fileURL) in hookSources {
+            guard let state = agentHookState(kind: kind, fileURL: fileURL,
+                                             snapshots: registrySnapshots, fileManager: fileManager,
+                                             decoder: decoder) else { continue }
 
             for record in state.sessions.values where record.restoreAuthority != false && record.completedAt == nil {
                 var effectiveRecord = kind == .claude

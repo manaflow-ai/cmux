@@ -87,23 +87,36 @@ extension CMUXCLI {
         let specifications = [(name: "claude", suffix: "claude")] + Self.agentDefs.map {
             (name: $0.name, suffix: $0.sessionStoreSuffix)
         }
+        let selectedSpecifications = specifications.filter {
+            normalizedAgent == nil || $0.name.lowercased() == normalizedAgent
+        }
+        let snapshots = AgentHookSessionRegistryBridge.snapshots(
+            specifications: selectedSpecifications.map { (provider: $0.name, suffix: $0.suffix) },
+            stateDirectory: stateDirectory,
+            environment: processEnv,
+            fileManager: fileManager
+        )
         var nodes: [AgentSessionGraphNode] = []
         var edges: [AgentSessionGraphEdge] = []
-        let decoder = JSONDecoder()
-
-        for specification in specifications {
-            if let normalizedAgent, specification.name.lowercased() != normalizedAgent { continue }
+        for specification in selectedSpecifications {
             let url = URL(fileURLWithPath: stateDirectory, isDirectory: true)
                 .appendingPathComponent("\(specification.suffix)-hook-sessions.json", isDirectory: false)
-            guard fileManager.fileExists(atPath: url.path) else { continue }
-            let data: Data
-            let store: ClaudeHookSessionStoreFile
-            do {
-                data = try Data(contentsOf: url)
-                store = try decoder.decode(ClaudeHookSessionStoreFile.self, from: data)
-            } catch {
-                throw CLIError(message: "\(url.path): \(String(describing: error))")
-            }
+            var storeEnvironment = processEnv
+            storeEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDirectory
+            storeEnvironment["CMUX_CLAUDE_HOOK_STATE_PATH"] = url.path
+            let bridge = AgentHookSessionRegistryBridge(
+                provider: specification.name,
+                statePath: url.path,
+                environment: storeEnvironment,
+                fileManager: fileManager
+            )
+            let store = snapshots?[specification.name].map { bridge.load(snapshot: $0) }
+                ?? ClaudeHookSessionStore(
+                    processEnv: storeEnvironment,
+                    fileManager: fileManager,
+                    agentName: specification.name
+                ).snapshot()
+            guard !store.sessions.isEmpty else { continue }
             let activeSessionIds = Set(store.activeSessionsBySurface.values.map(\.sessionId))
                 .union(store.activeSessionsByWorkspace.values.map(\.sessionId))
             for record in store.sessions.values {

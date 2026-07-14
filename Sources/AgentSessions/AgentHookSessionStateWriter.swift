@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -70,6 +71,7 @@ struct AgentHookSessionStateWriter: Sendable {
         )
         Self.queue.async {
             complete(
+                provider: kind.rawValue,
                 stateURL: stateURL,
                 sessionId: normalized,
                 expectedRecordUpdatedAt: expectedRecordUpdatedAt,
@@ -87,6 +89,7 @@ struct AgentHookSessionStateWriter: Sendable {
         let normalized = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return }
         complete(
+            provider: kind.rawValue,
             stateURL: kind.hookStoreFileURL(
                 homeDirectory: homeDirectory,
                 environment: environment
@@ -110,7 +113,13 @@ struct AgentHookSessionStateWriter: Sendable {
             environment: environment
         )
         Self.queue.async {
-            setLifecycle(state, stateURL: stateURL, sessionId: normalized, now: now)
+            setLifecycle(
+                state,
+                provider: kind.rawValue,
+                stateURL: stateURL,
+                sessionId: normalized,
+                now: now
+            )
         }
     }
 
@@ -124,6 +133,7 @@ struct AgentHookSessionStateWriter: Sendable {
         guard !normalized.isEmpty else { return }
         setLifecycle(
             state,
+            provider: kind.rawValue,
             stateURL: kind.hookStoreFileURL(
                 homeDirectory: homeDirectory,
                 environment: environment
@@ -134,32 +144,77 @@ struct AgentHookSessionStateWriter: Sendable {
     }
 
     private func complete(
+        provider: String,
         stateURL: URL,
         sessionId: String,
         expectedRecordUpdatedAt: TimeInterval?,
         now: TimeInterval
     ) {
-        let lockPath = stateURL.path + ".lock"
-        let descriptor = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
-        guard descriptor >= 0 else { return }
-        defer { Darwin.close(descriptor) }
-        guard flock(descriptor, LOCK_EX) == 0 else { return }
-        defer { _ = flock(descriptor, LOCK_UN) }
-
-        guard let data = try? Data(contentsOf: stateURL),
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var sessions = root["sessions"] as? [String: Any],
-              var record = sessions[sessionId] as? [String: Any] else {
-            return
+        let registry = preparedRegistry(provider: provider, stateURL: stateURL)
+        let patched = try? registry.patchRecord(
+            provider: provider,
+            sessionID: sessionId,
+            updatedAt: now,
+            shouldMutate: { record in
+                guard let expectedRecordUpdatedAt else { return true }
+                guard let actualUpdatedAt = record["updatedAt"] as? TimeInterval else { return false }
+                return actualUpdatedAt <= expectedRecordUpdatedAt
+            }
+        ) { registryRecord in
+            applyCompletion(to: &registryRecord, now: now)
         }
-        // The binding timestamp is a lock-free generation fence captured when
-        // the terminal observed the root TUI exit. A newer hook/store write
-        // means this queued completion belongs to the replaced process.
-        if let expectedRecordUpdatedAt {
+        if patched == true {
+            try? registry.removeActiveSlots(provider: provider, sessionID: sessionId)
+        }
+
+        let wroteLegacy = updateLegacyRecordNonblocking(stateURL: stateURL, sessionID: sessionId) { root, record in
+            if let expectedRecordUpdatedAt {
+                guard let actualUpdatedAt = record["updatedAt"] as? TimeInterval,
+                      actualUpdatedAt <= expectedRecordUpdatedAt else { return false }
+            }
+            applyCompletion(to: &record, now: now)
+            root["activeSessionsByWorkspace"] = removingSession(
+                sessionId,
+                from: root["activeSessionsByWorkspace"]
+            )
+            root["activeSessionsBySurface"] = removingSession(
+                sessionId,
+                from: root["activeSessionsBySurface"]
+            )
+            return true
+        }
+        if wroteLegacy { markLegacySource(provider: provider, stateURL: stateURL) }
+    }
+
+    private func setLifecycle(
+        _ lifecycle: AgentSessionLifecycleState,
+        provider: String,
+        stateURL: URL,
+        sessionId: String,
+        now: TimeInterval
+    ) {
+        let registry = preparedRegistry(provider: provider, stateURL: stateURL)
+        _ = try? registry.patchRecord(
+            provider: provider,
+            sessionID: sessionId,
+            updatedAt: now,
+            shouldMutate: { record in
+                guard let actualUpdatedAt = record["updatedAt"] as? TimeInterval else { return false }
+                return actualUpdatedAt <= now
+            }
+        ) { registryRecord in
+            applyLifecycle(lifecycle, to: &registryRecord, now: now)
+        }
+        let wroteLegacy = updateLegacyRecordNonblocking(stateURL: stateURL, sessionID: sessionId) { _, record in
             guard let actualUpdatedAt = record["updatedAt"] as? TimeInterval,
-                  actualUpdatedAt <= expectedRecordUpdatedAt else { return }
+                  actualUpdatedAt <= now else { return false }
+            applyLifecycle(lifecycle, to: &record, now: now)
+            return true
         }
+        if wroteLegacy { markLegacySource(provider: provider, stateURL: stateURL) }
+    }
 
+    private func applyCompletion(to record: inout [String: Any], now: TimeInterval) {
         record["completedAt"] = now
         record["updatedAt"] = now
         record["runtimeStatus"] = "idle"
@@ -173,46 +228,13 @@ struct AgentHookSessionStateWriter: Sendable {
         record.removeValue(forKey: "activeRunId")
         record["runs"] = completeRuns(record["runs"], now: now)
         record["workloads"] = cancelWorkloads(record["workloads"], now: now)
-        sessions[sessionId] = record
-        root["sessions"] = sessions
-        root["activeSessionsByWorkspace"] = removingSession(
-            sessionId,
-            from: root["activeSessionsByWorkspace"]
-        )
-        root["activeSessionsBySurface"] = removingSession(
-            sessionId,
-            from: root["activeSessionsBySurface"]
-        )
-
-        guard JSONSerialization.isValidJSONObject(root),
-              let encoded = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {
-            return
-        }
-        replacePrivateStateFile(with: encoded, at: stateURL)
     }
 
-    private func setLifecycle(
+    private func applyLifecycle(
         _ lifecycle: AgentSessionLifecycleState,
-        stateURL: URL,
-        sessionId: String,
+        to record: inout [String: Any],
         now: TimeInterval
     ) {
-        let lockPath = stateURL.path + ".lock"
-        let descriptor = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
-        guard descriptor >= 0 else { return }
-        defer { Darwin.close(descriptor) }
-        guard flock(descriptor, LOCK_EX) == 0 else { return }
-        defer { _ = flock(descriptor, LOCK_UN) }
-        guard let data = try? Data(contentsOf: stateURL),
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var sessions = root["sessions"] as? [String: Any],
-              var record = sessions[sessionId] as? [String: Any] else { return }
-        // `now` is captured before this write enters the utility queue. A hook
-        // write with a later timestamp belongs to a newer process generation,
-        // so this queued lifecycle transition must not move that record or its
-        // runtime ownership backwards.
-        guard let actualUpdatedAt = record["updatedAt"] as? TimeInterval,
-              actualUpdatedAt <= now else { return }
         record["sessionState"] = lifecycle.rawValue
         record["updatedAt"] = now
         if let runtime = runtimePayload() {
@@ -223,15 +245,67 @@ struct AgentHookSessionStateWriter: Sendable {
                 activeRunId: record["activeRunId"] as? String
             )
         }
-        sessions[sessionId] = record
-        root["sessions"] = sessions
-        guard let encoded = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {
-            return
-        }
-        replacePrivateStateFile(with: encoded, at: stateURL)
     }
 
-    private func replacePrivateStateFile(with data: Data, at stateURL: URL) {
+    private func updateLegacyRecordNonblocking(
+        stateURL: URL,
+        sessionID: String,
+        mutate: (inout [String: Any], inout [String: Any]) -> Bool
+    ) -> Bool {
+        let lockPath = stateURL.path + ".lock"
+        let descriptor = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+        guard descriptor >= 0 else { return false }
+        defer { Darwin.close(descriptor) }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return false }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        guard let data = try? Data(contentsOf: stateURL),
+              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var sessions = root["sessions"] as? [String: Any],
+              var record = sessions[sessionID] as? [String: Any],
+              mutate(&root, &record) else { return false }
+        sessions[sessionID] = record
+        root["sessions"] = sessions
+        guard JSONSerialization.isValidJSONObject(root),
+              let encoded = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {
+            return false
+        }
+        return replacePrivateStateFile(with: encoded, at: stateURL)
+    }
+
+    private func preparedRegistry(
+        provider: String,
+        stateURL: URL
+    ) -> CmuxAgentSessionRegistry {
+        let registry = registry(provider: provider, stateURL: stateURL)
+        _ = try? registry.snapshotImportingLegacy(
+            provider: provider,
+            legacyURL: stateURL
+        )
+        return registry
+    }
+
+    private func registry(provider: String, stateURL: URL) -> CmuxAgentSessionRegistry {
+        let registryURL: URL
+        if let explicit = environment["CMUX_AGENT_SESSION_REGISTRY_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            registryURL = URL(fileURLWithPath: NSString(string: explicit).expandingTildeInPath)
+        } else {
+            registryURL = stateURL.deletingLastPathComponent()
+                .appendingPathComponent(CmuxAgentSessionRegistry.filename, isDirectory: false)
+        }
+        return CmuxAgentSessionRegistry(url: registryURL)
+    }
+
+    private func markLegacySource(provider: String, stateURL: URL) {
+        guard let stamp = CmuxAgentSessionRegistry.LegacyStamp.read(path: stateURL.path) else { return }
+        try? registry(provider: provider, stateURL: stateURL).markLegacySource(
+            provider: provider,
+            stamp: stamp
+        )
+    }
+
+    private func replacePrivateStateFile(with data: Data, at stateURL: URL) -> Bool {
         let fileManager = FileManager.default
         let temporaryURL = stateURL.deletingLastPathComponent()
             .appendingPathComponent(".\(stateURL.lastPathComponent).\(UUID().uuidString).tmp")
@@ -240,16 +314,17 @@ struct AgentHookSessionStateWriter: Sendable {
             atPath: temporaryURL.path,
             contents: data,
             attributes: [.posixPermissions: NSNumber(value: Int16(0o600))]
-        ) else { return }
+        ) else { return false }
         let renameResult = temporaryURL.path.withCString { source in
             stateURL.path.withCString { destination in
                 Darwin.rename(source, destination)
             }
         }
-        guard renameResult == 0 else { return }
+        guard renameResult == 0 else { return false }
         // Keep the invariant even on filesystems that do not preserve the
         // temporary file's mode across replacement.
         _ = chmod(stateURL.path, S_IRUSR | S_IWUSR)
+        return true
     }
 
     private func completeRuns(_ value: Any?, now: TimeInterval) -> [[String: Any]] {
