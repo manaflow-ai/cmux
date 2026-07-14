@@ -81,15 +81,24 @@ public struct ChatArtifactGalleryBuilder: Sendable {
     }
 
     /// Counts immediate children for a gallery directory row without sorting
-    /// or per-entry metadata, capped at the shared listing limit.
+    /// or per-entry metadata, stopping at the shared listing limit so the cost
+    /// never scales past the cap for large folders.
     private func directoryChildCount(path: String) -> (count: Int, isCapped: Bool)? {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: path) else {
+        guard let enumerator = FileManager.default.enumerator(
+            at: URL(fileURLWithPath: path, isDirectory: true),
+            includingPropertiesForKeys: [],
+            options: [.skipsSubdirectoryDescendants]
+        ) else {
             return nil
         }
-        return (
-            count: min(names.count, ArtifactByteReader.maximumDirectoryEntryCount),
-            isCapped: names.count > ArtifactByteReader.maximumDirectoryEntryCount
-        )
+        var count = 0
+        while enumerator.nextObject() != nil {
+            count += 1
+            if count > ArtifactByteReader.maximumDirectoryEntryCount {
+                return (count: ArtifactByteReader.maximumDirectoryEntryCount, isCapped: true)
+            }
+        }
+        return (count: count, isCapped: false)
     }
 
     private func statItems(
