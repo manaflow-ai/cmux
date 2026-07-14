@@ -5,14 +5,24 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitProcessDeadlineTests {
-    @Test func postSIGKILLWaitHasNoExpiredDeadline() {
+    @Test func postSIGKILLWaitUsesFinalReapDeadline() {
         let plan = GitProcessWaitPlan(
             processDeadline: 10,
             escalationDeadline: 5,
-            didSendSIGKILL: true
+            didSendSIGKILL: true,
+            finalReapDeadline: 7
         )
 
-        #expect(plan.deadline == nil)
+        #expect(plan.deadline == 7)
+    }
+
+    @Test func outputCapTerminationProofIsMonotonic() {
+        var state = GitOutputCapTerminationState()
+
+        state.record(didSignalLiveProcess: true)
+        state.record(didSignalLiveProcess: false)
+
+        #expect(state.didTerminateForOutputCap)
     }
 
     @Test func subprocessClosesUnspecifiedInheritedDescriptors() throws {
