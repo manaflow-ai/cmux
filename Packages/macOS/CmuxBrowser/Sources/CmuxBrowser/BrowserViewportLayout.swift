@@ -26,22 +26,6 @@ public struct BrowserViewportLayout: Equatable, Sendable {
     /// Uniform scale from logical CSS points to displayed AppKit points.
     public let scale: Double
 
-    /// Returns whether temporary reparenting should restore the WebView's previous geometry.
-    ///
-    /// A host with visible WebKit companion views owns a split layout that cmux must preserve.
-    /// Without those companions, the current host bounds are authoritative after reattachment.
-    ///
-    /// - Parameters:
-    ///   - hasPreviousHost: Whether the WebView will return to its previous host.
-    ///   - hasVisibleWebKitCompanion: Whether that host contains a visible WebKit-managed companion.
-    /// - Returns: `true` when the previous geometry should be restored instead of recomputed.
-    public static func shouldPreservePreviousGeometryOnRestore(
-        hasPreviousHost: Bool,
-        hasVisibleWebKitCompanion: Bool
-    ) -> Bool {
-        !hasPreviousHost || hasVisibleWebKitCompanion
-    }
-
     /// Projects an optional logical viewport into an existing pane without resizing the pane.
     ///
     /// - Parameters:

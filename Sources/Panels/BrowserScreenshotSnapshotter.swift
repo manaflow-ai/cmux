@@ -235,6 +235,7 @@ enum BrowserScreenshotWebViewSnapshotter {
 
         defer {
             webView.cmuxRestoreBrowserViewportAfterTemporaryReparenting(
+                from: contentView,
                 to: previousSuperview,
                 frame: previousFrame,
                 bounds: previousBounds,
@@ -319,6 +320,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             timeoutTimer?.invalidate()
             timeoutTimer = nil
             webView.cmuxRestoreBrowserViewportAfterTemporaryReparenting(
+                from: contentView,
                 to: previousSuperview,
                 frame: previousFrame,
                 bounds: previousBounds,

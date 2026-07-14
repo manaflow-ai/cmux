@@ -45,6 +45,7 @@ extension WKWebView {
     }
 
     func cmuxRestoreBrowserViewportAfterTemporaryReparenting(
+        from temporarySuperview: NSView,
         to previousSuperview: NSView?,
         frame previousFrame: NSRect,
         bounds previousBounds: NSRect,
@@ -53,6 +54,15 @@ extension WKWebView {
         anchor: NSView?,
         position: NSWindow.OrderingMode
     ) {
+        let policy = BrowserViewportRestorationPolicy(
+            hasCurrentHost: superview != nil,
+            temporaryHostIsCurrent: superview === temporarySuperview,
+            hasPreviousHost: previousSuperview != nil,
+            hasVisibleWebKitCompanion: previousSuperview?
+                .browserPortalHasVisibleWebKitCompanionSubview(for: self) ?? false
+        )
+        guard policy.shouldRestorePreviousHost else { return }
+
         removeFromSuperview()
         if let previousSuperview {
             if let anchor, anchor.superview === previousSuperview {
@@ -62,12 +72,7 @@ extension WKWebView {
             }
         }
 
-        let hasVisibleWebKitCompanion = previousSuperview?
-            .browserPortalHasVisibleWebKitCompanionSubview(for: self) ?? false
-        if BrowserViewportLayout.shouldPreservePreviousGeometryOnRestore(
-            hasPreviousHost: previousSuperview != nil,
-            hasVisibleWebKitCompanion: hasVisibleWebKitCompanion
-        ) {
+        if policy.shouldPreservePreviousGeometry {
             frame = previousFrame
             bounds = previousBounds
             autoresizingMask = previousAutoresizingMask
