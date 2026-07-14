@@ -937,6 +937,70 @@ none blocks the current branch.
   buys a beachball. Fix: assert off-main in `runOnControllerQueue`, or
   delete the unused wrappers.
 
+## The second geometry writer: autoresizing masks
+
+The worst render bug the fuzz found was a frame ping-pong: every pane sat
+exactly one host-width-delta wide of plan, the portal rewrote it each
+pass, and something restored the wrong size within milliseconds —
+hierarchy syncs in the thousands per settle window against a healthy ~17.
+Three fix attempts failed before live forensics named the writer, so the
+mechanism is worth pinning here.
+
+Hosted terminal views reach the portal from SwiftUI hosting with
+`autoresizingMask = [.width, .height]`. In an Auto Layout window that
+mask does not stay a mask: AppKit translates it into constraints, and a
+flexible mask translates into EDGE pins — a minX constant plus a trailing
+margin to the host, with no width constraint at all. The pin distances
+are snapshots of whatever geometry the last constraint pass saw.
+
+```
+   portal's theory                    engine's theory (flexible mask)
+
+   "this pane IS                      "this pane's left edge is at 992
+    215 x 141 at (992, 16)"            and its right edge is 7pt from
+                                       the host's right edge"
+
+                    host resizes by +148
+                          |
+                          v
+   portal: pane is still 215 wide     engine: margins are fixed, so the
+   (the anchor didn't move)           pane is now 215 + 148 = 363 wide
+```
+
+Both writers act on every display refresh. The portal writes plan truth;
+the next layout flush lets the engine re-derive the pane from its frozen
+margins against the new host bounds and write that back. Neither side
+ever sees the other's reasoning, so the fight never converges — panes
+render at a previous generation's geometry while the sync counters burn.
+
+The rule: the portal is the only writer of hosted geometry, so adoption
+clears the mask, every sync re-asserts it, and detach restores the
+original. An empty mask translates to rigid position+size constants that
+always equal the last portal write — the engine's opinion of a pane
+becomes, by construction, whatever the portal last wrote. There is no
+second theory of geometry left, rather than a suppressed one.
+
+Two dead ends worth remembering. Fighting the engine at the frame setter
+does not work in either direction: refusing its writes (returning without
+`super`) desyncs AppKit's bookkeeping from the actual frame and NSWindow
+eventually raises its per-cycle update-constraints budget exception; and
+redirecting through `super` at the current frame is the same thing in
+disguise, because an equal-value `super` call early-returns and the
+engine still sees its apply not take. The fix has to remove the engine's
+wrong opinion at its source, not veto the write.
+
+Why every test missed it: views created directly in a test are born with
+an empty mask, so the fixtures were accidentally running the fixed
+configuration — three successive attempts at a red test came back green.
+The disease only exists with the production mask, and once the fixture
+sets it explicitly the failure is deterministic arithmetic (grow the
+window 120pt, watch a 240pt pane become exactly 360). The regression test
+does exactly that. The forensics practice that broke the case is also
+kept: when a frame oscillates and one writer is unknown, the portal dumps
+`constraintsAffectingLayout(for:)` and the translated constants at the
+moment of the miss (`portal.stomp.diag`, rate-limited, DEBUG) — one
+capture named what three rounds of inference got wrong.
+
 ## Migration
 
 Three steps, each shippable, under one ordering rule: no step deletes a
