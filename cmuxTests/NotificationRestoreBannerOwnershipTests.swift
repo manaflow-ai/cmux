@@ -98,6 +98,53 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(!tombstones.contains(destinationOwner.id.uuidString))
     }
 
+    @Test func rebindCollisionDismissesDisplacedBannerOwner() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.object(forKey: tombstoneKey)
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        let sourceOwner = notification(
+            id: UUID(), tabId: sourceTabId, surfaceId: surfaceId,
+            title: "Source owner", createdAt: Date(timeIntervalSince1970: 10)
+        )
+        let destinationOwner = notification(
+            id: UUID(), tabId: destinationTabId, surfaceId: surfaceId,
+            title: "Destination owner", createdAt: Date(timeIntervalSince1970: 20)
+        )
+        defer {
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
+            store.replaceNotificationsForTesting(previousNotifications)
+        }
+
+        UserDefaults.standard.removeObject(forKey: tombstoneKey)
+        store.reloadDismissedTombstonesForTesting()
+        store.replaceNotificationsForTesting([destinationOwner, sourceOwner])
+
+        store.rebindSurfaceNotifications(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            surfaceId: surfaceId
+        )
+
+        #expect(
+            store.externalBannerOwnerIDForTesting(
+                tabId: destinationTabId,
+                surfaceId: surfaceId
+            ) == destinationOwner.id
+        )
+        let tombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey) ?? []
+        #expect(tombstones.contains(sourceOwner.id.uuidString))
+        #expect(!tombstones.contains(destinationOwner.id.uuidString))
+    }
+
     @Test func restoredNewerRowDoesNotOwnLiveBannerRowActions() {
         let store = TerminalNotificationStore.shared
         let previousNotifications = store.notifications
