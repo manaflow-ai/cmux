@@ -295,7 +295,7 @@ import Testing
 }
 
 @MainActor
-@Test func rejectedVisualRotatesOnlyVisualGenerationAndReplayCanYield() async throws {
+@Test func rejectedVisualRotatesVisualGenerationAndReplayCanYield() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     let baseline = try authoritativeSemanticFrame(seq: 10, revision: 1, text: "baseline")
@@ -352,6 +352,51 @@ import Testing
         disposition: .applied
     )
     #expect(store.terminalOutputStreamTokensBySurfaceID["live-terminal"] == recovered.streamToken)
+}
+
+@MainActor
+@Test func authoritativeSnapshotFallbackStaysSemanticOnlyAndKeepsDirectPixels() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let baseline = try authoritativeSemanticFrame(seq: 10, revision: 1, text: "direct-pixels")
+    await router.enqueueReplayRenderGrid(baseline)
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let streams = store.authoritativeTerminalOutputStreams(surfaceID: "live-terminal")
+    var visual = streams.visual.makeAsyncIterator()
+    var semantic = streams.semantic.makeAsyncIterator()
+    let visualBaselineValue = await visual.next()
+    let visualBaseline = try #require(visualBaselineValue)
+    let semanticBaselineValue = await semantic.next()
+    let semanticBaseline = try #require(semanticBaselineValue)
+    store.terminalOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: visualBaseline.streamToken,
+        disposition: .applied
+    )
+    store.terminalSemanticOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: semanticBaseline.streamToken,
+        disposition: .applied
+    )
+    let visualToken = visualBaseline.streamToken
+
+    await router.enqueueReplaySnapshot(text: "semantic-snapshot", sequence: 20)
+    store.requestTerminalReplay(surfaceID: "live-terminal")
+    let visualStayedIdle = try await pollUntil {
+        store.terminalSemanticReplayBarrierAckStreamTokensBySurfaceID["live-terminal"] != nil
+            || store.terminalOutputQueuesBySurfaceID["live-terminal"]?.isIdle == false
+    }
+    try #require(visualStayedIdle)
+    try #require(store.terminalOutputQueuesBySurfaceID["live-terminal"]?.isIdle == true)
+    #expect(store.terminalOutputStreamTokensBySurfaceID["live-terminal"] == visualToken)
+    #expect(store.terminalReplayBarrierAckStreamTokensBySurfaceID["live-terminal"] == nil)
+
+    let snapshotValue = await semantic.next()
+    let snapshot = try #require(snapshotValue)
+    #expect(snapshot.kind == .baseline)
+    #expect(snapshot.endSeq == 20)
+    #expect(snapshot.data.range(of: Data("semantic-snapshot".utf8)) != nil)
 }
 
 private func authoritativeSemanticFrame(

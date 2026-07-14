@@ -61,7 +61,12 @@ actor LivenessHostRouter {
     private var macInstanceTag: String? = "default"
     private var macDisplayName: String? = "Test Mac"
     private var workspaceListResponseHook: (@Sendable () -> Void)?
-    private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
+    private var replayPayloads: [(
+        text: String?,
+        snapshotText: String?,
+        sequence: UInt64?,
+        renderGrid: MobileTerminalRenderGridFrame?
+    )] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
@@ -183,11 +188,20 @@ actor LivenessHostRouter {
     }
 
     func enqueueReplayPayload(text: String?, sequence: UInt64?) {
-        replayPayloads.append((text: text, sequence: sequence, renderGrid: nil))
+        replayPayloads.append((text: text, snapshotText: nil, sequence: sequence, renderGrid: nil))
+    }
+
+    func enqueueReplaySnapshot(text: String, sequence: UInt64) {
+        replayPayloads.append((
+            text: nil,
+            snapshotText: text,
+            sequence: sequence,
+            renderGrid: nil
+        ))
     }
 
     func enqueueReplayRenderGrid(_ renderGrid: MobileTerminalRenderGridFrame) {
-        replayPayloads.append((text: nil, sequence: nil, renderGrid: renderGrid))
+        replayPayloads.append((text: nil, snapshotText: nil, sequence: nil, renderGrid: renderGrid))
     }
 
     func enqueueReplayRenderGridFrames(_ frames: [MobileTerminalRenderGridFrame]) {
@@ -347,6 +361,9 @@ actor LivenessHostRouter {
                 var result: [String: Any] = [:]
                 if let text = payload.text {
                     result["data_b64"] = Data(text.utf8).base64EncodedString()
+                }
+                if let snapshotText = payload.snapshotText {
+                    result["snapshot_b64"] = Data(snapshotText.utf8).base64EncodedString()
                 }
                 if let sequence = payload.sequence {
                     result["seq"] = sequence
