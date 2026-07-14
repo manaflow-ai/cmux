@@ -17,11 +17,7 @@ struct ChatArtifactPreviewRouter: Sendable {
         }
 
         let fileExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
-        let mimeType = stat.mimeType?
-            .split(separator: ";", maxSplits: 1)
-            .first?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        let mimeType = Self.normalizedMIMEType(stat.mimeType)
         if mimeType == "application/pdf" || fileExtension == "pdf" {
             return .pdf
         }
@@ -42,8 +38,30 @@ struct ChatArtifactPreviewRouter: Sendable {
         return .binary
     }
 
+    /// Preferred filename extension for a wire MIME type, used to type
+    /// extensionless temporary files for preview frameworks.
+    func preferredExtension(forMIMEType rawMIMEType: String?) -> String? {
+        guard let mimeType = Self.normalizedMIMEType(rawMIMEType),
+              let type = UTType(mimeType: mimeType) else {
+            return nil
+        }
+        return type.preferredFilenameExtension
+    }
+
     private func isMedia(_ type: UTType?) -> Bool {
         guard let type else { return false }
         return type.conforms(to: .movie) || type.conforms(to: .audio)
+    }
+
+    private static func normalizedMIMEType(_ rawValue: String?) -> String? {
+        guard let normalized = rawValue?
+            .split(separator: ";", maxSplits: 1)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            !normalized.isEmpty else {
+            return nil
+        }
+        return normalized
     }
 }
