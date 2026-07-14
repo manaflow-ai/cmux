@@ -290,4 +290,70 @@ import Testing
         #expect(await client.accessToken() != nil)
         #expect(await client.refreshToken() != nil)
     }
+
+    @Test func tokenReadsDuringCredentialAutoLoginPreserveCachedSession() async throws {
+        // A simulator process starts with an empty in-memory token store even
+        // when the session/user/team caches still identify the signed-in
+        // account. Launch restore owns that discrepancy and begins credential
+        // auto-login. An early CoreRPC token request must stay retryable while
+        // that owner is active instead of clearing the cached identity and
+        // cancelling its in-flight exchange.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let team = CMUXAuthTeam(id: "team_a", displayName: "Alpha")
+        let client = GateableValidationAuthClient(user: user, teams: [team])
+        let store = FakeKeyValueStore()
+        let sessionCache = CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens")
+        let userCache = CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user")
+        let teamSelection = CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team")
+        sessionCache.setHasTokens(true)
+        try userCache.save(user)
+        teamSelection.selectedTeamID = team.id
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: sessionCache,
+            userCache: userCache,
+            teamSelection: teamSelection,
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: [
+                    "CMUX_UITEST_STACK_EMAIL": "a@b.com",
+                    "CMUX_UITEST_STACK_PASSWORD": "pw",
+                ],
+                includesDevAuth: false
+            )
+        )
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(coordinator.selectedTeamID == team.id)
+
+        await client.armCredentialGate()
+        coordinator.start()
+        await client.credentialDidPark()
+
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.accessToken()
+        }
+        await #expect(throws: AuthError.networkError) {
+            _ = try await coordinator.forceRefreshAccessToken()
+        }
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(coordinator.selectedTeamID == team.id)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(store.string(forKey: "selected_team") == team.id)
+
+        await client.releaseParkedCredential()
+        await coordinator.awaitBootstrapped()
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+        #expect(coordinator.resolvedTeamID == team.id)
+        #expect(await client.accessToken() == "access-1")
+        #expect(await client.refreshToken() == "refresh-1")
+    }
 }
