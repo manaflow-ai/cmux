@@ -175,6 +175,79 @@ struct ChatArtifactViewerModelTests {
         #expect(!FileManager.default.fileExists(atPath: fileURL.path))
     }
 
+    @Test
+    @MainActor
+    func mediaUsesMediaCapAndRejectsFromStatBeforeFetch() async {
+        let limit = ChatArtifactTransferPolicy.defaultPolicy.maxMediaPreviewBytes
+        let streamCalls = ArtifactStreamCallCounter()
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { _ in
+                ChatArtifactStat(
+                    exists: true,
+                    isDirectory: false,
+                    size: limit + 1,
+                    modifiedAt: Date(timeIntervalSince1970: 0),
+                    kind: .binary,
+                    mimeType: "video/mp4"
+                )
+            },
+            stream: { _, _ in
+                await streamCalls.recordCall()
+            }
+        )
+        let model = ChatArtifactViewerModel()
+
+        await model.load(path: "/remote/movie.mp4", loader: loader)
+
+        #expect(model.state == .tooLarge(actualSize: limit + 1, limit: limit))
+        #expect(await streamCalls.callCount() == 0)
+    }
+
+    @Test
+    @MainActor
+    func mediaStreamsToExtensionPreservingFile() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-artifact-media-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let data = Data("media bytes".utf8)
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { _ in
+                ChatArtifactStat(
+                    exists: true,
+                    isDirectory: false,
+                    size: Int64(data.count),
+                    modifiedAt: Date(timeIntervalSince1970: 0),
+                    kind: .binary,
+                    mimeType: "video/mp4"
+                )
+            },
+            stream: { _, onChunk in
+                try await onChunk(ChatArtifactChunk(
+                    data: data,
+                    offset: 0,
+                    totalSize: Int64(data.count),
+                    eof: true
+                ))
+            }
+        )
+        let model = ChatArtifactViewerModel(
+            temporaryFileStore: ChatArtifactTemporaryFileStore(directory: directory)
+        )
+
+        await model.load(path: "/remote/movie.mp4", loader: loader)
+
+        guard case .media(let fileURL) = model.state else {
+            Issue.record("movie metadata should route to the media file state")
+            return
+        }
+        #expect(fileURL.pathExtension == "mp4")
+        #expect(try Data(contentsOf: fileURL) == data)
+        await model.cleanup()
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     private static func loader(
         totalSize: Int64,
         stream: @escaping @Sendable (

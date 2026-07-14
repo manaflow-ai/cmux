@@ -44,7 +44,10 @@ final class ChatArtifactViewerModel {
                 return
             }
 
-            let limit = ChatArtifactTransferPolicy.defaultPolicy.maxPreviewBytes
+            let policy = ChatArtifactTransferPolicy.defaultPolicy
+            let limit = route == .media
+                ? policy.maxMediaPreviewBytes
+                : policy.maxPreviewBytes
             guard loadedStat.size <= limit else {
                 state = .tooLarge(actualSize: loadedStat.size, limit: limit)
                 return
@@ -56,13 +59,26 @@ final class ChatArtifactViewerModel {
             case .image:
                 try await loadImage(path: path, loader: loader)
             case .pdf:
-                try await loadPDF(
+                if let fileURL = try await loadTemporaryFile(
                     path: path,
                     expectedSize: loadedStat.size,
                     limit: limit,
+                    fallbackExtension: "pdf",
                     loader: loader
-                )
-            case .media, .quickLook, .binary:
+                ) {
+                    state = .pdf(fileURL: fileURL)
+                }
+            case .media:
+                if let fileURL = try await loadTemporaryFile(
+                    path: path,
+                    expectedSize: loadedStat.size,
+                    limit: limit,
+                    fallbackExtension: nil,
+                    loader: loader
+                ) {
+                    state = .media(fileURL: fileURL)
+                }
+            case .quickLook, .binary:
                 state = .binary(stat: loadedStat)
             case .folder:
                 break
@@ -125,27 +141,28 @@ final class ChatArtifactViewerModel {
         state = .image(data: data)
     }
 
-    private func loadPDF(
+    private func loadTemporaryFile(
         path: String,
         expectedSize: Int64,
         limit: Int64,
+        fallbackExtension: String?,
         loader: ChatArtifactLoader
-    ) async throws {
+    ) async throws -> URL? {
         let fileURL = try await temporaryFileStore.fetch(
             path: path,
             expectedSize: expectedSize,
             limit: limit,
-            fallbackExtension: "pdf",
+            fallbackExtension: fallbackExtension,
             loader: loader
         ) { chunk in
             await self.receiveNonTextProgress(chunk: chunk, path: path)
         }
         guard path == activePath else {
             await temporaryFileStore.remove(fileURL)
-            return
+            return nil
         }
         temporaryFileURL = fileURL
-        state = .pdf(fileURL: fileURL)
+        return fileURL
     }
 
     private func receiveNonTextProgress(chunk: ChatArtifactChunk, path: String) {
