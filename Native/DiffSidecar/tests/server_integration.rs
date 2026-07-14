@@ -108,10 +108,11 @@ fn cancelling_rpc_terminates_its_process_group_and_removes_partial_patch() {
         std::fs::read_dir(&root)
             .expect("read sidecar root")
             .flatten()
-            .all(|entry| !entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with(".diff-session-"))
+            .all(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                !(name.contains("diff-session-") && name.ends_with(".patch"))
+            })
     );
     let _ = std::fs::remove_dir_all(root);
 }

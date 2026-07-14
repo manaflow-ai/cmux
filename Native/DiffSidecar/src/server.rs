@@ -1415,7 +1415,7 @@ mod tests {
     use crate::protocol::{DiffCommand, DiffRequest, DiffResult};
 
     use super::{
-        DiffSource, RpcRequestRead, SessionOpenError, UNTRUSTED_RPC_REQUEST_ID,
+        DiffSource, RpcRequestRead, SessionOpenError, TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID,
         handle_protocol_request, read_rpc_request, run_git_patch_with_limit, valid_group_id,
     };
 
@@ -1452,6 +1452,29 @@ mod tests {
         assert!(!valid_group_id(""));
         assert!(!valid_group_id(&"a".repeat(65)));
         assert!(!valid_group_id("../group"));
+    }
+
+    #[test]
+    fn temporary_patch_guard_follows_rename_until_registration() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-rename-guard-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create root");
+        let temporary = root.join(".diff-session-test.patch.tmp");
+        let final_path = root.join("diff-session-test.patch");
+        std::fs::write(&temporary, b"private diff").expect("write temporary patch");
+
+        {
+            let mut guard = TemporaryPatchFile::new(temporary.clone());
+            std::fs::rename(&temporary, &final_path).expect("rename patch");
+            guard.retarget(final_path.clone());
+        }
+
+        assert!(!temporary.exists());
+        assert!(!final_path.exists());
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[tokio::test]
