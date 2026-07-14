@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileShell
 import CmuxMobileShellModel
+import Foundation
 import Testing
 @testable import CmuxMobileShellUI
 
