@@ -3211,14 +3211,6 @@ class TerminalController {
         return Self.v2Encoder.error(id: idValue, code: code, message: message, data: dataValue)
     }
 
-    /// Interim `Any`-shaped twin of the package's `ControlCallResult`, kept
-    /// while the command bodies still build Foundation payloads. Bodies
-    /// migrate onto the typed DTO in the ControlCommandCoordinator stage.
-    enum V2CallResult {
-        case ok(Any)
-        case err(code: String, message: String, data: Any?)
-    }
-
     private nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
         switch res {
         case .ok(let payload):

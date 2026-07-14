@@ -2518,20 +2518,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     var processTitle: String
 
-    nonisolated static func resolveCloseConfirmation(
-        shellActivityState: PanelShellActivityState?,
-        fallbackNeedsConfirmClose: Bool
-    ) -> Bool {
-        switch shellActivityState ?? .unknown {
-        case .promptIdle:
-            return false
-        case .commandRunning:
-            return true
-        case .unknown:
-            return fallbackNeedsConfirmClose
-        }
-    }
-
     nonisolated private static func makeSessionRestorePolicyService(
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot> {

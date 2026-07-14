@@ -6507,22 +6507,6 @@ struct CMUXCLI {
         return "tab:\(ordinal)"
     }
 
-    func formatHandle(_ payload: [String: Any], kind: String, idFormat: CLIIDFormat) -> String? {
-        let id = payload["\(kind)_id"] as? String
-        let ref = payload["\(kind)_ref"] as? String
-        switch idFormat {
-        case .refs:
-            return ref ?? id
-        case .uuids:
-            return id ?? ref
-        case .both:
-            if let ref, let id {
-                return "\(ref) (\(id))"
-            }
-            return ref ?? id
-        }
-    }
-
     private func formatTabHandle(_ payload: [String: Any], idFormat: CLIIDFormat) -> String? {
         let id = (payload["tab_id"] as? String) ?? (payload["surface_id"] as? String)
         let refRaw = (payload["tab_ref"] as? String) ?? (payload["surface_ref"] as? String)
@@ -6554,19 +6538,6 @@ struct CMUXCLI {
                 return "\(ref) (\(id))"
             }
             return ref ?? id
-        }
-    }
-
-    func printV2Payload(
-        _ payload: [String: Any],
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat,
-        fallbackText: String
-    ) {
-        if jsonOutput {
-            print(jsonString(formatIDs(payload, mode: idFormat)))
-        } else {
-            print(fallbackText)
         }
     }
 

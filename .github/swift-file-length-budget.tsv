@@ -180,6 +180,7 @@
 626	Sources/SettingsNavigation.swift
 623	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 620	cmuxTests/FinderFileDropRegressionTests.swift
+619	Sources/CmuxEventBus.swift
 610	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
 608	Sources/SleepyFaceView.swift
 608	Sources/TextBoxSubmitActions.swift
