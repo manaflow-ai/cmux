@@ -54,6 +54,7 @@ extension RemotePTYBridgeServer {
         var remoteAttachment: RemotePTYBridgeAttachment?
         private var clientPID: pid_t?
         private var clientProcessExitSource: (any DispatchSourceProcess)?
+        private var didNotifyClose = false
 
         init(
             connection: NWConnection,
@@ -109,7 +110,11 @@ extension RemotePTYBridgeServer {
         }
 
         func stop() {
-            close(detach: true)
+            if isClosed {
+                forceClosePendingShutdown()
+            } else {
+                close(detach: true)
+            }
         }
 
         func receiveNext() {
@@ -215,7 +220,7 @@ extension RemotePTYBridgeServer {
                 if case .success(let remoteAttachment) = result {
                     detachRemoteAttachment(remoteAttachment)
                 }
-                onClose()
+                notifyCloseOnce()
                 return
             }
             do {
@@ -397,7 +402,7 @@ extension RemotePTYBridgeServer {
                 guard let self else { return }
                 self.queue.async {
                     self.connection.cancel()
-                    self.onClose()
+                    self.notifyCloseOnce()
                 }
             })
         }
@@ -425,7 +430,7 @@ extension RemotePTYBridgeServer {
                         guard let self else { return }
                         self.queue.async {
                             self.connection.cancel()
-                            self.onClose()
+                            self.notifyCloseOnce()
                         }
                     }
                 )
@@ -435,6 +440,24 @@ extension RemotePTYBridgeServer {
             if isAttaching {
                 return
             }
+            notifyCloseOnce()
+        }
+
+        private func forceClosePendingShutdown() {
+            // A transport error can mark the session closed while Network is
+            // still waiting to finish its graceful output close. Tunnel
+            // teardown must override that pending close so the local CLI sees
+            // EOF and can attach through the replacement transport.
+            connection.cancel()
+            if isAttaching {
+                return
+            }
+            notifyCloseOnce()
+        }
+
+        private func notifyCloseOnce() {
+            guard !didNotifyClose else { return }
+            didNotifyClose = true
             onClose()
         }
 
