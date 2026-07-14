@@ -182,7 +182,9 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openMobilePairingWindow() {
-        MobilePairingWindowController.shared.show()
+        _ = AppDelegate.shared?.openMobilePairingPane(
+            debugSource: "settings.mobilePairing"
+        )
     }
 
     private func existingConfigWindow() -> NSWindow? {

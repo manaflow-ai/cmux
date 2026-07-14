@@ -41,10 +41,79 @@ extension AppDelegate {
 #if DEBUG
         cmuxDebugLog("settings.open.request source=\(debugSource)")
 #endif
-        Self.presentPreferencesWindow(navigationTarget: navigationTarget)
+        guard openAppUtilityPane(
+            kind: .settings,
+            debugSource: debugSource,
+            settingsNavigationTarget: navigationTarget
+        ) else {
+            NSSound.beep()
+            return
+        }
     }
 
     @objc func openPreferencesWindow() {
         openPreferencesWindow(debugSource: "appDelegate")
+    }
+
+    @discardableResult
+    func openMobilePairingPane(
+        debugSource: String,
+        tabManager explicitTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        openAppUtilityPane(
+            kind: .mobilePairing,
+            debugSource: debugSource,
+            tabManager: explicitTabManager,
+            preferredWindow: preferredWindow
+        )
+    }
+
+    @discardableResult
+    private func openAppUtilityPane(
+        kind: AppUtilityPanel.Kind,
+        debugSource: String,
+        settingsNavigationTarget: SettingsNavigationTarget? = nil,
+        tabManager explicitTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        let candidateWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        let targetWindow: NSWindow? = if explicitTabManager != nil {
+            candidateWindow
+        } else if contextForMainWindow(candidateWindow) != nil {
+            candidateWindow
+        } else {
+            showMainWindowFromMenuBar()
+        }
+        guard let targetTabManager = explicitTabManager
+            ?? activeTabManagerForCommands(preferredWindow: targetWindow),
+              let workspace = targetTabManager.selectedWorkspace
+                ?? targetTabManager.tabs.first,
+              let paneId = workspace.bonsplitController.focusedPaneId
+                ?? workspace.bonsplitController.allPaneIds.first else {
+#if DEBUG
+            cmuxDebugLog("appUtility.open.failed source=\(debugSource) kind=\(kind.rawValue)")
+#endif
+            return false
+        }
+
+        workspace.clearSplitZoom()
+        guard workspace.openOrFocusAppUtilitySurface(
+            inPane: paneId,
+            kind: kind,
+            settingsNavigationTarget: settingsNavigationTarget,
+            focus: true
+        ) != nil else {
+            return false
+        }
+
+        if let targetWindow, contextForMainWindow(targetWindow) != nil {
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
+            targetWindow.makeKeyAndOrderFront(nil)
+        }
+#if DEBUG
+        cmuxDebugLog("appUtility.open.succeeded source=\(debugSource) kind=\(kind.rawValue)")
+#endif
+        return true
     }
 }

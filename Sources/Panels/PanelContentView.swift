@@ -5,6 +5,7 @@ import Bonsplit
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFeedback
+import CmuxSettingsUI
 
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
@@ -150,6 +151,11 @@ struct PanelContentView: View {
                 CloudVMLoadingPanelView(panel: loadingPanel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        case .appUtility:
+            if let appUtilityPanel = panel as? AppUtilityPanel {
+                AppUtilityPanelView(panel: appUtilityPanel)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 
@@ -167,11 +173,47 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .cloudVMLoading:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .cloudVMLoading, .appUtility:
             return true
         case .terminal, .browser:
             return false
         }
+    }
+}
+
+private struct AppUtilityPanelView: View {
+    @ObservedObject var panel: AppUtilityPanel
+
+    var body: some View {
+        Group {
+            switch panel.kind {
+            case .settings:
+                if let runtime = AppDelegate.shared?.settingsRuntime {
+                    SettingsWindowRoot(
+                        runtime: runtime,
+                        navigationScope: panel.settingsNavigationScope
+                    )
+                    .settingsRuntime(runtime)
+                    .task(id: panel.settingsNavigationRevision) {
+                        guard let target = panel.settingsNavigationTarget else { return }
+                        SettingsNavigationRequest.post(
+                            target,
+                            scope: panel.settingsNavigationScope
+                        )
+                    }
+                } else {
+                    Text(String(
+                        localized: "settings.window.runtimeUnavailable",
+                        defaultValue: "Settings could not load. Please restart cmux and report this issue."
+                    ))
+                    .padding(40)
+                }
+            case .mobilePairing:
+                MobilePairingView()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
     }
 }
 

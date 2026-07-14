@@ -1,0 +1,57 @@
+import Foundation
+
+extension ContentView {
+    func commandPaletteSurfaceKindLabel(for panelType: PanelType) -> String {
+        switch panelType {
+        case .terminal:
+            return String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
+        case .browser:
+            return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
+        case .markdown:
+            return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
+        case .filePreview:
+            return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
+        case .rightSidebarTool:
+            return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
+        case .customSidebar:
+            return String(localized: "commandPalette.kind.customSidebar", defaultValue: "Custom Sidebar")
+        case .agentSession:
+            return String(localized: "commandPalette.kind.agentSession", defaultValue: "Agent")
+        case .project:
+            return String(localized: "commandPalette.kind.project", defaultValue: "Project")
+        case .extensionBrowser:
+            return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        case .cloudVMLoading:
+            return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
+        case .appUtility:
+            return String(localized: "commandPalette.kind.appUtility", defaultValue: "App")
+        }
+    }
+
+    func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
+        switch panelType {
+        case .terminal:
+            return ["terminal", "shell", "console"]
+        case .browser:
+            return ["browser", "web", "page"]
+        case .markdown:
+            return ["markdown", "note", "preview"]
+        case .filePreview:
+            return ["file", "preview", "text", "pdf", "image", "audio", "video"]
+        case .rightSidebarTool:
+            return ["tool", "files", "find", "vault", "sidebar"]
+        case .customSidebar:
+            return ["custom", "sidebar", "pane"]
+        case .agentSession:
+            return ["agent", "codex", "claude", "opencode", "react", "solid"]
+        case .project:
+            return ["project", "xcode", "build", "settings", "schemes", "targets"]
+        case .extensionBrowser:
+            return ["sidebar", "extensions", "extensionkit", "browser"]
+        case .cloudVMLoading:
+            return ["cloud", "vm", "loading"]
+        case .appUtility:
+            return ["app", "settings", "ios", "iphone", "pairing"]
+        }
+    }
+}

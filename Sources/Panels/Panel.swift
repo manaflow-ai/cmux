@@ -14,6 +14,7 @@ public enum PanelType: String, Codable, Sendable {
     case project
     case extensionBrowser
     case cloudVMLoading
+    case appUtility
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -40,6 +41,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {
             self = .cloudVMLoading
+            return
+        }
+        if rawValue.lowercased() == Self.appUtility.rawValue.lowercased() {
+            self = .appUtility
             return
         }
         throw DecodingError.dataCorruptedError(

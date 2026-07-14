@@ -15429,9 +15429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if didStart { onExecuted?() }
                 return didStart
             case .mobileConnect:
-                MobilePairingWindowController.shared.show()
-                onExecuted?()
-                return true
+                return performConfiguredMobileConnectAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)
             case .newTerminal:
                 context.tabManager.newSurface()
                 onExecuted?()

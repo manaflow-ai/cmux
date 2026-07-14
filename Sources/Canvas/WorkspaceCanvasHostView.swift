@@ -90,6 +90,7 @@ struct WorkspaceCanvasHostView: View {
         case .project: return "folder"
         case .extensionBrowser: return "puzzlepiece.extension"
         case .cloudVMLoading: return "cloud.fill"
+        case .appUtility: return "square.grid.2x2"
         }
     }
 

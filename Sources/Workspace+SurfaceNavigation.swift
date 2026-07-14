@@ -31,6 +31,8 @@ extension Workspace {
             return SurfaceKind.extensionBrowser.rawValue
         case .cloudVMLoading:
             return SurfaceKind.cloudVMLoading.rawValue
+        case .appUtility:
+            return SurfaceKind.appUtility.rawValue
         }
     }
 

@@ -14,10 +14,12 @@ import SwiftUI
 public struct SettingsWindowRoot: View {
     private let runtime: SettingsRuntime
     private let searchIndex: SettingsSearchIndex
+    private let navigationScope: String?
 
-    public init(runtime: SettingsRuntime) {
+    public init(runtime: SettingsRuntime, navigationScope: String? = nil) {
         self.runtime = runtime
         self.searchIndex = runtime.searchIndex
+        self.navigationScope = navigationScope
     }
 
     @State private var searchText: String = ""
@@ -114,6 +116,7 @@ public struct SettingsWindowRoot: View {
         .frame(minWidth: 820, minHeight: 540)
         .settingsErrorAlert(log: runtime.errorLog)
         .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
+            guard acceptsNavigationNotification(notification) else { return }
             applyNavigationRequest(notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: Self.sidebarToggleRequestName)) { _ in
@@ -256,7 +259,7 @@ public struct SettingsWindowRoot: View {
     ) {
         NotificationCenter.default.post(
             name: Self.navigationRequestName,
-            object: nil,
+            object: navigationScope,
             userInfo: [
                 "target": target.rawValue,
                 "anchor": anchorID,
@@ -347,6 +350,7 @@ public struct SettingsWindowRoot: View {
                     )
                 }
                 .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
+                    guard acceptsNavigationNotification(notification) else { return }
                     applyScrollNavigation(notification, proxy: proxy)
                 }
             }
@@ -409,6 +413,13 @@ public struct SettingsWindowRoot: View {
             guard navigationGeneration == settingsNavigationGeneration else { return }
             proxy.scrollTo(anchorID, anchor: anchor)
         }
+    }
+
+    private func acceptsNavigationNotification(_ notification: Notification) -> Bool {
+        guard let navigationScope else {
+            return notification.object == nil
+        }
+        return notification.object as? String == navigationScope
     }
 
     @ViewBuilder

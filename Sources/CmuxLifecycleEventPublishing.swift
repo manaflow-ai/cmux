@@ -225,6 +225,8 @@ extension Workspace {
             return "extension_browser"
         case .cloudVMLoading:
             return "cloud_vm_loading"
+        case .appUtility:
+            return "app_utility"
         }
     }
 }
