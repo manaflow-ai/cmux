@@ -1736,8 +1736,9 @@ class TabManager: ObservableObject {
     @discardableResult
     func setPinned(workspaceIds: [UUID], pinned: Bool) -> [UUID] {
         let changedWorkspaceIds = workspaceReordering.setPinned(workspaceIds: workspaceIds, pinned: pinned)
-        for workspaceId in changedWorkspaceIds {
-            tabs.first { $0.id == workspaceId }?.updatePinnedWorkingDirectoryForCurrentState()
+        let changedWorkspaceIdSet = Set(changedWorkspaceIds)
+        for workspace in tabs where changedWorkspaceIdSet.contains(workspace.id) {
+            workspace.updatePinnedWorkingDirectoryForCurrentState()
         }
         return changedWorkspaceIds
     }

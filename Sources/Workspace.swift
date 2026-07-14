@@ -3513,10 +3513,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     func handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded() -> Bool {
         guard remoteTmuxKeepWorkspaceOpenAfterSessionEnd else { return false }
+        let replacementWorkingDirectory = isPinned
+            ? Self.normalizedTerminalWorkingDirectory(pinnedWorkingDirectory)
+            : nil
         let panelIds = remoteTmuxKeepWorkspaceOpenTabIds.compactMap { panelIdFromSurfaceId($0) }
         remoteTmuxKeepWorkspaceOpenTabIds.removeAll(); detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded()
         for panelId in panelIds { _ = closePanel(panelId, force: true) }
-        if panels.isEmpty { _ = createReplacementTerminalPanel() }
+        if panels.isEmpty {
+            _ = createReplacementTerminalPanel(workingDirectory: replacementWorkingDirectory)
+        }
         return true
     }
     @discardableResult func detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded() -> Bool {
