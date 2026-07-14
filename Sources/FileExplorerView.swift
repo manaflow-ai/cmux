@@ -867,7 +867,7 @@ final class FileExplorerContainerView: NSView {
         searchStatusLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
         emptyLabel.font = GlobalFontMagnification.systemFont(ofSize: 13)
         searchFieldHeightConstraint?.constant = searchFieldVisibleHeight
-        if presentation.keepsSearchFieldVisible || isSearchVisible {
+        if !searchBarView.isHidden {
             searchBarHeightConstraint?.constant = searchBarVisibleHeight
         }
         headerView.applyFonts()
@@ -1182,8 +1182,8 @@ final class FileExplorerContainerView: NSView {
         view.isHidden = hidden
         return true
     }
-
     private func applySearchSnapshot(_ snapshot: FileSearchSnapshot) {
+        let snapshot = snapshot.groupingMatchesByFile()
 #if DEBUG
         let debugApplyStart = ProcessInfo.processInfo.systemUptime
         let previousStatusName = debugSearchStatusName(searchSnapshot.status)
