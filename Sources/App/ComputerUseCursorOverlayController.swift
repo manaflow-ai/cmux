@@ -339,12 +339,14 @@ final class ComputerUseCursorOverlayController {
         scanInFlight = true
         let feed = self.feed
         let directoryURL = self.stateDirectoryURL
-        scanQueue.async { [weak self] in
+        scanQueue.async {
             let state = feed.scan(directoryURL: directoryURL, now: Date())
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.scanInFlight = false
-                self.applyScannedState(state)
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.scanInFlight = false
+                    self.applyScannedState(state)
+                }
             }
         }
     }
