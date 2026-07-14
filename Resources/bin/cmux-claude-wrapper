@@ -884,11 +884,17 @@ cmux_computer_use_config() {
                 ;;
         esac
     done
-    local driver state_dir
+    local driver state_dir default_session
     driver="$(cmux_computer_use_resolve_driver)" || return 1
     state_dir="${HOME}/Library/Application Support/cmux/computer-use/state"
-    printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["--embedded"],"env":{"CUA_DRIVER_EMBEDDED":"1","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
+    # Stable per-terminal session id so the branded agent cursor is auto-active
+    # (embedded anonymous calls resolve to it) and survives driver restarts in
+    # the same surface. Falls back to the caller pid when no surface id is set;
+    # the driver itself further falls back to embedded-<pid> if this is empty.
+    default_session="cmux-${CMUX_SURFACE_ID:-$$}"
+    printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["--embedded"],"env":{"CUA_DRIVER_EMBEDDED":"1","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
         "$(cmux_computer_use_json_escape "$driver")" \
+        "$(cmux_computer_use_json_escape "$default_session")" \
         "$(cmux_computer_use_json_escape "$state_dir")"
 }
 

@@ -41,6 +41,7 @@ def arg_value(args: list[str], prefix: str) -> str | None:
 
 def expect_scrubbed_mcp_env(args: list[str], failures: list[str], context: str) -> None:
     embedded = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED=")
+    default_session = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=")
     telemetry = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=")
     update_check = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_UPDATE_CHECK=")
     cursor_gradient = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_GRADIENT=")
@@ -50,6 +51,7 @@ def expect_scrubbed_mcp_env(args: list[str], failures: list[str], context: str) 
     node_options = arg_value(args, "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=")
     bun_options = arg_value(args, "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=")
     expect(embedded is not None, f"{context}: missing CUA_DRIVER_EMBEDDED config in {args}", failures)
+    expect(default_session is not None, f"{context}: missing CUA_DRIVER_DEFAULT_SESSION config in {args}", failures)
     expect(telemetry is not None, f"{context}: missing telemetry opt-out config in {args}", failures)
     expect(update_check is not None, f"{context}: missing update-check opt-out config in {args}", failures)
     expect(cursor_gradient is not None, f"{context}: missing cursor gradient config in {args}", failures)
@@ -60,6 +62,8 @@ def expect_scrubbed_mcp_env(args: list[str], failures: list[str], context: str) 
     expect(bun_options is not None, f"{context}: missing BUN_OPTIONS scrub config in {args}", failures)
     if embedded is not None:
         expect(json.loads(embedded) == "1", f"{context}: expected embedded env, got {embedded}", failures)
+    if default_session is not None:
+        expect(json.loads(default_session).startswith("cmux-"), f"{context}: expected cmux- default session, got {default_session}", failures)
     if telemetry is not None:
         expect(json.loads(telemetry) == "false", f"{context}: expected telemetry disabled, got {telemetry}", failures)
     if update_check is not None:
