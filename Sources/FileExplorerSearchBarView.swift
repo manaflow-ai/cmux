@@ -32,7 +32,7 @@ final class FileExplorerSearchBarView: NSView {
         }
         searchField.placeholderString = String(
             localized: "fileExplorer.search.placeholder",
-            defaultValue: "Search files"
+            defaultValue: "Find in files"
         )
     }
 

@@ -407,7 +407,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
             selectRow(row, in: outlineView, scroll: true)
 
-            if !store.isExpanded(node) {
+            let isExpanded = fileFilter.isActive
+                ? outlineView.isItemExpanded(node)
+                : store.isExpanded(node)
+            if !isExpanded {
                 outlineView.expandItem(node)
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: true)
                 return
@@ -1563,7 +1566,13 @@ final class FileExplorerContainerView: NSView {
             _ = focusOutline()
         case .contents:
             guard hasContentsQuery else {
-                _ = focusOutline()
+                if presentation == .find {
+                    if AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() != true {
+                        _ = window?.makeFirstResponder(nil)
+                    }
+                } else {
+                    _ = focusOutline()
+                }
                 return
             }
             cancelPendingSearchRefresh()
