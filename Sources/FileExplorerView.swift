@@ -80,7 +80,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
         private var fileFilter = FileExplorerTreeFilter()
-        private var fileFilterNeedsRebuild = false
+        private var fileFilterTreeRevision = -1
         private var preFilterTopVisiblePath: String?
 
         init(
@@ -166,12 +166,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
             )
 
             if fileFilter.isActive {
-                guard containerView?.displayedSearchScope == .names else {
-                    fileFilterNeedsRebuild = true
+                guard containerView?.displayedSearchScope == .names else { return }
+                guard fileFilterTreeRevision != store.treeRevision else {
+                    refreshFilteredRows(in: outlineView)
                     return
                 }
                 fileFilter.rebuild(nodes: store.rootNodes)
-                fileFilterNeedsRebuild = false
+                fileFilterTreeRevision = store.treeRevision
                 reloadFilteredTree(in: outlineView)
                 return
             }
@@ -332,7 +333,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
-        func moveSelection(in outlineView: NSOutlineView, by delta: Int) {
+        @MainActor func moveSelection(in outlineView: NSOutlineView, by delta: Int) {
+            containerView?.applyPendingFileFilter()
             guard outlineView.numberOfRows > 0 else {
                 store.select(node: nil)
                 return
@@ -342,10 +344,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
             selectRow(targetRow, in: outlineView, scroll: true)
         }
 
-        func performDisclosureAction(
+        @MainActor func performDisclosureAction(
             _ action: RightSidebarKeyboardNavigation.DisclosureAction,
             in outlineView: NSOutlineView
         ) {
+            containerView?.applyPendingFileFilter()
             switch action {
             case .collapse:
                 collapseSelectedItemOrMoveToParent(in: outlineView)
@@ -360,15 +363,27 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 preFilterTopVisiblePath = topVisibleNode(in: outlineView)?.path
             }
             let queryChanged = fileFilter.update(query: query, nodes: store.rootNodes)
-            guard queryChanged || fileFilterNeedsRebuild else { return }
-            if fileFilterNeedsRebuild, !queryChanged {
+            let treeChanged = fileFilterTreeRevision != store.treeRevision
+            guard queryChanged || treeChanged else {
+                refreshFilteredRows(in: outlineView)
+                return
+            }
+            if treeChanged, !queryChanged {
                 fileFilter.rebuild(nodes: store.rootNodes)
             }
-            fileFilterNeedsRebuild = false
+            fileFilterTreeRevision = store.treeRevision
             reloadFilteredTree(in: outlineView)
             if wasActive, !fileFilter.isActive {
                 restorePreFilterScroll(in: outlineView)
             }
+        }
+
+        private func refreshFilteredRows(in outlineView: NSOutlineView) {
+            guard outlineView.numberOfRows > 0, outlineView.numberOfColumns > 0 else { return }
+            outlineView.reloadData(
+                forRowIndexes: IndexSet(0..<outlineView.numberOfRows),
+                columnIndexes: IndexSet(0..<outlineView.numberOfColumns)
+            )
         }
 
         var isFileFilterActive: Bool { fileFilter.isActive }
@@ -407,7 +422,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
             outlineView.scrollRowToVisible(row)
         }
 
-        @MainActor func openSelectedItem(in outlineView: NSOutlineView) { openNode(in: outlineView, at: outlineView.selectedRow) }
+        @MainActor func openSelectedItem(in outlineView: NSOutlineView) {
+            containerView?.applyPendingFileFilter()
+            openNode(in: outlineView, at: outlineView.selectedRow)
+        }
 
         private func expandSelectedItemOrMoveToChild(in outlineView: NSOutlineView) {
             guard let row = resolvedSelectionRow(in: outlineView),
@@ -1110,8 +1128,7 @@ final class FileExplorerContainerView: NSView {
         presentation = nextPresentation
         let activationMode: RightSidebarMode
         if presentation == .unified {
-            activationMode = window?.firstResponder.flatMap(rightSidebarActivationMode(owning:))
-                ?? coordinator.state.mode
+            activationMode = coordinator.state.mode
         } else {
             activationMode = presentation.rightSidebarMode
         }

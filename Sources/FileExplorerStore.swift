@@ -740,15 +740,14 @@ enum FileExplorerSelectionRestoration {
 /// but are not annotated @MainActor.
 final class FileExplorerStore: ObservableObject {
     @Published var rootPath: String = ""
-    @Published var rootNodes: [FileExplorerNode] = []
+    @Published var rootNodes: [FileExplorerNode] = [] { didSet { treeRevision &+= 1 } }
+    private(set) var treeRevision = 0
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
-
     var provider: FileExplorerProvider?
-
     /// Whether hidden files are shown. Set from FileExplorerState externally.
     var showHiddenFiles: Bool = false
 
@@ -1077,6 +1076,7 @@ final class FileExplorerStore: ObservableObject {
 
             if let parentNode {
                 parentNode.children = children
+                treeRevision &+= 1
                 parentNode.isLoading = false
                 parentNode.error = nil
                 if pendingDescendIntoFirstChildPath == parentNode.path {
