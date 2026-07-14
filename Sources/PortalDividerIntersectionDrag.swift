@@ -236,10 +236,8 @@ final class PortalDividerDragController {
                 .leftMouseUp,
             ]
         ) { [weak self] event in
-            MainActor.assumeIsolated {
-                guard let self else { return event }
-                return self.handleActiveSessionEvent(event)
-            }
+            guard let self else { return event }
+            return self.handleActiveSessionEvent(event)
         }
     }
 
