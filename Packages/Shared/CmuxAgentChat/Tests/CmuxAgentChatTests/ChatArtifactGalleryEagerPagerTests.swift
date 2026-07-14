@@ -61,6 +61,23 @@ struct ChatArtifactGalleryEagerPagerTests {
         #expect(result.reachedSafetyCap)
     }
 
+    @Test("stops before requesting a repeated cursor")
+    func stopsAtRepeatedCursor() async throws {
+        let script = ChatArtifactGalleryPageScript(pages: [
+            "cursor-1": page(paths: ["/two"], nextCursor: "cursor-1"),
+        ])
+        let initial = snapshot(paths: ["/one"], nextCursor: "cursor-1", total: 3)
+
+        let result = try await ChatArtifactGalleryEagerPager().loadRemaining(from: initial) { cursor in
+            try await script.fetch(cursor: cursor)
+        }
+
+        #expect(result.snapshot.referenced.map(\.path) == ["/one", "/two"])
+        #expect(result.snapshot.nextCursor == "cursor-1")
+        #expect(!result.reachedSafetyCap)
+        #expect(await script.requestedCursors() == ["cursor-1"])
+    }
+
     private func snapshot(
         paths: [String],
         nextCursor: String?,

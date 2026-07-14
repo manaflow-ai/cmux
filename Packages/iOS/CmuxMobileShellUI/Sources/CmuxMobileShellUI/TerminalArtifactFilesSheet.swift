@@ -280,7 +280,16 @@ struct TerminalArtifactFilesSheet: View {
             startThumbnailPrefetch(
                 result.snapshot.referenced.filter { !previousPaths.contains($0.path) }
             )
-            eagerPagingState = result.reachedSafetyCap ? .capped : .idle
+            if result.reachedSafetyCap {
+                eagerPagingState = .capped
+            } else if result.snapshot.nextCursor != nil {
+                // A defensive cursor-loop stop is incomplete, so surface the
+                // existing retry affordance instead of presenting partial
+                // transformed results as complete.
+                eagerPagingState = .failed
+            } else {
+                eagerPagingState = .idle
+            }
         } catch is CancellationError {
             return
         } catch {
