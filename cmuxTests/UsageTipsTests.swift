@@ -128,4 +128,39 @@ struct UsageTipsTests {
         controller.unregister(windowID: otherWindowID)
         defaults.removePersistentDomain(forName: suiteName)
     }
+
+    @MainActor
+    @Test func enablingBeforeFirstWindowSchedulesTheInitialTip() throws {
+        let suiteName = "UsageTipsTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        AccountCatalogSection().welcomeShown.set(true, in: defaults)
+        AppCatalogSection().showUsageTips.set(false, in: defaults)
+        let store = UsageTipsStore(defaults: defaults)
+        let resolver = UsageTipShortcutResolver { _ in
+            StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
+        }
+        var scheduledActions: [UsageTipScheduler.Action] = []
+        let scheduler = UsageTipScheduler { _, action in
+            let index = scheduledActions.count
+            scheduledActions.append(action)
+            return { scheduledActions[index] = {} }
+        }
+        let controller = UsageTipsController(
+            store: store,
+            catalog: catalog,
+            shortcutResolver: resolver,
+            scheduler: scheduler
+        )
+        let windowID = UUID()
+
+        #expect(!store.isEnabled)
+        store.setEnabled(true)
+        controller.register(windowID: windowID)
+        controller.windowDidBecomeKey(windowID: windowID)
+
+        #expect(scheduledActions.count == 1)
+        controller.unregister(windowID: windowID)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
 }
