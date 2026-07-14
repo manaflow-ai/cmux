@@ -1044,6 +1044,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Durable navigation links that arrived before startup restore registered
     /// their target workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
+    /// At most one command link may wait for startup restoration. Additional
+    /// requests are dropped so an untrusted source cannot queue approval dialogs.
+    var pendingStartupRunURLRequest: CmuxRunURLRequest?
+    var isHandlingCmuxRunURLRequest = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false

@@ -155,11 +155,11 @@ extension AppDelegate {
     }
 
     func flushPendingStartupNavigationURLRequests() {
-        guard !pendingStartupNavigationURLRequests.isEmpty else { return }
         let requests = pendingStartupNavigationURLRequests
         pendingStartupNavigationURLRequests.removeAll()
         for request in requests {
             _ = handleCmuxNavigationURLRequest(request)
         }
+        flushPendingStartupRunURLRequest()
     }
 }

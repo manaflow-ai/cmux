@@ -426,8 +426,14 @@ extension AppDelegate {
     func handleCmuxExternalURLs(from urls: [URL]) -> Bool {
         let intentCounts = cmuxExternalURLIntentCounts(in: urls)
         guard intentCounts.total > 0 else { return false }
+        if intentCounts.run > 0,
+           isHandlingCmuxRunURLRequest || pendingStartupRunURLRequest != nil {
+            return true
+        }
         guard intentCounts.total == 1 else {
-            if intentCounts.ssh > 1 && intentCounts.navigation == 0 && intentCounts.text == 0 {
+            if intentCounts.run > 0 {
+                CmuxRunURLConfirmationPresenter().showParseFailure(.multipleLinks)
+            } else if intentCounts.ssh > 1 && intentCounts.navigation == 0 && intentCounts.text == 0 {
                 showCmuxSSHURLParseError(.multipleLinks)
             } else {
                 showCmuxTextURLParseError(.multipleLinks)
@@ -435,6 +441,9 @@ extension AppDelegate {
             return true
         }
 
+        if handleCmuxRunURLs(from: urls) {
+            return true
+        }
         if handleCmuxSSHURLs(from: urls) {
             return true
         }
@@ -448,18 +457,25 @@ extension AppDelegate {
     }
 
     private struct CmuxExternalURLIntentCounts {
+        var run = 0
         var ssh = 0
         var navigation = 0
         var text = 0
 
         var total: Int {
-            ssh + navigation + text
+            run + ssh + navigation + text
         }
     }
 
     private func cmuxExternalURLIntentCounts(in urls: [URL]) -> CmuxExternalURLIntentCounts {
         urls.reduce(CmuxExternalURLIntentCounts()) { counts, url in
             var nextCounts = counts
+            switch CmuxRunURLRequest.parse(url) {
+            case .success(.some), .failure:
+                nextCounts.run += 1
+            case .success(nil):
+                break
+            }
             switch CmuxSSHURLRequest.parse(url) {
             case .success(.some), .failure:
                 nextCounts.ssh += 1
