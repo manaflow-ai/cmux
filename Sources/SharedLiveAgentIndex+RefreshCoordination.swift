@@ -272,6 +272,6 @@ extension SharedLiveAgentIndex {
             return
         }
         changePending = false
-        startBackgroundRefresh()
+        scheduleHookStoreRefresh()
     }
 }
