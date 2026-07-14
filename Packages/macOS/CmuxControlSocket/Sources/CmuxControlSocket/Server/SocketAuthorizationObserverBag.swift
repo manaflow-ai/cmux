@@ -9,17 +9,23 @@ internal import Foundation
 final class SocketAuthorizationObserverBag: @unchecked Sendable {
     let notificationCenter: NotificationCenter
     private var tokens: [any NSObjectProtocol] = []
+    private var changeTask: Task<Void, Never>?
 
     init(notificationCenter: NotificationCenter) {
         self.notificationCenter = notificationCenter
     }
 
-    func install(_ tokens: [any NSObjectProtocol]) {
+    func install(
+        _ tokens: [any NSObjectProtocol],
+        changeTask: Task<Void, Never>?
+    ) {
         precondition(self.tokens.isEmpty)
         self.tokens = tokens
+        self.changeTask = changeTask
     }
 
     deinit {
+        changeTask?.cancel()
         tokens.forEach(notificationCenter.removeObserver)
     }
 }

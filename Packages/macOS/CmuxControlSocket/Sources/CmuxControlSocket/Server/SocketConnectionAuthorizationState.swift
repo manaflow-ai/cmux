@@ -83,6 +83,23 @@ final class SocketConnectionAuthorizationState: Sendable {
         }
     }
 
+    func permitsContinuation(
+        generation: UInt64,
+        authenticatedPasswordFingerprint: Data?
+    ) -> Bool {
+        state.withLock { state in
+            guard state.isRunning, state.generation.number == generation else {
+                return false
+            }
+            guard state.accessMode.requiresPasswordAuth,
+                  let authenticatedPasswordFingerprint else {
+                // Password-mode clients remain connected long enough to log in.
+                return true
+            }
+            return authenticatedPasswordFingerprint == state.passwordFingerprint
+        }
+    }
+
     private static func rotate(_ state: inout State) {
         let previousSignal = state.generation.revocationSignal
         state.generation = Generation(

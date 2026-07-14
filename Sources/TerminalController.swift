@@ -127,6 +127,7 @@ class TerminalController {
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
+    private nonisolated let socketPasswordFileWatcher: FileWatcher?
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
@@ -359,6 +360,10 @@ class TerminalController {
         )
     ) {
         self.passwordStore = passwordStore
+        let socketPasswordFileWatcher = passwordStore.passwordFileURL.map {
+            FileWatcher(path: $0.path)
+        }
+        self.socketPasswordFileWatcher = socketPasswordFileWatcher
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.transport = transport
@@ -370,6 +375,7 @@ class TerminalController {
             effectivePasswordProvider: {
                 passwordStore.configuredPassword(allowLazyKeychainFallback: true)
             },
+            authorizationChangeSignals: socketPasswordFileWatcher?.events,
             events: Self.makeSocketServerEvents(target: serverEventTarget)
         )
         self.socketServer = socketServer

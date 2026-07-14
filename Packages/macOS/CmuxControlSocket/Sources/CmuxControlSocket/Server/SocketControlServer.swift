@@ -168,6 +168,8 @@ public final class SocketControlServer {
     ///     center; tests can inject an isolated center.
     ///   - effectivePasswordProvider: Reads the password currently enforced by
     ///     password mode. Called outside authorization-state lock sections.
+    ///   - authorizationChangeSignals: Out-of-band signals for authoritative
+    ///     password-file changes that do not post an in-process notification.
     ///   - events: Host callback seam.
     public init(
         initialSocketPath: String = SocketControlSettings.stableDefaultSocketPath,
@@ -177,6 +179,7 @@ public final class SocketControlServer {
         maximumBufferedConnections: Int = 32,
         notificationCenter: NotificationCenter,
         effectivePasswordProvider: @escaping @Sendable () -> String? = { nil },
+        authorizationChangeSignals: AsyncStream<Void>? = nil,
         events: SocketControlServerEvents
     ) {
         let initialState = ListenerState(socketPath: initialSocketPath)
@@ -196,13 +199,15 @@ public final class SocketControlServer {
             AsyncStream<ControlConnection>.makeStream(
                 bufferingPolicy: .bufferingOldest(max(0, maximumBufferedConnections))
             )
-        startObservingAuthorizationChanges()
+        startObservingAuthorizationChanges(authorizationChangeSignals: authorizationChangeSignals)
     }
 
-    private func startObservingAuthorizationChanges() {
+    private func startObservingAuthorizationChanges(
+        authorizationChangeSignals: AsyncStream<Void>?
+    ) {
         let notificationCenter = authorizationObserverBag.notificationCenter
         let socketPasswordKeyID = SettingCatalog().automation.socketPassword.id
-        authorizationObserverBag.install([
+        let tokens = [
             notificationCenter.addObserver(
                 forName: SocketControlPasswordStore.didChangeNotification,
                 object: nil,
@@ -223,12 +228,24 @@ public final class SocketControlServer {
                     self?.refreshConnectionAuthorizations(source: "secret_store")
                 }
             },
-        ])
+        ]
+        let changeTask = authorizationChangeSignals.map { signals in
+            Task.detached { [weak self] in
+                for await _ in signals {
+                    guard !Task.isCancelled else { break }
+                    self?.refreshConnectionAuthorizations(source: "password_file")
+                }
+            }
+        }
+        authorizationObserverBag.install(tokens, changeTask: changeTask)
     }
 
     /// Refreshes the effective password and invalidates accepted connections
     /// only when password mode's authoritative credential actually changed.
     nonisolated func refreshConnectionAuthorizations(source: String) {
+        guard connectionAuthorizationState.accessMode.requiresPasswordAuth else {
+            return
+        }
         guard let generation = connectionAuthorizationState.refreshEffectivePassword(
             effectivePasswordProvider()
         ) else { return }
@@ -289,8 +306,21 @@ public final class SocketControlServer {
 
     /// Whether an accepted connection still belongs to the live access policy.
     public nonisolated func isConnectionAuthorizationCurrent(_ generation: UInt64) -> Bool {
-        refreshConnectionAuthorizations(source: "authorization_boundary")
         return connectionAuthorizationState.isCurrent(generation)
+    }
+
+    /// Whether a connection's generation and authenticated password revision
+    /// still belong to the live access policy. This is an in-memory hot path;
+    /// provider I/O happens only at configuration and out-of-band change events.
+    public nonisolated func isConnectionAuthorizationCurrent(
+        _ generation: UInt64,
+        passwordAuthorization: SocketPasswordAuthorization
+    ) -> Bool {
+        connectionAuthorizationState.permitsContinuation(
+            generation: generation,
+            authenticatedPasswordFingerprint:
+                passwordAuthorization.authenticatedCredentialFingerprint
+        )
     }
 
     /// The listener's current socket path, regardless of lifecycle phase.
@@ -358,7 +388,9 @@ public final class SocketControlServer {
     nonisolated func configureConnectionAuthorization(accessMode: SocketControlMode) {
         connectionAuthorizationState.configure(
             accessMode: accessMode,
-            effectivePassword: effectivePasswordProvider()
+            effectivePassword: accessMode.requiresPasswordAuth
+                ? effectivePasswordProvider()
+                : nil
         )
     }
 

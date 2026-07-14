@@ -162,10 +162,9 @@ extension TerminalController {
         _ authorizationGeneration: UInt64,
         passwordAuthorization: inout SocketPasswordAuthorization
     ) -> Bool {
-        guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) else { return false }
-        return passwordAuthorization.permitsConnectionContinuation(
-            accessMode: socketServer.accessMode,
-            currentPassword: passwordStore.configuredPassword(allowLazyKeychainFallback: true)
+        socketServer.isConnectionAuthorizationCurrent(
+            authorizationGeneration,
+            passwordAuthorization: passwordAuthorization
         )
     }
 

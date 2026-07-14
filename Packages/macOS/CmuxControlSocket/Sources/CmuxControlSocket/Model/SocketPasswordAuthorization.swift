@@ -6,6 +6,10 @@ internal import Foundation
 public struct SocketPasswordAuthorization: Sendable {
     private var credentialFingerprint: Data?
 
+    var authenticatedCredentialFingerprint: Data? {
+        credentialFingerprint
+    }
+
     /// Creates an unauthenticated capability that may attempt password login.
     public init() {}
 
