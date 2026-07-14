@@ -105,6 +105,37 @@ struct MobileViewportFitGeometryTests {
         )
     }
 
+    @Test func unadjustedSurfaceBaselineRestoresExactlyAfterAutomaticFit() {
+        var state = MobileViewportFontFitState()
+        state.begin(
+            liveFont: MobileViewportLiveFont(pointSize: 14, isAdjusted: false),
+            configuredFontPointSize: 12
+        )
+        state.recordFittedFontPointSize(9)
+        state.reconcile(
+            liveFont: MobileViewportLiveFont(pointSize: 9, isAdjusted: true),
+            configuredFontPointSize: 12
+        )
+
+        #expect(state.baseFontPointSize == 14)
+        var resetCount = 0
+        var restoredPointSize: Float?
+        let outcome = state.restorePlan(configuredFontPointSize: 12).restore(
+            reset: {
+                resetCount += 1
+                return true
+            },
+            set: {
+                restoredPointSize = $0
+                return true
+            }
+        )
+
+        #expect(outcome == .restored)
+        #expect(resetCount == 1)
+        #expect(restoredPointSize == 14)
+    }
+
     @Test func unavailableLiveFontProbeRearmsUntilTheOwnerCanAnswer() {
         var state = MobileViewportFontFitState()
         var probeCount = 0

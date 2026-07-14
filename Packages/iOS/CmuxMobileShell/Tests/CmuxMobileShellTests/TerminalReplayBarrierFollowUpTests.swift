@@ -49,6 +49,54 @@ import Testing
 }
 
 @MainActor
+@Test func retainedOutputSurvivesColdReplayFollowUpFailureEpisode() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay-A"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    #expect(String(data: coldReplayChunk.data, encoding: .utf8) == "cold-replay-A")
+
+    let retainedAccepted = store.deliverTerminalBytes(
+        Data("retained-during-A".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(!retainedAccepted)
+    await router.failNextReplay(count: 3)
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: coldReplayChunk.streamToken
+    )
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 4)
+
+    let failedOpen = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(failedOpen)
+    let retainedOutputQueued = store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == false
+    #expect(
+        retainedOutputQueued,
+        "retained output from replay A must survive token rollover until replay B fails open"
+    )
+    guard retainedOutputQueued else { return }
+
+    let retainedChunk = try #require(await iterator.next())
+    #expect(String(data: retainedChunk.data, encoding: .utf8) == "retained-during-A")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retainedChunk.streamToken)
+
+    _ = store.deliverTerminalBytes(Data("live-after".utf8), surfaceID: surfaceID)
+    let liveAfterChunk = try #require(await iterator.next())
+    #expect(String(data: liveAfterChunk.data, encoding: .utf8) == "live-after")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: liveAfterChunk.streamToken)
+}
+
+@MainActor
 @Test func replayRequestedAfterResponseEnqueueWaitsForAcknowledgementOwnedFollowUp() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
