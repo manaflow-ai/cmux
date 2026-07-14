@@ -9,8 +9,14 @@
     },
     "sidebar.workspaces" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspaces" } },
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "workspaces" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース" } }
+      }
+    },
+    "sidebar.new_workspace" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "+ new workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "＋ 新規ワークスペース" } }
       }
     },
     "status.connected" : {
@@ -37,10 +43,46 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーフェスが切断されました" } }
       }
     },
+    "status.new_screen" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New screen" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規スクリーン" } }
+      }
+    },
+    "status.screen_accessibility" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Screen %lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "スクリーン %lld" } }
+      }
+    },
+    "status.screens" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "screens" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "スクリーン" } }
+      }
+    },
+    "terminal.shell" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "shell" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "シェル" } }
+      }
+    },
     "terminal.accessibility_label" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Remote terminal" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "リモートターミナル" } }
+      }
+    },
+    "tabs.new" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New tab" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規タブ" } }
+      }
+    },
+    "tabs.unnamed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tab %lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "タブ %lld" } }
       }
     }
   },

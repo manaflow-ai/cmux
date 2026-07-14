@@ -3,11 +3,11 @@ import Foundation
 
 struct SmokeRunner: Sendable {
     private let configuration: CmuxConnectionConfiguration
-    private let surface: UInt64
+    private let surface: UInt64?
 
     init(arguments: [String]) throws {
         var connectionArguments: [String] = []
-        var parsedSurface: UInt64 = 1
+        var parsedSurface: UInt64?
         var index = 0
 
         while index < arguments.count {
@@ -50,7 +50,14 @@ struct SmokeRunner: Sendable {
     private func runProtocolFlow() async throws {
         let transport = URLSessionWebSocketTransport(url: configuration.url)
         let client = CmuxProtocolClient(transport: transport)
-        let frontend = CmuxFrontendSession(client: client, configuration: configuration)
+        let attachmentClientFactory = URLSessionCmuxProtocolClientFactory(
+            url: configuration.url
+        )
+        let frontend = CmuxFrontendSession(
+            client: client,
+            attachmentClientFactory: attachmentClientFactory,
+            configuration: configuration
+        )
         let events = await frontend.events()
         defer { Task { await frontend.close() } }
 
@@ -64,14 +71,15 @@ struct SmokeRunner: Sendable {
         var markerBuffer = Data()
         let marker = Data("cmux-lite-done".utf8)
 
-        for await event in events {
+        for await frontendEvent in events {
+            guard case let .terminal(event) = frontendEvent else { continue }
             switch event {
             case let .initialReplay(_, columns, rows, bytes, _):
                 print("received vt-state cols=\(columns) rows=\(rows) bytes=\(bytes.count)")
                 receivedReplay = true
-                try await frontend.sendText("echo swift-lite-ok > /tmp/swift-lite.txt\n")
+                try await frontend.sendText("echo swift-lite-ok > /tmp/swift-lite.txt\r")
                 try await frontend.sendText(
-                    "printf '\\143\\155\\165\\170\\55\\154\\151\\164\\145\\55\\144\\157\\156\\145\\12'\n"
+                    "printf '\\143\\155\\165\\170\\55\\154\\151\\164\\145\\55\\144\\157\\156\\145\\12'\r"
                 )
                 print("send responses ok")
             case let .output(_, bytes) where receivedReplay:

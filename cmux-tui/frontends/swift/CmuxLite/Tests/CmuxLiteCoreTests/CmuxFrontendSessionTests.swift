@@ -1,0 +1,188 @@
+@testable import CmuxLiteCore
+import Foundation
+import Testing
+
+@Suite(.serialized)
+struct CmuxFrontendSessionTests {
+    @Test
+    func navigationIsLocalAndClosesThePreviousAttachment() async throws {
+        let harness = makeHarness(attachmentSurfaces: [11, 12])
+        let initial = try await harness.session.connect(hostname: "test")
+
+        #expect(initial.selectedWorkspace == 4)
+        #expect(initial.selectedScreen == 101)
+        #expect(initial.surface == 11)
+        #expect(initial.sessionName == "phone")
+
+        let selected = try await harness.session.selectScreen(102)
+        #expect(selected.selectedWorkspace == 4)
+        #expect(selected.selectedScreen == 102)
+        #expect(selected.surface == 12)
+        #expect(await harness.attachments[0].isClosed())
+
+        let controlCommands = await harness.control.commandSummaries()
+        #expect(!controlCommands.contains("select-workspace"))
+        #expect(!controlCommands.contains("select-screen"))
+        #expect(await harness.attachments[0].commandSummaries().contains("attach-surface:11"))
+        #expect(await harness.attachments[1].commandSummaries().contains("attach-surface:12"))
+
+        await harness.session.close()
+        #expect(await harness.attachments[1].isClosed())
+    }
+
+    @Test
+    func resizedReplayClaimsLocalGridBeforeInput() async throws {
+        let harness = makeHarness(attachmentSurfaces: [11])
+        let events = await harness.session.events()
+        _ = try await harness.session.connect(hostname: "test")
+        await harness.session.recordTerminalMeasurement(CmuxTerminalMeasurement(
+            widthPixels: 1_200,
+            heightPixels: 800,
+            cellWidthPixels: 10,
+            cellHeightPixels: 20
+        ))
+
+        let observedResize = Task {
+            for await event in events {
+                if case .terminal(.resizedReplay) = event { return }
+            }
+        }
+        await harness.attachments[0].emitResized(surface: 11, columns: 70, rows: 20)
+        await observedResize.value
+        try await harness.session.sendText("typed")
+
+        let commands = await harness.attachments[0].commandSummaries()
+        let resizeIndex = try #require(commands.firstIndex(of: "resize-surface:120x40"))
+        let sendIndex = try #require(commands.firstIndex(of: "send:typed"))
+        #expect(resizeIndex < sendIndex)
+        await harness.session.close()
+    }
+
+    @Test
+    func creationFollowsReturnedSurfacesLocally() async throws {
+        let workspaceHarness = makeHarness(attachmentSurfaces: [11, 13])
+        _ = try await workspaceHarness.session.connect(hostname: "test")
+        let workspace = try await workspaceHarness.session.newWorkspace()
+        #expect(workspace.selectedWorkspace == 8)
+        #expect(workspace.selectedScreen == 103)
+        #expect(workspace.surface == 13)
+        #expect(await workspaceHarness.attachments[0].isClosed())
+        await workspaceHarness.session.close()
+
+        let screenHarness = makeHarness(attachmentSurfaces: [11, 12])
+        _ = try await screenHarness.session.connect(hostname: "test")
+        let screen = try await screenHarness.session.newScreen()
+        #expect(screen.selectedWorkspace == 4)
+        #expect(screen.selectedScreen == 102)
+        #expect(screen.surface == 12)
+        #expect(await screenHarness.control.commandSummaries().contains("new-screen:4"))
+        await screenHarness.session.close()
+    }
+
+    @Test
+    func sharedTabSelectionReattachesAndPublishesTheActiveTab() async throws {
+        let initialTree = tree(activeTab: 0, tabSurfaces: [11, 12])
+        let selectedTree = tree(activeTab: 1, tabSurfaces: [11, 12])
+        let control = ScriptedTransport(
+            role: .control(tree: initialTree),
+            treeAfterSelectTab: selectedTree
+        )
+        let attachments = [11, 12].map {
+            ScriptedTransport(role: .attachment(surface: $0))
+        }
+        let session = makeSession(control: control, attachments: attachments)
+
+        _ = try await session.connect(hostname: "test")
+        let selected = try await session.selectTab(pane: 201, index: 1)
+
+        #expect(selected.surface == 12)
+        #expect(selected.workspaces[0].screens[0].activeTab == 1)
+        #expect(selected.workspaces[0].screens[0].tabs.map(\.surface) == [11, 12])
+        #expect(await attachments[0].isClosed())
+        #expect(await control.commandSummaries().contains("select-tab:201:1"))
+        await session.close()
+    }
+
+    @Test
+    func newTabUsesTheMeasuredGridAndFollowsItsSurface() async throws {
+        let initialTree = tree(activeTab: 0, tabSurfaces: [11])
+        let createdTree = tree(activeTab: 1, tabSurfaces: [11, 14])
+        let control = ScriptedTransport(
+            role: .control(tree: initialTree),
+            treeAfterNewTab: createdTree,
+            newTabSurface: 14
+        )
+        let attachments = [11, 14].map {
+            ScriptedTransport(role: .attachment(surface: $0))
+        }
+        let session = makeSession(control: control, attachments: attachments)
+
+        _ = try await session.connect(hostname: "test")
+        await session.recordTerminalMeasurement(CmuxTerminalMeasurement(
+            widthPixels: 1_200,
+            heightPixels: 800,
+            cellWidthPixels: 10,
+            cellHeightPixels: 20
+        ))
+        let created = try await session.newTab(pane: 201)
+
+        #expect(created.surface == 14)
+        #expect(created.workspaces[0].screens[0].activeTab == 1)
+        #expect(await control.commandSummaries().contains("new-tab:201:120x40"))
+        #expect(await attachments[0].isClosed())
+        await session.close()
+    }
+
+    private func makeHarness(
+        attachmentSurfaces: [UInt64]
+    ) -> (
+        session: CmuxFrontendSession,
+        control: ScriptedTransport,
+        attachments: [ScriptedTransport]
+    ) {
+        let tree = Data(
+            #"{"workspaces":[{"id":4,"name":"phone-a","active":true,"screens":[{"id":101,"name":null,"active":true,"active_pane":201,"panes":[{"id":201,"active_tab":0,"tabs":[{"surface":11,"kind":"pty","name":null,"title":"shell one","size":{"cols":80,"rows":24},"dead":false}],"dead":false}]},{"id":102,"name":null,"active":false,"active_pane":202,"panes":[{"id":202,"active_tab":0,"tabs":[{"surface":12,"kind":"pty","name":null,"title":"shell two","size":{"cols":80,"rows":24},"dead":false}],"dead":false}]}]},{"id":8,"name":"phone-b","active":false,"screens":[{"id":103,"name":null,"active":true,"active_pane":203,"panes":[{"id":203,"active_tab":0,"tabs":[{"surface":13,"kind":"pty","name":null,"title":"shell three","size":{"cols":80,"rows":24},"dead":false}],"dead":false}]}]}]}"#.utf8
+        )
+        let control = ScriptedTransport(role: .control(tree: tree))
+        let attachments = attachmentSurfaces.map {
+            ScriptedTransport(role: .attachment(surface: $0))
+        }
+        let factory = ScriptedClientFactory(transports: attachments)
+        let configuration = CmuxConnectionConfiguration(
+            url: URL(string: "ws://127.0.0.1:7682")!,
+            token: "test"
+        )
+        let session = CmuxFrontendSession(
+            client: CmuxProtocolClient(transport: control),
+            attachmentClientFactory: factory,
+            configuration: configuration,
+            resizeDebounce: .zero
+        )
+        return (session, control, attachments)
+    }
+
+    private func makeSession(
+        control: ScriptedTransport,
+        attachments: [ScriptedTransport]
+    ) -> CmuxFrontendSession {
+        let configuration = CmuxConnectionConfiguration(
+            url: URL(string: "ws://127.0.0.1:7682")!,
+            token: "test"
+        )
+        return CmuxFrontendSession(
+            client: CmuxProtocolClient(transport: control),
+            attachmentClientFactory: ScriptedClientFactory(transports: attachments),
+            configuration: configuration,
+            resizeDebounce: .zero
+        )
+    }
+
+    private func tree(activeTab: Int, tabSurfaces: [UInt64]) -> Data {
+        let tabs = tabSurfaces.enumerated().map { index, surface in
+            "{\"surface\":\(surface),\"kind\":\"pty\",\"name\":null,\"title\":\"tab \(index + 1)\",\"size\":{\"cols\":80,\"rows\":24},\"dead\":false}"
+        }.joined(separator: ",")
+        return Data(
+            "{\"workspaces\":[{\"id\":4,\"name\":\"phone-a\",\"active\":true,\"screens\":[{\"id\":101,\"name\":null,\"active\":true,\"active_pane\":201,\"panes\":[{\"id\":201,\"active_tab\":\(activeTab),\"tabs\":[\(tabs)],\"dead\":false}]}]}]}".utf8
+        )
+    }
+}

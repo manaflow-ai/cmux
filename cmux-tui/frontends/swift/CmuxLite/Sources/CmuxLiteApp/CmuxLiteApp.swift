@@ -17,6 +17,7 @@ final class CmuxLiteApp: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_: Notification) {
         do {
+            NSApp.appearance = NSAppearance(named: .darkAqua)
             let configuration = try CmuxConnectionConfiguration.parse(
                 arguments: Array(CommandLine.arguments.dropFirst()),
                 readFile: { path in
@@ -25,7 +26,14 @@ final class CmuxLiteApp: NSObject, NSApplicationDelegate {
             )
             let transport = URLSessionWebSocketTransport(url: configuration.url)
             let client = CmuxProtocolClient(transport: transport)
-            let frontend = CmuxFrontendSession(client: client, configuration: configuration)
+            let attachmentClientFactory = URLSessionCmuxProtocolClientFactory(
+                url: configuration.url
+            )
+            let frontend = CmuxFrontendSession(
+                client: client,
+                attachmentClientFactory: attachmentClientFactory,
+                configuration: configuration
+            )
             let controller = CmuxLiteWindowController(frontend: frontend)
             windowController = controller
             controller.showWindow(nil)
