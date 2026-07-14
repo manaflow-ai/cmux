@@ -3780,5 +3780,4 @@ private class DisplayLinkProxy {
         target?.handleDisplayLinkFire()
     }
 }
-
 #endif

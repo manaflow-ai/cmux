@@ -473,7 +473,6 @@ extension MobileShellComposite {
         ))
     }
 
-
     /// Ask the Mac to replay the authoritative terminal state for a surface.
     /// Reached from the render-pipeline reset: the surface was rebuilt blank,
     /// so (like ``terminalOutputDidReset``) no pre-barrier baseline survives.
@@ -497,5 +496,4 @@ extension MobileShellComposite {
         MobileDebugLog.anchormux("terminal.output.replay_requested surface=\(surfaceID)")
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
-
 }

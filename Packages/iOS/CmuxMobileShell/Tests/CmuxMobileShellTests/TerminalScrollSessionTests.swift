@@ -8,7 +8,7 @@ import Testing
 struct TerminalScrollSessionTests {
     @Test("authoritative response waits for matching local revision")
     func responseWaitsForLocalRevision() async throws {
-        let harness = Harness()
+        let harness = TerminalScrollSessionHarness()
         let session = harness.makeSession()
 
         session.submit(lines: 24, col: 2, row: 3)
@@ -38,7 +38,7 @@ struct TerminalScrollSessionTests {
 
     @Test("accepted response without a frame advances the render floor")
     func responseWithoutFrameAdvancesRenderFloor() async throws {
-        let harness = Harness()
+        let harness = TerminalScrollSessionHarness()
         let session = harness.makeSession()
 
         session.submit(lines: -6, col: 1, row: 1)
@@ -104,7 +104,7 @@ struct TerminalScrollSessionTests {
         #expect(planned[1].prefetchWindow == nil)
         #expect(planned[2].prefetchWindow == request.prefetchWindow)
 
-        let harness = Harness()
+        let harness = TerminalScrollSessionHarness()
         let session = harness.makeSession()
         session.submit(lines: 10, col: 1, row: 1)
         try await requireEventually {
@@ -170,7 +170,7 @@ struct TerminalScrollSessionTests {
 
     @Test("journal overflow enters replay recovery without stuck reconciliation")
     func journalOverflowRecoversCleanly() async throws {
-        let harness = Harness()
+        let harness = TerminalScrollSessionHarness()
         let session = harness.makeSession()
 
         session.submit(lines: 10, col: 1, row: 1)
@@ -202,7 +202,7 @@ struct TerminalScrollSessionTests {
 
     @Test("recovery fences old local and remote completions before queued input")
     func recoveryFencesOldCompletionsBeforeInput() async throws {
-        let harness = Harness()
+        let harness = TerminalScrollSessionHarness()
         let session = harness.makeSession()
 
         session.submit(lines: 14, col: 2, row: 4)
@@ -232,7 +232,7 @@ struct TerminalScrollSessionTests {
 
     @Test("a new scroll episode permits exactly one new input snap")
     func newScrollRearmsInputSnap() async throws {
-        let harness = Harness()
+        let harness = TerminalScrollSessionHarness()
         let session = harness.makeSession()
 
         _ = session.submitInput(.fence)
@@ -263,7 +263,7 @@ struct TerminalScrollSessionTests {
 
     @Test("settlement requests a directional large window without a timer")
     func settlementRequestsDirectionalWindow() async throws {
-        let harness = Harness()
+        let harness = TerminalScrollSessionHarness()
         let session = harness.makeSession()
 
         session.submit(lines: -8, col: 4, row: 5)
@@ -298,7 +298,7 @@ struct TerminalScrollSessionTests {
 
     @Test("rolling prefetch counts exact primary rows instead of alternate wheel ticks")
     func rollingPrefetchCountsPrimaryRows() {
-        let harness = Harness()
+        let harness = TerminalScrollSessionHarness()
         let session = harness.makeSession()
         let run = MobileTerminalScrollRun(
             primaryRows: 1,
@@ -316,7 +316,7 @@ struct TerminalScrollSessionTests {
 
     @Test("gridless settlement preserves a pending authoritative frame")
     func gridlessSettlementPreservesPendingFrame() async throws {
-        let harness = Harness()
+        let harness = TerminalScrollSessionHarness()
         let session = harness.makeSession()
 
         session.submit(lines: -8, col: 4, row: 5)
@@ -423,123 +423,5 @@ struct TerminalScrollSessionTests {
         _ condition: @MainActor () async -> Bool
     ) async throws {
         try #require(await pollUntil(condition))
-    }
-}
-
-@MainActor
-private final class Harness {
-    struct PendingLocal {
-        let continuation: LocalReceiptContinuation
-    }
-
-    @MainActor
-    final class LocalReceiptContinuation {
-        let receipt: TerminalSurfaceMutationReceipt
-
-        init(receipt: TerminalSurfaceMutationReceipt) {
-            self.receipt = receipt
-        }
-
-        func resume(returning applied: Bool) {
-            receipt.resolve(applied)
-        }
-    }
-
-    struct LocalStarted {
-        let lines: Double
-        let col: Int
-        let row: Int
-    }
-
-    struct PendingRemote {
-        let request: TerminalScrollRequest
-        let continuation: CheckedContinuation<TerminalScrollResponse?, Never>
-    }
-
-    final class LocalLane {
-        var started: [LocalStarted] = []
-        var pending: [PendingLocal] = []
-    }
-
-    final class RemoteLane {
-        var started: [TerminalScrollRequest] = []
-        var pending: [PendingRemote] = []
-    }
-
-    let local = LocalLane()
-    let remote = RemoteLane()
-    let deadline = TerminalInteractionDeadlineSignal()
-    var delivered: [MobileTerminalRenderGridFrame] = []
-    var acceptedRenderRevisions: [UInt64] = []
-    var prepareIntentCount = 0
-    var reconciliationCompletionCount = 0
-    var cancelLocalCount = 0
-    var bottomSnapCount = 0
-    var replayEpochs: [UInt64] = []
-    var epoch: UInt64 = 1
-
-    func makeSession() -> TerminalScrollSession {
-        TerminalScrollSession(
-            surfaceID: "surface-1",
-            interactionEpoch: epoch,
-            enqueueLocal: { [local] runs in
-                let latest = runs.last
-                local.started.append(LocalStarted(
-                    lines: runs.reduce(0) { $0 + $1.lines },
-                    col: latest?.col ?? 0,
-                    row: latest?.row ?? 0
-                ))
-                let receipt = TerminalSurfaceMutationReceipt()
-                local.pending.append(PendingLocal(
-                    continuation: LocalReceiptContinuation(receipt: receipt)
-                ))
-                return receipt
-            },
-            enqueueBarrier: {
-                let receipt = TerminalSurfaceMutationReceipt()
-                receipt.resolve(true)
-                return receipt
-            },
-            enqueueScrollToBottom: { [weak self] in
-                self?.bottomSnapCount += 1
-                let receipt = TerminalSurfaceMutationReceipt()
-                receipt.resolve(true)
-                return receipt
-            },
-            cancelLocal: { [weak self] in
-                self?.cancelLocalCount += 1
-            },
-            sendRemote: { [remote] request in
-                remote.started.append(request)
-                return await withCheckedContinuation { continuation in
-                    remote.pending.append(PendingRemote(request: request, continuation: continuation))
-                }
-            },
-            interactionDeadline: { [deadline] _ in await deadline.wait() },
-            prepareIntent: { [weak self] in
-                self?.prepareIntentCount += 1
-            },
-            deliverAuthoritative: { [weak self] frame, _, _, _ in
-                self?.delivered.append(frame)
-                return true
-            },
-            completeGridlessAuthoritative: { [weak self] revision in
-                if let revision {
-                    self?.acceptedRenderRevisions.append(revision)
-                }
-                return true
-            },
-            reconciliationDidComplete: { [weak self] in
-                self?.reconciliationCompletionCount += 1
-            },
-            requestReplay: { [weak self] epoch in
-                self?.replayEpochs.append(epoch)
-            },
-            advanceEpoch: { [weak self] in
-                guard let self else { return 0 }
-                self.epoch += 1
-                return self.epoch
-            }
-        )
     }
 }

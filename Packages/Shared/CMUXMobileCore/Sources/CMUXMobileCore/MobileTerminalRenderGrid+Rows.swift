@@ -1,13 +1,5 @@
 import Foundation
 
-private func renderGridStyleSignature(_ style: MobileTerminalRenderGridFrame.Style) -> String {
-    let flags = [
-        style.bold, style.faint, style.italic, style.underline, style.blink,
-        style.inverse, style.invisible, style.strikethrough, style.overline,
-    ].map { $0 ? "1" : "0" }.joined()
-    return "\(style.foreground ?? "-")/\(style.background ?? "-")/\(flags)"
-}
-
 extension MobileTerminalRenderGridFrame {
     /// Returns viewport text reconstructed from positioned row spans.
     public func plainRows() -> [String] {
@@ -55,7 +47,7 @@ extension MobileTerminalRenderGridFrame {
                 .sorted { $0.column < $1.column }
                 .map { span in
                     let style = stylesByID[span.styleID] ?? .default
-                    return "\(span.column):\(span.gridCellWidth):\(renderGridStyleSignature(style)):\(span.text)"
+                    return "\(span.column):\(span.gridCellWidth):\(Self.renderGridStyleSignature(style)):\(span.text)"
                 }
                 .joined(separator: "\u{1F}")
         }
@@ -93,5 +85,13 @@ extension MobileTerminalRenderGridFrame {
             primaryActiveRows: full ? primaryActiveRows : 0,
             primaryActiveSpans: full ? primaryActiveSpans : []
         )
+    }
+
+    private static func renderGridStyleSignature(_ style: Style) -> String {
+        let flags = [
+            style.bold, style.faint, style.italic, style.underline, style.blink,
+            style.inverse, style.invisible, style.strikethrough, style.overline,
+        ].map { $0 ? "1" : "0" }.joined()
+        return "\(style.foreground ?? "-")/\(style.background ?? "-")/\(flags)"
     }
 }
