@@ -16,6 +16,7 @@ protocol FilePreviewTextEditingPanel: AnyObject {
 
 struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
     @ObservedObject var panel: PanelModel
+    let session: FilePreviewTextEditorSession
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
@@ -29,7 +30,10 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let views = session.editorViews()
+        let scrollView = views.scrollView
+        let textView = views.textView
+        scrollView.removeFromSuperview()
         scrollView.isHidden = !isVisibleInUI
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -37,14 +41,16 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = drawsBackground
 
-        let textView = SavingTextView.makeFilePreviewTextView()
         textView.panel = panel
         textView.delegate = context.coordinator
         textView.drawsBackground = drawsBackground
-        textView.string = panel.textContent
+        if textView.string != panel.textContent {
+            context.coordinator.isApplyingPanelUpdate = true
+            textView.string = panel.textContent
+            context.coordinator.isApplyingPanelUpdate = false
+        }
         panel.attachTextView(textView)
 
-        scrollView.documentView = textView
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         Self.applyTheme(
             to: scrollView,
@@ -53,6 +59,13 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             drawsBackground: drawsBackground
         )
         return scrollView
+    }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        guard let textView = scrollView.documentView as? SavingTextView,
+              textView.delegate === coordinator else { return }
+        textView.delegate = nil
+        textView.panel = nil
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
