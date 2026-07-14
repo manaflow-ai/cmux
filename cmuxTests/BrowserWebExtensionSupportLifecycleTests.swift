@@ -69,6 +69,143 @@ struct BrowserWebExtensionSupportLifecycleTests {
 
     @Test
     @available(macOS 15.4, *)
+    func mainWindowRegistrationReconcilesBrowserPanelsRestoredAfterWindowOwnership() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let appDelegate = try #require(AppDelegate.shared)
+            let previousDidAttemptStartupSessionRestore = appDelegate.didAttemptStartupSessionRestore
+            let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+            let support = BrowserWebExtensionSupport()
+            let sourceManager = TabManager(
+                autoWelcomeIfNeeded: false,
+                browserWebExtensionHost: support
+            )
+            BrowserAvailabilitySettings.setDisabled(false)
+            let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+            let sourcePaneID = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
+            _ = try #require(sourceWorkspace.newBrowserSurface(inPane: sourcePaneID, focus: true))
+            let snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
+            sourceWorkspace.teardownAllPanels()
+
+            let restoredManager = TabManager(
+                autoWelcomeIfNeeded: false,
+                browserWebExtensionHost: support
+            )
+            let window = NSWindow()
+            let windowID = appDelegate.registerMainWindowContextForTesting(
+                tabManager: restoredManager,
+                window: window
+            )
+            appDelegate.didAttemptStartupSessionRestore = true
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+                restoredManager.tabs.forEach { $0.teardownAllPanels() }
+                window.close()
+                appDelegate.didAttemptStartupSessionRestore = previousDidAttemptStartupSessionRestore
+                BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled)
+            }
+
+            restoredManager.restoreSessionSnapshot(snapshot)
+            let restoredPanel = try #require(
+                restoredManager.tabs
+                    .flatMap { $0.panels.values }
+                    .compactMap { $0 as? BrowserPanel }
+                    .first
+            )
+            #expect(support.windowAdapter(for: restoredPanel.id) == nil)
+
+            appDelegate.completeMainWindowRegistrationWhenBrowserExtensionsReady(
+                tabManager: restoredManager,
+                window: window
+            )
+
+            #expect(support.windowAdapter(for: restoredPanel.id)?.hostWindow === window)
+        }
+    }
+
+    @Test
+    @available(macOS 15.4, *)
+    func extensionTabActivationSelectsItsBackgroundWorkspace() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        let support = BrowserWebExtensionSupport()
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            browserWebExtensionHost: support
+        )
+        let originalWorkspace = try #require(manager.selectedWorkspace)
+        let targetWorkspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let targetPaneID = try #require(targetWorkspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(targetWorkspace.newBrowserSurface(inPane: targetPaneID, focus: false))
+        let window = NSWindow()
+        let windowID = appDelegate.registerMainWindowContextForTesting(
+            tabManager: manager,
+            window: window
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            window.close()
+            BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled)
+        }
+        #expect(manager.selectedTabId == originalWorkspace.id)
+
+        #expect(support.focusOwningCmuxTab(panelID: panel.id, workspaceId: targetWorkspace.id))
+
+        #expect(manager.selectedTabId == targetWorkspace.id)
+        #expect(targetWorkspace.focusedPanelId == panel.id)
+    }
+
+    @Test
+    @available(macOS 15.4, *)
+    func extensionTabAdapterUsesLogicalPanelStateAndHistory() async throws {
+        let extensionDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-web-extension-tab-adapter-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: extensionDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: extensionDirectory) }
+        let manifest = """
+        {
+          "manifest_version": 3,
+          "name": "Tab Adapter Test Extension",
+          "version": "1.0"
+        }
+        """
+        try Data(manifest.utf8).write(to: extensionDirectory.appendingPathComponent("manifest.json"))
+        let webExtension = try await WKWebExtension(resourceBaseURL: extensionDirectory)
+        let context = WKWebExtensionContext(for: webExtension)
+        let currentURL = try #require(URL(string: "https://example.com/current"))
+        let backURL = try #require(URL(string: "https://example.com/back"))
+        let support = BrowserWebExtensionSupport()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: currentURL,
+            renderInitialNavigation: false,
+            browserWebExtensionHost: support
+        )
+        defer { panel.close() }
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [backURL.absoluteString],
+            forwardHistoryURLStrings: [],
+            currentURLString: currentURL.absoluteString
+        )
+        let adapter = BrowserWebExtensionTabAdapter(panel: panel, support: support)
+
+        #expect(adapter.url(for: context) == currentURL)
+        #expect(adapter.title(for: context) == panel.displayTitle)
+        let snapshot = BrowserWebExtensionTabMetadataSnapshot(panel: panel)
+        #expect(snapshot.url == currentURL)
+        #expect(snapshot.title == panel.displayTitle)
+        #expect(snapshot.isLoading == panel.isLoading)
+
+        var navigationError: Error?
+        adapter.goBack(for: context) { navigationError = $0 }
+
+        #expect(navigationError == nil)
+        #expect(panel.restoredHistoryCurrentURL == backURL)
+    }
+
+    @Test
+    @available(macOS 15.4, *)
     func startupRestoreDoesNotWaitForExtensionSettingsReconciliation() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let appDelegate = try #require(AppDelegate.shared)
