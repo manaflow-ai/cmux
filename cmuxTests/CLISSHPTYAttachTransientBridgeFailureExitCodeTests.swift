@@ -161,6 +161,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeSleep = root.appendingPathComponent("sleep")
         let authAttempts = root.appendingPathComponent("auth-attempts")
         let attachAttempts = root.appendingPathComponent("attach-attempts")
+        let sleepAttempts = root.appendingPathComponent("sleep-attempts")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
@@ -184,7 +185,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "if [ \"$count\" -eq 2 ]; then exit 255; fi",
             "exit 0",
         ])
-        try writeSSHPTYReconnectTestShell(at: fakeSleep, lines: ["#!/bin/sh", "exit 0"])
+        try writeSSHPTYReconnectTestShell(at: fakeSleep, lines: [
+            "#!/bin/sh",
+            "count=$(cat \"${CMUX_TEST_SLEEP_ATTEMPTS}\" 2>/dev/null || printf 0)",
+            "printf '%s' $((count + 1)) > \"${CMUX_TEST_SLEEP_ATTEMPTS}\"",
+        ])
         for executable in [fakeCLI, fakeSSH, fakeSleep] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
@@ -196,6 +201,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_AUTH_ATTEMPTS"] = authAttempts.path
         environment["CMUX_TEST_ATTACH_ATTEMPTS"] = attachAttempts.path
+        environment["CMUX_TEST_SLEEP_ATTEMPTS"] = sleepAttempts.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 
@@ -220,6 +226,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 253, result.stderr)
         XCTAssertEqual(try String(contentsOf: authAttempts, encoding: .utf8), "3")
         XCTAssertEqual(try String(contentsOf: attachAttempts, encoding: .utf8), "3")
+        XCTAssertEqual(try String(contentsOf: sleepAttempts, encoding: .utf8), "3")
     }
 
     func testInitialPersistentAttachReauthenticatesAfterTransportLoss() throws {
@@ -232,6 +239,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeSleep = root.appendingPathComponent("sleep")
         let authAttempts = root.appendingPathComponent("auth-attempts")
         let attachAttempts = root.appendingPathComponent("attach-attempts")
+        let sleepAttempts = root.appendingPathComponent("sleep-attempts")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
@@ -259,7 +267,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "  *) exit 0 ;;",
             "esac",
         ])
-        try writeSSHPTYReconnectTestShell(at: fakeSleep, lines: ["#!/bin/sh", "exit 0"])
+        try writeSSHPTYReconnectTestShell(at: fakeSleep, lines: [
+            "#!/bin/sh",
+            "count=$(cat \"${CMUX_TEST_SLEEP_ATTEMPTS}\" 2>/dev/null || printf 0)",
+            "printf '%s' $((count + 1)) > \"${CMUX_TEST_SLEEP_ATTEMPTS}\"",
+        ])
 
         let generatedScript = try persistentSSHInitialStartupScriptForReconnectTest()
         let bundledCLI = try bundledCLIPath()
@@ -277,6 +289,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_AUTH_ATTEMPTS"] = authAttempts.path
         environment["CMUX_TEST_ATTACH_ATTEMPTS"] = attachAttempts.path
+        environment["CMUX_TEST_SLEEP_ATTEMPTS"] = sleepAttempts.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 
@@ -291,6 +304,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 253, result.stderr)
         XCTAssertEqual(try String(contentsOf: authAttempts, encoding: .utf8), "3")
         XCTAssertEqual(try String(contentsOf: attachAttempts, encoding: .utf8), "3")
+        XCTAssertEqual(try String(contentsOf: sleepAttempts, encoding: .utf8), "3")
     }
 
     func testSSHPTYAttachSilentBridgeTimesOutRetryable() throws {

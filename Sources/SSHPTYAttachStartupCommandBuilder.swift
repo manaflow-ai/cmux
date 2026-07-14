@@ -49,7 +49,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             " --command-b64 \(shellQuote(Data($0.utf8).base64EncodedString()))"
         } ?? ""
         let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
-        lines += retryingAttachLines(command: attachCommand)
+        lines += retryingAttachLines(command: attachCommand, reauthenticates: foregroundAuth != nil)
         return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
     }
 
@@ -63,8 +63,9 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         )
     }
 
-    private static func retryingAttachLines(command: String) -> [String] {
+    private static func retryingAttachLines(command: String, reauthenticates: Bool) -> [String] {
         // Retryable 254|255 is owned by SSHPTYAttachExitCode in the CLI target; keep in sync with CMUXCLI.sshPTYAttachRetryLoopLines.
+        let reauthenticate = reauthenticates ? "cmux_ssh_attach_reauth_required=1" : ":"
         return [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
@@ -75,11 +76,19 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             "if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi",
             "cmux_ssh_attach_reconnect_initial_delay=\"$cmux_ssh_attach_reconnect_delay\"",
             "cmux_ssh_attach_retry=0",
+            "cmux_ssh_attach_reauth_required=0",
             "while :; do",
+            "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ]; then",
+            "    cmux_ssh_attach_foreground_auth",
+            "    cmux_ssh_attach_status=$?",
+            "    if [ \"$cmux_ssh_attach_status\" -eq 0 ]; then cmux_ssh_attach_reauth_required=0; elif [ \"$cmux_ssh_attach_status\" -ne 255 ]; then exit \"$cmux_ssh_attach_status\"; fi",
+            "  fi",
+            "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 0 ]; then",
             "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
             "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" \(command)",
             "  cmux_ssh_attach_status=$?",
-            "  case \"$cmux_ssh_attach_status\" in 254) cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\" ;; 255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
+            "  case \"$cmux_ssh_attach_status\" in 254) cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\" ;; 255) \(reauthenticate) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
+            "  fi",
             "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
             "  if [ -t 2 ]; then printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s/%s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\" >&2 || true; fi",
@@ -93,13 +102,18 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         let sshCommand = sshForegroundAuthCommand(auth)
         let quotedToken = shellQuote(auth.token)
         return [
-            "\(sshCommand)",
+            "cmux_ssh_attach_foreground_auth() {",
+            "  \(sshCommand)",
             "cmux_ssh_auth_status=$?",
-            "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi",
+            "  if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then return \"$cmux_ssh_auth_status\"; fi",
             "cmux_ssh_auth_token=\(quotedToken)",
             "cmux_ssh_auth_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"$cmux_ssh_auth_token\\\"}\"",
             "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.foreground_auth_ready \"$cmux_ssh_auth_payload\" >/dev/null 2>&1 || true",
             "unset cmux_ssh_auth_payload cmux_ssh_auth_status cmux_ssh_auth_token",
+            "}",
+            "cmux_ssh_attach_foreground_auth",
+            "cmux_ssh_auth_status=$?",
+            "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi",
         ]
     }
 

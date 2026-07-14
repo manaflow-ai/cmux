@@ -331,11 +331,11 @@ extension CMUXCLI {
         }
         if let trimmedOneTimeCommand, !trimmedOneTimeCommand.isEmpty {
             scriptLines.append("trap 'cmux_ssh_cleanup_password' EXIT")
+            scriptLines += ["cmux_ssh_foreground_auth() {", trimmedOneTimeCommand, "}"]
             if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
                 scriptLines.append("cmux_ssh_preflight_control_path")
             }
-            scriptLines.append(trimmedOneTimeCommand)
-            scriptLines.append("trap - EXIT")
+            scriptLines += ["( cmux_ssh_foreground_auth )", "cmux_ssh_auth_status=$?", "if [ \"$cmux_ssh_auth_status\" -ne 0 ]; then exit \"$cmux_ssh_auth_status\"; fi", "trap - EXIT"]
         }
         let reconnectConfiguration = retryPTYAttachStatus ? [
             "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
@@ -360,6 +360,7 @@ extension CMUXCLI {
             "export CMUX_SSH_STARTUP_PID",
         ] + reconnectConfiguration + [
             "cmux_ssh_retry=0",
+            "cmux_ssh_reauth_required=0",
             "CMUX_SSH_CHILD_PID=",
             "CMUX_SSH_PENDING_SIGNAL=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
@@ -371,6 +372,13 @@ extension CMUXCLI {
             "trap 'cmux_ssh_signal_exit 143' TERM",
             "while :; do",
         ]
+        if hasOneTimeCommand {
+            scriptLines.append("  if [ \"$cmux_ssh_reauth_required\" -eq 1 ]; then")
+            if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
+                scriptLines.append("    cmux_ssh_preflight_control_path")
+            }
+            scriptLines += ["    ( cmux_ssh_foreground_auth )", "    cmux_ssh_status=$?", "    if [ \"$cmux_ssh_status\" -eq 0 ]; then cmux_ssh_reauth_required=0; elif [ \"$cmux_ssh_status\" -ne 255 ]; then break; fi", "  fi", "  if [ \"$cmux_ssh_reauth_required\" -eq 0 ]; then"]
+        }
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty,
            !hasOneTimeCommand {
             scriptLines.append("  cmux_ssh_preflight_control_path")
@@ -408,6 +416,9 @@ extension CMUXCLI {
         if retryPTYAttachStatus {
             scriptLines.append("  if [ \"$cmux_ssh_status\" -eq 254 ]; then cmux_ssh_reconnect_delay=\"$cmux_ssh_reconnect_initial_delay\"; fi")
         }
+        if hasOneTimeCommand {
+            scriptLines += ["  if [ \"$cmux_ssh_status\" -eq 255 ]; then cmux_ssh_reauth_required=1; fi", "  fi"]
+        }
         let retryLimitCondition = retryPTYAttachStatus
             ? "  if [ \"$cmux_ssh_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi"
             : "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi"
@@ -433,7 +444,6 @@ extension CMUXCLI {
         ]
         return scriptLines.joined(separator: "\n")
     }
-
     private func writeSSHStartupScript(_ scriptBody: String, remoteRelayPort: Int) throws -> String {
         let scriptURL = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-ssh-startup-\(remoteRelayPort)-\(UUID().uuidString.lowercased()).sh"

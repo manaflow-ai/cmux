@@ -302,7 +302,7 @@ struct SSHDeepSleepReattachTests {
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == expectedStatus, Comment(rawValue: result.stderr))
-        #expect(try String(contentsOf: authAttemptFile, encoding: .utf8) == "1")
+        #expect(try String(contentsOf: authAttemptFile, encoding: .utf8) == expectedAttempts)
         #expect(try String(contentsOf: attemptFile, encoding: .utf8) == expectedAttempts)
         let delays = try String(contentsOf: sleepLog, encoding: .utf8)
             .split(separator: "\n").map(String.init)
