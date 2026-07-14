@@ -7,6 +7,12 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux-lite" } }
       }
     },
+    "pane.accessibility_label" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Pane %lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペイン %lld" } }
+      }
+    },
     "sidebar.workspaces" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "workspaces" } },

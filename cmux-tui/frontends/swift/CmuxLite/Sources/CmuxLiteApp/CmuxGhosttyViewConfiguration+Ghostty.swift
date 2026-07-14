@@ -6,12 +6,8 @@ extension CmuxGhosttyViewConfiguration {
         TerminalConfiguration { builder in
             builder.withFontFamily(fontFamily)
             builder.withFontSize(fontSize)
-            if let selectionBackground {
-                builder.withSelectionBackground(selectionBackground)
-            }
-            if let selectionForeground {
-                builder.withSelectionForeground(selectionForeground)
-            }
+            builder.withSelectionBackground(selectionBackground ?? "#585858")
+            builder.withSelectionForeground(selectionForeground ?? "#eeeeee")
             if let cursorStyle = cursorStyle.flatMap(TerminalCursorStyle.init(rawValue:)) {
                 builder.withCursorStyle(cursorStyle)
             }

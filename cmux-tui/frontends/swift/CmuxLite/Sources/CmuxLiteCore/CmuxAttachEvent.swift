@@ -26,6 +26,21 @@ public enum CmuxAttachEvent: Decodable, Sendable, Equatable {
     /// A forward-compatible event not consumed by this frontend.
     case other(name: String)
 
+    /// The subject surface for terminal events, when present.
+    public var surface: UInt64? {
+        switch self {
+        case let .initialReplay(surface, _, _, _, _),
+             let .output(surface, _),
+             let .resizedReplay(surface, _, _, _),
+             let .detached(surface):
+            surface
+        case let .colorsChanged(surface, _):
+            surface
+        case .other:
+            nil
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case event
         case surface

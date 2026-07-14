@@ -106,6 +106,47 @@ public actor CmuxProtocolClient {
         )
     }
 
+    func split(
+        pane: UInt64,
+        direction: CmuxSplitDirection,
+        size: CmuxSurfaceSize?
+    ) async throws -> CmuxSurfaceResponse {
+        try await request(
+            CmuxCommandRequest(
+                id: 0,
+                cmd: "split",
+                pane: pane,
+                direction: direction.rawValue,
+                cols: size?.cols,
+                rows: size?.rows
+            )
+        )
+    }
+
+    func setRatio(
+        pane: UInt64,
+        direction: CmuxSplitDirection,
+        ratio: Double
+    ) async throws {
+        _ = try await request(
+            CmuxCommandRequest(
+                id: 0,
+                cmd: "set-ratio",
+                pane: pane,
+                direction: direction.rawValue,
+                ratio: ratio
+            ),
+            as: CmuxEmptyResponse.self
+        )
+    }
+
+    func closeSurface(_ surface: UInt64) async throws {
+        _ = try await request(
+            CmuxCommandRequest(id: 0, cmd: "close-surface", surface: surface),
+            as: CmuxEmptyResponse.self
+        )
+    }
+
     func selectTab(pane: UInt64, index: Int) async throws {
         _ = try await request(
             CmuxCommandRequest(id: 0, cmd: "select-tab", pane: pane, index: index),
@@ -176,6 +217,8 @@ public actor CmuxProtocolClient {
             pane: request.pane,
             surface: request.surface,
             index: request.index,
+            direction: request.direction,
+            ratio: request.ratio,
             mode: request.mode,
             text: request.text,
             bytes: request.bytes,
