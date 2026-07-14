@@ -40,6 +40,71 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(!machine.isFrozen)
     }
 
+    @Test("recovery rejects deltas until a full frame verifies")
+    func recoveryRequiresFullFrame() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let original = try frame(renderRevision: 1, stateSeq: 1, columns: 80, text: "last good")
+        commit(original, to: machine)
+
+        let failedTarget = try frame(
+            renderRevision: 2,
+            stateSeq: 2,
+            columns: 80,
+            text: "failed target"
+        )
+        let failedTransaction = try #require(
+            extractTransaction(from: machine.begin(frame: failedTarget))
+        )
+        let mismatch = try frame(
+            renderRevision: 2,
+            stateSeq: 2,
+            columns: 80,
+            text: "mismatch"
+        )
+        #expect(
+            machine.complete(
+                transactionID: failedTransaction.id,
+                observedFrame: mismatch
+            ) == .keepFrozenAndRequestReplay
+        )
+
+        let partialDuringRecovery = try frame(
+            renderRevision: 3,
+            stateSeq: 3,
+            columns: 80,
+            text: "partial must stay hidden",
+            full: false
+        )
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: partialDuringRecovery) else {
+            Issue.record("recovery must reject partial render grids")
+            return
+        }
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "last good")
+        #expect(machine.isFrozen)
+
+        let recovered = try frame(
+            renderRevision: 4,
+            stateSeq: 4,
+            columns: 80,
+            text: "authoritative recovery"
+        )
+        commit(recovered, to: machine)
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "authoritative recovery")
+        #expect(!machine.isFrozen)
+
+        let partialAfterRecovery = try frame(
+            renderRevision: 5,
+            stateSeq: 5,
+            columns: 80,
+            text: "partial after recovery",
+            full: false
+        )
+        guard case .apply = machine.begin(frame: partialAfterRecovery) else {
+            Issue.record("verified deltas should resume after a full recovery frame")
+            return
+        }
+    }
+
     @Test("a stale completion cannot reveal over a newer replay")
     func staleCompletionCannotReveal() throws {
         let machine = VerifiedTerminalReplayStateMachine()
@@ -217,7 +282,8 @@ struct VerifiedTerminalReplayStateMachineTests {
         stateSeq: UInt64,
         columns: Int,
         text: String,
-        styleID: Int = 1
+        styleID: Int = 1,
+        full: Bool = true
     ) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(
             surfaceID: "surface-verified-replay",
@@ -227,6 +293,7 @@ struct VerifiedTerminalReplayStateMachineTests {
             columns: columns,
             rows: 3,
             cursor: .init(row: 1, column: min(4, columns - 1), style: .bar, blinking: true),
+            full: full,
             styles: [
                 .init(id: 0, foreground: "#FDFEF1", background: "#272822"),
                 .init(
