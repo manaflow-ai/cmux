@@ -121,6 +121,7 @@ enum TerminalTextBoxInputSettings {
     static let submitActionsKey = "terminal.textBoxSubmitActions"
     static let defaultSubmitActionKey = "terminal.textBoxDefaultSubmitAction"
     static let lastSelectedSubmitActionKey = "terminal.textBoxLastSelectedSubmitAction"
+    static let lastSelectedSubmitActionDefaultKey = "terminal.textBoxLastSelectedSubmitActionDefault"
     static let defaultSubmitActionID = TextBoxSubmitAction.textEntryAction.id
 
     static func showOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
