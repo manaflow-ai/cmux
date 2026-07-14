@@ -66,9 +66,21 @@ extension MobileShellComposite {
                 suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
             }
         } catch {
-            guard generation == connectionGeneration, !Task.isCancelled else { return }
+            guard isCurrentRemoteOperation(client: client, generation: generation),
+                  !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
+            switch workspaceMutationErrorDisposition(error) {
+            case .immediateRejection:
+                break
+            case .definiteDivergence, .ambiguous:
+                let reconciled = await refreshForegroundWorkspaceListAfterMutation()
+                guard isCurrentRemoteOperation(client: client, generation: generation),
+                      !Task.isCancelled else { return }
+                if !reconciled {
+                    terminalReorderGate.requireRefresh(workspaceID: rowWorkspaceID)
+                }
+            }
             applyOperationalError(error)
         }
     }

@@ -125,9 +125,7 @@ actor RoutingHostRouter {
         terminalCloseErrorCode = code
     }
 
-    func setDropTerminalCloseResponse(_ drop: Bool) {
-        dropTerminalCloseResponse = drop
-    }
+    func setDropTerminalCloseResponse(_ drop: Bool) { dropTerminalCloseResponse = drop }
 
     func setUsesNilPaneIDCloseFallbackFixture(_ enabled: Bool) {
         usesNilPaneIDCloseFallbackFixture = enabled
@@ -157,9 +155,7 @@ actor RoutingHostRouter {
         holdFirstTerminalCreate = hold
     }
 
-    func setDropTerminalCreateResponse(_ drop: Bool) {
-        dropTerminalCreateResponse = drop
-    }
+    func setDropTerminalCreateResponse(_ drop: Bool) { dropTerminalCreateResponse = drop }
 
     func awaitFirstTerminalCreateReached() async {
         if firstTerminalCreateHeld { return }
