@@ -178,6 +178,7 @@ struct UnifiedFileExplorerTests {
         let searchCountBeforeFindActivation = searchController.searchRequests.count
         let outlineResponder = window.firstResponder
         state.mode = .find
+        focusController.rememberRightSidebarMode(.find)
         container.updatePresentation(.unified)
         #expect(container.searchResultsView.isHidden)
         #expect(searchController.searchRequests.count == searchCountBeforeFindActivation)
@@ -192,6 +193,7 @@ struct UnifiedFileExplorerTests {
         let searchResultsResponder = window.firstResponder
         let cancelCountBeforeFilesActivation = searchController.cancelRequests.count
         state.mode = .files
+        focusController.rememberRightSidebarMode(.files)
         container.updatePresentation(.unified)
         #expect(!container.searchResultsView.isHidden)
         #expect(window.firstResponder === searchResultsResponder)
@@ -201,6 +203,9 @@ struct UnifiedFileExplorerTests {
         container.updatePresentation(.unified)
         #expect(container.searchResultsView.isHidden)
         #expect(searchController.cancelRequests.last == false)
+        #expect(focusController.focusRightSidebar(mode: nil, focusFirstItem: true))
+        #expect(window.firstResponder is NSOutlineView)
+        #expect(state.mode == .files)
 
         let searchCountBeforeHiddenRevision = searchController.searchRequests.count
         store.reload()
