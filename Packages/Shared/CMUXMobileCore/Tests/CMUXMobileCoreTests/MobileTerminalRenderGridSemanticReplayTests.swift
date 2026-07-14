@@ -69,10 +69,50 @@ import Testing
     let replacements = [
         next.semanticReplayBytes(comparedTo: nil),
         next.semanticReplayBytes(comparedTo: previous, forceFull: true),
-        resized.semanticReplayBytes(comparedTo: previous),
-        alternate.semanticReplayBytes(comparedTo: previous)
+        resized.semanticReplayBytes(comparedTo: previous)
     ]
     for replacement in replacements {
         #expect(replacement.range(of: scrollbackClear) != nil)
     }
+
+    let enterAlternate = alternate.semanticReplayBytes(comparedTo: previous)
+    #expect(enterAlternate.range(of: scrollbackClear) == nil)
+    #expect(enterAlternate.range(of: Data("\u{1B}[?1049h".utf8)) != nil)
+}
+
+@Test func semanticReplayPreservesPrimaryHistoryAcrossAlternateScreenRoundTrip() throws {
+    let primary = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 10,
+        columns: 16,
+        rows: 2,
+        rowSpans: [.init(row: 0, column: 0, text: "primary")],
+        scrollbackRows: 1,
+        scrollbackSpans: [.init(row: 0, column: 0, text: "history")]
+    )
+    let alternate = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 11,
+        columns: 16,
+        rows: 2,
+        rowSpans: [.init(row: 0, column: 0, text: "alternate")],
+        activeScreen: .alternate
+    )
+    let returnedPrimary = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 12,
+        columns: 16,
+        rows: 2,
+        rowSpans: [.init(row: 0, column: 0, text: "primary-after")]
+    )
+
+    let enterAlternate = alternate.semanticReplayBytes(comparedTo: primary)
+    let leaveAlternate = returnedPrimary.semanticReplayBytes(comparedTo: alternate)
+    let scrollbackClear = Data("\u{1B}[3J".utf8)
+
+    #expect(enterAlternate.range(of: Data("\u{1B}[?1049h".utf8)) != nil)
+    #expect(leaveAlternate.range(of: Data("\u{1B}[?1049l".utf8)) != nil)
+    #expect(enterAlternate.range(of: scrollbackClear) == nil)
+    #expect(leaveAlternate.range(of: scrollbackClear) == nil)
+    #expect(leaveAlternate.range(of: Data("primary-after".utf8)) != nil)
 }
