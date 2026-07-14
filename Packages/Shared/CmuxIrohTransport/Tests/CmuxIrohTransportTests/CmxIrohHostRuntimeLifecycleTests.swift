@@ -27,6 +27,7 @@ extension CmxIrohHostRuntimeTests {
         )
 
         try await runtime.start()
+        await clock.waitUntilSleeping()
         let renewalDeadline = try #require(clock.observedSleepDeadlines().first)
         #expect(renewalDeadline < now.addingTimeInterval(60 * 60))
 
@@ -34,6 +35,7 @@ extension CmxIrohHostRuntimeTests {
         await broker.waitForRegistrationCount(2)
 
         #expect(await broker.observedRegistrationCount() == 2)
+        await clock.waitUntilSleepCount(2)
         await runtime.stop()
         #expect(clock.observedCancellationCount() == 1)
     }
@@ -376,6 +378,7 @@ private final class HostRegistrationRenewalClock: CmxIrohRelayClock, @unchecked 
     private var date: Date
     private var deadlines: [Date] = []
     private var sleepers: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var sleepWaiters: [CheckedContinuation<Void, Never>] = []
     private var cancellationCount = 0
 
     init(now: Date) {
@@ -388,7 +391,12 @@ private final class HostRegistrationRenewalClock: CmxIrohRelayClock, @unchecked 
 
     func sleep(until deadline: Date) async throws {
         let id = UUID()
-        lock.withLock { deadlines.append(deadline) }
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            deadlines.append(deadline)
+            defer { sleepWaiters.removeAll() }
+            return sleepWaiters
+        }
+        for waiter in waiters { waiter.resume() }
         try await withTaskCancellationHandler {
             try Task.checkCancellation()
             try await withCheckedThrowingContinuation { continuation in
@@ -411,6 +419,25 @@ private final class HostRegistrationRenewalClock: CmxIrohRelayClock, @unchecked 
 
     func observedSleepDeadlines() -> [Date] {
         lock.withLock { deadlines }
+    }
+
+    func waitUntilSleeping() async {
+        await waitUntilSleepCount(1)
+    }
+
+    func waitUntilSleepCount(_ count: Int) async {
+        let shouldWait = lock.withLock { deadlines.count < count }
+        guard shouldWait else { return }
+        await withCheckedContinuation { continuation in
+            let resumeNow = lock.withLock { () -> Bool in
+                if deadlines.count < count {
+                    sleepWaiters.append(continuation)
+                    return false
+                }
+                return true
+            }
+            if resumeNow { continuation.resume() }
+        }
     }
 
     func observedCancellationCount() -> Int {

@@ -152,17 +152,15 @@ struct HostRuntimeFixture {
         publicHintObservedAt: Date? = nil,
         publicHintExpiresAt: Date? = nil
     ) throws -> Data {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let pathHints: [[String: Any]]
         if let publicHintObservedAt, let publicHintExpiresAt {
             pathHints = [[
                 "kind": "relay_url",
                 "value": "https://use1-1.relay.lawrence.cmux.iroh.link/",
-                "source": "managed_relay",
+                "source": "native",
                 "privacy_scope": "public_internet",
-                "observed_at": formatter.string(from: publicHintObservedAt),
-                "expires_at": formatter.string(from: publicHintExpiresAt),
+                "observed_at": publicHintObservedAt.timeIntervalSinceReferenceDate,
+                "expires_at": publicHintExpiresAt.timeIntervalSinceReferenceDate,
             ]]
         } else {
             pathHints = []

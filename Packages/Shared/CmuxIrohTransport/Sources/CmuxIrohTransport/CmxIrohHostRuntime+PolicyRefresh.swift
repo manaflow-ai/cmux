@@ -238,6 +238,62 @@ extension CmxIrohHostRuntime {
         }
     }
 
+    func scheduleRegistrationRenewal(
+        binding: CmxIrohBrokerBinding,
+        revision: UInt64
+    ) {
+        registrationRenewalTask?.cancel()
+        registrationRenewalTask = nil
+        guard lifecyclePhase.ownsNetworkOperation,
+              lifecycleRevision == revision,
+              let deadline = Self.registrationRenewalDeadline(
+                  binding: binding,
+                  now: registrationClock.now()
+              ) else { return }
+        registrationRenewalTask = Task { [weak self] in
+            await self?.runRegistrationRenewal(
+                revision: revision,
+                firstDeadline: deadline
+            )
+        }
+    }
+
+    private func runRegistrationRenewal(
+        revision: UInt64,
+        firstDeadline: Date
+    ) async {
+        var deadline = firstDeadline
+        while lifecyclePhase == .active,
+              lifecycleRevision == revision,
+              !Task.isCancelled {
+            do {
+                try await registrationClock.sleep(until: deadline)
+            } catch {
+                return
+            }
+            guard lifecyclePhase == .active,
+                  lifecycleRevision == revision,
+                  !Task.isCancelled else { return }
+            scheduleRegistrationRefresh(revision: revision)
+            await registrationRefreshTask?.value
+            guard !Task.isCancelled else { return }
+            // A successful refresh replaces this task with the renewed hint
+            // deadline. Broker outages retry without waiting for address events.
+            deadline = registrationClock.now().addingTimeInterval(30)
+        }
+    }
+
+    static func registrationRenewalDeadline(
+        binding: CmxIrohBrokerBinding,
+        now: Date
+    ) -> Date? {
+        guard let expiry = binding.pathHints.compactMap(\.expiresAt).min(),
+              expiry > now else { return nil }
+        let remaining = expiry.timeIntervalSince(now)
+        let safetyWindow = min(15 * 60, max(30, remaining / 4))
+        return max(now, expiry.addingTimeInterval(-safetyWindow))
+    }
+
     func refreshRegistration(revision: UInt64) async {
         defer {
             if lifecycleRevision == revision {
@@ -285,6 +341,10 @@ extension CmxIrohHostRuntime {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
             await handleBinding(registration, discovery, policy.attestation)
+            scheduleRegistrationRenewal(
+                binding: registration.binding,
+                revision: revision
+            )
         } catch is CancellationError {
             return
         } catch {

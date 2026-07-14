@@ -65,6 +65,7 @@ public actor CmxIrohHostRuntime {
     let protocolConfiguration: CmxIrohProtocolConfiguration
     let now: @Sendable () -> Date
     let admissionClock: any CmxIrohRelayClock
+    let registrationClock: any CmxIrohRelayClock
     let handleTransport: TransportHandler
     let handleBinding: BindingHandler
     let handleDeactivation: DeactivationHandler
@@ -83,6 +84,7 @@ public actor CmxIrohHostRuntime {
     var offlineSessions: CmxIrohOfflinePairingSessions?
     var supervisorEventTask: Task<Void, Never>?
     var registrationRefreshTask: Task<Void, Never>?
+    var registrationRenewalTask: Task<Void, Never>?
     var registrationRefreshPending = false
     var registrationRefreshEnabled = false
     var localBinding: CmxIrohBrokerBindingMetadata?
@@ -108,6 +110,7 @@ public actor CmxIrohHostRuntime {
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
         now: @escaping @Sendable () -> Date = { Date() },
         admissionClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        registrationClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
         handleTransport: @escaping TransportHandler,
         handleBinding: @escaping BindingHandler = { _, _, _ in },
         handleDeactivation: @escaping DeactivationHandler = { _ in },
@@ -122,6 +125,7 @@ public actor CmxIrohHostRuntime {
         self.protocolConfiguration = protocolConfiguration
         self.now = now
         self.admissionClock = admissionClock
+        self.registrationClock = registrationClock
         self.handleTransport = handleTransport
         self.handleBinding = handleBinding
         self.handleDeactivation = handleDeactivation
@@ -321,6 +325,10 @@ public actor CmxIrohHostRuntime {
             if let registration = policy.registration,
                let discovery = policy.discovery {
                 await handleBinding(registration, discovery, policy.attestation)
+                scheduleRegistrationRenewal(
+                    binding: registration.binding,
+                    revision: revision
+                )
             }
             registrationRefreshEnabled = true
             if registrationRefreshPending {

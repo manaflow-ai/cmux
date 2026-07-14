@@ -77,6 +77,8 @@ extension CmxIrohHostRuntime {
         supervisorEventTask = nil
         registrationRefreshTask?.cancel()
         registrationRefreshTask = nil
+        registrationRenewalTask?.cancel()
+        registrationRenewalTask = nil
         registrationRefreshPending = false
         registrationRefreshEnabled = false
         await endpointServer?.stop()

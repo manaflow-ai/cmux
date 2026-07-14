@@ -42,6 +42,7 @@ struct CmxIrohRelayCredentialCoordinatorTests {
         #expect(updates.count == 1)
         #expect(updates[0].map(\.url) == fixture.relayURLs)
         #expect(await coordinator.credentialExpiresAt() == fixture.expiresAt)
+        await installs.waitForCount(1)
         #expect(await installs.values() == [response])
         #expect(await broker.observedEndpointIDs().isEmpty)
         await coordinator.deactivate()
@@ -312,13 +313,24 @@ struct CmxIrohRelayCredentialCoordinatorTests {
 
 private actor TestRelayCredentialInstallRecorder {
     private var responses: [CmxIrohRelayTokenResponse] = []
+    private var waiters: [(Int, CheckedContinuation<Void, Never>)] = []
 
     func record(_ response: CmxIrohRelayTokenResponse) {
         responses.append(response)
+        let ready = waiters.filter { responses.count >= $0.0 }
+        waiters.removeAll { responses.count >= $0.0 }
+        for (_, continuation) in ready { continuation.resume() }
     }
 
     func values() -> [CmxIrohRelayTokenResponse] {
         responses
+    }
+
+    func waitForCount(_ count: Int) async {
+        guard responses.count < count else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((count, continuation))
+        }
     }
 }
 

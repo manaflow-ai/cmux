@@ -16,6 +16,12 @@ public actor CmxIrohRelayCredentialCoordinator {
         let expiresAt: Date
     }
 
+    private struct PendingPersistence: Sendable {
+        let response: CmxIrohRelayTokenResponse
+        let binding: Binding
+        let revision: UInt64
+    }
+
     private let supervisor: CmxIrohEndpointSupervisor
     private let broker: any CmxIrohRelayTokenServing
     private let managedRelayURLs: Set<String>
@@ -29,6 +35,8 @@ public actor CmxIrohRelayCredentialCoordinator {
     private var installedCredential: InstalledCredential?
     private var lifecycleRevision: UInt64 = 0
     private var refreshTask: Task<Void, Never>?
+    private var persistenceTask: Task<Void, Never>?
+    private var pendingPersistence: PendingPersistence?
 
     /// Creates an inactive relay credential coordinator.
     public init(
@@ -124,6 +132,9 @@ public actor CmxIrohRelayCredentialCoordinator {
         lifecycleRevision &+= 1
         refreshTask?.cancel()
         refreshTask = nil
+        persistenceTask?.cancel()
+        persistenceTask = nil
+        pendingPersistence = nil
         binding = nil
         installedCredential = nil
     }
@@ -283,8 +294,44 @@ public actor CmxIrohRelayCredentialCoordinator {
             expiresAt: expiresAt
         )
         installedCredential = installed
-        await credentialDidInstall(response)
+        enqueuePersistence(
+            response: response,
+            binding: expectedBinding,
+            revision: revision
+        )
         return installed
+    }
+
+    /// Persists only the newest installed credential on one cancellable serial lane.
+    /// Runtime installation and refresh scheduling never await secure storage.
+    private func enqueuePersistence(
+        response: CmxIrohRelayTokenResponse,
+        binding: Binding,
+        revision: UInt64
+    ) {
+        pendingPersistence = PendingPersistence(
+            response: response,
+            binding: binding,
+            revision: revision
+        )
+        guard persistenceTask == nil else { return }
+        persistenceTask = Task { [weak self] in
+            await self?.runPersistenceQueue()
+        }
+    }
+
+    private func runPersistenceQueue() async {
+        while !Task.isCancelled, let next = pendingPersistence {
+            pendingPersistence = nil
+            guard isCurrent(next.revision), binding == next.binding else { continue }
+            await credentialDidInstall(next.response)
+        }
+        persistenceTask = nil
+        if pendingPersistence != nil, !Task.isCancelled {
+            persistenceTask = Task { [weak self] in
+                await self?.runPersistenceQueue()
+            }
+        }
     }
 
     private func scheduledRefresh(_ refreshAfter: Date) -> Date {
