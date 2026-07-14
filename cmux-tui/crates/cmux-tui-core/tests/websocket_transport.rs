@@ -191,8 +191,15 @@ fn websocket_subscriber_receives_cross_connection_event_without_poll_delay() {
 
     eprintln!("cross-connection outbound event latency: {elapsed:?}");
     assert_eq!(event["title"], "latency-marker");
+    // Valgrind slows everything ~30x; the workflow raises the budget there.
+    // The regression being guarded (outbound events serialized behind a 100ms
+    // read poll) inflates far past any budget under the same slowdown.
+    let budget_ms = std::env::var("CMUX_TEST_WS_LATENCY_BUDGET_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(50);
     assert!(
-        elapsed < Duration::from_millis(50),
+        elapsed < Duration::from_millis(budget_ms),
         "outbound event took {elapsed:?}; expected it well below the 100 ms disconnect poll"
     );
     assert_eq!(read_until(&mut trigger, |value| value["id"] == 3)["ok"], true);
