@@ -1044,7 +1044,7 @@ final class MobileHostService {
             MobileHostRequestActivity.endConnection()
             return
         }
-        await session.start()
+        await session.run()
     }
 
     nonisolated static func connectionAuthorizationError(
@@ -1807,12 +1807,17 @@ actor MobileHostConnection {
         self.onClose = onClose
     }
 
-    func start() {
+    /// Runs the receive loop for the complete transport lifetime.
+    ///
+    /// The caller retains connection ownership until this method returns. This
+    /// matters for Iroh, whose sibling application-lane task closes the shared
+    /// QUIC session when either side of the task group finishes.
+    func run() async {
         guard receiveTask == nil, !isClosed else { return }
         startFirstFrameTimeout()
         let transport = transport
         let connectionID = id
-        receiveTask = Task { [weak self] in
+        let task = Task { [weak self] in
             do {
                 try await transport.connect()
                 mobileHostLog.debug(
@@ -1831,6 +1836,15 @@ actor MobileHostConnection {
                 await self?.close(reason: String(describing: error))
             }
         }
+        receiveTask = task
+        await withTaskCancellationHandler(
+            operation: {
+                await task.value
+            },
+            onCancel: {
+                task.cancel()
+            }
+        )
     }
 
     func close(reason: String) async {
