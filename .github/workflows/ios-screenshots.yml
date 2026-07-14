@@ -173,6 +173,30 @@ jobs:
           echo "Languages: $SNAPSHOT_LANGUAGES"
           fastlane screenshots
 
+      - name: Stage raw screenshot captures
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          rm -rf ios/fastlane/raw-screenshot-captures
+          mkdir -p ios/fastlane/raw-screenshot-captures
+          # This runs before framing/localization propagation, so it contains
+          # only the untouched simulator captures reviewers need for fidelity.
+          if [ -d ios/fastlane/screenshots ]; then
+            rsync -a --include '*/' --include '*.png' --exclude '*' \
+              ios/fastlane/screenshots/ ios/fastlane/raw-screenshot-captures/
+          else
+            echo "No raw screenshots were produced before capture failed." >&2
+          fi
+
+      - name: Upload raw screenshot captures
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-appstore-raw-captures
+          path: ios/fastlane/raw-screenshot-captures
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Upload screenshots artifact
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
