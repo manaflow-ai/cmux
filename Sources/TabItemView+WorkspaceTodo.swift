@@ -28,8 +28,8 @@ extension TabItemView {
             : String(localized: "contextMenu.markWorkspaceDone", defaultValue: "Mark Workspace as Done")
         let markWorkspaceDoneShortcut = KeyboardShortcutSettings.shortcut(for: .markWorkspaceDone)
 
-        // The lane list is shared with the glyph's status popover (one model,
-        // one apply path) so both surfaces stay in lockstep.
+        // The lane list is shared with the todo pane's status popover (one
+        // model, one apply path) so both surfaces stay in lockstep.
         let statusLanes = WorkspaceTodoStatusLane.lanes(
             inferred: inferred,
             activeOverride: activeOverride,

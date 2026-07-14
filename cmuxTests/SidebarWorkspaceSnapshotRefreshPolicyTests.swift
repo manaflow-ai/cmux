@@ -159,8 +159,6 @@ import Testing
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity,
             taskStatus: nil,
-            taskStatusHasOverride: false,
-            taskStatusInferred: nil,
             checklistItems: [],
             checklistCompletedCount: 0,
             checklistTotalCount: 0,

@@ -58,12 +58,10 @@ struct SidebarWorkspaceSnapshotBuilder {
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         // Workspace todo status/checklist; taskStatus is nil when the
-        // workspace opted out of status display (no glyph slot reserved).
+        // workspace opted out of status display. Drives only the done-row
+        // dim — sidebar rows draw no status glyph (issue: status circles
+        // must not appear on workspace rows).
         let taskStatus: WorkspaceTaskStatus?
-        let taskStatusHasOverride: Bool
-        /// The lane the live signals currently infer; feeds the status
-        /// popover's Auto row.
-        let taskStatusInferred: WorkspaceTaskStatus?
         let checklistItems: [WorkspaceChecklistItem]
         let checklistCompletedCount: Int
         let checklistTotalCount: Int

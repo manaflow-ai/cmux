@@ -9,8 +9,6 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         let taskStatus: WorkspaceTaskStatus?
-        let taskStatusHasOverride: Bool
-        let taskStatusInferred: WorkspaceTaskStatus?
         let checklistItems: [WorkspaceChecklistItem]
         let checklistCompletedCount: Int
         let checklistTotalCount: Int
@@ -27,8 +25,6 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity,
             taskStatus: taskStatus,
-            taskStatusHasOverride: taskStatusHasOverride,
-            taskStatusInferred: taskStatusInferred,
             checklistItems: checklistItems,
             checklistCompletedCount: checklistCompletedCount,
             checklistTotalCount: checklistTotalCount,
@@ -70,11 +66,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             // visually worse than ordinary telemetry text while the menu is open.
             mediaActivity: snapshot.mediaActivity,
             // Todo status/checklist are mutated FROM this context menu (Status
-            // submenu, Mark as Done, checkbox clicks), so the glyph and
+            // submenu, Mark as Done, checkbox clicks), so the done-row dim and
             // checklist must reflect the change immediately, not on menu close.
             taskStatus: snapshot.taskStatus,
-            taskStatusHasOverride: snapshot.taskStatusHasOverride,
-            taskStatusInferred: snapshot.taskStatusInferred,
             checklistItems: snapshot.checklistItems,
             checklistCompletedCount: snapshot.checklistCompletedCount,
             checklistTotalCount: snapshot.checklistTotalCount,
