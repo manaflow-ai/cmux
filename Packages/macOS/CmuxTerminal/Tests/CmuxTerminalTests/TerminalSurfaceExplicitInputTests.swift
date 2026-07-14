@@ -63,6 +63,25 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
+    @Test func mobileGesturesNotifyPaneHost() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        fixture.surface.mobileScroll(deltaLines: 1, col: 0, row: 0)
+        fixture.surface.mobileClick(col: 0, row: 0)
+
+        #expect(fixture.paneHost.explicitInputCount == 2)
+    }
+
+    @Test func emptyMobileScrollDoesNotNotifyPaneHost() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        fixture.surface.mobileScroll(deltaLines: 0, col: 0, row: 0)
+
+        #expect(fixture.paneHost.explicitInputCount == 0)
+    }
+
     @Test func emptyInputDoesNotNotifyThePaneHost() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
