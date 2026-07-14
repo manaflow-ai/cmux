@@ -50,15 +50,28 @@ extension SettingsWindowSharedStateSuites {
             let sidebarToggle = try #require(waitForNativeSidebarToggle(in: window))
             let action = try #require(sidebarToggle.action)
             #expect(action == #selector(NSSplitViewController.toggleSidebar(_:)))
+            let splitViewController = try #require(
+                NSApp.target(
+                    forAction: action,
+                    to: sidebarToggle.target,
+                    from: sidebarToggle
+                ) as? NSSplitViewController
+            )
+            let sidebarItem = try #require(
+                splitViewController.splitViewItems.first { $0.behavior == .sidebar }
+            )
+            let wasCollapsed = sidebarItem.isCollapsed
+
             #expect(sidebarToggle.isEnabled)
             #expect(NSApp.sendAction(action, to: sidebarToggle.target, from: sidebarToggle))
+            #expect(waitForSidebarCollapseStateChange(sidebarItem, from: wasCollapsed))
         }
 
         private func waitForNativeSidebarToggle(
             in window: NSWindow,
             timeout: TimeInterval = 2
         ) -> NSToolbarItem? {
-            let deadline = Date().addingTimeInterval(timeout)
+            let deadline = Date.now.addingTimeInterval(timeout)
             repeat {
                 if let item = window.toolbar?.items.first(where: {
                     $0.action == #selector(NSSplitViewController.toggleSidebar(_:))
@@ -67,10 +80,28 @@ extension SettingsWindowSharedStateSuites {
                 }
                 _ = RunLoop.main.run(
                     mode: .default,
-                    before: Date().addingTimeInterval(0.01)
+                    before: Date.now.addingTimeInterval(0.01)
                 )
-            } while Date() < deadline
+            } while Date.now < deadline
             return nil
+        }
+
+        private func waitForSidebarCollapseStateChange(
+            _ sidebarItem: NSSplitViewItem,
+            from initialState: Bool,
+            timeout: TimeInterval = 2
+        ) -> Bool {
+            let deadline = Date.now.addingTimeInterval(timeout)
+            repeat {
+                if sidebarItem.isCollapsed != initialState {
+                    return true
+                }
+                _ = RunLoop.main.run(
+                    mode: .default,
+                    before: Date.now.addingTimeInterval(0.01)
+                )
+            } while Date.now < deadline
+            return false
         }
 
         private func closeSettingsWindows() {
