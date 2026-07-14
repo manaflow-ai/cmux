@@ -17,4 +17,49 @@ struct SocketClientPreauthorizationLimiterTests {
         let replacement = await limiter.claim()
         #expect(replacement)
     }
+
+    @Test func exhaustedDescendantBypassDoesNotChangeClaimAccounting() async {
+        let limiter = SocketClientPreauthorizationLimiter(maximumConcurrentClaims: 1)
+        var authorization = SocketClientAuthorization()
+        var ancestryEvaluationCount = 0
+
+        #expect(await limiter.claim())
+        #expect(!(await limiter.claim()))
+        let admitted = authorization.cacheAncestryAuthorization(
+            peerProcessID: 123,
+            isDescendant: { pid in
+                ancestryEvaluationCount += 1
+                return pid == 123
+            }
+        )
+        #expect(admitted)
+        #expect(ancestryEvaluationCount == 1)
+
+        await limiter.release()
+        #expect(await limiter.claim())
+        await limiter.release()
+        await limiter.release()
+        #expect(await limiter.claim())
+        await limiter.release()
+        #expect(await limiter.claim())
+        await limiter.release()
+    }
+
+    @Test func exhaustedNonDescendantDoesNotConsumeOrReleaseAClaim() async {
+        let limiter = SocketClientPreauthorizationLimiter(maximumConcurrentClaims: 1)
+        var authorization = SocketClientAuthorization()
+
+        #expect(await limiter.claim())
+        #expect(!(await limiter.claim()))
+        let admitted = authorization.cacheAncestryAuthorization(
+            peerProcessID: 123,
+            isDescendant: { _ in false }
+        )
+        #expect(!admitted)
+
+        #expect(!(await limiter.claim()))
+        await limiter.release()
+        #expect(await limiter.claim())
+        await limiter.release()
+    }
 }

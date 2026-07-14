@@ -176,6 +176,10 @@ describe("apns route policy", () => {
       bundleId: "dev.cmux.app.beta",
       environment: "production",
     });
+    expect(normalizeApnsBundle("com.cmux.app")).toEqual({
+      bundleId: "com.cmux.app",
+      environment: "production",
+    });
     expect(normalizeApnsBundle("dev.cmux.ios.push1")).toEqual({
       bundleId: "dev.cmux.ios.push1",
       environment: "sandbox",
