@@ -107,7 +107,12 @@ struct ServerStateFile<'a> {
 /// Returns an error when root validation, listener setup, state persistence, or serving fails.
 pub async fn run(config: ServerConfig) -> Result<(), String> {
     validate_root(&config.root).await?;
-    prune_orphaned_session_temp_files(&config.root, ORPHAN_SESSION_TEMP_MIN_AGE).await;
+    prune_orphaned_session_temp_files(
+        &config.root,
+        ORPHAN_SESSION_TEMP_MIN_AGE,
+        MAX_ORPHAN_SCAN_ENTRIES,
+    )
+    .await;
     // Ring keeps the mandatory sidecar build self-contained. Reqwest's default
     // AWS-LC provider adds an undeclared CMake prerequisite to every Xcode build.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -158,7 +163,12 @@ fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
 /// is invalid.
 pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
     validate_root(&config.root).await?;
-    prune_orphaned_session_temp_files(&config.root, ORPHAN_SESSION_TEMP_MIN_AGE).await;
+    prune_orphaned_session_temp_files(
+        &config.root,
+        ORPHAN_SESSION_TEMP_MIN_AGE,
+        MAX_ORPHAN_SCAN_ENTRIES,
+    )
+    .await;
     let _ = rustls::crypto::ring::default_provider().install_default();
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -805,40 +815,93 @@ async fn append_manifest_file(
     Ok(())
 }
 
-async fn prune_orphaned_session_temp_files(root: &Path, minimum_age: Duration) {
+async fn prune_orphaned_session_temp_files(root: &Path, minimum_age: Duration, scan_limit: usize) {
+    if scan_limit < 2 {
+        return;
+    }
+    let lock_path = root.join(".diff-session-prune.lock");
+    let Ok(lock) = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock_path)
+    else {
+        return;
+    };
+    if lock.try_lock_exclusive().is_err() {
+        return;
+    }
+    let cursor_path = root.join(".diff-session-prune-cursor");
+    let cursor = std::fs::read_to_string(&cursor_path)
+        .ok()
+        .filter(|value| !value.is_empty());
     let Ok(mut entries) = tokio::fs::read_dir(root).await else {
         return;
     };
     let mut scanned = 0;
     let mut removed = 0;
-    while scanned < MAX_ORPHAN_SCAN_ENTRIES && removed < MAX_ORPHAN_REMOVALS {
+    let mut cursor_found = cursor.is_none();
+    let mut next_cursor = None;
+    while removed < MAX_ORPHAN_REMOVALS {
         let Ok(Some(entry)) = entries.next_entry().await else {
             break;
         };
-        scanned += 1;
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        let Some(session_id) = name
-            .strip_prefix(".diff-session-")
-            .and_then(|value| value.strip_suffix(".patch.tmp"))
-        else {
-            continue;
-        };
-        if uuid::Uuid::parse_str(session_id).is_err() {
+        if !cursor_found {
+            cursor_found = cursor.as_deref() == Some(name.as_ref());
             continue;
         }
-        let Ok(metadata) = entry.metadata().await else {
-            continue;
-        };
-        let old_enough = metadata
-            .modified()
-            .ok()
-            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
-            .is_some_and(|age| age >= minimum_age);
-        if old_enough && tokio::fs::remove_file(entry.path()).await.is_ok() {
+        if scanned + 1 >= scan_limit {
+            next_cursor = Some(name.into_owned());
+            break;
+        }
+        scanned += 1;
+        if remove_orphaned_session_temp_file(&entry.path(), &name, minimum_age).await {
             removed += 1;
         }
     }
+    if removed < MAX_ORPHAN_REMOVALS
+        && cursor_found
+        && let Some(cursor_name) = cursor.as_deref()
+    {
+        let _ =
+            remove_orphaned_session_temp_file(&root.join(cursor_name), cursor_name, minimum_age)
+                .await;
+    }
+    if cursor.is_some() && !cursor_found {
+        next_cursor = None;
+    }
+    let cursor_value = next_cursor.unwrap_or_default();
+    let temporary = root.join(format!(
+        ".diff-session-prune-cursor-{}.tmp",
+        uuid::Uuid::new_v4()
+    ));
+    if std::fs::write(&temporary, cursor_value).is_ok() {
+        let _ = std::fs::rename(temporary, cursor_path);
+    } else {
+        let _ = std::fs::remove_file(temporary);
+    }
+}
+
+async fn remove_orphaned_session_temp_file(path: &Path, name: &str, minimum_age: Duration) -> bool {
+    let Some(session_id) = name
+        .strip_prefix(".diff-session-")
+        .and_then(|value| value.strip_suffix(".patch.tmp"))
+    else {
+        return false;
+    };
+    if uuid::Uuid::parse_str(session_id).is_err() {
+        return false;
+    }
+    let old_enough = tokio::fs::metadata(path)
+        .await
+        .ok()
+        .and_then(|metadata| metadata.modified().ok())
+        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+        .is_some_and(|age| age >= minimum_age);
+    old_enough && tokio::fs::remove_file(path).await.is_ok()
 }
 
 fn session_patch_request_path(request_path: &str) -> bool {

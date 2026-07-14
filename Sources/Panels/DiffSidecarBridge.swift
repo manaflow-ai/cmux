@@ -29,6 +29,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     private nonisolated static let processGroupReadyMarker = Data("cmux-diff-sidecar-process-group-ready\n".utf8)
     private nonisolated static let startupTimeout: TimeInterval = 5
     private nonisolated static let terminationGrace: TimeInterval = 0.25
+    private static let pendingSessionID = "00000000-0000-0000-0000-000000000000"
     // Longer than the sidecar's 120-second branch regeneration limit.
     private nonisolated static let requestTimeout: TimeInterval = 130
     private var invocations: [UUID: Task<Void, Never>] = [:]
@@ -82,6 +83,20 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         let invocationID = UUID()
         let method = (message.body as? [String: Any])?["method"] as? String
         let viewerToken = DiffCommentsBridge.diffViewerToken(from: message.frameInfo.request.url)
+        if method == "sessionClose", let viewerToken,
+           let pendingID = sessionInvocationByViewerToken[viewerToken] {
+            invocations[pendingID]?.cancel()
+        }
+        if method == "sessionClose",
+           ((message.body as? [String: Any])?["params"] as? [String: Any])?["sessionId"] as? String == Self.pendingSessionID {
+            replyHandler([
+                "id": (message.body as? [String: Any])?["id"] as? String ?? "unknown",
+                "version": 1,
+                "result": ["type": "sessionClosed"],
+                "error": NSNull(),
+            ], nil)
+            return
+        }
         if method == "sessionOpen", let viewerToken,
            let previousID = sessionInvocationByViewerToken[viewerToken] {
             invocations[previousID]?.cancel()

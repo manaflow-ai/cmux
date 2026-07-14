@@ -3,25 +3,36 @@ import Foundation
 /// Process selection and launch for the portable diff-viewer backend.
 extension CMUXCLI {
     func fetchDiffURLToFile(_ url: URL, directory: URL) throws -> URL {
+        let maximumBytes = 512 * 1024 * 1024
         let outputURL = directory.appendingPathComponent("download-\(UUID().uuidString).patch")
+        var keepOutput = false
+        defer {
+            if !keepOutput {
+                try? FileManager.default.removeItem(at: outputURL)
+            }
+        }
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
             arguments: [
                 "curl", "-fL", "--silent", "--show-error", "--max-time", "120",
+                "--max-filesize", String(maximumBytes),
                 "--output", outputURL.path, url.absoluteString,
             ],
             timeout: 130
         )
         guard !result.timedOut, result.status == 0 else {
-            try? FileManager.default.removeItem(at: outputURL)
             let reason = result.timedOut ? "Timed out fetching" : "Failed to fetch"
             throw CLIError(message: "\(reason) diff URL: \(url.absoluteString)")
         }
-        guard (try? outputURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map({ $0 > 0 }) == true else {
-            try? FileManager.default.removeItem(at: outputURL)
+        guard let fileSize = try? outputURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+              fileSize > 0 else {
             throw CLIError(message: "Diff input is empty: \(url.absoluteString)")
         }
+        guard fileSize <= maximumBytes else {
+            throw CLIError(message: "Diff input exceeds 512 MiB: \(url.absoluteString)")
+        }
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: outputURL.path)
+        keepOutput = true
         return outputURL
     }
 

@@ -66,6 +66,7 @@ type ActiveDiffSession = {
 };
 
 const registeredCustomThemeNames = new Set<string>();
+const pendingSessionID = "00000000-0000-0000-0000-000000000000";
 
 type AppState = {
   activeItemId: string;
@@ -303,8 +304,17 @@ export function App({ config, initialStatus }: ConfigProps) {
   renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
-    if (!activeSession || !transport) {
+    if (!transport) {
       return Promise.resolve();
+    }
+    if (!activeSession) {
+      if (typeof payload.capabilityToken !== "string") {
+        return Promise.resolve();
+      }
+      return closeDiffSession(transport, {
+        sessionId: pendingSessionID,
+        capabilityToken: payload.capabilityToken,
+      });
     }
     activeSessionRef.current = null;
     return transport.request({
@@ -317,7 +327,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           activeSessionRef.current = activeSession;
         }
       });
-  }, [transport]);
+  }, [payload.capabilityToken, transport]);
 
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch, transport);
