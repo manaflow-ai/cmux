@@ -58,8 +58,8 @@ extension RemoteSessionCoordinator {
     }
 
     /// Tears down every ssh-spawning scan, clears ports, and resets poll and
-    /// bootstrap bookkeeping so re-enabling starts from a clean state.
-    private func suspendRemotePortScanningLocked() {
+    /// bootstrap bookkeeping so the next enabled transport starts cleanly.
+    func suspendRemotePortScanningLocked() {
         remotePortScanGeneration &+= 1
         remotePortScanBurstTask?.cancel()
         remotePortScanBurstTask = nil
