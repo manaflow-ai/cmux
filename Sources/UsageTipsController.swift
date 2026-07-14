@@ -15,14 +15,16 @@ final class UsageTipsController {
     private let store: UsageTipsStore
     private let catalog: UsageTipsCatalog
     private let shortcutResolver: UsageTipShortcutResolver
+    private let scheduler: UsageTipScheduler
     private let initialDelay: TimeInterval
     private let autoHideDelay: TimeInterval
     private let isEligibleLaunch: Bool
     private var state: State = .idle
-    private var tipsEnabled: Bool
-    private var registeredWindowIDs: [UUID] = []
-    @ObservationIgnored private var initialTimer: Timer?
-    @ObservationIgnored private var autoHideTimer: Timer?
+    @ObservationIgnored private var tipsEnabled: Bool
+    @ObservationIgnored private var registeredWindowIDs: [UUID] = []
+    @ObservationIgnored private var activeWindowID: UUID?
+    @ObservationIgnored private var cancelInitialTip: UsageTipScheduler.Cancellation?
+    @ObservationIgnored private var cancelAutoHide: UsageTipScheduler.Cancellation?
 
     var presentation: UsageTipPresentation? {
         guard case let .presenting(presentation) = state else { return nil }
@@ -33,12 +35,14 @@ final class UsageTipsController {
         store: UsageTipsStore,
         catalog: UsageTipsCatalog = UsageTipsCatalog(),
         shortcutResolver: UsageTipShortcutResolver? = nil,
+        scheduler: UsageTipScheduler = UsageTipScheduler(),
         initialDelay: TimeInterval = 45,
         autoHideDelay: TimeInterval = 120
     ) {
         self.store = store
         self.catalog = catalog
         self.shortcutResolver = shortcutResolver ?? UsageTipShortcutResolver()
+        self.scheduler = scheduler
         self.initialDelay = initialDelay
         self.autoHideDelay = autoHideDelay
         self.isEligibleLaunch = store.hasShownWelcome
@@ -48,15 +52,28 @@ final class UsageTipsController {
     func register(windowID: UUID) {
         guard !registeredWindowIDs.contains(windowID) else { return }
         registeredWindowIDs.append(windowID)
+    }
+
+    func windowDidBecomeKey(windowID: UUID) {
+        guard registeredWindowIDs.contains(windowID) else { return }
+        activeWindowID = windowID
         scheduleInitialTipIfNeeded()
+    }
+
+    func windowDidResignKey(windowID: UUID) {
+        guard activeWindowID == windowID else { return }
+        activeWindowID = nil
     }
 
     func unregister(windowID: UUID) {
         registeredWindowIDs.removeAll { $0 == windowID }
+        if activeWindowID == windowID {
+            activeWindowID = nil
+        }
         switch state {
         case .waiting where registeredWindowIDs.isEmpty:
-            initialTimer?.invalidate()
-            initialTimer = nil
+            cancelInitialTip?()
+            cancelInitialTip = nil
             state = .idle
         case .presenting(let presentation) where presentation.windowID == windowID:
             finishPresentation()
@@ -68,10 +85,10 @@ final class UsageTipsController {
     func updateEnabled(_ isEnabled: Bool) {
         tipsEnabled = isEnabled
         guard isEnabled else {
-            initialTimer?.invalidate()
-            autoHideTimer?.invalidate()
-            initialTimer = nil
-            autoHideTimer = nil
+            cancelInitialTip?()
+            cancelAutoHide?()
+            cancelInitialTip = nil
+            cancelAutoHide = nil
             state = .finished
             return
         }
@@ -90,17 +107,18 @@ final class UsageTipsController {
     }
 
     private func scheduleInitialTipIfNeeded() {
-        guard isEligibleLaunch, tipsEnabled, !registeredWindowIDs.isEmpty else { return }
+        guard isEligibleLaunch,
+              tipsEnabled,
+              activeWindowID.map(registeredWindowIDs.contains) == true else { return }
         guard case .idle = state else { return }
         state = .waiting
-        // A one-shot Timer models the intended presentation deadline without sleeping or polling.
-        initialTimer = makeTimer(after: initialDelay) { [weak self] in
+        cancelInitialTip = scheduler.schedule(after: initialDelay) { [weak self] in
             self?.presentNextTip()
         }
     }
 
     private func presentNextTip() {
-        initialTimer = nil
+        cancelInitialTip = nil
         guard case .waiting = state else { return }
         guard tipsEnabled, let windowID = registeredWindowIDs.last else {
             state = registeredWindowIDs.isEmpty ? .idle : .finished
@@ -109,7 +127,7 @@ final class UsageTipsController {
 
         let unseenTips = catalog.unseenTips(seenTipIDs: store.seenTipIDs)
         let presentation = unseenTips.lazy.compactMap { tip -> UsageTipPresentation? in
-            guard let shortcutLabel = shortcutResolver.displayString(for: tip.shortcutAction) else {
+            guard let shortcutLabel = self.shortcutResolver.displayString(for: tip.shortcutAction) else {
                 return nil
             }
             return UsageTipPresentation(tip: tip, shortcutLabel: shortcutLabel, windowID: windowID)
@@ -121,26 +139,14 @@ final class UsageTipsController {
         }
 
         state = .presenting(presentation)
-        // A one-shot Timer models the generous auto-hide deadline; dismissal never marks the tip seen.
-        autoHideTimer = makeTimer(after: autoHideDelay) { [weak self] in
+        cancelAutoHide = scheduler.schedule(after: autoHideDelay) { [weak self] in
             self?.dismiss()
         }
     }
 
     private func finishPresentation() {
-        autoHideTimer?.invalidate()
-        autoHideTimer = nil
+        cancelAutoHide?()
+        cancelAutoHide = nil
         state = .finished
-    }
-
-    private func makeTimer(
-        after interval: TimeInterval,
-        action: @escaping @MainActor @Sendable () -> Void
-    ) -> Timer {
-        let timer = Timer(timeInterval: interval, repeats: false) { _ in
-            Task { @MainActor in action() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        return timer
     }
 }

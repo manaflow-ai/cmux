@@ -118,7 +118,6 @@ struct cmuxApp: App {
         )
         let authComposition = MacAuthComposition()
         self.authComposition = authComposition
-
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
         // share the name `cmux`, so if the GUI's Contents/MacOS leaks onto $PATH
@@ -174,10 +173,7 @@ struct cmuxApp: App {
             hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
-        let usageTipsController = UsageTipsController(
-            store: UsageTipsStore(defaults: .standard)
-        )
-
+        let usageTipsController = UsageTipsController(store: UsageTipsStore(defaults: .standard))
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])

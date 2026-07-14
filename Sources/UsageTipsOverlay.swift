@@ -8,38 +8,24 @@ struct UsageTipsOverlay: View {
     @LiveSetting(\.app.showUsageTips) private var showUsageTips
 
     var body: some View {
-        Group {
-            if let presentation = controller.presentation,
-               presentation.windowID == windowID {
-                UsageTipCard(
-                    presentation: presentation,
-                    onAcknowledge: controller.acknowledge,
-                    onDismiss: controller.dismiss,
-                    onOpenSettings: {
-                        AppDelegate.presentPreferencesWindow(navigationTarget: .app)
-                    }
-                )
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
+        let presentation = controller.presentation
+        WindowAccessor(refreshID: presentation?.id.rawValue) { window in
+            UsageTipsWindowOverlayController.attach(
+                to: window,
+                controller: controller,
+                windowID: windowID
+            ).update(presentation: presentation)
         }
-        .padding(.trailing, 18)
-        .padding(.bottom, 18)
-        .animation(.easeOut(duration: 0.24), value: controller.presentation?.id)
-        .onAppear {
-            controller.register(windowID: windowID)
-        }
+        .frame(width: 0, height: 0)
         .onChange(of: showUsageTips) { _, isEnabled in
             controller.updateEnabled(isEnabled)
-        }
-        .onDisappear {
-            controller.unregister(windowID: windowID)
         }
     }
 }
 
 extension View {
     func usageTipsOverlay(controller: UsageTipsController?, windowID: UUID) -> some View {
-        overlay(alignment: .bottomTrailing) {
+        background {
             if let controller {
                 UsageTipsOverlay(controller: controller, windowID: windowID)
             }
