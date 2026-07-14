@@ -1,11 +1,16 @@
 import AppKit
+import CmuxSettingsUI
 import SwiftUI
 
 /// Hosts the per-window controls anchored to the trailing edge of the title bar.
 final class TitlebarTrailingAccessoryViewController: NSTitlebarAccessoryViewController {
     let fileExplorerState: FileExplorerState
 
-    init(fileExplorerState: FileExplorerState, onToggleRightSidebar: @escaping () -> Void) {
+    init(
+        fileExplorerState: FileExplorerState,
+        settingsRuntime: SettingsRuntime?,
+        onToggleRightSidebar: @escaping () -> Void
+    ) {
         self.fileExplorerState = fileExplorerState
         super.init(nibName: nil, bundle: nil)
         layoutAttribute = .right
@@ -15,6 +20,7 @@ final class TitlebarTrailingAccessoryViewController: NSTitlebarAccessoryViewCont
                 fileExplorerState: fileExplorerState,
                 onToggleRightSidebar: onToggleRightSidebar
             )
+            .environment(\.settingsRuntime, settingsRuntime)
         )
         hosting.setContentHuggingPriority(.required, for: .horizontal)
         hosting.wantsLayer = true
