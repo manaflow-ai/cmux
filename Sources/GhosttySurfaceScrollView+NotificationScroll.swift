@@ -172,7 +172,7 @@ extension GhosttySurfaceScrollView {
             : GhosttyScrollbar(
                 total: anchorGeometry.scrollbar.total,
                 offset: anchorGeometry.scrollbar.offset,
-                len: geometry.scrollbar.len
+                len: currentGeometry?.scrollbar.len ?? geometry.scrollbar.len
             )
         let shouldRebase = position.totalRows.map {
             Int(clamping: anchorScrollbar.total) != $0
