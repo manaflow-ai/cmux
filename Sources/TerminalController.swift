@@ -888,6 +888,11 @@ class TerminalController {
                 "generation": generation
             ]
         )
+        if let appDelegate = AppDelegate.shared {
+            appDelegate.reconcileSocketListenerConfiguration(source: "path_monitor")
+            return
+        }
+
         stop()
         startSocketTransport(
             SocketControlServerConfiguration(accessMode: restartMode, preferredSocketPath: path),
