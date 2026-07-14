@@ -39,7 +39,7 @@ struct MobileRecoveryStressFreeDrainTests {
 
         try await waitForMountedSurface(harness.view)
         try await pumpRecoveryTraffic(on: harness.view)
-        let before = GhosttySurfaceView.mobileTerminalDiagnostics(surfaceID: "diagnostics-terminal")
+        let before = MobileTerminalSurfaceDiagnosticsSnapshot(surfaceID: "diagnostics-terminal")
         #expect(before.surfaceMounted)
         #expect(before.activeSurfaceCount >= 1)
         #expect(before.pendingSurfaceFreeCount == 0)
@@ -49,7 +49,7 @@ struct MobileRecoveryStressFreeDrainTests {
 
         let drained = await waitForFreeDrain(afterForcingRecoveryOn: harness.view)
         #expect(drained, "the old surface free should drain after forced render-pipeline recovery")
-        let after = GhosttySurfaceView.mobileTerminalDiagnostics(surfaceID: "diagnostics-terminal")
+        let after = MobileTerminalSurfaceDiagnosticsSnapshot(surfaceID: "diagnostics-terminal")
         #expect(after.surfaceMounted)
         #expect(after.surfaceGeneration == before.surfaceGeneration + 1)
         #expect(after.recoveryCount == before.recoveryCount + 1)

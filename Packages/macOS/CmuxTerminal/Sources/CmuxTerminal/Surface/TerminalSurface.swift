@@ -596,16 +596,3 @@ extension TerminalSurface: TerminalSurfaceControlling {
 // TerminalSurfacing seam; TerminalSurface satisfies it with its immutable
 // `id` and `focusPlacement`.
 extension TerminalSurface: TerminalSurfacing {}
-
-/// Transports the hidden bootstrap window from a nonisolated `deinit` to the
-/// main actor for closing. `@unchecked Sendable` because the window is
-/// exclusively owned by the request from creation until `close()` runs.
-private struct TerminalSurfaceHeadlessWindowCloseRequest: @unchecked Sendable {
-    let window: NSWindow
-
-    @MainActor
-    func close() {
-        window.contentView = nil
-        window.close()
-    }
-}

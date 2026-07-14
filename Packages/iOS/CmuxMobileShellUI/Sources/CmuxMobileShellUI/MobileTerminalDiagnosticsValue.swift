@@ -3,10 +3,6 @@ import CmuxMobileShell
 import CmuxMobileTerminal
 import Foundation
 
-private func mobileTerminalDiagnosticsFixed(_ value: Double) -> String {
-    String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), value)
-}
-
 /// Stable wire value consumed by Priority 4 capture and profiling tooling.
 struct MobileTerminalDiagnosticsValue: Equatable {
     let surface: MobileTerminalDiagnosticsSurfaceValue
@@ -50,25 +46,29 @@ struct MobileTerminalDiagnosticsValue: Equatable {
             "replayBarrierDepth=\(transport.replayBarrierDepth)",
             "replayInFlightDepth=\(transport.replayInFlightDepth)",
             "pendingViewportAckDepth=\(transport.pendingViewportAckDepth)",
-            "containerWidth=\(mobileTerminalDiagnosticsFixed(containerWidth))",
-            "containerHeight=\(mobileTerminalDiagnosticsFixed(containerHeight))",
-            "viewportWidth=\(mobileTerminalDiagnosticsFixed(surface.viewportWidth))",
-            "viewportHeight=\(mobileTerminalDiagnosticsFixed(surface.viewportHeight))",
-            "renderMinX=\(mobileTerminalDiagnosticsFixed(surface.renderMinX))",
-            "renderMinY=\(mobileTerminalDiagnosticsFixed(surface.renderMinY))",
-            "renderWidth=\(mobileTerminalDiagnosticsFixed(surface.renderWidth))",
-            "renderHeight=\(mobileTerminalDiagnosticsFixed(surface.renderHeight))",
-            "backingScale=\(mobileTerminalDiagnosticsFixed(surface.backingScale))",
-            "cellPixelWidth=\(mobileTerminalDiagnosticsFixed(surface.cellPixelWidth))",
-            "cellPixelHeight=\(mobileTerminalDiagnosticsFixed(surface.cellPixelHeight))",
+            "containerWidth=\(fixed(containerWidth))",
+            "containerHeight=\(fixed(containerHeight))",
+            "viewportWidth=\(fixed(surface.viewportWidth))",
+            "viewportHeight=\(fixed(surface.viewportHeight))",
+            "renderMinX=\(fixed(surface.renderMinX))",
+            "renderMinY=\(fixed(surface.renderMinY))",
+            "renderWidth=\(fixed(surface.renderWidth))",
+            "renderHeight=\(fixed(surface.renderHeight))",
+            "backingScale=\(fixed(surface.backingScale))",
+            "cellPixelWidth=\(fixed(surface.cellPixelWidth))",
+            "cellPixelHeight=\(fixed(surface.cellPixelHeight))",
             "naturalColumns=\(surface.naturalColumns)",
             "naturalRows=\(surface.naturalRows)",
             "effectiveColumns=\(surface.effectiveColumns)",
             "effectiveRows=\(surface.effectiveRows)",
-            "baseFontPoints=\(mobileTerminalDiagnosticsFixed(surface.baseFontPoints))",
-            "liveFontPoints=\(mobileTerminalDiagnosticsFixed(surface.liveFontPoints))",
+            "baseFontPoints=\(fixed(surface.baseFontPoints))",
+            "liveFontPoints=\(fixed(surface.liveFontPoints))",
             "deliveredEndSeq=\(transport.deliveredEndSeq)",
         ].joined(separator: ";")
+    }
+
+    private func fixed(_ value: Double) -> String {
+        String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), value)
     }
 }
 #endif
