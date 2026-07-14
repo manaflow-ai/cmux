@@ -130,7 +130,7 @@ public actor JSONConfigStore {
     ///   - key: The JSON-backed setting to update.
     ///   - mutation: A synchronous mutation applied to the latest stored value.
     /// - Returns: `true` when the mutation changed the value and wrote the file.
-    /// - Throws: Errors from reading, encoding, or writing the config file.
+    /// - Throws: Errors from reading, decoding, encoding, or writing the config file.
     @discardableResult
     public func update<Value>(
         _ key: JSONKey<Value>,
@@ -138,7 +138,15 @@ public actor JSONConfigStore {
     ) throws -> Bool {
         try mutateRoot { root in
             let raw = key.path.lookup(in: root)
-            var value = Value.decodeFromJSON(raw) ?? key.defaultValue
+            var value: Value
+            if let raw {
+                guard let decoded = Value.decodeFromJSON(raw) else {
+                    throw JSONConfigStoreReadError.invalidValue(keyID: key.id)
+                }
+                value = decoded
+            } else {
+                value = key.defaultValue
+            }
             let originalValue = value
             mutation(&value)
             guard value != originalValue else { return false }
@@ -363,13 +371,13 @@ public actor JSONConfigStore {
     /// snapshot, so a concurrent retarget serializes against the write instead
     /// of splitting the operation across two targets.
     @discardableResult
-    private func mutateRoot(_ mutate: (inout [String: Any]) -> Bool) throws -> Bool {
+    private func mutateRoot(_ mutate: (inout [String: Any]) throws -> Bool) throws -> Bool {
         // Write through a symlink to its target rather than at the link path:
         // an atomic write is a temp-file + `rename()`, which would replace the
         // link itself with a regular file and break a dotfiles-managed config.
         let writeURL = Self.resolvedWriteURL(for: fileURL)
         var root = cacheIsCurrent(for: writeURL.path) ? cachedRoot : try readFromDisk(at: writeURL)
-        guard mutate(&root) else { return false }
+        guard try mutate(&root) else { return false }
 
         let parent = writeURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)

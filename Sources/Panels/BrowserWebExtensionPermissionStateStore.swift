@@ -27,6 +27,19 @@ struct BrowserWebExtensionPermissionStateStore {
         saveAllStates(states)
     }
 
+    /// Enumerates persisted identities so startup reconciliation can purge
+    /// grants for extensions removed while cmux was not running.
+    func storedStateEntries() -> [BrowserWebExtensionPermissionStateRemoval] {
+        allStates().keys.compactMap { identity in
+            guard let separator = identity.firstIndex(of: "\n") else { return nil }
+            let standardizedPathStart = identity.index(after: separator)
+            return BrowserWebExtensionPermissionStateRemoval(
+                id: String(identity[..<separator]),
+                standardizedPath: String(identity[standardizedPathStart...])
+            )
+        }
+    }
+
     private func storageIdentity(entryID: String, standardizedPath: String) -> String {
         "\(entryID)\n\(standardizedPath)"
     }

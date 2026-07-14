@@ -10,7 +10,8 @@ struct BrowserWebExtensionReconciliationPlanner: Sendable {
         settingsEntries: [BrowserWebExtensionEntry],
         previousSettingsEntries: [BrowserWebExtensionEntry] = [],
         environmentPaths: [String],
-        loadedEntries: [LoadedEntry]
+        loadedEntries: [LoadedEntry],
+        persistedPermissionStateEntries: [BrowserWebExtensionPermissionStateRemoval] = []
     ) -> Plan {
         let loadedByID = Dictionary(uniqueKeysWithValues: loadedEntries.map { ($0.id, $0) })
         let desiredEntries = desired(settingsEntries: settingsEntries, environmentPaths: environmentPaths)
@@ -38,20 +39,35 @@ struct BrowserWebExtensionReconciliationPlanner: Sendable {
             return loaded.standardizedPath != Self.standardizedResourceRootPath(for: entry)
         }
 
+        let retainedPermissionStateIdentities = Set(
+            settingsEntries.map {
+                Self.permissionStateIdentity(
+                    id: $0.id,
+                    standardizedPath: Self.standardizedResourceRootPath(for: $0)
+                )
+            } + environmentPaths.map {
+                Self.permissionStateIdentity(
+                    id: $0,
+                    standardizedPath: Self.standardizedResourceRootPath(forEnvironmentPath: $0)
+                )
+            }
+        )
+        let previousPermissionStateEntries = previousSettingsEntries.map {
+            BrowserWebExtensionPermissionStateRemoval(
+                id: $0.id,
+                standardizedPath: Self.standardizedResourceRootPath(for: $0)
+            )
+        }
         var seenPermissionStateRemovals = Set<String>()
         let permissionStateRemovalEntries: [BrowserWebExtensionPermissionStateRemoval] =
-            previousSettingsEntries.compactMap { previous -> BrowserWebExtensionPermissionStateRemoval? in
-                let previousPath = Self.standardizedResourceRootPath(for: previous)
-                let currentPath = settingsEntries
-                    .first(where: { $0.id == previous.id })
-                    .map(Self.standardizedResourceRootPath(for:))
-                guard currentPath != previousPath else { return nil }
-                let identity = "\(previous.id)\n\(previousPath)"
-                guard seenPermissionStateRemovals.insert(identity).inserted else { return nil }
-                return BrowserWebExtensionPermissionStateRemoval(
-                    id: previous.id,
-                    standardizedPath: previousPath
+            (previousPermissionStateEntries + persistedPermissionStateEntries).compactMap { entry in
+                let identity = Self.permissionStateIdentity(
+                    id: entry.id,
+                    standardizedPath: entry.standardizedPath
                 )
+                guard !retainedPermissionStateIdentities.contains(identity) else { return nil }
+                guard seenPermissionStateRemovals.insert(identity).inserted else { return nil }
+                return entry
             }.sorted {
                 ($0.id, $0.standardizedPath) < ($1.id, $1.standardizedPath)
             }
@@ -108,6 +124,10 @@ struct BrowserWebExtensionReconciliationPlanner: Sendable {
         return URL(fileURLWithPath: standardizedPath).pathExtension == "appex"
             ? .safariAppExtension
             : .unpackedDirectory
+    }
+
+    private static func permissionStateIdentity(id: String, standardizedPath: String) -> String {
+        "\(id)\n\(standardizedPath)"
     }
 
     private func desired(

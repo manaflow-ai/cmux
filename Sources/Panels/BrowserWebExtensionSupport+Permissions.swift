@@ -18,11 +18,15 @@ extension BrowserWebExtensionSupport {
     /// Records the user's decision for required manifest access before the
     /// extension loads. Existing grants and denials are preserved, so a
     /// manifest update prompts only for newly requested access.
+    ///
+    /// - Returns: `false` when reconciliation advanced while the prompt was
+    ///   open, so the caller can discard the uncommitted context.
     func reviewInitialRequiredPermissions(
         for context: WKWebExtensionContext,
         entryID: String,
-        standardizedPath: String
-    ) {
+        standardizedPath: String,
+        generation: Int
+    ) -> Bool {
         let unresolvedPermissions = context.webExtension.requestedPermissions.filter {
             !Self.isResolvedPermissionStatus(context.permissionStatus(for: $0))
         }
@@ -31,7 +35,7 @@ extension BrowserWebExtensionSupport {
         let unresolvedMatchPatterns = requiredMatchPatterns.filter {
             !Self.isResolvedPermissionStatus(context.permissionStatus(for: $0))
         }
-        guard !unresolvedPermissions.isEmpty || !unresolvedMatchPatterns.isEmpty else { return }
+        guard !unresolvedPermissions.isEmpty || !unresolvedMatchPatterns.isEmpty else { return true }
 
         var messages: [String] = []
         if !unresolvedPermissions.isEmpty {
@@ -54,6 +58,7 @@ extension BrowserWebExtensionSupport {
         let status: WKWebExtensionContext.PermissionStatus = confirmPermissionRequest(
             informativeText: messages.joined(separator: "\n\n")
         ) ? .grantedExplicitly : .deniedExplicitly
+        guard canApplyWebExtensionLoad(generation: generation) else { return false }
         for permission in unresolvedPermissions {
             context.setPermissionStatus(status, for: permission)
         }
@@ -65,6 +70,7 @@ extension BrowserWebExtensionSupport {
             standardizedPath: standardizedPath,
             context: context
         )
+        return true
     }
 
     func removePermissionState(entryID: String, standardizedPath: String) {

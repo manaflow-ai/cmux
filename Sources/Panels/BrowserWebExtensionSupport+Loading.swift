@@ -39,7 +39,8 @@ extension BrowserWebExtensionSupport {
                     id: $0.entryID,
                     standardizedPath: $0.standardizedPath
                 )
-            }
+            },
+            persistedPermissionStateEntries: permissionStateStore.storedStateEntries()
         )
         pruneLoadErrors(
             retainingEntryIDs: settingsBackedEntryIDs.union(plan.desiredEntries.map(\.id))
@@ -265,7 +266,14 @@ extension BrowserWebExtensionSupport {
             let webExtension = try await makeWebExtension(for: entry)
             guard canApplyWebExtensionLoad(generation: generation) else { return }
             let standardizedPath = BrowserWebExtensionReconciliationPlanner.standardizedResourceRootPath(for: entry)
-            let context = try load(webExtension, entryID: entry.id, standardizedPath: standardizedPath)
+            guard let context = try load(
+                webExtension,
+                entryID: entry.id,
+                standardizedPath: standardizedPath,
+                generation: generation
+            ) else {
+                return
+            }
             guard canApplyWebExtensionLoad(generation: generation) else {
                 if !discardStaleLoadedContext(
                     context,
@@ -374,19 +382,23 @@ extension BrowserWebExtensionSupport {
     private func load(
         _ webExtension: WKWebExtension,
         entryID: String,
-        standardizedPath: String
-    ) throws -> WKWebExtensionContext {
+        standardizedPath: String,
+        generation: Int
+    ) throws -> WKWebExtensionContext? {
         let context = WKWebExtensionContext(for: webExtension)
         configureStableContextIdentity(context, entryID: entryID, standardizedPath: standardizedPath)
 #if DEBUG
         context.isInspectable = true
 #endif
         restorePermissionState(for: context, entryID: entryID, standardizedPath: standardizedPath)
-        reviewInitialRequiredPermissions(
+        guard reviewInitialRequiredPermissions(
             for: context,
             entryID: entryID,
-            standardizedPath: standardizedPath
-        )
+            standardizedPath: standardizedPath,
+            generation: generation
+        ) else {
+            return nil
+        }
         installPermissionStateObservers(
             for: context,
             entryID: entryID,
