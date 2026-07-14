@@ -1,46 +1,23 @@
 import Darwin
 import Foundation
 
-struct GitProcessWaitPlan {
-    let deadline: TimeInterval?
-
-    init(
-        processDeadline: TimeInterval,
-        escalationDeadline: TimeInterval?,
-        didSendSIGKILL: Bool,
-        finalReapDeadline: TimeInterval?
-    ) {
-        deadline = didSendSIGKILL
-            ? finalReapDeadline
-            : escalationDeadline ?? processDeadline
-    }
-}
-
-struct GitOutputCapTerminationState {
-    private(set) var didTerminateForOutputCap = false
-
-    mutating func record(didSignalLiveProcess: Bool) {
-        didTerminateForOutputCap = didTerminateForOutputCap || didSignalLiveProcess
-    }
-}
+private let gitProcessSIGKILLGraceSeconds = 0.2
+private let gitProcessReadChunkBytes = 64 * 1024
 
 /// Owns one subprocess from spawn through output drain, deadline escalation,
 /// and reap. Kernel events and the caller's thread are the only scheduler: a
 /// saturated dispatch or Swift-concurrency pool cannot delay the deadline.
 struct GitSubprocessSupervisor {
-    private static let sigkillGraceSeconds = 0.2
-    private static let readChunkBytes = 64 * 1024
-
     let executableURL: URL
     let arguments: [String]
     let environment: [String: String]
     let deadlineSeconds: Double
     let maxOutputBytes: Int?
-    let lifecycleOwner: GitProcessLifecycleOwner
+    let processLifecycle: GitProcessLifecycleService
     let lifecyclePermit: GitProcessLifecyclePermit
 
     func run() -> GitProcessResult {
-        defer { lifecycleOwner.finishProcess(lifecyclePermit) }
+        defer { processLifecycle.finishProcess(lifecyclePermit) }
         var outputPipe: [Int32] = [-1, -1]
         guard pipe(&outputPipe) == 0 else {
             return GitProcessResult(output: nil, failure: .launchFailed)
@@ -93,8 +70,8 @@ struct GitSubprocessSupervisor {
         let argv = [executableURL.path] + arguments
         let envp = environment.map { "\($0.key)=\($0.value)" }
         var processIdentifier: pid_t = 0
-        let spawnStatus = Self.withCStringArray(argv) { argvPointer in
-            Self.withCStringArray(envp) { environmentPointer in
+        let spawnStatus = gitProcessWithCStringArray(argv) { argvPointer in
+            gitProcessWithCStringArray(envp) { environmentPointer in
                 executableURL.path.withCString { executablePath in
                     posix_spawn(
                         &processIdentifier,
@@ -126,14 +103,14 @@ struct GitSubprocessSupervisor {
         defer {
             if outputDescriptor >= 0 { close(outputDescriptor) }
         }
-        guard Self.makeNonblocking(outputDescriptor) else {
-            Self.terminateAndReap(processIdentifier)
+        guard gitProcessMakeNonblocking(outputDescriptor) else {
+            gitProcessTerminateAndReap(processIdentifier)
             return GitProcessResult(output: nil, failure: .launchFailed)
         }
 
         let eventQueue = kqueue()
         guard eventQueue >= 0 else {
-            Self.terminateAndReap(processIdentifier)
+            gitProcessTerminateAndReap(processIdentifier)
             return GitProcessResult(output: nil, failure: .launchFailed)
         }
         defer { close(eventQueue) }
@@ -160,15 +137,15 @@ struct GitSubprocessSupervisor {
             kevent(eventQueue, buffer.baseAddress, Int32(buffer.count), nil, 0, nil)
         }
         guard registrationStatus == 0 else {
-            Self.terminateAndReap(processIdentifier)
+            gitProcessTerminateAndReap(processIdentifier)
             return GitProcessResult(output: nil, failure: .launchFailed)
         }
-        let processDeadline = Self.uptime + max(0, deadlineSeconds)
+        let processDeadline = gitProcessUptime + max(0, deadlineSeconds)
         // Registration must win the race with a fast command such as `true`.
         // Starting suspended makes NOTE_EXIT observable before the child can
         // exit, then this supervisor is the only owner that resumes it.
         guard kill(processIdentifier, SIGCONT) == 0 else {
-            Self.terminateAndReap(processIdentifier)
+            gitProcessTerminateAndReap(processIdentifier)
             return GitProcessResult(output: nil, failure: .launchFailed)
         }
 
@@ -186,7 +163,7 @@ struct GitSubprocessSupervisor {
             guard escalationDeadline == nil else { return false }
             failure = reason
             let didSignalLiveProcess = !processExited && kill(-processIdentifier, SIGTERM) == 0
-            escalationDeadline = Self.uptime + Self.sigkillGraceSeconds
+            escalationDeadline = gitProcessUptime + gitProcessSIGKILLGraceSeconds
             return didSignalLiveProcess
         }
 
@@ -194,14 +171,14 @@ struct GitSubprocessSupervisor {
             if failure == nil, !capped, Task.isCancelled {
                 beginTermination(.cancelled)
             }
-            let now = Self.uptime
+            let now = gitProcessUptime
             if failure == nil, !capped, now >= processDeadline {
                 beginTermination(.timedOut)
             }
             if let escalationDeadline, !didSendSIGKILL, now >= escalationDeadline {
                 _ = kill(-processIdentifier, SIGKILL)
                 didSendSIGKILL = true
-                finalReapDeadline = now + Self.sigkillGraceSeconds
+                finalReapDeadline = now + gitProcessSIGKILLGraceSeconds
                 if outputDescriptor >= 0 {
                     close(outputDescriptor)
                     outputDescriptor = -1
@@ -215,7 +192,7 @@ struct GitSubprocessSupervisor {
                 // SIGKILL. Transfer its eventual waitpid to a detached owner
                 // so the request deadline remains real without leaking a
                 // zombie when the kernel finally releases the child.
-                lifecycleOwner.transferToDetachedReaper(
+                processLifecycle.transferToDetachedReaper(
                     lifecyclePermit,
                     processIdentifier: processIdentifier
                 )
@@ -241,7 +218,7 @@ struct GitSubprocessSupervisor {
                 finalReapDeadline: finalReapDeadline
             )
             guard let deadline = waitPlan.deadline else {
-                lifecycleOwner.transferToDetachedReaper(
+                processLifecycle.transferToDetachedReaper(
                     lifecyclePermit,
                     processIdentifier: processIdentifier
                 )
@@ -254,7 +231,7 @@ struct GitSubprocessSupervisor {
                     terminationStatus: nil
                 )
             }
-            var timeout = Self.timespec(until: deadline)
+            var timeout = gitProcessTimespec(until: deadline)
             let eventCount = events.withUnsafeMutableBufferPointer { buffer in
                 kevent(eventQueue, nil, 0, buffer.baseAddress, Int32(buffer.count), &timeout)
             }
@@ -265,7 +242,7 @@ struct GitSubprocessSupervisor {
                     close(outputDescriptor)
                     outputDescriptor = -1
                 }
-                lifecycleOwner.transferToDetachedReaper(
+                processLifecycle.transferToDetachedReaper(
                     lifecyclePermit,
                     processIdentifier: processIdentifier
                 )
@@ -282,7 +259,7 @@ struct GitSubprocessSupervisor {
                 if event.filter == Int16(EVFILT_PROC) {
                     processExited = true
                 } else if event.filter == Int16(EVFILT_READ), outputDescriptor >= 0 {
-                    let reachedEnd = Self.drain(
+                    let reachedEnd = gitProcessDrain(
                         outputDescriptor,
                         into: &output,
                         maxOutputBytes: maxOutputBytes,
@@ -301,7 +278,7 @@ struct GitSubprocessSupervisor {
             }
         }
 
-        let terminationStatus = Self.reap(processIdentifier)
+        let terminationStatus = gitProcessReap(processIdentifier)
         return GitProcessResult(
             rawOutput: output,
             output: nil,
@@ -312,84 +289,85 @@ struct GitSubprocessSupervisor {
         )
     }
 
-    private static var uptime: TimeInterval {
-        ProcessInfo.processInfo.systemUptime
-    }
+}
 
-    private static func timespec(until deadline: TimeInterval) -> timespec {
-        let remaining = max(0, deadline - uptime)
-        return Darwin.timespec(
-            tv_sec: Int(remaining),
-            tv_nsec: Int((remaining - floor(remaining)) * 1_000_000_000)
-        )
-    }
+private var gitProcessUptime: TimeInterval {
+    ProcessInfo.processInfo.systemUptime
+}
 
-    private static func makeNonblocking(_ descriptor: Int32) -> Bool {
-        let flags = fcntl(descriptor, F_GETFL)
-        return flags >= 0 && fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0
-    }
+private func gitProcessTimespec(until deadline: TimeInterval) -> timespec {
+    let remaining = max(0, deadline - gitProcessUptime)
+    return Darwin.timespec(
+        tv_sec: Int(remaining),
+        tv_nsec: Int((remaining - floor(remaining)) * 1_000_000_000)
+    )
+}
 
-    /// Reads every currently available byte. `true` means EOF or an
-    /// unrecoverable read error, so the caller should close its descriptor.
-    private static func drain(
-        _ descriptor: Int32,
-        into output: inout Data,
-        maxOutputBytes: Int?,
-        capped: inout Bool
-    ) -> Bool {
-        var chunk = [UInt8](repeating: 0, count: readChunkBytes)
-        while true {
-            let count = chunk.withUnsafeMutableBytes {
-                read(descriptor, $0.baseAddress, readChunkBytes)
-            }
-            if count > 0 {
-                if let maxOutputBytes {
-                    let remaining = max(0, maxOutputBytes - output.count)
-                    output.append(contentsOf: chunk.prefix(min(count, remaining)))
-                    if count > remaining || output.count >= maxOutputBytes {
-                        capped = true
-                        return false
-                    }
-                } else {
-                    output.append(contentsOf: chunk.prefix(count))
+private func gitProcessMakeNonblocking(_ descriptor: Int32) -> Bool {
+    let flags = fcntl(descriptor, F_GETFL)
+    return flags >= 0 && fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0
+}
+
+/// Reads every currently available byte. `true` means EOF or an
+/// unrecoverable read error, so the caller should close its descriptor.
+private func gitProcessDrain(
+    _ descriptor: Int32,
+    into output: inout Data,
+    maxOutputBytes: Int?,
+    capped: inout Bool
+) -> Bool {
+    var chunk = [UInt8](repeating: 0, count: gitProcessReadChunkBytes)
+    while true {
+        let count = chunk.withUnsafeMutableBytes {
+            read(descriptor, $0.baseAddress, gitProcessReadChunkBytes)
+        }
+        if count > 0 {
+            if let maxOutputBytes {
+                let remaining = max(0, maxOutputBytes - output.count)
+                output.append(contentsOf: chunk.prefix(min(count, remaining)))
+                if count > remaining || output.count >= maxOutputBytes {
+                    capped = true
+                    return false
                 }
-                continue
+            } else {
+                output.append(contentsOf: chunk.prefix(count))
             }
-            if count == 0 { return true }
-            if errno == EINTR { continue }
-            if errno == EAGAIN || errno == EWOULDBLOCK { return false }
-            return true
+            continue
         }
+        if count == 0 { return true }
+        if errno == EINTR { continue }
+        if errno == EAGAIN || errno == EWOULDBLOCK { return false }
+        return true
     }
+}
 
-    private static func terminateAndReap(_ processIdentifier: pid_t) {
-        _ = kill(-processIdentifier, SIGKILL)
-        _ = reap(processIdentifier)
+private func gitProcessTerminateAndReap(_ processIdentifier: pid_t) {
+    _ = kill(-processIdentifier, SIGKILL)
+    _ = gitProcessReap(processIdentifier)
+}
+
+private func gitProcessReap(_ processIdentifier: pid_t) -> Int32? {
+    var rawStatus: Int32 = 0
+    while true {
+        let result = waitpid(processIdentifier, &rawStatus, 0)
+        if result == processIdentifier { break }
+        if result == -1, errno == EINTR { continue }
+        return nil
     }
-
-    private static func reap(_ processIdentifier: pid_t) -> Int32? {
-        var rawStatus: Int32 = 0
-        while true {
-            let result = waitpid(processIdentifier, &rawStatus, 0)
-            if result == processIdentifier { break }
-            if result == -1, errno == EINTR { continue }
-            return nil
-        }
-        if rawStatus & 0x7f == 0 {
-            return (rawStatus >> 8) & 0xff
-        }
-        return rawStatus & 0x7f
+    if rawStatus & 0x7f == 0 {
+        return (rawStatus >> 8) & 0xff
     }
+    return rawStatus & 0x7f
+}
 
-    private static func withCStringArray<Result>(
-        _ strings: [String],
-        _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> Result
-    ) -> Result {
-        var pointers: [UnsafeMutablePointer<CChar>?] = strings.map { strdup($0) }
-        pointers.append(nil)
-        defer { pointers.forEach { free($0) } }
-        return pointers.withUnsafeMutableBufferPointer { buffer in
-            body(buffer.baseAddress!)
-        }
+private func gitProcessWithCStringArray<Result>(
+    _ strings: [String],
+    _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> Result
+) -> Result {
+    var pointers: [UnsafeMutablePointer<CChar>?] = strings.map { strdup($0) }
+    pointers.append(nil)
+    defer { pointers.forEach { free($0) } }
+    return pointers.withUnsafeMutableBufferPointer { buffer in
+        body(buffer.baseAddress!)
     }
 }

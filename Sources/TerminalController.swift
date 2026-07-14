@@ -7,6 +7,7 @@ import CmuxFeedback
 import CmuxBrowser
 import CmuxControlSocket
 import CmuxFoundation
+import CmuxGit
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
@@ -129,6 +130,7 @@ class TerminalController {
     private nonisolated let passwordStore: SocketControlPasswordStore
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
+    private nonisolated let mobileWorkspaceDiffProcessLifecycle = GitProcessLifecycleService()
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
     /// windows), constructed at this app-hub composition point and injected into each
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the

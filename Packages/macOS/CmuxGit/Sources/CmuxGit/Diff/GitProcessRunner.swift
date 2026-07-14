@@ -15,20 +15,20 @@ struct GitProcessRunner: Sendable {
     private let fileSystemStatExecutableURL: URL
     private let environment: [String: String]
     private let processDeadlineSeconds: Double
-    private let lifecycleOwner: GitProcessLifecycleOwner
+    private let processLifecycle: GitProcessLifecycleService
 
     init(
         gitExecutableURL: URL,
         fileSystemStatExecutableURL: URL,
         environment: [String: String],
         processDeadlineSeconds: Double,
-        lifecycleOwner: GitProcessLifecycleOwner = .shared
+        processLifecycle: GitProcessLifecycleService
     ) {
         self.gitExecutableURL = gitExecutableURL
         self.fileSystemStatExecutableURL = fileSystemStatExecutableURL
         self.environment = environment
         self.processDeadlineSeconds = processDeadlineSeconds
-        self.lifecycleOwner = lifecycleOwner
+        self.processLifecycle = processLifecycle
     }
 
     func run(
@@ -81,7 +81,7 @@ struct GitProcessRunner: Sendable {
             if result.capped {
                 return GitProcessResult(
                     rawOutput: accumulatedOutput,
-                    output: Self.decodeUTF8Lossy(
+                    output: decodeUTF8Lossy(
                         accumulatedOutput,
                         maxOutputBytes: maxOutputBytes
                     ),
@@ -92,7 +92,7 @@ struct GitProcessRunner: Sendable {
         }
         return GitProcessResult(
             rawOutput: accumulatedOutput,
-            output: Self.decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: nil),
+            output: decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: nil),
             terminationStatus: 0
         )
     }
@@ -191,7 +191,7 @@ struct GitProcessRunner: Sendable {
             if result.capped {
                 return GitProcessResult(
                     rawOutput: accumulatedOutput,
-                    output: Self.decodeUTF8Lossy(
+                    output: decodeUTF8Lossy(
                         accumulatedOutput,
                         maxOutputBytes: maxOutputBytes
                     ),
@@ -202,7 +202,7 @@ struct GitProcessRunner: Sendable {
         }
         return GitProcessResult(
             rawOutput: accumulatedOutput,
-            output: Self.decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: nil),
+            output: decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: nil),
             terminationStatus: 0
         )
     }
@@ -238,7 +238,7 @@ struct GitProcessRunner: Sendable {
         guard !Task.isCancelled else {
             return GitProcessResult(output: nil, failure: .cancelled)
         }
-        guard let lifecyclePermit = lifecycleOwner.beginProcess() else {
+        guard let lifecyclePermit = processLifecycle.beginProcess() else {
             return GitProcessResult(output: nil, failure: .launchFailed)
         }
         let supervised = GitSubprocessSupervisor(
@@ -247,17 +247,17 @@ struct GitProcessRunner: Sendable {
             environment: nonLockingGitEnvironment(),
             deadlineSeconds: effectiveDeadlineSeconds(deadlineSeconds),
             maxOutputBytes: maxOutputBytes,
-            lifecycleOwner: lifecycleOwner,
+            processLifecycle: processLifecycle,
             lifecyclePermit: lifecyclePermit
         ).run()
-        return Self.translateSupervisedResult(
+        return translateSupervisedResult(
             supervised,
             acceptedTerminationStatuses: acceptedTerminationStatuses,
             maxOutputBytes: maxOutputBytes
         )
     }
 
-    static func translateSupervisedResult(
+    func translateSupervisedResult(
         _ supervised: GitProcessResult,
         acceptedTerminationStatuses: Set<Int32>,
         maxOutputBytes: Int?
@@ -310,7 +310,7 @@ struct GitProcessRunner: Sendable {
     /// Git emits raw bytes. Replace invalid UTF-8 instead of turning a valid
     /// command into an apparent Git failure, then preserve the caller's byte
     /// bound after replacement scalars expand in UTF-8.
-    private static func decodeUTF8Lossy(_ data: Data, maxOutputBytes: Int?) -> String {
+    private func decodeUTF8Lossy(_ data: Data, maxOutputBytes: Int?) -> String {
         let text = String(decoding: data, as: UTF8.self)
         guard let maxOutputBytes, text.utf8.count > maxOutputBytes else { return text }
         let utf8 = text.utf8

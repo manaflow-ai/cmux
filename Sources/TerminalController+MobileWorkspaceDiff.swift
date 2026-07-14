@@ -47,7 +47,10 @@ extension TerminalController {
         case .failure(let error):
             return error
         case .success(let snapshot):
-            let result = await Self.mobileWorkspaceDiffStatusResult(directory: snapshot.directory)
+            let result = await Self.mobileWorkspaceDiffStatusResult(
+                directory: snapshot.directory,
+                processLifecycle: mobileWorkspaceDiffProcessLifecycle
+            )
             return Self.v2MobileWorkspaceDiffResult(result)
         }
     }
@@ -113,7 +116,8 @@ extension TerminalController {
                 additions: additions,
                 deletions: deletions,
                 snapshotToken: snapshotToken,
-                expectedRepoRoot: expectedRepoRoot
+                expectedRepoRoot: expectedRepoRoot,
+                processLifecycle: mobileWorkspaceDiffProcessLifecycle
             )
             return Self.v2MobileWorkspaceDiffResult(result)
         }
@@ -146,9 +150,15 @@ extension TerminalController {
         return .success(MobileWorkspaceDiffSnapshot(directory: directory))
     }
 
-    private nonisolated static func mobileWorkspaceDiffStatusResult(directory: String) async -> MobileWorkspaceDiffStatusResult {
+    private nonisolated static func mobileWorkspaceDiffStatusResult(
+        directory: String,
+        processLifecycle: GitProcessLifecycleService
+    ) async -> MobileWorkspaceDiffStatusResult {
         await detachedCancellable {
-            mobileWorkspaceDiffStatusResultSync(directory: directory)
+            mobileWorkspaceDiffStatusResultSync(
+                directory: directory,
+                processLifecycle: processLifecycle
+            )
         }
     }
 
@@ -160,7 +170,8 @@ extension TerminalController {
         additions: Int?,
         deletions: Int?,
         snapshotToken: String,
-        expectedRepoRoot: String
+        expectedRepoRoot: String,
+        processLifecycle: GitProcessLifecycleService
     ) async -> MobileWorkspaceDiffFileResult {
         await detachedCancellable {
             mobileWorkspaceDiffFileResultSync(
@@ -171,7 +182,8 @@ extension TerminalController {
                 additions: additions,
                 deletions: deletions,
                 snapshotToken: snapshotToken,
-                expectedRepoRoot: expectedRepoRoot
+                expectedRepoRoot: expectedRepoRoot,
+                processLifecycle: processLifecycle
             )
         }
     }
@@ -198,8 +210,11 @@ extension TerminalController {
         }
     }
 
-    private nonisolated static func mobileWorkspaceDiffStatusResultSync(directory: String) -> MobileWorkspaceDiffStatusResult {
-        let service = GitDiffService()
+    private nonisolated static func mobileWorkspaceDiffStatusResultSync(
+        directory: String,
+        processLifecycle: GitProcessLifecycleService
+    ) -> MobileWorkspaceDiffStatusResult {
+        let service = GitDiffService(processLifecycle: processLifecycle)
         return service.withOperationDeadline {
             let repoRoot: String
             switch service.repositoryRootResult(for: directory) {
@@ -241,9 +256,10 @@ extension TerminalController {
         additions: Int?,
         deletions: Int?,
         snapshotToken: String,
-        expectedRepoRoot: String
+        expectedRepoRoot: String,
+        processLifecycle: GitProcessLifecycleService
     ) -> MobileWorkspaceDiffFileResult {
-        let service = GitDiffService()
+        let service = GitDiffService(processLifecycle: processLifecycle)
         return service.withOperationDeadline {
             let repoRoot: String
             switch service.repositoryRootResult(for: directory) {

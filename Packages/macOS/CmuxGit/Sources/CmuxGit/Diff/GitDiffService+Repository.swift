@@ -14,19 +14,23 @@ extension GitDiffService {
     ///     phone retries.
     ///   - operationDeadlineSeconds: Aggregate wall-clock bound shared by all
     ///     subprocesses in one logical query.
+    ///   - processLifecycle: Injected admission and detached-reap service. App
+    ///     callers share one instance across concurrent diff requests.
     public init(
         gitExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/git"),
         fileSystemStatExecutableURL: URL = URL(fileURLWithPath: "/usr/bin/stat"),
         environment: [String: String] = ProcessInfo.processInfo.environment,
         processDeadlineSeconds: Double = 20,
-        operationDeadlineSeconds: Double = 20
+        operationDeadlineSeconds: Double = 20,
+        processLifecycle: GitProcessLifecycleService = GitProcessLifecycleService()
     ) {
         self.operationDeadlineSeconds = operationDeadlineSeconds
         self.processRunner = GitProcessRunner(
             gitExecutableURL: gitExecutableURL,
             fileSystemStatExecutableURL: fileSystemStatExecutableURL,
             environment: environment,
-            processDeadlineSeconds: processDeadlineSeconds
+            processDeadlineSeconds: processDeadlineSeconds,
+            processLifecycle: processLifecycle
         )
     }
 

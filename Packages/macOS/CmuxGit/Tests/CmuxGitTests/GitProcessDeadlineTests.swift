@@ -5,6 +5,16 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitProcessDeadlineTests {
+    private var processRunner: GitProcessRunner {
+        GitProcessRunner(
+            gitExecutableURL: URL(fileURLWithPath: "/usr/bin/git"),
+            fileSystemStatExecutableURL: URL(fileURLWithPath: "/usr/bin/stat"),
+            environment: ProcessInfo.processInfo.environment,
+            processDeadlineSeconds: 1,
+            processLifecycle: GitProcessLifecycleService()
+        )
+    }
+
     @Test func postSIGKILLWaitUsesFinalReapDeadline() {
         let plan = GitProcessWaitPlan(
             processDeadline: 10,
@@ -136,7 +146,7 @@ import Testing
     }
 
     @Test func failureWinsWhenSupervisedResultIsAlsoCapped() {
-        let result = GitProcessRunner.translateSupervisedResult(
+        let result = processRunner.translateSupervisedResult(
             GitProcessResult(
                 rawOutput: Data(repeating: 0x78, count: 32),
                 output: nil,
@@ -153,7 +163,7 @@ import Testing
     }
 
     @Test func unsuccessfulExitWinsWhenSupervisedResultIsAlsoCapped() {
-        let result = GitProcessRunner.translateSupervisedResult(
+        let result = processRunner.translateSupervisedResult(
             GitProcessResult(
                 rawOutput: Data(repeating: 0x78, count: 32),
                 output: nil,
@@ -234,23 +244,54 @@ import Testing
     }
 
     @Test func outstandingDetachedReapBlocksNewLaunchesWithinBound() throws {
-        var state = GitProcessLifecycleState(maxProcesses: 2)
-        let maybeFirstPermit = state.beginProcess()
-        let maybeSecondPermit = state.beginProcess()
-        let firstPermit = try #require(maybeFirstPermit)
-        let secondPermit = try #require(maybeSecondPermit)
+        let childPID = try #require(spawnSleepingProcess())
+        defer { kill(childPID, SIGKILL) }
 
-        let transferredFirst = state.transferToReaper(firstPermit, processIdentifier: 101)
-        #expect(transferredFirst)
-        #expect(state.beginProcess() == nil)
-        let transferredSecond = state.transferToReaper(secondPermit, processIdentifier: 102)
-        #expect(transferredSecond)
-        #expect(state.reapingProcessCount == 2)
+        let lifecycle = GitProcessLifecycleService(maxProcesses: 2)
+        let firstPermit = try #require(lifecycle.beginProcess())
+        let secondPermit = try #require(lifecycle.beginProcess())
+        #expect(lifecycle.beginProcess() == nil)
 
-        state.didReap(firstPermit)
-        #expect(state.beginProcess() == nil)
-        state.didReap(secondPermit)
-        #expect(state.beginProcess() != nil)
+        lifecycle.transferToDetachedReaper(
+            firstPermit,
+            processIdentifier: childPID
+        )
+        lifecycle.finishProcess(secondPermit)
+
+        #expect(lifecycle.beginProcess() == nil)
+    }
+
+    private func spawnSleepingProcess() -> pid_t? {
+        let executable = "/bin/sleep"
+        let environment = ProcessInfo.processInfo.environment.map { "\($0.key)=\($0.value)" }
+        var processIdentifier: pid_t = 0
+        let status = withCStringArray([executable, "30"]) { arguments in
+            withCStringArray(environment) { environment in
+                executable.withCString { path in
+                    posix_spawn(
+                        &processIdentifier,
+                        path,
+                        nil,
+                        nil,
+                        arguments,
+                        environment
+                    )
+                }
+            }
+        }
+        return status == 0 && processIdentifier > 0 ? processIdentifier : nil
+    }
+
+    private func withCStringArray<Result>(
+        _ strings: [String],
+        _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> Result
+    ) -> Result {
+        var pointers: [UnsafeMutablePointer<CChar>?] = strings.map { strdup($0) }
+        pointers.append(nil)
+        defer { pointers.forEach { free($0) } }
+        return pointers.withUnsafeMutableBufferPointer { buffer in
+            body(buffer.baseAddress!)
+        }
     }
 
     private func makeTempRepo() throws -> URL {

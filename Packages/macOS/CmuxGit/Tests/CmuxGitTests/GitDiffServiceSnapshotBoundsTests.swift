@@ -367,7 +367,8 @@ import Testing
             gitExecutableURL: URL(fileURLWithPath: "/usr/bin/git"),
             fileSystemStatExecutableURL: URL(fileURLWithPath: "/usr/bin/true"),
             environment: ProcessInfo.processInfo.environment,
-            processDeadlineSeconds: 2
+            processDeadlineSeconds: 2,
+            processLifecycle: GitProcessLifecycleService()
         )
         let longComponent = String(repeating: "nested/", count: 50)
         let paths = (0..<4_000).map { "/tmp/\(longComponent)file-\($0)" }
@@ -394,7 +395,8 @@ import Testing
             gitExecutableURL: URL(fileURLWithPath: "/usr/bin/git"),
             fileSystemStatExecutableURL: stalledStat,
             environment: ProcessInfo.processInfo.environment,
-            processDeadlineSeconds: 0.25
+            processDeadlineSeconds: 0.25,
+            processLifecycle: GitProcessLifecycleService()
         )
         let longComponent = String(repeating: "nested/", count: 50)
         let paths = (0..<4_000).map { "/tmp/\(longComponent)file-\($0)" }
