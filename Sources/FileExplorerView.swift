@@ -80,6 +80,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
         private var fileFilter = FileExplorerTreeFilter()
+        private var fileFilterNeedsRebuild = false
         private var preFilterTopVisiblePath: String?
 
         init(
@@ -165,7 +166,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
             )
 
             if fileFilter.isActive {
+                guard containerView?.displayedSearchScope == .names else {
+                    fileFilterNeedsRebuild = true
+                    return
+                }
                 fileFilter.rebuild(nodes: store.rootNodes)
+                fileFilterNeedsRebuild = false
                 reloadFilteredTree(in: outlineView)
                 return
             }
@@ -353,7 +359,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
             if !wasActive, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 preFilterTopVisiblePath = topVisibleNode(in: outlineView)?.path
             }
-            guard fileFilter.update(query: query, nodes: store.rootNodes) else { return }
+            let queryChanged = fileFilter.update(query: query, nodes: store.rootNodes)
+            guard queryChanged || fileFilterNeedsRebuild else { return }
+            if fileFilterNeedsRebuild, !queryChanged {
+                fileFilter.rebuild(nodes: store.rootNodes)
+            }
+            fileFilterNeedsRebuild = false
             reloadFilteredTree(in: outlineView)
             if wasActive, !fileFilter.isActive {
                 restorePreFilterScroll(in: outlineView)
