@@ -96,7 +96,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1", workspaceGroupCreateCapability = "workspace.group_create.v1"
     static let chatArtifactCapability = "chat.artifact.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
+    static let chatArtifactFoldersCapability = "chat.artifact.folders.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
+    static let terminalArtifactListCapability = "terminal.artifact.list.v1"
     static let dogfoodFeedbackCapability = "dogfood.v1"
     static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000

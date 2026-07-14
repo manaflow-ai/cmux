@@ -14,6 +14,10 @@ public actor MobileChatEventSource: ChatEventSource {
     private let client: MobileCoreRPCClient
     private let coding = ChatWireCoding()
     public nonisolated let supportsArtifacts: Bool
+    /// Whether the connected Mac supports recursive chat folder browsing.
+    public nonisolated let supportsArtifactFolders: Bool
+    /// Whether the connected Mac supports terminal-scoped directory listing.
+    public nonisolated let supportsTerminalArtifactList: Bool
     /// Whether the connected Mac supports session-wide artifact gallery pages.
     public nonisolated let supportsArtifactGallery: Bool
 
@@ -23,11 +27,15 @@ public actor MobileChatEventSource: ChatEventSource {
     public init(
         client: MobileCoreRPCClient,
         supportsArtifacts: Bool = false,
-        supportsArtifactGallery: Bool = false
+        supportsArtifactGallery: Bool = false,
+        supportsArtifactFolders: Bool = false,
+        supportsTerminalArtifactList: Bool = false
     ) {
         self.client = client
         self.supportsArtifacts = supportsArtifacts
         self.supportsArtifactGallery = supportsArtifactGallery
+        self.supportsArtifactFolders = supportsArtifactFolders
+        self.supportsTerminalArtifactList = supportsTerminalArtifactList
     }
 
     /// Lists chat-capable agent sessions the Mac knows about.
@@ -297,7 +305,10 @@ public actor MobileChatEventSource: ChatEventSource {
     }
 
     public func artifactList(sessionID: String, path: String) async throws -> ChatArtifactDirectoryListing {
-        try await artifactCall(
+        guard supportsArtifactFolders else {
+            throw ChatArtifactError.unsupported
+        }
+        return try await artifactCall(
             method: "mobile.chat.artifact.list",
             params: [
                 "session_id": sessionID,
@@ -430,6 +441,25 @@ public actor MobileChatEventSource: ChatEventSource {
                 "surface_id": surfaceID,
                 "path": path,
                 "max_dimension": maxDimension,
+            ]
+        )
+    }
+
+    /// Lists immediate entries in a terminal-visible artifact directory.
+    public func terminalArtifactList(
+        workspaceID: String,
+        surfaceID: String,
+        path: String
+    ) async throws -> ChatArtifactDirectoryListing {
+        guard supportsTerminalArtifactList else {
+            throw ChatArtifactError.unsupported
+        }
+        return try await artifactCall(
+            method: "mobile.terminal.artifact.list",
+            params: [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+                "path": path,
             ]
         )
     }

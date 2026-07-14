@@ -33,6 +33,8 @@ extension TerminalController {
             return await v2MobileTerminalArtifactFetch(params: params)
         case "mobile.terminal.artifact.thumbnail":
             return await v2MobileTerminalArtifactThumbnail(params: params)
+        case "mobile.terminal.artifact.list":
+            return await v2MobileTerminalArtifactList(params: params)
         default:
             return .err(code: "method_not_found", message: "Unknown mobile terminal artifact method", data: nil)
         }
@@ -148,6 +150,28 @@ extension TerminalController {
             return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
         } catch {
             return mobileTerminalArtifactError(.unsupportedMedia, path: context.requestedPath)
+        }
+    }
+
+    func v2MobileTerminalArtifactList(params: [String: Any]) async -> V2CallResult {
+        let resolution = mobileTerminalArtifactContext(params: params, requiresPath: true)
+        guard case .success(let context) = resolution else {
+            return resolution.failureResult
+        }
+        do {
+            let listing = try await Task.detached(priority: .utility) {
+                try context.authorizedDirectoryList { reader, canonicalPath in
+                    try reader.list(path: canonicalPath)
+                }
+            }.value
+            return TerminalArtifactWire.result(listing)
+        } catch TerminalArtifactReadContext.Error.forbidden {
+            debugLogMobileTerminalArtifactDenial(op: "list", path: context.requestedPath)
+            return mobileTerminalArtifactError(.forbidden, path: context.requestedPath)
+        } catch ArtifactByteReader.Error.fileNotFound {
+            return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
+        } catch {
+            return mobileTerminalArtifactError(.fileNotFound, path: context.requestedPath)
         }
     }
 
@@ -335,6 +359,22 @@ private struct TerminalArtifactReadContext: Sendable {
             directoryAccessMode: directoryAccessMode
         )
         guard let canonicalPath = scope.canonicalPath(for: requestedPath) else {
+            throw Error.forbidden
+        }
+        return try operation(ArtifactByteReader(), canonicalPath)
+    }
+
+    func authorizedDirectoryList<T>(
+        _ operation: (ArtifactByteReader, String) throws -> T
+    ) throws -> T {
+        guard let requestedPath else { throw Error.forbidden }
+        let scope = TerminalArtifactScope(
+            terminalText: terminalText,
+            workingDirectory: workingDirectory,
+            resolver: ChatArtifactScope.FoundationResolver(),
+            directoryAccessMode: directoryAccessMode
+        )
+        guard let canonicalPath = scope.canonicalDirectoryListPath(for: requestedPath) else {
             throw Error.forbidden
         }
         return try operation(ArtifactByteReader(), canonicalPath)

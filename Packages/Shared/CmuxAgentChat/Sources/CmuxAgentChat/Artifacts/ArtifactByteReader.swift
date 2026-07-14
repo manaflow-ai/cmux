@@ -7,6 +7,9 @@ import UniformTypeIdentifiers
 /// Authorization is intentionally outside this type. Callers must scope-check the
 /// requested path before invoking these methods.
 public struct ArtifactByteReader: Sendable {
+    /// Maximum immediate children returned by one directory-list request.
+    public static let maximumDirectoryEntryCount = 500
+
     /// Filesystem/decoder failures surfaced by artifact RPC handlers.
     public enum Error: Swift.Error, Sendable {
         /// The scoped path no longer exists or cannot be statted.
@@ -96,7 +99,8 @@ public struct ArtifactByteReader: Sendable {
         )
     }
 
-    /// Lists up to 500 immediate children for an already-authorized directory.
+    /// Lists up to ``maximumDirectoryEntryCount`` immediate children for an
+    /// already-authorized directory.
     public func list(path: String) throws -> ChatArtifactDirectoryListing {
         let stat = try stat(path: path)
         guard stat.isDirectory else { throw Error.fileNotFound }
@@ -106,9 +110,11 @@ public struct ArtifactByteReader: Sendable {
             includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
             options: []
         )
-        let listed = try entries
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-            .prefix(500)
+        let sortedEntries = entries.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        }
+        let listed = try sortedEntries
+            .prefix(Self.maximumDirectoryEntryCount)
             .map { entry -> ChatArtifactDirectoryEntry in
                 let values = try entry.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
                 let isDirectory = values.isDirectory ?? false
@@ -119,7 +125,10 @@ public struct ArtifactByteReader: Sendable {
                     kind: kind(path: entry.path, isDirectory: isDirectory)
                 )
             }
-        return ChatArtifactDirectoryListing(entries: listed)
+        return ChatArtifactDirectoryListing(
+            entries: listed,
+            isTruncated: sortedEntries.count > Self.maximumDirectoryEntryCount
+        )
     }
 
     /// Infers preview category from a path extension and directory flag.

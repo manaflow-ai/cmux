@@ -9,6 +9,8 @@ import Foundation
 public protocol ChatEventSource: Sendable {
     /// Whether this source supports Mac-hosted artifact preview RPCs.
     var supportsArtifacts: Bool { get }
+    /// Whether this source supports recursive artifact folder browsing.
+    var supportsArtifactFolders: Bool { get }
 
     /// Fetches a page of transcript history for a session.
     ///
@@ -107,6 +109,9 @@ public protocol ChatEventSource: Sendable {
 public extension ChatEventSource {
     /// Unsupported-by-default artifact capability for fixtures and previews.
     var supportsArtifacts: Bool { false }
+
+    /// Unsupported-by-default recursive artifact folder capability.
+    var supportsArtifactFolders: Bool { false }
 
     /// Unsupported-by-default artifact stat implementation.
     func artifactStat(sessionID: String, path: String) async throws -> ChatArtifactStat {

@@ -293,6 +293,7 @@ struct WorkspaceDetailView: View {
             terminalWorkspaceID: workspaceID,
             terminalSurfaceID: surfaceID,
             supportsArtifacts: store.supportsTerminalArtifacts,
+            supportsDirectoryBrowsing: store.supportsTerminalArtifactList,
             cache: terminalArtifactThumbnailCache,
             stat: { path in
                 try await source.terminalArtifactStat(
@@ -315,6 +316,13 @@ struct WorkspaceDetailView: View {
                     surfaceID: surfaceID,
                     path: path,
                     maxDimension: maxDimension
+                )
+            },
+            list: { path in
+                try await source.terminalArtifactList(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path
                 )
             }
         )

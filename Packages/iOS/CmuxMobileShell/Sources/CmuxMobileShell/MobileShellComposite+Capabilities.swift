@@ -17,6 +17,14 @@ extension MobileShellComposite {
     public var supportsChatArtifactGallery: Bool {
         supportedHostCapabilities.contains(Self.chatArtifactGalleryCapability)
     }
+    /// Whether the Mac supports recursive chat artifact folder browsing.
+    public var supportsChatArtifactFolders: Bool {
+        supportedHostCapabilities.contains(Self.chatArtifactFoldersCapability)
+    }
     /// Whether the Mac supports terminal artifact scan/stat/fetch/thumbnail RPCs.
     public var supportsTerminalArtifacts: Bool { supportedHostCapabilities.contains(Self.terminalArtifactCapability) }
+    /// Whether the Mac supports terminal-scoped directory listing.
+    public var supportsTerminalArtifactList: Bool {
+        supportedHostCapabilities.contains(Self.terminalArtifactListCapability)
+    }
 }

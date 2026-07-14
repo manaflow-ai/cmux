@@ -97,6 +97,12 @@ struct TerminalArtifactScopeTests {
         #expect(scope.canonicalDirectoryListPath(for: "/outside/existing") == nil)
         #expect(scope.canonicalDirectoryListPath(for: "/outside/missing") == nil)
     }
+
+    @Test("an exact visible file reaches the reader for list file-not-found semantics")
+    func exactVisibleFileMayReachListReader() {
+        let scope = scope(text: "cat /safe/project/src/main.swift")
+        #expect(scope.canonicalDirectoryListPath(for: "/safe/project/src/main.swift") == "/safe/project/src/main.swift")
+    }
     @Test("visible scan deduplicates canonical identities in first-seen order")
     func visibleScanCanonicalIdentityDeduplication() {
         let canonicalizer = ChatArtifactPathCanonicalizer { path in

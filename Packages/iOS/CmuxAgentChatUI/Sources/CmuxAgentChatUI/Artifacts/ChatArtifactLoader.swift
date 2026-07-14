@@ -77,6 +77,8 @@ public enum ChatArtifactLoaderScope: Hashable, Sendable {
 /// Value-type closure bundle for Mac-hosted artifact operations.
 public struct ChatArtifactLoader: Sendable {
     public let supportsArtifacts: Bool
+    /// Whether directory stat results may route into a navigable folder browser.
+    public let supportsDirectoryBrowsing: Bool
     public let scope: ChatArtifactLoaderScope
 
     private let statHandler: @Sendable (_ path: String) async throws -> ChatArtifactStat
@@ -90,6 +92,7 @@ public struct ChatArtifactLoader: Sendable {
 
     public init(
         supportsArtifacts: Bool = false,
+        supportsDirectoryBrowsing: Bool = false,
         scope: ChatArtifactLoaderScope = .unsupported,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
         stat: @escaping @Sendable (_ path: String) async throws -> ChatArtifactStat = { _ in
@@ -109,6 +112,7 @@ public struct ChatArtifactLoader: Sendable {
         }
     ) {
         self.supportsArtifacts = supportsArtifacts
+        self.supportsDirectoryBrowsing = supportsDirectoryBrowsing
         self.scope = scope
         self.thumbnailCache = cache
         statHandler = stat
@@ -124,6 +128,7 @@ public struct ChatArtifactLoader: Sendable {
     ) {
         self.init(
             supportsArtifacts: source.supportsArtifacts,
+            supportsDirectoryBrowsing: source.supportsArtifactFolders,
             scope: .chat(sessionID: sessionID),
             cache: cache,
             stat: { path in
@@ -149,22 +154,27 @@ public struct ChatArtifactLoader: Sendable {
         terminalWorkspaceID: String,
         terminalSurfaceID: String,
         supportsArtifacts: Bool,
+        supportsDirectoryBrowsing: Bool = false,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
         stat: @escaping @Sendable (_ path: String) async throws -> ChatArtifactStat,
         fetch: @escaping @Sendable (
             _ path: String,
             _ progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
         ) async throws -> Data,
-        thumbnail: @escaping @Sendable (_ path: String, _ maxDimension: Int) async throws -> ChatArtifactThumbnail
+        thumbnail: @escaping @Sendable (_ path: String, _ maxDimension: Int) async throws -> ChatArtifactThumbnail,
+        list: @escaping @Sendable (_ path: String) async throws -> ChatArtifactDirectoryListing = { _ in
+            throw ChatArtifactError.unsupported
+        }
     ) {
         self.init(
             supportsArtifacts: supportsArtifacts,
+            supportsDirectoryBrowsing: supportsDirectoryBrowsing,
             scope: .terminal(workspaceID: terminalWorkspaceID, surfaceID: terminalSurfaceID),
             cache: cache,
             stat: stat,
             fetch: fetch,
             thumbnail: thumbnail,
-            list: { _ in throw ChatArtifactError.unsupported }
+            list: list
         )
     }
 
@@ -209,7 +219,10 @@ public struct ChatArtifactLoader: Sendable {
     }
 
     public func list(path: String) async throws -> ChatArtifactDirectoryListing {
-        try await listHandler(path)
+        guard supportsDirectoryBrowsing else {
+            throw ChatArtifactError.unsupported
+        }
+        return try await listHandler(path)
     }
 
     private func thumbnailCacheKey(
