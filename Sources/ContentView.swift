@@ -9892,7 +9892,6 @@ struct VerticalTabsSidebar: View {
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var workspaceMiddleClickMonitor = SidebarWorkspaceMiddleClickMonitor()
-    @State private var hoveredWorkspaceId: UUID?
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
@@ -10352,9 +10351,7 @@ struct VerticalTabsSidebar: View {
             .frame(width: 0, height: 0)
         )
         .onAppear {
-            workspaceMiddleClickMonitor.start(window: observedWindow) {
-                handleWorkspaceMiddleClick()
-            }
+            startWorkspaceMiddleClickMonitor()
             if showModifierHoldHints {
                 modifierKeyMonitor.setHostWindow(observedWindow)
                 modifierKeyMonitor.start()
@@ -10405,6 +10402,9 @@ struct VerticalTabsSidebar: View {
                 frozenShortcutHintsTabId = nil
                 frozenShortcutHintsValue = false
             }
+        }
+        .onChange(of: observedWindow?.windowNumber) { _, _ in
+            startWorkspaceMiddleClickMonitor()
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
             SidebarDragLifecycleNotification().postStateDidChange(
@@ -10580,7 +10580,7 @@ struct VerticalTabsSidebar: View {
     }
 
     private func handleWorkspaceMiddleClick() -> Bool {
-        guard let workspaceId = hoveredWorkspaceId,
+        guard let workspaceId = workspaceMiddleClickMonitor.hoveredWorkspaceId,
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
             return false
         }
@@ -10589,6 +10589,10 @@ struct VerticalTabsSidebar: View {
 #endif
         tabManager.closeWorkspaceWithConfirmation(workspace)
         return true
+    }
+
+    private func startWorkspaceMiddleClickMonitor() {
+        workspaceMiddleClickMonitor.start(window: observedWindow) { handleWorkspaceMiddleClick() }
     }
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
@@ -12287,11 +12291,10 @@ struct VerticalTabsSidebar: View {
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
             onPointerHoverChanged: { [workspaceId = tab.id] hovering in
-                if hovering {
-                    hoveredWorkspaceId = workspaceId
-                } else if hoveredWorkspaceId == workspaceId {
-                    hoveredWorkspaceId = nil
-                }
+                workspaceMiddleClickMonitor.setHoveredWorkspace(workspaceId, hovering: hovering)
+            },
+            onPointerHoverInvalidated: { [workspaceId = tab.id] in
+                workspaceMiddleClickMonitor.invalidateHoveredWorkspace(workspaceId)
             },
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
@@ -13185,6 +13188,7 @@ struct TabItemView: View, Equatable {
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
     let onPointerHoverChanged: (Bool) -> Void
+    let onPointerHoverInvalidated: () -> Void
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
     /// modifier-key transitions from flipping the badges on the row sitting
@@ -13214,45 +13218,25 @@ struct TabItemView: View, Equatable {
     private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
 
-    var isMultiSelected: Bool {
-        selectedTabIds.contains(tab.id)
-    }
+    var isMultiSelected: Bool { selectedTabIds.contains(tab.id) }
 
-    private var sidebarShortcutHintXOffset: Double {
-        settings.sidebarShortcutHintXOffset
-    }
+    private var sidebarShortcutHintXOffset: Double { settings.sidebarShortcutHintXOffset }
 
-    private var sidebarShortcutHintYOffset: Double {
-        settings.sidebarShortcutHintYOffset
-    }
+    private var sidebarShortcutHintYOffset: Double { settings.sidebarShortcutHintYOffset }
 
-    private var alwaysShowShortcutHints: Bool {
-        settings.alwaysShowShortcutHints
-    }
+    private var alwaysShowShortcutHints: Bool { settings.alwaysShowShortcutHints }
 
-    private var sidebarShowGitBranch: Bool {
-        settings.showsGitBranch
-    }
+    private var sidebarShowGitBranch: Bool { settings.showsGitBranch }
 
-    private var sidebarBranchVerticalLayout: Bool {
-        settings.usesVerticalBranchLayout
-    }
+    private var sidebarBranchVerticalLayout: Bool { settings.usesVerticalBranchLayout }
 
-    private var sidebarStacksBranchAndDirectory: Bool {
-        settings.stacksBranchAndDirectory
-    }
+    private var sidebarStacksBranchAndDirectory: Bool { settings.stacksBranchAndDirectory }
 
-    private var sidebarUsesLastSegmentPath: Bool {
-        settings.usesLastSegmentPath
-    }
+    private var sidebarUsesLastSegmentPath: Bool { settings.usesLastSegmentPath }
 
-    private var sidebarShowGitBranchIcon: Bool {
-        settings.showsGitBranchIcon
-    }
+    private var sidebarShowGitBranchIcon: Bool { settings.showsGitBranchIcon }
 
-    private var sidebarShowSSH: Bool {
-        settings.showsSSH
-    }
+    private var sidebarShowSSH: Bool { settings.showsSSH }
 
     var workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot {
         let presentationKey = workspaceSnapshotPresentationKey
@@ -13269,21 +13253,13 @@ struct TabItemView: View, Equatable {
         return snapshot
     }
 
-    private var activeTabIndicatorStyle: WorkspaceIndicatorStyle {
-        settings.activeTabIndicatorStyle
-    }
+    private var activeTabIndicatorStyle: WorkspaceIndicatorStyle { settings.activeTabIndicatorStyle }
 
-    private var isActive: Bool {
-        observedIsActive ?? (tabManager.selectedTabId == tab.id)
-    }
+    private var isActive: Bool { observedIsActive ?? (tabManager.selectedTabId == tab.id) }
 
-    private var sidebarSelectionColorHex: String? {
-        settings.selectionColorHex
-    }
+    private var sidebarSelectionColorHex: String? { settings.selectionColorHex }
 
-    private var sidebarNotificationBadgeColorHex: String? {
-        settings.notificationBadgeColorHex
-    }
+    private var sidebarNotificationBadgeColorHex: String? { settings.notificationBadgeColorHex }
 
     private var selectedWorkspaceBackgroundNSColor: NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
@@ -13311,9 +13287,7 @@ struct TabItemView: View, Equatable {
         .semibold
     }
 
-    private var fontScale: CGFloat {
-        settings.sidebarFontScale
-    }
+    private var fontScale: CGFloat { settings.sidebarFontScale }
 
     private func scaledFontSize(_ baseSize: CGFloat) -> CGFloat {
         baseSize * fontScale
@@ -13952,6 +13926,7 @@ struct TabItemView: View, Equatable {
         }
         .onDisappear {
             rowInteractionState.setPointerHovering(false)
+            onPointerHoverInvalidated()
         }
         .onReceive(
             tabManager.selectedTabIdPublisher
