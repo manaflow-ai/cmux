@@ -313,6 +313,7 @@ import Testing
         let refreshedWorkspace = store.workspaces.first(where: { $0.id == workspace.id })
         let createdTerminalIDs = refreshedWorkspace?.terminals.map(\.id.rawValue) ?? []
         #expect(createdTerminalIDs.contains("terminal-route-created"))
+        #expect(store.selectedTerminalID?.rawValue == "terminal-route-created")
         #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
     }
 
