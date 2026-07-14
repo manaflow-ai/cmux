@@ -261,6 +261,103 @@ import Testing
 }
 
 @MainActor
+@Test func followUpCapFailOpenReconcilesRetainedRawByteIntervals() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplaySettled = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(coldReplaySettled)
+
+    let transport = try #require(box.get())
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: surfaceID,
+        seq: 0,
+        text: "BASE"
+    ))
+    let baselineChunk = try #require(await iterator.next())
+    #expect(String(data: baselineChunk.data, encoding: .utf8) == "BASE")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: baselineChunk.streamToken)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 4)
+
+    await router.enqueueReplayPayload(text: "first-replay", sequence: 10)
+    await router.enqueueReplayPayload(text: "follow-up-replay", sequence: 12)
+    await router.holdNextReplayResponses()
+    let firstBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: firstBarrierToken)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
+
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: surfaceID,
+        seq: 4,
+        text: "123456"
+    ))
+    let firstDropRecorded = try await pollUntil {
+        store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] == 1
+    }
+    #expect(firstDropRecorded)
+    await router.releaseAllHeld()
+
+    let firstReplayChunk = try #require(await iterator.next())
+    #expect(String(data: firstReplayChunk.data, encoding: .utf8) == "first-replay")
+    await router.holdNextReplayResponses()
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: firstReplayChunk.streamToken)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 3)
+
+    // This event spans [8, 16). The pre-barrier floor is 10, then the held
+    // follow-up replay advances the authoritative high-water mark to 12. A
+    // fail-open must therefore release only [12, 16), not the [10, 12)
+    // overlap that was retained before the replay response arrived.
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: surfaceID,
+        seq: 8,
+        text: "ABCDEFGH"
+    ))
+    let followUpDropRecorded = try await pollUntil {
+        store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] == 1
+    }
+    #expect(followUpDropRecorded)
+    await router.releaseAllHeld()
+
+    let followUpReplayChunk = try #require(await iterator.next())
+    #expect(String(data: followUpReplayChunk.data, encoding: .utf8) == "follow-up-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: followUpReplayChunk.streamToken)
+
+    let retainedSuffixChunk = try #require(await iterator.next())
+    #expect(
+        String(data: retainedSuffixChunk.data, encoding: .utf8) == "EFGH",
+        "fail-open must trim retained bytes already covered by the replay high-water mark"
+    )
+    #expect(
+        store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 16,
+        "releasing retained bytes must advance the delivered sequence to their interval end"
+    )
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retainedSuffixChunk.streamToken)
+
+    // [14, 18) overlaps the reconciled suffix by two bytes. A truthful mark
+    // at 16 trims the duplicate prefix and delivers only the contiguous tail.
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: surfaceID,
+        seq: 14,
+        text: "GH++"
+    ))
+    let postFailOpenChunk = try #require(await iterator.next())
+    #expect(
+        String(data: postFailOpenChunk.data, encoding: .utf8) == "++",
+        "the next event must neither duplicate reconciled bytes nor be treated as a gap"
+    )
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 18)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: postFailOpenChunk.streamToken)
+}
+
+@MainActor
 @Test func terminalReplayBarrierFailsOpenAfterDroppedOutputCap() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()

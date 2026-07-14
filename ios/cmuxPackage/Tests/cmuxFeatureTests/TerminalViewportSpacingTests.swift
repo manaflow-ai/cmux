@@ -503,6 +503,7 @@ struct TerminalViewportSpacingTests {
             columns: request.reportColumns,
             rows: request.reportRows
         )
+        let effectiveGridBeforeOwnershipTransfer = harness.snapshot.effectiveGrid
 
         harness.view.setLiveFontSize(explicitMacTarget)
         #expect(harness.view.pendingFontSize == explicitMacTarget)
@@ -516,6 +517,11 @@ struct TerminalViewportSpacingTests {
 
         #expect(harness.view.userBaseFontSize == explicitMacTarget)
         #expect(harness.view.pendingFontSize == explicitMacTarget)
+        #expect(
+            harness.snapshot.effectiveGrid?.cols == effectiveGridBeforeOwnershipTransfer?.cols
+                && harness.snapshot.effectiveGrid?.rows == effectiveGridBeforeOwnershipTransfer?.rows,
+            "an acknowledgement from before the Mac font choice must not change the effective grid"
+        )
     }
 
     /// Local zoom owns the same transition as a Mac-pushed absolute font. A
@@ -541,6 +547,7 @@ struct TerminalViewportSpacingTests {
             columns: request.reportColumns,
             rows: request.reportRows
         )
+        let effectiveGridBeforeOwnershipTransfer = harness.snapshot.effectiveGrid
 
         harness.view.debugStressZoomStep(.increase)
         #expect(harness.view.pendingFontSize == expectedZoomTarget)
@@ -554,6 +561,11 @@ struct TerminalViewportSpacingTests {
 
         #expect(harness.view.userBaseFontSize == expectedZoomTarget)
         #expect(harness.view.pendingFontSize == expectedZoomTarget)
+        #expect(
+            harness.snapshot.effectiveGrid?.cols == effectiveGridBeforeOwnershipTransfer?.cols
+                && harness.snapshot.effectiveGrid?.rows == effectiveGridBeforeOwnershipTransfer?.rows,
+            "an acknowledgement from before local zoom must not change the effective grid"
+        )
     }
 
     /// Whether the render rect currently reflects the effective pin (used to
