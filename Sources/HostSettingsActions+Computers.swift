@@ -62,6 +62,10 @@ extension HostSettingsActions {
         await directory.unpair(deviceID: deviceID)
     }
 
+    func openComputerViewer(deviceID: String) {
+        HiveViewerWindowController.shared.show(deviceID: deviceID)
+    }
+
     /// Mints this Mac's attach link (the same payload the pairing window's QR
     /// encodes) and copies it to the clipboard for pasting on another Mac.
     ///
