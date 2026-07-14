@@ -56,6 +56,16 @@ cmux browser <surface> check|uncheck <selector-or-ref>
 cmux browser <surface> scroll [--selector <css>] [--dx <n>] [--dy <n>]
 ```
 
+### Design Mode
+
+```bash
+cmux browser design-mode enable --surface <surface>
+cmux browser design-mode status --surface <surface> --json
+cmux browser design-mode disable --surface <surface>
+```
+
+Design mode lets a user select and visually edit page elements, then explicitly send the accumulated DOM, style, and screenshot context to the coding agent in that workspace. CLI enable/disable never moves application focus or sends a prompt automatically.
+
 ### Wait
 
 ```bash
