@@ -448,7 +448,6 @@ class TabManager: ObservableObject {
     // default) on purpose: the cap is per process, not per window, matching
     // the legacy shared limiter; tests inject their own instance.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
-
     // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
     // is the per-window composition point: it constructs the concrete
     // services, stores only the seams, implements SidebarGitHosting
@@ -456,7 +455,6 @@ class TabManager: ObservableObject {
     // entry points.
     let sidebarGitMetadataService: any SidebarGitMetadataServing
     let pullRequestProbing: any PullRequestProbing
-
     init(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,

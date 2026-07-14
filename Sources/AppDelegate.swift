@@ -1033,8 +1033,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
-
-    /// Tracks the new-window cascade point, initially `.zero` so the first window seeds it from its own position.
     private var lastCascadePoint = NSPoint.zero
     private(set) var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
@@ -1042,7 +1040,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var isApplyingSessionRestore = false
     /// Durable navigation links received before startup restore registers their workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
-    /// Queues at most one command link during startup so untrusted sources cannot queue approval dialogs.
     var pendingStartupRunURLRequest: CmuxRunURLRequest?
     var isHandlingCmuxRunURLRequest = false
     let cmuxRunWorkingDirectoryProcessLimiter = CmuxRunWorkingDirectoryProcessLimiter()
