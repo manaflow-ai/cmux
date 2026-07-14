@@ -34,6 +34,9 @@ public struct SidebarBackdropSettingsSnapshot {
     /// Color scheme used to pick light/dark tint overrides.
     public let colorScheme: ColorScheme
 
+    /// AppKit material policy resolved once at the snapshot boundary.
+    public let materialPolicy: SidebarBackdropMaterialPolicy
+
     /// Creates a sidebar backdrop settings snapshot.
     public init(
         materialRawValue: String,
@@ -57,10 +60,6 @@ public struct SidebarBackdropSettingsSnapshot {
         self.cornerRadius = cornerRadius
         self.blurOpacity = blurOpacity
         self.colorScheme = colorScheme
-    }
-
-    /// Resolved AppKit material policy for these settings.
-    public var materialPolicy: SidebarBackdropMaterialPolicy {
         let materialOption = WindowChromeSidebarMaterialOption(rawValue: materialRawValue)
         let blendingMode = WindowChromeSidebarBlendModeOption(rawValue: blendModeRawValue)?.mode ?? .behindWindow
         let state = WindowChromeSidebarStateOption(rawValue: stateRawValue)?.state ?? .active
@@ -77,7 +76,7 @@ public struct SidebarBackdropSettingsSnapshot {
         let preferLiquidGlass = materialOption?.usesLiquidGlass ?? false
         let usesWindowLevelGlass = preferLiquidGlass && blendingMode == .behindWindow
 
-        return SidebarBackdropMaterialPolicy(
+        self.materialPolicy = SidebarBackdropMaterialPolicy(
             material: materialOption?.material,
             blendingMode: blendingMode,
             state: state,
