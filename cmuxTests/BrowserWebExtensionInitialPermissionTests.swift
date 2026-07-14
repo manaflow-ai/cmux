@@ -172,6 +172,48 @@ struct BrowserWebExtensionInitialPermissionTests {
 
         #expect(support.context(forActionID: entry.id) == nil)
         #expect(support.controller.extensionContexts.isEmpty)
+        #expect(support.permissionStateStore.state(
+            for: entry.id,
+            standardizedPath: entry.standardizedResourceRootPath
+        ) == nil)
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func startupReconciliationPurgesPermissionStateForRemovedEntry() async {
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
+
+        let entry = BrowserWebExtensionEntry(
+            id: "removed-before-startup-\(UUID().uuidString)",
+            kind: .unpackedDirectory,
+            path: "/Extensions/RemovedBeforeStartup",
+            enabled: true
+        )
+        let store = BrowserWebExtensionPermissionStateStore()
+        store.save(
+            BrowserWebExtensionPermissionState(
+                grantedPermissions: ["tabs": .distantFuture]
+            ),
+            for: entry.id,
+            standardizedPath: entry.standardizedResourceRootPath
+        )
+        defer {
+            store.removeState(
+                for: entry.id,
+                standardizedPath: entry.standardizedResourceRootPath
+            )
+        }
+
+        let support = BrowserWebExtensionSupport()
+        await support.apply(entries: [])
+
+        #expect(store.state(
+            for: entry.id,
+            standardizedPath: entry.standardizedResourceRootPath
+        ) == nil)
     }
 
 }
