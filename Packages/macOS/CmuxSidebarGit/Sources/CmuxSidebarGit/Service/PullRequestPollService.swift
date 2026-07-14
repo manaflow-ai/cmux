@@ -328,9 +328,8 @@ public final class PullRequestPollService: PullRequestProbing {
         for key in requestedKeys {
             workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: false)
         }
-        let requestedKeysBypassRepoCache = requestedKeys.contains {
-            workspacePullRequestBypassRepoCacheKeys.contains($0)
-        }
+        let requestedBypassRepoCacheKeys = workspacePullRequestBypassRepoCacheKeys
+            .intersection(requestedKeys)
         workspacePullRequestBypassRepoCacheKeys.subtract(requestedKeys)
 
         startWorkspacePullRequestRefresh(
@@ -340,10 +339,11 @@ public final class PullRequestPollService: PullRequestProbing {
                 sources: requestedSourceByKey,
                 cacheBySlug: workspacePullRequestRepoCacheBySlug,
                 now: now,
-                allowCachedResults: requestedKeysBypassRepoCache
+                allowCachedResults: !requestedBypassRepoCacheKeys.isEmpty
                     ? false
                     : (allowCachedResultsOverride
                         ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason)),
+                bypassRepoCacheKeys: requestedBypassRepoCacheKeys,
                 reason: reason
             )
         )

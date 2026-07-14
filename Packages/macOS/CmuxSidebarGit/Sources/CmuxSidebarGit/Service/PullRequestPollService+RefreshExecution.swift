@@ -16,6 +16,7 @@ extension PullRequestPollService {
         let cacheBySlug: [String: WorkspacePullRequestRepoCacheEntry]
         let now: Date
         let allowCachedResults: Bool
+        let bypassRepoCacheKeys: Set<WorkspaceGitProbeKey>
         let reason: String
     }
 
@@ -98,26 +99,29 @@ extension PullRequestPollService {
         workspacePullRequestRefreshTask = nil
         workspacePullRequestRefreshAuthority = nil
 
-        var needsFollowUp = false
+        var survivingKeys: Set<WorkspaceGitProbeKey> = []
         for key in request.keys {
-            let rerunPending = workspacePullRequestProbeRerunPending(for: key)
-            workspacePullRequestProbeStateByKey[key] = .idle
-
-            if rerunPending || workspacePullRequestSourceByKey[key] != request.sources[key] {
-                workspacePullRequestNextPollAtByKey[key] = .distantPast
-                needsFollowUp = true
+            guard workspacePullRequestSourceByKey[key] != nil,
+                  host?.panelExists(workspaceId: key.workspaceId, panelId: key.panelId) == true else {
+                continue
             }
+            survivingKeys.insert(key)
+            workspacePullRequestProbeStateByKey[key] = .idle
+            workspacePullRequestNextPollAtByKey[key] = .distantPast
         }
+        let survivingBypassRepoCacheKeys = request.bypassRepoCacheKeys.intersection(survivingKeys)
+        workspacePullRequestBypassRepoCacheKeys.formUnion(survivingBypassRepoCacheKeys)
 
         let pendingSeedRefresh = takePendingSeedRefresh()
         let pendingRefreshRequest = takePendingRefreshRequest()
-        guard needsFollowUp || pendingSeedRefresh != nil || pendingRefreshRequest != nil else {
+        guard !survivingKeys.isEmpty || pendingSeedRefresh != nil || pendingRefreshRequest != nil else {
             updateWorkspacePullRequestPollTimer()
             return
         }
 
         let shouldBypassRepoCache =
-            pendingSeedRefresh?.shouldBypassRepoCache == true
+            !survivingBypassRepoCacheKeys.isEmpty
+            || pendingSeedRefresh?.shouldBypassRepoCache == true
             || pendingRefreshRequest?.shouldBypassRepoCache == true
         startWorkspacePullRequestFollowUp(
             reason: "\(pendingRefreshRequest?.reason ?? request.reason).followUp",
