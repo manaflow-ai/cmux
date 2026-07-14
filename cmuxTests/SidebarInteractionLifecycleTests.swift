@@ -396,10 +396,13 @@ final class SidebarInteractionLifecycleTests {
     @Test
     @MainActor
     func visibleKeyWindowLifecycleChurnHasNoRuntimeFaultsOrLivelock() async throws {
-        let logStart = Date.now
         let harness = try await Harness.mount(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
         try harness.positionStationaryPointerOverWorkspaceRow()
+        // The host app may emit unrelated launch-time diagnostics before the
+        // production sidebar window is mounted. Gate only the accelerated
+        // sidebar lifecycle scenario below.
+        let logStart = Date.now
 
         let heartbeat = Heartbeat()
         heartbeat.start()
