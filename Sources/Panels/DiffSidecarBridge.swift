@@ -177,7 +177,8 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
                     input: input,
                     output: output,
                     readiness: readiness,
-                    termination: termination
+                    termination: termination,
+                    processGroupID: nil
                 )
                 if case .cancelled = startup {
                     throw CancellationError()
@@ -193,7 +194,8 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
                     input: input,
                     output: output,
                     readiness: readiness,
-                    termination: termination
+                    termination: termination,
+                    processGroupID: process.processIdentifier
                 )
                 throw error
             }
@@ -230,7 +232,8 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
                     input: input,
                     output: output,
                     readiness: readiness,
-                    termination: termination
+                    termination: termination,
+                    processGroupID: process.processIdentifier
                 )
             case .ready, .terminated, .missingTermination:
                 break
@@ -330,12 +333,13 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         input: Pipe,
         output: Pipe,
         readiness: Pipe,
-        termination: AsyncStream<Int32>
+        termination: AsyncStream<Int32>,
+        processGroupID: pid_t?
     ) async {
         let processID = process.processIdentifier
-        let processGroupID = processID > 0 && Darwin.getpgid(processID) == processID
-            ? processID
-            : nil
+        let confirmedProcessGroupID = processGroupID ?? (
+            processID > 0 && Darwin.getpgid(processID) == processID ? processID : nil
+        )
         requestTermination(process: process, input: input, output: output, readiness: readiness)
         let terminated = await withTaskGroup(of: Bool.self) { group in
             group.addTask {
@@ -356,8 +360,8 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             group.cancelAll()
             return result
         }
-        if let processGroupID {
-            _ = Darwin.kill(-processGroupID, SIGKILL)
+        if let confirmedProcessGroupID {
+            _ = Darwin.kill(-confirmedProcessGroupID, SIGKILL)
         } else if !terminated, process.isRunning {
             forceTermination(process)
         }

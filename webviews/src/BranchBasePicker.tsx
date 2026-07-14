@@ -31,7 +31,7 @@ export type BranchPickerPayload = {
 };
 
 export function branchPickerStateKey(picker: BranchPickerPayload): string {
-  return `${picker.repoRoot}\u0000${picker.capabilityToken ?? ""}`;
+  return `${picker.repoRoot}\u0000${picker.capabilityToken ?? ""}\u0000${picker.currentRef}`;
 }
 
 // Strip a leading `scheme://host[:port]` so the URL becomes root-relative and
