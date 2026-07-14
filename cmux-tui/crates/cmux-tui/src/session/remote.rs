@@ -296,6 +296,7 @@ pub struct RemoteSession {
     tree: Mutex<RemoteTreeCache>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
+    subscription_recovery_in_flight: AtomicBool,
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
 }
@@ -324,6 +325,7 @@ impl RemoteSession {
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
+            subscription_recovery_in_flight: AtomicBool::new(false),
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
         });
@@ -552,19 +554,8 @@ impl RemoteSession {
                     return;
                 }
                 self.tree_stale.store(true, Ordering::Release);
-                let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-                let mut line = serde_json::to_vec(&json!({"cmd": "subscribe", "id": id}))
-                    .expect("subscribe recovery command is serializable");
-                line.push(b'\n');
-                let recovery = self.writer.lock().unwrap().write_all(&line);
-                let message = match recovery {
-                    Ok(()) => "event subscription overflowed; resubscribing".to_string(),
-                    Err(error) => {
-                        format!("event subscription overflowed; resubscribe failed: {error}")
-                    }
-                };
-                self.emit(MuxEvent::Status(message));
                 self.emit(MuxEvent::TreeChanged);
+                self.start_subscription_recovery();
             }
             Some("status") => {
                 if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
@@ -588,6 +579,37 @@ impl RemoteSession {
             }
             Some("empty") => self.emit(MuxEvent::Empty),
             Some(_) => {}
+        }
+    }
+
+    fn start_subscription_recovery(self: &Arc<Self>) {
+        if self.subscription_recovery_in_flight.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        self.emit(MuxEvent::Status("event subscription overflowed; resubscribing".to_string()));
+        let session = self.clone();
+        let spawn =
+            std::thread::Builder::new().name("remote-resubscribe".into()).spawn(move || {
+                let result = session
+                    .request(json!({"cmd": "subscribe"}))
+                    .or_else(|_| session.request(json!({"cmd": "subscribe"})));
+                session.subscription_recovery_in_flight.store(false, Ordering::Release);
+                match result {
+                    Ok(_) => session.emit(MuxEvent::Status(
+                        "event subscription overflowed; resubscribed".to_string(),
+                    )),
+                    Err(error) => {
+                        session.emit(MuxEvent::Status(format!(
+                            "event subscription overflowed; resubscribe failed: {error}"
+                        )));
+                    }
+                }
+            });
+        if let Err(error) = spawn {
+            self.subscription_recovery_in_flight.store(false, Ordering::Release);
+            self.emit(MuxEvent::Status(format!(
+                "event subscription overflowed; resubscribe failed: {error}"
+            )));
         }
     }
 
@@ -919,6 +941,7 @@ mod tests {
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
+            subscription_recovery_in_flight: AtomicBool::new(false),
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
         })
@@ -1263,10 +1286,50 @@ mod tests {
         BufReader::new(server).read_line(&mut line).unwrap();
         let command: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(command.get("cmd").and_then(Value::as_str), Some("subscribe"));
+        session.handle_line(json!({"id": command["id"], "ok": true, "data": {}}));
         assert!(session.tree_is_stale());
         let received = events.try_iter().collect::<Vec<_>>();
         assert!(received.iter().any(|event| matches!(event, MuxEvent::Status(_))));
         assert!(received.iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejected_subscription_recovery_retries_then_surfaces_failure() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+
+        session.handle_line(json!({"event": "overflow", "error": "subscriber fell behind"}));
+
+        let mut line = String::new();
+        let mut server = BufReader::new(server);
+        server.read_line(&mut line).unwrap();
+        let command: Value = serde_json::from_str(&line).unwrap();
+        session.handle_line(json!({
+            "id": command["id"],
+            "ok": false,
+            "error": "replacement rejected",
+        }));
+
+        line.clear();
+        server.read_line(&mut line).unwrap();
+        let retry: Value = serde_json::from_str(&line).unwrap();
+        session.handle_line(json!({
+            "id": retry["id"],
+            "ok": false,
+            "error": "replacement rejected again",
+        }));
+
+        loop {
+            match events.recv_timeout(Duration::from_secs(1)).unwrap() {
+                MuxEvent::Status(message) if message.contains("resubscribe failed") => {
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert!(!session.subscription_recovery_in_flight.load(Ordering::Acquire));
     }
 
     #[cfg(unix)]

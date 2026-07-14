@@ -79,8 +79,24 @@ function surfaceFromKnownEvent(event: KnownCmuxEvent): number | undefined {
 }
 
 const futureEvent: CmuxEvent = { event: "future-event", extension: true };
+const protocolV6Resize: KnownCmuxEvent = {
+  event: "resized",
+  surface: 1,
+  cols: 80,
+  rows: 24,
+  data: "cmVwbGF5",
+};
+const protocolV7Resize: KnownCmuxEvent = {
+  event: "resized",
+  surface: 1,
+  cols: 80,
+  rows: 24,
+  replay: "cmVwbGF5",
+};
 void surfaceFromKnownEvent;
 void futureEvent;
+void protocolV6Resize;
+void protocolV7Resize;
 
 // @ts-expect-error `read-screen` requires a surface id.
 const invalidRequest: CmuxRequest = { cmd: "read-screen" };

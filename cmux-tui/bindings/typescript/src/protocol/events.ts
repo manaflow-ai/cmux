@@ -48,16 +48,18 @@ export interface VtStateEvent {
 /** Live base64 PTY bytes after the attach snapshot. */
 export interface OutputEvent { event: "output"; surface: Id; data: Base64 }
 
-/** A protocol v7 replay that replaces the existing terminal mirror. */
-export interface ResizedEvent {
+interface ResizedEventBase {
   event: "resized";
   surface: Id;
   cols: number;
   rows: number;
-  replay: Base64;
-  /** Compatibility with protocol-v6 servers that used `data`. */
-  data?: Base64;
 }
+
+/** A replacement replay using the protocol-v7 field or protocol-v6 compatibility field. */
+export type ResizedEvent = ResizedEventBase & (
+  | { replay: Base64; data?: Base64 }
+  | { data: Base64; replay?: Base64 }
+);
 
 export interface DetachedEvent { event: "detached"; surface: Id }
 
