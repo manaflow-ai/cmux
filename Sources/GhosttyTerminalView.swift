@@ -2480,7 +2480,7 @@ class GhosttyApp {
         }
     }
 
-    private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
+    func performOnMain<T>(_ work: @MainActor () -> T) -> T {
         if Thread.isMainThread {
             return MainActor.assumeIsolated { work() }
         }

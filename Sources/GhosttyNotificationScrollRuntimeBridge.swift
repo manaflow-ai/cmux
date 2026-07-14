@@ -9,14 +9,16 @@ extension TerminalPanel {
 }
 
 extension GhosttyApp {
+    /// Runs PTY-ordered PWD replay markers synchronously so later input cannot overtake the boundary.
+    private func performNotificationScrollOnMain(_ work: @MainActor () -> Void) { performOnMain(work) }
+
     func handleCurrentDirectoryAction(
         _ directory: String,
         authoritativeGeometry: NotificationScrollRestoreGeometry?,
         surfaceView: GhosttyNSView
     ) {
         let terminalSurface = surfaceView.terminalSurface
-        Task { @MainActor [weak surfaceView, weak terminalSurface] in
-            guard let surfaceView else { return }
+        performNotificationScrollOnMain {
             if terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(
                 directory,
                 authoritativeGeometry: authoritativeGeometry
