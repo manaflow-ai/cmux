@@ -263,7 +263,7 @@ class TerminalController {
         "surface.focus",
         "pane.focus",
         "pane.last",
-        "file.open",
+        "file.open", "workspace.todo.open",
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
