@@ -116,6 +116,7 @@
 		F4350A120000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */; };
 		C0DE45AC0000000000000001 /* AppDelegate+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */; };
 C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */; };
+		D35A00000000000000000001 /* AppDelegate+BrowserDesignMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000001 /* AppDelegate+BrowserDesignMode.swift */; };
 		C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */; };
 		C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */; };
 		C54860050000000000000001 /* AppDelegate+CmuxNavigationDeepLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860050000000000000002 /* AppDelegate+CmuxNavigationDeepLinks.swift */; };
@@ -197,6 +198,17 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */; };
 		D7032A030000000000000001 /* BrowserClientCertificateCredentialPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */; };
 		E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
+		D35A00000000000000000003 /* BrowserDesignModeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000003 /* BrowserDesignModeController.swift */; };
+		D35A00000000000000000005 /* BrowserDesignModeEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000005 /* BrowserDesignModeEditor.swift */; };
+		D35A00000000000000000004 /* BrowserDesignModeEditRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000004 /* BrowserDesignModeEditRow.swift */; };
+		D35A00000000000000000006 /* BrowserDesignModeHandoffState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000006 /* BrowserDesignModeHandoffState.swift */; };
+		D35A00000000000000000007 /* BrowserDesignModeMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000007 /* BrowserDesignModeMessageHandler.swift */; };
+		D35A00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift */; };
+		D35A00000000000000000008 /* BrowserDesignModePhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000008 /* BrowserDesignModePhase.swift */; };
+		D35A00000000000000000009 /* BrowserDesignModeScreenshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000009 /* BrowserDesignModeScreenshotStore.swift */; };
+		D35A0000000000000000000A /* BrowserDesignModeSendError.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000000A /* BrowserDesignModeSendError.swift */; };
+		D35A0000000000000000000B /* BrowserDesignModeToolbarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000000B /* BrowserDesignModeToolbarButton.swift */; };
+		D35A0000000000000000000C /* BrowserDesignModeValueField.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000000C /* BrowserDesignModeValueField.swift */; };
 		B1F0C0050000000000000001 /* BrowserDeveloperToolsDockControlNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0050000000000000002 /* BrowserDeveloperToolsDockControlNormalizer.swift */; };
 		B1F0C0060000000000000001 /* BrowserDeveloperToolsDockControlNormalizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0060000000000000002 /* BrowserDeveloperToolsDockControlNormalizerTests.swift */; };
 		B1F0C0070000000000000001 /* BrowserDeveloperToolsLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0070000000000000002 /* BrowserDeveloperToolsLifecycleTests.swift */; };
@@ -258,6 +270,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7632001A1B2C3D4E5F60718 /* BrowserPaneFileDropRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632002A1B2C3D4E5F60718 /* BrowserPaneFileDropRouting.swift */; };
 		D7632003A1B2C3D4E5F60718 /* BrowserPaneFileDropUploadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632004A1B2C3D4E5F60718 /* BrowserPaneFileDropUploadRegressionTests.swift */; };
 		C65241010000000000000001 /* BrowserPanel+AppPricingRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65241010000000000000002 /* BrowserPanel+AppPricingRestore.swift */; };
+		D35A0000000000000000000D /* BrowserPanel+DesignMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000000D /* BrowserPanel+DesignMode.swift */; };
 		C3711E000000000000000001 /* BrowserPanel+DisplayURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3711E000000000000000002 /* BrowserPanel+DisplayURL.swift */; };
 		D7632B11A1B2C3D4E5F60718 /* BrowserPanel+InteractiveModalHostWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632B12A1B2C3D4E5F60718 /* BrowserPanel+InteractiveModalHostWindow.swift */; };
 		A500MX01 /* BrowserPanel+MediaPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500MX00 /* BrowserPanel+MediaPlayback.swift */; };
@@ -280,6 +293,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C2035A090000000000000001 /* BrowserPendingSSLTrustBypass.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */; };
 		C67540040000000000000001 /* BrowserPopupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540040000000000000002 /* BrowserPopupPanel.swift */; };
 		A5007420 /* BrowserPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007421 /* BrowserPopupWindowController.swift */; };
+		D35A0000000000000000000E /* BrowserPortalAnchorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000000E /* BrowserPortalAnchorView.swift */; };
 		C0DE78950000000000000001 /* BrowserPortalFirstRevealScrollTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE78950000000000000002 /* BrowserPortalFirstRevealScrollTests.swift */; };
 		B7380102B7380102B7380102 /* BrowserPortalOmnibarSuggestionsConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7380101B7380101B7380101 /* BrowserPortalOmnibarSuggestionsConfiguration.swift */; };
 		B7380104B7380104B7380104 /* BrowserPortalOmnibarSuggestionsHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7380103B7380103B7380103 /* BrowserPortalOmnibarSuggestionsHostingView.swift */; };
@@ -293,6 +307,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		4472A0024472A0024472A002 /* BrowserScreenshotPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */; };
 		4472A0034472A0034472A003 /* BrowserScreenshotSnapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */; };
 		A5008371 /* BrowserSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008370 /* BrowserSearchOverlay.swift */; };
+		D35A0000000000000000000F /* BrowserSearchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000000F /* BrowserSearchState.swift */; };
 		C2035A050000000000000001 /* BrowserServerTrustFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A050000000000000002 /* BrowserServerTrustFingerprint.swift */; };
 		C67540050000000000000001 /* BrowserSessionDownloadSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540050000000000000002 /* BrowserSessionDownloadSaver.swift */; };
 		C2035A0B000000000000001 /* BrowserSSLTrustBypassMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A0B000000000000002 /* BrowserSSLTrustBypassMessageHandler.swift */; };
@@ -851,6 +866,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670020000000000000002 /* KeyboardShortcutContextTests.swift */; };
 		6042A0026042A0026042A002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */; };
 		A50012F7 /* KeyboardShortcutRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F6 /* KeyboardShortcutRecorder.swift */; };
+		D35A00000000000000000002 /* KeyboardShortcutRecorderActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000002 /* KeyboardShortcutRecorderActivity.swift */; };
 		C0DE5A100000000000000001 /* KeyboardShortcutSavedLayoutTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE5A100000000000000002 /* KeyboardShortcutSavedLayoutTemplateTests.swift */; };
 		4283FEFC /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63F0CD0E /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift */; };
 		A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
@@ -1303,6 +1319,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		6042A0016042A0016042A001 /* ShortcutHintModifierPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6042B0016042B0016042B001 /* ShortcutHintModifierPolicyTests.swift */; };
 		125BAEF2FE3B454547B964D1 /* ShortcutHintPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = A080D1F6CCCBFBED8D95DD1D /* ShortcutHintPill.swift */; };
 		6042C0046042C0046042C004 /* ShortcutHintTitlebarPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6042D0046042D0046042D004 /* ShortcutHintTitlebarPolicy.swift */; };
+		D35A00000000000000000010 /* ShortcutRecorderRejectedAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000010 /* ShortcutRecorderRejectedAttempt.swift */; };
 		5C3E0454B6C24B02A2F091A8 /* ShortcutRoutingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */; };
 		F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */; };
 		C3467AB10000000000000001 /* ShortcutWhenClauseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3467AB10000000000000002 /* ShortcutWhenClauseTests.swift */; };
@@ -1478,6 +1495,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
 		E4D1768B7041CDE4F9A084A4 /* TerminalClearScreenKeepScrollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */; };
 		C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */; };
+		D35A00000000000000000011 /* TerminalController+BrowserDesignMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000011 /* TerminalController+BrowserDesignMode.swift */; };
+		D35A00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift */; };
 		C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */; };
 		C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */; };
 		CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52F0020000000000000000 /* TerminalController+ControlCanvasContext.swift */; };
@@ -1957,6 +1976,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppBundleIconPersistencePolicy.swift; sourceTree = "<group>"; };
 		C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChat.swift"; sourceTree = "<group>"; };
 C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChatNotifications.swift"; sourceTree = "<group>"; };
+		D35B00000000000000000001 /* AppDelegate+BrowserDesignMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate+BrowserDesignMode.swift; sourceTree = "<group>"; };
 		C4A570010000000000000002 /* AppDelegate+CanvasShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CanvasShortcutRouting.swift"; sourceTree = "<group>"; };
 		C4160A030000000000000002 /* AppDelegate+ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ClosedItemHistory.swift"; sourceTree = "<group>"; };
 		C54860050000000000000002 /* AppDelegate+CmuxNavigationDeepLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CmuxNavigationDeepLinks.swift"; sourceTree = "<group>"; };
@@ -2038,6 +2058,17 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7032A050000000000000002 /* BrowserClientCertificateCredentialPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserClientCertificateCredentialPicker.swift; sourceTree = "<group>"; };
 		D7032A030000000000000002 /* BrowserClientCertificateCredentialPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserClientCertificateCredentialPickerTests.swift; sourceTree = "<group>"; };
 		970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
+		D35B00000000000000000003 /* BrowserDesignModeController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeController.swift; sourceTree = "<group>"; };
+		D35B00000000000000000005 /* BrowserDesignModeEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeEditor.swift; sourceTree = "<group>"; };
+		D35B00000000000000000004 /* BrowserDesignModeEditRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeEditRow.swift; sourceTree = "<group>"; };
+		D35B00000000000000000006 /* BrowserDesignModeHandoffState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeHandoffState.swift; sourceTree = "<group>"; };
+		D35B00000000000000000007 /* BrowserDesignModeMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeMessageHandler.swift; sourceTree = "<group>"; };
+		D35B00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeOverflowMenuButton.swift; sourceTree = "<group>"; };
+		D35B00000000000000000008 /* BrowserDesignModePhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModePhase.swift; sourceTree = "<group>"; };
+		D35B00000000000000000009 /* BrowserDesignModeScreenshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeScreenshotStore.swift; sourceTree = "<group>"; };
+		D35B0000000000000000000A /* BrowserDesignModeSendError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeSendError.swift; sourceTree = "<group>"; };
+		D35B0000000000000000000B /* BrowserDesignModeToolbarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeToolbarButton.swift; sourceTree = "<group>"; };
+		D35B0000000000000000000C /* BrowserDesignModeValueField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeValueField.swift; sourceTree = "<group>"; };
 		B1F0C0050000000000000002 /* BrowserDeveloperToolsDockControlNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDeveloperToolsDockControlNormalizer.swift; sourceTree = "<group>"; };
 		B1F0C0060000000000000002 /* BrowserDeveloperToolsDockControlNormalizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDeveloperToolsDockControlNormalizerTests.swift; sourceTree = "<group>"; };
 		B1F0C0070000000000000002 /* BrowserDeveloperToolsLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDeveloperToolsLifecycleTests.swift; sourceTree = "<group>"; };
@@ -2099,6 +2130,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7632002A1B2C3D4E5F60718 /* BrowserPaneFileDropRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneFileDropRouting.swift; sourceTree = "<group>"; };
 		D7632004A1B2C3D4E5F60718 /* BrowserPaneFileDropUploadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneFileDropUploadRegressionTests.swift; sourceTree = "<group>"; };
 		C65241010000000000000002 /* BrowserPanel+AppPricingRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+AppPricingRestore.swift"; sourceTree = "<group>"; };
+		D35B0000000000000000000D /* BrowserPanel+DesignMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanel+DesignMode.swift; sourceTree = "<group>"; };
 		C3711E000000000000000002 /* BrowserPanel+DisplayURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+DisplayURL.swift"; sourceTree = "<group>"; };
 		D7632B12A1B2C3D4E5F60718 /* BrowserPanel+InteractiveModalHostWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+InteractiveModalHostWindow.swift"; sourceTree = "<group>"; };
 		A500MX00 /* BrowserPanel+MediaPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MediaPlayback.swift"; sourceTree = "<group>"; };
@@ -2121,6 +2153,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPendingSSLTrustBypass.swift; sourceTree = "<group>"; };
 		C67540040000000000000002 /* BrowserPopupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupPanel.swift; sourceTree = "<group>"; };
 		A5007421 /* BrowserPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupWindowController.swift; sourceTree = "<group>"; };
+		D35B0000000000000000000E /* BrowserPortalAnchorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPortalAnchorView.swift; sourceTree = "<group>"; };
 		C0DE78950000000000000002 /* BrowserPortalFirstRevealScrollTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalFirstRevealScrollTests.swift; sourceTree = "<group>"; };
 		B7380101B7380101B7380101 /* BrowserPortalOmnibarSuggestionsConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalOmnibarSuggestionsConfiguration.swift; sourceTree = "<group>"; };
 		B7380103B7380103B7380103 /* BrowserPortalOmnibarSuggestionsHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPortalOmnibarSuggestionsHostingView.swift; sourceTree = "<group>"; };
@@ -2134,6 +2167,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotPipeline.swift; sourceTree = "<group>"; };
 		4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotSnapshotter.swift; sourceTree = "<group>"; };
 		A5008370 /* BrowserSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserSearchOverlay.swift; sourceTree = "<group>"; };
+		D35B0000000000000000000F /* BrowserSearchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSearchState.swift; sourceTree = "<group>"; };
 		C2035A050000000000000002 /* BrowserServerTrustFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserServerTrustFingerprint.swift; sourceTree = "<group>"; };
 		C67540050000000000000002 /* BrowserSessionDownloadSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSessionDownloadSaver.swift; sourceTree = "<group>"; };
 		C2035A0B000000000000002 /* BrowserSSLTrustBypassMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSSLTrustBypassMessageHandler.swift; sourceTree = "<group>"; };
@@ -2635,6 +2669,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C34670020000000000000002 /* KeyboardShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContextTests.swift; sourceTree = "<group>"; };
 		6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutModifierHoldHintsSettingsFileTests.swift; sourceTree = "<group>"; };
 		A50012F6 /* KeyboardShortcutRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutRecorder.swift; sourceTree = "<group>"; };
+		D35B00000000000000000002 /* KeyboardShortcutRecorderActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutRecorderActivity.swift; sourceTree = "<group>"; };
 		C0DE5A100000000000000002 /* KeyboardShortcutSavedLayoutTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSavedLayoutTemplateTests.swift; sourceTree = "<group>"; };
 		63F0CD0E /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift"; sourceTree = "<group>"; };
 		A50012F2 /* KeyboardShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettings.swift; sourceTree = "<group>"; };
@@ -3079,6 +3114,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		6042B0016042B0016042B001 /* ShortcutHintModifierPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutHintModifierPolicyTests.swift; sourceTree = "<group>"; };
 		A080D1F6CCCBFBED8D95DD1D /* ShortcutHintPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutHintPill.swift; sourceTree = "<group>"; };
 		6042D0046042D0046042D004 /* ShortcutHintTitlebarPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutHintTitlebarPolicy.swift; sourceTree = "<group>"; };
+		D35B00000000000000000010 /* ShortcutRecorderRejectedAttempt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorderRejectedAttempt.swift; sourceTree = "<group>"; };
 		B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ShortcutRoutingSupport.swift; sourceTree = "<group>"; };
 		F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutUnbindingTests.swift; sourceTree = "<group>"; };
 		C3467AB10000000000000002 /* ShortcutWhenClauseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutWhenClauseTests.swift; sourceTree = "<group>"; };
@@ -3246,6 +3282,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
 		F2B7555E04A04849992547A2 /* TerminalClearScreenKeepScrollbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalClearScreenKeepScrollbackTests.swift; sourceTree = "<group>"; };
 		C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCmdClickUITests.swift; sourceTree = "<group>"; };
+		D35B00000000000000000011 /* TerminalController+BrowserDesignMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController+BrowserDesignMode.swift; sourceTree = "<group>"; };
+		D35B00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController+BrowserWorkerSupport.swift; sourceTree = "<group>"; };
 		C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlAppFocusContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlBrowserPanelContext.swift"; sourceTree = "<group>"; };
 		CA52F0020000000000000000 /* TerminalController+ControlCanvasContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlCanvasContext.swift"; sourceTree = "<group>"; };
@@ -4382,6 +4420,25 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
 				A5001090 /* AppDelegate.swift */,
+				D35B00000000000000000011 /* TerminalController+BrowserDesignMode.swift */,
+				D35B00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift */,
+				D35B00000000000000000001 /* AppDelegate+BrowserDesignMode.swift */,
+				D35B00000000000000000002 /* KeyboardShortcutRecorderActivity.swift */,
+				D35B00000000000000000003 /* BrowserDesignModeController.swift */,
+				D35B00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift */,
+				D35B00000000000000000004 /* BrowserDesignModeEditRow.swift */,
+				D35B00000000000000000005 /* BrowserDesignModeEditor.swift */,
+				D35B00000000000000000006 /* BrowserDesignModeHandoffState.swift */,
+				D35B00000000000000000007 /* BrowserDesignModeMessageHandler.swift */,
+				D35B00000000000000000008 /* BrowserDesignModePhase.swift */,
+				D35B00000000000000000009 /* BrowserDesignModeScreenshotStore.swift */,
+				D35B0000000000000000000A /* BrowserDesignModeSendError.swift */,
+				D35B0000000000000000000B /* BrowserDesignModeToolbarButton.swift */,
+				D35B0000000000000000000C /* BrowserDesignModeValueField.swift */,
+				D35B0000000000000000000D /* BrowserPanel+DesignMode.swift */,
+				D35B0000000000000000000E /* BrowserPortalAnchorView.swift */,
+				D35B0000000000000000000F /* BrowserSearchState.swift */,
+				D35B00000000000000000010 /* ShortcutRecorderRejectedAttempt.swift */,
 				C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */,
 				C0DE71A00000000000000002 /* AgentChatThemeSync.swift */,
 				C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */,
@@ -5953,6 +6010,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F4350A110000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */,
 				C0DE45AC0000000000000001 /* AppDelegate+AgentChat.swift in Sources */,
 				C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources */,
+				D35A00000000000000000001 /* AppDelegate+BrowserDesignMode.swift in Sources */,
 				C4A570010000000000000001 /* AppDelegate+CanvasShortcutRouting.swift in Sources */,
 				C4160A030000000000000001 /* AppDelegate+ClosedItemHistory.swift in Sources */,
 				C54860050000000000000001 /* AppDelegate+CmuxNavigationDeepLinks.swift in Sources */,
@@ -6002,6 +6060,17 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */,
 				D7032A020000000000000001 /* BrowserClientCertificateAuthenticationController.swift in Sources */,
 				D7032A050000000000000001 /* BrowserClientCertificateCredentialPicker.swift in Sources */,
+				D35A00000000000000000003 /* BrowserDesignModeController.swift in Sources */,
+				D35A00000000000000000005 /* BrowserDesignModeEditor.swift in Sources */,
+				D35A00000000000000000004 /* BrowserDesignModeEditRow.swift in Sources */,
+				D35A00000000000000000006 /* BrowserDesignModeHandoffState.swift in Sources */,
+				D35A00000000000000000007 /* BrowserDesignModeMessageHandler.swift in Sources */,
+				D35A00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift in Sources */,
+				D35A00000000000000000008 /* BrowserDesignModePhase.swift in Sources */,
+				D35A00000000000000000009 /* BrowserDesignModeScreenshotStore.swift in Sources */,
+				D35A0000000000000000000A /* BrowserDesignModeSendError.swift in Sources */,
+				D35A0000000000000000000B /* BrowserDesignModeToolbarButton.swift in Sources */,
+				D35A0000000000000000000C /* BrowserDesignModeValueField.swift in Sources */,
 				B1F0C0050000000000000001 /* BrowserDeveloperToolsDockControlNormalizer.swift in Sources */,
 				B75040010000000000000001 /* BrowserDiscardRestoreHeal.swift in Sources */,
 				C42660030000000000000001 /* BrowserDownloadDelegate+PDFPreviewData.swift in Sources */,
@@ -6041,6 +6110,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D0B1001EA1B2C3D4E5F60001 /* BrowserPaneDropTargetView.swift in Sources */,
 				D7632001A1B2C3D4E5F60718 /* BrowserPaneFileDropRouting.swift in Sources */,
 				C65241010000000000000001 /* BrowserPanel+AppPricingRestore.swift in Sources */,
+				D35A0000000000000000000D /* BrowserPanel+DesignMode.swift in Sources */,
 				C3711E000000000000000001 /* BrowserPanel+DisplayURL.swift in Sources */,
 				D7632B11A1B2C3D4E5F60718 /* BrowserPanel+InteractiveModalHostWindow.swift in Sources */,
 				A500MX01 /* BrowserPanel+MediaPlayback.swift in Sources */,
@@ -6058,6 +6128,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C2035A090000000000000001 /* BrowserPendingSSLTrustBypass.swift in Sources */,
 				C67540040000000000000001 /* BrowserPopupPanel.swift in Sources */,
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
+				D35A0000000000000000000E /* BrowserPortalAnchorView.swift in Sources */,
 				B7380102B7380102B7380102 /* BrowserPortalOmnibarSuggestionsConfiguration.swift in Sources */,
 				B7380104B7380104B7380104 /* BrowserPortalOmnibarSuggestionsHostingView.swift in Sources */,
 				B7380004B7380004B7380004 /* BrowserPortalOmnibarSuggestionsOverlay.swift in Sources */,
@@ -6068,6 +6139,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				4472A0024472A0024472A002 /* BrowserScreenshotPipeline.swift in Sources */,
 				4472A0034472A0034472A003 /* BrowserScreenshotSnapshotter.swift in Sources */,
 				A5008371 /* BrowserSearchOverlay.swift in Sources */,
+				D35A0000000000000000000F /* BrowserSearchState.swift in Sources */,
 				C2035A050000000000000001 /* BrowserServerTrustFingerprint.swift in Sources */,
 				C67540050000000000000001 /* BrowserSessionDownloadSaver.swift in Sources */,
 				C2035A0B000000000000001 /* BrowserSSLTrustBypassMessageHandler.swift in Sources */,
@@ -6332,6 +6404,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C4A570020000000000000001 /* KeyboardShortcutActionContext.swift in Sources */,
 				C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */,
 				A50012F7 /* KeyboardShortcutRecorder.swift in Sources */,
+				D35A00000000000000000002 /* KeyboardShortcutRecorderActivity.swift in Sources */,
 				4283FEFC /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift in Sources */,
 				A50012F3 /* KeyboardShortcutSettings.swift in Sources */,
 				A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */,
@@ -6627,6 +6700,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				76027A12C93B4538BF22C71E /* ShortcutBareStartRouting.swift in Sources */,
 				125BAEF2FE3B454547B964D1 /* ShortcutHintPill.swift in Sources */,
 				6042C0046042C0046042C004 /* ShortcutHintTitlebarPolicy.swift in Sources */,
+				D35A00000000000000000010 /* ShortcutRecorderRejectedAttempt.swift in Sources */,
 				5C3E0454B6C24B02A2F091A8 /* ShortcutRoutingSupport.swift in Sources */,
 				A6AC71020000000000000001 /* SidebarAgentActivityIndicator.swift in Sources */,
 				A6AC71040000000000000001 /* SidebarAgentActivitySummary.swift in Sources */,
@@ -6740,6 +6814,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A506000000000000000002 /* TaskManagerView.swift in Sources */,
 				C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */,
 				7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */,
+				D35A00000000000000000011 /* TerminalController+BrowserDesignMode.swift in Sources */,
+				D35A00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift in Sources */,
 				C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */,
 				C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */,
 				CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */,

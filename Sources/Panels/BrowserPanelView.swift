@@ -1116,6 +1116,7 @@ struct BrowserPanelView: View {
                     browserThemeModeButton
                 } else {
                     browserFocusModeButtonWithShortcutHint
+                    BrowserDesignModeToolbarButton(controller: panel.designModeController, iconPointSize: devToolsButtonIconSize, hitSize: addressBarButtonSize, inactiveColor: devToolsColorOption.color)
                     screenshotPageButton
                     reactGrabButton
                     browserProfileButton
@@ -1385,7 +1386,6 @@ struct BrowserPanelView: View {
                 )
             }
             .disabled(!panel.canToggleBrowserFocusMode)
-
             Button(action: handleScreenshotPageButtonAction) {
                 Label(
                     String(localized: "browser.screenshotPage.copy.help", defaultValue: "Screenshot Page to Clipboard"),
@@ -1393,7 +1393,7 @@ struct BrowserPanelView: View {
                 )
             }
             .disabled(!panel.shouldRenderWebView)
-
+            BrowserDesignModeOverflowMenuButton(controller: panel.designModeController, isAvailable: panel.shouldRenderWebView)
             Button {
                 panel.clearReactGrabRoundTrip(reason: "overflowMenu.manualStart")
                 Task { await panel.toggleOrInjectReactGrab() }

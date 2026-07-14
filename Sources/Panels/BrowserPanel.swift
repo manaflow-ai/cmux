@@ -2605,27 +2605,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 }
 
-/// Observable state for browser find-in-page. Mirrors `TerminalSurface.SearchState`.
-@MainActor
-final class BrowserSearchState: ObservableObject {
-    @Published var needle: String
-    @Published var selected: UInt?
-    @Published var total: UInt?
-
-    init(needle: String = "") {
-        self.needle = needle
-    }
-}
-
-final class BrowserPortalAnchorView: NSView {
-    override var acceptsFirstResponder: Bool { false }
-    override var isOpaque: Bool { false }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-}
-
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
     /// Popup windows owned by this panel (for lifecycle cleanup)
@@ -3020,6 +2999,21 @@ final class BrowserPanel: Panel, ObservableObject {
             reevaluateHiddenWebViewDiscardScheduling(reason: "react_grab_changed")
         }
     }
+    lazy var designModeController = BrowserDesignModeController(
+        surfaceID: id,
+        script: BrowserDesignModeScript(),
+        promptFormatter: BrowserDesignModePromptFormatter(),
+        screenshotStore: BrowserDesignModeScreenshotStore(
+            directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-browser-design-mode", isDirectory: true)
+        ),
+        canEnable: { [weak self] in
+            self?.shouldRenderWebView == true && self?.webView.url != nil
+        },
+        promptSender: { [weak self] prompt in
+            self?.sendDesignModePromptToAgent(prompt) ?? false
+        }
+    )
     var reactGrabMessageHandler: ReactGrabMessageHandler?
     var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     /// Whether the live page currently has any actively-playing `<video>` or
@@ -3689,6 +3683,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
+        designModeController.install(on: webView)
         setupSSLTrustBypassMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
         webAuthnCoordinator.install(on: webView)
@@ -3727,6 +3722,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                self.designModeController.webViewWillNavigate()
                 (webView as? CmuxWebView)?.diffViewerNavigationDidStart(navigation)
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
@@ -5306,6 +5302,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let popupsToClose = popupControllers; popupControllers.removeAll()
         for popup in popupsToClose { popup.closeAllChildPopups(); popup.closePopup() }
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
+        designModeController.webViewWillBeRemoved(webView)
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil

@@ -177,6 +177,7 @@ enum KeyboardShortcutSettings {
         case toggleBrowserDeveloperTools
         case showBrowserJavaScriptConsole
         case toggleBrowserFocusMode
+        case toggleBrowserDesignMode
         case toggleReactGrab
         case openDiffViewer
         case diffViewerScrollDown
@@ -298,6 +299,7 @@ enum KeyboardShortcutSettings {
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
             case .toggleBrowserFocusMode: return String(localized: "shortcut.toggleBrowserFocusMode.label", defaultValue: "Enter Browser Focus Mode")
+            case .toggleBrowserDesignMode: return String(localized: "shortcut.toggleBrowserDesignMode.label", defaultValue: "Toggle Browser Design Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
             case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
             case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Viewers: Scroll Down")
@@ -565,6 +567,8 @@ enum KeyboardShortcutSettings {
                 // avoids the Ctrl+Cmd+Return global hotkey some screen recorders use.
                 // Exit stays double-Escape; rebind in Settings or cmux.json.
                 return StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
+            case .toggleBrowserDesignMode:
+                return StoredShortcut(key: "d", command: true, shift: false, option: true, control: true)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .openDiffViewer:
@@ -2502,57 +2506,4 @@ extension StoredShortcut {
         guard !normalized.isEmpty else { return true }
         return normalized == "none" || normalized == "clear" || normalized == "unbound" || normalized == "disabled"
     }
-}
-
-enum KeyboardShortcutRecorderActivity {
-    static let didChangeNotification = Notification.Name("cmux.keyboardShortcutRecorderActivityDidChange")
-    static let stopAllNotification = Notification.Name("cmux.keyboardShortcutRecorderActivityStopAll")
-    private static var activeRecorderCount = 0
-
-    static var isAnyRecorderActive: Bool {
-        activeRecorderCount > 0
-    }
-
-    static func beginRecording(center: NotificationCenter = .default) {
-        let wasActive = isAnyRecorderActive
-        activeRecorderCount += 1
-        if wasActive != isAnyRecorderActive {
-            center.post(name: didChangeNotification, object: nil)
-        }
-    }
-
-    static func endRecording(center: NotificationCenter = .default) {
-        guard activeRecorderCount > 0 else { return }
-        let wasActive = isAnyRecorderActive
-        activeRecorderCount -= 1
-        if wasActive != isAnyRecorderActive {
-            center.post(name: didChangeNotification, object: nil)
-        }
-    }
-
-    static func stopAllRecording(center: NotificationCenter = .default) {
-        let wasActive = isAnyRecorderActive
-        center.post(name: stopAllNotification, object: nil)
-        guard activeRecorderCount > 0 else { return }
-        activeRecorderCount = 0
-        if wasActive {
-            center.post(name: didChangeNotification, object: nil)
-        }
-    }
-
-#if DEBUG
-    static func resetForTesting(center: NotificationCenter = .default) {
-        // Keep test isolation from broadcasting stop-all UI notifications into unrelated live windows.
-        let wasActive = isAnyRecorderActive
-        activeRecorderCount = 0
-        if wasActive {
-            center.post(name: didChangeNotification, object: nil)
-        }
-    }
-#endif
-}
-
-struct ShortcutRecorderRejectedAttempt: Equatable {
-    let reason: KeyboardShortcutSettings.ShortcutRecordingRejection
-    let proposedShortcut: StoredShortcut?
 }

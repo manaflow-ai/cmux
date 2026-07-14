@@ -1299,6 +1299,7 @@ class TerminalController {
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
+             "browser.design_mode.set", "browser.design_mode.status",
              "browser.snapshot", "browser.eval", "browser.wait", "browser.screenshot",
              "browser.click", "browser.dblclick", "browser.hover", "browser.focus",
              "browser.type", "browser.fill", "browser.press", "browser.keydown", "browser.keyup",
@@ -2483,6 +2484,7 @@ class TerminalController {
             "browser.back",
             "browser.forward",
             "browser.reload",
+            "browser.design_mode.set", "browser.design_mode.status",
             "browser.react_grab.toggle",
             "browser.devtools.toggle",
             "browser.console.show",
@@ -5811,9 +5813,10 @@ class TerminalController {
         let webView: WKWebView
     }
 
-    private func v2ResolveBrowserPanelContext(
+    func v2ResolveBrowserPanelContext(
         params: [String: Any],
-        tabManager: TabManager
+        tabManager: TabManager,
+        allowSoleBrowserFallback: Bool = false
     ) -> (context: V2BrowserPanelContext?, error: V2CallResult?) {
         let windowDockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
         if windowDockResolution.handled {
@@ -5827,7 +5830,16 @@ class TerminalController {
         if let error = resolvedSurface.error {
             return (nil, error)
         }
-        guard let surfaceId = resolvedSurface.surfaceId else {
+        var surfaceId = resolvedSurface.surfaceId
+        if allowSoleBrowserFallback,
+           !v2HasNonNullParam(params, "surface_id"),
+           !v2HasNonNullParam(params, "tab_id"),
+           !v2HasNonNullParam(params, "pane_id"),
+           surfaceId.flatMap({ ws.browserPanel(for: $0) }) == nil {
+            let browsers = ws.panels.values.compactMap { $0 as? BrowserPanel }
+            if browsers.count == 1 { surfaceId = browsers[0].id }
+        }
+        guard let surfaceId else {
             return (nil, .err(code: "not_found", message: "No focused browser surface", data: nil))
         }
         guard let browserPanel = ws.browserPanel(for: surfaceId) else {
@@ -5871,45 +5883,6 @@ class TerminalController {
             "surface_ref": v2Ref(kind: .surface, uuid: focusedPanelId),
             "tabs": tabs
         ]
-    }
-
-    private nonisolated func v2BrowserPanelFields(_ ctx: V2BrowserPanelContext, adding fields: [String: Any] = [:]) -> [String: Any] {
-        var result: [String: Any] = [
-            "workspace_id": ctx.workspaceId.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-            "surface_id": ctx.surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId)
-        ]
-        fields.forEach { result[$0.key] = $0.value }
-        return result
-    }
-
-    /// Off-main counterpart of v2BrowserWithPanel for the socket-worker browser
-    /// methods: the panel is resolved inside v2MainSync, but `body` runs on the
-    /// calling (worker) thread so blocking JavaScript waits never hold the main
-    /// actor. `body` must wrap any UI/model access of its own in v2MainSync.
-    private nonisolated func v2BrowserWithPanelContext(
-        params: [String: Any],
-        _ body: (_ ctx: V2BrowserPanelContext) -> V2CallResult
-    ) -> V2CallResult {
-        var resolved: V2BrowserPanelContext?
-        var failure: V2CallResult = .err(code: "internal_error", message: "Browser operation failed", data: nil)
-        v2MainSync {
-            guard let tabManager = v2ResolveTabManager(params: params) else {
-                failure = .err(code: "unavailable", message: "TabManager not available", data: nil)
-                return
-            }
-            let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
-            if let error = resolvedContext.error {
-                failure = error
-                return
-            }
-            guard let context = resolvedContext.context else {
-                failure = .err(code: "internal_error", message: "Browser operation failed", data: nil)
-                return
-            }
-            resolved = context
-        }
-        guard let resolved else { return failure }
-        return body(resolved)
     }
 
     private func v2ResolveBrowserSurfaceId(
@@ -6035,13 +6008,6 @@ class TerminalController {
             return .failure(resultError)
         }
         return .success(outcome.0)
-    }
-
-    private nonisolated func v2AwaitCallback<T>(
-        timeout: TimeInterval,
-        start: (@escaping (T) -> Void) -> Void
-    ) -> T? {
-        socketAwaitCallback(timeout: timeout, start: start)
     }
 
     private nonisolated func v2WaitForBrowserCondition(
@@ -8963,6 +8929,8 @@ class TerminalController {
     /// See ControlCommandExecutionPolicy for why these must not hold the main actor.
     private nonisolated func v2BrowserAutomationCommandOnSocketWorker(method: String, params: [String: Any]) -> V2CallResult {
         switch method {
+        case "browser.design_mode.set": return v2BrowserDesignMode(params: params, statusOnly: false)
+        case "browser.design_mode.status": return v2BrowserDesignMode(params: params, statusOnly: true)
         case "browser.navigate": return v2BrowserNavigate(params: params)
         case "browser.back": return v2BrowserBack(params: params)
         case "browser.forward": return v2BrowserForward(params: params)
