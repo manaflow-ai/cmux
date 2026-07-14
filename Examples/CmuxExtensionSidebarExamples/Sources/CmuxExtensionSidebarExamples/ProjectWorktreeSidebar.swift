@@ -32,13 +32,21 @@ public struct ProjectWorktreeSidebar: CmuxSidebarProvider {
         var grouped: [String: [CmuxSidebarProviderWorkspace]] = [:]
         var orderedProjectRoots: [String] = []
 
-        for workspace in snapshot.workspaces where !workspace.isPinned {
-            let key = projectRoot(for: workspace) ?? "no-folder"
+        for workspace in snapshot.workspaces {
+            let key: String
+            if let projectRoot = projectRoot(for: workspace) {
+                key = projectRoot
+            } else {
+                guard !workspace.isPinned else { continue }
+                key = "no-folder"
+            }
             if grouped[key] == nil {
                 grouped[key] = []
                 orderedProjectRoots.append(key)
             }
-            grouped[key]?.append(workspace)
+            if !workspace.isPinned {
+                grouped[key]?.append(workspace)
+            }
         }
 
         for root in orderedProjectRoots {

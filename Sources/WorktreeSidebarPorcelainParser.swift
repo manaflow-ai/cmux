@@ -3,6 +3,12 @@ import Foundation
 /// Parses Git's stable worktree porcelain format into value snapshots.
 struct WorktreeSidebarPorcelainParser: Sendable {
     func parse(_ output: String) -> [WorktreeSidebarWorktree] {
+        output.contains("\0")
+            ? parse(fields: output.split(separator: "\0", omittingEmptySubsequences: false).map(String.init))
+            : parse(fields: output.components(separatedBy: .newlines))
+    }
+
+    private func parse(fields: [String]) -> [WorktreeSidebarWorktree] {
         var parsed: [WorktreeSidebarWorktree] = []
         var record = Record()
 
@@ -29,26 +35,26 @@ struct WorktreeSidebarPorcelainParser: Sendable {
             record = Record()
         }
 
-        for line in output.components(separatedBy: .newlines) {
-            if line.isEmpty {
+        for field in fields {
+            if field.isEmpty {
                 flush()
-            } else if line.hasPrefix("worktree ") {
+            } else if field.hasPrefix("worktree ") {
                 if record.path != nil { flush() }
-                record.path = String(line.dropFirst("worktree ".count))
-            } else if line.hasPrefix("HEAD ") {
-                record.head = String(line.dropFirst("HEAD ".count))
-            } else if line.hasPrefix("branch ") {
-                record.branchRef = String(line.dropFirst("branch ".count))
-            } else if line == "detached" {
+                record.path = String(field.dropFirst("worktree ".count))
+            } else if field.hasPrefix("HEAD ") {
+                record.head = String(field.dropFirst("HEAD ".count))
+            } else if field.hasPrefix("branch ") {
+                record.branchRef = String(field.dropFirst("branch ".count))
+            } else if field == "detached" {
                 record.isDetached = true
-            } else if line == "bare" {
+            } else if field == "bare" {
                 record.isBare = true
-            } else if line == "locked" || line.hasPrefix("locked ") {
+            } else if field == "locked" || field.hasPrefix("locked ") {
                 record.isLocked = true
-                record.lockReason = Self.suffix(after: "locked", in: line)
-            } else if line == "prunable" || line.hasPrefix("prunable ") {
+                record.lockReason = Self.suffix(after: "locked", in: field)
+            } else if field == "prunable" || field.hasPrefix("prunable ") {
                 record.isPrunable = true
-                record.prunableReason = Self.suffix(after: "prunable", in: line)
+                record.prunableReason = Self.suffix(after: "prunable", in: field)
             }
         }
         flush()

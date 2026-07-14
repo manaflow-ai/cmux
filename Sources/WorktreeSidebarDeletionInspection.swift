@@ -8,12 +8,17 @@ struct WorktreeSidebarDeletionInspection: Equatable, Sendable {
 
     let worktree: WorktreeSidebarWorktree
     let statusPorcelain: String
+    let ignoredStatusPorcelain: String
     let unpushedCommitCount: Int
     let branchDisposition: BranchDisposition
     let hasInitializedSubmodules: Bool
 
     var hasUncommittedChanges: Bool {
         !statusPorcelain.isEmpty
+    }
+
+    var hasIgnoredFiles: Bool {
+        !ignoredStatusPorcelain.isEmpty
     }
 
     var requiresForceRemoval: Bool {

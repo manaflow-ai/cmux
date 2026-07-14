@@ -49,6 +49,7 @@ struct WorktreeSidebarDialogPresenter {
 
         var lines = [pathLine(inspection.worktree.path)]
         lines.append(uncommittedLine(inspection))
+        lines.append(ignoredFilesLine(inspection))
         lines.append(unpushedLine(inspection))
         lines.append(branchLine(inspection.branchDisposition))
         if inspection.hasInitializedSubmodules {
@@ -177,6 +178,24 @@ struct WorktreeSidebarDialogPresenter {
             defaultValue: "Unpushed commits unique to this branch: Yes (%lld not reachable from another local or remote-tracking branch)"
         )
         return String.localizedStringWithFormat(format, Int64(count))
+    }
+
+    private func ignoredFilesLine(_ inspection: WorktreeSidebarDeletionInspection) -> String {
+        if inspection.worktree.isPrunable {
+            return String(
+                localized: "worktreeSidebar.delete.ignored.missing",
+                defaultValue: "Ignored files at risk: No working directory remains to inspect."
+            )
+        }
+        return inspection.hasIgnoredFiles
+            ? String(
+                localized: "worktreeSidebar.delete.ignored.yes",
+                defaultValue: "Ignored files at risk: Yes. Removing the worktree permanently deletes them."
+            )
+            : String(
+                localized: "worktreeSidebar.delete.ignored.no",
+                defaultValue: "Ignored files at risk: No"
+            )
     }
 
     private func branchLine(

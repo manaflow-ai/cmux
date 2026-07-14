@@ -53,20 +53,24 @@ final class WorktreeSidebarModel {
     @ObservationIgnored private var listingWatcher: RecursivePathWatcher?
     @ObservationIgnored private var listingWatcherTask: Task<Void, Never>?
     @ObservationIgnored private var statusTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var statusDebounceTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var statusWatcherInstallTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var statusWatchers: [String: RecursivePathWatcher] = [:]
     @ObservationIgnored private var statusWatcherTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private let statusDebounceDuration: Duration
 
     init(
         projectRootPath: String,
         git: (any WorktreeSidebarGitOperating)? = nil,
         dialogs: WorktreeSidebarDialogPresenter? = nil,
-        workspaces: WorktreeSidebarWorkspaceController
+        workspaces: WorktreeSidebarWorkspaceController,
+        statusDebounceDuration: Duration = .milliseconds(750)
     ) {
         self.projectRootPath = projectRootPath
         self.git = git ?? WorktreeSidebarGitService()
         self.dialogs = dialogs ?? WorktreeSidebarDialogPresenter()
         self.workspaces = workspaces
+        self.statusDebounceDuration = statusDebounceDuration
     }
 
     var isRefreshing: Bool { listingPhase == .loading }
@@ -141,7 +145,10 @@ final class WorktreeSidebarModel {
     }
 
     func openTerminal(for row: WorktreeSidebarRow) {
-        guard !row.worktree.isPrunable else { return }
+        guard !row.worktree.isPrunable,
+              operationPhase != .removing(row.id) else {
+            return
+        }
         workspaces.openTerminal(WorktreeSidebarWorkspaceRequest(
             worktreePath: row.worktree.path,
             title: row.worktree.name
@@ -172,17 +179,16 @@ final class WorktreeSidebarModel {
                     return
                 }
 
-                let closePlan = workspaces.closePlan(
-                    worktreePath: inspection.worktree.path,
-                    fallbackDirectory: projectRootPath
-                )
                 operationPhase = .removing(row.id)
                 let result = try await git.removeWorktree(
                     projectRootPath: projectRootPath,
                     expected: inspection,
                     force: force
                 )
-                workspaces.apply(closePlan)
+                workspaces.apply(workspaces.closePlan(
+                    worktreePath: inspection.worktree.path,
+                    fallbackDirectory: projectRootPath
+                ))
                 if case .preserved(let name, let reason) = result.branch {
                     dialogs.presentPreservedBranch(name: name, reason: reason)
                 }
@@ -268,7 +274,7 @@ final class WorktreeSidebarModel {
         }
         rebuildRows()
         for path in visiblePaths {
-            requestStatusRefresh(path: path)
+            scheduleStatusRefresh(path: path)
             reconcileStatusWatcher(path: path)
         }
         reconcileListingWatcher()
@@ -323,7 +329,7 @@ final class WorktreeSidebarModel {
                 rebuildRows()
             }
             if statusRefreshPendingPaths.remove(path) != nil {
-                requestStatusRefresh(path: path)
+                scheduleStatusRefresh(path: path)
             }
         }
         statusTasks[path] = task
@@ -381,7 +387,7 @@ final class WorktreeSidebarModel {
                     let marker = URL(fileURLWithPath: path, isDirectory: true)
                         .appendingPathComponent(".git", isDirectory: false)
                     if FileManager.default.fileExists(atPath: marker.path) {
-                        requestStatusRefresh(path: path)
+                        scheduleStatusRefresh(path: path)
                     } else {
                         refresh()
                     }
@@ -391,6 +397,7 @@ final class WorktreeSidebarModel {
     }
 
     private func stopStatusTracking(path: String) {
+        statusDebounceTasks.removeValue(forKey: path)?.cancel()
         statusTasks.removeValue(forKey: path)?.cancel()
         statusRequestIDs[path] = nil
         statusRefreshPendingPaths.remove(path)
@@ -398,6 +405,23 @@ final class WorktreeSidebarModel {
         statusWatcherTasks.removeValue(forKey: path)?.cancel()
         if let watcher = statusWatchers.removeValue(forKey: path) {
             Task { await watcher.stop() }
+        }
+    }
+
+    private func scheduleStatusRefresh(path: String) {
+        guard statusDebounceTasks[path] == nil else { return }
+        let delay = statusDebounceDuration
+        // This bounded, cancellable delay rate-limits sustained watcher output.
+        // Hiding the row cancels it; later events cannot postpone refresh forever.
+        statusDebounceTasks[path] = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(for: delay)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            statusDebounceTasks[path] = nil
+            requestStatusRefresh(path: path)
         }
     }
 

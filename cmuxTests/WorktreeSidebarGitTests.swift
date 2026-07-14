@@ -11,27 +11,19 @@ import Testing
 struct WorktreeSidebarGitTests {
     @Test("porcelain parser preserves lock and prune reasons")
     func parsesPorcelainAnnotations() throws {
-        let output = """
-        worktree /repo
-        HEAD 1111111111111111111111111111111111111111
-        branch refs/heads/main
-
-        worktree /repo worktree
-        HEAD 2222222222222222222222222222222222222222
-        branch refs/heads/feature/manual
-        locked editor is using it
-
-        worktree /missing worktree
-        HEAD 3333333333333333333333333333333333333333
-        detached
-        prunable gitdir file points to non-existent location
-
-        """
+        let output = [
+            "worktree /repo", "HEAD 1111111111111111111111111111111111111111", "branch refs/heads/main", "",
+            "worktree /repo worktree\nnewline", "HEAD 2222222222222222222222222222222222222222",
+            "branch refs/heads/feature/manual", "locked editor is using it", "",
+            "worktree /missing worktree", "HEAD 3333333333333333333333333333333333333333",
+            "detached", "prunable gitdir file points to non-existent location", "",
+        ].joined(separator: "\0")
 
         let parsed = WorktreeSidebarPorcelainParser().parse(output)
         #expect(parsed.count == 3)
         #expect(parsed[0].isMain)
         #expect(parsed[1].branchName == "feature/manual")
+        #expect(parsed[1].path.hasSuffix("/repo worktree\nnewline"))
         #expect(parsed[1].isLocked)
         #expect(parsed[1].lockReason == "editor is using it")
         #expect(parsed[2].isPrunable)
@@ -53,7 +45,7 @@ struct WorktreeSidebarGitTests {
     func listsShellCreatedWorktreesAndVisibleDirtyState() async throws {
         let fixture = try makeRepository()
         defer { try? FileManager.default.removeItem(at: fixture.container) }
-        let manual = fixture.container.appendingPathComponent("manual worktree", isDirectory: true)
+        let manual = fixture.container.appendingPathComponent("manual\nworktree", isDirectory: true)
         _ = try runGit(["worktree", "add", "-b", "manual", manual.path, "HEAD"], in: fixture.repo)
 
         let service = WorktreeSidebarGitService(commandTimeout: 10)
@@ -115,6 +107,10 @@ struct WorktreeSidebarGitTests {
         defer { try? FileManager.default.removeItem(at: fixture.container) }
         let worktree = fixture.container.appendingPathComponent("merged", isDirectory: true)
         _ = try runGit(["worktree", "add", "-b", "merged", worktree.path, "HEAD"], in: fixture.repo)
+        try Data(".ignored\n".utf8).write(
+            to: fixture.repo.appendingPathComponent(".git/info/exclude")
+        )
+        try Data("at risk\n".utf8).write(to: worktree.appendingPathComponent(".ignored"))
 
         let service = WorktreeSidebarGitService(commandTimeout: 10)
         let inspection = try await service.inspectDeletion(
@@ -122,6 +118,8 @@ struct WorktreeSidebarGitTests {
             worktreePath: worktree.path
         )
         #expect(!inspection.hasUncommittedChanges)
+        #expect(inspection.hasIgnoredFiles)
+        #expect(!inspection.requiresForceRemoval)
         #expect(inspection.unpushedCommitCount == 0)
         #expect(inspection.branchDisposition == .deleteMerged("merged"))
 
@@ -342,8 +340,11 @@ struct WorktreeSidebarGitTests {
         let fixture = try makeRepository()
         defer { try? FileManager.default.removeItem(at: fixture.container) }
         let worktree = fixture.container.appendingPathComponent("orphan", isDirectory: true)
+        let other = fixture.container.appendingPathComponent("other-orphan", isDirectory: true)
         _ = try runGit(["worktree", "add", "-b", "orphan", worktree.path, "HEAD"], in: fixture.repo)
+        _ = try runGit(["worktree", "add", "-b", "other-orphan", other.path, "HEAD"], in: fixture.repo)
         try FileManager.default.removeItem(at: worktree)
+        try FileManager.default.removeItem(at: other)
 
         let service = WorktreeSidebarGitService(commandTimeout: 10)
         let listed = try await service.listWorktrees(projectRootPath: fixture.repo.path)
@@ -359,7 +360,8 @@ struct WorktreeSidebarGitTests {
         )
         #expect(result.removal == .pruned)
         let refreshed = try await service.listWorktrees(projectRootPath: fixture.repo.path)
-        #expect(refreshed.count == 1)
+        #expect(refreshed.count == 2)
+        #expect(refreshed.contains { $0.path == canonical(other) && $0.isPrunable })
     }
 
     @Test("linked worktree grouping resolves to the main checkout")

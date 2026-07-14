@@ -27,7 +27,7 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
     func listWorktrees(projectRootPath: String) async throws -> [WorktreeSidebarWorktree] {
         let output = try await checkedGit(
             projectRootPath: projectRootPath,
-            arguments: ["worktree", "list", "--porcelain", "--expire", "now"],
+            arguments: ["worktree", "list", "--porcelain", "-z", "--expire", "now"],
             operation: .list,
             optionalLocks: true
         )
@@ -61,8 +61,8 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
         }
 
         let status = worktree.isPrunable
-            ? ""
-            : try await statusPorcelain(
+            ? StatusSnapshot()
+            : try await deletionStatusSnapshot(
                 projectRootPath: projectRootPath,
                 worktreePath: worktree.path
             )
@@ -87,7 +87,8 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             )
         return WorktreeSidebarDeletionInspection(
             worktree: worktree,
-            statusPorcelain: status,
+            statusPorcelain: status.uncommitted,
+            ignoredStatusPorcelain: status.ignored,
             unpushedCommitCount: unpushedCommitCount,
             branchDisposition: branchDisposition,
             hasInitializedSubmodules: hasInitializedSubmodules
@@ -115,7 +116,10 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
 
         let removal: WorktreeSidebarDeletionResult.Removal
         if current.worktree.isPrunable {
-            try await prune(projectRootPath: projectRootPath)
+            try await removeStaleRegistration(
+                projectRootPath: projectRootPath,
+                worktreePath: current.worktree.path
+            )
             removal = .pruned
         } else {
             var arguments = ["worktree", "remove"]
@@ -129,8 +133,7 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             if isSuccessful(result) {
                 removal = .removed
             } else if commandDetails(result).localizedCaseInsensitiveContains("is not a working tree") {
-                try await prune(projectRootPath: projectRootPath)
-                removal = .pruned
+                throw WorktreeSidebarGitError.worktreeChanged
             } else {
                 throw WorktreeSidebarGitError.commandFailed(
                     .remove,
@@ -242,12 +245,37 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
     ) async throws -> String {
         try await checkedGit(
             projectRootPath: projectRootPath,
+            arguments: ["-C", worktreePath, "status", "--porcelain", "--untracked-files=all"],
+            operation: .status,
+            optionalLocks: true
+        )
+    }
+
+    private func deletionStatusSnapshot(
+        projectRootPath: String,
+        worktreePath: String
+    ) async throws -> StatusSnapshot {
+        let output = try await checkedGit(
+            projectRootPath: projectRootPath,
             arguments: [
-                "-C", worktreePath,
-                "status", "--porcelain", "--untracked-files=all",
+                "-C", worktreePath, "status", "--porcelain=v1", "-z",
+                "--untracked-files=all", "--ignored",
             ],
             operation: .status,
             optionalLocks: true
+        )
+        var uncommitted: [Substring] = []
+        var ignored: [Substring] = []
+        for entry in output.split(separator: "\0") {
+            if entry.hasPrefix("!! ") {
+                ignored.append(entry)
+            } else {
+                uncommitted.append(entry)
+            }
+        }
+        return StatusSnapshot(
+            uncommitted: uncommitted.joined(separator: "\0"),
+            ignored: ignored.joined(separator: "\0")
         )
     }
 
@@ -366,10 +394,13 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             : .preserved(branchName, reason: commandDetails(result))
     }
 
-    private func prune(projectRootPath: String) async throws {
+    private func removeStaleRegistration(
+        projectRootPath: String,
+        worktreePath: String
+    ) async throws {
         _ = try await checkedGit(
             projectRootPath: projectRootPath,
-            arguments: ["worktree", "prune", "--expire", "now"],
+            arguments: ["worktree", "remove", worktreePath],
             operation: .prune,
             optionalLocks: false
         )
@@ -432,13 +463,13 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             return await commands.run(
                 directory: projectRootPath,
                 executable: "/usr/bin/env",
-                arguments: ["GIT_OPTIONAL_LOCKS=0", "git", "-C", projectRootPath] + arguments,
+                arguments: ["GIT_OPTIONAL_LOCKS=0", "/usr/bin/git", "-C", projectRootPath] + arguments,
                 timeout: timeout
             )
         }
         return await commands.run(
             directory: projectRootPath,
-            executable: "git",
+            executable: "/usr/bin/git",
             arguments: ["-C", projectRootPath] + arguments,
             timeout: timeout
         )
@@ -459,5 +490,10 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             .standardizedFileURL
             .resolvingSymlinksInPath()
             .path
+    }
+
+    private struct StatusSnapshot {
+        var uncommitted = ""
+        var ignored = ""
     }
 }
