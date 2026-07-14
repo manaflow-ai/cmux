@@ -49,6 +49,7 @@ struct AppState {
     port: u16,
     manifests: Arc<RwLock<HashMap<String, CachedManifest>>>,
     child_processes: Arc<Semaphore>,
+    retain_rpc_session_ownership: bool,
 }
 
 #[derive(Clone)]
@@ -126,7 +127,7 @@ pub async fn run(config: ServerConfig) -> Result<(), String> {
         .port();
     write_state_file(&config, port).await?;
 
-    let state = app_state(config, port)?;
+    let state = app_state(config, port, false)?;
     let app = router(state);
 
     let mut stdout = tokio::io::stdout();
@@ -140,7 +141,11 @@ pub async fn run(config: ServerConfig) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
+fn app_state(
+    config: ServerConfig,
+    port: u16,
+    retain_rpc_session_ownership: bool,
+) -> Result<AppState, String> {
     Ok(AppState {
         config: Arc::new(config),
         client: reqwest::Client::builder()
@@ -151,6 +156,7 @@ fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
         port,
         manifests: Arc::new(RwLock::new(HashMap::new())),
         child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
+        retain_rpc_session_ownership,
     })
 }
 
@@ -186,12 +192,26 @@ pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
 async fn run_rpc_request(config: ServerConfig) -> Result<(), String> {
     let response = match read_rpc_request(tokio::io::stdin(), RPC_STDIN_READ_TIMEOUT).await? {
         RpcRequestRead::Request(request) => {
-            let state = app_state(config, 0)?;
+            let state = app_state(config.clone(), 0, true)?;
             handle_protocol_request(request, Some(&state)).await
         }
         RpcRequestRead::Rejected(response) => response,
     };
-    write_rpc_response(&response).await
+    write_rpc_response(&response).await?;
+    if let Some(path) = rpc_generated_session_path(&config.root, &response) {
+        let _ = unregister_session_temp(&config.root, &path);
+    }
+    Ok(())
+}
+
+fn rpc_generated_session_path(root: &Path, response: &DiffResponse) -> Option<PathBuf> {
+    let DiffResult::SessionOpened(opened) = response.result.as_ref()? else {
+        return None;
+    };
+    if matches!(opened.source, DiffSource::Patch { .. }) {
+        return None;
+    }
+    Some(root.join(format!("diff-session-{}.patch", opened.session_id)))
 }
 
 enum RpcRequestRead {
@@ -571,7 +591,9 @@ async fn open_session(
         return Err(SessionOpenError::Failed);
     }
     temporary_file.disarm();
-    let _ = unregister_session_temp(&state.config.root, &final_path);
+    if !state.retain_rpc_session_ownership {
+        let _ = unregister_session_temp(&state.config.root, &final_path);
+    }
 
     Ok(SessionOpened {
         session_id,

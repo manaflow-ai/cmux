@@ -950,12 +950,12 @@ function BaseControl({
   payload: any;
   transport: DiffTransport | null;
 }) {
-  if (activeSessionSource?.kind === "branch" && activeSessionSource.baseRef && transport) {
+  if (activeSessionSource?.kind === "branch" && transport) {
     const typedPicker: BranchPickerPayload = {
       repoRoot: activeSessionSource.repoRoot,
       capabilityToken: payload.capabilityToken,
       headRef: "HEAD",
-      currentRef: activeSessionSource.baseRef,
+      currentRef: activeSessionSource.baseRef ?? "",
       currentReason: "",
       confidence: "high",
       aheadBehind: null,
