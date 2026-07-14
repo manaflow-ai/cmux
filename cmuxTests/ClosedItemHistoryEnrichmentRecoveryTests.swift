@@ -59,7 +59,7 @@ extension ClosedItemHistoryAgentEnrichmentTests {
         ))
         let closeID = UUID()
         let closeDeferrer = AgentMetadataCloseDeferrer()
-        let closeTask = closeDeferrer.deferClose(id: closeID, until: captureTask) {
+        let closeTask = closeDeferrer.deferClose(id: closeID, until: captureTask.enrichmentTask) {
             closeCount.withLock { $0 += 1 }
         }
 
@@ -129,7 +129,7 @@ extension ClosedItemHistoryAgentEnrichmentTests {
         ))
         let closeID = UUID()
         let closeDeferrer = AgentMetadataCloseDeferrer()
-        let closeTask = closeDeferrer.deferClose(id: closeID, until: captureTask) {
+        let closeTask = closeDeferrer.deferClose(id: closeID, until: captureTask.enrichmentTask) {
             closeCount.withLock { $0 += 1 }
         }
         let timeoutDriver = Task {
