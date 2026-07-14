@@ -179,7 +179,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
     }
 
-    func testRightSidebarTitlebarToggleAndInternalCloseStayAvailable() {
+    func testRightSidebarUsesCloseButtonWhenVisibleAndTitlebarToggleWhenHidden() {
         let (app, dataPath) = launchConfiguredApp(
             presentationMode: .standard,
             showRightSidebar: true,
@@ -203,16 +203,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
 
         let titlebarToggle = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleRightSidebar").firstMatch
-        XCTAssertTrue(
-            titlebarToggle.waitForExistence(timeout: 5.0),
-            "Expected the right sidebar toggle at the trailing edge of the titlebar."
-        )
-        XCTAssertTrue(
-            waitForCondition(timeout: 3.0) { titlebarToggle.isHittable },
-            "Expected the trailing titlebar toggle to be hittable. button=\(titlebarToggle.debugDescription)"
-        )
-        XCTAssertTrue(titlebarToggle.isSelected, "Expected the toggle to reflect the visible sidebar state.")
-        let visibleToggleFrame = titlebarToggle.frame
+        XCTAssertFalse(titlebarToggle.exists, "Expected the open sidebar X to replace the title-bar toggle.")
 
         for mode in ["files", "find", "sessions"] {
             let modeButton = app.buttons["RightSidebarModeButton.\(mode)"]
@@ -240,31 +231,21 @@ final class BonsplitTabDragUITests: XCTestCase {
             closeButton.frame.minX,
             "Expected open-as-pane to remain immediately left of the internal close control."
         )
-        XCTAssertLessThan(
-            closeButton.frame.maxX,
-            titlebarToggle.frame.minX,
-            "Expected the right-sidebar toggle after the existing close control."
-        )
-
-        titlebarToggle.click()
+        closeButton.click()
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
                 titlebarToggle.exists && titlebarToggle.isHittable
                     && !titlebarToggle.isSelected && !closeButton.isHittable
             },
-            "Expected the titlebar toggle to stay available after hiding the right sidebar."
+            "Expected the title-bar toggle to replace X after hiding the right sidebar."
         )
-        XCTAssertEqual(titlebarToggle.frame.midX, visibleToggleFrame.midX, accuracy: 0.5)
-        XCTAssertEqual(titlebarToggle.frame.midY, visibleToggleFrame.midY, accuracy: 0.5)
 
         titlebarToggle.click()
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
-                titlebarToggle.exists && titlebarToggle.isHittable
-                    && titlebarToggle.isSelected && closeButton.isHittable
-                    && shortcutHint.exists
+                !titlebarToggle.exists && closeButton.isHittable && shortcutHint.exists
             },
-            "Expected the same toggle to reopen the right sidebar."
+            "Expected reopening the sidebar to replace the title-bar toggle with X."
         )
 
         closeButton.click()
