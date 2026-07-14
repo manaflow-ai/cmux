@@ -399,6 +399,16 @@ struct CmuxRunURLRequestTests {
         )
     }
 
+    @Test func resolutionDeadlineDoesNotWaitForProcessTermination() async {
+        let gate = CmuxRunWorkingDirectoryProcessGate()
+        let waiter = Task {
+            await gate.value()
+        }
+
+        #expect(await gate.requestTimeout())
+        #expect(await waiter.value == .timedOut)
+    }
+
     @Test func concurrentResolutionDoesNotSpawnASecondProcess() async throws {
         let (started, startedContinuation) = AsyncStream<Void>.makeStream()
         let resolver = CmuxRunWorkingDirectoryResolver { _ in
