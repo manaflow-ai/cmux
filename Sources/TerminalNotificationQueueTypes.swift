@@ -1,6 +1,15 @@
 import CmuxRemoteSession
 import Foundation
 
+enum TerminalNotificationQueueErrorMessages {
+    static var saturated: String {
+        String(
+            localized: "notification.queue.error.saturated",
+            defaultValue: "ERROR: notification queue saturated; retry"
+        )
+    }
+}
+
 struct QueuedTerminalNotificationKey: Hashable, Sendable {
     let tabId: UUID
     let surfaceId: UUID?
