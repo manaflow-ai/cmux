@@ -694,6 +694,7 @@ jobs:
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/NotificationRowSnapshotBoundaryTests \
             -only-testing:cmuxTests/NotificationScrollRestoreLifecycleTests \
+            -only-testing:cmuxTests/NotificationScrollRestoreRecoveryTests \
             test
 
       - name: Run unit tests

@@ -9,12 +9,16 @@ extension TerminalPanel {
 }
 
 extension GhosttyApp {
-    func handleCurrentDirectoryAction(_ directory: String, actionSequence: UInt64, surfaceView: GhosttyNSView) {
+    func handleCurrentDirectoryAction(
+        _ directory: String,
+        authoritativeGeometry: NotificationScrollRestoreGeometry?,
+        surfaceView: GhosttyNSView
+    ) {
         let terminalSurface = surfaceView.terminalSurface
-        DispatchQueue.main.async {
+        performOnMain {
             if terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(
                 directory,
-                actionSequence: actionSequence
+                authoritativeGeometry: authoritativeGeometry
             ) == true {
                 return
             }
@@ -30,40 +34,31 @@ extension GhosttyApp {
 }
 
 extension GhosttyNSView {
-    func nextTerminalActionSequence() -> UInt64 {
-        _scrollbarLock.lock()
-        _terminalActionSequence &+= 1
-        let sequence = _terminalActionSequence
-        _scrollbarLock.unlock()
-        return sequence
-    }
-
-    func flushPendingScrollbarIfAvailable() -> Bool {
-        _scrollbarLock.lock()
-        let hasPending = _pendingScrollbar != nil
-        _scrollbarLock.unlock()
-        guard hasPending else { return false }
-        flushPendingScrollbar()
-        return true
-    }
-
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.
         let retention = GhosttyApp.renderedFrameNotificationDemand.retain()
         return { retention.release() }
     }
 
-    func retainTargetedRenderedFrameNotifications() -> () -> Void {
-        let retention = targetedRenderedFrameNotificationDemand.retain()
-        return { retention.release() }
+    @objc dynamic func readAuthoritativeScrollbar(
+        _ result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
+    ) -> Bool {
+        guard let surface = terminalSurface?.surface else { return false }
+        return ghostty_surface_scrollbar(surface, result)
     }
 
-    var hasRenderedFrameNotificationDemand: Bool {
-        GhosttyApp.renderedFrameNotificationDemand.isActive ||
-            targetedRenderedFrameNotificationDemand.isActive
+    @objc dynamic func scrollToRow(
+        _ row: UInt64,
+        ifRowSpaceRevisionMatches rowSpaceRevision: UInt64,
+        result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
+    ) -> Bool {
+        guard let surface = terminalSurface?.surface else { return false }
+        return ghostty_surface_scroll_to_row_if_revision(
+            surface,
+            row,
+            rowSpaceRevision,
+            result
+        )
     }
 
-    func currentRenderedFrameSourceGeneration() -> UInt64 {
-        (layer as? GhosttyMetalLayer)?.currentFrameGeneration() ?? 0
-    }
 }
