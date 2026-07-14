@@ -22,10 +22,15 @@ import CmuxGit
         return service
     }
 
-    private func waitUntil(maxYields: Int = 5_000, _ predicate: () -> Bool) async -> Bool {
-        for _ in 0..<maxYields {
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        _ predicate: () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
             if predicate() { return true }
-            await Task.yield()
+            try? await clock.sleep(for: .milliseconds(1))
         }
         return predicate()
     }

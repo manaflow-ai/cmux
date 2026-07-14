@@ -31,6 +31,20 @@ import Testing
 @MainActor
 @Suite("File preview editor TextKit backing", .serialized)
 struct FilePreviewTextEditorTextKitTests {
+    @Test("panel-owned editor session preserves native selection across remounts")
+    func panelOwnedSessionPreservesSelectionAcrossRemounts() {
+        let session = FilePreviewTextEditorSession()
+        let first = session.editorViews()
+        first.textView.string = "alpha beta gamma"
+        first.textView.setSelectedRange(NSRange(location: 6, length: 4))
+
+        let remounted = session.editorViews()
+
+        #expect(remounted.scrollView === first.scrollView)
+        #expect(remounted.textView === first.textView)
+        #expect(remounted.textView.selectedRange() == NSRange(location: 6, length: 4))
+    }
+
     @Test("makeFilePreviewTextView is a pure TextKit 1 view (no TextKit 2 selection path)")
     func editorIsPureTextKit1() {
         let textView = SavingTextView.makeFilePreviewTextView()
