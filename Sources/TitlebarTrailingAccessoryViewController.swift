@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 final class TitlebarTrailingAccessoryViewController: NSTitlebarAccessoryViewController {
     let fileExplorerState: FileExplorerState
+    private let layoutState: TitlebarTrailingControlsLayoutState
     private let hostingView: TitlebarTrailingAccessoryHostingView
     private var controlsAreVisible: Bool
     private var ownsReservation = true
@@ -16,6 +17,7 @@ final class TitlebarTrailingAccessoryViewController: NSTitlebarAccessoryViewCont
         onToggleRightSidebar: @escaping () -> Void
     ) {
         self.fileExplorerState = fileExplorerState
+        self.layoutState = fileExplorerState.titlebarTrailingControlsLayoutState
         self.controlsAreVisible = isVisible
         let hostingView = TitlebarTrailingAccessoryHostingView(
             rootView: TitlebarTrailingControls(
@@ -81,7 +83,7 @@ final class TitlebarTrailingAccessoryViewController: NSTitlebarAccessoryViewCont
 
     private func publishReservationWidth(_ width: CGFloat) {
         guard ownsReservation else { return }
-        fileExplorerState.setTrailingTitlebarControlsReservationWidth(width)
+        layoutState.setReservationWidth(width)
     }
 
     private func applyVisibility() {

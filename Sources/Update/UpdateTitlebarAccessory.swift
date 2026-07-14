@@ -2659,7 +2659,7 @@ final class UpdateTitlebarAccessoryController {
     private func applyAccessoryVisibility(for window: NSWindow) {
         guard canAccessTitlebarAccessories(on: window) else {
             AppDelegate.shared?.contextForMainWindow(window)?.fileExplorerState?
-                .setTrailingTitlebarControlsReservationWidth(0)
+                .titlebarTrailingControlsLayoutState.setReservationWidth(0)
             attachedWindows.remove(window)
             pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
             return
@@ -2681,7 +2681,7 @@ final class UpdateTitlebarAccessoryController {
     private func removeAccessoryIfPresent(from window: NSWindow) {
         guard canAccessTitlebarAccessories(on: window) else {
             AppDelegate.shared?.contextForMainWindow(window)?.fileExplorerState?
-                .setTrailingTitlebarControlsReservationWidth(0)
+                .titlebarTrailingControlsLayoutState.setReservationWidth(0)
             attachedWindows.remove(window)
             pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
             return

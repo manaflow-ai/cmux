@@ -244,7 +244,9 @@ struct RightSidebarPanelView: View {
                 }
                 RightSidebarHeaderCloseButton(action: onClose)
                 Spacer(minLength: 0)
-                trailingTitlebarControlReservation
+                RightSidebarTitlebarControlReservation(
+                    layoutState: fileExplorerState.titlebarTrailingControlsLayoutState
+                )
             }
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
@@ -285,16 +287,6 @@ struct RightSidebarPanelView: View {
         )
         .accessibilityIdentifier("RightSidebar.openAsPaneButton")
         .titlebarInteractiveControl()
-    }
-
-    private var trailingTitlebarControlReservation: some View {
-        Color.clear
-        .frame(
-            width: fileExplorerState.trailingTitlebarControlsReservationWidth,
-            height: RightSidebarChromeMetrics.headerControlSize
-        )
-        .rightSidebarHeaderControlAlignment()
-        .accessibilityHidden(true)
     }
 
     @ViewBuilder

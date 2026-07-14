@@ -14,9 +14,8 @@ final class FileExplorerState: ObservableObject {
         didSet { UserDefaults.standard.set(Double(width), forKey: "fileExplorer.width") }
     }
 
-    /// Live width occupied by the native trailing title-bar accessory in this window.
-    /// Runtime-only: the AppKit host owns measurement and clears it when hidden or detached.
-    @Published private(set) var trailingTitlebarControlsReservationWidth: CGFloat = 0
+    /// Runtime-only title-bar geometry kept outside this broadly observed legacy model.
+    @MainActor private(set) lazy var titlebarTrailingControlsLayoutState = TitlebarTrailingControlsLayoutState()
 
     /// Proportion of sidebar height allocated to the tab list (0.0-1.0).
     /// The file explorer gets the remaining space below.
@@ -101,12 +100,6 @@ final class FileExplorerState: ObservableObject {
         withTransaction(transaction) {
             isVisible = nextValue
         }
-    }
-
-    func setTrailingTitlebarControlsReservationWidth(_ rawWidth: CGFloat) {
-        let width = rawWidth.isFinite ? max(0, rawWidth) : 0
-        guard abs(width - trailingTitlebarControlsReservationWidth) > 0.5 else { return }
-        trailingTitlebarControlsReservationWidth = width
     }
 
     private func setMode(_ mode: RightSidebarMode, defaults: UserDefaults = .standard) {

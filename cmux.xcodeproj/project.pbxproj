@@ -1232,6 +1232,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C57570010000000000000002 /* RightSidebarPanelViewTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */; };
 		B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */; };
 		5F5553CB5553CB5553CB0001 /* RightSidebarRemoteCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F5553CB5553CB5553CB0002 /* RightSidebarRemoteCommandTests.swift */; };
+		7998A0077998A0077998A007 /* RightSidebarTitlebarControlReservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7998B0077998B0077998B007 /* RightSidebarTitlebarControlReservation.swift */; };
 		7998A0027998A0027998A002 /* RightSidebarTitlebarToggleButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7998B0027998B0027998B002 /* RightSidebarTitlebarToggleButton.swift */; };
 		FE0031A3 /* RightSidebarToolPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0030A3 /* RightSidebarToolPanel.swift */; };
 		C46790000000000000000005 /* RosettaNativeRelaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46790000000000000000006 /* RosettaNativeRelaunch.swift */; };
@@ -1646,6 +1647,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		7998A0067998A0067998A006 /* TitlebarTrailingAccessoryHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7998B0067998B0067998B006 /* TitlebarTrailingAccessoryHostingView.swift */; };
 		C0DEA7710000000000000009 /* TitlebarTrailingAccessoryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000A /* TitlebarTrailingAccessoryViewController.swift */; };
 		7998A0057998A0057998A005 /* TitlebarTrailingControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7998B0057998B0057998B005 /* TitlebarTrailingControls.swift */; };
+		7998A0087998A0087998A008 /* TitlebarTrailingControlsLayoutState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7998B0087998B0087998B008 /* TitlebarTrailingControlsLayoutState.swift */; };
 		E30760030000000000000002 /* TmuxOverlayExperimentSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760030000000000000001 /* TmuxOverlayExperimentSettings.swift */; };
 		E30760040000000000000002 /* TmuxOverlayExperimentTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760040000000000000001 /* TmuxOverlayExperimentTarget.swift */; };
 		B35751000000000000000002 /* TmuxResumeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35751000000000000000001 /* TmuxResumeParser.swift */; };
@@ -3035,6 +3037,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelViewTestSupport.swift; sourceTree = "<group>"; };
 		B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommand.swift; sourceTree = "<group>"; };
 		5F5553CB5553CB5553CB0002 /* RightSidebarRemoteCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommandTests.swift; sourceTree = "<group>"; };
+		7998B0077998B0077998B007 /* RightSidebarTitlebarControlReservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarTitlebarControlReservation.swift; sourceTree = "<group>"; };
 		7998B0027998B0027998B002 /* RightSidebarTitlebarToggleButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarTitlebarToggleButton.swift; sourceTree = "<group>"; };
 		FE0030A3 /* RightSidebarToolPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarToolPanel.swift; sourceTree = "<group>"; };
 		C46790000000000000000006 /* RosettaNativeRelaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RosettaNativeRelaunch.swift; sourceTree = "<group>"; };
@@ -3437,6 +3440,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		7998B0067998B0067998B006 /* TitlebarTrailingAccessoryHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarTrailingAccessoryHostingView.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000A /* TitlebarTrailingAccessoryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarTrailingAccessoryViewController.swift; sourceTree = "<group>"; };
 		7998B0057998B0057998B005 /* TitlebarTrailingControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarTrailingControls.swift; sourceTree = "<group>"; };
+		7998B0087998B0087998B008 /* TitlebarTrailingControlsLayoutState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarTrailingControlsLayoutState.swift; sourceTree = "<group>"; };
 		E30760030000000000000001 /* TmuxOverlayExperimentSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentSettings.swift; sourceTree = "<group>"; };
 		E30760040000000000000001 /* TmuxOverlayExperimentTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxOverlayExperimentTarget.swift; sourceTree = "<group>"; };
 		B35751000000000000000001 /* TmuxResumeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxResumeParser.swift; sourceTree = "<group>"; };
@@ -3958,9 +3962,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7998B0017998B0017998B001 /* MobileConnectTitlebarButton.swift */,
 				7998B0027998B0027998B002 /* RightSidebarTitlebarToggleButton.swift */,
 				7998B0047998B0047998B004 /* RightSidebarHeaderCloseButton.swift */,
+				7998B0077998B0077998B007 /* RightSidebarTitlebarControlReservation.swift */,
 				C0DEA771000000000000000A /* TitlebarTrailingAccessoryViewController.swift */,
 				7998B0067998B0067998B006 /* TitlebarTrailingAccessoryHostingView.swift */,
 				7998B0057998B0057998B005 /* TitlebarTrailingControls.swift */,
+				7998B0087998B0087998B008 /* TitlebarTrailingControlsLayoutState.swift */,
 				7998B0037998B0037998B003 /* TitlebarControlButtonStyleBody.swift */,
 				C0DEA771000000000000000C /* ProBadgeStyle.swift */,
 				C0DEA771000000000000000E /* PricingPlansScreen.swift */,
@@ -6653,6 +6659,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
 				B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */,
+				7998A0077998A0077998A007 /* RightSidebarTitlebarControlReservation.swift in Sources */,
 				7998A0027998A0027998A002 /* RightSidebarTitlebarToggleButton.swift in Sources */,
 				FE0031A3 /* RightSidebarToolPanel.swift in Sources */,
 				C46790000000000000000005 /* RosettaNativeRelaunch.swift in Sources */,
@@ -6938,6 +6945,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7998A0067998A0067998A006 /* TitlebarTrailingAccessoryHostingView.swift in Sources */,
 				C0DEA7710000000000000009 /* TitlebarTrailingAccessoryViewController.swift in Sources */,
 				7998A0057998A0057998A005 /* TitlebarTrailingControls.swift in Sources */,
+				7998A0087998A0087998A008 /* TitlebarTrailingControlsLayoutState.swift in Sources */,
 				E30760030000000000000002 /* TmuxOverlayExperimentSettings.swift in Sources */,
 				E30760040000000000000002 /* TmuxOverlayExperimentTarget.swift in Sources */,
 				B35751000000000000000002 /* TmuxResumeParser.swift in Sources */,

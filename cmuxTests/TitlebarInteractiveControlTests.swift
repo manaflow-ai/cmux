@@ -243,6 +243,7 @@ struct TitlebarInteractiveControlTests {
         _ = NSApplication.shared
 
         let state = FileExplorerState()
+        let layoutState = state.titlebarTrailingControlsLayoutState
         let controller = TitlebarTrailingAccessoryViewController(
             fileExplorerState: state,
             isVisible: true,
@@ -262,17 +263,17 @@ struct TitlebarInteractiveControlTests {
         window.addTitlebarAccessoryViewController(controller)
         controller.view.layoutSubtreeIfNeeded()
 
-        #expect(state.trailingTitlebarControlsReservationWidth > 0)
+        #expect(layoutState.reservationWidth > 0)
 
         let backdrop = NativeTitlebarBackdropCoordinator(fullscreenAuxiliaryWindows: { [] })
         backdrop.setTitlebarControlsHidden(true, in: window, isMinimalMode: false)
-        #expect(state.trailingTitlebarControlsReservationWidth == 0)
+        #expect(layoutState.reservationWidth == 0)
 
         backdrop.setTitlebarControlsHidden(false, in: window, isMinimalMode: false)
         controller.view.layoutSubtreeIfNeeded()
-        #expect(state.trailingTitlebarControlsReservationWidth > 0)
+        #expect(layoutState.reservationWidth > 0)
 
         controller.prepareForRemoval()
-        #expect(state.trailingTitlebarControlsReservationWidth == 0)
+        #expect(layoutState.reservationWidth == 0)
     }
 }
