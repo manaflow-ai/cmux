@@ -106,6 +106,43 @@ final class VaultAgentProcessCandidateSelectorTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(detected.values.first).snapshot.sessionId, sessionID)
     }
 
+    func testRawOmpNeedleAdmitsUnknownNonforegroundHost() {
+        let process = processInfo(
+            pid: 25_000,
+            workspaceID: UUID(),
+            panelID: UUID(),
+            name: "python3",
+            path: "/usr/bin/python3"
+        )
+        let bytes = kernProcArgs(
+            arguments: [
+                "/usr/bin/python3",
+                "/opt/node_modules/@OH-MY-PI/pi-coding-agent/dist/cli.js",
+            ],
+            environmentEntries: ["PWD=/"]
+        )
+        var rawFetchCount = 0
+        var fullDecodeCount = 0
+
+        _ = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: builtInRegistry,
+            fileManager: .default,
+            processSnapshot: processSnapshot([process]),
+            capturedAt: 42,
+            processArgumentBytesProvider: { _ in
+                rawFetchCount += 1
+                return bytes
+            },
+            processArgumentsDecoder: { bytes in
+                fullDecodeCount += 1
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(fromKernProcArgs: bytes)
+            }
+        )
+
+        XCTAssertEqual(rawFetchCount, 1)
+        XCTAssertEqual(fullDecodeCount, 1)
+    }
+
     func testEnvOnlyProjectRuleAdmitsUnknownBackgroundProcess() throws {
         let fileManager = FileManager.default
         let projectRoot = fileManager.temporaryDirectory

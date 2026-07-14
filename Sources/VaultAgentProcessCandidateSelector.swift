@@ -2,11 +2,15 @@ import Foundation
 
 struct VaultAgentProcessCandidateSelector {
     let processIDs: Set<Int>
+    private let unconstrainedArgumentNeedles: [[UInt8]]
 
     init(
         processes: [CmuxTopProcessInfo],
         registry: CmuxVaultAgentRegistry
     ) {
+        unconstrainedArgumentNeedles = Self.unconstrainedArgumentNeedles(in: registry).map {
+            Array($0.replacingOccurrences(of: "\\", with: "/").lowercased().utf8)
+        }
         guard Self.canUseBuiltInFastPath(registry: registry) else {
             processIDs = Set(processes.map(\.pid))
             return
@@ -22,6 +26,30 @@ struct VaultAgentProcessCandidateSelector {
 
     func contains(_ processID: Int) -> Bool {
         processIDs.contains(processID)
+    }
+
+    func rawArgumentsMayMatchUnconstrainedRule(_ bytes: [UInt8]) -> Bool {
+        CmuxTopProcessSnapshot.processArgumentsContainAnyNeedle(
+            fromKernProcArgs: bytes,
+            normalizedNeedles: unconstrainedArgumentNeedles
+        )
+    }
+
+    private static func unconstrainedArgumentNeedles(
+        in registry: CmuxVaultAgentRegistry
+    ) -> [String] {
+        registry.registrations.flatMap { registration in
+            let rule = registration.detect
+            var needles: [String] = []
+            if rule.processName == nil, rule.processNames.isEmpty {
+                needles.append(contentsOf: rule.argvContains)
+            }
+            if rule.alternateProcessNames.isEmpty {
+                needles.append(contentsOf: rule.alternateArgvContains)
+                needles.append(contentsOf: rule.alternateArgvContainsAny)
+            }
+            return needles
+        }
     }
 
     private static func canUseBuiltInFastPath(registry: CmuxVaultAgentRegistry) -> Bool {

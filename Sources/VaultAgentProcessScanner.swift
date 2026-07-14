@@ -97,6 +97,10 @@ extension RestorableAgentSessionIndex {
                         argumentCandidateProcessIDs.insert(process.pid)
                     }
                 }
+                if !argumentCandidateProcessIDs.contains(process.pid),
+                   initialArgumentCandidates.rawArgumentsMayMatchUnconstrainedRule(bytes) {
+                    argumentCandidateProcessIDs.insert(process.pid)
+                }
                 if argumentCandidateProcessIDs.contains(process.pid) {
                     rawProcessArgumentsByPID[process.pid] = bytes
                 }
