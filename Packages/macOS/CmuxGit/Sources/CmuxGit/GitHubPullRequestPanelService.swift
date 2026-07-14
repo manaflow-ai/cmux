@@ -6,6 +6,7 @@ public actor GitHubPullRequestPanelService: PullRequestPanelServing {
 
     nonisolated let commandRunner: any CommandRunning
     nonisolated let gitMetadataService: GitMetadataService
+    nonisolated let refreshLimiter: any PullRequestPanelRefreshLimiting
     var cacheByContext: [PullRequestPanelContext: PullRequestPanelContent] = [:]
     var cacheRecency: [PullRequestPanelContext] = []
     var inFlightRefreshByContext: [
@@ -22,12 +23,15 @@ public actor GitHubPullRequestPanelService: PullRequestPanelServing {
     /// - Parameters:
     ///   - commandRunner: The async subprocess runner; tests inject a fake.
     ///   - gitMetadataService: The repository and branch resolver.
+    ///   - refreshLimiter: The injected refresh-chain concurrency limit.
     public init(
         commandRunner: any CommandRunning = CommandRunner(),
-        gitMetadataService: GitMetadataService = GitMetadataService()
+        gitMetadataService: GitMetadataService = GitMetadataService(),
+        refreshLimiter: (any PullRequestPanelRefreshLimiting)? = nil
     ) {
         self.commandRunner = commandRunner
         self.gitMetadataService = gitMetadataService
+        self.refreshLimiter = refreshLimiter ?? PullRequestPanelRefreshLimiter(limit: 2)
     }
 
     /// Returns the last successful content cached for the resolved repository and branch.
