@@ -1,14 +1,13 @@
 public import CmuxGit
 public import Foundation
 
-/// Caps how many sidebar git metadata probes and pull-request refresh chains
-/// run concurrently across the whole process.
+/// Owns independent process-wide concurrency limits for sidebar git probes and
+/// pull-request refresh chains.
 ///
 /// Probes spawn `git` subprocesses; without a cap a burst of workspace
-/// restores would fork dozens at once. The composition root injects one limiter
-/// into every window's ``SidebarGitMetadataService`` and pull-request panel so
-/// the cap stays process-wide (the legacy code reached the same instance through
-/// a `shared` singleton; injection replaces the singleton).
+/// restores would fork dozens at once. The composition root injects one scheduler
+/// into every window, while separate permit pools keep longer GitHub refreshes
+/// from blocking latency-sensitive local git metadata probes.
 ///
 /// An `actor` because acquirers are detached background probe tasks
 /// contending from arbitrary executors; the waiter queue is the contended
@@ -20,6 +19,7 @@ public actor WorkspaceGitMetadataProbeLimiter: PullRequestPanelRefreshLimiting {
     }
 
     private let limit: Int
+    private let pullRequestRefreshLimiter: PullRequestPanelRefreshLimiter
     private var activeCount = 0
     private var waiters: [Waiter] = []
 
@@ -27,6 +27,17 @@ public actor WorkspaceGitMetadataProbeLimiter: PullRequestPanelRefreshLimiting {
     /// (clamped to at least 1).
     public init(limit: Int) {
         self.limit = max(1, limit)
+        pullRequestRefreshLimiter = PullRequestPanelRefreshLimiter(limit: 2)
+    }
+
+    /// Waits for an independently capped pull-request refresh permit.
+    public func acquirePullRequestRefresh() async -> Bool {
+        await pullRequestRefreshLimiter.acquirePullRequestRefresh()
+    }
+
+    /// Returns a pull-request refresh permit without changing git-probe capacity.
+    public func releasePullRequestRefresh() async {
+        await pullRequestRefreshLimiter.releasePullRequestRefresh()
     }
 
     /// Waits for a probe permit. Returns `false` (without acquiring) when the

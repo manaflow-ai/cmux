@@ -12,7 +12,7 @@ actor RecordingPullRequestRefreshLimiter: PullRequestPanelRefreshLimiting {
         self.probe = probe
     }
 
-    func acquire() async -> Bool {
+    func acquirePullRequestRefresh() async -> Bool {
         let id = UUID()
         guard !Task.isCancelled else { return false }
         if activeCount < 2 {
@@ -34,7 +34,7 @@ actor RecordingPullRequestRefreshLimiter: PullRequestPanelRefreshLimiting {
         }
     }
 
-    func release() {
+    func releasePullRequestRefresh() {
         guard activeCount > 0 else { return }
         if waiters.isEmpty {
             activeCount -= 1

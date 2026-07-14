@@ -71,13 +71,13 @@ public actor GitHubPullRequestPanelService: PullRequestPanelServing {
         let identifier = refreshRequestIdentifier
         let limiter = refreshLimiter
         let task = Task {
-            guard await limiter.acquire() else { throw CancellationError() }
+            guard await limiter.acquirePullRequestRefresh() else { throw CancellationError() }
             do {
                 let content = try await self.performRefresh(for: context)
-                await limiter.release()
+                await limiter.releasePullRequestRefresh()
                 return content
             } catch {
-                await limiter.release()
+                await limiter.releasePullRequestRefresh()
                 throw error
             }
         }

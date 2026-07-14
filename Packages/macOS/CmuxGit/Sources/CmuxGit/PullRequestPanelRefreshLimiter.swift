@@ -13,7 +13,7 @@ public actor PullRequestPanelRefreshLimiter: PullRequestPanelRefreshLimiting {
     }
 
     /// Waits for a refresh permit, returning `false` if cancellation wins first.
-    public func acquire() async -> Bool {
+    public func acquirePullRequestRefresh() async -> Bool {
         let id = UUID()
         guard !Task.isCancelled else { return false }
         if activeCount < limit {
@@ -35,7 +35,7 @@ public actor PullRequestPanelRefreshLimiter: PullRequestPanelRefreshLimiting {
     }
 
     /// Returns a permit to the oldest waiter that has not been cancelled.
-    public func release() {
+    public func releasePullRequestRefresh() {
         guard activeCount > 0 else { return }
         if let waiter = waiters.first {
             waiters.removeFirst()

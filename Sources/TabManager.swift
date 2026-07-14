@@ -443,8 +443,7 @@ class TabManager: ObservableObject {
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
-    // Process-wide cap shared by sidebar git probes and PR refresh chains in every window.
-    // Tests can inject an isolated limiter.
+    // Shared process-wide scheduler; git probes and PR refreshes use independent permit pools.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
 
     // Per-window composition point for sidebar git and PR services.
