@@ -204,7 +204,7 @@ struct CmuxRunURLRequestTests {
         #expect(CmuxRunURLRequest.parse(otherRoute, supportedSchemes: [scheme]) == .success(nil))
     }
 
-    @Test func classifiesEachMalformedExternalURLAsOneIntent() throws {
+    @Test @MainActor func classifiesEachMalformedExternalURLAsOneIntent() throws {
         let urls = try [
             #require(URL(string: "\(scheme)://run?cwd=/tmp")),
             #require(URL(string: "\(scheme)://ssh?title=Missing")),
