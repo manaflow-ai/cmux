@@ -2294,6 +2294,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
     private var remoteSessionController: RemoteSessionCoordinator?
+    // Retains final cleanup ownership after a transport-only disconnect.
+    private var remoteSessionCleanupController: RemoteSessionCoordinator?
     private enum RemoteForegroundAuthenticationPhase: Equatable {
         case readyBeforeConfiguration(token: String), authenticating(token: String)
     }
@@ -3157,7 +3159,7 @@ final class Workspace: Identifiable, ObservableObject {
             NotificationCenter.default.removeObserver(sharedLiveAgentIndexObserver)
         }
         activeRemoteSessionControllerID = nil
-        remoteSessionController?.stop()
+        (remoteSessionController ?? remoteSessionCleanupController)?.stop(cleanupScope: .persistentSlot)
         PortScanner.shared.scheduleAgentWorkspaceUnregistration(workspaceId: id)
     }
 
@@ -5301,10 +5303,15 @@ final class Workspace: Identifiable, ObservableObject {
         recomputeListeningPorts()
         postRemoteConnectionPresentationDidChange()
 
-        let previousController = remoteSessionController
+        let previousController = remoteSessionController ?? remoteSessionCleanupController
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
-        previousController?.stop()
+        remoteSessionCleanupController = nil
+        let preservesPersistentSlot = previousConfiguration?.hasSamePersistentPTYIdentity(
+            as: configuration
+        ) == true
+        previousController?.stop(cleanupScope: preservesPersistentSlot ? .transport : .persistentSlot)
+        if preservesPersistentSlot { remoteSessionCleanupController = previousController }
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
         let foregroundAuthToken = Self.normalizedForegroundAuthToken(configuration.foregroundAuthToken)
@@ -5352,6 +5359,7 @@ final class Workspace: Identifiable, ObservableObject {
             strings: RemoteSessionStrings.appLocalized
         )
         activeRemoteSessionControllerID = controllerID
+        remoteSessionCleanupController = nil
         remoteSessionController = controller
         controller.updateRemotePortScanningEnabled(Self.remotePortScanningEnabledFromSettings())
         syncRemotePortScanTTYs()
@@ -5460,10 +5468,12 @@ final class Workspace: Identifiable, ObservableObject {
             && pendingDetachedSurfaces.isEmpty
             && !skipControlMasterCleanupAfterDetachedRemoteTransfer
         let configurationForCleanup = shouldCleanupControlMaster ? remoteConfiguration : nil
-        let previousController = remoteSessionController
+        let previousController = remoteSessionController ?? remoteSessionCleanupController
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
-        previousController?.stop()
+        remoteSessionCleanupController = nil
+        previousController?.stop(cleanupScope: clearConfiguration ? .persistentSlot : .transport)
+        if !clearConfiguration { remoteSessionCleanupController = previousController }
         remoteForegroundAuthenticationPhase = nil
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         activeRemoteTerminalSurfaceIds.removeAll()

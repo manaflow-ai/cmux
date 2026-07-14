@@ -209,16 +209,16 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         }
     }
 
-    /// Stops the session: tears down the relay, releases the proxy lease,
-    /// fails parked PTY-bridge starts, and publishes cleared state.
-    /// Synchronous when already on the coordinator queue.
-    public func stop() {
+    /// Stops the session with the requested ownership scope; synchronous on the coordinator queue.
+    ///
+    /// - Parameter cleanupScope: The ownership scope released by this stop.
+    public func stop(cleanupScope: RemoteRelayCleanupScope = .persistentSlot) {
         if DispatchQueue.getSpecific(key: queueKey) != nil {
-            stopAllLocked()
+            stopAllLocked(cleanupScope: cleanupScope)
             return
         }
         queue.async { [self] in
-            stopAllLocked()
+            stopAllLocked(cleanupScope: cleanupScope)
         }
     }
 
@@ -236,7 +236,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         }
     }
 
-    func stopAllLocked() {
+    func stopAllLocked(cleanupScope: RemoteRelayCleanupScope) {
         debugLog("remote.session.stop \(debugConfigSummary())")
         isStopping = true
         cancelReconnectRetryLocked()
@@ -246,7 +246,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         reachabilityProbeGeneration &+= 1
         cancelReverseRelayRestartLocked()
         cancelRemotePortScanCoalesceLocked()
-        stopReverseRelayLocked(cleanupScope: .persistentSlot)
+        stopReverseRelayLocked(cleanupScope: cleanupScope)
         remotePortScanGeneration &+= 1
         remotePortScanBurstTask?.cancel()
         remotePortScanBurstTask = nil

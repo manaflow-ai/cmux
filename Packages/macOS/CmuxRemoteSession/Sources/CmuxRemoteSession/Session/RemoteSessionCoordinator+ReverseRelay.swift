@@ -1,6 +1,9 @@
 internal import CmuxFoundation
+internal import OSLog
 public import CmuxRemoteWorkspace
 public import Foundation
+
+nonisolated private let remoteRelayLogger = Logger(subsystem: "com.cmuxterm.app", category: "RemoteRelay")
 
 // The reverse CLI relay: a remote `127.0.0.1:<relayPort>` listener forwarded
 // back to the local CLI relay server, preferring an `ssh -O forward` on the
@@ -403,15 +406,37 @@ extension RemoteSessionCoordinator {
         }
         let script = switch cleanupScope {
         case .transport:
-            Self.remoteRelayTransportMetadataCleanupScript(relayPort: relayPort)
+            Self.remoteRelayTransportMetadataCleanupScript(
+                relayPort: relayPort,
+                persistentDaemonSlot: configuration.persistentDaemonSlot
+            )
         case .persistentSlot:
-            Self.remoteRelayMetadataCleanupScript(relayPort: relayPort)
+            Self.remoteRelayMetadataCleanupScript(
+                relayPort: relayPort,
+                persistentDaemonSlot: configuration.persistentDaemonSlot
+            )
         }
         let command = "sh -c \(script.shellSingleQuoted)"
         do {
-            _ = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
+            let result = try sshExec(
+                arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
+                timeout: 8
+            )
+            guard result.status == 0 else {
+                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
+                    ?? "ssh exited \(result.status)"
+                debugLog(
+                    "remote.relay.cleanup.failed scope=\(cleanupScope) relayPort=\(relayPort) " +
+                        "\(detail) \(debugConfigSummary())"
+                )
+                remoteRelayLogger.error(
+                    "cleanup failed scope=\(String(describing: cleanupScope), privacy: .public) relayPort=\(relayPort, privacy: .public) detail=\(detail, privacy: .private(mask: .hash))"
+                )
+                return
+            }
         } catch {
             debugLog("remote.relay.cleanup.error \(error.localizedDescription)")
+            remoteRelayLogger.error("cleanup error: \(error.localizedDescription, privacy: .private(mask: .hash))")
         }
     }
 

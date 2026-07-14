@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxRemoteSession
 import Foundation
 import Testing
 
@@ -347,6 +348,58 @@ struct RemoteDisconnectLifecycleTests {
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(replacement.id))
     }
 
+    @Test func manualDisconnectPreservesPersistentDaemonSlot() throws {
+        let runner = CleanupRecordingRunner()
+        let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        workspace.configureRemoteConnection(Self.persistentRemoteConfiguration(), autoConnect: true)
+
+        workspace.disconnectRemoteConnection(clearConfiguration: false)
+
+        let cleanupCommand = try #require(runner.waitForCleanupCommand())
+        #expect(!cleanupCommand.contains("serve --persistent-stop --slot"))
+        #expect(!cleanupCommand.contains("rm -rf"))
+
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+
+        let finalCleanupCommand = try #require(runner.waitForCleanupCommand())
+        #expect(finalCleanupCommand.contains("serve --persistent-stop --slot"))
+        #expect(finalCleanupCommand.contains("64007.shell"))
+    }
+
+    @Test func samePersistentIdentityReconfigurationPreservesDaemonSlot() throws {
+        let runner = CleanupRecordingRunner()
+        let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let configuration = Self.persistentRemoteConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: true)
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        let cleanupCommand = try #require(runner.waitForCleanupCommand())
+        #expect(!cleanupCommand.contains("serve --persistent-stop --slot"))
+        #expect(!cleanupCommand.contains("rm -rf"))
+
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+
+        let finalCleanupCommand = try #require(runner.waitForCleanupCommand())
+        #expect(finalCleanupCommand.contains("serve --persistent-stop --slot"))
+        #expect(finalCleanupCommand.contains("64007.shell"))
+    }
+
+    @Test func finalDisconnectRelinquishesPersistentDaemonSlot() throws {
+        let runner = CleanupRecordingRunner()
+        let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        workspace.configureRemoteConnection(Self.persistentRemoteConfiguration(), autoConnect: true)
+
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+
+        let cleanupCommand = try #require(runner.waitForCleanupCommand())
+        #expect(cleanupCommand.contains("serve --persistent-stop --slot"))
+        #expect(cleanupCommand.contains("64007.shell"))
+    }
+
     private static func remoteConfiguration(port: Int? = nil) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -360,6 +413,52 @@ struct RemoteDisconnectLifecycleTests {
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini"
         )
+    }
+
+    private static func persistentRemoteConfiguration() -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_007,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-lifecycle-test"
+        )
+    }
+
+    // The process-runner protocol is synchronous; the lock only protects this test recorder's short append/read pair.
+    private final class CleanupRecordingRunner: RemoteSessionProcessRunning, @unchecked Sendable {
+        private let lock = NSLock()
+        private let cleanupObserved = DispatchSemaphore(value: 0)
+        private var cleanupCommands: [String] = []
+
+        func run(
+            _ request: RemoteProcessRequest,
+            operation: (any RemoteTransferCancelling)?
+        ) throws -> RemoteCommandResult {
+            let command = request.arguments.last ?? ""
+            guard command.contains("relay_socket='127.0.0.1:64007'") else {
+                return RemoteCommandResult(status: 1, stdout: "", stderr: "intentional bootstrap stop")
+            }
+            lock.lock()
+            cleanupCommands.append(command)
+            lock.unlock()
+            cleanupObserved.signal()
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+
+        func waitForCleanupCommand() -> String? {
+            guard cleanupObserved.wait(timeout: .now() + 2) == .success else { return nil }
+            lock.lock()
+            defer { lock.unlock() }
+            return cleanupCommands.isEmpty ? nil : cleanupCommands.removeFirst()
+        }
     }
 
     private static func removeTransitionArtifacts(workspace: Workspace, panelIds: [UUID]) {

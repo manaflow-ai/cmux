@@ -56,7 +56,10 @@ struct RemoteRelaySlotTeardownTests {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
-            RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(relayPort: 64008),
+            RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(
+                relayPort: 64008,
+                persistentDaemonSlot: "ssh-test-slot"
+            ),
         ]
         process.environment = [
             "HOME": home.path,
@@ -103,7 +106,10 @@ struct RemoteRelaySlotTeardownTests {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
-            RemoteSessionCoordinator.remoteRelayTransportMetadataCleanupScript(relayPort: 64009),
+            RemoteSessionCoordinator.remoteRelayTransportMetadataCleanupScript(
+                relayPort: 64009,
+                persistentDaemonSlot: "slot"
+            ),
         ]
         process.environment = [
             "HOME": home.path,
@@ -153,7 +159,10 @@ struct RemoteRelaySlotTeardownTests {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
-            RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(relayPort: 64011),
+            RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(
+                relayPort: 64011,
+                persistentDaemonSlot: "slot"
+            ),
         ]
         process.environment = [
             "HOME": home.path,
@@ -163,19 +172,102 @@ struct RemoteRelaySlotTeardownTests {
         process.waitUntilExit()
 
         #expect(process.terminationStatus != 0)
-        #expect(!fileManager.fileExists(atPath: socketAddressURL.path))
-        #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64011.auth").path))
-        #expect(!fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64011.tty").path))
+        #expect(fileManager.fileExists(atPath: socketAddressURL.path))
+        #expect(fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64011.auth").path))
+        #expect(fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64011.tty").path))
         #expect(fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64011.daemon_path").path))
         #expect(fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64011.slot").path))
         #expect(fileManager.fileExists(atPath: shellDirectory.path))
     }
 
     @Test
+    func mismatchedSlotCannotStopOrDeleteAnotherRelayOwner() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-relay-mismatched-owner-\(UUID().uuidString)")
+        let relayDirectory = home.appendingPathComponent(".cmux/relay")
+        let shellDirectory = relayDirectory.appendingPathComponent("64012.shell")
+        let daemonURL = home.appendingPathComponent("cmuxd-remote-owner")
+        let shutdownArgumentsURL = home.appendingPathComponent("shutdown.args")
+        let socketAddressURL = home.appendingPathComponent(".cmux/socket_addr")
+        defer { try? fileManager.removeItem(at: home) }
+
+        try fileManager.createDirectory(at: shellDirectory, withIntermediateDirectories: true)
+        try "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$HOME/shutdown.args\"\n".write(
+            to: daemonURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: daemonURL.path)
+        try "127.0.0.1:64012".write(to: socketAddressURL, atomically: true, encoding: .utf8)
+        try daemonURL.path.write(
+            to: relayDirectory.appendingPathComponent("64012.daemon_path"),
+            atomically: true,
+            encoding: .utf8
+        )
+        for (suffix, value) in [
+            ("auth", "auth"),
+            ("slot", "another-workspace-slot"),
+            ("tty", "pts/1"),
+        ] {
+            try value.write(
+                to: relayDirectory.appendingPathComponent("64012.\(suffix)"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(
+                relayPort: 64012,
+                persistentDaemonSlot: "expected-workspace-slot"
+            ),
+        ]
+        process.environment = ["HOME": home.path, "PATH": "/usr/bin:/bin"]
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus != 0)
+        #expect(!fileManager.fileExists(atPath: shutdownArgumentsURL.path))
+        #expect(fileManager.fileExists(atPath: socketAddressURL.path))
+        for suffix in ["auth", "daemon_path", "slot", "tty"] {
+            #expect(fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64012.\(suffix)").path))
+        }
+        #expect(fileManager.fileExists(atPath: shellDirectory.path))
+    }
+
+    @Test
     func coordinatorStopUsesFinalPersistentSlotTeardown() throws {
         let runner = SpyProcessRunner()
-        let provider = IntentionalCleanupTestTunnelProvider()
-        let coordinator = RemoteSessionCoordinator(
+        let coordinator = makeCoordinator(runner: runner)
+
+        coordinator.stop(cleanupScope: .persistentSlot)
+        coordinator.queue.sync {}
+
+        let cleanupCommand = try #require(runner.requests.last?.arguments.last)
+        #expect(cleanupCommand.contains("serve --persistent-stop --slot"))
+        #expect(cleanupCommand.contains("64010.shell"))
+    }
+
+    @Test
+    func coordinatorTransportStopPreservesPersistentSlot() throws {
+        let runner = SpyProcessRunner()
+        let coordinator = makeCoordinator(runner: runner)
+
+        coordinator.stop(cleanupScope: .transport)
+        coordinator.queue.sync {}
+
+        let cleanupCommand = try #require(runner.requests.last?.arguments.last)
+        #expect(!cleanupCommand.contains("serve --persistent-stop --slot"))
+        #expect(!cleanupCommand.contains("rm -rf"))
+        #expect(cleanupCommand.contains("64010.slot"))
+    }
+
+    private func makeCoordinator(runner: SpyProcessRunner) -> RemoteSessionCoordinator {
+        RemoteSessionCoordinator(
             host: IntentionalCleanupTestHost(),
             configuration: WorkspaceRemoteConfiguration(
                 destination: "user@example.test",
@@ -191,7 +283,7 @@ struct RemoteRelaySlotTeardownTests {
                 preserveAfterTerminalExit: true,
                 persistentDaemonSlot: "ssh-test-slot"
             ),
-            proxyBroker: RemoteProxyBroker(tunnelProvider: provider),
+            proxyBroker: RemoteProxyBroker(tunnelProvider: IntentionalCleanupTestTunnelProvider()),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),
@@ -208,12 +300,5 @@ struct RemoteRelaySlotTeardownTests {
                 suspendedDetailFormat: "%@"
             )
         )
-
-        coordinator.stop()
-        coordinator.queue.sync {}
-
-        let cleanupCommand = try #require(runner.requests.last?.arguments.last)
-        #expect(cleanupCommand.contains("serve --persistent-stop --slot"))
-        #expect(cleanupCommand.contains("64010.shell"))
     }
 }

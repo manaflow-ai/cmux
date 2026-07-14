@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -178,6 +179,20 @@ func TestRunPersistentStopUsesSlotControlPlane(t *testing.T) {
 	}
 }
 
+func TestRunPersistentLeasePortValidation(t *testing.T) {
+	for _, args := range [][]string{
+		{"serve", "--stdio", "--persistent", "--slot", "slot", "--persistent-lease-port", "70000"},
+		{"serve", "--persistent-stop", "--slot", "slot", "--persistent-lease-port", "64008"},
+		{"serve", "--stdio", "--persistent-lease-port", "64008"},
+	} {
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		if code := run(args, strings.NewReader(""), &stdout, &stderr); code != 2 {
+			t.Fatalf("run(%q) exit code = %d, stderr = %q; want usage error", args, code, stderr.String())
+		}
+	}
+}
+
 func TestStopPersistentDaemonWaitsForSlotLockWhenSocketIsAbsent(t *testing.T) {
 	rootBase := t.TempDir()
 	socketBase, err := os.MkdirTemp("/tmp", "cmuxd-remote-stop-lock-*")
@@ -224,6 +239,24 @@ func TestStopPersistentDaemonWaitsForSlotLockWhenSocketIsAbsent(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("persistent stop did not finish after slot ownership released")
+	}
+}
+
+func TestWaitForPersistentDaemonStopTimesOutWhenOwnershipDoesNotRelease(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "daemon.lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("open persistent daemon lock: %v", err)
+	}
+	defer lockFile.Close()
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatalf("hold persistent daemon lock: %v", err)
+	}
+	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+
+	err = waitForPersistentDaemonStopWithTimeout(lockPath, 50*time.Millisecond, 5*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "timed out waiting") {
+		t.Fatalf("wait error = %v, want bounded timeout", err)
 	}
 }
 
@@ -311,16 +344,16 @@ func TestPersistentDaemonReapsActivePTYAfterObservedSlotLeaseDisappears(t *testi
 	}
 }
 
-func TestPersistentDaemonSlotLeasePresentMatchesExactRelaySlot(t *testing.T) {
+func TestPersistentDaemonSlotLeasePresentMatchesExactRelayPortAndSlot(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	present, err := persistentDaemonSlotLeasePresent("target-slot")
+	present, err := persistentDaemonSlotLeasePresent("target-slot", 64008)
 	if err != nil {
-		t.Fatalf("inspect absent relay directory: %v", err)
+		t.Fatalf("inspect absent relay lease: %v", err)
 	}
 	if present {
-		t.Fatalf("absent relay directory reported a matching slot")
+		t.Fatalf("absent relay lease reported a matching slot")
 	}
 
 	relayDirectory := filepath.Join(home, ".cmux", "relay")
@@ -330,25 +363,71 @@ func TestPersistentDaemonSlotLeasePresentMatchesExactRelaySlot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(relayDirectory, "64008.slot"), []byte("other-slot\n"), 0o600); err != nil {
 		t.Fatalf("write other relay slot: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(relayDirectory, "not-a-port.slot"), []byte("target-slot\n"), 0o600); err != nil {
-		t.Fatalf("write invalid relay slot filename: %v", err)
+	if err := os.WriteFile(filepath.Join(relayDirectory, "64009.slot"), []byte("target-slot\n"), 0o600); err != nil {
+		t.Fatalf("write target slot at another port: %v", err)
 	}
-	present, err = persistentDaemonSlotLeasePresent("target-slot")
+	present, err = persistentDaemonSlotLeasePresent("target-slot", 64008)
 	if err != nil {
-		t.Fatalf("inspect nonmatching relay slots: %v", err)
+		t.Fatalf("inspect nonmatching relay lease: %v", err)
 	}
 	if present {
-		t.Fatalf("nonmatching relay slots reported a match")
+		t.Fatalf("matching slot at a different port satisfied the lease")
 	}
 
-	if err := os.WriteFile(filepath.Join(relayDirectory, "64009.slot"), []byte("target-slot\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(relayDirectory, "64008.slot"), []byte("target-slot\n"), 0o600); err != nil {
 		t.Fatalf("write matching relay slot: %v", err)
 	}
-	present, err = persistentDaemonSlotLeasePresent("target-slot")
+	present, err = persistentDaemonSlotLeasePresent("target-slot", 64008)
 	if err != nil {
 		t.Fatalf("inspect matching relay slot: %v", err)
 	}
 	if !present {
 		t.Fatalf("matching relay slot was not observed")
+	}
+}
+
+func TestPersistentDaemonServerArgumentsCarryValidatedLeasePort(t *testing.T) {
+	withLease := persistentDaemonServerArguments("target-slot", 64008)
+	want := []string{
+		"serve", "--persistent-server", "--slot", "target-slot",
+		"--persistent-lease-port", "64008",
+	}
+	if strings.Join(withLease, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("server arguments = %q, want %q", withLease, want)
+	}
+
+	withoutLease := persistentDaemonServerArguments("target-slot", 0)
+	if strings.Contains(strings.Join(withoutLease, " "), "persistent-lease-port") {
+		t.Fatalf("backward-compatible server arguments unexpectedly contain a lease: %q", withoutLease)
+	}
+}
+
+func TestPersistentDaemonRelayShellCleanupPreservesReplacementLease(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	relayDirectory := filepath.Join(home, ".cmux", "relay")
+	shellDirectory := filepath.Join(relayDirectory, "64008.shell")
+	if err := os.MkdirAll(shellDirectory, 0o700); err != nil {
+		t.Fatalf("create relay shell directory: %v", err)
+	}
+	leasePath := filepath.Join(relayDirectory, "64008.slot")
+	if err := os.WriteFile(leasePath, []byte("replacement-slot\n"), 0o600); err != nil {
+		t.Fatalf("write replacement lease: %v", err)
+	}
+	if err := removePersistentDaemonRelayShellDirectoryIfUnleased(64008); err != nil {
+		t.Fatalf("preserve leased shell directory: %v", err)
+	}
+	if _, err := os.Stat(shellDirectory); err != nil {
+		t.Fatalf("replacement owner's shell directory was removed: %v", err)
+	}
+
+	if err := os.Remove(leasePath); err != nil {
+		t.Fatalf("remove relay lease: %v", err)
+	}
+	if err := removePersistentDaemonRelayShellDirectoryIfUnleased(64008); err != nil {
+		t.Fatalf("remove unleased shell directory: %v", err)
+	}
+	if _, err := os.Stat(shellDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unleased shell directory still exists: %v", err)
 	}
 }
