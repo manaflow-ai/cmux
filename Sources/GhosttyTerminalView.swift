@@ -2435,6 +2435,15 @@ class GhosttyApp {
         }
     }
 
+    func performOnMain<T>(_ work: @MainActor () -> T) -> T {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated { work() }
+        }
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated { work() }
+        }
+    }
+
     @MainActor
     private func applyAppColorChange(
         _ change: ghostty_action_color_change_s,
@@ -2477,15 +2486,6 @@ class GhosttyApp {
                     "app color change ignored kind=\(colorKindLabel(change.kind)) color=\(newColor.hexString()) source=\(source)"
                 )
             }
-        }
-    }
-
-    func performOnMain<T>(_ work: @MainActor () -> T) -> T {
-        if Thread.isMainThread {
-            return MainActor.assumeIsolated { work() }
-        }
-        return DispatchQueue.main.sync {
-            MainActor.assumeIsolated { work() }
         }
     }
 
@@ -4292,28 +4292,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
-    }
-
-    func authoritativeScrollbarGeometry() -> NotificationScrollRestoreGeometry? {
-        guard let surface else { return nil }
-        var result = ghostty_surface_scrollbar_s()
-        guard ghostty_surface_scrollbar(surface, &result) else { return nil }
-        return NotificationScrollRestoreGeometry(c: result)
-    }
-
-    func scrollToRow(
-        _ row: Int,
-        ifRowSpaceRevisionMatches rowSpaceRevision: UInt64
-    ) -> NotificationScrollRestoreGeometry? {
-        guard let surface, let row = UInt64(exactly: row) else { return nil }
-        var result = ghostty_surface_scrollbar_s()
-        guard ghostty_surface_scroll_to_row_if_revision(
-            surface,
-            row,
-            rowSpaceRevision,
-            &result
-        ) else { return nil }
-        return NotificationScrollRestoreGeometry(c: result)
     }
 
     @discardableResult

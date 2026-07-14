@@ -40,4 +40,25 @@ extension GhosttyNSView {
         return { retention.release() }
     }
 
+    @objc dynamic func readAuthoritativeScrollbar(
+        _ result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
+    ) -> Bool {
+        guard let surface = terminalSurface?.surface else { return false }
+        return ghostty_surface_scrollbar(surface, result)
+    }
+
+    @objc dynamic func scrollToRow(
+        _ row: UInt64,
+        ifRowSpaceRevisionMatches rowSpaceRevision: UInt64,
+        result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
+    ) -> Bool {
+        guard let surface = terminalSurface?.surface else { return false }
+        return ghostty_surface_scroll_to_row_if_revision(
+            surface,
+            row,
+            rowSpaceRevision,
+            result
+        )
+    }
+
 }

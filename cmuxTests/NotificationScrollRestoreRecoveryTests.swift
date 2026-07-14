@@ -221,20 +221,37 @@ private final class NotificationRecoveryRecordingSurfaceView: GhosttyNSView {
         )
     }
 
-    override func authoritativeScrollbarGeometry() -> NotificationScrollRestoreGeometry? {
-        authoritativeGeometry
+    override func readAuthoritativeScrollbar(
+        _ result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
+    ) -> Bool {
+        guard let authoritativeGeometry else { return false }
+        result.pointee = cValue(for: authoritativeGeometry)
+        return true
     }
 
     override func scrollToRow(
-        _ row: Int,
-        ifRowSpaceRevisionMatches rowSpaceRevision: UInt64
-    ) -> NotificationScrollRestoreGeometry? {
-        performedRows.append(row)
+        _ row: UInt64,
+        ifRowSpaceRevisionMatches rowSpaceRevision: UInt64,
+        result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
+    ) -> Bool {
+        performedRows.append(Int(clamping: row))
         guard acceptsAtomicScroll,
               let authoritativeGeometry,
               authoritativeGeometry.rowSpaceRevision == rowSpaceRevision else {
-            return nil
+            return false
         }
-        return authoritativeGeometry
+        result.pointee = cValue(for: authoritativeGeometry)
+        return true
+    }
+
+    private func cValue(
+        for geometry: NotificationScrollRestoreGeometry
+    ) -> ghostty_surface_scrollbar_s {
+        ghostty_surface_scrollbar_s(
+            total: geometry.scrollbar.total,
+            offset: geometry.scrollbar.offset,
+            len: geometry.scrollbar.len,
+            row_space_revision: geometry.rowSpaceRevision
+        )
     }
 }

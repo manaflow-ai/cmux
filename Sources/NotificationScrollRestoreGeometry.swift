@@ -15,4 +15,5 @@ struct NotificationScrollRestoreGeometry: Sendable {
         scrollbar = GhosttyScrollbar(total: c.total, offset: c.offset, len: c.len)
         rowSpaceRevision = c.row_space_revision
     }
+
 }

@@ -263,3 +263,26 @@ extension GhosttySurfaceScrollView {
         _ = restorePendingNotificationScrollPositionIfReady()
     }
 }
+
+@MainActor
+extension GhosttyNSView {
+    func authoritativeScrollbarGeometry() -> NotificationScrollRestoreGeometry? {
+        var result = ghostty_surface_scrollbar_s()
+        guard readAuthoritativeScrollbar(&result) else { return nil }
+        return NotificationScrollRestoreGeometry(c: result)
+    }
+
+    func scrollToRow(
+        _ row: Int,
+        ifRowSpaceRevisionMatches rowSpaceRevision: UInt64
+    ) -> NotificationScrollRestoreGeometry? {
+        guard let row = UInt64(exactly: row) else { return nil }
+        var result = ghostty_surface_scrollbar_s()
+        guard scrollToRow(
+            row,
+            ifRowSpaceRevisionMatches: rowSpaceRevision,
+            result: &result
+        ) else { return nil }
+        return NotificationScrollRestoreGeometry(c: result)
+    }
+}

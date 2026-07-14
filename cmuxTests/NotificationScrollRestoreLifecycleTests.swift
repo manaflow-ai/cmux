@@ -354,16 +354,22 @@ private final class NotificationLifecycleRecordingSurfaceView: GhosttyNSView {
         return true
     }
 
-    override func authoritativeScrollbarGeometry() -> NotificationScrollRestoreGeometry? {
-        authoritativeGeometry ?? scrollbar.map {
+    override func readAuthoritativeScrollbar(
+        _ result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
+    ) -> Bool {
+        let geometry = authoritativeGeometry ?? scrollbar.map {
             NotificationScrollRestoreGeometry(scrollbar: $0, rowSpaceRevision: 1)
         }
+        guard let geometry else { return false }
+        result.pointee = cValue(for: geometry)
+        return true
     }
 
     override func scrollToRow(
-        _ row: Int,
-        ifRowSpaceRevisionMatches rowSpaceRevision: UInt64
-    ) -> NotificationScrollRestoreGeometry? {
+        _ row: UInt64,
+        ifRowSpaceRevisionMatches rowSpaceRevision: UInt64,
+        result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
+    ) -> Bool {
         performedBindingActions.append("scroll_to_row:\(row)")
         let currentGeometry = authoritativeGeometry ?? scrollbar.map {
             NotificationScrollRestoreGeometry(scrollbar: $0, rowSpaceRevision: 1)
@@ -371,8 +377,20 @@ private final class NotificationLifecycleRecordingSurfaceView: GhosttyNSView {
         guard acceptsAtomicScroll,
               let currentGeometry,
               currentGeometry.rowSpaceRevision == rowSpaceRevision else {
-            return nil
+            return false
         }
-        return currentGeometry
+        result.pointee = cValue(for: currentGeometry)
+        return true
+    }
+
+    private func cValue(
+        for geometry: NotificationScrollRestoreGeometry
+    ) -> ghostty_surface_scrollbar_s {
+        ghostty_surface_scrollbar_s(
+            total: geometry.scrollbar.total,
+            offset: geometry.scrollbar.offset,
+            len: geometry.scrollbar.len,
+            row_space_revision: geometry.rowSpaceRevision
+        )
     }
 }
