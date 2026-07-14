@@ -415,10 +415,10 @@ final class WindowBrowserHostView: NSView {
         )
         let splitPassThrough = dividerHit.map { !$0.isInHostedContent } ?? false
 
-        if titlebarPassThrough {
+        if isTitlebarInteractiveControl(at: point) {
 #if DEBUG
             debugLogPointerRouting(
-                stage: "hitTest.titlebarPass",
+                stage: "hitTest.titlebarControlPass",
                 point: point,
                 titlebarPassThrough: true,
                 sidebarPassThrough: sidebarPassThrough,
@@ -446,6 +446,19 @@ final class WindowBrowserHostView: NSView {
                 return self
             }
             if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
+            return nil
+        }
+        if titlebarPassThrough {
+#if DEBUG
+            debugLogPointerRouting(
+                stage: "hitTest.titlebarPass",
+                point: point,
+                titlebarPassThrough: true,
+                sidebarPassThrough: sidebarPassThrough,
+                dividerHit: dividerHit,
+                hitView: nil
+            )
+#endif
             return nil
         }
         if tabStripPassThrough {
@@ -654,6 +667,15 @@ final class WindowBrowserHostView: NSView {
         return windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
     }
 
+    private func isTitlebarInteractiveControl(at point: NSPoint) -> Bool {
+        guard let window else { return false }
+        let windowPoint = convert(point, to: nil)
+        guard windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else {
+            return false
+        }
+        return isMinimalModeTitlebarControlHit(window: window, locationInWindow: windowPoint)
+    }
+
     private func shouldPassThroughToPaneTabBar(
         at point: NSPoint,
         eventType: NSEvent.EventType?
@@ -780,7 +802,7 @@ final class WindowBrowserHostView: NSView {
 
         let resolvedDividerHit = dividerHit ?? splitDividerHit(at: point)
         let resolvedHostedInspectorHit = resolvedDividerHit == nil ? (hostedInspectorHit ?? hostedInspectorDividerHit(at: point)) : nil
-        if shouldPassThroughToTitlebar(at: point) {
+        if isTitlebarInteractiveControl(at: point) {
             clearActiveDividerCursor(restoreArrow: false)
             return
         }
@@ -788,7 +810,8 @@ final class WindowBrowserHostView: NSView {
             clearActiveDividerCursor(restoreArrow: false)
             return
         }
-        // App dividers outrank pane tab bars, but never window titlebar space.
+        // Real titlebar controls win above; app dividers then outrank empty
+        // titlebar drag space and pane tab bars.
         if let resolvedDividerHit, !resolvedDividerHit.isInHostedContent {
             guard dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
                 clearActiveDividerCursor(restoreArrow: false)
@@ -796,6 +819,10 @@ final class WindowBrowserHostView: NSView {
             }
             activeDividerCursorKind = resolvedDividerHit.kind
             resolvedDividerHit.kind.cursor.set()
+            return
+        }
+        if shouldPassThroughToTitlebar(at: point) {
+            clearActiveDividerCursor(restoreArrow: false)
             return
         }
         if shouldPassThroughToPaneTabBar(at: point, eventType: NSApp.currentEvent?.type) {

@@ -191,7 +191,7 @@ final class WindowTerminalHostView: NSView {
         if routingContext.allowsPortalPointerHitTesting {
             let resolveHostedTerminalHitView = hostedTerminalHitViewResolver(at: point)
 
-            if shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView) {
+            if isTitlebarInteractiveControl(at: point) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
             }
@@ -217,6 +217,11 @@ final class WindowTerminalHostView: NSView {
                 }
                 if PortalDividerCursorKind.isPointerHoverEvent(eventType) { return self }
                 TerminalWindowPortalRegistry.noteSplitDividerInteraction(in: window, event: currentEvent)
+                return nil
+            }
+
+            if shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView) {
+                clearActiveDividerCursor(restoreArrow: false)
                 return nil
             }
 
@@ -293,6 +298,15 @@ final class WindowTerminalHostView: NSView {
         // concrete UI target, so mouse reporting must reach Ghostty instead of
         // falling through to window chrome.
         return hostedTerminalHitView() == nil
+    }
+
+    private func isTitlebarInteractiveControl(at point: NSPoint) -> Bool {
+        guard let window else { return false }
+        let windowPoint = convert(point, to: nil)
+        guard windowPoint.y >= BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window) else {
+            return false
+        }
+        return isMinimalModeTitlebarControlHit(window: window, locationInWindow: windowPoint)
     }
 
     private func shouldPassThroughToPaneTabBar(
@@ -384,7 +398,7 @@ final class WindowTerminalHostView: NSView {
         }
 
         let resolveHostedTerminalHitView = hostedTerminalHitViewResolver(at: point)
-        if shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView) {
+        if isTitlebarInteractiveControl(at: point) {
             clearActiveDividerCursor(restoreArrow: false)
             return
         }
@@ -394,10 +408,16 @@ final class WindowTerminalHostView: NSView {
             return
         }
 
-        // Pane dividers outrank pane tab bars, but never window titlebar space.
+        // Real titlebar controls win above; pane dividers then outrank empty
+        // titlebar drag space and pane tab bars.
         let kind = splitDividerCursorKind(at: point)
         if let kind {
             assertDividerCursor(kind)
+            return
+        }
+
+        if shouldPassThroughToTitlebar(at: point, hostedTerminalHitView: resolveHostedTerminalHitView) {
+            clearActiveDividerCursor(restoreArrow: false)
             return
         }
 
