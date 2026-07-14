@@ -982,6 +982,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7769000000000000000000D /* NotificationPopoverHoverTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */; };
 		D77690000000000000000003 /* NotificationPopoverRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000004 /* NotificationPopoverRow.swift */; };
 		C7A507000000000000005794 /* NotificationRowSnapshotBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */; };
+		D79010000000000000000003 /* NotificationScrollRecordingSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79010000000000000000004 /* NotificationScrollRecordingSurfaceView.swift */; };
 		D78970000000000000000003 /* NotificationScrollRestoreGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78970000000000000000004 /* NotificationScrollRestoreGeometry.swift */; };
 		C7A507000000000000005796 /* NotificationScrollRestoreLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A507000000000000005797 /* NotificationScrollRestoreLifecycleTests.swift */; };
 		C79010000000000000000001 /* NotificationScrollRestoreRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79010000000000000000002 /* NotificationScrollRestoreRecoveryTests.swift */; };
@@ -2770,6 +2771,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingView.swift; sourceTree = "<group>"; };
 		D77690000000000000000004 /* NotificationPopoverRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverRow.swift; sourceTree = "<group>"; };
 		C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRowSnapshotBoundaryTests.swift; sourceTree = "<group>"; };
+		D79010000000000000000004 /* NotificationScrollRecordingSurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRecordingSurfaceView.swift; sourceTree = "<group>"; };
 		D78970000000000000000004 /* NotificationScrollRestoreGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRestoreGeometry.swift; sourceTree = "<group>"; };
 		C7A507000000000000005797 /* NotificationScrollRestoreLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRestoreLifecycleTests.swift; sourceTree = "<group>"; };
 		C79010000000000000000002 /* NotificationScrollRestoreRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScrollRestoreRecoveryTests.swift; sourceTree = "<group>"; };
@@ -5367,6 +5369,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A507000000000000000001 /* TaskManagerResourcesTests.swift */,
 				C7A507000000000000004530 /* TaskManagerViewSnapshotBoundaryTests.swift */,
 				C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */,
+				D79010000000000000000004 /* NotificationScrollRecordingSurfaceView.swift */,
 				C7A507000000000000005797 /* NotificationScrollRestoreLifecycleTests.swift */,
 				C79010000000000000000002 /* NotificationScrollRestoreRecoveryTests.swift */,
 				C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */,
@@ -7396,6 +7399,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
 				D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */,
 				C7A507000000000000005794 /* NotificationRowSnapshotBoundaryTests.swift in Sources */,
+				D79010000000000000000003 /* NotificationScrollRecordingSurfaceView.swift in Sources */,
 				C7A507000000000000005796 /* NotificationScrollRestoreLifecycleTests.swift in Sources */,
 				C79010000000000000000001 /* NotificationScrollRestoreRecoveryTests.swift in Sources */,
 				4E5F60720000000000000001 /* NotificationSoundSettingsTests.swift in Sources */,
