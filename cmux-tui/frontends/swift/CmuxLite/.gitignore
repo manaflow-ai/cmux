@@ -1,0 +1,6 @@
+.build/
+DerivedData/
+VendorBuild/
+.xcodegen/
+*.xcodeproj/xcuserdata/
+
