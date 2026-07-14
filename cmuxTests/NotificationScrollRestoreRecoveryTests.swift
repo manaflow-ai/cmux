@@ -86,6 +86,23 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
+    @Test func delayedActivationRebasesAfterReplayLifecycleCompletes() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 4_000, offset: 3_956, len: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
+        postRenderedFrame(to: surfaceView)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 10_000)
+        ))
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:3856"])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
     @Test func missingEndBoundaryFallsBackAtReplayDeadline() {
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)

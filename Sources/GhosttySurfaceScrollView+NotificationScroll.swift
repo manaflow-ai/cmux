@@ -113,8 +113,8 @@ extension GhosttySurfaceScrollView {
             capturedTotalRows: capturedTotalRows
         )
         let targetTopRow: Int?
-        if isPostReplayGeometry,
-           isAuthoritativePostReplayFrame,
+        if (isPostReplayGeometry && isAuthoritativePostReplayFrame ||
+            notificationScrollRestoreDidCompleteReplay),
            let originalTotalRows = position.totalRows,
            Int(clamping: scrollbar.total) < originalTotalRows {
             // Session persistence retains a bounded suffix. Once replay has
@@ -216,6 +216,7 @@ extension GhosttySurfaceScrollView {
 
     func armSessionScrollbackReplay(expectedStartBoundary: String, expectedEndBoundary: String) {
         cancelNotificationScrollRestoreFrameWait()
+        notificationScrollRestoreDidCompleteReplay = false
         notificationScrollRestoreState = .armed(
             expectedStartBoundary: expectedStartBoundary,
             expectedEndBoundary: expectedEndBoundary,
@@ -248,6 +249,7 @@ extension GhosttySurfaceScrollView {
               boundary == expectedEndBoundary else {
             return false
         }
+        notificationScrollRestoreDidCompleteReplay = true
         notificationScrollRestoreState = .awaitingPostReplayGeometry(
             position: pendingPosition,
             attemptsRemaining: 2,

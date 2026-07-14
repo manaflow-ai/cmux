@@ -8179,6 +8179,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var isLiveScrolling = false
     private var lastSentRow: Int?
     var notificationScrollRestoreState: NotificationScrollRestoreState = .inactive
+    var notificationScrollRestoreDidCompleteReplay = false
     var notificationScrollRestoreBoundaryFrameGeneration: UInt64?
     var notificationScrollRestoreHasPostBoundaryScrollbar = false
     var notificationScrollRestoreRenderedFrameObserver: NSObjectProtocol?
@@ -8187,7 +8188,6 @@ final class GhosttySurfaceScrollView: NSView {
     var userScrolledAwayFromBottom = false
     private var pendingExplicitWheelScroll = false
     var allowExplicitScrollbarSync = false
-    /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
