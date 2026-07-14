@@ -220,10 +220,17 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
                 value = try? CmxAttachRoute(from: decoder)
             }
         }
+        struct FailableLiveSession: Decodable {
+            let value: CmxLiveSession?
+            init(from decoder: any Decoder) throws {
+                value = try? CmxLiveSession(from: decoder)
+            }
+        }
         struct Instance: Decodable {
             let tag: String?
             let routes: [FailableRoute]?
             let lastSeenAt: String?
+            let sessions: [FailableLiveSession]?
         }
         struct Device: Decodable {
             let deviceId: String
@@ -246,7 +253,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
                     tag: instance.tag?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                         ? instance.tag! : "default",
                     routes: (instance.routes ?? []).compactMap(\.value),
-                    lastSeenAt: Self.parseTimestamp(instance.lastSeenAt)
+                    lastSeenAt: Self.parseTimestamp(instance.lastSeenAt),
+                    sessions: (instance.sessions ?? []).compactMap(\.value)
                 )
             }
             return RegistryDevice(

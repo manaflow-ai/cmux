@@ -430,9 +430,7 @@ final class AgentChatTranscriptService {
                 completedAt = max(completedAt ?? message.timestamp, message.timestamp)
             case .toolUse, .terminal, .fileEdit, .permissionRequest, .question:
                 return nil
-            case .status:
-                break
-            case .attachment:
+            case .status, .attachment:
                 break
             }
         }
@@ -440,6 +438,7 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
+        NotificationCenter.default.post(name: .cmuxLiveSessionsDidChange, object: nil)
         let endedRecordIsListable: Bool
         if record.state == .ended {
             endedRecordIsListable = record.agentKind == .codex
@@ -482,6 +481,7 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
+        NotificationCenter.default.post(name: .cmuxLiveSessionsDidChange, object: nil)
         proseStreamer.turnEnded(sessionID: record.sessionID)
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }

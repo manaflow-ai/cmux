@@ -2155,6 +2155,64 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await loadRegistryDevices()
     }
 
+    /// Attach to the runtime advertising a registry session and resolve its live
+    /// workspace row for navigation.
+    ///
+    /// Registry data is only a discovery hint. After connecting, this method
+    /// re-fetches the authoritative workspace list and returns a row only when
+    /// the advertised workspace still exists on the authenticated Mac instance.
+    /// - Parameters:
+    ///   - deviceID: Registry device that owns the session.
+    ///   - instanceTag: Exact app instance that advertised the session.
+    ///   - sessionID: Advertised live-session id.
+    /// - Returns: The current workspace row id, or `nil` when the advertisement is stale or attach fails.
+    public func prepareRegistrySessionHandoff(
+        deviceID: String,
+        instanceTag: String,
+        sessionID: String
+    ) async -> MobileWorkspacePreview.ID? {
+        guard let device = registryDevices.first(where: { $0.deviceId == deviceID }),
+              let instance = device.instances.first(where: { $0.tag == instanceTag }),
+              let session = instance.sessions.first(where: { $0.id == sessionID }) else {
+            return nil
+        }
+
+        await connectToRegistryInstance(device: device, instance: instance)
+        guard connectionState == .connected,
+              connectedMacDeviceID == device.deviceId,
+              activeMacInstanceTag == instance.tag else {
+            return nil
+        }
+        await refreshWorkspaces()
+        guard let workspaceID = Self.registryHandoffWorkspaceID(
+            workspaceID: session.workspaceID,
+            deviceID: device.deviceId,
+            workspaces: workspaces
+        ) else {
+            await loadRegistryDevices()
+            return nil
+        }
+        if let terminalID = session.terminalID,
+           let workspace = workspaces.first(where: { $0.id == workspaceID }),
+           let terminal = workspace.terminals.first(where: { $0.id.rawValue == terminalID }) {
+            selectTerminal(terminal.id)
+        }
+        return workspaceID
+    }
+
+    /// Resolve a registry's runtime-local workspace identity into the current
+    /// aggregate row without crossing Mac ownership boundaries.
+    static func registryHandoffWorkspaceID(
+        workspaceID: String,
+        deviceID: String,
+        workspaces: [MobileWorkspacePreview]
+    ) -> MobileWorkspacePreview.ID? {
+        workspaces.first { workspace in
+            workspace.rpcWorkspaceID.rawValue == workspaceID
+                && (workspace.macDeviceID == nil || workspace.macDeviceID == deviceID)
+        }?.id
+    }
+
     /// Reload ``pairedMacs`` from the store, scoped to the signed-in Stack user.
     ///
     /// A missing current Stack user id yields no pairings rather than falling

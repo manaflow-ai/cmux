@@ -22,8 +22,24 @@ import CMUXMobileCore
         )
     }
 
-    private func reg(team: String?, tag: String = "default", routes: [CmxAttachRoute]) -> DeviceRegistryClient.Registration {
-        DeviceRegistryClient.Registration(teamID: team, tag: tag, routes: routes)
+    private func reg(
+        team: String?,
+        tag: String = "default",
+        routes: [CmxAttachRoute],
+        sessions: [CmxLiveSession] = []
+    ) -> DeviceRegistryClient.Registration {
+        DeviceRegistryClient.Registration(teamID: team, tag: tag, routes: routes, sessions: sessions)
+    }
+
+    private func liveSession(status: CmxLiveSessionStatus = .idle) -> CmxLiveSession {
+        CmxLiveSession(
+            id: "workspace-1",
+            workspaceID: "workspace-1",
+            title: "Handoff",
+            agent: "codex",
+            status: status,
+            lastActivityAt: 1_800_000_000
+        )
     }
 
     @Test func initialEmptyRoutesDoNotRegister() {
@@ -50,6 +66,17 @@ import CMUXMobileCore
         let previous = reg(team: "team-a", routes: [try route(host: "100.0.0.1", port: 51000)])
         let current = reg(team: "team-a", routes: [try route(host: "100.9.9.9", port: 51999)])
         #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: current) == true)
+    }
+
+    @Test func changedLiveSessionStateReRegistersWithUnchangedRoutes() throws {
+        let routes = [try route(host: "100.0.0.1", port: 51000)]
+        let previous = reg(team: "team-a", routes: routes, sessions: [liveSession(status: .working)])
+        let current = reg(team: "team-a", routes: routes, sessions: [liveSession(status: .needsInput)])
+        #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: current) == true)
+    }
+
+    @Test func pairingOffSuppressesSessionDiscovery() {
+        #expect(DeviceRegistryClient.advertisedSessions(routes: [], sessions: [liveSession()]).isEmpty)
     }
 
     @Test func teamSwitchReRegistersEvenWithUnchangedRoutes() throws {

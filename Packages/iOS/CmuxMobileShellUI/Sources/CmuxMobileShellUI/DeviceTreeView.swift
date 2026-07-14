@@ -29,6 +29,11 @@ struct DeviceTreeView: View {
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
     @State private var computerPendingRemovalID: String?
+    /// The registry session currently attaching; row identity keeps repeated
+    /// taps from launching competing destructive Mac switches.
+    @State private var pendingHandoffID: String?
+    /// The advertised session that could not be resolved after attaching.
+    @State private var failedHandoffSessionTitle: String?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -43,12 +48,21 @@ struct DeviceTreeView: View {
         MacComputerSnapshot.snapshots(from: store)
     }
 
+    /// Account-discovered sessions are immutable row snapshots; the live RPC
+    /// replaces them after a successful attach.
+    private var handoffSessions: [RegistryLiveSessionSnapshot] {
+        RegistryLiveSessionSnapshot.snapshots(from: store.registryDevices)
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                if computers.isEmpty {
+                if !handoffSessions.isEmpty {
+                    handoffSection
+                }
+                if computers.isEmpty, handoffSessions.isEmpty {
                     emptySection
-                } else {
+                } else if !computers.isEmpty {
                     Section {
                         ForEach(computers) { computer in
                             MacComputerRow(
@@ -109,7 +123,44 @@ struct DeviceTreeView: View {
                 }
             }
         }
+        .alert(
+            L10n.string("mobile.handoff.failure.title", defaultValue: "Couldn't Continue Session"),
+            isPresented: Binding(
+                get: { failedHandoffSessionTitle != nil },
+                set: { if !$0 { failedHandoffSessionTitle = nil } }
+            )
+        ) {
+            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.handoff.failure.message",
+                defaultValue: "The session may have ended or its computer may be offline. Refresh and try again."
+            ))
+        }
         .accessibilityIdentifier("MobileDeviceTree")
+    }
+
+    private var handoffSection: some View {
+        Section {
+            ForEach(handoffSessions) { session in
+                RegistryLiveSessionRow(
+                    session: session,
+                    isConnecting: pendingHandoffID == session.id,
+                    continueSession: { continueSession(session) }
+                )
+                .disabled(pendingHandoffID != nil)
+            }
+        } header: {
+            Text(L10n.string(
+                "mobile.handoff.section.title",
+                defaultValue: "Continue on This Device"
+            ))
+        } footer: {
+            Text(L10n.string(
+                "mobile.handoff.section.footer",
+                defaultValue: "Choose a live session to connect to its computer and pick up where you left off."
+            ))
+        }
     }
 
     /// End-of-list affordance mirroring the top-left toolbar button, so users who
@@ -168,6 +219,25 @@ struct DeviceTreeView: View {
         Task {
             await store.forgetMac(macDeviceID: deviceID)
             await reload()
+        }
+    }
+
+    private func continueSession(_ session: RegistryLiveSessionSnapshot) {
+        guard pendingHandoffID == nil else { return }
+        pendingHandoffID = session.id
+        Task { @MainActor in
+            defer { pendingHandoffID = nil }
+            guard let workspaceID = await store.prepareRegistrySessionHandoff(
+                deviceID: session.deviceID,
+                instanceTag: session.instanceTag,
+                sessionID: session.sessionID
+            ) else {
+                await reload()
+                failedHandoffSessionTitle = session.workspaceTitle
+                return
+            }
+            selectWorkspace(workspaceID)
+            dismiss()
         }
     }
 

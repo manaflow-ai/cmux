@@ -230,6 +230,7 @@ final class MobileWorkspaceListObserver {
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
         MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
+        NotificationCenter.default.post(name: .cmuxLiveSessionsDidChange, object: nil)
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their

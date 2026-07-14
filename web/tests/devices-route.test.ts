@@ -161,6 +161,132 @@ describe("device registry route", () => {
     expect(list.devices[0].instances[0].routes).toHaveLength(1);
   });
 
+  dbTest("registers bounded live sessions and returns them outside the label bag", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const register = await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        tag: "stable",
+        routes: [{ id: "r1", kind: "tailscale", priority: 0, endpoint: { host: "100.1.2.3", port: 51001 } }],
+        instanceLabels: { channel: "stable", liveSessions: [{ id: "forged" }] },
+        sessions: [{
+          id: "workspace-1",
+          workspaceID: "workspace-1",
+          terminalID: "terminal-1",
+          agentSessionID: "agent-session-1",
+          title: "Ship handoff",
+          agent: "codex",
+          status: "needs_input",
+          lastActivityAt: 1_800_000_000,
+        }],
+      }),
+    );
+    expect(register.status).toBe(200);
+
+    const list = (await (
+      await GET(new Request("https://cmux.test/api/devices", { method: "GET", headers: authHeaders() }))
+    ).json()) as {
+      devices: Array<{
+        instances: Array<{
+          labels: Record<string, unknown>;
+          sessions: Array<{ id: string; status: string }>;
+        }>;
+      }>;
+    };
+    const instance = list.devices[0].instances[0];
+    expect(instance.labels).toEqual({ channel: "stable" });
+    expect(instance.sessions).toEqual([
+      expect.objectContaining({ id: "workspace-1", status: "needs_input" }),
+    ]);
+  });
+
+  dbTest("does not expose session metadata to another member of the team", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    expect((await POST(registerRequest({
+      deviceId: DEVICE_A,
+      platform: "mac",
+      tag: "stable",
+      routes: [{ id: "r1", kind: "tailscale", endpoint: { host: "100.1.2.3", port: 51001 } }],
+      sessions: [{
+        id: "workspace-private",
+        workspaceID: "workspace-private",
+        title: "Private launch plan",
+        agent: "codex",
+        status: "working",
+        lastActivityAt: 1_800_000_000,
+      }],
+    }))).status).toBe(200);
+
+    currentUserId = "registry-user-2";
+    const list = (await (
+      await GET(new Request("https://cmux.test/api/devices", { method: "GET", headers: authHeaders() }))
+    ).json()) as { devices: Array<{ instances: Array<{ labels: Record<string, unknown>; sessions: unknown[] }> }> };
+    expect(list.devices).toHaveLength(1);
+    expect(list.devices[0].instances[0].labels.liveSessions).toBeUndefined();
+    expect(list.devices[0].instances[0].sessions).toEqual([]);
+  });
+
+  dbTest("clears submitted sessions when an instance has no attach routes", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    expect((await POST(registerRequest({
+      deviceId: DEVICE_A,
+      platform: "mac",
+      tag: "stable",
+      routes: [],
+      sessions: [{
+        id: "workspace-stale",
+        workspaceID: "workspace-stale",
+        title: "Stale",
+        status: "idle",
+        lastActivityAt: 1_800_000_000,
+      }],
+    }))).status).toBe(200);
+
+    const list = (await (
+      await GET(new Request("https://cmux.test/api/devices", { method: "GET", headers: authHeaders() }))
+    ).json()) as { devices: Array<{ instances: Array<{ sessions: unknown[] }> }> };
+    expect(list.devices[0].instances[0].sessions).toEqual([]);
+  });
+
+  dbTest("caps live sessions across the complete device-list response", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    for (let tagIndex = 0; tagIndex < 11; tagIndex++) {
+      const response = await POST(
+        registerRequest({
+          deviceId: DEVICE_A,
+          platform: "mac",
+          tag: `tag-${tagIndex}`,
+          routes: [{
+            id: `route-${tagIndex}`,
+            kind: "tailscale",
+            endpoint: { host: "100.1.2.3", port: 51001 },
+          }],
+          sessions: Array.from({ length: 50 }, (_, sessionIndex) => ({
+            id: `workspace-${tagIndex}-${sessionIndex}`,
+            workspaceID: `workspace-${tagIndex}-${sessionIndex}`,
+            title: `Workspace ${tagIndex}-${sessionIndex}`,
+            status: "idle",
+            lastActivityAt: tagIndex * 100 + sessionIndex,
+          })),
+        }),
+      );
+      expect(response.status).toBe(200);
+    }
+
+    const list = (await (
+      await GET(new Request("https://cmux.test/api/devices", { method: "GET", headers: authHeaders() }))
+    ).json()) as { devices: Array<{ instances: Array<{ sessions: unknown[] }> }> };
+    const totalSessions = list.devices
+      .flatMap((device) => device.instances)
+      .reduce((total, instance) => total + instance.sessions.length, 0);
+    expect(totalSessions).toBe(500);
+  });
+
   dbTest("re-registering the same (device, tag) refreshes routes in place (auto-pair path)", async () => {
     if (!sql) throw new Error("test database not initialized");
 
