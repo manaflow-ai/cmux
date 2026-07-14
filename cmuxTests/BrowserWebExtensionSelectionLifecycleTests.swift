@@ -61,7 +61,7 @@ struct BrowserWebExtensionSelectionLifecycleTests {
         let browserPanelID = try #require(dock.newSurface(kind: .browser, inPane: paneID, focus: true))
         let terminalPanelID = try #require(dock.newSurface(kind: .terminal, inPane: paneID, focus: false))
         let window = NSWindow()
-        let browserPanel = try #require(dock.panel(for: browserPanelID) as? BrowserPanel)
+        let browserPanel = try #require(dock.browserPanel(for: browserPanelID))
         window.contentView = browserPanel.webView
         defer {
             window.contentView = nil
