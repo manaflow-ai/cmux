@@ -204,6 +204,27 @@ struct CmuxRunURLRequestTests {
         #expect(CmuxRunURLRequest.parse(otherRoute, supportedSchemes: [scheme]) == .success(nil))
     }
 
+    @Test func classifiesEachMalformedExternalURLAsOneIntent() throws {
+        let urls = try [
+            #require(URL(string: "\(scheme)://run?cwd=/tmp")),
+            #require(URL(string: "\(scheme)://ssh?title=Missing")),
+            #require(URL(string: "\(scheme)://workspace/not-a-uuid")),
+            #require(URL(string: "\(scheme)://prompt")),
+            #require(URL(string: "\(scheme)://unsupported"))
+        ]
+
+        let counts = AppDelegate.cmuxExternalURLIntentCounts(
+            in: urls,
+            supportedSchemes: [scheme]
+        )
+
+        #expect(counts.run == 1)
+        #expect(counts.ssh == 1)
+        #expect(counts.navigation == 1)
+        #expect(counts.text == 1)
+        #expect(counts.total == 4)
+    }
+
     @Test func resolvesAndCanonicalizesExistingDirectories() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let real = root.appendingPathComponent("real", isDirectory: true)
