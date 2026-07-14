@@ -75,6 +75,15 @@ public struct VPSHostHealth: Equatable, Sendable {
         }
 
         guard let running = newestRunning else {
+            // Fail closed: an active unit with no daemon report means the
+            // status query could not run — the daemon may well be alive with
+            // sessions, so never report it as cleanly stopped.
+            if facts.unitIsActive, report == nil {
+                return VPSHostHealth(
+                    state: .degraded,
+                    detail: "unit is active but the daemon status query failed; live session count is unknown"
+                )
+            }
             let detail: String
             if facts.hasSystemd, facts.unitFileExists {
                 detail = "unit is \(facts.unitActiveState.isEmpty ? "inactive" : facts.unitActiveState) and no daemon answered"

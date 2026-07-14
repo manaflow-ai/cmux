@@ -38,7 +38,7 @@ public actor VPSHostRegistry {
 
     /// The entry for `host`, or `nil` when unregistered.
     public func entry(for host: VPSHostDescriptor) throws -> VPSRegisteredHost? {
-        try load()[host.registryKey]
+        try load()[host.storageKey]
     }
 
     /// The entry matching a raw destination string plus optional port, or
@@ -47,10 +47,26 @@ public actor VPSHostRegistry {
         try entry(for: VPSHostDescriptor(destination: destination, port: port))
     }
 
+    /// Resolves a CLI-supplied destination to a registered entry: the exact
+    /// destination+port key first; when no port was supplied, the unique
+    /// entry with that destination — so `cmux vps upgrade user@host` finds a
+    /// host registered with `--port 2222`. Ambiguous bare destinations (same
+    /// destination on several ports) resolve to `nil` so the caller fails
+    /// with "not registered" instead of guessing.
+    public func resolve(destination: String, port: Int?) throws -> VPSRegisteredHost? {
+        if let exact = try entry(destination: destination, port: port) {
+            return exact
+        }
+        guard port == nil else { return nil }
+        let matches = try load().values.filter { $0.host.destination == destination }
+        guard matches.count == 1 else { return nil }
+        return matches.first
+    }
+
     /// Inserts or replaces the entry for its host key.
     public func upsert(_ entry: VPSRegisteredHost) throws {
         var hosts = try load()
-        hosts[entry.host.registryKey] = entry
+        hosts[entry.host.storageKey] = entry
         try save(hosts)
     }
 
@@ -60,7 +76,7 @@ public actor VPSHostRegistry {
     @discardableResult
     public func remove(_ host: VPSHostDescriptor) throws -> VPSRegisteredHost? {
         var hosts = try load()
-        let removed = hosts.removeValue(forKey: host.registryKey)
+        let removed = hosts.removeValue(forKey: host.storageKey)
         if removed != nil {
             try save(hosts)
         }
@@ -79,7 +95,7 @@ public actor VPSHostRegistry {
             let data = try Data(contentsOf: fileURL)
             let file = try JSONDecoder().decode(RegistryFile.self, from: data)
             return Dictionary(
-                file.hosts.map { ($0.host.registryKey, $0) },
+                file.hosts.map { ($0.host.storageKey, $0) },
                 uniquingKeysWith: { _, newer in newer }
             )
         } catch {

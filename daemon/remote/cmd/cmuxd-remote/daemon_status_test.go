@@ -109,6 +109,22 @@ func TestRunStdioIdleTimeoutRequiresPersistentServer(t *testing.T) {
 	}
 }
 
+func TestRunIdleTimeoutRejectsOutOfRangeValues(t *testing.T) {
+	for _, args := range [][]string{
+		{"serve", "--persistent-server", "--slot", "vps", "--idle-timeout", "-2"},
+		{"serve", "--persistent-server", "--slot", "vps", "--idle-timeout", "315360001"},
+	} {
+		var stderr bytes.Buffer
+		code := run(args, strings.NewReader(""), &bytes.Buffer{}, &stderr)
+		if code != 2 {
+			t.Fatalf("run %v exit code = %d, want 2", args, code)
+		}
+		if !strings.Contains(stderr.String(), "--idle-timeout must be between") {
+			t.Fatalf("stderr = %q, want idle-timeout range error", stderr.String())
+		}
+	}
+}
+
 func TestDaemonStatusCommandRequiresSlot(t *testing.T) {
 	var stderr bytes.Buffer
 	code := run([]string{"daemon-status", "--json"}, strings.NewReader(""), &bytes.Buffer{}, &stderr)

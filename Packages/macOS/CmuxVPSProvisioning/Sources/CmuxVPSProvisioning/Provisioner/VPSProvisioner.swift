@@ -63,10 +63,22 @@ public actor VPSProvisioner {
         do {
             facts = try await probeFacts()
         } catch {
+            // Only a transport failure reads as unreachable; a probe that ran
+            // but produced unusable output fails closed as degraded instead
+            // of masquerading as "host did not answer".
+            let health: VPSHostHealth
+            if case VPSProvisioningError.sshFailed = error {
+                health = VPSHostHealth.evaluate(facts: nil, report: nil, desiredVersion: desiredVersion)
+            } else {
+                health = VPSHostHealth(
+                    state: .degraded,
+                    detail: "host answered but the probe output was unusable; re-run `cmux vps status`"
+                )
+            }
             return VPSHostStatus(
                 facts: nil,
                 report: nil,
-                health: VPSHostHealth.evaluate(facts: nil, report: nil, desiredVersion: desiredVersion),
+                health: health,
                 desiredVersion: desiredVersion
             )
         }
@@ -264,7 +276,12 @@ public actor VPSProvisioner {
             try await runStep(scripts.removeUnitScript(scope: facts.unitScope), step: "remove unit")
             removedUnitFile = true
         }
-        try await runStep(scripts.removeVPSDirectoryScript(), step: "remove VPS state directory")
+        // With --keep-sessions the daemon stays alive, so its state directory
+        // (including the `current` symlink it was exec'd from) is preserved
+        // for diagnostics and a clean later `cmux vps add`.
+        if !keepSessions {
+            try await runStep(scripts.removeVPSDirectoryScript(), step: "remove VPS state directory")
+        }
         return VPSRemovalOutcome(
             stoppedUnit: stoppedUnit,
             removedUnitFile: removedUnitFile,
@@ -277,16 +294,14 @@ public actor VPSProvisioner {
     private func probeFacts() async throws -> VPSHostFacts {
         let probe = VPSHostProbeScript(version: artifacts.version)
         let result = try await ssh.runScript(probe.script(), timeout: 45)
-        do {
-            return try VPSHostFacts.parse(stdout: result.stdout)
-        } catch {
-            guard result.status == 0 else {
-                throw VPSProvisioningError.sshFailed(
-                    detail: result.bestErrorLine ?? "ssh exited \(result.status)"
-                )
-            }
-            throw error
+        // A failed probe can still emit parseable partial output — reject on
+        // exit status first so provisioning never plans against half-facts.
+        guard result.status == 0 else {
+            throw VPSProvisioningError.sshFailed(
+                detail: result.bestErrorLine ?? "ssh exited \(result.status)"
+            )
         }
+        return try VPSHostFacts.parse(stdout: result.stdout)
     }
 
     /// Refuses destructive operations while the supervised daemon holds live
@@ -334,13 +349,19 @@ public actor VPSProvisioner {
                 goArch: goArch
             ).binaryPath
         }
-        guard let newest = facts.installedVersions.sorted().last else { return nil }
+        guard let newest = facts.installedVersions.max(by: Self.versionIsOrderedBefore) else { return nil }
         return VPSRemoteLayout(
             homeDirectory: facts.homeDirectory,
             version: newest,
             goOS: goOS,
             goArch: goArch
         ).binaryPath
+    }
+
+    /// Numeric-aware version ordering so `0.10.0` outranks `0.9.0` (plain
+    /// lexicographic sort would not).
+    static func versionIsOrderedBefore(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.compare(rhs, options: .numeric) == .orderedAscending
     }
 
     private nonisolated func makeEventStream(

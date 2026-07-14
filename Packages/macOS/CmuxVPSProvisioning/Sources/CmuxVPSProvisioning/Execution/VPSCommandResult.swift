@@ -18,6 +18,8 @@ public struct VPSCommandResult: Equatable, Sendable {
 
     /// The most useful single error line for user-facing messages: the last
     /// non-empty stderr line, else the last non-empty stdout line, else `nil`.
+    /// Sanitized (control characters stripped, length-capped) because the
+    /// content originates on the remote host.
     public var bestErrorLine: String? {
         for text in [stderr, stdout] {
             let lines = text
@@ -25,9 +27,20 @@ public struct VPSCommandResult: Equatable, Sendable {
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
             if let last = lines.last {
-                return last
+                return last.sanitizedRemoteErrorLine
             }
         }
         return nil
+    }
+}
+
+extension String {
+    /// Bounds a remote-output line for use in an error message: control
+    /// characters (except tab) stripped, hard-capped at 300 characters.
+    var sanitizedRemoteErrorLine: String {
+        let cleaned = unicodeScalars.filter { scalar in
+            !CharacterSet.controlCharacters.contains(scalar) || scalar == "\t"
+        }
+        return String(String.UnicodeScalarView(cleaned)).prefix(300).description
     }
 }

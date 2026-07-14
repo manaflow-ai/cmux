@@ -110,7 +110,17 @@ public struct VPSHostFacts: Equatable, Sendable {
             }
         }
 
-        guard let home = values[.home], home.hasPrefix("/") else {
+        // The probe prints every marker unconditionally, so any absent marker
+        // means truncated or corrupted output — refuse rather than let a
+        // missing marker read as a negative fact and mis-plan the host.
+        let missing = VPSHostProbeScript.Marker.allCases.filter { values[$0] == nil }
+        guard missing.isEmpty else {
+            throw VPSProvisioningError.probeParseFailed(
+                detail: "probe output is missing markers: \(missing.map(\.rawValue).joined(separator: ", "))"
+            )
+        }
+
+        guard let home = values[.home], home.hasPrefix("/"), home != "/" else {
             throw VPSProvisioningError.probeParseFailed(detail: "missing remote home directory")
         }
         guard let uidRaw = values[.uid], let uid = Int(uidRaw), uid >= 0 else {
@@ -118,6 +128,13 @@ public struct VPSHostFacts: Equatable, Sendable {
         }
         guard let unameOS = values[.unameOS], let unameArch = values[.unameArch] else {
             throw VPSProvisioningError.probeParseFailed(detail: "missing uname output")
+        }
+        for marker in [VPSHostProbeScript.Marker.systemd, .binaryExists, .unitPresent, .linger] {
+            guard values[marker] == "yes" || values[marker] == "no" else {
+                throw VPSProvisioningError.probeParseFailed(
+                    detail: "probe marker \(marker.rawValue) must be yes or no"
+                )
+            }
         }
 
         let goOS = values[.goOS].flatMap { $0 == "unsupported" || $0.isEmpty ? nil : $0 }

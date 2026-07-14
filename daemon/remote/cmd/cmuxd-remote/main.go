@@ -183,6 +183,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
+		if *idleTimeout < -1 || *idleTimeout > maxPersistentDaemonIdleTimeoutSeconds {
+			_, _ = fmt.Fprintf(stderr, "serve --idle-timeout must be between 0 and %d seconds\n", maxPersistentDaemonIdleTimeoutSeconds)
+			return 2
+		}
 		if *persistentServer {
 			if *stdio || *ws || *persistent {
 				_, _ = fmt.Fprintln(stderr, "serve --persistent-server cannot be combined with --stdio, --ws, or --persistent")
@@ -366,6 +370,8 @@ const (
 	persistentDaemonStartupTimeout    = 5 * time.Second
 	persistentDaemonEmptyIdleTimeout  = 5 * time.Minute
 	persistentDaemonEmptyIdlePollStep = time.Second
+	// 10 years; also keeps seconds*time.Second far from Duration overflow.
+	maxPersistentDaemonIdleTimeoutSeconds = 315_360_000
 )
 
 type persistentDaemonServerConfig struct {

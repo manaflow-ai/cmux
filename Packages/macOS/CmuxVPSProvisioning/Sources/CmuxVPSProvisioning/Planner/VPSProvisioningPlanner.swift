@@ -56,12 +56,15 @@ public struct VPSProvisioningPlanner: Equatable, Sendable {
 
         let needsBinaryInstall: Bool = {
             guard facts.binaryExists else { return true }
-            guard let expectedBinarySHA256, !facts.binarySHA256.isEmpty else {
-                // No digest to compare (dev override, or host without a
-                // checksum tool): trust the existing executable like the
-                // `cmux ssh` bootstrap does.
+            guard let expectedBinarySHA256 else {
+                // No expected digest (dev override): trust the existing
+                // executable like the `cmux ssh` bootstrap does.
                 return false
             }
+            // Missing on-host digest is not verification — reinstall so the
+            // upload path's mandatory checksum check settles it (and fails
+            // loudly on hosts with no checksum tool).
+            guard !facts.binarySHA256.isEmpty else { return true }
             return facts.binarySHA256 != expectedBinarySHA256
         }()
         if needsBinaryInstall {

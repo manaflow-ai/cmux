@@ -136,6 +136,10 @@ public struct VPSProcessCommandRunner: VPSCommandRunning {
         return duplicate
     }
 
+    /// Cap on retained bytes per stream; excess is discarded while still
+    /// draining to EOF so a chatty remote command cannot exhaust memory.
+    static let maxRetainedStreamBytes = 8 * 1024 * 1024
+
     private static func drainToEnd(fileDescriptor: Int32) -> Data {
         defer { _ = Darwin.close(fileDescriptor) }
         var collected = Data()
@@ -145,7 +149,9 @@ public struct VPSProcessCommandRunner: VPSCommandRunning {
                 Darwin.read(fileDescriptor, pointer.baseAddress, pointer.count)
             }
             if count > 0 {
-                collected.append(contentsOf: buffer[0..<count])
+                if collected.count < maxRetainedStreamBytes {
+                    collected.append(contentsOf: buffer[0..<min(count, maxRetainedStreamBytes - collected.count)])
+                }
                 continue
             }
             if count == -1, errno == EINTR {
@@ -157,13 +163,17 @@ public struct VPSProcessCommandRunner: VPSCommandRunning {
 
     private static func terminateThenKill(_ process: Process) {
         guard process.isRunning else { return }
-        let pid = process.processIdentifier
         process.terminate()
+        // The Process reference (not a raw PID) decides whether to escalate,
+        // so a recycled PID is never signalled after the child exits.
+        let child = process
         Task.detached(priority: .utility) {
             // Bounded SIGKILL escalation deadline — an intended delay, not a
             // poll; the drain tasks' EOF (child death) gates result assembly.
             try? await Task.sleep(for: .seconds(2))
-            _ = Darwin.kill(pid, SIGKILL)
+            if child.isRunning {
+                _ = Darwin.kill(child.processIdentifier, SIGKILL)
+            }
         }
     }
 }

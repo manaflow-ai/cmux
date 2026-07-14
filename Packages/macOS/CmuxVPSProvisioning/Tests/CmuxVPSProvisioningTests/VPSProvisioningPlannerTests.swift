@@ -112,11 +112,23 @@ struct VPSProvisioningPlannerTests {
         #expect(plan.restartDisruptsActiveDaemon)
     }
 
-    @Test("existing binary without a comparable digest is trusted")
-    func missingDigestTrustsBinary() throws {
+    @Test("missing on-host digest with a known expected digest reinstalls")
+    func missingDigestReinstalls() throws {
         var existing = convergedFacts()
         existing.binarySHA256 = ""
         let planner = VPSProvisioningPlanner(facts: existing, desiredVersion: version, expectedBinarySHA256: sha)
+        let plan = try planner.makePlan()
+        #expect(plan.steps.contains { step in
+            if case .installBinary = step { return true }
+            return false
+        })
+    }
+
+    @Test("existing binary is trusted only when no expected digest exists (dev override)")
+    func missingExpectedDigestTrustsBinary() throws {
+        var existing = convergedFacts()
+        existing.binarySHA256 = ""
+        let planner = VPSProvisioningPlanner(facts: existing, desiredVersion: version, expectedBinarySHA256: nil)
         let plan = try planner.makePlan()
         #expect(plan.steps == [.verifyHealth])
     }

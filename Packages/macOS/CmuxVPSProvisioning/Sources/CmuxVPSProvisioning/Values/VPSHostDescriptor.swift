@@ -40,8 +40,19 @@ public struct VPSHostDescriptor: Equatable, Sendable, Codable {
     ///
     /// Two descriptors that differ only in identity file or ssh options refer
     /// to the same provisioned host, so they share a key.
+    ///
+    /// Display only — registry identity uses ``storageKey``, which cannot
+    /// collide when a destination itself contains `:` (IPv6, or a literal
+    /// `host:port` destination string).
     public var registryKey: String {
         guard let port else { return destination }
         return "\(destination):\(port)"
+    }
+
+    /// Unambiguous structural identity for registry storage and lookups: the
+    /// port component is prefix-encoded (`2222|user@host`, `default|user@host`)
+    /// so `("host:2222", nil)` and `("host", 2222)` never share a key.
+    public var storageKey: String {
+        "\(port.map(String.init) ?? "default")|\(destination)"
     }
 }

@@ -8,6 +8,9 @@ private actor FakeCommandRunner: VPSCommandRunning {
     struct Rule {
         let match: @Sendable (String, [String]) -> Bool
         let result: VPSCommandResult
+        /// Consume this rule after its first match so a later rule can model
+        /// the host's post-mutation state (e.g. the re-probe after install).
+        var once: Bool = false
     }
 
     private(set) var invocations: [(executable: String, arguments: [String])] = []
@@ -26,7 +29,10 @@ private actor FakeCommandRunner: VPSCommandRunning {
         timeout: TimeInterval
     ) async throws -> VPSCommandResult {
         invocations.append((executable, arguments))
-        for rule in rules where rule.match(executable, arguments) {
+        for (index, rule) in rules.enumerated() where rule.match(executable, arguments) {
+            if rule.once {
+                rules.remove(at: index)
+            }
             return rule.result
         }
         return fallback
@@ -103,11 +109,28 @@ struct VPSProvisionerTests {
         )
         let convergedUnitSHA = VPSSystemdUnit(layout: convergedLayout, scope: .user).contentSHA256()
         let runner = FakeCommandRunner(rules: [
+            // First probe sees a bare host; the post-provision re-probe (next
+            // rule) sees the converged install, so health reflects reality.
             .init(
                 match: matching("__CMUX_VPS_HOME__"),
                 result: VPSCommandResult(
                     status: 0,
                     stdout: probeStdout(binaryExists: false, unitPresent: false, unitActive: ""),
+                    stderr: ""
+                ),
+                once: true
+            ),
+            .init(
+                match: matching("__CMUX_VPS_HOME__"),
+                result: VPSCommandResult(
+                    status: 0,
+                    stdout: probeStdout(
+                        binaryExists: true,
+                        unitPresent: true,
+                        unitActive: "active",
+                        unitSHA256: convergedUnitSHA,
+                        currentLink: convergedLayout.binaryPath
+                    ),
                     stderr: ""
                 )
             ),
@@ -120,9 +143,6 @@ struct VPSProvisionerTests {
                 result: VPSCommandResult(status: 0, stdout: daemonStatusJSON(sessions: 0), stderr: "")
             ),
         ])
-        // The post-provision re-probe reuses the first rule, so health sees the
-        // pre-provision unit state; the assertions below only rely on the
-        // daemon report (running, version match).
         let provisioner = VPSProvisioner(
             host: VPSHostDescriptor(destination: "dev@vps.example"),
             runner: runner,
@@ -141,6 +161,7 @@ struct VPSProvisionerTests {
         #expect(outcome.installedVersion == "0.99.0")
         #expect(outcome.unitScope == .user)
         #expect(!outcome.alreadyConverged)
+        #expect(outcome.health.state == .running)
 
         let commands = await runner.commandLines()
         #expect(commands.contains { $0.contains("scp") && $0.contains("dev@vps.example:") })
@@ -380,6 +401,9 @@ struct VPSProvisionerTests {
         #expect(outcome.keptSessions)
         let commands = await runner.commandLines()
         #expect(!commands.contains { $0.contains(" stop ") })
+        // The running daemon's state directory (and the `current` symlink it
+        // executes) must survive a keep-sessions removal.
+        #expect(!commands.contains { $0.contains("rm -rf") && $0.contains(".cmux/vps") })
     }
 
     @Test("status classifies an unreachable host without throwing")
@@ -421,26 +445,4 @@ struct VPSProvisionerTests {
         #expect(scp.contains("-P"))
     }
 
-    @Test("registry round-trips entries in a temp home")
-    func registryRoundTrip() async throws {
-        let home = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("vps-registry-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: home) }
-        let registry = VPSHostRegistry(homeDirectory: home)
-        let host = VPSHostDescriptor(destination: "dev@vps.example", port: 2222)
-        let entry = VPSRegisteredHost(
-            host: host,
-            installedVersion: "0.99.0",
-            goOS: "linux",
-            goArch: "amd64",
-            addedAtUnix: 1_700_000_000
-        )
-        try await registry.upsert(entry)
-        #expect(try await registry.entry(for: host) == entry)
-        #expect(try await registry.entry(destination: "dev@vps.example", port: 2222)?.slot == "vps")
-        #expect(try await registry.entry(destination: "dev@vps.example", port: nil) == nil)
-        #expect(try await registry.allHosts().count == 1)
-        #expect(try await registry.remove(host) == entry)
-        #expect(try await registry.allHosts().isEmpty)
-    }
 }

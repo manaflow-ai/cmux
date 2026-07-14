@@ -84,8 +84,32 @@ struct VPSHostFactsTests {
             .split(separator: "\n")
             .filter { !$0.hasPrefix("__CMUX_VPS_HOME__=") }
             .joined(separator: "\n")
-        #expect(throws: VPSProvisioningError.probeParseFailed(detail: "missing remote home directory")) {
+        #expect(throws: VPSProvisioningError.probeParseFailed(
+            detail: "probe output is missing markers: __CMUX_VPS_HOME__="
+        )) {
             try VPSHostFacts.parse(stdout: withoutHome)
+        }
+    }
+
+    @Test("truncated probe output is rejected instead of read as negative facts")
+    func truncatedProbeThrows() {
+        // Cut the probe mid-stream after the platform markers: the systemd,
+        // binary, unit, and linger markers are all absent.
+        let truncated = probeOutput()
+            .split(separator: "\n")
+            .prefix(6)
+            .joined(separator: "\n")
+        #expect(throws: VPSProvisioningError.self) {
+            try VPSHostFacts.parse(stdout: truncated)
+        }
+    }
+
+    @Test("malformed boolean marker is rejected")
+    func malformedBooleanThrows() {
+        let corrupted = probeOutput()
+            .replacingOccurrences(of: "__CMUX_VPS_SYSTEMD__=yes", with: "__CMUX_VPS_SYSTEMD__=maybe")
+        #expect(throws: VPSProvisioningError.self) {
+            try VPSHostFacts.parse(stdout: corrupted)
         }
     }
 
