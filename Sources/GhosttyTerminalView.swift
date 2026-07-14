@@ -2807,12 +2807,20 @@ class GhosttyApp {
                 width: CGFloat(action.action.cell_size.width),
                 height: CGFloat(action.action.cell_size.height)
             )
+            let metricsTransactionGeneration: UInt64? = performOnMain {
+                guard callbackContext.isCurrentOrigin(runtimeSurface: callbackOriginSurface) else {
+                    return nil
+                }
+                return callbackTerminalSurface.mobileViewportFontMetricsTransactionGeneration
+            }
             DispatchQueue.main.async {
                 guard callbackContext.isCurrentOrigin(runtimeSurface: callbackOriginSurface) else {
                     return
                 }
                 surfaceView.cellSize = cellSize
-                callbackTerminalSurface.mobileViewportFontMetricsDidChange()
+                callbackTerminalSurface.mobileViewportFontMetricsDidChange(
+                    transactionGeneration: metricsTransactionGeneration
+                )
                 NotificationCenter.default.post(
                     name: .ghosttyDidUpdateCellSize,
                     object: surfaceView, userInfo: [GhosttyNotificationKey.cellSize: cellSize]

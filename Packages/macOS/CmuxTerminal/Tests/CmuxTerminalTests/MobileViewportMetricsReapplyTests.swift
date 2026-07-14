@@ -4,39 +4,46 @@ import Testing
 
 @MainActor
 @Suite struct MobileViewportMetricsReapplyTests {
-    @Test func activeFitCoalescesMetricsCallbacksIntoOneFollowUp() {
+    @Test func activeFitCoalescesDuplicateMetricsCallbacksIntoOneFollowUp() throws {
         let state = MobileViewportMetricsReapplyState()
-        var reapplyCount = 0
+        let initial = try #require(state.beginViewportLimitApplication(resuming: nil))
+        state.endViewportLimitApplication(
+            generation: initial,
+            expectsCellMetricsCallback: true
+        )
 
-        state.cellMetricsDidChange { reapplyCount += 1 }
-        #expect(reapplyCount == 1)
-
-        #expect(state.beginViewportLimitApplication())
-        state.cellMetricsDidChange { reapplyCount += 1 }
-        state.cellMetricsDidChange { reapplyCount += 1 }
-        #expect(reapplyCount == 1)
-
-        state.endViewportLimitApplication { reapplyCount += 1 }
-        #expect(reapplyCount == 2)
+        let followUp = try #require(
+            state.beginViewportLimitApplication(resuming: initial)
+        )
+        #expect(state.beginViewportLimitApplication(resuming: initial) == nil)
+        state.endViewportLimitApplication(
+            generation: followUp,
+            expectsCellMetricsCallback: false
+        )
+        #expect(state.activeTransactionGeneration == nil)
     }
 
     @Test func followUpMetricsCallbacksDrainToABoundedFixedPoint() {
         let state = MobileViewportMetricsReapplyState()
         var followUpPassCount = 0
 
-        #expect(state.beginViewportLimitApplication())
-        state.cellMetricsDidChange {
-            Issue.record("active metrics callback must be deferred")
+        guard let initial = state.beginViewportLimitApplication(resuming: nil) else {
+            Issue.record("initial application must start")
+            return
         }
-        state.endViewportLimitApplication {
+        state.endViewportLimitApplication(
+            generation: initial,
+            expectsCellMetricsCallback: true
+        )
+        while let callbackGeneration = state.activeTransactionGeneration,
+              let followUp = state.beginViewportLimitApplication(
+                resuming: callbackGeneration
+            ) {
             followUpPassCount += 1
-            #expect(state.beginViewportLimitApplication())
-            state.cellMetricsDidChange {
-                Issue.record("nested metrics callback must stay with the drain owner")
-            }
-            state.endViewportLimitApplication {
-                Issue.record("nested completion must not create a second drain owner")
-            }
+            state.endViewportLimitApplication(
+                generation: followUp,
+                expectsCellMetricsCallback: true
+            )
         }
 
         #expect(followUpPassCount == MobileViewportMetricsReapplyState.maxMetricsFollowUpPasses)
@@ -52,11 +59,11 @@ import Testing
             expectsCellMetricsCallback: true
         )
 
-        let queuedCallbackGeneration = try #require(
-            state.activeTransactionGeneration
-        )
         var followUpPassCount = 0
         for _ in 0..<(MobileViewportMetricsReapplyState.maxMetricsFollowUpPasses + 3) {
+            guard let queuedCallbackGeneration = state.activeTransactionGeneration else {
+                continue
+            }
             guard let followUpGeneration = state.beginViewportLimitApplication(
                 resuming: queuedCallbackGeneration
             ) else { continue }

@@ -65,7 +65,9 @@ extension TerminalSurface {
             columns: columns,
             rows: rows,
             reason: reason,
-            configuredFontPointSizeOverride: nil
+            configuredFontPointSizeOverride: nil,
+            authoritativeViewportUpdate: true,
+            resumingMetricsTransaction: nil
         )
     }
 
@@ -74,31 +76,34 @@ extension TerminalSurface {
         columns: Int,
         rows: Int,
         reason: String,
-        configuredFontPointSizeOverride: Float?
+        configuredFontPointSizeOverride: Float?,
+        authoritativeViewportUpdate: Bool,
+        resumingMetricsTransaction: UInt64?
     ) -> (columns: Int, rows: Int)? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "applyMobileViewportLimit") else {
             paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
             return nil
         }
-        guard mobileViewportMetricsReapplyState.beginViewportLimitApplication() else {
-            return mobileViewportCellLimit
+        if authoritativeViewportUpdate {
+            recordMobileViewportCellLimit(columns: columns, rows: rows)
         }
+        guard let applicationGeneration = mobileViewportMetricsReapplyState
+            .beginViewportLimitApplication(resuming: resumingMetricsTransaction) else {
+            return mobileViewportCellLimit.map { ($0.columns, $0.rows) }
+        }
+        var expectsCellMetricsCallback = false
         defer {
-            mobileViewportMetricsReapplyState.endViewportLimitApplication { [unowned self] in
-                guard let mobileViewportCellLimit else { return }
-                _ = applyMobileViewportLimit(
-                    columns: mobileViewportCellLimit.columns,
-                    rows: mobileViewportCellLimit.rows,
-                    reason: "cell_metrics_followup"
-                )
-            }
+            mobileViewportMetricsReapplyState.endViewportLimitApplication(
+                generation: applicationGeneration,
+                expectsCellMetricsCallback: expectsCellMetricsCallback
+            )
         }
         if manualIO {
             // Remote/tmux mirrors keep legacy capping; their remote grid is
             // authoritative and font fitting is intentionally out of v1 scope.
             return legacyApplyMobileViewportLimit(surface: surface, columns: columns, rows: rows, reason: reason)
         }
-        mobileViewportCellLimit = (columns: max(1, columns), rows: max(1, rows))
+        guard mobileViewportCellLimit != nil else { return nil }
         let baseWidth = lastUncappedPixelWidth
         let baseHeight = lastUncappedPixelHeight
         let currentSize = ghostty_surface_size(surface)
@@ -111,6 +116,7 @@ extension TerminalSurface {
             reason: reason,
             configuredFontPointSizeOverride: configuredFontPointSizeOverride
         )
+        expectsCellMetricsCallback = fit.fontChanged
         guard fit.width > 0, fit.height > 0 else { return nil }
 
         let appliedWidth = fit.width
@@ -163,7 +169,6 @@ extension TerminalSurface {
         let targetWidth = safePixelDimension(cellCount: columns, cellSize: cellWidth, nonGridPixels: horizontalNonGridPixels)
         let targetHeight = safePixelDimension(cellCount: rows, cellSize: cellHeight, nonGridPixels: verticalNonGridPixels)
 
-        mobileViewportCellLimit = (columns: max(1, columns), rows: max(1, rows))
         let baseWidth = lastUncappedPixelWidth > 0 ? lastUncappedPixelWidth : targetWidth
         let baseHeight = lastUncappedPixelHeight > 0 ? lastUncappedPixelHeight : targetHeight
         let appliedWidth = min(targetWidth, baseWidth)
@@ -203,6 +208,7 @@ extension TerminalSurface {
     public func clearMobileViewportLimit(reason: String) -> Bool {
         mobileViewportFontFitReloadLeaseState.discardLease()
         mobileViewportCellLimit = nil
+        mobileViewportMetricsReapplyState.cancel()
         paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
 
         guard let surface = liveSurfaceForGhosttyAccess(reason: "clearMobileViewportLimit") else {
@@ -270,17 +276,20 @@ extension TerminalSurface {
         ) {
             MobileViewportLiveFontProbe(surface: surface).read()
         }
-        let liveFont = probedLiveFont
+        let liveFontPointSize = probedLiveFont?.pointSize
             ?? mobileViewportFontFitState.fittedFontPointSize
             ?? mobileViewportFontFitState.baseFontPointSize
             ?? configuredFont
         mobileViewportFontFitState.begin(
-            baseFontPointSize: liveFont,
+            liveFont: probedLiveFont ?? MobileViewportLiveFont(
+                pointSize: liveFontPointSize,
+                isAdjusted: mobileViewportFontFitState.baseWasUserAdjusted == true
+            ),
             configuredFontPointSize: configuredFont
         )
-        let baseFont = mobileViewportFontFitState.baseFontPointSize ?? liveFont
+        let baseFont = mobileViewportFontFitState.baseFontPointSize ?? liveFontPointSize
         var currentFont = mobileViewportFontFitState.resolvedCurrentFontPointSize(
-            liveFontPointSize: liveFont
+            liveFontPointSize: liveFontPointSize
         )
         var measurement = mobileViewportMeasurement(
             surface: surface,

@@ -5,6 +5,11 @@ private func mobileViewportFontSizesApproximatelyEqual(_ lhs: Float?, _ rhs: Flo
     return abs(lhs - rhs) <= 0.05
 }
 
+nonisolated struct MobileViewportLiveFont: Equatable {
+    let pointSize: Float
+    let isAdjusted: Bool
+}
+
 nonisolated struct MobileViewportFontFitState: Equatable {
     var baseFontPointSize: Float?
     var fittedFontPointSize: Float?
@@ -37,18 +42,35 @@ nonisolated struct MobileViewportFontFitState: Equatable {
     @discardableResult
     mutating func reconcilePendingLiveFontProbe(
         configuredFontPointSize: Float,
-        probe: () -> Float?
-    ) -> Float? {
+        probe: () -> MobileViewportLiveFont?
+    ) -> MobileViewportLiveFont? {
         guard consumeLiveFontProbeRequest() else { return nil }
-        guard let liveFontPointSize = probe() else {
+        guard let liveFont = probe() else {
             needsLiveFontProbe = true
             return nil
         }
         reconcile(
-            liveFontPointSize: liveFontPointSize,
+            liveFont: liveFont,
             configuredFontPointSize: configuredFontPointSize
         )
-        return liveFontPointSize
+        return liveFont
+    }
+
+    mutating func begin(
+        liveFont: MobileViewportLiveFont,
+        configuredFontPointSize: Float,
+        preservedUserAdjustedBaseFontPointSize: Float? = nil
+    ) {
+        guard self.baseFontPointSize == nil else { return }
+        if let preservedUserAdjustedBaseFontPointSize,
+           preservedUserAdjustedBaseFontPointSize.isFinite,
+           preservedUserAdjustedBaseFontPointSize > 0 {
+            self.baseFontPointSize = preservedUserAdjustedBaseFontPointSize
+            baseWasUserAdjusted = true
+            return
+        }
+        baseFontPointSize = liveFont.pointSize
+        baseWasUserAdjusted = liveFont.isAdjusted
     }
 
     mutating func begin(
@@ -76,6 +98,23 @@ nonisolated struct MobileViewportFontFitState: Equatable {
     }
 
     mutating func reconcile(liveFontPointSize: Float, configuredFontPointSize: Float) {
+        reconcile(
+            liveFont: MobileViewportLiveFont(
+                pointSize: liveFontPointSize,
+                isAdjusted: !mobileViewportFontSizesApproximatelyEqual(
+                    liveFontPointSize,
+                    configuredFontPointSize
+                )
+            ),
+            configuredFontPointSize: configuredFontPointSize
+        )
+    }
+
+    mutating func reconcile(
+        liveFont: MobileViewportLiveFont,
+        configuredFontPointSize: Float
+    ) {
+        let liveFontPointSize = liveFont.pointSize
         guard liveFontPointSize.isFinite, liveFontPointSize > 0,
               configuredFontPointSize.isFinite, configuredFontPointSize > 0 else { return }
 
@@ -83,10 +122,7 @@ nonisolated struct MobileViewportFontFitState: Equatable {
             if !mobileViewportFontSizesApproximatelyEqual(liveFontPointSize, fittedFontPointSize) {
                 baseFontPointSize = liveFontPointSize
                 self.fittedFontPointSize = nil
-                baseWasUserAdjusted = !mobileViewportFontSizesApproximatelyEqual(
-                    liveFontPointSize,
-                    configuredFontPointSize
-                )
+                baseWasUserAdjusted = liveFont.isAdjusted
                 return
             }
 
@@ -97,13 +133,12 @@ nonisolated struct MobileViewportFontFitState: Equatable {
             return
         }
 
-        if let baseFontPointSize,
-           !mobileViewportFontSizesApproximatelyEqual(liveFontPointSize, baseFontPointSize) {
-            self.baseFontPointSize = liveFontPointSize
-            baseWasUserAdjusted = !mobileViewportFontSizesApproximatelyEqual(
-                liveFontPointSize,
-                configuredFontPointSize
-            )
+        if let baseFontPointSize {
+            if !mobileViewportFontSizesApproximatelyEqual(liveFontPointSize, baseFontPointSize) ||
+                baseWasUserAdjusted != liveFont.isAdjusted {
+                self.baseFontPointSize = liveFontPointSize
+                baseWasUserAdjusted = liveFont.isAdjusted
+            }
         }
     }
 

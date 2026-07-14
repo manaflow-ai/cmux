@@ -2,14 +2,25 @@ internal import CmuxTerminalCore
 import Foundation
 internal import GhosttyKit
 
+nonisolated struct MobileViewportCellLimit: Equatable {
+    let generation: UInt64
+    let columns: Int
+    let rows: Int
+}
+
 /// Opaque token pairing a synchronous configuration reload with its active
 /// mobile viewport font lease.
 nonisolated public struct MobileViewportFontFitReloadLease {
     let generation: UInt64
-    let columns: Int
-    let rows: Int
+    let viewportGeneration: UInt64
     let surrendered: Bool
     let userAdjustedBaseFontPointSize: Float?
+
+    func refitLimit(current: MobileViewportCellLimit?) -> MobileViewportCellLimit? {
+        guard let current,
+              current.generation >= viewportGeneration else { return nil }
+        return current
+    }
 }
 
 nonisolated struct MobileViewportFontFitReloadLeaseCompletion {
@@ -32,16 +43,14 @@ nonisolated struct MobileViewportFontFitReloadLeaseState {
     }
 
     mutating func prepare(
-        columns: Int,
-        rows: Int,
+        viewportLimit: MobileViewportCellLimit,
         surrendered: Bool,
         userAdjustedBaseFontPointSize: Float?
     ) -> MobileViewportFontFitReloadLease {
         let generation = beginPreparation()
         return install(
             generation: generation,
-            columns: columns,
-            rows: rows,
+            viewportLimit: viewportLimit,
             surrendered: surrendered,
             userAdjustedBaseFontPointSize: userAdjustedBaseFontPointSize
         )
@@ -49,16 +58,14 @@ nonisolated struct MobileViewportFontFitReloadLeaseState {
 
     mutating func install(
         generation: UInt64,
-        columns: Int,
-        rows: Int,
+        viewportLimit: MobileViewportCellLimit,
         surrendered: Bool,
         userAdjustedBaseFontPointSize: Float?
     ) -> MobileViewportFontFitReloadLease {
         precondition(pendingGeneration == generation)
         let lease = MobileViewportFontFitReloadLease(
             generation: generation,
-            columns: columns,
-            rows: rows,
+            viewportGeneration: viewportLimit.generation,
             surrendered: surrendered,
             userAdjustedBaseFontPointSize: userAdjustedBaseFontPointSize
         )
@@ -184,8 +191,7 @@ extension TerminalSurface {
             restoreMobileViewportFitFontIfNeeded().surrenderedAutomaticFit
         return mobileViewportFontFitReloadLeaseState.install(
             generation: reloadGeneration,
-            columns: limit.columns,
-            rows: limit.rows,
+            viewportLimit: limit,
             surrendered: surrendered,
             userAdjustedBaseFontPointSize: userAdjustedBaseFontPointSize
         )
@@ -209,6 +215,9 @@ extension TerminalSurface {
         ) else { return }
         recordMobileViewportConfiguredFontPointSize(configuredFontPointSize)
         guard let lease = completion.lease else { return }
+        guard let currentLimit = lease.refitLimit(current: mobileViewportCellLimit) else {
+            return
+        }
         guard liveSurfaceForGhosttyAccess(reason: "\(reason).refit") != nil else {
             mobileViewportFontFitState.clear()
             return
@@ -229,10 +238,12 @@ extension TerminalSurface {
             mobileViewportFontFitState.suppressLiveFontProbeUntilMetricsChange()
         }
         _ = applyMobileViewportLimit(
-            columns: lease.columns,
-            rows: lease.rows,
+            columns: currentLimit.columns,
+            rows: currentLimit.rows,
             reason: "\(reason).refit",
-            configuredFontPointSizeOverride: configuredFontOverride
+            configuredFontPointSizeOverride: configuredFontOverride,
+            authoritativeViewportUpdate: false,
+            resumingMetricsTransaction: nil
         )
     }
 

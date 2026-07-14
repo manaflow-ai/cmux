@@ -210,7 +210,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var lastUncappedPixelHeight: UInt32 = 0
     var lastXScale: CGFloat = 0
     var lastYScale: CGFloat = 0
-    var mobileViewportCellLimit: (columns: Int, rows: Int)?
+    var mobileViewportCellLimit: MobileViewportCellLimit?
+    var nextMobileViewportCellLimitGeneration: UInt64 = 0
     /// Owns the temporary mobile-fit font lease and its user/configured origin.
     var mobileViewportFontFitState = MobileViewportFontFitState()
     let mobileViewportMetricsReapplyState = MobileViewportMetricsReapplyState()

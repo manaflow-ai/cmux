@@ -1,26 +1,36 @@
 extension TerminalSurface {
-    /// Reapplies the active mobile viewport after Ghostty changes cell metrics.
-    /// Synchronous callbacks caused by the fit itself only rearm the live-font
-    /// probe; the bounded fit already in progress owns their convergence.
     @MainActor
-    public func mobileViewportFontMetricsDidChange() {
-        mobileViewportFontMetricsDidChange { [unowned self] columns, rows in
-            _ = applyMobileViewportLimit(
-                columns: columns,
-                rows: rows,
-                reason: "cell_metrics_changed"
-            )
-        }
+    func recordMobileViewportCellLimit(columns: Int, rows: Int) {
+        nextMobileViewportCellLimitGeneration &+= 1
+        mobileViewportCellLimit = MobileViewportCellLimit(
+            generation: nextMobileViewportCellLimitGeneration,
+            columns: max(1, columns),
+            rows: max(1, rows)
+        )
     }
 
+    /// Token attached to a queued cell-metrics callback from the current fit.
     @MainActor
-    func mobileViewportFontMetricsDidChange(
-        reapply: (_ columns: Int, _ rows: Int) -> Void
+    public var mobileViewportFontMetricsTransactionGeneration: UInt64? {
+        mobileViewportMetricsReapplyState.activeTransactionGeneration
+    }
+
+    /// Reapplies the active mobile viewport after Ghostty changes cell metrics.
+    /// A callback from an automatic fit resumes that fit's bounded transaction;
+    /// unrelated metrics changes begin a fresh transaction.
+    @MainActor
+    public func mobileViewportFontMetricsDidChange(
+        transactionGeneration: UInt64?
     ) {
         guard let mobileViewportCellLimit else { return }
         mobileViewportFontFitState.cellMetricsDidChange()
-        mobileViewportMetricsReapplyState.cellMetricsDidChange {
-            reapply(mobileViewportCellLimit.columns, mobileViewportCellLimit.rows)
-        }
+        _ = applyMobileViewportLimit(
+            columns: mobileViewportCellLimit.columns,
+            rows: mobileViewportCellLimit.rows,
+            reason: "cell_metrics_changed",
+            configuredFontPointSizeOverride: nil,
+            authoritativeViewportUpdate: false,
+            resumingMetricsTransaction: transactionGeneration
+        )
     }
 }

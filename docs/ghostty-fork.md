@@ -12,9 +12,9 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `5e5039068`. It advances the previous cmux pin
-`5ae712a89` with the live surface font-size accessor used by mobile viewport
-fitting.
+Current cmux pinned fork head: `3349567f6`. It advances the previous cmux pin
+`5e5039068` with the live surface font-adjustment ownership accessor used by
+mobile viewport fitting.
 Published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
@@ -22,7 +22,8 @@ https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
 https://github.com/manaflow-ai/ghostty/pull/106 and
 https://github.com/manaflow-ai/ghostty/pull/108 and
-https://github.com/manaflow-ai/ghostty/pull/112.
+https://github.com/manaflow-ai/ghostty/pull/112 and
+https://github.com/manaflow-ai/ghostty/pull/113.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -84,12 +85,16 @@ https://github.com/manaflow-ai/ghostty/pull/112.
    wide/grapheme cells, and compressed-page ownership. Upstream conflicts should
    keep this beside the existing embedded read-text APIs and retain
    `PageListFormatter.pagePreservingState` rather than restoring cold pages.
-10. `ghostty_surface_font_size` reads the live surface font size through
-    the embedded public C API. The value uses CoreText point units and includes
-    surface-local font changes, so mobile viewport fitting can reload from the
-    terminal core's owning state instead of mirroring stale host configuration.
-    Upstream conflicts should keep the accessor with the other embedded surface
-    queries in `src/apprt/embedded.zig` and preserve its public header export.
+10. `ghostty_surface_font_size` and
+    `ghostty_surface_font_size_adjusted` read the live surface font and its
+    explicit ownership through the embedded public C API. The point value uses
+    CoreText units, while the adjustment bit distinguishes surface-local zoom
+    even when its numeric value equals configuration. Mobile viewport fitting
+    therefore reloads from the terminal core's owning state instead of
+    mirroring stale host configuration or inferring ownership from float
+    equality. Upstream conflicts should keep both accessors with the other
+    embedded surface queries in `src/apprt/embedded.zig` and preserve their
+    public header exports.
 
 Verified with Zig 0.15.2: compression, formatter, selection activity, and
 libghostty-vt compression tests,
@@ -98,7 +103,7 @@ build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
 and clearing.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5e50390680bb390c8461d1608b53ed3b5522bd8a-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3349567f66e559f72c089d45a8ca2a68d047fbdd-crashsubdir-cmux-crash-v1
 
 ### Previous pin
 
