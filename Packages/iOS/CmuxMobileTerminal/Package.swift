@@ -43,7 +43,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxMobileTerminalTests",
-            dependencies: ["CmuxMobileTerminal"],
+            dependencies: [
+                "CMUXMobileCore",
+                "CmuxMobileTerminal",
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ],
