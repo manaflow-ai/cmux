@@ -68,8 +68,11 @@ def run_wrapper(
     bundled_driver: bool = True,
     override_driver: bool = False,
     untrusted_override: bool = False,
+    group_writable_override: bool = False,
     disabled: bool = False,
     hooks_inject_fails: bool = False,
+    hooks_disabled: bool = False,
+    dead_socket: bool = False,
 ) -> tuple[int, list[str], str, Path]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -118,8 +121,10 @@ exit 1
         if bundled_driver:
             make_executable(wrapper_dir / "cmux-cua-driver", "#!/usr/bin/env bash\nexit 0\n")
 
-        test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        test_socket.bind(str(socket_path))
+        test_socket: socket.socket | None = None
+        if not dead_socket:
+            test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            test_socket.bind(str(socket_path))
         try:
             env = os.environ.copy()
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
@@ -141,8 +146,17 @@ exit 1
                 untrusted_driver = untrusted_dir / "cua-driver"
                 make_executable(untrusted_driver, "#!/usr/bin/env bash\nexit 0\n")
                 env["CMUX_CUA_DRIVER"] = str(untrusted_driver)
+            if group_writable_override:
+                override_dir = tmp / "override-bin"
+                override_dir.mkdir()
+                group_writable_driver = override_dir / "cua-driver"
+                make_executable(group_writable_driver, "#!/usr/bin/env bash\nexit 0\n")
+                group_writable_driver.chmod(0o775)
+                env["CMUX_CUA_DRIVER"] = str(group_writable_driver)
             if disabled:
                 env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
+            if hooks_disabled:
+                env["CMUX_CODEX_HOOKS_DISABLED"] = "1"
 
             proc = subprocess.run(
                 [str(wrapper), *argv],
@@ -153,7 +167,8 @@ exit 1
                 check=False,
             )
         finally:
-            test_socket.close()
+            if test_socket is not None:
+                test_socket.close()
 
         return proc.returncode, read_lines(args_log), proc.stderr, tmp
 
@@ -231,6 +246,63 @@ def test_codex_skips_when_disabled(failures: list[str]) -> None:
     expect(command_config(args) is None, f"expected no injection with kill switch, got {args}", failures)
 
 
+def test_codex_gets_cua_driver_when_hooks_disabled(failures: list[str]) -> None:
+    # CMUX_CODEX_HOOKS_DISABLED opts out of HOOK injection only. The bundled
+    # computer-use MCP is local, independent of the hook machinery, and has its
+    # own kill switch, so cmux-launched sessions keep it.
+    code, args, stderr, _ = run_wrapper(["hello"], hooks_disabled=True)
+    expect(code == 0, f"hooks-disabled wrapper exited {code}: {stderr}", failures)
+    expect(
+        "hooks.cmux-test=true" not in args and "--enable" not in args,
+        f"expected no hook args with hooks disabled, got {args}",
+        failures,
+    )
+    expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
+    cmd = command_config(args)
+    expect(cmd is not None, f"missing computer-use command config with hooks disabled in {args}", failures)
+    if cmd is not None:
+        expect(
+            Path(json.loads(cmd)).name == "cmux-cua-driver",
+            f"expected bundled driver command with hooks disabled, got {cmd}",
+            failures,
+        )
+    expect_scrubbed_mcp_env(args, failures, "hooks disabled")
+
+
+def test_codex_gets_cua_driver_when_socket_dead(failures: list[str]) -> None:
+    # A stale/dead cmux socket breaks hook delivery only; the bundled
+    # computer-use MCP does not need the socket and must survive passthrough.
+    code, args, stderr, _ = run_wrapper(["hello"], dead_socket=True)
+    expect(code == 0, f"dead-socket wrapper exited {code}: {stderr}", failures)
+    expect(
+        "hooks.cmux-test=true" not in args,
+        f"expected no hook args with dead socket, got {args}",
+        failures,
+    )
+    expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
+    cmd = command_config(args)
+    expect(cmd is not None, f"missing computer-use command config with dead socket in {args}", failures)
+    if cmd is not None:
+        expect(
+            Path(json.loads(cmd)).name == "cmux-cua-driver",
+            f"expected bundled driver command with dead socket, got {cmd}",
+            failures,
+        )
+    expect_scrubbed_mcp_env(args, failures, "dead socket")
+
+
+def test_codex_rejects_group_writable_cua_driver_override(failures: list[str]) -> None:
+    # A group-writable override binary could be swapped by another local user
+    # and then run under cmux's TCC identity; the wrapper must reject it.
+    code, args, stderr, _ = run_wrapper(
+        ["hello"],
+        bundled_driver=False,
+        group_writable_override=True,
+    )
+    expect(code == 0, f"group-writable override wrapper exited {code}: {stderr}", failures)
+    expect(command_config(args) is None, f"expected group-writable override rejection, got {args}", failures)
+
+
 def test_codex_gets_cua_driver_when_hook_injection_fails(failures: list[str]) -> None:
     # The bundled driver is local and independent of the cmux hook socket, so
     # a failed `hooks codex inject-args` emit must not drop computer use.
@@ -268,6 +340,9 @@ def main() -> int:
     test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures)
     test_codex_skips_when_driver_unavailable(failures)
     test_codex_skips_when_disabled(failures)
+    test_codex_gets_cua_driver_when_hooks_disabled(failures)
+    test_codex_gets_cua_driver_when_socket_dead(failures)
+    test_codex_rejects_group_writable_cua_driver_override(failures)
     test_codex_gets_cua_driver_when_hook_injection_fails(failures)
     test_codex_skips_for_strict_mcp_config(failures)
     if failures:

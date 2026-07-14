@@ -80,6 +80,49 @@ command -v cargo >/dev/null 2>&1 || {
 
 mkdir -p "$CACHE_DIR"
 
+# One trap handles both the source lock (released early, before compile) and
+# the scratch build dir.
+SRC_LOCK_DIR=""
+TMPDIR_BUILD=""
+cleanup() {
+  [[ -n "$TMPDIR_BUILD" ]] && rm -rf "$TMPDIR_BUILD"
+  [[ -n "$SRC_LOCK_DIR" ]] && rm -rf "$SRC_LOCK_DIR"
+}
+trap cleanup EXIT
+
+# Serialize source materialization across parallel builds (concurrent tagged
+# reloads build simultaneously). mkdir is atomic; the pid file lets a waiter
+# reclaim a lock whose owner died. The lock only needs to cover git mutation:
+# the source dir is keyed by the pinned SHA, so once materialized its contents
+# are stable per key, and concurrent cargo builds already serialize on Cargo's
+# own target-dir lock.
+acquire_src_lock() {
+  local lock_dir="$1"
+  local waited=0
+  until mkdir "$lock_dir" 2>/dev/null; do
+    local owner
+    owner="$(cat "$lock_dir/pid" 2>/dev/null || true)"
+    if [[ -n "$owner" ]] && ! kill -0 "$owner" 2>/dev/null; then
+      rm -rf "$lock_dir"
+      continue
+    fi
+    if (( waited >= 300 )); then
+      echo "error: timed out waiting for cua-driver source lock at $lock_dir" >&2
+      echo "  if no other build is running, remove it manually: rm -rf '$lock_dir'" >&2
+      exit 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  SRC_LOCK_DIR="$lock_dir"
+  echo "$$" > "$lock_dir/pid"
+}
+
+release_src_lock() {
+  [[ -n "$SRC_LOCK_DIR" ]] && rm -rf "$SRC_LOCK_DIR"
+  SRC_LOCK_DIR=""
+}
+
 if [[ -n "${CMUX_CUA_SRC:-}" ]]; then
   SRC_ROOT="$(cd "$CMUX_CUA_SRC" && pwd)"
   if [[ ! -d "$SRC_ROOT/.git" ]]; then
@@ -87,8 +130,13 @@ if [[ -n "${CMUX_CUA_SRC:-}" ]]; then
     exit 1
   fi
 else
-  SRC_ROOT="$CACHE_DIR/cmux-cua"
+  # Key the source dir by the pinned SHA so checkouts pinning different
+  # commits never mutate each other's verified sources, and a tree that passed
+  # the SHA gate below cannot change underneath another invocation's compile.
+  SRC_ROOT="$CACHE_DIR/src-$CMUX_CUA_PINNED_SHA"
+  acquire_src_lock "$SRC_ROOT.lock"
   if [[ ! -d "$SRC_ROOT/.git" ]]; then
+    rm -rf "$SRC_ROOT"
     git clone "$CMUX_CUA_REPO_URL" "$SRC_ROOT"
   fi
   # Fetch only when the pinned commit is missing locally so incremental app
@@ -111,6 +159,7 @@ if [[ "$ACTUAL_SHA" != "$CMUX_CUA_PINNED_SHA" ]]; then
   echo "error: cmux-cua checkout is at $ACTUAL_SHA, expected $CMUX_CUA_PINNED_SHA" >&2
   exit 1
 fi
+release_src_lock
 
 CARGO_ROOT="$SRC_ROOT/libs/cua-driver/rust"
 if [[ ! -f "$CARGO_ROOT/Cargo.toml" ]]; then
@@ -119,10 +168,6 @@ if [[ ! -f "$CARGO_ROOT/Cargo.toml" ]]; then
 fi
 
 TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-driver.XXXXXX")"
-cleanup() {
-  rm -rf "$TMPDIR_BUILD"
-}
-trap cleanup EXIT
 
 mkdir -p "$(dirname "$OUTPUT")"
 

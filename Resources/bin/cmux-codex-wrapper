@@ -155,6 +155,30 @@ cmux_computer_use_trusted_path_ancestors() {
     done
 }
 
+cmux_computer_use_trusted_executable_file() {
+    # The override binary itself must be a regular file (canonicalization has
+    # already resolved symlinks), owned by root or the current user, and not
+    # group- or other-writable: with group/other write, another local user
+    # could swap the binary that runs under cmux's TCC identity. Ancestor
+    # GROUP-writability is deliberately tolerated because macOS ships
+    # root:admin 775 directories (e.g. /Applications) on every install.
+    local path="$1"
+    local stat_bin=/usr/bin/stat
+    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
+    [[ -x "$stat_bin" ]] || return 1
+    local id_bin=/usr/bin/id
+    [[ -x "$id_bin" ]] || id_bin=/bin/id
+    [[ -x "$id_bin" ]] || return 1
+    [[ -f "$path" && ! -L "$path" ]] || return 1
+    local current_uid owner mode
+    current_uid="$("$id_bin" -u 2>/dev/null)" || return 1
+    owner="$("$stat_bin" -f %u "$path" 2>/dev/null || "$stat_bin" -c %u "$path" 2>/dev/null)" || return 1
+    [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
+    mode="$("$stat_bin" -f %Lp "$path" 2>/dev/null || "$stat_bin" -c %a "$path" 2>/dev/null)" || return 1
+    [[ "$mode" =~ ^[0-9]+$ ]] || return 1
+    (( ((mode / 10) % 10 & 2) == 0 && (mode % 10 & 2) == 0 ))
+}
+
 cmux_computer_use_canonical_executable() {
     local candidate="$1"
     [[ "$candidate" = /* && -x "$candidate" ]] || return 1
@@ -194,6 +218,7 @@ cmux_computer_use_resolve_driver() {
     [[ -n "$override" ]] || return 1
     driver_real="$(cmux_computer_use_canonical_executable "$override")" || return 1
     cmux_computer_use_trusted_path_ancestors "$driver_real" || return 1
+    cmux_computer_use_trusted_executable_file "$driver_real" || return 1
     printf '%s' "$driver_real"
 }
 
@@ -373,17 +398,35 @@ exec_real_codex_passthrough() {
     exec "$REAL_CODEX" "$@"
 }
 
-# Opt-out, outside cmux, or stale/dead socket: pass straight through.
-if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
-    exec_real_codex_passthrough "$@"
-fi
-if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
+cmux_codex_computer_use_args=()
+cmux_codex_read_computer_use_args() {
+    local arg
+    while IFS= read -r -d '' arg; do
+        cmux_codex_computer_use_args+=("$arg")
+    done < <(cmux_codex_emit_computer_use_args "$@" 2>/dev/null)
+    (( ${#cmux_codex_computer_use_args[@]} > 0 )) || return 1
+    return 0
+}
+
+# Outside cmux the wrapper does nothing: computer use is a feature of
+# cmux-launched agents, so plain `codex` in a random terminal stays untouched.
+if [[ "$IN_CMUX" == "0" ]]; then
     exec_real_codex_passthrough "$@"
 fi
 
-# Not a session entrypoint (review/login/doctor/--help/...): pass through.
+# Not a session entrypoint (review/login/doctor/--help/...): pass through with
+# no injection of any kind.
 if ! should_inject_codex_hooks "$@"; then
     exec_real_codex_passthrough "$@"
+fi
+
+# Hook opt-out or stale/dead socket disables HOOK injection only. The bundled
+# computer-use MCP is local, does not need the cmux socket, and has its own
+# kill switch (CMUX_COMPUTER_USE_MCP_DISABLED), so cmux-launched sessions keep
+# it even when hooks are off.
+if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]] || ! cmux_socket_available; then
+    cmux_codex_read_computer_use_args "$@" || true
+    exec_real_codex_passthrough "${cmux_codex_computer_use_args[@]}" "$@"
 fi
 
 # Export launch identity so the hook subprocesses and cmux's agent-pid /
@@ -451,7 +494,6 @@ fi
 # fall back to plain passthrough so installing the wrapper can never break codex.
 CMUX_INJECT_CLI="$CMUX_CODEX_HOOK_CMUX_BIN"
 cmux_codex_injected_args=()
-cmux_codex_computer_use_args=()
 cmux_codex_read_inject_args() {
     [[ -n "$CMUX_INJECT_CLI" && -x "$CMUX_INJECT_CLI" ]] || return 1
     local arg
@@ -469,15 +511,6 @@ cmux_codex_read_inject_args() {
         done < <("$CMUX_INJECT_CLI" hooks codex inject-args 2>/dev/null)
     fi
     (( ${#cmux_codex_injected_args[@]} > 0 )) || return 1
-    return 0
-}
-
-cmux_codex_read_computer_use_args() {
-    local arg
-    while IFS= read -r -d '' arg; do
-        cmux_codex_computer_use_args+=("$arg")
-    done < <(cmux_codex_emit_computer_use_args "$@" 2>/dev/null)
-    (( ${#cmux_codex_computer_use_args[@]} > 0 )) || return 1
     return 0
 }
 

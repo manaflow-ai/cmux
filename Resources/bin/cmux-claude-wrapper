@@ -590,33 +590,6 @@ exec_real_claude_passthrough() {
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 }
 
-if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
-    # User-managed hooks need the original cmux terminal environment.
-    if [[ "$IN_CMUX" == "1" ]]; then
-        clear_inherited_claude_session_env
-    fi
-    clear_inherited_claude_auth_selection_env
-    if [[ "$IN_CMUX" == "1" ]]; then
-        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
-    fi
-    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
-    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
-fi
-
-if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
-    # In cmux-launched shells, preserve old behavior and always clear nested
-    # Claude session markers, even when we must pass through due to stale socket.
-    if [[ "$IN_CMUX" == "1" ]]; then
-        clear_inherited_claude_session_env
-    fi
-    clear_inherited_claude_auth_selection_env
-    if [[ "$IN_CMUX" == "1" ]]; then
-        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
-    fi
-    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
-    exec_real_claude_passthrough "$@"
-fi
-
 # Find real claude.
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
@@ -799,6 +772,30 @@ cmux_computer_use_trusted_path_ancestors() {
     done
 }
 
+cmux_computer_use_trusted_executable_file() {
+    # The override binary itself must be a regular file (canonicalization has
+    # already resolved symlinks), owned by root or the current user, and not
+    # group- or other-writable: with group/other write, another local user
+    # could swap the binary that runs under cmux's TCC identity. Ancestor
+    # GROUP-writability is deliberately tolerated because macOS ships
+    # root:admin 775 directories (e.g. /Applications) on every install.
+    local path="$1"
+    local stat_bin=/usr/bin/stat
+    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
+    [[ -x "$stat_bin" ]] || return 1
+    local id_bin=/usr/bin/id
+    [[ -x "$id_bin" ]] || id_bin=/bin/id
+    [[ -x "$id_bin" ]] || return 1
+    [[ -f "$path" && ! -L "$path" ]] || return 1
+    local current_uid owner mode
+    current_uid="$("$id_bin" -u 2>/dev/null)" || return 1
+    owner="$("$stat_bin" -f %u "$path" 2>/dev/null || "$stat_bin" -c %u "$path" 2>/dev/null)" || return 1
+    [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
+    mode="$("$stat_bin" -f %Lp "$path" 2>/dev/null || "$stat_bin" -c %a "$path" 2>/dev/null)" || return 1
+    [[ "$mode" =~ ^[0-9]+$ ]] || return 1
+    (( ((mode / 10) % 10 & 2) == 0 && (mode % 10 & 2) == 0 ))
+}
+
 cmux_computer_use_canonical_executable() {
     local candidate="$1"
     [[ "$candidate" = /* && -x "$candidate" ]] || return 1
@@ -838,6 +835,7 @@ cmux_computer_use_resolve_driver() {
     [[ -n "$override" ]] || return 1
     driver_real="$(cmux_computer_use_canonical_executable "$override")" || return 1
     cmux_computer_use_trusted_path_ancestors "$driver_real" || return 1
+    cmux_computer_use_trusted_executable_file "$driver_real" || return 1
     printf '%s' "$driver_real"
 }
 
@@ -938,6 +936,53 @@ should_inject_claude_hooks() {
 
     return 0
 }
+
+# The hook opt-out and stale-socket branches live BELOW the function
+# definitions (bash executes definitions in file order) so they can gate the
+# computer-use attachment on session detection. Hook opt-out / a dead socket
+# disables HOOK injection only: the bundled computer-use MCP is local,
+# independent of the hook machinery, and has its own kill switch
+# (CMUX_COMPUTER_USE_MCP_DISABLED), so cmux-launched session entrypoints keep
+# it. Reexec re-entries already carry the injection in argv from the previous
+# wrapper pass, so they are excluded.
+if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
+    # User-managed hooks need the original cmux terminal environment.
+    if [[ "$IN_CMUX" == "1" ]]; then
+        clear_inherited_claude_session_env
+    fi
+    clear_inherited_claude_auth_selection_env
+    if [[ "$IN_CMUX" == "1" ]]; then
+        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+    fi
+    if [[ "$IN_CMUX" == "1" ]] && (( cmux_claude_wrapper_reexec_hops == 0 )) \
+        && should_inject_claude_hooks "$@"; then
+        CMUX_COMPUTER_USE_CONFIG="$(cmux_computer_use_config "$@")" || CMUX_COMPUTER_USE_CONFIG=""
+        if [[ -n "$CMUX_COMPUTER_USE_CONFIG" ]]; then
+            set -- "--mcp-config=$CMUX_COMPUTER_USE_CONFIG" "$@"
+        fi
+    fi
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
+fi
+
+if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
+    # In cmux-launched shells, preserve old behavior and always clear nested
+    # Claude session markers, even when we must pass through due to stale socket.
+    if [[ "$IN_CMUX" == "1" ]]; then
+        clear_inherited_claude_session_env
+    fi
+    clear_inherited_claude_auth_selection_env
+    if [[ "$IN_CMUX" == "1" ]]; then
+        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+    fi
+    if [[ "$IN_CMUX" == "1" ]] && (( cmux_claude_wrapper_reexec_hops == 0 )) \
+        && should_inject_claude_hooks "$@"; then
+        CMUX_COMPUTER_USE_CONFIG="$(cmux_computer_use_config "$@")" || CMUX_COMPUTER_USE_CONFIG=""
+        if [[ -n "$CMUX_COMPUTER_USE_CONFIG" ]]; then
+            set -- "--mcp-config=$CMUX_COMPUTER_USE_CONFIG" "$@"
+        fi
+    fi
+    exec_real_claude_passthrough "$@"
+fi
 
 if (( cmux_claude_wrapper_reexec_hops > 0 )); then
     # A previous wrapper pass already made the cmux launch decision and may have

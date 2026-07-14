@@ -23,6 +23,16 @@ if ! command -v bun &> /dev/null; then
     exit 1
 fi
 
+# Every app build runs scripts/build-cua-driver.sh, which compiles the bundled
+# computer-use driver with Cargo. Catch a missing/broken Rust toolchain here so
+# the first tagged reload does not fail mid-build. Check only; never auto-install.
+echo "==> Checking for Rust (cargo)..."
+if ! command -v cargo &> /dev/null || ! cargo --version &> /dev/null; then
+    echo "Error: a working Rust toolchain (cargo) is required to build the bundled cua-driver."
+    echo "Install via rustup: https://rustup.rs (or \`brew install rustup && rustup-init\`)"
+    exit 1
+fi
+
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
 
 "$SCRIPT_DIR/install-git-hooks.sh"
