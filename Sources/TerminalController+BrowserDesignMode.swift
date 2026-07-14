@@ -40,13 +40,12 @@ extension TerminalController {
             throw BrowserDesignModeSendError.agentBusy
         }
         let terminal = target.terminal
-        if let pid = target.record.pid {
-            guard let exactPID = pid_t(exactly: pid),
-                  let liveTarget = AppDelegate.shared?.liveAgentDeliveryTarget(forAgentPID: exactPID),
-                  liveTarget.workspaceId == workspace.id,
-                  liveTarget.surfaceId == terminal.id else {
-                throw BrowserDesignModeSendError.terminalUnavailable
-            }
+        guard let pid = target.record.pid,
+              let exactPID = pid_t(exactly: pid),
+              let liveTarget = AppDelegate.shared?.liveAgentDeliveryTarget(forAgentPID: exactPID),
+              liveTarget.workspaceId == workspace.id,
+              liveTarget.surfaceId == terminal.id else {
+            throw BrowserDesignModeSendError.terminalUnavailable
         }
         guard terminal.sessionTextBoxDraftSnapshot() == nil else {
             throw BrowserDesignModeSendError.agentComposerNotEmpty
