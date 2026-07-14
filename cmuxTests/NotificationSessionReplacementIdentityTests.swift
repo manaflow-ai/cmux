@@ -9,6 +9,58 @@ import XCTest
 
 @MainActor
 final class NotificationSessionReplacementIdentityTests: XCTestCase {
+    func testDuplicateRestoreCanonicalizationIncludesRoutingAndScrollFields() throws {
+        let tabId = UUID()
+        let notificationId = UUID()
+        let createdAt = Date(timeIntervalSince1970: 1)
+
+        func notification(
+            retargetsToLiveSurfaceOwner: Bool = true,
+            rowSpaceRevision: UInt64? = nil
+        ) -> TerminalNotification {
+            TerminalNotification(
+                id: notificationId,
+                tabId: tabId,
+                surfaceId: nil,
+                retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+                title: "Duplicate",
+                subtitle: "",
+                body: "",
+                createdAt: createdAt,
+                isRead: false,
+                scrollPosition: TerminalNotificationScrollPosition(
+                    row: 1,
+                    totalRows: 2,
+                    rowSpaceRevision: rowSpaceRevision
+                )
+            )
+        }
+
+        func canonical(_ restored: [TerminalNotification]) throws -> TerminalNotification {
+            try XCTUnwrap(TerminalNotificationStore.mergeRestoredSessionNotifications(
+                existing: [],
+                restored: restored,
+                tabId: tabId,
+                replacingTabId: nil,
+                panelIdMap: [:]
+            ).first)
+        }
+
+        let confined = notification(retargetsToLiveSurfaceOwner: false)
+        let retargeting = notification(retargetsToLiveSurfaceOwner: true)
+        XCTAssertEqual(
+            try canonical([confined, retargeting]),
+            try canonical([retargeting, confined])
+        )
+
+        let earlierRowSpace = notification(rowSpaceRevision: 1)
+        let laterRowSpace = notification(rowSpaceRevision: 2)
+        XCTAssertEqual(
+            try canonical([earlierRowSpace, laterRowSpace]),
+            try canonical([laterRowSpace, earlierRowSpace])
+        )
+    }
+
     func testReplacementRetainsUnmappedNotificationLocation() throws {
         let oldTabId = UUID()
         let newTabId = UUID()
