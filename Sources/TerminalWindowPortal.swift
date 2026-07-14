@@ -658,6 +658,15 @@ final class WindowTerminalPortal: NSObject {
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
     private var pendingExternalGeometrySyncRequiresImmediate = false
+    /// True while some request since the last executed pass asked for the
+    /// non-immediate contract (one extra main-queue hop before the pass reads
+    /// geometry) and has not yet received it. Requests fold into whichever
+    /// pass is already scheduled, so this must be tracked across the fold:
+    /// a non-immediate request folded into an immediately-scheduled pass
+    /// (or flushed early by a folded immediate request) would otherwise lose
+    /// its hop silently, leaving the portal parked at geometry read before a
+    /// same-turn queued layout mutation landed.
+    private var pendingExternalGeometrySyncHasDeferredRequest = false
     private var externalGeometrySyncGeneration: UInt64 = 0
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
@@ -810,6 +819,9 @@ final class WindowTerminalPortal: NSObject {
         // sidebar toggles) doesn't resize the PTY at stale intermediate widths.
         externalGeometrySyncGeneration &+= 1
         let generation = externalGeometrySyncGeneration
+        if !forceImmediate {
+            pendingExternalGeometrySyncHasDeferredRequest = true
+        }
         guard !hasExternalGeometrySyncScheduled else {
             pendingExternalGeometrySyncRequiresImmediate =
                 pendingExternalGeometrySyncRequiresImmediate || forceImmediate
@@ -844,7 +856,18 @@ final class WindowTerminalPortal: NSObject {
                 }
                 self.hasExternalGeometrySyncScheduled = false
                 self.pendingExternalGeometrySyncRequiresImmediate = false
+                let hadDeferredRequest = self.pendingExternalGeometrySyncHasDeferredRequest
+                self.pendingExternalGeometrySyncHasDeferredRequest = false
                 self.synchronizeAllEntriesFromExternalGeometryChange()
+                // A flushed pass ran without the extra hop some folded request
+                // was promised, so its geometry may predate a same-turn queued
+                // layout mutation. One follow-up pass honors that contract; if
+                // the flush already saw final geometry the follow-up dies in
+                // the fingerprint check as a no-op, so the chain stops one
+                // pass after geometry stops.
+                if hadDeferredRequest, shouldFlushLatestNow {
+                    self.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                }
             }
             var shouldPerformNow = forceImmediate
             if !shouldPerformNow {
@@ -924,8 +947,16 @@ final class WindowTerminalPortal: NSObject {
     fileprivate func synchronizeAllEntriesFromExternalGeometryChange() {
         if let activePortalId = Self.currentlySynchronizingPortalId {
             if activePortalId == ObjectIdentifier(self) {
+                // Our own pass is on the stack (a re-entrant main-queue drain
+                // during its layout fired the queued block). Mark the follow-up
+                // the pass schedules on exit.
                 resyncRequestedDuringPass = true
             } else {
+                // A DIFFERENT portal's pass is on the stack. The scheduling
+                // flag is already down by the time performSync calls here, so
+                // returning without rescheduling would drop the request
+                // forever and leave this portal parked at stale geometry.
+                // Re-queue it to run after the current pass unwinds.
                 scheduleExternalGeometrySynchronize(forceImmediate: false)
             }
             return
