@@ -1506,7 +1506,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         port: Int,
         pairedMacDeviceID: String,
         instanceTag: String?,
-        ifStillCurrent: (() -> Bool)? = nil
+        ifStillCurrent: (() -> Bool)? = nil,
+        preservingConnectionRecoveryOnFailure: Bool = false
     ) async {
         await connectManualHost(
             name: name,
@@ -1517,7 +1518,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 storedInstanceTag: instanceTag
             ),
             recordsPairingAttempt: false,
-            ifStillCurrent: ifStillCurrent
+            ifStillCurrent: ifStillCurrent,
+            preservingConnectionRecoveryOnFailure: preservingConnectionRecoveryOnFailure
         )
     }
 
@@ -1533,7 +1535,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         recordsPairingAttempt: Bool,
-        ifStillCurrent: (() -> Bool)? = nil
+        ifStillCurrent: (() -> Bool)? = nil,
+        preservingConnectionRecoveryOnFailure: Bool = false
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
@@ -1541,7 +1544,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionErrorGuidance = nil
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearRemoteConnectionContext(
+                preservingConnectionRecovery: preservingConnectionRecoveryOnFailure
+            )
             analytics.capture("ios_pairing_failed", [
                 "method": .string("manual"),
                 "reason": .string("invalid_host"),
@@ -1555,7 +1560,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionErrorGuidance = nil
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearRemoteConnectionContext(
+                preservingConnectionRecovery: preservingConnectionRecoveryOnFailure
+            )
             analytics.capture("ios_pairing_failed", [
                 "method": .string("manual"),
                 "reason": .string("invalid_port"),
@@ -1571,7 +1578,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
         let manualRoutes = directRoute.map { [$0] } ?? []
-        guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: manualRoutes) == .proceed else { return }
+        guard await failPairingIfOffline(
+            attemptID: attemptID,
+            phase: "preflight",
+            routes: manualRoutes,
+            preservingConnectionRecoveryOnFailure: preservingConnectionRecoveryOnFailure
+        ) == .proceed else { return }
         do {
             let ticket = try await manualHostTicket(
                 name: trimmedName,
@@ -1599,21 +1611,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard isCurrentPairingAttempt(attemptID) else { return }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearRemoteConnectionContext(
+                preservingConnectionRecovery: preservingConnectionRecoveryOnFailure
+            )
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return }
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
             // A definitive auth failure (expired/invalid token after the
             // refresh-then-retry in the RPC layer already gave up) must drive the
             // re-auth prompt, not the generic "could not connect / Retry" banner.
-            if disconnectForAuthorizationFailureIfNeeded(error) {
+            if disconnectForAuthorizationFailureIfNeeded(
+                error,
+                preservingConnectionRecovery: preservingConnectionRecoveryOnFailure
+            ) {
                 return
             }
             let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
             applyPairingFailure(category, phase: "connect")
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearRemoteConnectionContext(
+                preservingConnectionRecovery: preservingConnectionRecoveryOnFailure
+            )
         }
     }
 
@@ -1623,6 +1642,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// manual host flow. Auth tokens never persist; we always re-mint.
     @discardableResult
     public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
+        await reconnectActiveMacIfAvailable(
+            stackUserID: stackUserID,
+            preservingConnectionRecoveryOnFailure: false
+        )
+    }
+
+    @discardableResult
+    func reconnectActiveMacIfAvailable(
+        stackUserID: String?,
+        preservingConnectionRecoveryOnFailure: Bool
+    ) async -> Bool {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
         // Claim this attempt's generation. Only the current generation may resolve
@@ -1747,7 +1777,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     host: route.host,
                     port: route.port,
                     pairedMacDeviceID: mac.macDeviceID,
-                    instanceTag: mac.instanceTag)
+                    instanceTag: mac.instanceTag,
+                    preservingConnectionRecoveryOnFailure: preservingConnectionRecoveryOnFailure)
                 if connectionState == .connected { break }
             }
             if connectionState != .connected,
@@ -1765,7 +1796,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         host: route.host,
                         port: route.port,
                         pairedMacDeviceID: mac.macDeviceID,
-                        instanceTag: mac.instanceTag)
+                        instanceTag: mac.instanceTag,
+                        preservingConnectionRecoveryOnFailure: preservingConnectionRecoveryOnFailure)
                     if connectionState == .connected { break }
                 }
             }
@@ -5064,10 +5096,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
     }
 
-    private func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
+    private func clearRemoteConnectionContext(
+        preservingOtherMacWorkspaceState: Bool = false,
+        preservingConnectionRecovery: Bool = false
+    ) {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
-        cancelMobileConnectionRecovery()
+        if !preservingConnectionRecovery {
+            cancelMobileConnectionRecovery()
+        }
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
         macConnectionStatus = .unavailable
@@ -5441,7 +5478,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func failPairingIfOffline(
         attemptID: UUID,
         phase: String,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        preservingConnectionRecoveryOnFailure: Bool = false
     ) async -> PairingPreflightOutcome {
         if routes.contains(where: MobileShellRouteAuthPolicy.routeIsLoopback) { return .proceed }
         guard await reachability.isOnline == false else { return .proceed }
@@ -5451,7 +5489,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         applyPairingFailure(.offline, phase: phase)
         connectionState = .disconnected
         macConnectionStatus = .unavailable
-        clearRemoteConnectionContext()
+        clearRemoteConnectionContext(
+            preservingConnectionRecovery: preservingConnectionRecoveryOnFailure
+        )
         return .failedOffline
     }
 
@@ -6204,13 +6244,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // and silently swallow the handshake's failure verdict (its ack
             // guard sees a newer listenerID), so a closed transport would
             // loop `reconnecting` forever. A stream that dies before its
-            // handshake completes is a failed start, so send that verdict
-            // through the same single-flight recovery owner as every other
-            // transport failure.
-            mobileShellLog.info("terminal event stream ended before subscribe ack, recovering")
-            MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; recovering")
+            // handshake completes is a failed start. Converge to the bounded
+            // unavailable state instead of continuously replacing a transport
+            // that has never established a subscription.
+            mobileShellLog.info("terminal event stream ended before subscribe ack, marking unavailable")
+            MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; failed start")
             diagnosticLog?.record(DiagnosticEvent(.error))
-            recoverMobileConnection(trigger: .eventStreamEnded)
+            stopTerminalRefreshPolling()
+            markMacConnectionUnavailable()
             return
         }
         mobileShellLog.info("terminal event stream ended, recovering")
@@ -7385,7 +7426,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
-    func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
+    func disconnectForAuthorizationFailureIfNeeded(
+        _ error: any Error,
+        preservingConnectionRecovery: Bool = false
+    ) -> Bool {
         guard Self.shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }
@@ -7400,7 +7444,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRequiresReauth = true
         connectionState = .disconnected
         macConnectionStatus = .unavailable
-        clearRemoteConnectionContext()
+        clearRemoteConnectionContext(
+            preservingConnectionRecovery: preservingConnectionRecovery
+        )
         // Only emits while a pairing attempt is in flight: `recordPairingFailed`
         // no-ops once `pairingAttemptMethod` is nil (cleared on success and by
         // `invalidatePairingAttempt`), so live-connection auth failures that

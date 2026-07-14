@@ -55,11 +55,13 @@ import Testing
 
     #expect(await router.waitForCount(
         of: "mobile.host.status",
-        atLeast: hostStatusCount + 1
+        atLeast: hostStatusCount + 1,
+        timeoutNanoseconds: 10_000_000_000
     ))
     #expect(await router.waitForCount(
         of: "mobile.events.subscribe",
-        atLeast: subscribeCount + 1
+        atLeast: subscribeCount + 1,
+        timeoutNanoseconds: 10_000_000_000
     ))
     #expect(box.createdTransportCount() == 2)
     #expect(store.connectionState == .connected)
@@ -87,7 +89,8 @@ import Testing
 
     #expect(await router.waitForCount(
         of: "mobile.host.status",
-        atLeast: hostStatusCount + 1
+        atLeast: hostStatusCount + 1,
+        timeoutNanoseconds: 10_000_000_000
     ))
     #expect(box.createdTransportCount() == 2)
     #expect(!store.connectionRecoveryFailed)

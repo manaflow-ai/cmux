@@ -86,7 +86,10 @@ extension MobileShellComposite {
                 return
             }
             guard self.connectionState != .connected else { return }
-            let reconnected = await self.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+            let reconnected = await self.reconnectActiveMacIfAvailable(
+                stackUserID: stackUserID,
+                preservingConnectionRecoveryOnFailure: true
+            )
             guard self.recoveryID == recoveryID, !Task.isCancelled else { return }
             if !reconnected {
                 self.connectionRecoveryFailed = true

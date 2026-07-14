@@ -171,7 +171,7 @@ import Testing
         await client.disconnect()
     }
 
-    @Test func transportCloseCleanupRetainsOnlyNewestPendingTransport() async throws {
+    @Test func transportCloseCleanupBackpressuresWithoutDroppingPendingTransport() async throws {
         let first = StalledWriteTransport(hangsOnClose: true)
         let superseded = StalledWriteTransport(hangsOnClose: true)
         let newest = StalledWriteTransport(hangsOnClose: true)
@@ -197,6 +197,25 @@ import Testing
         await superseded.waitUntilSendStarted()
         await client.resetConnectionForRecovery()
 
+        do {
+            _ = try await client.sendRequest(
+                inputRequest(id: "blocked-while-close-queue-full", text: "c"),
+                timeoutNanoseconds: 500_000_000
+            )
+            Issue.record("Expected connection creation to wait for close capacity")
+        } catch MobileShellConnectionError.connectionClosed {
+        } catch {
+            Issue.record("Expected connectionClosed, got \(error)")
+        }
+
+        #expect(await first.closed())
+        #expect(!(await superseded.closed()))
+        #expect(!(await newest.closed()))
+        #expect(factory.createdTransportCount() == 2)
+
+        await first.releaseClose()
+        await superseded.waitUntilCloseStarted()
+
         let newestTask = Task {
             try await client.sendRequest(
                 inputRequest(id: "close-newest", text: "c"),
@@ -205,19 +224,11 @@ import Testing
         }
         await newest.waitUntilSendStarted()
         await client.resetConnectionForRecovery()
-
-        #expect(await first.closed())
-        #expect(!(await superseded.closed()))
-        #expect(!(await newest.closed()))
         #expect(factory.createdTransportCount() == 3)
 
-        await first.releaseClose()
-        await newest.waitUntilCloseStarted()
-        #expect(!(await superseded.closed()))
-
-        await newest.releaseClose()
         await superseded.releaseClose()
-        await superseded.close()
+        await newest.waitUntilCloseStarted()
+        await newest.releaseClose()
         await first.failStalledSend()
         await superseded.failStalledSend()
         await newest.failStalledSend()

@@ -4,10 +4,11 @@ import Foundation
 extension MobileCoreRPCSession {
     /// Serializes detached transport cleanup without letting a non-cooperative
     /// `close()` callback block session recovery or create unbounded tasks.
-    /// While one close is active, only the newest replacement is retained.
+    /// Connection creation is backpressured while the one pending slot is full,
+    /// so every detached transport reaches `close()` without unbounded growth.
     func enqueueTransportClose(_ transport: any CmxByteTransport) {
         guard transportCloseTask == nil else {
-            pendingTransportClose = transport
+            pendingTransportCloses.append(transport)
             return
         }
 
@@ -23,8 +24,8 @@ extension MobileCoreRPCSession {
         guard transportCloseTaskID == taskID else { return }
         transportCloseTask = nil
         transportCloseTaskID = nil
-        guard let pendingTransportClose else { return }
-        self.pendingTransportClose = nil
-        enqueueTransportClose(pendingTransportClose)
+        guard !pendingTransportCloses.isEmpty else { return }
+        let nextTransport = pendingTransportCloses.removeFirst()
+        enqueueTransportClose(nextTransport)
     }
 }

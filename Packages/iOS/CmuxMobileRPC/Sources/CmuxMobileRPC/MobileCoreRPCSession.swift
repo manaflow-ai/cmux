@@ -49,7 +49,7 @@ actor MobileCoreRPCSession {
     private var writerTask: Task<Void, Never>?
     var transportCloseTask: Task<Void, Never>?
     var transportCloseTaskID: UUID?
-    var pendingTransportClose: (any CmxByteTransport)?
+    var pendingTransportCloses: [any CmxByteTransport] = []
     var activeWrite: (
         connectionID: UUID,
         requestID: String,
@@ -195,6 +195,13 @@ actor MobileCoreRPCSession {
 
     private func ensureConnected(timeoutNanoseconds: UInt64) async throws -> any CmxByteTransport {
         if let transport { return transport }
+        // One active close plus one queued close is the cleanup capacity. Do
+        // not create another transport until a slot opens: otherwise a close
+        // implementation that stalls could force either unbounded retention or
+        // dropping a transport without ever invoking its cleanup contract.
+        guard pendingTransportCloses.isEmpty else {
+            throw MobileShellConnectionError.connectionClosed
+        }
 
         let waiterID = UUID()
         let connectionID: UUID
