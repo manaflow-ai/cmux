@@ -31,7 +31,7 @@ let package = Package(
         .testTarget(
             name: "CmuxGitTests",
             dependencies: ["CmuxGit"],
-            resources: [.process("Fixtures")],
+            resources: [.process("Resources")],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

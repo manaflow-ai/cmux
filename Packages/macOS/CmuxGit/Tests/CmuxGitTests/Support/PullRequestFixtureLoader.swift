@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import CmuxGit
 
 struct PullRequestFixtureLoader {
     func decode<Value: Decodable>(_ type: Value.Type, named name: String) throws -> Value {
