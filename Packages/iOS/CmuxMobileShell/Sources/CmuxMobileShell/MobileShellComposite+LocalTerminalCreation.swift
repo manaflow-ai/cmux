@@ -187,6 +187,37 @@ extension MobileShellComposite {
         return .reserved(reservation)
     }
 
+    /// Turns a blocked New Terminal action into the direct recovery path for
+    /// that workspace. The action intentionally refreshes without creating:
+    /// the preceding uncertain request may already have succeeded on the Mac.
+    func recoverTerminalHierarchyForCreateIfRequired(
+        in workspaceID: MobileWorkspacePreview.ID
+    ) -> Bool {
+        guard terminalReorderGate.requiresRefresh(workspaceID: workspaceID) else {
+            return false
+        }
+        let gate = terminalReorderGate
+        guard !terminalCreationRequestOwner.isActive,
+              gate.beginRecovery(workspaceID: workspaceID) else {
+            return true
+        }
+        let started = terminalCreationRequestOwner.startIfIdle(
+            claim: .unreserved,
+            gate: gate
+        ) { @MainActor [weak self] in
+            var succeeded = false
+            defer {
+                gate.finishRecovery(workspaceID: workspaceID, succeeded: succeeded)
+            }
+            guard let self, !Task.isCancelled else { return }
+            succeeded = await self.refreshTerminalHierarchy(workspaceID: workspaceID)
+        }
+        if !started {
+            gate.finishRecovery(workspaceID: workspaceID, succeeded: false)
+        }
+        return true
+    }
+
     /// Creates and selects a preview/local terminal in one exact pane.
     func createLocalTerminal(
         in workspaceID: MobileWorkspacePreview.ID?,

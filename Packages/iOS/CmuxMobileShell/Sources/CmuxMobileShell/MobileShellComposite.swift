@@ -713,7 +713,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     var createWorkspaceTask: Task<Result<Void, MobileWorkspaceMutationFailure>, Never>?
     var createWorkspaceTaskGroupID: MobileWorkspaceGroupPreview.ID?
-    @ObservationIgnored private let terminalCreationRequestOwner = MobileTerminalCreationRequestOwner()
+    @ObservationIgnored let terminalCreationRequestOwner = MobileTerminalCreationRequestOwner()
     private var workspaceListRefreshTask: Task<Void, Never>?
     var foregroundWorkspaceListMutationEpoch: UInt64 = 0
     var foregroundWorkspaceListAppliedMutationEpoch: UInt64 = 0
@@ -3719,6 +3719,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         let targetWorkspace = workspaces.first(where: { $0.id == targetWorkspaceID })
         guard remoteClient == nil else {
+            if let targetWorkspaceID,
+               recoverTerminalHierarchyForCreateIfRequired(in: targetWorkspaceID) {
+                return
+            }
             let targetPaneID = remoteTerminalCreationPaneID(
                 in: targetWorkspace,
                 explicitPaneID: explicitPaneID

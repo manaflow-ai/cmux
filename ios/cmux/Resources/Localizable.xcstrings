@@ -9907,6 +9907,12 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ターミナルリストを更新" } }
       }
     },
+    "mobile.terminal.hierarchy.refreshHint": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refreshes terminal state before another change" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "別の変更を行う前にターミナル状態を更新します" } }
+      }
+    },
     "mobile.terminal.hierarchy.emptyTitle": {
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "No Terminals" } },

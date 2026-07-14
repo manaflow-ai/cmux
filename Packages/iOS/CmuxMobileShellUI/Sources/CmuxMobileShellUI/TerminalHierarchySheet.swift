@@ -65,7 +65,7 @@ struct TerminalHierarchySheet: View {
                                 systemImage: "arrow.clockwise"
                             )
                         }
-                        .disabled(reorderGate.isActive)
+                        .disabled(reorderGate.isActive(workspaceID: snapshot.workspaceID))
                         .accessibilityIdentifier("MobileTerminalHierarchyRefresh")
                     }
                 }
