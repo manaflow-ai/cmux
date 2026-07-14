@@ -37,7 +37,7 @@ final class SidebarInteractionLifecycleTests {
 
     @MainActor
     @Observable
-    private final class PresentationState {
+    final class PresentationState {
         var colorScheme: ColorScheme = .light
         var tint = Color.blue
     }
