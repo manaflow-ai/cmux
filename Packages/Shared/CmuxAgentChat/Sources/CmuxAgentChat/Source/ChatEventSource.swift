@@ -84,6 +84,22 @@ public protocol ChatEventSource: Sendable {
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
     ) async throws -> Data
 
+    /// Streams raw chunks for a referenced artifact path.
+    ///
+    /// Implementations call `onChunk` in byte-offset order and await it before
+    /// requesting the next chunk, so cancellation and consumer backpressure
+    /// remain part of the fetch task.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The session whose transcript referenced the path.
+    ///   - path: Absolute Mac host path.
+    ///   - onChunk: Structured callback for each fetched chunk.
+    func artifactFetch(
+        sessionID: String,
+        path: String,
+        onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws
+
     /// Fetches a JPEG thumbnail for a referenced image artifact.
     ///
     /// - Parameters:
@@ -125,6 +141,24 @@ public extension ChatEventSource {
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)? = nil
     ) async throws -> Data {
         throw ChatArtifactError.unsupported
+    }
+
+    /// Whole-file fallback for sources that have not adopted chunk streaming.
+    func artifactFetch(
+        sessionID: String,
+        path: String,
+        onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws {
+        let data = try await artifactFetch(sessionID: sessionID, path: path, progress: nil)
+        try Task.checkCancellation()
+        try await onChunk(
+            ChatArtifactChunk(
+                data: data,
+                offset: 0,
+                totalSize: Int64(data.count),
+                eof: true
+            )
+        )
     }
 
     /// Unsupported-by-default artifact thumbnail implementation.

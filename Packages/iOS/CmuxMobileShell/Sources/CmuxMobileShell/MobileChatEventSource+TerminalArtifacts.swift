@@ -60,32 +60,43 @@ extension MobileChatEventSource {
         path: String,
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
     ) async throws -> Data {
-        var offset: Int64 = 0
-        var result = Data()
-        while true {
-            let chunk: ChatArtifactChunk = try await artifactCall(
-                method: "mobile.terminal.artifact.fetch",
-                params: [
-                    "workspace_id": workspaceID,
-                    "surface_id": surfaceID,
-                    "path": path,
-                    "offset": offset,
-                    "length": ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes,
-                ]
-            )
-            if result.isEmpty, chunk.totalSize > 0, chunk.totalSize <= Int64(Int.max) {
-                result.reserveCapacity(Int(chunk.totalSize))
-            }
-            result.append(chunk.data)
-            offset = chunk.offset + Int64(chunk.data.count)
-            progress?(offset, chunk.totalSize)
-            if chunk.eof {
-                return result
-            }
-            guard !chunk.data.isEmpty else {
-                throw ChatArtifactError.macUnreachable
-            }
-        }
+        try await fetchArtifactChunks(
+            method: "mobile.terminal.artifact.fetch",
+            stringParams: [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+                "path": path,
+            ],
+            collectsData: true,
+            progress: progress,
+            onChunk: nil
+        )
+    }
+
+    /// Streams terminal-scoped artifact chunks without accumulating a second copy.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: Workspace containing the terminal surface.
+    ///   - surfaceID: Terminal surface whose visible paths authorize the fetch.
+    ///   - path: Absolute Mac host path.
+    ///   - onChunk: Structured callback for each fetched chunk.
+    public func terminalArtifactFetch(
+        workspaceID: String,
+        surfaceID: String,
+        path: String,
+        onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws {
+        _ = try await fetchArtifactChunks(
+            method: "mobile.terminal.artifact.fetch",
+            stringParams: [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+                "path": path,
+            ],
+            collectsData: false,
+            progress: nil,
+            onChunk: onChunk
+        )
     }
 
     public func terminalArtifactThumbnail(

@@ -262,31 +262,27 @@ public actor MobileChatEventSource: ChatEventSource {
         path: String,
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
     ) async throws -> Data {
-        var offset: Int64 = 0
-        var result = Data()
-        while true {
-            let chunk: ChatArtifactChunk = try await artifactCall(
-                method: "mobile.chat.artifact.fetch",
-                params: [
-                    "session_id": sessionID,
-                    "path": path,
-                    "offset": offset,
-                    "length": ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes,
-                ]
-            )
-            if result.isEmpty, chunk.totalSize > 0, chunk.totalSize <= Int64(Int.max) {
-                result.reserveCapacity(Int(chunk.totalSize))
-            }
-            result.append(chunk.data)
-            offset = chunk.offset + Int64(chunk.data.count)
-            progress?(offset, chunk.totalSize)
-            if chunk.eof {
-                return result
-            }
-            guard !chunk.data.isEmpty else {
-                throw ChatArtifactError.macUnreachable
-            }
-        }
+        try await fetchArtifactChunks(
+            method: "mobile.chat.artifact.fetch",
+            stringParams: ["session_id": sessionID, "path": path],
+            collectsData: true,
+            progress: progress,
+            onChunk: nil
+        )
+    }
+
+    public func artifactFetch(
+        sessionID: String,
+        path: String,
+        onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws {
+        _ = try await fetchArtifactChunks(
+            method: "mobile.chat.artifact.fetch",
+            stringParams: ["session_id": sessionID, "path": path],
+            collectsData: false,
+            progress: nil,
+            onChunk: onChunk
+        )
     }
 
     public func artifactThumbnail(
@@ -361,6 +357,27 @@ public actor MobileChatEventSource: ChatEventSource {
             return try coding.decode(T.self, from: result)
         } catch {
             throw Self.artifactError(from: error)
+        }
+    }
+
+    func fetchArtifactChunks(
+        method: String,
+        stringParams: [String: String],
+        collectsData: Bool,
+        progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?,
+        onChunk: (@Sendable (ChatArtifactChunk) async throws -> Void)?
+    ) async throws -> Data {
+        let loop = MobileArtifactChunkFetchLoop()
+        return try await loop.run(
+            collectsData: collectsData,
+            progress: progress
+        ) { offset in
+            var params: [String: Any] = stringParams
+            params["offset"] = offset
+            params["length"] = ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes
+            return try await self.artifactCall(method: method, params: params)
+        } onChunk: { chunk in
+            try await onChunk?(chunk)
         }
     }
 
