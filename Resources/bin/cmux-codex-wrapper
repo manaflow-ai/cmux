@@ -451,13 +451,23 @@ if ! should_inject_codex_hooks "$@"; then
     exec_real_codex_passthrough "$@"
 fi
 
-# Hook opt-out or stale/dead socket disables HOOK injection only. The bundled
-# computer-use MCP is local, does not need the cmux socket, and has its own
-# kill switch (CMUX_COMPUTER_USE_MCP_DISABLED), so cmux-launched sessions keep
-# it even when hooks are off.
-if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]] || ! cmux_socket_available; then
-    cmux_codex_read_computer_use_args "$@" || true
-    exec_real_codex_passthrough "${cmux_codex_computer_use_args[@]}" "$@"
+# CMUX_CODEX_HOOKS_DISABLED is the documented MASTER opt-out: "the wrapper
+# does NOTHING but exec the real codex" (see header). That means fully inert
+# — no cmux calls, no computer-use attach, no argv changes — matching the
+# claude wrapper's long-standing inertness contract and test. Computer use
+# has its own kill switch (CMUX_COMPUTER_USE_MCP_DISABLED) for the normal
+# path, but the master opt-out wins over everything.
+if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
+    exec_real_codex_passthrough "$@"
+fi
+# Dead/stale socket: fail closed with NO computer-use attach. CMUX_SURFACE_ID
+# alone can be STALE (e.g. a tmux shell that outlived cmux); an embedded
+# driver spawned there would inherit TCC identity from the real responsible
+# process (Terminal/tmux), yielding permission-denied tools or misattributed
+# permission prompts. A live socket ping is the authority bar for every
+# computer-use attach, the same bar hook injection already uses.
+if ! cmux_socket_available; then
+    exec_real_codex_passthrough "$@"
 fi
 
 # Export launch identity so the hook subprocesses and cmux's agent-pid /

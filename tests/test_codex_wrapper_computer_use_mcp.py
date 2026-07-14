@@ -306,32 +306,23 @@ def test_codex_skips_when_disabled(failures: list[str]) -> None:
     expect(command_config(args) is None, f"expected no injection with kill switch, got {args}", failures)
 
 
-def test_codex_gets_cua_driver_when_hooks_disabled(failures: list[str]) -> None:
-    # CMUX_CODEX_HOOKS_DISABLED opts out of HOOK injection only. The bundled
-    # computer-use MCP is local, independent of the hook machinery, and has its
-    # own kill switch, so cmux-launched sessions keep it.
+def test_codex_hooks_disabled_is_fully_inert(failures: list[str]) -> None:
+    # CMUX_CODEX_HOOKS_DISABLED is the documented master opt-out: the wrapper
+    # does nothing but exec the real codex — no hook args, no computer-use
+    # attach, no argv changes.
     code, args, stderr, _ = run_wrapper(["hello"], hooks_disabled=True)
     expect(code == 0, f"hooks-disabled wrapper exited {code}: {stderr}", failures)
     expect(
-        "hooks.cmux-test=true" not in args and "--enable" not in args,
-        f"expected no hook args with hooks disabled, got {args}",
+        args == ["hello"],
+        f"expected fully inert passthrough argv with hooks disabled, got {args}",
         failures,
     )
-    expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
-    cmd = command_config(args)
-    expect(cmd is not None, f"missing computer-use command config with hooks disabled in {args}", failures)
-    if cmd is not None:
-        expect(
-            Path(json.loads(cmd)).name == "cmux-cua-driver",
-            f"expected bundled driver command with hooks disabled, got {cmd}",
-            failures,
-        )
-    expect_scrubbed_mcp_env(args, failures, "hooks disabled")
 
 
-def test_codex_gets_cua_driver_when_socket_dead(failures: list[str]) -> None:
-    # A stale/dead cmux socket breaks hook delivery only; the bundled
-    # computer-use MCP does not need the socket and must survive passthrough.
+def test_codex_fails_closed_for_computer_use_when_socket_dead(failures: list[str]) -> None:
+    # CMUX_SURFACE_ID can be stale (a shell that outlived cmux). Without a
+    # live socket ping there is no authoritative evidence cmux owns this
+    # process chain, so the TCC-sensitive driver must NOT be attached.
     code, args, stderr, _ = run_wrapper(["hello"], dead_socket=True)
     expect(code == 0, f"dead-socket wrapper exited {code}: {stderr}", failures)
     expect(
@@ -340,15 +331,11 @@ def test_codex_gets_cua_driver_when_socket_dead(failures: list[str]) -> None:
         failures,
     )
     expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
-    cmd = command_config(args)
-    expect(cmd is not None, f"missing computer-use command config with dead socket in {args}", failures)
-    if cmd is not None:
-        expect(
-            Path(json.loads(cmd)).name == "cmux-cua-driver",
-            f"expected bundled driver command with dead socket, got {cmd}",
-            failures,
-        )
-    expect_scrubbed_mcp_env(args, failures, "dead socket")
+    expect(
+        command_config(args) is None,
+        f"expected NO computer-use attach with dead socket (fail closed), got {args}",
+        failures,
+    )
 
 
 def test_codex_rejects_cua_driver_override_under_group_writable_ancestor(failures: list[str]) -> None:
@@ -414,8 +401,8 @@ def main() -> int:
     test_codex_skips_when_driver_unavailable(failures)
     test_codex_skips_when_disabled(failures)
     test_codex_fork_gets_hooks_and_cua_driver(failures)
-    test_codex_gets_cua_driver_when_hooks_disabled(failures)
-    test_codex_gets_cua_driver_when_socket_dead(failures)
+    test_codex_hooks_disabled_is_fully_inert(failures)
+    test_codex_fails_closed_for_computer_use_when_socket_dead(failures)
     test_codex_rejects_cua_driver_override_under_group_writable_ancestor(failures)
     test_codex_rejects_group_writable_cua_driver_override(failures)
     test_codex_gets_cua_driver_when_hook_injection_fails(failures)

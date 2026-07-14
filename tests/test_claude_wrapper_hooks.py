@@ -913,7 +913,7 @@ def computer_use_sandbox(
     group_writable_override: bool = False,
     group_writable_ancestor: bool = False,
     disabled: bool = False,
-    managed_sideload_disabled: bool = False,
+    managed_sideload_source: str | None = None,
     path_helper_trap: bool = False,
 ):
     def setup(tmp: Path, env: dict) -> None:
@@ -951,12 +951,30 @@ def computer_use_sandbox(
             env["PATH"] = f"{helper_dir}:{env['PATH']}"
         if disabled:
             env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
-        if managed_sideload_disabled:
-            managed = tmp / "managed-settings.json"
-            managed.write_text(
+        # Point every managed-policy source at the sandbox and neutralize the
+        # real MDM domain so tests never depend on the host's managed state.
+        env["CMUX_CLAUDE_MANAGED_SETTINGS_FILE"] = str(tmp / "managed-settings.json")
+        env["CMUX_CLAUDE_MANAGED_SETTINGS_DIR"] = str(tmp / "managed-settings.d")
+        env["CMUX_CLAUDE_REMOTE_SETTINGS_FILE"] = str(tmp / "remote-settings.json")
+        env["CMUX_CLAUDE_SKIP_DEFAULTS"] = "1"
+        if managed_sideload_source == "base":
+            (tmp / "managed-settings.json").write_text(
                 '{"disableSideloadFlags": true}\n', encoding="utf-8"
             )
-            env["CMUX_CLAUDE_MANAGED_SETTINGS_FILE"] = str(managed)
+        elif managed_sideload_source == "fragment":
+            frag_dir = tmp / "managed-settings.d"
+            frag_dir.mkdir(parents=True, exist_ok=True)
+            (frag_dir / "20-security.json").write_text(
+                '{"disableSideloadFlags": true}\n', encoding="utf-8"
+            )
+        elif managed_sideload_source == "remote":
+            (tmp / "remote-settings.json").write_text(
+                '{"disableSideloadFlags": true}\n', encoding="utf-8"
+            )
+        elif managed_sideload_source == "policy_helper":
+            (tmp / "managed-settings.json").write_text(
+                '{"policyHelper": {"path": "/usr/local/bin/helper"}}\n', encoding="utf-8"
+            )
 
     return setup
 
@@ -1130,10 +1148,10 @@ def test_computer_use_driver_skipped_when_no_driver_available(failures: list[str
     )
 
 
-def test_hooks_disabled_still_attaches_cua_driver(failures: list[str]) -> None:
-    # CMUX_CLAUDE_HOOKS_DISABLED opts out of HOOK injection only. The bundled
-    # computer-use MCP is local, independent of the hook machinery, and has its
-    # own kill switch, so cmux-launched sessions keep it.
+def test_hooks_disabled_is_fully_inert_for_computer_use(failures: list[str]) -> None:
+    # CMUX_CLAUDE_HOOKS_DISABLED is the documented master opt-out: the wrapper
+    # stays fully inert even when the bundled driver is present — no hook
+    # injection, no computer-use attach, no argv changes.
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
@@ -1142,18 +1160,16 @@ def test_hooks_disabled_still_attaches_cua_driver(failures: list[str]) -> None:
     )
     expect(code == 0, f"computer use hooks-disabled: wrapper exited {code}: {stderr}", failures)
     expect(
-        "--settings" not in real_argv,
-        f"computer use hooks-disabled: hooks must stay disabled, got {real_argv}",
+        real_argv == ["hello"],
+        f"computer use hooks-disabled: expected fully inert passthrough argv, got {real_argv}",
         failures,
     )
-    expect("hello" in real_argv, f"computer use hooks-disabled: prompt must survive, got {real_argv}", failures)
-    config = extract_injected_mcp_config(real_argv)
-    expect_cua_driver_config(config, failures, "computer use hooks-disabled", "cmux-cua-driver")
 
 
-def test_stale_socket_still_attaches_cua_driver(failures: list[str]) -> None:
-    # A stale/dead cmux socket breaks hook delivery only; the bundled
-    # computer-use MCP does not need the socket and must survive passthrough.
+def test_stale_socket_fails_closed_for_computer_use(failures: list[str]) -> None:
+    # CMUX_SURFACE_ID can be stale (a shell that outlived cmux). Without a
+    # live socket ping there is no authoritative evidence cmux owns this
+    # process chain, so the TCC-sensitive driver must NOT be attached.
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="stale",
         argv=["hello"],
@@ -1166,30 +1182,37 @@ def test_stale_socket_still_attaches_cua_driver(failures: list[str]) -> None:
         failures,
     )
     expect("hello" in real_argv, f"computer use stale-socket: prompt must survive, got {real_argv}", failures)
-    config = extract_injected_mcp_config(real_argv)
-    expect_cua_driver_config(config, failures, "computer use stale-socket", "cmux-cua-driver")
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use stale-socket: expected NO attach (fail closed), got {real_argv}",
+        failures,
+    )
 
 
 def test_computer_use_skipped_under_managed_sideload_policy(failures: list[str]) -> None:
     # Claude Code managed policy disableSideloadFlags makes claude refuse to
     # start when a non-SDK --mcp-config flag is passed; the wrapper must not
-    # inject computer use under that policy (hooks via --settings still work).
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(managed_sideload_disabled=True),
-    )
-    expect(code == 0, f"managed sideload: wrapper exited {code}: {stderr}", failures)
-    expect(
-        injected_mcp_config_index(real_argv) is None,
-        f"managed sideload: expected no --mcp-config injection, got {real_argv}",
-        failures,
-    )
-    expect(
-        "--settings" in real_argv,
-        f"managed sideload: hook injection must survive (policy blocks --mcp-config only), got {real_argv}",
-        failures,
-    )
+    # inject computer use under that policy, through ANY managed-settings
+    # channel (base file, fragment dir, cached remote), and must also skip when
+    # a policyHelper is configured (its output cannot be ruled out). Hooks via
+    # --settings are unaffected by the policy and must still inject.
+    for source in ("base", "fragment", "remote", "policy_helper"):
+        code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            setup_sandbox=computer_use_sandbox(managed_sideload_source=source),
+        )
+        expect(code == 0, f"managed sideload [{source}]: wrapper exited {code}: {stderr}", failures)
+        expect(
+            injected_mcp_config_index(real_argv) is None,
+            f"managed sideload [{source}]: expected no --mcp-config injection, got {real_argv}",
+            failures,
+        )
+        expect(
+            "--settings" in real_argv,
+            f"managed sideload [{source}]: hook injection must survive, got {real_argv}",
+            failures,
+        )
 
 
 def test_computer_use_rejects_group_writable_ancestor(failures: list[str]) -> None:
@@ -2235,8 +2258,8 @@ def main() -> int:
     test_computer_use_driver_skipped_for_strict_mcp_config(failures)
     test_computer_use_driver_skipped_when_disabled(failures)
     test_computer_use_driver_skipped_when_no_driver_available(failures)
-    test_hooks_disabled_still_attaches_cua_driver(failures)
-    test_stale_socket_still_attaches_cua_driver(failures)
+    test_hooks_disabled_is_fully_inert_for_computer_use(failures)
+    test_stale_socket_fails_closed_for_computer_use(failures)
     test_computer_use_skipped_under_managed_sideload_policy(failures)
     test_computer_use_rejects_group_writable_ancestor(failures)
     test_computer_use_rejects_group_writable_override(failures)
