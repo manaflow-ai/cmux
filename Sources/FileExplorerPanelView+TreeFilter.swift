@@ -6,6 +6,12 @@ extension FileExplorerPanelView.Coordinator {
         cancelFileFilterTask(discardingPendingActions: true)
     }
 
+    func invalidateFileFilterIndex() {
+        cancelFileFilterTask(discardingPendingActions: true)
+        fileFilter.invalidateIndex()
+        fileFilterTreeRevision = -1
+    }
+
     func setFileFilterQuery(
         _ query: String,
         in outlineView: NSOutlineView,

@@ -464,7 +464,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 if scroll, let row = FileExplorerSelectionRestoration.scrollRow(anchorRow: anchorRow, exactRows: exactRows) { outlineView.scrollRowToVisible(row) }; return
             }
             if let selectedPath = store.selectedPath,
-               let resolution = selectionResolution(for: selectedPath, in: outlineView) {
+               let resolution = selectionResolution(for: selectedPath, in: outlineView),
+               resolution.isExact || !fallbackToFirstVisible {
                 selectRow(
                     resolution.row,
                     in: outlineView,
@@ -474,7 +475,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 return
             }
             guard fallbackToFirstVisible, outlineView.numberOfRows > 0 else { return }
-            selectRow(0, in: outlineView, scroll: scroll)
+            let matchingRow = (0..<outlineView.numberOfRows).first { row in
+                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { return false }
+                return fileFilter.isDirectMatch(node)
+            }
+            selectRow(matchingRow ?? 0, in: outlineView, scroll: scroll)
         }
 
         func resolvedSelectionRow(in outlineView: NSOutlineView) -> Int? {
@@ -775,6 +780,9 @@ final class FileExplorerContainerView: NSView {
         outlineView.backgroundColor = .clear
         outlineView.onQuickSearchChanged = { [weak self] query in
             guard let self else { return }
+            if self.coordinator.state.mode != .files {
+                self.coordinator.noteKeyboardFocus(mode: .files, in: self.window)
+            }
             self.fileQuickSearchQuery = query
             self.queryState.setQuery(query ?? "", for: .names)
             if self.displayedSearchScope == .names {
@@ -950,6 +958,9 @@ final class FileExplorerContainerView: NSView {
         currentRootPath = nextRootPath; currentProviderIsLocal = nextProviderIsLocal
         currentWorkspaceRootIdentity = nextWorkspaceRootIdentity; currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
+        if searchScopeChanged {
+            coordinator.invalidateFileFilterIndex()
+        }
         if workspaceRootChanged {
             cancelPendingSearchRefresh()
             cancelPendingFileFilterRefresh()

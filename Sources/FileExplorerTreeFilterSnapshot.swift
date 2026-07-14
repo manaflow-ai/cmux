@@ -51,6 +51,7 @@ nonisolated struct FileExplorerTreeFilterSnapshot: Sendable {
     ) throws -> FileExplorerTreeFilterResult {
         guard !query.isEmpty else { return .empty(query: query) }
         var visiblePaths: Set<String> = []
+        var matchingPaths: Set<String> = []
         var pendingPaths = Array(rootPaths.reversed())
         var visitedNodeCount = 0
         while let path = pendingPaths.popLast() {
@@ -69,6 +70,7 @@ nonisolated struct FileExplorerTreeFilterSnapshot: Sendable {
                     break
                 }
                 visiblePaths.formUnion(lineage)
+                matchingPaths.insert(path)
                 if visiblePaths.count == Self.maximumVisibleNodeCount {
                     break
                 }
@@ -92,7 +94,8 @@ nonisolated struct FileExplorerTreeFilterSnapshot: Sendable {
         return FileExplorerTreeFilterResult(
             query: query,
             rootPaths: filteredRootPaths,
-            childrenByPath: filteredChildrenByPath
+            childrenByPath: filteredChildrenByPath,
+            matchingPaths: matchingPaths
         )
     }
 

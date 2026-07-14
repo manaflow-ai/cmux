@@ -7,6 +7,7 @@ struct FileExplorerTreeFilter {
     private var nodesByPath: [String: FileExplorerNode] = [:]
     private var filteredRootNodes: [FileExplorerNode] = []
     private var filteredChildrenByPath: [String: [FileExplorerNode]] = [:]
+    private var matchingPaths: Set<String> = []
     private(set) var needsFiltering = false
 
     var isActive: Bool { !query.isEmpty }
@@ -20,6 +21,7 @@ struct FileExplorerTreeFilter {
         if nextQuery.isEmpty {
             filteredRootNodes.removeAll(keepingCapacity: true)
             filteredChildrenByPath.removeAll(keepingCapacity: true)
+            matchingPaths.removeAll(keepingCapacity: true)
         }
         return true
     }
@@ -42,6 +44,7 @@ struct FileExplorerTreeFilter {
         for (path, children) in result.childrenByPath {
             filteredChildrenByPath[path] = children.compactMap { nodesByPath[$0] }
         }
+        matchingPaths = result.matchingPaths
         needsFiltering = false
         return true
     }
@@ -56,5 +59,18 @@ struct FileExplorerTreeFilter {
 
     func hasVisibleChildren(_ node: FileExplorerNode) -> Bool {
         !visibleChildren(of: node).isEmpty
+    }
+
+    func isDirectMatch(_ node: FileExplorerNode) -> Bool {
+        matchingPaths.contains(node.path)
+    }
+
+    mutating func invalidateIndex() {
+        snapshot = .empty
+        nodesByPath.removeAll()
+        filteredRootNodes.removeAll()
+        filteredChildrenByPath.removeAll()
+        matchingPaths.removeAll()
+        needsFiltering = isActive
     }
 }
