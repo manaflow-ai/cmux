@@ -592,7 +592,7 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     package_block = workflow_job_block("swift-package-tests")
     release_block = workflow_job_block("release-build")
 
-    assert "vars.MACOS_RUNNER_DUAL_XCODE" in package_block
+    assert "vars.MACOS_RUNNER_15" in package_block
     assert "\n  ui-regressions:" not in workflow
     assert "\n  release-ghostty-cli-helper:" not in workflow
     assert "build-for-testing" in runtime_block
