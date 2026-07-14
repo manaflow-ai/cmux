@@ -6,9 +6,8 @@ name: iOS App Store screenshots
 # the CMUX_UITEST_MOCK_DATA hook, so no Apple signing is needed to shoot; only
 # the optional upload-to-ASC step needs the App Store Connect API key.
 #
-# On PRs touching the screenshot tooling it runs capture-only (validates the
-# snapshot test + Snapfile). Upload to App Store Connect is workflow_dispatch +
-# upload=true only.
+# During the CI pause this runs only on explicit dispatch. Upload to App Store
+# Connect additionally requires upload=true.
 
 on:
   workflow_dispatch:
@@ -26,19 +25,6 @@ on:
         required: false
         default: false
         type: boolean
-  pull_request:
-    paths:
-      - "ios/fastlane/**"
-      - "ios/cmuxUITests/SnapshotUITests.swift"
-      - "ios/cmuxUITests/SnapshotHelper.swift"
-      - "ios/Gemfile"
-      - ".github/workflows/ios-screenshots.yml"
-      # Screenshot fixtures: changing what the preview screens render should
-      # re-capture.
-      - "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/*PreviewView.swift"
-      # The recorded agent terminal sessions replayed in the screenshots.
-      - "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalPreviewTranscripts.swift"
-
 permissions:
   contents: read
   actions: write
