@@ -133,6 +133,73 @@ import Testing
         #expect(store.remoteClient === originalClient)
     }
 
+    @Test func cancelPairingDuringPairedMacUpsertKeepsPreviousMacActive() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let innerStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let clock = TestClock()
+        let oldRoute = try CmxAttachRoute(
+            id: "old-loopback",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_583)
+        )
+        try await innerStore.upsert(
+            macDeviceID: "old-mac",
+            displayName: "Old Mac",
+            routes: [oldRoute],
+            markActive: true,
+            stackUserID: "test-user",
+            teamID: nil,
+            now: clock.now
+        )
+        let gatedStore = GatedUpsertStore(inner: innerStore)
+        let oldRouter = LivenessHostRouter()
+        let oldBox = TransportBox()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { clock.now },
+            supportsServerPushEvents: false
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected,
+            pairedMacStore: gatedStore,
+            identityProvider: StaticIdentityProvider(userID: "test-user"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "pairing-cancel-upsert-\(UUID().uuidString)")!
+        )
+        try installFreshLivenessRemoteClient(on: store, router: oldRouter, box: oldBox, clock: clock)
+        store.setWorkspaceStatesForTesting([:], foregroundMacDeviceID: "old-mac")
+        let originalClient = try #require(store.remoteClient)
+        let ticket = try makeTicket(clock: clock)
+        let url = try attachURL(for: ticket)
+
+        let pairing = Task { @MainActor in
+            await store.connectPairingURLResult(url)
+        }
+        await gatedStore.waitUntilUpsertEntered()
+        store.cancelPairing()
+        await gatedStore.release()
+        let result = await pairing.value
+        let activeMac = try await gatedStore.activeMac(
+            stackUserID: "test-user",
+            teamID: nil
+        )
+
+        #expect(result == .superseded)
+        #expect(activeMac?.macDeviceID == "old-mac")
+        #expect(store.connectionState == .connected)
+        #expect(store.remoteClient === originalClient)
+    }
+
     private func makeConnectedStore(runtime: any MobileSyncRuntime) -> MobileShellComposite {
         MobileShellComposite(
             runtime: runtime,
