@@ -54,11 +54,12 @@ public actor VPSHostRegistry {
     /// destination on several ports) resolve to `nil` so the caller fails
     /// with "not registered" instead of guessing.
     public func resolve(destination: String, port: Int?) throws -> VPSRegisteredHost? {
-        if let exact = try entry(destination: destination, port: port) {
+        let hosts = try load()
+        if let exact = hosts[VPSHostDescriptor(destination: destination, port: port).storageKey] {
             return exact
         }
         guard port == nil else { return nil }
-        let matches = try load().values.filter { $0.host.destination == destination }
+        let matches = hosts.values.filter { $0.host.destination == destination }
         guard matches.count == 1 else { return nil }
         return matches.first
     }
