@@ -162,6 +162,39 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
         XCTAssertEqual(result, .saturated)
         XCTAssertFalse(bus.notificationQueueStateForTesting().1.contains("Rejected by shared delivery"))
     }
+
+    func testNotifyTargetAsyncReturnsLocalizedSaturationResponse() {
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.discardPendingNotifications()
+            bus.drainForTesting()
+            bus.setDrainsSuspendedForTesting(false)
+        }
+
+        for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
+            XCTAssertTrue(bus.enqueueNotification(
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "Seed \(index)",
+                subtitle: "",
+                body: ""
+            ))
+        }
+
+        let response = TerminalController.debugNotifyTargetQueuedResponseForTesting(
+            "\(UUID().uuidString) \(UUID().uuidString) Saturated|Retry|Body"
+        )
+
+        XCTAssertEqual(
+            response,
+            String(
+                localized: "notification.queue.error.saturated",
+                defaultValue: "ERROR: notification queue saturated; retry"
+            )
+        )
+    }
 }
 
 @MainActor

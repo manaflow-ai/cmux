@@ -12228,7 +12228,6 @@ class TerminalController {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
         let (title, subtitle, body, meta) = parseNotificationPayload(payload)
-
         switch AgentNotificationDelivery().enqueue(
             workspaceID: tabId,
             surfaceID: surfaceId,
@@ -12246,10 +12245,7 @@ class TerminalController {
 #endif
             return "OK"
         case .saturated, .cancelled:
-            return String(
-                localized: "notification.queue.error.saturated",
-                defaultValue: "ERROR: notification queue saturated; retry"
-            )
+            return String(localized: "notification.queue.error.saturated", defaultValue: "ERROR: notification queue saturated; retry")
         case .accepted: break
         }
 #if DEBUG
