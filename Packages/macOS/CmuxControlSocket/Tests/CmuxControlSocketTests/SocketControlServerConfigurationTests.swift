@@ -102,6 +102,16 @@ struct SocketControlServerConfigurationTests {
         #expect(!fixture.server.updateConfiguredPreferredSocketPath("/other/cmux.sock"))
     }
 
+    @Test func firstPreferredPathDetectsDriftFromRunningListener() throws {
+        let fixture = try SocketConfigurationFixture()
+        defer { fixture.shutdown() }
+
+        #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .cmuxOnly))
+        let preferredPath = fixture.directory.appendingPathComponent("preferred.sock").path
+
+        #expect(fixture.server.updateConfiguredPreferredSocketPath(preferredPath))
+    }
+
     @Test func passwordChangeNotificationInvalidatesAcceptedConnections() async throws {
         let fixture = try SocketConfigurationFixture()
         defer { fixture.shutdown() }

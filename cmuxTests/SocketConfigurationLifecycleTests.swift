@@ -8,13 +8,11 @@ import CmuxSettings
 @testable import cmux
 #endif
 
-@MainActor
-@Suite(.serialized)
-struct SocketConfigurationLifecycleTests {
+extension SocketACLReloadRegressionTests {
     @Test func malformedReloadPreservesLastValidRestrictiveMode() throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
-        let directory = shortTemporaryDirectory(prefix: "scfm")
+        let directory = lifecycleTemporaryDirectory(prefix: "scfm")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appendingPathComponent("cmux.json")
         defer {
@@ -41,7 +39,7 @@ struct SocketConfigurationLifecycleTests {
     @Test func invalidExplicitModeFailsClosed() throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
-        let directory = shortTemporaryDirectory(prefix: "scfi")
+        let directory = lifecycleTemporaryDirectory(prefix: "scfi")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appendingPathComponent("cmux.json")
         defer {
@@ -64,7 +62,7 @@ struct SocketConfigurationLifecycleTests {
     @Test func malformedReloadPreservesExplicitOffWhenFileDoesNotManageMode() throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
-        let directory = shortTemporaryDirectory(prefix: "scfo")
+        let directory = lifecycleTemporaryDirectory(prefix: "scfo")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appendingPathComponent("cmux.json")
         defer {
@@ -91,7 +89,7 @@ struct SocketConfigurationLifecycleTests {
     @Test func transientMissingPrimaryDoesNotImportBroaderFallbackMode() throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
-        let directory = shortTemporaryDirectory(prefix: "scff")
+        let directory = lifecycleTemporaryDirectory(prefix: "scff")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let primaryURL = directory.appendingPathComponent("cmux.json")
         let fallbackURL = directory.appendingPathComponent("settings.json")
@@ -120,7 +118,7 @@ struct SocketConfigurationLifecycleTests {
     @Test func missingPrimaryAcceptsFallbackThatDisablesSocket() throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
-        let directory = shortTemporaryDirectory(prefix: "scft")
+        let directory = lifecycleTemporaryDirectory(prefix: "scft")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let primaryURL = directory.appendingPathComponent("cmux.json")
         let fallbackURL = directory.appendingPathComponent("settings.json")
@@ -152,7 +150,7 @@ struct SocketConfigurationLifecycleTests {
         controller.stop()
         controller.setActiveTabManager(nil)
 
-        let directory = shortTemporaryDirectory(prefix: "scfh")
+        let directory = lifecycleTemporaryDirectory(prefix: "scfh")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let socketPath = directory.appendingPathComponent("cmux.sock").path
         defer {
@@ -227,7 +225,7 @@ struct SocketConfigurationLifecycleTests {
         try contents.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    private func shortTemporaryDirectory(prefix: String) -> URL {
+    private func lifecycleTemporaryDirectory(prefix: String) -> URL {
         let identifier = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return FileManager.default.temporaryDirectory
             .appendingPathComponent("\(prefix)-\(identifier)", isDirectory: true)
