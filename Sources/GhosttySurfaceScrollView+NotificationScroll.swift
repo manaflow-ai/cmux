@@ -81,6 +81,7 @@ extension GhosttySurfaceScrollView {
         }
         guard let geometry = surfaceView.authoritativeScrollbarGeometry() else { return false }
         if let capturedRevision = position.rowSpaceRevision,
+           position.row != 0,
            capturedRevision != geometry.rowSpaceRevision {
             clearPendingNotificationScrollRestore()
             return false
@@ -101,7 +102,9 @@ extension GhosttySurfaceScrollView {
             perform: {
                 self.surfaceView.scrollToRow(
                     targetTopRow,
-                    ifRowSpaceRevisionMatches: position.rowSpaceRevision ?? geometry.rowSpaceRevision
+                    ifRowSpaceRevisionMatches: position.row == 0
+                        ? geometry.rowSpaceRevision
+                        : position.rowSpaceRevision ?? geometry.rowSpaceRevision
                 ) != nil
             },
             pendingState: { remaining in
