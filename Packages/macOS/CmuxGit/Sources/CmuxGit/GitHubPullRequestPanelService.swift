@@ -8,6 +8,13 @@ public actor GitHubPullRequestPanelService: PullRequestPanelServing {
     nonisolated let gitMetadataService: GitMetadataService
     var cacheByContext: [PullRequestPanelContext: PullRequestPanelContent] = [:]
     var cacheRecency: [PullRequestPanelContext] = []
+    var inFlightRefreshByContext: [
+        PullRequestPanelContext: (
+            identifier: UInt64,
+            task: Task<PullRequestPanelContent, any Error>
+        )
+    ] = [:]
+    var refreshRequestIdentifier: UInt64 = 0
     var latestRefreshSequenceByContext: [PullRequestPanelContext: UInt64] = [:]
     var refreshSequence: UInt64 = 0
 
@@ -39,6 +46,23 @@ public actor GitHubPullRequestPanelService: PullRequestPanelServing {
         while cacheRecency.count > Self.cacheCapacity {
             cacheByContext.removeValue(forKey: cacheRecency.removeFirst())
         }
+    }
+
+    func coalescedRefreshRequest(
+        for context: PullRequestPanelContext
+    ) -> (identifier: UInt64, task: Task<PullRequestPanelContent, any Error>) {
+        if let request = inFlightRefreshByContext[context] { return request }
+        refreshRequestIdentifier &+= 1
+        let identifier = refreshRequestIdentifier
+        let task = Task { try await self.performRefresh(for: context) }
+        let request = (identifier: identifier, task: task)
+        inFlightRefreshByContext[context] = request
+        return request
+    }
+
+    func finishCoalescedRefresh(_ identifier: UInt64, for context: PullRequestPanelContext) {
+        guard inFlightRefreshByContext[context]?.identifier == identifier else { return }
+        inFlightRefreshByContext.removeValue(forKey: context)
     }
 
     func beginRefresh(for context: PullRequestPanelContext) -> UInt64 {

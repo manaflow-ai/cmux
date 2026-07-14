@@ -137,7 +137,7 @@ public final class PullRequestPanelModel {
               currentInput == input,
               case .loaded(.pullRequest(let snapshot)) = phase else { return }
         if whenReady, snapshot.mergeAvailability == .allowed { return }
-        let inputAtStart = currentInput
+        let actionGeneration = generation
         actionPhase = whenReady ? .enablingAutoMerge : .merging
         do {
             try await service.merge(
@@ -147,11 +147,11 @@ public final class PullRequestPanelModel {
                 method: selectedMergeMethod,
                 whenReady: whenReady
             )
-            guard currentInput == inputAtStart else { return }
+            guard accepts(actionGeneration, input: input) else { return }
             actionPhase = .idle
             await refresh()
         } catch {
-            guard currentInput == inputAtStart else { return }
+            guard accepts(actionGeneration, input: input) else { return }
             actionPhase = .failed(serviceError(error, fallback: .mergeFailed))
         }
     }
@@ -162,7 +162,7 @@ public final class PullRequestPanelModel {
         guard !actionPhase.isBusy,
               currentInput == input,
               case .loaded(.pullRequest(let snapshot)) = phase else { return }
-        let inputAtStart = currentInput
+        let actionGeneration = generation
         actionPhase = .disablingAutoMerge
         do {
             try await service.disableAutoMerge(
@@ -170,11 +170,11 @@ public final class PullRequestPanelModel {
                 context: snapshot.context,
                 headRefOid: snapshot.pullRequest.headRefOid
             )
-            guard currentInput == inputAtStart else { return }
+            guard accepts(actionGeneration, input: input) else { return }
             actionPhase = .idle
             await refresh()
         } catch {
-            guard currentInput == inputAtStart else { return }
+            guard accepts(actionGeneration, input: input) else { return }
             actionPhase = .failed(serviceError(error, fallback: .mergeFailed))
         }
     }
@@ -185,14 +185,14 @@ public final class PullRequestPanelModel {
         guard !actionPhase.isBusy,
               currentInput == input,
               case .loaded(.noPullRequest(let context)) = phase else { return }
-        let inputAtStart = currentInput
+        let actionGeneration = generation
         actionPhase = .creatingPullRequest
         do {
             try await service.createPullRequest(context: context)
-            guard currentInput == inputAtStart else { return }
+            guard accepts(actionGeneration, input: input) else { return }
             actionPhase = .idle
         } catch {
-            guard currentInput == inputAtStart else { return }
+            guard accepts(actionGeneration, input: input) else { return }
             actionPhase = .failed(serviceError(error, fallback: .createFailed))
         }
     }

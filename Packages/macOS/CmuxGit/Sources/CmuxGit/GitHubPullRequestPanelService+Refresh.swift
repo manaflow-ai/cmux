@@ -6,6 +6,13 @@ extension GitHubPullRequestPanelService {
     public func refresh(for input: PullRequestWorkspaceInput) async throws -> PullRequestPanelContent {
         let context = try await resolvedContext(for: input)
         try Task.checkCancellation()
+        let request = coalescedRefreshRequest(for: context)
+        defer { finishCoalescedRefresh(request.identifier, for: context) }
+        return try await request.task.value
+    }
+
+    func performRefresh(for context: PullRequestPanelContext) async throws -> PullRequestPanelContent {
+        try Task.checkCancellation()
         let refreshSequence = beginRefresh(for: context)
         defer { finishRefresh(refreshSequence, for: context) }
         let viewResult = await commandRunner.run(
