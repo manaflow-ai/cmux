@@ -201,10 +201,6 @@ struct UnifiedFileExplorerTests {
 
     @Test("Typing preserves the selected Files or Contents projection")
     func typingPreservesSelectedSearchScope() throws {
-        let defaults = UserDefaults.standard
-        let previousMode = defaults.object(forKey: "rightSidebar.mode")
-        defer { Self.restore(previousMode, forKey: "rightSidebar.mode") }
-
         let state = FileExplorerState.unifiedTestState(mode: .files)
         let coordinator = FileExplorerPanelView.Coordinator(
             store: FileExplorerStore(),
@@ -241,14 +237,6 @@ struct UnifiedFileExplorerTests {
 
     @Test("Files and Find focus one host without discarding either view's state")
     func focusAliasesPreserveTreeAndSearchState() throws {
-        let defaults = UserDefaults.standard
-        let previousMode = defaults.object(forKey: "rightSidebar.mode")
-        let previousVisibility = defaults.object(forKey: "fileExplorer.isVisible")
-        defer {
-            Self.restore(previousMode, forKey: "rightSidebar.mode")
-            Self.restore(previousVisibility, forKey: "fileExplorer.isVisible")
-        }
-
         let state = FileExplorerState.unifiedTestState(mode: .files)
         let store = FileExplorerStore()
         store.rootPath = "/tmp/unified-file-explorer-tests"
@@ -432,13 +420,6 @@ struct UnifiedFileExplorerTests {
         ))
     }
 
-    private static func restore(_ value: Any?, forKey key: String) {
-        if let value {
-            UserDefaults.standard.set(value, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-    }
 }
 
 @MainActor

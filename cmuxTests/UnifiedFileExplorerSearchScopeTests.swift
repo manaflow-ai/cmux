@@ -36,8 +36,10 @@ struct UnifiedFileExplorerSearchScopeTests {
         root.children = [unloadedDirectory, matchingFile]
         var filter = FileExplorerTreeFilter()
 
-        let activatedFilter = filter.update(query: "needle", nodes: [root])
-        let unchangedFilter = filter.update(query: " needle ", nodes: [root])
+        filter.rebuildIndex(nodes: [root])
+        let activatedFilter = filter.setQuery("needle")
+        let unchangedFilter = filter.setQuery(" needle ")
+        _ = filter.apply(filter.snapshot.filterSynchronously(query: filter.query))
         #expect(activatedFilter)
         #expect(!unchangedFilter)
 

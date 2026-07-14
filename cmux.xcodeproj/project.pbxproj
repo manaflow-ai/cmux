@@ -735,6 +735,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		FE5996030000000000000002 /* FileExplorerNSOutlineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996030000000000000001 /* FileExplorerNSOutlineView.swift */; };
 		8011B0028011B0028011B002 /* FileExplorerPanelPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8011B0018011B0018011B001 /* FileExplorerPanelPlacement.swift */; };
 		8011A0028011A0028011A002 /* FileExplorerPanelPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8011A0018011A0018011A001 /* FileExplorerPanelPresentation.swift */; };
+		A8011F010000000000000002 /* FileExplorerPanelView+TreeFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8011F010000000000000001 /* FileExplorerPanelView+TreeFilter.swift */; };
 		FE002101 /* FileExplorerRootResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002001 /* FileExplorerRootResolverTests.swift */; };
 		9F8A6669D6F54F0EA8E8BEB8 /* FileExplorerRootSyncPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */; };
 		FE5996040000000000000002 /* FileExplorerRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996040000000000000001 /* FileExplorerRowView.swift */; };
@@ -753,6 +754,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		FE002102 /* FileExplorerStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002002 /* FileExplorerStoreTests.swift */; };
 		FE001104 /* FileExplorerTerminalPathInsertion.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001004 /* FileExplorerTerminalPathInsertion.swift */; };
 		FE8011010000000000000002 /* FileExplorerTreeFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE8011010000000000000001 /* FileExplorerTreeFilter.swift */; };
+		A8011F020000000000000002 /* FileExplorerTreeFilterResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8011F020000000000000001 /* FileExplorerTreeFilterResult.swift */; };
+		A8011F030000000000000002 /* FileExplorerTreeFilterSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8011F030000000000000001 /* FileExplorerTreeFilterSnapshot.swift */; };
 		FE001102 /* FileExplorerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001002 /* FileExplorerView.swift */; };
 		A5001441A5001441A5001441 /* FileOpenSocketSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */; };
 		A5001432A5001432A5001432 /* FilePreviewFocusCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001431A5001431A5001431 /* FilePreviewFocusCoordinator.swift */; };
@@ -2550,6 +2553,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		FE5996030000000000000001 /* FileExplorerNSOutlineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerNSOutlineView.swift; sourceTree = "<group>"; };
 		8011B0018011B0018011B001 /* FileExplorerPanelPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerPanelPlacement.swift; sourceTree = "<group>"; };
 		8011A0018011A0018011A001 /* FileExplorerPanelPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerPanelPresentation.swift; sourceTree = "<group>"; };
+		A8011F010000000000000001 /* FileExplorerPanelView+TreeFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerPanelView+TreeFilter.swift"; sourceTree = "<group>"; };
 		FE002001 /* FileExplorerRootResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootResolverTests.swift; sourceTree = "<group>"; };
 		120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootSyncPolicyTests.swift; sourceTree = "<group>"; };
 		FE5996040000000000000001 /* FileExplorerRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRowView.swift; sourceTree = "<group>"; };
@@ -2568,6 +2572,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		FE002002 /* FileExplorerStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerStoreTests.swift; sourceTree = "<group>"; };
 		FE001004 /* FileExplorerTerminalPathInsertion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerTerminalPathInsertion.swift; sourceTree = "<group>"; };
 		FE8011010000000000000001 /* FileExplorerTreeFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerTreeFilter.swift; sourceTree = "<group>"; };
+		A8011F020000000000000001 /* FileExplorerTreeFilterResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerTreeFilterResult.swift; sourceTree = "<group>"; };
+		A8011F030000000000000001 /* FileExplorerTreeFilterSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerTreeFilterSnapshot.swift; sourceTree = "<group>"; };
 		FE001002 /* FileExplorerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerView.swift; sourceTree = "<group>"; };
 		A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileOpenSocketSupport.swift; sourceTree = "<group>"; };
 		A5001431A5001431A5001431 /* FilePreviewFocusCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewFocusCoordinator.swift; sourceTree = "<group>"; };
@@ -4873,7 +4879,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B37A0000000000000000000A /* FileExplorerState.swift */,
 				FE001001 /* FileExplorerStore.swift */,
 				FE001004 /* FileExplorerTerminalPathInsertion.swift */,
+				A8011F010000000000000001 /* FileExplorerPanelView+TreeFilter.swift */,
 				FE8011010000000000000001 /* FileExplorerTreeFilter.swift */,
+				A8011F020000000000000001 /* FileExplorerTreeFilterResult.swift */,
+				A8011F030000000000000001 /* FileExplorerTreeFilterSnapshot.swift */,
 				FE001002 /* FileExplorerView.swift */,
 				FE8011060000000000000001 /* FileSearchRequest.swift */,
 				FE001007 /* GitFileStatus.swift */,
@@ -6343,6 +6352,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE5996030000000000000002 /* FileExplorerNSOutlineView.swift in Sources */,
 				8011B0028011B0028011B002 /* FileExplorerPanelPlacement.swift in Sources */,
 				8011A0028011A0028011A002 /* FileExplorerPanelPresentation.swift in Sources */,
+				A8011F010000000000000002 /* FileExplorerPanelView+TreeFilter.swift in Sources */,
 				FE5996040000000000000002 /* FileExplorerRowView.swift in Sources */,
 				FE8011050000000000000002 /* FileExplorerSearchBarView.swift in Sources */,
 				FE001103 /* FileExplorerSearchController.swift in Sources */,
@@ -6356,6 +6366,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE001101 /* FileExplorerStore.swift in Sources */,
 				FE001104 /* FileExplorerTerminalPathInsertion.swift in Sources */,
 				FE8011010000000000000002 /* FileExplorerTreeFilter.swift in Sources */,
+				A8011F020000000000000002 /* FileExplorerTreeFilterResult.swift in Sources */,
+				A8011F030000000000000002 /* FileExplorerTreeFilterSnapshot.swift in Sources */,
 				FE001102 /* FileExplorerView.swift in Sources */,
 				A5001441A5001441A5001441 /* FileOpenSocketSupport.swift in Sources */,
 				A5001432A5001432A5001432 /* FilePreviewFocusCoordinator.swift in Sources */,

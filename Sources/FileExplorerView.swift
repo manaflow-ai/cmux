@@ -79,9 +79,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
-        private var fileFilter = FileExplorerTreeFilter()
-        private var fileFilterTreeRevision = -1
-        private var preFilterTopVisiblePath: String?
+        var fileFilter = FileExplorerTreeFilter()
+        var fileFilterTreeRevision = -1
+        var fileFilterTask: Task<Void, Never>?
+        var fileFilterGeneration = 0
+        var pendingFileFilterActions: [() -> Void] = []
+        var preFilterTopVisiblePath: String?
 
         init(
             store: FileExplorerStore,
@@ -139,6 +142,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         deinit {
+            fileFilterTask?.cancel()
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -168,12 +172,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
             if fileFilter.isActive {
                 guard containerView?.displayedSearchScope == .names else { return }
                 guard fileFilterTreeRevision != store.treeRevision else {
-                    refreshFilteredRows(in: outlineView)
+                    if fileFilter.needsFiltering, fileFilterTask == nil {
+                        setFileFilterQuery(fileFilter.query, in: outlineView)
+                    } else if !fileFilter.needsFiltering {
+                        refreshFilteredRows(in: outlineView)
+                    }
                     return
                 }
-                fileFilter.rebuild(nodes: store.rootNodes)
-                fileFilterTreeRevision = store.treeRevision
-                reloadFilteredTree(in: outlineView)
+                setFileFilterQuery(fileFilter.query, in: outlineView)
                 return
             }
 
@@ -333,52 +339,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
-        @MainActor func moveSelection(in outlineView: NSOutlineView, by delta: Int) {
-            containerView?.applyPendingFileFilter()
-            guard outlineView.numberOfRows > 0 else {
-                store.select(node: nil)
-                return
-            }
-            let currentRow = resolvedSelectionRow(in: outlineView) ?? (delta >= 0 ? -1 : outlineView.numberOfRows)
-            let targetRow = min(max(currentRow + delta, 0), outlineView.numberOfRows - 1)
-            selectRow(targetRow, in: outlineView, scroll: true)
-        }
-
-        @MainActor func performDisclosureAction(
-            _ action: RightSidebarKeyboardNavigation.DisclosureAction,
-            in outlineView: NSOutlineView
-        ) {
-            containerView?.applyPendingFileFilter()
-            switch action {
-            case .collapse:
-                collapseSelectedItemOrMoveToParent(in: outlineView)
-            case .expand:
-                expandSelectedItemOrMoveToChild(in: outlineView)
-            }
-        }
-
-        func setFileFilterQuery(_ query: String, in outlineView: NSOutlineView) {
-            let wasActive = fileFilter.isActive
-            if !wasActive, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                preFilterTopVisiblePath = topVisibleNode(in: outlineView)?.path
-            }
-            let queryChanged = fileFilter.update(query: query, nodes: store.rootNodes)
-            let treeChanged = fileFilterTreeRevision != store.treeRevision
-            guard queryChanged || treeChanged else {
-                refreshFilteredRows(in: outlineView)
-                return
-            }
-            if treeChanged, !queryChanged {
-                fileFilter.rebuild(nodes: store.rootNodes)
-            }
-            fileFilterTreeRevision = store.treeRevision
-            reloadFilteredTree(in: outlineView)
-            if wasActive, !fileFilter.isActive {
-                restorePreFilterScroll(in: outlineView)
-            }
-        }
-
-        private func refreshFilteredRows(in outlineView: NSOutlineView) {
+        func refreshFilteredRows(in outlineView: NSOutlineView) {
             guard outlineView.numberOfRows > 0, outlineView.numberOfColumns > 0 else { return }
             outlineView.reloadData(
                 forRowIndexes: IndexSet(0..<outlineView.numberOfRows),
@@ -388,7 +349,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         var isFileFilterActive: Bool { fileFilter.isActive }
 
-        private func reloadFilteredTree(in outlineView: NSOutlineView) {
+        func reloadFilteredTree(in outlineView: NSOutlineView) {
             withProgrammaticOutlineUpdate {
                 outlineView.reloadData()
                 if fileFilter.isActive {
@@ -407,13 +368,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
-        private func topVisibleNode(in outlineView: NSOutlineView) -> FileExplorerNode? {
+        func topVisibleNode(in outlineView: NSOutlineView) -> FileExplorerNode? {
             let rows = outlineView.rows(in: outlineView.visibleRect)
             guard rows.location != NSNotFound, rows.location < outlineView.numberOfRows else { return nil }
             return outlineView.item(atRow: rows.location) as? FileExplorerNode
         }
 
-        private func restorePreFilterScroll(in outlineView: NSOutlineView) {
+        func restorePreFilterScroll(in outlineView: NSOutlineView) {
             defer { preFilterTopVisiblePath = nil }
             guard let path = preFilterTopVisiblePath,
                   let row = (0..<outlineView.numberOfRows).first(where: {
@@ -422,12 +383,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             outlineView.scrollRowToVisible(row)
         }
 
-        @MainActor func openSelectedItem(in outlineView: NSOutlineView) {
-            containerView?.applyPendingFileFilter()
-            openNode(in: outlineView, at: outlineView.selectedRow)
-        }
-
-        private func expandSelectedItemOrMoveToChild(in outlineView: NSOutlineView) {
+        func expandSelectedItemOrMoveToChild(in outlineView: NSOutlineView) {
             guard let row = resolvedSelectionRow(in: outlineView),
                   let node = outlineView.item(atRow: row) as? FileExplorerNode,
                   node.isDirectory else {
@@ -456,7 +412,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             selectFirstChild(of: node, in: outlineView)
         }
 
-        private func collapseSelectedItemOrMoveToParent(in outlineView: NSOutlineView) {
+        func collapseSelectedItemOrMoveToParent(in outlineView: NSOutlineView) {
             guard let row = resolvedSelectionRow(in: outlineView),
                   let node = outlineView.item(atRow: row) as? FileExplorerNode else {
                 return
@@ -557,7 +513,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             return SelectionResolution(row: bestAncestor.row, isExact: false)
         }
 
-        private func selectRow(
+        func selectRow(
             _ row: Int,
             in outlineView: NSOutlineView,
             scroll: Bool,
@@ -611,7 +567,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         @MainActor
         @objc func handleDoubleClick(_ sender: NSOutlineView) {
             let row = sender.clickedRow >= 0 ? sender.clickedRow : sender.selectedRow
-            openNode(in: sender, at: row)
+            openNodeAfterApplyingFileFilter(in: sender, at: row)
         }
 
         // MARK: - Context Menu (NSMenuDelegate)
@@ -1345,10 +1301,17 @@ final class FileExplorerContainerView: NSView {
         fileFilterDebounceGeneration += 1
     }
 
-    func applyPendingFileFilter() {
+    func applyPendingFileFilter(afterApplying action: (() -> Void)? = nil) {
         cancelPendingFileFilterRefresh()
-        guard displayedSearchScope == .names else { return }
-        coordinator.setFileFilterQuery(queryState.namesQuery, in: outlineView)
+        guard displayedSearchScope == .names else {
+            action?()
+            return
+        }
+        coordinator.setFileFilterQuery(
+            queryState.namesQuery,
+            in: outlineView,
+            afterApplying: action
+        )
         updateVisibility(
             hasContent: !currentRootPath.isEmpty,
             isLoading: currentIsLoading,

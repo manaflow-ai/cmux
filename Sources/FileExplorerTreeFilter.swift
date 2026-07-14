@@ -1,53 +1,60 @@
 import Foundation
 
-/// Filters the already-loaded file tree without triggering recursive directory loads.
+/// Filters an immutable index of already-loaded nodes without loading directories.
 struct FileExplorerTreeFilter {
     private(set) var query = ""
-    private var filteredRootNodes: [FileExplorerNode] = []
-    private var filteredChildrenByPath: [String: [FileExplorerNode]] = [:]
+    private(set) var snapshot = FileExplorerTreeFilterSnapshot.empty
+    private var nodesByPath: [String: FileExplorerNode] = [:]
+    private var visiblePaths: Set<String> = []
+    private(set) var needsFiltering = false
 
     var isActive: Bool { !query.isEmpty }
 
     @discardableResult
-    mutating func update(query rawQuery: String, nodes: [FileExplorerNode]) -> Bool {
+    mutating func setQuery(_ rawQuery: String) -> Bool {
         let nextQuery = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard nextQuery != query else { return false }
         query = nextQuery
-        rebuild(nodes: nodes)
+        needsFiltering = !nextQuery.isEmpty
+        if nextQuery.isEmpty {
+            visiblePaths.removeAll(keepingCapacity: true)
+        }
         return true
     }
 
-    mutating func rebuild(nodes: [FileExplorerNode]) {
-        filteredRootNodes.removeAll(keepingCapacity: true)
-        filteredChildrenByPath.removeAll(keepingCapacity: true)
-        guard isActive else { return }
-        for node in nodes {
-            if collectMatches(in: node) { filteredRootNodes.append(node) }
-        }
+    @MainActor
+    mutating func rebuildIndex(nodes: [FileExplorerNode]) {
+        let captured = FileExplorerTreeFilterSnapshot.capture(nodes: nodes)
+        snapshot = captured.snapshot
+        nodesByPath = captured.nodesByPath
+        needsFiltering = isActive
+    }
+
+    @discardableResult
+    mutating func apply(_ result: FileExplorerTreeFilterResult) -> Bool {
+        guard result.query == query else { return false }
+        visiblePaths = result.visiblePaths
+        needsFiltering = false
+        return true
     }
 
     func visibleRootNodes(in nodes: [FileExplorerNode]) -> [FileExplorerNode] {
-        isActive ? filteredRootNodes : nodes
+        guard isActive else { return nodes }
+        return snapshot.rootPaths.compactMap { path in
+            guard visiblePaths.contains(path) else { return nil }
+            return nodesByPath[path]
+        }
     }
 
     func visibleChildren(of node: FileExplorerNode) -> [FileExplorerNode] {
-        isActive ? filteredChildrenByPath[node.path] ?? [] : node.sortedChildren ?? []
+        guard isActive else { return node.sortedChildren ?? [] }
+        return (snapshot.childrenByPath[node.path] ?? []).compactMap { path in
+            guard visiblePaths.contains(path) else { return nil }
+            return nodesByPath[path]
+        }
     }
 
     func hasVisibleChildren(_ node: FileExplorerNode) -> Bool {
         !visibleChildren(of: node).isEmpty
-    }
-
-    private mutating func collectMatches(in node: FileExplorerNode) -> Bool {
-        var matches = node.name.localizedCaseInsensitiveContains(query)
-        var visibleChildren: [FileExplorerNode] = []
-        for child in node.sortedChildren ?? [] {
-            if collectMatches(in: child) {
-                matches = true
-                visibleChildren.append(child)
-            }
-        }
-        filteredChildrenByPath[node.path] = visibleChildren
-        return matches
     }
 }
