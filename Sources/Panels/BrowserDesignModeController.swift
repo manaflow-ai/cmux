@@ -27,6 +27,7 @@ final class BrowserDesignModeController {
     @ObservationIgnored private let promptFormatter: BrowserDesignModePromptFormatter
     @ObservationIgnored private let screenshotStore: BrowserDesignModeScreenshotStore
     @ObservationIgnored private let javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator
+    @ObservationIgnored private let screenshotEvaluator: BrowserDesignModeScreenshotEvaluator
     @ObservationIgnored private let canEnable: @MainActor @Sendable () -> Bool
     @ObservationIgnored private let promptSender: @MainActor @Sendable (
         String,
@@ -56,6 +57,7 @@ final class BrowserDesignModeController {
         promptFormatter: BrowserDesignModePromptFormatter,
         screenshotStore: BrowserDesignModeScreenshotStore,
         javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator,
+        screenshotEvaluator: BrowserDesignModeScreenshotEvaluator,
         canEnable: @escaping @MainActor @Sendable () -> Bool,
         promptSender: @escaping @MainActor @Sendable (
             String,
@@ -69,6 +71,7 @@ final class BrowserDesignModeController {
         self.promptFormatter = promptFormatter
         self.screenshotStore = screenshotStore
         self.javaScriptEvaluator = javaScriptEvaluator
+        self.screenshotEvaluator = screenshotEvaluator
         self.canEnable = canEnable
         self.promptSender = promptSender
         self.onActivityChanged = onActivityChanged
@@ -344,7 +347,7 @@ final class BrowserDesignModeController {
         do {
             let before = try decodeSnapshot(prepared)
             let beforeViewBounds = webView.bounds
-            let image = try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(from: webView)
+            let image = try await screenshotEvaluator.captureVisibleViewport(from: webView)
             let after = try decodeSnapshot(
                 try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView)
             )
@@ -352,6 +355,7 @@ final class BrowserDesignModeController {
             try await finishCapture(in: webView)
             return (before, after, image, beforeViewBounds, afterViewBounds)
         } catch let captureError {
+            if captureError is CancellationError { throw captureError }
             try? await finishCapture(in: webView)
             throw captureError
         }
@@ -458,6 +462,7 @@ final class BrowserDesignModeController {
     private func invalidateOperation() {
         operationRevision &+= 1
         javaScriptEvaluator.cancelAll()
+        screenshotEvaluator.cancelAll()
     }
 
     private static func captureRect(

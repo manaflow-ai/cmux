@@ -100,7 +100,7 @@ enum BrowserScreenshotWebViewSnapshotter {
     static func captureVisibleViewport(
         from webView: WKWebView,
         afterScreenUpdates: Bool = true,
-        completion: @escaping (Result<NSImage, Error>) -> Void
+        completion: @escaping @MainActor (Result<NSImage, Error>) -> Void
     ) {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = afterScreenUpdates
@@ -541,7 +541,7 @@ enum BrowserScreenshotWebViewSnapshotter {
     private static func takeSnapshot(
         from webView: WKWebView,
         configuration: WKSnapshotConfiguration,
-        completion: @escaping (Result<NSImage, Error>) -> Void
+        completion: @escaping @MainActor (Result<NSImage, Error>) -> Void
     ) {
         webView.takeSnapshot(with: configuration) { image, error in
             if let image {

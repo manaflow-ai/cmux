@@ -210,6 +210,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D35A00000000000000000007 /* BrowserDesignModeMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000007 /* BrowserDesignModeMessageHandler.swift */; };
 		D35A00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift */; };
 		D35A00000000000000000008 /* BrowserDesignModePhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000008 /* BrowserDesignModePhase.swift */; };
+		D35A00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift */; };
+		D35C00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35D00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift */; };
 		D35A00000000000000000009 /* BrowserDesignModeScreenshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000009 /* BrowserDesignModeScreenshotStore.swift */; };
 		D35A0000000000000000000A /* BrowserDesignModeSendError.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000000A /* BrowserDesignModeSendError.swift */; };
 		D35A0000000000000000000B /* BrowserDesignModeToolbarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B0000000000000000000B /* BrowserDesignModeToolbarButton.swift */; };
@@ -2088,6 +2090,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D35B00000000000000000007 /* BrowserDesignModeMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeMessageHandler.swift; sourceTree = "<group>"; };
 		D35B00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeOverflowMenuButton.swift; sourceTree = "<group>"; };
 		D35B00000000000000000008 /* BrowserDesignModePhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModePhase.swift; sourceTree = "<group>"; };
+		D35B00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeScreenshotEvaluator.swift; sourceTree = "<group>"; };
+		D35D00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDesignModeScreenshotEvaluatorTests.swift; sourceTree = "<group>"; };
 		D35B00000000000000000009 /* BrowserDesignModeScreenshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeScreenshotStore.swift; sourceTree = "<group>"; };
 		D35B0000000000000000000A /* BrowserDesignModeSendError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeSendError.swift; sourceTree = "<group>"; };
 		D35B0000000000000000000B /* BrowserDesignModeToolbarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeToolbarButton.swift; sourceTree = "<group>"; };
@@ -4468,6 +4472,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D35B00000000000000000006 /* BrowserDesignModeHandoffState.swift */,
 				D35B00000000000000000007 /* BrowserDesignModeMessageHandler.swift */,
 				D35B00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift */,
+				D35B00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift */,
 				D35B00000000000000000008 /* BrowserDesignModePhase.swift */,
 				D35B00000000000000000009 /* BrowserDesignModeScreenshotStore.swift */,
 				D35B0000000000000000000A /* BrowserDesignModeSendError.swift */,
@@ -5241,6 +5246,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */,
 				B65060010000000000000001 /* BrowserPanelSessionRestoreTests.swift */,
 				B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */,
+				D35D00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift */,
 				B75040020000000000000002 /* BrowserDiscardedWebViewRestoreRetryTests.swift */,
 				B75040030000000000000002 /* BrowserDiscardRestoreHealPredicateTests.swift */,
 				B75040040000000000000002 /* BrowserInsecureHTTPAlertTestSupport.swift */,
@@ -6123,6 +6129,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D35A00000000000000000007 /* BrowserDesignModeMessageHandler.swift in Sources */,
 				D35A00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift in Sources */,
 				D35A00000000000000000008 /* BrowserDesignModePhase.swift in Sources */,
+				D35A00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift in Sources */,
 				D35A00000000000000000009 /* BrowserDesignModeScreenshotStore.swift in Sources */,
 				D35A0000000000000000000A /* BrowserDesignModeSendError.swift in Sources */,
 				D35A0000000000000000000B /* BrowserDesignModeToolbarButton.swift in Sources */,
@@ -7306,6 +7313,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */,
 				D7032A030000000000000001 /* BrowserClientCertificateCredentialPickerTests.swift in Sources */,
 				E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,
+				D35C00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift in Sources */,
 				B1F0C0060000000000000001 /* BrowserDeveloperToolsDockControlNormalizerTests.swift in Sources */,
 				B1F0C0070000000000000001 /* BrowserDeveloperToolsLifecycleTests.swift in Sources */,
 				B75040020000000000000001 /* BrowserDiscardedWebViewRestoreRetryTests.swift in Sources */,
