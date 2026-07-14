@@ -247,6 +247,69 @@ test("typed Rust empty diffs keep the localized source-specific message", async 
   expect(fetched).toBe(false);
 });
 
+test("Last Turn reveals repo selection after switching to a typed git source", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/last-turn.html");
+  const requests: any[] = [];
+  installDomGlobals(dom, () => new Response("", { status: 200 }));
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          requests.push(request);
+          if (request.method === "sessionClose") {
+            return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
+          }
+          return {
+            id: request.id,
+            version: 1,
+            result: {
+              type: "sessionOpened",
+              value: {
+                sessionId: "01234567-89ab-cdef-0123-456789abcdef",
+                patch: { id: "/session.patch", mediaType: "text/x-diff", byteLength: 1, revision: 1 },
+                source: request.params.source,
+              },
+            },
+            error: null,
+          };
+        },
+      },
+    },
+  };
+  renderApp(
+    <App
+      config={{ payload: {
+        capabilityToken: "0123456789abcdef",
+        sessionSource: { kind: "patch", path: "/last-turn.patch" },
+        sourceOptions: [
+          { label: "Last turn", selected: true, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
+          { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
+        ],
+        repoOptions: [
+          { label: "repo", selected: true, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "/tmp/repo" },
+          { label: "other", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/other" }, value: "/tmp/other" },
+        ],
+        transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+      } }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
+    />,
+  );
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
+  expect(dom.window.document.getElementById("repo-select")).toBeNull();
+
+  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
+  sourceSelect.value = "unstaged";
+  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
+  const repoSelect = dom.window.document.getElementById("repo-select") as HTMLSelectElement;
+  expect(repoSelect).toBeTruthy();
+  repoSelect.value = "/tmp/other";
+  repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
+  expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source)
+    .toEqual({ kind: "unstaged", repoRoot: "/tmp/other" });
+});
+
 test("App still starts diff rendering when statusMessage is an empty string", async () => {
   dom = createDom();
   let fetchCount = 0;

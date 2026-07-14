@@ -1440,7 +1440,8 @@ mod tests {
 
     use super::{
         DiffSource, RpcRequestRead, SessionOpenError, TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID,
-        handle_protocol_request, read_rpc_request, run_git_patch_with_limit, valid_group_id,
+        handle_protocol_request, prune_orphaned_session_temp_files, read_rpc_request,
+        run_git_patch_with_limit, valid_group_id,
     };
 
     #[tokio::test]
@@ -1498,6 +1499,26 @@ mod tests {
 
         assert!(!temporary.exists());
         assert!(!final_path.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn startup_prunes_only_orphaned_session_temp_files() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-orphan-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create root");
+        let orphan = root.join(format!(".diff-session-{}.patch.tmp", uuid::Uuid::new_v4()));
+        let unrelated = root.join(".diff-session-invalid.patch.tmp");
+        std::fs::write(&orphan, b"private diff").expect("write orphan");
+        std::fs::write(&unrelated, b"keep").expect("write unrelated file");
+
+        prune_orphaned_session_temp_files(&root, Duration::ZERO).await;
+
+        assert!(!orphan.exists());
+        assert!(unrelated.exists());
         let _ = std::fs::remove_dir_all(root);
     }
 
