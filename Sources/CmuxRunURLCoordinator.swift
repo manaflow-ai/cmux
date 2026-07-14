@@ -23,6 +23,9 @@ final class CmuxRunURLCoordinator {
 
     @discardableResult
     func handle(_ request: CmuxRunURLRequest) -> Bool {
+        let startsBeforeStartupRestore = request.placement == .workspace
+            && !appDelegate.didAttemptStartupSessionRestore
+            && !appDelegate.isApplyingSessionRestore
         if Self.shouldDeferForStartupRestore(
             request: request,
             didAttemptRestore: appDelegate.didAttemptStartupSessionRestore,
@@ -39,11 +42,17 @@ final class CmuxRunURLCoordinator {
             confirmationPresenter.showNonModalFailure(.busy)
             return true
         }
+        if startsBeforeStartupRestore {
+            appDelegate.deferInitialMainWindowBootstrapForExternalConfirmation()
+        }
 
         appDelegate.isHandlingCmuxRunURLRequest = true
         Task { [self] in
             defer { appDelegate.isHandlingCmuxRunURLRequest = false }
-            await resolvePlanConfirmAndExecute(request)
+            await resolvePlanConfirmAndExecute(
+                request,
+                resumesInitialBootstrapOnEarlyExit: startsBeforeStartupRestore
+            )
         }
         return true
     }
@@ -53,10 +62,20 @@ final class CmuxRunURLCoordinator {
         didAttemptRestore: Bool,
         isApplyingRestore: Bool
     ) -> Bool {
-        !didAttemptRestore || isApplyingRestore
+        isApplyingRestore || (!didAttemptRestore && request.placement != .workspace)
     }
 
-    private func resolvePlanConfirmAndExecute(_ request: CmuxRunURLRequest) async {
+    private func resolvePlanConfirmAndExecute(
+        _ request: CmuxRunURLRequest,
+        resumesInitialBootstrapOnEarlyExit: Bool
+    ) async {
+        defer {
+            if resumesInitialBootstrapOnEarlyExit {
+                appDelegate.resumeInitialMainWindowBootstrapAfterExternalConfirmation(
+                    debugSource: "runURL.completed"
+                )
+            }
+        }
         let workingDirectory: String
         switch await directoryResolver.resolveWithDeadline(request.workingDirectory) {
         case .success(let path):
