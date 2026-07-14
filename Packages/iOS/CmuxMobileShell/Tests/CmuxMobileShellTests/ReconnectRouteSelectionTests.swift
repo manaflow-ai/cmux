@@ -313,6 +313,56 @@ import Testing
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
     }
 
+    @Test func supersededSuccessfulRouteClosesItsUnadoptedTransport() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.holdWorkspaceListRequest(number: 1)
+        let factory = SupersededTransportFactory(router: router)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.debugLoopback]
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "pairing-superseded-close-\(UUID().uuidString)"
+            )!
+        )
+        let route = try loopbackRoute(id: "live", port: 51001)
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults
+                .pairingCompatibilityVersion,
+            routes: [route],
+            expiresAt: clock.now.addingTimeInterval(3_600)
+        )
+
+        let first = Task { @MainActor in
+            try? await store.connect(ticket: ticket)
+        }
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 1))
+
+        let second = Task { @MainActor in
+            try? await store.connect(ticket: ticket)
+        }
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 2))
+        _ = await second.value
+        await router.releaseAllHeld()
+        _ = await first.value
+
+        let transports = factory.createdTransports()
+        #expect(transports.count == 2)
+        #expect(await transports.first?.observedCloseCount() == 1)
+        #expect(await transports.last?.observedCloseCount() == 0)
+        await store.remoteClient?.disconnect()
+    }
+
     @Test func sameDeviceTagSwitchFailureRestoresLiveInstanceRoute() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -433,6 +483,54 @@ import Testing
         )
         return (store, directory)
     }
+}
+
+private final class SupersededTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
+    private let router: LivenessHostRouter
+    private let lock = NSLock()
+    private var transports: [SupersededTrackingTransport] = []
+
+    init(router: LivenessHostRouter) {
+        self.router = router
+    }
+
+    func makeTransport(for _: CmxAttachRoute) throws -> any CmxByteTransport {
+        let transport = SupersededTrackingTransport(router: router)
+        lock.withLock { transports.append(transport) }
+        return transport
+    }
+
+    func createdTransports() -> [SupersededTrackingTransport] {
+        lock.withLock { transports }
+    }
+}
+
+private actor SupersededTrackingTransport: CmxByteTransport {
+    private let base: LivenessTransport
+    private var closeCount = 0
+
+    init(router: LivenessHostRouter) {
+        base = LivenessTransport(router: router)
+    }
+
+    func connect() async throws {
+        try await base.connect()
+    }
+
+    func receive() async throws -> Data? {
+        try await base.receive()
+    }
+
+    func send(_ data: Data) async throws {
+        try await base.send(data)
+    }
+
+    func close() async {
+        closeCount += 1
+        await base.close()
+    }
+
+    func observedCloseCount() -> Int { closeCount }
 }
 
 private enum RouteRecordingTransportError: Error {
