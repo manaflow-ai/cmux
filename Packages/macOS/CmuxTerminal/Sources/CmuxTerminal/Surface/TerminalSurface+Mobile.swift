@@ -65,7 +65,7 @@ extension TerminalSurface {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
         let exported = surfaceID.withCString { ptr in
-            ghostty_surface_render_grid_json(
+            ghostty_surface_render_grid_json_bounded(
                 surface,
                 ptr,
                 UInt(surfaceID.utf8.count),
