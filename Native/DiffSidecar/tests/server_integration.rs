@@ -301,7 +301,7 @@ fn rpc_git_sessions_match_git_without_starting_a_server() {
     )
     .expect("write session");
 
-    assert_abandoned_session_is_replaced(&root, &repo, token);
+    assert_overlapping_sessions_remain_independently_closable(&root, &repo, token);
 
     assert_session_matches_git(
         &root,
@@ -357,14 +357,18 @@ fn rpc_git_sessions_match_git_without_starting_a_server() {
     let _ = std::fs::remove_dir_all(root);
 }
 
-fn assert_abandoned_session_is_replaced(root: &Path, repo: &Path, token: &str) {
+fn assert_overlapping_sessions_remain_independently_closable(
+    root: &Path,
+    repo: &Path,
+    token: &str,
+) {
     let source = serde_json::json!({"kind": "unstaged", "repoRoot": repo});
     let git_arguments = ["diff", "--no-ext-diff", "--no-color", "--binary", "--"];
     let (abandoned_session, abandoned_path) =
         open_session_matches_git(root, repo, token, &source, &git_arguments);
     let (replacement_session, replacement_path) =
         open_session_matches_git(root, repo, token, &source, &git_arguments);
-    assert!(!root.join(abandoned_path.trim_start_matches('/')).exists());
+    assert!(root.join(abandoned_path.trim_start_matches('/')).exists());
     let manifest: serde_json::Value = serde_json::from_slice(
         &std::fs::read(root.join(format!(".manifest-{token}.json"))).expect("read manifest"),
     )
@@ -376,17 +380,13 @@ fn assert_abandoned_session_is_replaced(root: &Path, repo: &Path, token: &str) {
         .filter_map(|entry| entry["request_path"].as_str())
         .filter(|path| path.starts_with("/diff-session-"))
         .collect();
-    assert_eq!(session_paths, [replacement_path.as_str()]);
+    assert_eq!(
+        session_paths,
+        [abandoned_path.as_str(), replacement_path.as_str()]
+    );
     close_session(root, token, &replacement_session, &replacement_path);
-
-    let request = serde_json::to_vec(&serde_json::json!({
-        "id": "close-abandoned-session",
-        "version": 1,
-        "method": "sessionClose",
-        "params": {"sessionId": abandoned_session, "capabilityToken": token}
-    }))
-    .expect("encode abandoned close request");
-    assert!(run_stdio_rpc_in_root(&request, root).status.success());
+    assert!(root.join(abandoned_path.trim_start_matches('/')).exists());
+    close_session(root, token, &abandoned_session, &abandoned_path);
 }
 
 fn assert_session_matches_git(

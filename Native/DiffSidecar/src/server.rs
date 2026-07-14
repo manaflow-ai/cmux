@@ -3,7 +3,7 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex as StdMutex, Weak};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use axum::body::Body;
@@ -23,7 +23,7 @@ use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
-use tokio::sync::{Mutex, RwLock, Semaphore};
+use tokio::sync::{RwLock, Semaphore};
 use tokio_util::io::ReaderStream;
 
 use crate::manifest::{
@@ -49,7 +49,6 @@ struct AppState {
     port: u16,
     manifests: Arc<RwLock<HashMap<String, CachedManifest>>>,
     child_processes: Arc<Semaphore>,
-    session_open_locks: Arc<StdMutex<HashMap<String, Weak<Mutex<()>>>>>,
 }
 
 #[derive(Clone)]
@@ -154,7 +153,6 @@ fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
         port,
         manifests: Arc::new(RwLock::new(HashMap::new())),
         child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
-        session_open_locks: Arc::new(StdMutex::new(HashMap::new())),
     })
 }
 
@@ -516,10 +514,6 @@ async fn open_session(
             source: params.source,
         });
     }
-    let session_lock = session_open_lock(state, &params.capability_token)?;
-    let _session_guard = session_lock
-        .try_lock()
-        .map_err(|_| SessionOpenError::Failed)?;
     let _permit = state
         .child_processes
         .try_acquire()
@@ -621,24 +615,21 @@ impl TemporaryPatchFile {
 impl Drop for TemporaryPatchFile {
     fn drop(&mut self) {
         if self.armed {
-            let _ = std::fs::remove_file(&self.path);
-            let _ = unregister_session_temp(&self.root, &self.path);
+            remove_owned_patch_sync(&self.root, &self.path);
         }
     }
 }
 
-fn session_open_lock(state: &AppState, token: &str) -> Result<Arc<Mutex<()>>, SessionOpenError> {
-    let mut locks = state
-        .session_open_locks
-        .lock()
-        .map_err(|_| SessionOpenError::Failed)?;
-    locks.retain(|_, lock| lock.strong_count() > 0);
-    if let Some(lock) = locks.get(token).and_then(Weak::upgrade) {
-        return Ok(lock);
+fn remove_owned_patch_sync(root: &Path, path: &Path) {
+    match std::fs::remove_file(path) {
+        Ok(()) => {
+            let _ = unregister_session_temp(root, path);
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let _ = unregister_session_temp(root, path);
+        }
+        Err(_) => {}
     }
-    let lock = Arc::new(Mutex::new(()));
-    locks.insert(token.to_owned(), Arc::downgrade(&lock));
-    Ok(lock)
 }
 
 async fn resolve_session_source(
@@ -827,30 +818,17 @@ async fn append_manifest_file(
     token: String,
     file: AllowedFile,
 ) -> Result<(), String> {
-    let cleanup_root = root.clone();
-    let replaced = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         mutate_manifest(&root, &token, |manifest| {
-            let mut replaced = Vec::new();
-            manifest.files.retain(|entry| {
-                let replace = entry.request_path != file.request_path
-                    && session_patch_request_path(&entry.request_path);
-                if replace {
-                    replaced.push(entry.request_path.clone());
-                }
-                !replace && entry.request_path != file.request_path
-            });
+            manifest
+                .files
+                .retain(|entry| entry.request_path != file.request_path);
             manifest.files.push(file);
-            Ok(replaced)
+            Ok(())
         })
     })
     .await
-    .map_err(|error| error.to_string())??;
-    for request_path in replaced {
-        let path = cleanup_root.join(request_path.trim_start_matches('/'));
-        let _ = tokio::fs::remove_file(&path).await;
-        let _ = unregister_session_temp(&cleanup_root, &path);
-    }
-    Ok(())
+    .map_err(|error| error.to_string())?
 }
 
 async fn prune_orphaned_session_temp_files(
@@ -880,8 +858,10 @@ async fn prune_orphaned_session_temp_files(
                     .and_then(|modified| SystemTime::now().duration_since(modified).ok())
                     .is_some_and(|age| age >= minimum_age);
                 if old_enough {
-                    let _ = std::fs::remove_file(path);
-                    false
+                    match std::fs::remove_file(path) {
+                        Ok(()) => false,
+                        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+                    }
                 } else {
                     true
                 }
@@ -985,13 +965,6 @@ fn mutate_temp_index<T>(
     Ok(value)
 }
 
-fn session_patch_request_path(request_path: &str) -> bool {
-    request_path
-        .strip_prefix("/diff-session-")
-        .and_then(|value| value.strip_suffix(".patch"))
-        .is_some_and(|value| uuid::Uuid::parse_str(value).is_ok())
-}
-
 async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
     if !valid_token(&params.capability_token)
         || uuid::Uuid::parse_str(&params.session_id).is_err()
@@ -1017,9 +990,8 @@ async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
     .and_then(Result::ok)
     .unwrap_or(false);
     if removed {
-        let _ = tokio::fs::remove_file(&file_path).await;
+        remove_owned_patch_sync(&state.config.root, &file_path);
     }
-    let _ = unregister_session_temp(&state.config.root, &file_path);
     true
 }
 
@@ -1631,10 +1603,9 @@ mod tests {
     use crate::protocol::{DiffCommand, DiffRequest, DiffResult};
 
     use super::{
-        DiffSource, RpcRequestRead, ServerConfig, SessionOpenError, TemporaryPatchFile,
-        UNTRUSTED_RPC_REQUEST_ID, app_state, handle_protocol_request,
-        prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
-        run_git_patch_with_limit, session_open_lock, valid_group_id,
+        DiffSource, RpcRequestRead, SessionOpenError, TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID,
+        handle_protocol_request, prune_orphaned_session_temp_files, read_rpc_request,
+        register_session_temp, run_git_patch_with_limit, valid_group_id,
     };
 
     #[tokio::test]
@@ -1692,33 +1663,6 @@ mod tests {
 
         assert!(!temporary.exists());
         assert!(!final_path.exists());
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[tokio::test]
-    async fn concurrent_session_opens_for_one_token_are_rejected() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let root = std::env::temp_dir().join(format!(
-            "cmux-diff-sidecar-session-lock-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&root).expect("create root");
-        let state = app_state(
-            ServerConfig {
-                root: root.clone(),
-                cmux_executable: root.join("cmux"),
-                executable_path: root.join("cmux-diff-sidecar"),
-            },
-            0,
-        )
-        .expect("create state");
-        let first = session_open_lock(&state, "0123456789abcdef").expect("first lock");
-        let first_guard = first.try_lock().expect("acquire first lock");
-        let second = session_open_lock(&state, "0123456789abcdef").expect("second lock");
-        assert!(second.try_lock().is_err());
-        drop(first_guard);
-        assert!(second.try_lock().is_ok());
         let _ = std::fs::remove_dir_all(root);
     }
 
