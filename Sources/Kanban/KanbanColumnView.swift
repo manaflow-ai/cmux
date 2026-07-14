@@ -54,6 +54,8 @@ struct KanbanColumnActions {
     let onMoveCardToColumn: (_ tabId: UUID, _ columnId: String) -> Void
     let onArchiveCard: (UUID) -> Void
     let onUnarchiveCard: (UUID) -> Void
+    /// Renames a card (its workspace's custom title).
+    let onRenameCard: (_ tabId: UUID, _ title: String) -> Void
     let onRenameColumn: (_ id: String, _ title: String) -> Void
     let onSetColumnColor: (_ id: String, _ colorHex: String?) -> Void
     let onDeleteColumn: (_ id: String) -> Void
@@ -206,6 +208,7 @@ struct KanbanColumnView: View, Equatable {
                         card: card,
                         isFocused: card.id == focusedCardId,
                         onTap: { actions.onCardTap(card.id) },
+                        onRename: { promptRenameCard(card) },
                         otherColumns: allColumns.filter { $0.id != column.id && !$0.isArchive },
                         isInArchiveColumn: column.isArchive,
                         onMoveToColumn: { targetId in actions.onMoveCardToColumn(card.id, targetId) },
@@ -219,6 +222,32 @@ struct KanbanColumnView: View, Equatable {
     }
 
     // MARK: - AppKit prompts
+
+    /// Renames the card's underlying workspace, reusing the app's existing
+    /// "Rename Workspace" prompt strings (a card currently maps 1:1 to a
+    /// workspace). Routes through `actions.onRenameCard` →
+    /// `TabManager.renameCard` so the board re-renders.
+    private func promptRenameCard(_ card: KanbanCardSnapshot) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "alert.renameWorkspace.title", defaultValue: "Rename Workspace")
+        alert.informativeText = String(localized: "alert.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
+        let input = NSTextField(string: card.title)
+        input.placeholderString = String(localized: "alert.renameWorkspace.placeholder", defaultValue: "Workspace name")
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let trimmed = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        actions.onRenameCard(card.id, trimmed)
+    }
 
     /// Mirrors `promptRename()` (`Sources/ContentView.swift:14854`): an
     /// `NSAlert` with an `NSTextField` accessory, run modally from a

@@ -61,6 +61,15 @@ extension TabManager {
         moveWorkspace(tabId: tabId, toColumn: targetColumnId)
     }
 
+    /// Renames a card's underlying workspace (its custom title). Goes through
+    /// the shared `setCustomTitle` path, then sends `objectWillChange` so the
+    /// board (which observes `tabManager`, not each workspace) re-renders the
+    /// card with the new title.
+    func renameCard(tabId: UUID, title: String) {
+        setCustomTitle(tabId: tabId, title: title)
+        objectWillChange.send()
+    }
+
     // MARK: - Column CRUD
 
     func addKanbanColumn(title: String) {

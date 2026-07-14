@@ -41,6 +41,7 @@ struct KanbanCardView: View, Equatable {
     /// itself, per the snapshot-boundary rule.
     let isFocused: Bool
     let onTap: () -> Void
+    let onRename: () -> Void
     /// Non-archive columns other than this card's own, for the "Move to
     /// Column" submenu. Passed as a value snapshot (not the board's
     /// `[KanbanColumn]`) so this view stays below the snapshot boundary.
@@ -84,6 +85,10 @@ struct KanbanCardView: View, Equatable {
             SidebarTabDragPayload(tabId: card.id).provider()
         }
         .contextMenu {
+            Button(String(localized: "kanban.card.rename", defaultValue: "Rename…")) {
+                onRename()
+            }
+            Divider()
             if isInArchiveColumn {
                 Button(String(localized: "kanban.card.unarchive", defaultValue: "Move Out of Archive")) {
                     onUnarchive()

@@ -236,6 +236,7 @@ struct KanbanBoardView: View {
             },
             onArchiveCard: { tabId in tabManager.archiveWorkspace(tabId: tabId) },
             onUnarchiveCard: { tabId in tabManager.unarchiveWorkspace(tabId: tabId) },
+            onRenameCard: { tabId, title in tabManager.renameCard(tabId: tabId, title: title) },
             onRenameColumn: { id, title in tabManager.renameKanbanColumn(id: id, title: title) },
             onSetColumnColor: { id, colorHex in tabManager.setColumnColor(id: id, colorHex: colorHex) },
             onDeleteColumn: { id in tabManager.deleteKanbanColumn(id: id) },
