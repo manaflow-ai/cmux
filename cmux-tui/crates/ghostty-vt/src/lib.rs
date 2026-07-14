@@ -17,7 +17,10 @@ pub use render::{
     ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty, RenderFrame,
     RenderState, StyledRun, UnderlineStyle, rows_to_runs,
 };
-pub use terminal::{Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal};
+pub use terminal::{
+    Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal, parse_color,
+    parse_palette_entry,
+};
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {
     match result {

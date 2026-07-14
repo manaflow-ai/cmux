@@ -11,6 +11,7 @@ import {
 } from "cmux/browser";
 import { debounce } from "../lib/debounce";
 import { isForeignSmaller, nextFitSize, type TerminalSize } from "../lib/fit";
+import { createFrameBatch } from "../lib/frameBatch";
 import { encodeTerminalKey } from "../lib/keyEncoding";
 import { applyDelta, applySnapshot, type RenderModel } from "../lib/renderModel";
 import {
@@ -49,7 +50,14 @@ interface RenderTerminalViewState {
 type RenderTerminalViewAction =
   | { type: "bind"; client: CmuxClient; surface: Id }
   | { type: "reset"; client: CmuxClient; surface: Id }
-  | { type: "model"; client: CmuxClient; surface: Id; model: RenderModel }
+  | {
+    type: "frame";
+    client: CmuxClient;
+    surface: Id;
+    model: RenderModel;
+    foreignSize: TerminalSize | null;
+    history: RenderHistoryView;
+  }
   | { type: "focus"; client: CmuxClient; surface: Id; focused: boolean }
   | { type: "foreign-size"; client: CmuxClient; surface: Id; size: TerminalSize | null }
   | { type: "history"; client: CmuxClient; surface: Id; history: RenderHistoryView };
@@ -75,8 +83,13 @@ function renderTerminalViewReducer(
   switch (action.type) {
     case "reset":
       return initialState;
-    case "model":
-      return { ...state, model: action.model };
+    case "frame":
+      return {
+        ...state,
+        model: action.model,
+        foreignSize: action.foreignSize,
+        history: action.history,
+      };
     case "focus":
       return { ...state, focused: action.focused };
     case "foreign-size":
@@ -112,6 +125,7 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
     let composing = false;
     let committedComposition: string | null = null;
     let touchStartY: number | null = null;
+    let publishedForeignSize: TerminalSize | null = null;
     const frames = new Set<number>();
     const stage = host.closest<HTMLElement>(".terminal-stage");
     const scroller = host.querySelector<HTMLElement>("[data-render-scroll]");
@@ -120,6 +134,17 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
     const metrics = { width: 0, height: 0 };
 
     dispatch({ type: "bind", client, surface });
+    const frameBatch = createFrameBatch<void>(() => {
+      if (currentModel === null) return;
+      dispatch({
+        type: "frame",
+        client,
+        surface,
+        model: currentModel,
+        foreignSize: publishedForeignSize,
+        history: historyView(),
+      });
+    });
 
     const scheduleAfterRender = (work: () => void) => {
       const frame = requestAnimationFrame(() => {
@@ -128,18 +153,22 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
       });
       frames.add(frame);
     };
+    const historyView = (): RenderHistoryView => ({
+      active: historyActive,
+      loading: historyLoading,
+      total: cache.total,
+      rows: cache.rows,
+    });
     const publishHistory = () => {
       dispatch({
         type: "history",
         client,
         surface,
-        history: {
-          active: historyActive,
-          loading: historyLoading,
-          total: cache.total,
-          rows: cache.rows,
-        },
+        history: historyView(),
       });
+    };
+    const scheduleFrame = () => {
+      frameBatch.schedule();
     };
     const proposedSize = (): TerminalSize | undefined => {
       if (metrics.width <= 0 || metrics.height <= 0) return undefined;
@@ -148,11 +177,17 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
       return cols >= 2 && rows >= 1 ? { cols, rows } : undefined;
     };
     const publishForeignSize = (size: TerminalSize | null) => {
+      if (
+        publishedForeignSize?.cols === size?.cols
+        && publishedForeignSize?.rows === size?.rows
+      ) return;
+      if (publishedForeignSize === null && size === null) return;
+      publishedForeignSize = size;
       dispatch({ type: "foreign-size", client, surface, size });
     };
     const updateForeignSize = () => {
       if (currentModel === null) return;
-      publishForeignSize(isForeignSmaller(currentModel.size, proposedSize()) ? currentModel.size : null);
+      publishedForeignSize = isForeignSmaller(currentModel.size, proposedSize()) ? currentModel.size : null;
     };
     const applyFit = () => {
       if (cancelled || currentModel === null) return;
@@ -201,13 +236,16 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
       claimForInput();
       void client.sendKey(surface, [key]).catch(onError);
     };
-    const resetHistoryCache = (total: number) => {
+    const resetHistoryCache = (total: number, publish = true) => {
       cacheGeneration += 1;
       historyLoading = false;
       cache = createScrollbackWindow(total);
-      publishHistory();
+      if (publish) publishHistory();
     };
-    const loadHistoryPage = async (direction: "latest" | "previous" | "next") => {
+    const loadHistoryPage = async (
+      direction: "latest" | "previous" | "next",
+      publishLoading = true,
+    ) => {
       if (cancelled || historyLoading) return;
       const request = direction === "latest"
         ? latestScrollbackRequest(cache)
@@ -218,7 +256,7 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
       const generation = cacheGeneration;
       const requestTotal = cache.total;
       historyLoading = true;
-      publishHistory();
+      if (publishLoading) publishHistory();
       try {
         const page = await client.readScrollback(surface, request.start, request.count);
         if (cancelled || generation !== cacheGeneration) return;
@@ -408,11 +446,11 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
           if (event.event === "detached") return;
           if (event.event === "render-state") {
             currentModel = applySnapshot(event as RenderStateEvent);
-            resetHistoryCache(currentModel.scrollbackRows);
+            resetHistoryCache(currentModel.scrollbackRows, false);
             stage?.style.setProperty("--surface-background", currentModel.defaultBg);
-            dispatch({ type: "model", client, surface, model: currentModel });
             updateForeignSize();
             applyFit();
+            scheduleFrame();
           } else if (event.event === "render-delta" && currentModel !== null) {
             const renderDelta = event as RenderDeltaEvent;
             const previous: RenderModel = currentModel;
@@ -429,14 +467,11 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
               cacheGeneration += 1;
               historyLoading = false;
               cache = reconciliation.window;
-              publishHistory();
-              if (historyActive) void loadHistoryPage("latest");
+              if (historyActive) void loadHistoryPage("latest", false);
             } else if (reconciliation.window !== cache) {
               cache = reconciliation.window;
-              publishHistory();
             }
             stage?.style.setProperty("--surface-background", nextModel.defaultBg);
-            dispatch({ type: "model", client, surface, model: nextModel });
             updateForeignSize();
             if (renderDelta.size !== undefined) {
               pendingFit = null;
@@ -447,6 +482,7 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
                 if (scroller !== null) scroller.scrollTop = scroller.scrollHeight;
               });
             }
+            scheduleFrame();
           }
         }
       } catch (error) {
@@ -477,6 +513,7 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
       scroller?.removeEventListener("scroll", handleScroll);
       for (const frame of frames) cancelAnimationFrame(frame);
       frames.clear();
+      frameBatch.cancel();
       stream?.close();
       stage?.style.removeProperty("--surface-background");
       if (controllerRef.current === controller) controllerRef.current = null;

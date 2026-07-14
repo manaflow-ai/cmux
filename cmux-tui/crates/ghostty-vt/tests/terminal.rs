@@ -102,6 +102,31 @@ fn default_colors_answer_osc_queries() {
 }
 
 #[test]
+fn ghostty_config_colors_and_palette_defaults_use_engine_parsers() {
+    assert_eq!(ghostty_vt::parse_color("ForestGreen"), Some(Rgb { r: 0x22, g: 0x8b, b: 0x22 }));
+    assert_eq!(
+        ghostty_vt::parse_palette_entry("0xF = #123456"),
+        Some((15, Rgb { r: 0x12, g: 0x34, b: 0x56 }))
+    );
+    assert_eq!(ghostty_vt::parse_palette_entry("256=#ffffff"), None);
+
+    let mut term = Terminal::new(8, 2, 0, Callbacks::default()).unwrap();
+    let mut palette = [None; 256];
+    palette[1] = Some(Rgb { r: 0x44, g: 0x55, b: 0x66 });
+    term.set_default_palette(&palette);
+    term.vt_write(b"\x1b[31mR");
+
+    let mut state = RenderState::new().unwrap();
+    state.update(&mut term).unwrap();
+    assert_eq!(state.palette_color(1), Rgb { r: 0x44, g: 0x55, b: 0x66 });
+    assert!(!state.palette_overridden(1));
+    assert_eq!(
+        state.build_frame().unwrap().row_runs(0).unwrap()[0].fg,
+        Some(Rgb { r: 0x44, g: 0x55, b: 0x66 })
+    );
+}
+
+#[test]
 fn alt_screen_and_modes() {
     let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
     assert_eq!(term.active_screen(), ghostty_vt::Screen::Primary);
