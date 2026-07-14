@@ -7729,6 +7729,27 @@ extension CMUXCLI {
         }
 
         let now = Date()
+        let activeTypedSessionTokens = Set(entries.compactMap { manifestURL -> String? in
+            let name = manifestURL.lastPathComponent
+            guard name.hasPrefix(".manifest-"), manifestURL.pathExtension == "json",
+                  let data = try? Data(contentsOf: manifestURL),
+                  let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let token = manifest["token"] as? String,
+                  let files = manifest["files"] as? [[String: Any]],
+                  files.contains(where: { file in
+                      guard file["remote_url"] == nil || file["remote_url"] is NSNull,
+                            let path = file["file_path"] as? String else {
+                          return false
+                      }
+                      let fileURL = URL(fileURLWithPath: path)
+                      return fileURL.lastPathComponent.hasPrefix("diff-session-")
+                          && fileURL.pathExtension == "patch"
+                          && FileManager.default.fileExists(atPath: fileURL.path)
+                  }) else {
+                return nil
+            }
+            return token
+        })
         let sorted = entries.compactMap { url -> (url: URL, date: Date)? in
             guard url.pathExtension == "html",
                   let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey, .isRegularFileKey]),
@@ -7744,6 +7765,12 @@ extension CMUXCLI {
         }
 
         for patchURL in entries where patchURL.pathExtension == "patch" {
+            // Typed sidecar patches have independent manifest/index ownership.
+            // The Rust cleanup path distinguishes active sessions from closed
+            // deletion retries; the legacy HTML-sibling rule cannot.
+            guard !patchURL.lastPathComponent.hasPrefix("diff-session-") else {
+                continue
+            }
             let htmlURL = patchURL.deletingPathExtension().appendingPathExtension("html")
             guard !FileManager.default.fileExists(atPath: htmlURL.path),
                   let values = try? patchURL.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey, .isRegularFileKey]),
@@ -7755,6 +7782,11 @@ extension CMUXCLI {
         }
 
         for manifestURL in entries where manifestURL.lastPathComponent.hasPrefix(".manifest-") && manifestURL.pathExtension == "json" {
+            let token = manifestURL.deletingPathExtension().lastPathComponent
+                .replacingOccurrences(of: ".manifest-", with: "")
+            guard !activeTypedSessionTokens.contains(token) else {
+                continue
+            }
             guard let values = try? manifestURL.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey, .isRegularFileKey]),
                   values.isRegularFile == true,
                   now.timeIntervalSince(values.contentModificationDate ?? values.creationDate ?? .distantPast) > 24 * 60 * 60 else {
@@ -7777,6 +7809,13 @@ extension CMUXCLI {
             let isRefsCache = name.hasPrefix(".refs-cache-") && entry.pathExtension == "json"
             let isLock = entry.pathExtension == "lock"
             guard isBranchSession || isRefsCache || isLock else {
+                continue
+            }
+            if isBranchSession,
+               let data = try? Data(contentsOf: entry),
+               let session = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let token = session["token"] as? String,
+               activeTypedSessionTokens.contains(token) {
                 continue
             }
             guard let values = try? entry.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey, .isRegularFileKey]),
