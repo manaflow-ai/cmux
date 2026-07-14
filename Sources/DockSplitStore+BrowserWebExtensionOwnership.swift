@@ -30,6 +30,18 @@ extension DockSplitStore {
         }
     }
 
+    func noteBrowserWebExtensionSelection(_ selectedPanel: any Panel) {
+        let nativeWindow = AppDelegate.shared?.dockReferenceTabManager(for: self)?.window
+            ?? panels.values.lazy.compactMap { panel in
+                guard let browserPanel = panel as? BrowserPanel else { return nil }
+                return browserPanel.webView.window ?? browserPanel.portalAnchorView.window
+            }.first
+        browserWebExtensionHost?.noteSelectionChanged(
+            selectedBrowserPanelID: (selectedPanel as? BrowserPanel)?.id,
+            nativeWindow: nativeWindow
+        )
+    }
+
     func splitTabBar(_: BonsplitController, didChangeGeometry _: LayoutSnapshot) {
         AppDelegate.shared?
             .dockReferenceTabManager(for: self)?

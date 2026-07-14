@@ -147,8 +147,8 @@ extension DockSplitStore {
               bonsplitController.focusedPaneId == pane,
               let selectedPanel = panel(for: tabId) else { return }
 
-        if shouldActivateWebExtension, let browserPanel = selectedPanel as? BrowserPanel {
-            browserPanel.noteWebExtensionActivated()
+        if shouldActivateWebExtension {
+            noteBrowserWebExtensionSelection(selectedPanel)
         }
         guard shouldFocus else { return }
 

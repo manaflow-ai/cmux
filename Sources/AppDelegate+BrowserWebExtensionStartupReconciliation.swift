@@ -5,37 +5,9 @@ extension AppDelegate {
         tabManager: TabManager,
         window: NSWindow
     ) {
-        guard tabManager.allowsStartupSessionRestore,
-              !didAttemptStartupSessionRestore,
-              let browserWebExtensionHost = tabManager.browserWebExtensionHost,
-              !browserWebExtensionHost.isInitialReconciliationComplete,
-              let context = contextForMainTerminalWindow(window) else {
-            completeMainWindowRegistration(tabManager: tabManager, window: window)
-            return
-        }
-        guard context.browserWebExtensionInitialReconciliationTask == nil else { return }
-
-        context.browserWebExtensionInitialReconciliationTask = Task { @MainActor [
-            weak self,
-            weak context,
-            weak window,
-        ] in
-            let completedBeforeDeadline = await browserWebExtensionHost.waitForInitialReconciliation(
-                timeout: .seconds(10)
-            )
-#if DEBUG
-            if !completedBeforeDeadline {
-                cmuxDebugLog("browser.webext.startupReconciliation timedOut=1")
-            }
-#endif
-            guard !Task.isCancelled,
-                  let self,
-                  let context,
-                  let window,
-                  context.window === window else { return }
-            context.browserWebExtensionInitialReconciliationTask = nil
-            self.completeMainWindowRegistration(tabManager: context.tabManager, window: window)
-        }
+        // Session restore must finish before the bootstrap workspace becomes
+        // interactive. Extension contexts repair restored pages as they load.
+        completeMainWindowRegistration(tabManager: tabManager, window: window)
     }
 
     private func completeMainWindowRegistration(tabManager: TabManager, window: NSWindow) {

@@ -9446,9 +9446,6 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         guard !remoteTmuxMirrorInterceptsFocusPanel(panelId, previousHostedView: previousHostedView, trigger: trigger, focusIntent: focusIntent) else { return }
         markExplicitFocusIntent(on: panelId)
-        if let browserPanel = panels[panelId] as? BrowserPanel {
-            browserPanel.noteWebExtensionActivated()
-        }
 #if DEBUG
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
         let triggerLabel = trigger == .terminalFirstResponder ? "firstResponder" : "standard"
@@ -11469,9 +11466,10 @@ extension Workspace: BonsplitDelegate {
         guard let panel = panels[effectiveFocusedPanelId] else {
             return
         }
-        if let browserPanel = panel as? BrowserPanel {
-            browserPanel.noteWebExtensionActivated()
-        }
+        browserWebExtensionHost?.noteSelectionChanged(
+            selectedBrowserPanelID: (panel as? BrowserPanel)?.id,
+            nativeWindow: owningTabManager?.window
+        )
 
         if debugStressPreloadSelectionDepth > 0 {
             if let terminalPanel = panel as? TerminalPanel {

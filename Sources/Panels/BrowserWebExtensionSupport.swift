@@ -50,12 +50,6 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     private var settingsReconciliationTask: Task<Void, Never>?
     @ObservationIgnored
-    private let initialReconciliationStream: AsyncStream<Void>
-    @ObservationIgnored
-    private let initialReconciliationContinuation: AsyncStream<Void>.Continuation
-    @ObservationIgnored
-    private(set) var isInitialReconciliationComplete = false
-    @ObservationIgnored
     var settingsLoadGeneration = 0
     @ObservationIgnored
     var settingsStore: JSONConfigStore?
@@ -113,9 +107,6 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
 
     init(permissionConfirmation: ((String) -> Bool)?) {
         self.permissionConfirmation = permissionConfirmation
-        let initialReconciliation = AsyncStream<Void>.makeStream()
-        initialReconciliationStream = initialReconciliation.stream
-        initialReconciliationContinuation = initialReconciliation.continuation
         let configuration = WKWebExtensionController.Configuration(identifier: Self.controllerIdentifier)
         // Extension-owned web views (background page, action popup) get WebKit's
         // default user agent, which lacks the " Safari/" token. Extensions like
@@ -144,7 +135,6 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         settingsObservationTask?.cancel()
         settingsReconciliationTask?.cancel()
         tabMetadataFlushTask?.cancel()
-        initialReconciliationContinuation.finish()
         removeAllPermissionStateObservers()
         if let browserAvailabilityObserverToken {
             NotificationCenter.default.removeObserver(browserAvailabilityObserverToken)
@@ -170,31 +160,6 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
             contextIdentifier: ObjectIdentifier(context),
             webViewConfiguration: webViewConfiguration
         )
-    }
-
-    func waitForInitialReconciliation() async {
-        guard !isInitialReconciliationComplete else { return }
-        for await _ in initialReconciliationStream {}
-    }
-
-    func waitForInitialReconciliation(timeout: Duration) async -> Bool {
-        guard !isInitialReconciliationComplete else { return true }
-        return await withTaskGroup(of: Bool.self) { group in
-            group.addTask { @MainActor [weak self] in
-                guard let self else { return false }
-                await self.waitForInitialReconciliation()
-                return !Task.isCancelled && self.isInitialReconciliationComplete
-            }
-            group.addTask {
-                // A bounded startup deadline prevents extension loading or a
-                // permission prompt from indefinitely blocking session restore.
-                try? await ContinuousClock().sleep(for: timeout)
-                return false
-            }
-            let completed = await group.next() ?? false
-            group.cancelAll()
-            return completed
-        }
     }
 
     // MARK: - Settings-driven loading
@@ -253,7 +218,6 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
             guard let self else { return }
             await self.apply(entries: entries, generation: generation)
             guard self.canApplyWebExtensionLoad(generation: generation) else { return }
-            self.completeInitialReconciliationIfNeeded()
             if self.settingsLoadGeneration == generation {
                 self.settingsReconciliationTask = nil
             }
@@ -266,16 +230,9 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         settingsObservationTask = nil
         settingsReconciliationTask?.cancel()
         settingsReconciliationTask = nil
-        completeInitialReconciliationIfNeeded()
         if !unloadAllWebExtensions() {
             BrowserAvailabilitySettings.setDisabled(false)
         }
-    }
-
-    private func completeInitialReconciliationIfNeeded() {
-        guard !isInitialReconciliationComplete else { return }
-        isInitialReconciliationComplete = true
-        initialReconciliationContinuation.finish()
     }
 
     static func environmentExtensionPaths() -> [String] {

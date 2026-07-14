@@ -405,7 +405,6 @@ final class DockSplitStore: BonsplitDelegate {
 
     func focusPanel(_ panelId: UUID) {
         guard let paneId = paneId(forPanelId: panelId), let tabId = surfaceId(forPanelId: panelId) else { return }
-        (panels[panelId] as? BrowserPanel)?.browserWebExtensionHost?.noteActivated(panelID: panelId)
         bonsplitController.focusPane(paneId)
         bonsplitController.selectTab(tabId)
         applyDockSelection(tabId: tabId, inPane: paneId)

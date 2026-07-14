@@ -100,6 +100,32 @@ extension BrowserWebExtensionSupport {
         refreshActionSnapshots(for: panelID)
     }
 
+    func noteSelectionChanged(selectedBrowserPanelID: UUID?, nativeWindow: NSWindow?) {
+        if let selectedBrowserPanelID {
+            if let nativeWindow {
+                reconcileWindowOwnership(for: selectedBrowserPanelID, nativeWindow: nativeWindow)
+            }
+            noteActivated(panelID: selectedBrowserPanelID)
+            return
+        }
+
+        let windowID = nativeWindow.map(ObjectIdentifier.init)
+            ?? activePanelID.flatMap { windowIDsByPanelID[$0] }
+        guard let windowID else { return }
+        let previouslyActivePanelID = activePanelIDsByWindow.removeValue(forKey: windowID)
+        let previouslyFocusedPanelID = activePanelID
+        if activePanelID.flatMap({ windowIDsByPanelID[$0] }) == windowID {
+            activePanelID = nil
+        }
+        refreshActionSnapshots(for: previouslyActivePanelID)
+        if previouslyFocusedPanelID != previouslyActivePanelID {
+            refreshActionSnapshots(for: previouslyFocusedPanelID)
+        }
+        if windowAdaptersByWindowID[windowID]?.hostWindow?.isKeyWindow == true {
+            notifyFocusedWindow(nil)
+        }
+    }
+
     func noteWindowBecameKey(_ window: NSWindow) {
         let focusedWindow = focusedWebExtensionWindow(for: window)
         if focusedWindow is BrowserWebExtensionWindowAdapter {

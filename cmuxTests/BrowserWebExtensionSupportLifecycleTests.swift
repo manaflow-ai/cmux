@@ -31,9 +31,6 @@ struct BrowserWebExtensionSupportLifecycleTests {
             )
             appDelegate.didAttemptStartupSessionRestore = false
             defer {
-                appDelegate.contextForMainTerminalWindow(window)?
-                    .browserWebExtensionInitialReconciliationTask?
-                    .cancel()
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
                 tabManager.tabs.forEach { $0.teardownAllPanels() }
                 window.close()
@@ -47,48 +44,6 @@ struct BrowserWebExtensionSupportLifecycleTests {
 
             #expect(appDelegate.didAttemptStartupSessionRestore)
         }
-    }
-
-    @Test
-    @available(macOS 15.4, *)
-    func initialReconciliationWaitHasABoundedFallback() async {
-        let support = BrowserWebExtensionSupport()
-
-        let completed = await support.waitForInitialReconciliation(timeout: .zero)
-
-        #expect(!completed)
-    }
-
-    @Test
-    @available(macOS 15.4, *)
-    func initialReconciliationWaitsForFirstSettingsValue() async throws {
-        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
-        BrowserAvailabilitySettings.setDisabled(false)
-        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
-
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-web-extension-readiness-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = JSONConfigStore(fileURL: directory.appendingPathComponent("cmux.json"))
-        let catalog = SettingCatalog()
-        let entry = BrowserWebExtensionEntry(
-            id: "readiness-test",
-            kind: .unpackedDirectory,
-            path: "/nonexistent/readiness-test",
-            enabled: false
-        )
-        try await store.set([entry], for: catalog.browser.webExtensions)
-
-        let support = BrowserWebExtensionSupport()
-        #expect(!support.isInitialReconciliationComplete)
-        support.configure(jsonStore: store, catalog: catalog)
-        await support.waitForInitialReconciliation()
-
-        #expect(support.isInitialReconciliationComplete)
-        let completed = await support.waitForInitialReconciliation(timeout: .zero)
-        #expect(completed)
-        #expect(support.configuredSettingsEntries.map(\.id) == [entry.id])
     }
 
     @Test

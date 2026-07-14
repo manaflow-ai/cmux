@@ -261,18 +261,13 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
     }
 
     static func scriptedPopupConfiguration(
-        for request: URLRequest,
+        for _: URLRequest,
         suppliedConfiguration: WKWebViewConfiguration,
-        canLoadExtensionRequestedURL: Bool
+        canLoadExtensionRequestedURL _: Bool
     ) -> WKWebViewConfiguration {
-        guard !canLoadExtensionRequestedURL,
-              let scheme = request.url?.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            return suppliedConfiguration
-        }
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = suppliedConfiguration.websiteDataStore
-        return configuration
+        // WKUIDelegate requires a returned child view to use the exact
+        // configuration WebKit supplied for this navigation.
+        suppliedConfiguration
     }
 
     private func closeChildPopups() {

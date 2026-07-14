@@ -552,7 +552,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
-        var browserWebExtensionInitialReconciliationTask: Task<Void, Never>?
 
         init(
             windowId: UUID,
