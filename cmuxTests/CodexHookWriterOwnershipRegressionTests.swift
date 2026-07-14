@@ -3,6 +3,62 @@ import Foundation
 import XCTest
 
 final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
+    func testExplicitDisableWinsOverInheritedWrapperOwnership() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-opt-out-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
+        let fakeCodex = root.appendingPathComponent("codex-real", isDirectory: false)
+        let capturedEnvironment = root.appendingPathComponent("codex-environment.txt", isDirectory: false)
+        let capturedCLIInvocations = root.appendingPathComponent("cmux-invocations.txt", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("opt-out")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"$TEST_CLI_CAPTURE\"",
+        ])
+        try makeCodexHookExecutableShellFile(at: fakeCodex, lines: [
+            "#!/bin/sh",
+            "printf 'disabled=%s\\nowner=%s\\nargs=%s\\n' \"${CMUX_CODEX_HOOKS_DISABLED:-unset}\" \"${CMUX_CODEX_WRAPPER_HOOK_OWNER:-unset}\" \"$*\" > \"$TEST_CAPTURE\"",
+        ])
+
+        let wrapper = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/bin/cmux-codex-wrapper", isDirectory: false)
+        let result = runCodexHookProcess(
+            executablePath: wrapper.path,
+            arguments: [],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SURFACE_ID": "surface-opt-out",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CUSTOM_CODEX_PATH": fakeCodex.path,
+                "CMUX_CODEX_HOOKS_DISABLED": "1",
+                "CMUX_CODEX_WRAPPER_HOOK_OWNER": "1",
+                "TEST_CAPTURE": capturedEnvironment.path,
+                "TEST_CLI_CAPTURE": capturedCLIInvocations.path,
+            ],
+            timeout: 3
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let captured = try String(contentsOf: capturedEnvironment, encoding: .utf8)
+        XCTAssertTrue(captured.contains("disabled=unset"))
+        XCTAssertTrue(captured.contains("owner=unset"))
+        XCTAssertTrue(captured.contains("args=\n"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: capturedCLIInvocations.path))
+    }
+
     func testWrapperPrefersTrustedPersistentHooksOverUntrustedSessionFlags() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-hook-owner-\(UUID().uuidString)", isDirectory: true)
