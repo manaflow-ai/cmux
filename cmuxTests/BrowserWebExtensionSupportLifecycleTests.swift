@@ -14,6 +14,16 @@ import Testing
 struct BrowserWebExtensionSupportLifecycleTests {
     @Test
     @available(macOS 15.4, *)
+    func initialReconciliationWaitHasABoundedFallback() async {
+        let support = BrowserWebExtensionSupport()
+
+        let completed = await support.waitForInitialReconciliation(timeout: .zero)
+
+        #expect(!completed)
+    }
+
+    @Test
+    @available(macOS 15.4, *)
     func initialReconciliationWaitsForFirstSettingsValue() async throws {
         let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
         BrowserAvailabilitySettings.setDisabled(false)
@@ -39,6 +49,8 @@ struct BrowserWebExtensionSupportLifecycleTests {
         await support.waitForInitialReconciliation()
 
         #expect(support.isInitialReconciliationComplete)
+        let completed = await support.waitForInitialReconciliation(timeout: .zero)
+        #expect(completed)
         #expect(support.configuredSettingsEntries.map(\.id) == [entry.id])
     }
 

@@ -140,13 +140,16 @@ struct BrowserWebExtensionPopoutPolicyTests {
     @MainActor
     @Test
     @available(macOS 15.4, *)
-    func uiDelegateReturnsScriptedChildUsingSuppliedConfiguration() {
+    func uiDelegateReturnsScriptedChildUsingSuppliedConfiguration() throws {
         let suppliedConfiguration = WKWebViewConfiguration()
         let windowFeatures = WKWindowFeatures()
         let expectedWebView = WKWebView(frame: .zero, configuration: suppliedConfiguration)
+        let request = URLRequest(url: try #require(URL(string: "webkit-extension://example/popup.html")))
+        var receivedRequest: URLRequest?
         var receivedConfiguration: WKWebViewConfiguration?
         let delegate = BrowserWebExtensionPopoutUIDelegate(
-            scriptedPopupAction: { configuration, features in
+            scriptedPopupAction: { request, configuration, features in
+                receivedRequest = request
                 receivedConfiguration = configuration
                 #expect(features === windowFeatures)
                 return expectedWebView
@@ -154,12 +157,32 @@ struct BrowserWebExtensionPopoutPolicyTests {
         )
 
         let returnedWebView = delegate.createScriptedPopup(
+            request: request,
             configuration: suppliedConfiguration,
             windowFeatures: windowFeatures
         )
 
         #expect(returnedWebView === expectedWebView)
+        #expect(receivedRequest == request)
         #expect(receivedConfiguration === suppliedConfiguration)
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func externalScriptedPopupUsesNormalConfigurationWithTheAdoptedDataStore() throws {
+        let suppliedConfiguration = WKWebViewConfiguration()
+        suppliedConfiguration.websiteDataStore = .nonPersistent()
+        let request = URLRequest(url: try #require(URL(string: "https://accounts.example/login")))
+
+        let resolvedConfiguration = BrowserWebExtensionPopoutWindowController.scriptedPopupConfiguration(
+            for: request,
+            suppliedConfiguration: suppliedConfiguration,
+            canLoadExtensionRequestedURL: false
+        )
+
+        #expect(resolvedConfiguration !== suppliedConfiguration)
+        #expect(resolvedConfiguration.websiteDataStore === suppliedConfiguration.websiteDataStore)
     }
 
     @MainActor

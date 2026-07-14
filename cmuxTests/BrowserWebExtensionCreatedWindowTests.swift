@@ -14,6 +14,37 @@ struct BrowserWebExtensionCreatedWindowTests {
     @MainActor
     @Test
     @available(macOS 15.4, *)
+    func tabIndicesFollowAuthoritativeWorkspaceReorders() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let support = BrowserWebExtensionSupport()
+        let manager = TabManager(browserWebExtensionHost: support)
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let first = try #require(workspace.newBrowserSurface(inPane: pane, focus: false))
+        let second = try #require(workspace.newBrowserSurface(inPane: pane, focus: false))
+        let window = NSWindow()
+        let windowID = appDelegate.registerMainWindowContextForTesting(
+            tabManager: manager,
+            window: window
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            workspace.teardownAllPanels()
+            window.close()
+        }
+        manager.reconcileBrowserWebExtensionWindows(in: workspace, nativeWindow: window)
+        #expect(support.indexInWindow(of: first.id) == 0)
+        #expect(support.indexInWindow(of: second.id) == 1)
+
+        #expect(workspace.reorderSurface(panelId: second.id, toIndex: 0, focus: false))
+
+        #expect(support.indexInWindow(of: second.id) == 0)
+        #expect(support.indexInWindow(of: first.id) == 1)
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
     func clampsRequestedNormalWindowDimensionsToUsableBounds() {
         let support = BrowserWebExtensionSupport()
         let window = NSWindow(
