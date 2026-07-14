@@ -1465,7 +1465,6 @@ class TerminalController {
         }
         var authenticated = false
         let lineReader = ControlClientLineReader(socket: socket, initialLimits: initialReadLimits)
-
         while let line = lineReader.nextLine(shouldContinueReading: {
             socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
         }) {
@@ -1521,9 +1520,10 @@ class TerminalController {
                     }
                 }
             }
-            if shouldCloseSocket {
-                return
-            }
+            if shouldCloseSocket { return }
+        }
+        if !socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) {
+            _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
         }
     }
 
