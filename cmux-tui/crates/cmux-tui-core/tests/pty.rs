@@ -1306,6 +1306,9 @@ fn send_paste_wraps_only_while_dec_mode_2004_is_enabled() {
                 .with_terminal(|term| {
                     term.viewport_text()
                         .ok()
+                        // od's hex spacing differs across platforms; compare
+                        // with whitespace collapsed.
+                        .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
                         .filter(|text| text.contains("1b 5b 32 30 30 7e 68 69 1b 5b 32 30 31 7e"))
                 })
                 .flatten()
@@ -1340,7 +1343,10 @@ fn send_paste_wraps_only_while_dec_mode_2004_is_enabled() {
         || {
             surface
                 .with_terminal(|term| {
-                    term.viewport_text().ok().filter(|text| text.contains("72 61 77"))
+                    term.viewport_text()
+                        .ok()
+                        .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
+                        .filter(|text| text.contains("72 61 77"))
                 })
                 .flatten()
         },
