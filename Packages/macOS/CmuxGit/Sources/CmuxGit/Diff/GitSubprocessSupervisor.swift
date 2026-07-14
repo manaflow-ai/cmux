@@ -7,9 +7,20 @@ struct GitProcessWaitPlan {
     init(
         processDeadline: TimeInterval,
         escalationDeadline: TimeInterval?,
-        didSendSIGKILL: Bool
+        didSendSIGKILL: Bool,
+        finalReapDeadline: TimeInterval?
     ) {
-        deadline = didSendSIGKILL ? nil : escalationDeadline ?? processDeadline
+        deadline = didSendSIGKILL
+            ? finalReapDeadline
+            : escalationDeadline ?? processDeadline
+    }
+}
+
+struct GitOutputCapTerminationState {
+    private(set) var didTerminateForOutputCap = false
+
+    mutating func record(didSignalLiveProcess: Bool) {
+        didTerminateForOutputCap = didTerminateForOutputCap || didSignalLiveProcess
     }
 }
 
@@ -164,7 +175,8 @@ struct GitSubprocessSupervisor {
         var processExited = false
         var escalationDeadline: TimeInterval?
         var didSendSIGKILL = false
-        var terminatedForOutputCap = false
+        var finalReapDeadline: TimeInterval?
+        var outputCapTermination = GitOutputCapTerminationState()
 
         @discardableResult
         func beginTermination(_ reason: GitProcessFailure?) -> Bool {
@@ -186,10 +198,29 @@ struct GitSubprocessSupervisor {
             if let escalationDeadline, !didSendSIGKILL, now >= escalationDeadline {
                 _ = kill(-processIdentifier, SIGKILL)
                 didSendSIGKILL = true
+                finalReapDeadline = now + Self.sigkillGraceSeconds
                 if outputDescriptor >= 0 {
                     close(outputDescriptor)
                     outputDescriptor = -1
                 }
+            }
+            if didSendSIGKILL,
+               let finalReapDeadline,
+               now >= finalReapDeadline,
+               !processExited {
+                // A process in uninterruptible kernel I/O may ignore even
+                // SIGKILL. Transfer its eventual waitpid to a detached owner
+                // so the request deadline remains real without leaking a
+                // zombie when the kernel finally releases the child.
+                reapProcessDetached(processIdentifier)
+                return GitProcessResult(
+                    rawOutput: output,
+                    output: nil,
+                    capped: capped,
+                    terminatedForOutputCap: outputCapTermination.didTerminateForOutputCap,
+                    failure: failure,
+                    terminationStatus: nil
+                )
             }
 
             if processExited && outputDescriptor < 0 { break }
@@ -200,25 +231,32 @@ struct GitSubprocessSupervisor {
             let waitPlan = GitProcessWaitPlan(
                 processDeadline: processDeadline,
                 escalationDeadline: escalationDeadline,
-                didSendSIGKILL: didSendSIGKILL
+                didSendSIGKILL: didSendSIGKILL,
+                finalReapDeadline: finalReapDeadline
             )
-            let eventCount: Int32
-            if let deadline = waitPlan.deadline {
-                var timeout = Self.timespec(until: deadline)
-                eventCount = events.withUnsafeMutableBufferPointer { buffer in
-                    kevent(eventQueue, nil, 0, buffer.baseAddress, Int32(buffer.count), &timeout)
-                }
-            } else {
-                // SIGKILL is sent once. A process stuck in uninterruptible I/O
-                // may not exit immediately, so block on NOTE_EXIT instead of
-                // polling an already-expired deadline and spinning a core.
-                eventCount = events.withUnsafeMutableBufferPointer { buffer in
-                    kevent(eventQueue, nil, 0, buffer.baseAddress, Int32(buffer.count), nil)
-                }
+            guard let deadline = waitPlan.deadline else {
+                reapProcessDetached(processIdentifier)
+                return GitProcessResult(
+                    rawOutput: output,
+                    output: nil,
+                    capped: capped,
+                    terminatedForOutputCap: outputCapTermination.didTerminateForOutputCap,
+                    failure: failure ?? .launchFailed,
+                    terminationStatus: nil
+                )
+            }
+            var timeout = Self.timespec(until: deadline)
+            let eventCount = events.withUnsafeMutableBufferPointer { buffer in
+                kevent(eventQueue, nil, 0, buffer.baseAddress, Int32(buffer.count), &timeout)
             }
             if eventCount < 0 {
                 if errno == EINTR { continue }
-                Self.terminateAndReap(processIdentifier)
+                _ = kill(-processIdentifier, SIGKILL)
+                if outputDescriptor >= 0 {
+                    close(outputDescriptor)
+                    outputDescriptor = -1
+                }
+                reapProcessDetached(processIdentifier)
                 return GitProcessResult(
                     rawOutput: output,
                     output: nil,
@@ -239,7 +277,9 @@ struct GitSubprocessSupervisor {
                         capped: &capped
                     )
                     if capped {
-                        terminatedForOutputCap = beginTermination(nil)
+                        outputCapTermination.record(
+                            didSignalLiveProcess: beginTermination(nil)
+                        )
                     }
                     if reachedEnd || (event.flags & UInt16(EV_EOF)) != 0 {
                         close(outputDescriptor)
@@ -254,7 +294,7 @@ struct GitSubprocessSupervisor {
             rawOutput: output,
             output: nil,
             capped: capped,
-            terminatedForOutputCap: terminatedForOutputCap,
+            terminatedForOutputCap: outputCapTermination.didTerminateForOutputCap,
             failure: failure,
             terminationStatus: terminationStatus
         )
@@ -339,5 +379,15 @@ struct GitSubprocessSupervisor {
         return pointers.withUnsafeMutableBufferPointer { buffer in
             body(buffer.baseAddress!)
         }
+    }
+}
+
+/// Owns the one remaining blocking wait after request supervision gives up.
+/// One detached thread corresponds to one kernel-live child and exits as soon
+/// as that child can be reaped.
+private func reapProcessDetached(_ processIdentifier: pid_t) {
+    Thread.detachNewThread {
+        var status: Int32 = 0
+        while waitpid(processIdentifier, &status, 0) < 0, errno == EINTR {}
     }
 }
