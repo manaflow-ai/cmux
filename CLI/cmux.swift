@@ -30645,19 +30645,11 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             let pid = mapped?.pid ?? inferredPID
-            let launchCommand = agentLaunchCommandFromEnvironment(
-                env,
-                fallbackPID: pid,
-                fallbackKind: def.name,
-                cwd: hookCwd ?? mapped?.cwd
-            )
+            let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: hookCwd ?? mapped?.cwd)
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
             let resumeLaunchCommand = preferredAgentHookResumeLaunchCommand(
-                kind: def.name,
-                current: launchCommand,
-                mapped: mapped,
-                transcriptPath: transcriptPathForStore,
-                currentPID: pid
+                kind: def.name, current: launchCommand, mapped: mapped,
+                transcriptPath: transcriptPathForStore, currentPID: pid
             )
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
