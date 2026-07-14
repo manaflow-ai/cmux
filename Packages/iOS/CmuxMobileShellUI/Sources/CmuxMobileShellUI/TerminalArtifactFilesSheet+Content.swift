@@ -31,46 +31,22 @@ extension TerminalArtifactFilesSheet {
         .padding(.vertical, 10)
     }
 
-    // Keep the existing single toolbar menu so the content picker never creates
-    // a second glass-backed segmented control in the navigation bar.
     var viewModePicker: some View {
-        Menu {
-            Picker(
-                String(
-                    localized: "terminal.artifact.gallery.view_mode",
-                    defaultValue: "View",
-                    bundle: .module
-                ),
-                selection: $viewMode
-            ) {
-                Label(
-                    String(
-                        localized: "terminal.artifact.gallery.view_mode.list",
-                        defaultValue: "List",
-                        bundle: .module
-                    ),
-                    systemImage: "list.bullet"
-                )
-                .tag(ViewMode.list)
-
-                Label(
-                    String(
+        Button {
+            viewMode = viewMode == .list ? .grid : .list
+        } label: {
+            Image(systemName: viewMode == .list ? "square.grid.3x3" : "list.bullet")
+                .accessibilityLabel(viewMode == .list
+                    ? String(
                         localized: "terminal.artifact.gallery.view_mode.grid",
                         defaultValue: "Icons",
                         bundle: .module
-                    ),
-                    systemImage: "square.grid.2x2"
-                )
-                .tag(ViewMode.grid)
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Image(systemName: viewMode == .list ? "list.bullet" : "square.grid.2x2")
-                .accessibilityLabel(String(
-                    localized: "terminal.artifact.gallery.view_mode",
-                    defaultValue: "View",
-                    bundle: .module
-                ))
+                    )
+                    : String(
+                        localized: "terminal.artifact.gallery.view_mode.list",
+                        defaultValue: "List",
+                        bundle: .module
+                    ))
         }
     }
 
@@ -495,7 +471,10 @@ extension TerminalArtifactFilesSheet {
     }
 
     private var gridColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 96), spacing: 12)]
+        Array(
+            repeating: GridItem(.flexible(minimum: 0), spacing: 12, alignment: .top),
+            count: 3
+        )
     }
 
     private var galleryControls: some View {
