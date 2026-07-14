@@ -9,10 +9,13 @@ extension TerminalPanel {
 }
 
 extension GhosttyApp {
-    func handleCurrentDirectoryAction(_ directory: String, surfaceView: GhosttyNSView) {
+    func handleCurrentDirectoryAction(_ directory: String, actionSequence: UInt64, surfaceView: GhosttyNSView) {
         let terminalSurface = surfaceView.terminalSurface
         DispatchQueue.main.async {
-            if terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(directory) == true {
+            if terminalSurface?.hostedView.sessionScrollbackReplayDidReceiveBoundary(
+                directory,
+                actionSequence: actionSequence
+            ) == true {
                 return
             }
             guard let tabId = surfaceView.tabId,
@@ -27,6 +30,23 @@ extension GhosttyApp {
 }
 
 extension GhosttyNSView {
+    func nextTerminalActionSequence() -> UInt64 {
+        _scrollbarLock.lock()
+        _terminalActionSequence &+= 1
+        let sequence = _terminalActionSequence
+        _scrollbarLock.unlock()
+        return sequence
+    }
+
+    func flushPendingScrollbarIfAvailable() -> Bool {
+        _scrollbarLock.lock()
+        let hasPending = _pendingScrollbar != nil
+        _scrollbarLock.unlock()
+        guard hasPending else { return false }
+        flushPendingScrollbar()
+        return true
+    }
+
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.
         let retention = GhosttyApp.renderedFrameNotificationDemand.retain()

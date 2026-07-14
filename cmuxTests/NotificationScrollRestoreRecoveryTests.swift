@@ -211,7 +211,7 @@ struct NotificationScrollRestoreRecoveryTests {
             object: surfaceView,
             userInfo: [
                 GhosttyNotificationKey.scrollbar: scrollbar,
-                GhosttyNotificationKey.renderedFrameGeneration: UInt64.max,
+                GhosttyNotificationKey.terminalActionSequence: UInt64.max,
             ]
         )
     }

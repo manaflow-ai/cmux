@@ -2750,6 +2750,7 @@ class GhosttyApp {
         }
 
         guard let surfaceView = callbackContext?.surfaceView else { return false }
+        let actionSequence = surfaceView.nextTerminalActionSequence()
         if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
             action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
             action.tag == GHOSTTY_ACTION_COLOR_CHANGE {
@@ -2839,7 +2840,7 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
-            surfaceView.enqueueScrollbarUpdate(scrollbar)
+            surfaceView.enqueueScrollbarUpdate(scrollbar, actionSequence: actionSequence)
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
             let cellSize = CGSize(
@@ -2907,7 +2908,11 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_PWD:
-            handleCurrentDirectoryAction(action.action.pwd.pwd.flatMap { String(cString: $0) } ?? "", surfaceView: surfaceView)
+            handleCurrentDirectoryAction(
+                action.action.pwd.pwd.flatMap { String(cString: $0) } ?? "",
+                actionSequence: actionSequence,
+                surfaceView: surfaceView
+            )
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             guard let tabId = surfaceView.tabId else { return true }
@@ -3413,9 +3418,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// read and cleared on the main thread by `flushPendingScrollbar()`.
     /// Access is guarded by `_scrollbarLock` because the action callback
     /// fires on Ghostty's I/O thread while the flush runs on main.
-    private var _pendingScrollbar: (scrollbar: GhosttyScrollbar, frameGeneration: UInt64)?
+    var _pendingScrollbar: (scrollbar: GhosttyScrollbar, actionSequence: UInt64)?
+    var _terminalActionSequence: UInt64 = 0
     private var _scrollbarFlushScheduled = false
-    private let _scrollbarLock = NSLock()
+    let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
     private var _pendingRenderedFrameGeneration: UInt64 = 0
     private let _renderedFrameLock = NSLock()
@@ -3476,11 +3482,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// dispatch.  The action callback (which may fire thousands of times per
     /// second during bulk output like `seq 1 100000`) stores the latest value
     /// and schedules exactly one async flush.
-    func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar) {
+    func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar, actionSequence: UInt64) {
         _scrollbarLock.lock()
         defer { _scrollbarLock.unlock() }
         // Store the latest value (always overwrites — only the newest matters).
-        _pendingScrollbar = (newValue, currentRenderedFrameSourceGeneration())
+        _pendingScrollbar = (newValue, actionSequence)
         let needsSchedule = !_scrollbarFlushScheduled
         if needsSchedule { _scrollbarFlushScheduled = true }
 
@@ -3492,7 +3498,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    private func flushPendingScrollbar() {
+    func flushPendingScrollbar() {
         _scrollbarLock.lock()
         _scrollbarFlushScheduled = false
         let pending = _pendingScrollbar
@@ -3512,18 +3518,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             object: self,
             userInfo: [
                 GhosttyNotificationKey.scrollbar: pending.scrollbar,
-                GhosttyNotificationKey.renderedFrameGeneration: pending.frameGeneration,
+                GhosttyNotificationKey.terminalActionSequence: pending.actionSequence,
             ]
         )
-    }
-    func flushPendingScrollbarIfAvailable() -> Bool {
-        _scrollbarLock.lock()
-        let hasPending = _pendingScrollbar != nil
-        _scrollbarLock.unlock()
-
-        guard hasPending else { return false }
-        flushPendingScrollbar()
-        return true
     }
 
     func enqueueRenderedFrameUpdate(generation: UInt64) {
@@ -8183,7 +8180,8 @@ final class GhosttySurfaceScrollView: NSView {
     var notificationScrollRestoreDidCompleteReplay = false
     var notificationScrollRestoreBoundaryFrameGeneration: UInt64?
     var notificationScrollRestoreDidObserveFrame = false
-    var notificationScrollRestorePostBoundaryScrollbarGeneration: UInt64?
+    var notificationScrollRestoreBoundaryActionSequence: UInt64?
+    var notificationScrollRestorePostBoundaryScrollbarSequence: UInt64?
     var notificationScrollRestoreRenderedFrameObserver: NSObjectProtocol?
     var releaseNotificationScrollRestoreFrameDemand: (() -> Void)?
     var notificationScrollRestoreFrameDeadlineTimer: Timer?

@@ -234,7 +234,10 @@ extension GhosttySurfaceScrollView {
     }
 
     @discardableResult
-    func sessionScrollbackReplayDidReceiveBoundary(_ boundary: String) -> Bool {
+    func sessionScrollbackReplayDidReceiveBoundary(
+        _ boundary: String,
+        actionSequence: UInt64 = 0
+    ) -> Bool {
         if case .armed(let expectedStartBoundary, let expectedEndBoundary, let pendingPosition, _) =
             notificationScrollRestoreState,
             boundary == expectedStartBoundary {
@@ -256,6 +259,7 @@ extension GhosttySurfaceScrollView {
             provisionalTopRow: nil
         )
         beginNotificationScrollRestoreFrameWait()
+        notificationScrollRestoreBoundaryActionSequence = actionSequence
         _ = restorePendingNotificationScrollPositionIfReady()
         return true
     }
@@ -265,7 +269,7 @@ extension GhosttySurfaceScrollView {
         scheduleNotificationScrollRestoreFrameDeadline()
         releaseNotificationScrollRestoreFrameDemand = surfaceView.retainTargetedRenderedFrameNotifications()
         notificationScrollRestoreDidObserveFrame = false
-        notificationScrollRestorePostBoundaryScrollbarGeneration = nil
+        notificationScrollRestorePostBoundaryScrollbarSequence = nil
         notificationScrollRestoreBoundaryFrameGeneration = surfaceView.currentRenderedFrameSourceGeneration()
         notificationScrollRestoreRenderedFrameObserver = NotificationCenter.default.addObserver(
             forName: .ghosttyDidRenderFrame,
@@ -285,8 +289,8 @@ extension GhosttySurfaceScrollView {
                 // scrollbar update provide the authoritative geometry.
                 self.notificationScrollRestoreDidObserveFrame = true
                 self.notificationScrollRestoreBoundaryFrameGeneration = renderedGeneration
-                if let scrollbarGeneration = self.notificationScrollRestorePostBoundaryScrollbarGeneration,
-                   scrollbarGeneration >= renderedGeneration {
+                if let scrollbarSequence = self.notificationScrollRestorePostBoundaryScrollbarSequence,
+                   scrollbarSequence > (self.notificationScrollRestoreBoundaryActionSequence ?? 0) {
                     _ = self.restorePendingNotificationScrollPositionIfReady(
                         isPostReplayGeometryUpdate: true,
                         isAuthoritativePostReplayFrame: true
@@ -347,7 +351,8 @@ extension GhosttySurfaceScrollView {
         releaseNotificationScrollRestoreFrameDemand?()
         releaseNotificationScrollRestoreFrameDemand = nil
         notificationScrollRestoreDidObserveFrame = false
-        notificationScrollRestorePostBoundaryScrollbarGeneration = nil
+        notificationScrollRestoreBoundaryActionSequence = nil
+        notificationScrollRestorePostBoundaryScrollbarSequence = nil
         notificationScrollRestoreBoundaryFrameGeneration = nil
     }
 
@@ -376,19 +381,19 @@ extension GhosttySurfaceScrollView {
         } else {
             isAwaitingPostReplayGeometry = false
         }
-        let scrollbarGeneration = notification.userInfo?[GhosttyNotificationKey.renderedFrameGeneration] as? UInt64
+        let scrollbarSequence = notification.userInfo?[GhosttyNotificationKey.terminalActionSequence] as? UInt64
         if isAwaitingPostReplayGeometry,
            notificationScrollRestoreRenderedFrameObserver != nil,
-           let scrollbarGeneration {
-            notificationScrollRestorePostBoundaryScrollbarGeneration = max(
-                notificationScrollRestorePostBoundaryScrollbarGeneration ?? 0,
-                scrollbarGeneration
+           let scrollbarSequence {
+            notificationScrollRestorePostBoundaryScrollbarSequence = max(
+                notificationScrollRestorePostBoundaryScrollbarSequence ?? 0,
+                scrollbarSequence
             )
         }
         let isAuthoritativePostReplayFrame = isAwaitingPostReplayGeometry &&
             notificationScrollRestoreDidObserveFrame &&
-            scrollbarGeneration.map { generation in
-                generation >= (notificationScrollRestoreBoundaryFrameGeneration ?? UInt64.max)
+            scrollbarSequence.map { sequence in
+                sequence > (notificationScrollRestoreBoundaryActionSequence ?? 0)
             } == true
         if isAuthoritativePostReplayFrame, notificationScrollRestoreState.pendingPosition == nil {
             clearPendingNotificationScrollRestore()
