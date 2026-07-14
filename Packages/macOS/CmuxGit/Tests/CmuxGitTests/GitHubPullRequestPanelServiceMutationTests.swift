@@ -102,6 +102,32 @@ import Testing
         ])
     }
 
+    @Test func refreshLooksUpTheResolvedBranchWithinTheResolvedRepository() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("feature/fork")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/example/repo.git
+        """)
+        let runner = RecordingPullRequestCommandRunner()
+        let service = GitHubPullRequestPanelService(commandRunner: runner)
+
+        do {
+            _ = try await service.refresh(for: PullRequestWorkspaceInput(
+                directory: fixture.root.path,
+                branchHint: "stale-branch-hint"
+            ))
+            Issue.record("Expected the empty recorded response to be rejected")
+        } catch let error as PullRequestPanelServiceError {
+            #expect(error == .invalidResponse)
+        }
+
+        #expect(await runner.lastArguments == [
+            "pr", "view", "feature/fork", "--repo", "example/repo", "--json",
+            "number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid",
+        ])
+    }
+
     @Test func olderRefreshCannotOverwriteNewerCompletedRefresh() async throws {
         let service = GitHubPullRequestPanelService()
         let context = PullRequestPanelContext(
