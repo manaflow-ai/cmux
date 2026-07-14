@@ -603,8 +603,8 @@ clear_inherited_claude_session_identity_env() {
     # END GENERATED CLAUDE LAUNCH ENVIRONMENT POLICY
 }
 
-# Pass through if not in a cmux terminal, hooks are disabled, or the cmux
-# socket is unavailable (stale env / app not running).
+# Pass through if not in a cmux terminal, hooks are disabled, stdin is not a
+# TTY, or the cmux socket is unavailable (stale env / app not running).
 IN_CMUX=0
 if [[ -n "$CMUX_SURFACE_ID" ]]; then
     IN_CMUX=1
@@ -641,7 +641,7 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 fi
 
-if [[ "$IN_CMUX" == "0" ]]; then
+if [[ "$IN_CMUX" == "0" || ! -t 0 ]]; then
     clear_inherited_claude_auth_selection_env
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec_real_claude_passthrough "$@"
