@@ -119,7 +119,7 @@ import Testing
     ))
     let baselineChunk = try #require(await iterator.next())
     lines.append(String(decoding: baselineChunk.data, as: UTF8.self))
-    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 900)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil)
 
     // A delta before the ack arms the follow-up barrier, stashing the
     // old-epoch floor (900). The host meanwhile recreated the surface, so the
@@ -142,6 +142,7 @@ import Testing
         full: true
     ))
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: baselineChunk.streamToken)
+    #expect(store.terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] == 900)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
     let replayChunk = try #require(await iterator.next())
     lines.append(String(decoding: replayChunk.data, as: UTF8.self))
