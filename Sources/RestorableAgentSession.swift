@@ -55,6 +55,14 @@ enum TerminalStartupShellDialect: Equatable {
     static var loginShell: TerminalStartupShellDialect {
         forShellPath(ProcessInfo.processInfo.environment["SHELL"])
     }
+
+    /// Dialect for input typed into a remote host's shell after attach.
+    /// cmux does not (yet) know the remote login shell — the SSH bootstrap
+    /// resolves `$SHELL` on the host at runtime and nothing reports it back —
+    /// so remote input stays POSIX, which is what cmux has always sent to
+    /// remotes. If the bootstrap ever reports the remote shell, this is the
+    /// single seam to replace with real detection.
+    static let remoteHost: TerminalStartupShellDialect = .posix
 }
 
 /// Final rendering step for cmux-generated POSIX one-liners that get typed
@@ -62,16 +70,19 @@ enum TerminalStartupShellDialect: Equatable {
 /// the command verbatim; nushell receives it delegated through `/bin/sh`.
 /// Launcher-script inputs (`/bin/zsh '<script>'`) parse in every supported
 /// shell and do not need this.
-enum TerminalStartupTypedShellCommand {
-    static func typedInput(
-        posixCommand: String,
-        dialect: TerminalStartupShellDialect = .loginShell
-    ) -> String {
+struct TerminalStartupTypedShellCommand {
+    let dialect: TerminalStartupShellDialect
+
+    init(dialect: TerminalStartupShellDialect = .loginShell) {
+        self.dialect = dialect
+    }
+
+    func typedInput(posixCommand: String) -> String {
         switch dialect {
         case .posix:
             return posixCommand
         case .nushell:
-            return NushellTypedShellCommand.wrapping(posixCommand: posixCommand)
+            return NushellTypedShellCommand().wrapping(posixCommand: posixCommand)
         }
     }
 }
@@ -861,7 +872,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         dialect: TerminalStartupShellDialect = .loginShell
     ) -> String? {
         guard let command else { return nil }
-        let inlineInput = TerminalStartupTypedShellCommand.typedInput(posixCommand: command, dialect: dialect) + "\n"
+        let inlineInput = TerminalStartupTypedShellCommand(dialect: dialect).typedInput(posixCommand: command) + "\n"
         guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
             return inlineInput
         }

@@ -2215,10 +2215,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: sandbox.sandboxURL.path)
         let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
-        let typedForNushell = TerminalStartupTypedShellCommand.typedInput(
-            posixCommand: resumeCommand,
-            dialect: .nushell
-        )
+        let typedForNushell = TerminalStartupTypedShellCommand(dialect: .nushell)
+            .typedInput(posixCommand: resumeCommand)
 
         let recorded = try runClaudeResumeCommand(
             typedForNushell,

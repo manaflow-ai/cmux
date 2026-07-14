@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 enum SessionEntryResumeCoordinator {
     static func resume(_ entry: SessionEntry, tabManager: TabManager) {
         guard let resumeCommand = entry.resumeCommandWithCwd else { return }
-        let inputWithReturn = TerminalStartupTypedShellCommand.typedInput(posixCommand: resumeCommand) + "\n"
+        let inputWithReturn = TerminalStartupTypedShellCommand().typedInput(posixCommand: resumeCommand) + "\n"
         let targetCwd = entry.resumeWorkingDirectory
 
         let selected = tabManager.selectedWorkspace
@@ -698,7 +698,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
             pb.clearContents()
             // Match the user's shell so the copied command pastes cleanly.
             pb.setString(
-                TerminalStartupTypedShellCommand.typedInput(posixCommand: resumeCommand),
+                TerminalStartupTypedShellCommand().typedInput(posixCommand: resumeCommand),
                 forType: .string
             )
         } label: {

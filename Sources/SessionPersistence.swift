@@ -455,7 +455,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         dialect: TerminalStartupShellDialect = .loginShell
     ) -> String {
         let command = inlineInput.hasSuffix("\n") ? String(inlineInput.dropLast()) : inlineInput
-        return TerminalStartupTypedShellCommand.typedInput(posixCommand: command, dialect: dialect) + "\n"
+        return TerminalStartupTypedShellCommand(dialect: dialect).typedInput(posixCommand: command) + "\n"
     }
 
     private static func normalized(_ rawValue: String?) -> String? {
