@@ -145,6 +145,50 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
 }
 
 @Suite struct TerminalOpenURLFilePathTests {
+    @Test(arguments: [
+        ("./scripts/reload.sh", "/Users/dev/project/scripts/reload.sh"),
+        ("../Shared/Package.swift", "/Users/dev/Shared/Package.swift"),
+        ("Sources/App/SettingsWindowFactory.swift", "/Users/dev/project/Sources/App/SettingsWindowFactory.swift"),
+        ("a/b/c", "/Users/dev/project/a/b/c"),
+    ])
+    func resolvesRelativePathForms(rawPath: String, existingFile: String) {
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFilePath(
+                rawPath,
+                cwd: "/Users/dev/project"
+            ) == existingFile
+        )
+    }
+
+    @Test func resolvesRelativePathWithLineSuffix() {
+        let existingFile = "/Users/dev/project/Sources/App/SettingsWindowFactory.swift"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFilePath(
+                "Sources/App/SettingsWindowFactory.swift:12",
+                cwd: "/Users/dev/project"
+            ) == existingFile
+        )
+    }
+
+    @Test func resolvesRelativePathWithLineAndColumnSuffix() {
+        let existingFile = "/Users/dev/project/Sources/App/SettingsWindowFactory.swift"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFilePath(
+                "Sources/App/SettingsWindowFactory.swift:12:7",
+                cwd: "/Users/dev/project"
+            ) == existingFile
+        )
+    }
+
+    @Test func locationSuffixDoesNotBypassExistenceCheck() {
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([])).resolveOpenURLFilePath(
+                "Sources/App/Missing.swift:12:7",
+                cwd: "/Users/dev/project"
+            ) == nil
+        )
+    }
+
     @Test func resolvesAbsoluteMarkdownPathWithTrailingDot() {
         let existingFile = "/Users/dev/project/skills/marketing/data/lawrencecchen-tweets.md"
         #expect(
