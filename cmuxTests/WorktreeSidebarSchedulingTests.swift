@@ -68,4 +68,59 @@ struct WorktreeSidebarSchedulingTests {
             path == nestedWorktree.path || path.hasPrefix(nestedWorktree.path + "/")
         })
     }
+
+    @Test("deletion inspection refuses a Git-registered descendant worktree")
+    func deletionInspectionRefusesRegisteredDescendantWorktree() async throws {
+        let container = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-nested-worktree-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: container) }
+        let repository = container.appendingPathComponent("repository", isDirectory: true)
+        let parent = container.appendingPathComponent("parent", isDirectory: true)
+        let child = parent.appendingPathComponent("child", isDirectory: true)
+        try FileManager.default.createDirectory(at: repository, withIntermediateDirectories: true)
+        try runGit(["init", "-b", "main"], in: repository)
+        try runGit(["config", "user.name", "cmux Test"], in: repository)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repository)
+        try Data("root\n".utf8).write(to: repository.appendingPathComponent("README.md"))
+        try runGit(["add", "README.md"], in: repository)
+        try runGit(["commit", "-m", "initial"], in: repository)
+        try runGit(["worktree", "add", "-b", "parent", parent.path, "HEAD"], in: repository)
+        try runGit(["worktree", "add", "-b", "child", child.path, "HEAD"], in: repository)
+
+        let service = WorktreeSidebarGitService(commandTimeout: 10)
+        await #expect {
+            try await service.inspectDeletion(
+                projectRootPath: repository.path,
+                worktreePath: parent.path
+            )
+        } throws: { error in
+            if case WorktreeSidebarGitError.containsRegisteredWorktrees = error {
+                return true
+            }
+            return false
+        }
+        #expect(FileManager.default.fileExists(atPath: child.path))
+    }
+
+    private func runGit(_ arguments: [String], in directory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-C", directory.path] + arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let output = String(
+                data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? ""
+            throw NSError(
+                domain: "WorktreeSidebarSchedulingTests.Git",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: output]
+            )
+        }
+    }
 }

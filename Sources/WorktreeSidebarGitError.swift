@@ -14,6 +14,7 @@ enum WorktreeSidebarGitError: Error, Sendable {
     case invalidBranchName(String)
     case mainWorktree
     case locked(reason: String?)
+    case containsRegisteredWorktrees
     case worktreeNotFound
     case worktreeChanged
     case forceRequired

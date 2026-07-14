@@ -266,6 +266,11 @@ struct WorktreeSidebarDialogPresenter {
                 localized: "worktreeSidebar.error.locked",
                 defaultValue: "This worktree is locked and cannot be removed."
             )
+        case .containsRegisteredWorktrees:
+            return String(
+                localized: "worktreeSidebar.error.containsWorktrees",
+                defaultValue: "Git reports another registered worktree inside this worktree. Remove nested worktrees first."
+            )
         case .worktreeNotFound:
             return String(
                 localized: "worktreeSidebar.error.notFound",
