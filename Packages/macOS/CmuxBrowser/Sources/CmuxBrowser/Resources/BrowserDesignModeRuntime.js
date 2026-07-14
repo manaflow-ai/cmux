@@ -265,6 +265,26 @@
     textOriginals.clear();
   };
 
+  const restoreAndForgetElement = (element) => {
+    const styleValues = styleOriginals.get(element);
+    if (styleValues) {
+      for (const [property, original] of styleValues) {
+        if (original.value) element.style.setProperty(property, original.value, original.priority);
+        else element.style.removeProperty(property);
+      }
+      styleOriginals.delete(element);
+    }
+    const textValue = textOriginals.get(element);
+    if (!textValue) return;
+    if (textValue.input) {
+      element.value = textValue.value;
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    } else {
+      element.textContent = textValue.value;
+    }
+    textOriginals.delete(element);
+  };
+
   const applyText = (element, value) => {
     rememberTextOriginal(element);
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
@@ -409,8 +429,9 @@
       height: rect.height - border.top - border.bottom - padding.top - padding.bottom,
     });
 
-    const selectors = element === selected ? selectedBaseline?.selectors : selectorsFor(element);
-    const selector = selectors[0] || element.localName || "element";
+    const selector = element === selected
+      ? selectedBaseline?.selector || element.localName || "element"
+      : (element.id ? `#${cssEscape(element.id)}` : classSelector(element) || element.localName || "element");
     overlay.badge.textContent = `${selector}  ${Math.round(rect.width)} × ${Math.round(rect.height)}`;
     overlay.badge.style.display = "block";
     const badgeHeight = overlay.badge.getBoundingClientRect().height || 24;
@@ -427,6 +448,7 @@
     refreshScheduled = false;
     const previous = selectedElement;
     const current = resolveSelectedElement();
+    if (previous && previous !== current) restoreAndForgetElement(previous);
     if (current) applyEditsTo(current);
     if (previous !== current) {
       revision += 1;

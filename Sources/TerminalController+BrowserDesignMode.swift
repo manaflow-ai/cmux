@@ -1,6 +1,25 @@
 import Foundation
 
 extension TerminalController {
+    func sendDesignModePrompt(_ prompt: String, in workspace: Workspace) throws {
+        guard let service = agentChatTranscriptService,
+              let terminal = service.sessionRecords(workspaceID: nil).lazy.compactMap({ record -> TerminalPanel? in
+                  guard record.state != .ended,
+                        let surfaceID = record.surfaceID,
+                        service.registry.liveSession(surfaceID: surfaceID)?.sessionID == record.sessionID,
+                        let surfaceUUID = UUID(uuidString: surfaceID) else { return nil }
+                  return workspace.terminalPanel(for: surfaceUUID)
+              }).first else {
+            throw BrowserDesignModeSendError.terminalUnavailable
+        }
+        guard terminal.sendText(prompt) else {
+            throw BrowserDesignModeSendError.terminalUnavailable
+        }
+        guard terminal.sendNamedKeyResult("return").accepted else {
+            throw BrowserDesignModeSendError.submitUnavailable
+        }
+    }
+
     nonisolated func v2BrowserDesignMode(
         params: [String: Any],
         statusOnly: Bool

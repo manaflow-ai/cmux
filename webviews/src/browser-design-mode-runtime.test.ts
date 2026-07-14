@@ -84,13 +84,35 @@ describe("browser design-mode runtime", () => {
     const replacement = dom.window.document.createElement("h1");
     replacement.id = "hero";
     replacement.textContent = "Rerendered";
-    dom.window.document.querySelector("#hero")?.replaceWith(replacement);
+    const original = dom.window.document.querySelector("#hero") as HTMLElement;
+    original.replaceWith(replacement);
     await Promise.resolve();
     await Promise.resolve();
 
     expect(replacement.style.getPropertyValue("font-size")).toBe("44px");
     expect(replacement.textContent).toBe("Edited heading");
     expect(runtime.snapshot().selection?.selector).toBe("#hero");
+    expect(original.style.getPropertyValue("font-size")).toBe("");
+    expect(original.textContent).toBe("Original");
+  });
+
+  test("does not synthesize unique selectors while hovering", async () => {
+    const { dom } = fixture(`<main><button class="primary action">Save</button></main>`);
+    const button = dom.window.document.querySelector("button") as HTMLElement;
+    Object.defineProperty(dom.window.document, "elementFromPoint", { value: () => button });
+    const originalQuerySelectorAll = dom.window.document.querySelectorAll.bind(dom.window.document);
+    let selectorQueries = 0;
+    Object.defineProperty(dom.window.document, "querySelectorAll", {
+      value: (selector: string) => {
+        selectorQueries += 1;
+        return originalQuerySelectorAll(selector);
+      },
+    });
+
+    button.dispatchEvent(new dom.window.MouseEvent("pointermove", { bubbles: true, clientX: 4, clientY: 4 }));
+    await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+
+    expect(selectorQueries).toBe(0);
   });
 
   test("reverts form text through the page input event path", () => {

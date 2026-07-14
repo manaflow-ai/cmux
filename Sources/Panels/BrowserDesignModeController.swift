@@ -20,7 +20,7 @@ final class BrowserDesignModeController {
     @ObservationIgnored private let promptFormatter: BrowserDesignModePromptFormatter
     @ObservationIgnored private let screenshotStore: BrowserDesignModeScreenshotStore
     @ObservationIgnored private let canEnable: @MainActor @Sendable () -> Bool
-    @ObservationIgnored private let promptSender: @MainActor @Sendable (String) -> Bool
+    @ObservationIgnored private let promptSender: @MainActor @Sendable (String) throws -> Void
     @ObservationIgnored private weak var webView: WKWebView?
     @ObservationIgnored private var messageHandler: BrowserDesignModeMessageHandler?
     @ObservationIgnored private var operationRevision: UInt = 0
@@ -39,7 +39,7 @@ final class BrowserDesignModeController {
         promptFormatter: BrowserDesignModePromptFormatter,
         screenshotStore: BrowserDesignModeScreenshotStore,
         canEnable: @escaping @MainActor @Sendable () -> Bool,
-        promptSender: @escaping @MainActor @Sendable (String) -> Bool
+        promptSender: @escaping @MainActor @Sendable (String) throws -> Void
     ) {
         self.surfaceID = surfaceID
         self.script = script
@@ -235,9 +235,8 @@ final class BrowserDesignModeController {
                     screenshotPath: screenshotURL.path
                 )
             )
-            guard !prompt.isEmpty, promptSender(prompt) else {
-                throw BrowserDesignModeSendError.terminalUnavailable
-            }
+            guard !prompt.isEmpty else { throw BrowserDesignModeSendError.invalidRuntimeResponse }
+            try promptSender(prompt)
             handoffState = .sent
         } catch {
             guard operation == operationRevision else { return }

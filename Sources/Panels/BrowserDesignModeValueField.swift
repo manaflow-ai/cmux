@@ -6,6 +6,8 @@ struct BrowserDesignModeValueField: View {
     let onChange: (String) -> Void
 
     @State private var value: String
+    @State private var submittedValue: String?
+    @FocusState private var isFocused: Bool
 
     init(
         title: String,
@@ -22,20 +24,29 @@ struct BrowserDesignModeValueField: View {
         LabeledContent(title) {
             TextField(
                 title,
-                text: Binding(
-                    get: { value },
-                    set: { next in
-                        value = next
-                        onChange(next)
-                    }
-                )
+                text: $value
             )
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
+                .focused($isFocused)
+                .onSubmit(commit)
+                .onChange(of: isFocused) { wasFocused, focused in
+                    if focused {
+                        submittedValue = nil
+                    } else if wasFocused {
+                        commit()
+                    }
+                }
                 .onChange(of: currentValue) { _, next in
-                    if value != next { value = next }
+                    if !isFocused, value != next { value = next }
                 }
         }
         .cmuxFont(size: 11)
+    }
+
+    private func commit() {
+        guard value != currentValue, value != submittedValue else { return }
+        submittedValue = value
+        onChange(value)
     }
 }

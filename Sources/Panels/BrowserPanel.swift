@@ -3011,7 +3011,8 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.shouldRenderWebView == true && self?.webView.url != nil
         },
         promptSender: { [weak self] prompt in
-            self?.sendDesignModePromptToAgent(prompt) ?? false
+            guard let self else { throw BrowserDesignModeSendError.terminalUnavailable }
+            try self.sendDesignModePromptToAgent(prompt)
         }
     )
     var reactGrabMessageHandler: ReactGrabMessageHandler?
