@@ -25,18 +25,63 @@ struct VerifiedReplayPresentationTests {
         let initial = VerifiedReplayRendererSurfaceIdentity(id: 7, seed: 10)
         let stale = VerifiedReplayRendererSurfaceIdentity(id: 8, seed: 11)
         let replay = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 12)
-        var fence = VerifiedReplayPresentationFence(expectedToken: 42)
+        let geometry = makeGeometry()
+        var fence = VerifiedReplayPresentationFence(
+            expectedToken: 42,
+            expectedGeometryRevision: 7,
+            expectedGeometry: geometry
+        )
 
-        #expect(!fence.isSatisfied(modelIdentity: initial, presentationIdentity: initial))
-        let acceptedStale = fence.acknowledge(token: 41, modelIdentity: stale)
+        #expect(!fence.isSatisfied(
+            modelIdentity: initial,
+            presentationIdentity: initial,
+            geometryRevision: 7,
+            modelGeometry: geometry,
+            presentationGeometry: geometry
+        ))
+        let acceptedStale = fence.acknowledge(
+            token: 41,
+            modelIdentity: stale,
+            geometryRevision: 7,
+            geometry: geometry
+        )
         #expect(!acceptedStale)
-        #expect(!fence.isSatisfied(modelIdentity: stale, presentationIdentity: stale))
-        let acceptedReplay = fence.acknowledge(token: 42, modelIdentity: replay)
+        #expect(!fence.isSatisfied(
+            modelIdentity: stale,
+            presentationIdentity: stale,
+            geometryRevision: 7,
+            modelGeometry: geometry,
+            presentationGeometry: geometry
+        ))
+        let acceptedReplay = fence.acknowledge(
+            token: 42,
+            modelIdentity: replay,
+            geometryRevision: 7,
+            geometry: geometry
+        )
         #expect(acceptedReplay)
-        #expect(!fence.isSatisfied(modelIdentity: replay, presentationIdentity: stale))
-        #expect(!fence.isSatisfied(modelIdentity: replay, presentationIdentity: replay))
+        #expect(!fence.isSatisfied(
+            modelIdentity: replay,
+            presentationIdentity: stale,
+            geometryRevision: 7,
+            modelGeometry: geometry,
+            presentationGeometry: geometry
+        ))
+        #expect(!fence.isSatisfied(
+            modelIdentity: replay,
+            presentationIdentity: replay,
+            geometryRevision: 7,
+            modelGeometry: geometry,
+            presentationGeometry: geometry
+        ))
         fence.markObservedFrameReady()
-        #expect(fence.isSatisfied(modelIdentity: replay, presentationIdentity: replay))
+        #expect(fence.isSatisfied(
+            modelIdentity: replay,
+            presentationIdentity: replay,
+            geometryRevision: 7,
+            modelGeometry: geometry,
+            presentationGeometry: geometry
+        ))
     }
 
     @Test("presentation accepts the tokened IOSurface after its content seed advances")
@@ -45,15 +90,91 @@ struct VerifiedReplayPresentationTests {
         let presented = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 13)
         let divergent = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 14)
         let otherAllocation = VerifiedReplayRendererSurfaceIdentity(id: 10, seed: 13)
-        var fence = VerifiedReplayPresentationFence(expectedToken: 42)
+        let geometry = makeGeometry()
+        var fence = VerifiedReplayPresentationFence(
+            expectedToken: 42,
+            expectedGeometryRevision: 7,
+            expectedGeometry: geometry
+        )
 
-        #expect(fence.acknowledge(token: 42, modelIdentity: assigned))
+        #expect(fence.acknowledge(
+            token: 42,
+            modelIdentity: assigned,
+            geometryRevision: 7,
+            geometry: geometry
+        ))
         fence.markObservedFrameReady()
 
-        #expect(fence.isSatisfied(modelIdentity: presented, presentationIdentity: presented))
-        #expect(!fence.isSatisfied(modelIdentity: presented, presentationIdentity: divergent))
-        #expect(!fence.isSatisfied(modelIdentity: otherAllocation, presentationIdentity: otherAllocation))
-        #expect(!fence.isSatisfied(modelIdentity: presented, presentationIdentity: otherAllocation))
+        #expect(fence.isSatisfied(
+            modelIdentity: presented,
+            presentationIdentity: presented,
+            geometryRevision: 7,
+            modelGeometry: geometry,
+            presentationGeometry: geometry
+        ))
+        #expect(!fence.isSatisfied(
+            modelIdentity: presented,
+            presentationIdentity: divergent,
+            geometryRevision: 7,
+            modelGeometry: geometry,
+            presentationGeometry: geometry
+        ))
+        #expect(!fence.isSatisfied(
+            modelIdentity: otherAllocation,
+            presentationIdentity: otherAllocation,
+            geometryRevision: 7,
+            modelGeometry: geometry,
+            presentationGeometry: geometry
+        ))
+        #expect(!fence.isSatisfied(
+            modelIdentity: presented,
+            presentationIdentity: otherAllocation,
+            geometryRevision: 7,
+            modelGeometry: geometry,
+            presentationGeometry: geometry
+        ))
+    }
+
+    @Test("presentation rejects a replay when keyboard relayout changes geometry")
+    func presentationFenceRejectsGeometryChanges() {
+        let identity = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 12)
+        let initial = makeGeometry()
+        let relaid = makeGeometry(rendererFrame: CGRect(x: 0, y: 0, width: 390, height: 500))
+        var fence = VerifiedReplayPresentationFence(
+            expectedToken: 42,
+            expectedGeometryRevision: 7,
+            expectedGeometry: initial
+        )
+
+        #expect(fence.acknowledge(
+            token: 42,
+            modelIdentity: identity,
+            geometryRevision: 7,
+            geometry: initial
+        ))
+        fence.markObservedFrameReady()
+
+        #expect(!fence.isSatisfied(
+            modelIdentity: identity,
+            presentationIdentity: identity,
+            geometryRevision: 8,
+            modelGeometry: initial,
+            presentationGeometry: initial
+        ))
+        #expect(!fence.isSatisfied(
+            modelIdentity: identity,
+            presentationIdentity: identity,
+            geometryRevision: 7,
+            modelGeometry: relaid,
+            presentationGeometry: relaid
+        ))
+        #expect(!fence.isSatisfied(
+            modelIdentity: identity,
+            presentationIdentity: identity,
+            geometryRevision: 7,
+            modelGeometry: initial,
+            presentationGeometry: relaid
+        ))
     }
 
     @Test("grid export and token submission are one synchronous queue operation")
@@ -89,6 +210,24 @@ struct VerifiedReplayPresentationTests {
         let surface = try #require(IOSurfaceCreate(properties as CFDictionary))
         overwrite(surface, with: byte)
         return surface
+    }
+
+    private func makeGeometry(
+        rendererFrame: CGRect = CGRect(x: 0, y: 0, width: 390, height: 700)
+    ) -> VerifiedReplayPresentationGeometry {
+        VerifiedReplayPresentationGeometry(
+            rendererFrame: rendererFrame,
+            rendererBounds: CGRect(origin: .zero, size: rendererFrame.size),
+            rendererPosition: CGPoint(x: rendererFrame.midX, y: rendererFrame.midY),
+            rendererAnchorPoint: CGPoint(x: 0.5, y: 0.5),
+            rendererContentsScale: 3,
+            rendererTransform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            hostBounds: CGRect(x: 0, y: 0, width: 390, height: 844),
+            hostPosition: CGPoint(x: 195, y: 422),
+            hostAnchorPoint: CGPoint(x: 0.5, y: 0.5),
+            hostTransform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            viewportRect: CGRect(x: 0, y: 0, width: 390, height: 700)
+        )
     }
 
     private func overwrite(_ surface: IOSurface, with byte: UInt8) {
