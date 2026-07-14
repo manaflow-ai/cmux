@@ -9,7 +9,6 @@ public import CmuxMobileTransport
 public import Foundation
 import Observation
 internal import OSLog
-
 private let mobileShellLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "mobile-shell"

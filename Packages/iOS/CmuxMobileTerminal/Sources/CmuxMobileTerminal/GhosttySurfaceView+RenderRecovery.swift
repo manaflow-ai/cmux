@@ -210,6 +210,9 @@ extension GhosttySurfaceView {
         needsAnotherRender = false
         needsDraw = true
         cellPixelSize = .zero
+        #if DEBUG
+        debugAppliedNaturalSize = nil
+        #endif
         lastRenderRect = .zero
         lastRenderLayoutViewportHeight = nil
         lastRenderHasSourceLayoutViewport = false

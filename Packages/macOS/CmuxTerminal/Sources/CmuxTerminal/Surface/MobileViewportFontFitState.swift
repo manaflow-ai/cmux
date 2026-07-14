@@ -5,7 +5,7 @@ private func mobileViewportFontSizesApproximatelyEqual(_ lhs: Float?, _ rhs: Flo
     return abs(lhs - rhs) <= 0.05
 }
 
-struct MobileViewportFontFitState: Equatable {
+nonisolated struct MobileViewportFontFitState: Equatable {
     var baseFontPointSize: Float?
     var fittedFontPointSize: Float?
     var baseWasUserAdjusted: Bool?
@@ -34,19 +34,21 @@ struct MobileViewportFontFitState: Equatable {
         needsLiveFontProbe = false
     }
 
+    @discardableResult
     mutating func reconcilePendingLiveFontProbe(
         configuredFontPointSize: Float,
         probe: () -> Float?
-    ) {
-        guard consumeLiveFontProbeRequest() else { return }
+    ) -> Float? {
+        guard consumeLiveFontProbeRequest() else { return nil }
         guard let liveFontPointSize = probe() else {
             needsLiveFontProbe = true
-            return
+            return nil
         }
         reconcile(
             liveFontPointSize: liveFontPointSize,
             configuredFontPointSize: configuredFontPointSize
         )
+        return liveFontPointSize
     }
 
     mutating func begin(
@@ -115,6 +117,15 @@ struct MobileViewportFontFitState: Equatable {
             return .resetThenSet(baseFontPointSize)
         }
         return .resetToConfigured
+    }
+
+    mutating func reconcileRestoreOutcome(_ outcome: MobileViewportFontRestoreOutcome) {
+        switch outcome {
+        case .notNeeded, .restored, .resetAfterBaseReapplyFailure:
+            clear()
+        case .failed:
+            break
+        }
     }
 
     mutating func clear() {

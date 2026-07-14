@@ -375,6 +375,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var keyboardHeightAnimationID = 0
 
     #if DEBUG
+    /// Natural grid from the latest geometry result applied by this surface.
+    /// Captured at the owning apply boundary so diagnostics never call into
+    /// libghostty from an accessibility read.
+    var debugAppliedNaturalSize: TerminalGridSize?
+
     struct DebugGeometrySnapshot {
         let boundsSize: CGSize
         let renderRect: CGRect
@@ -400,22 +405,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func debugGeometrySnapshotForTesting() -> DebugGeometrySnapshot {
-        let renderedSize: TerminalGridSize? = {
-            guard let surface else { return nil }
-            let size = ghostty_surface_size(surface)
-            return TerminalGridSize(
-                columns: Int(size.columns),
-                rows: Int(size.rows),
-                pixelWidth: Int(size.width_px),
-                pixelHeight: Int(size.height_px)
-            )
-        }()
         return DebugGeometrySnapshot(
             boundsSize: bounds.size,
             renderRect: lastRenderRect,
             screenScale: preferredScreenScale,
             reportedSize: lastReportedSize,
-            renderedSize: renderedSize,
+            renderedSize: debugAppliedNaturalSize,
             isLetterboxBorderVisible: letterboxBorderLayer?.isHidden == false,
             letterboxBorderPathBounds: letterboxBorderLayer?.path?.boundingBoxOfPath,
             viewportRect: terminalViewportRect,
@@ -3118,6 +3113,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         containerH: CGFloat,
         shouldReassertNaturalSize: Bool
     ) {
+        #if DEBUG
+        debugAppliedNaturalSize = result.naturalSize
+        #endif
         if result.cellPixelSize.width > 0, result.cellPixelSize.height > 0 {
             cellPixelSize = result.cellPixelSize
         }

@@ -205,7 +205,7 @@ extension TerminalSurface {
             mobileViewportFontFitState.clear()
             return false
         }
-        let fontRestored = restoreMobileViewportFitFontIfNeeded()
+        let fontRestored = restoreMobileViewportFitFontIfNeeded().surrenderedAutomaticFit
         let uncappedWidth = lastUncappedPixelWidth
         let uncappedHeight = lastUncappedPixelHeight
         guard uncappedWidth > 0, uncappedHeight > 0 else {
@@ -261,18 +261,15 @@ extension TerminalSurface {
         let paneHeight = max(1, Int(height))
         let configuredFont = configuredFontPointSizeOverride
             ?? configuredMobileViewportFontPointSize()
-        let shouldProbeLiveFont = mobileViewportFontFitState.consumeLiveFontProbeRequest()
-        let probedLiveFont = shouldProbeLiveFont
-            ? MobileViewportLiveFontProbe(surface: surface).read()
-            : nil
+        let probedLiveFont = mobileViewportFontFitState.reconcilePendingLiveFontProbe(
+            configuredFontPointSize: configuredFont
+        ) {
+            MobileViewportLiveFontProbe(surface: surface).read()
+        }
         let liveFont = probedLiveFont
             ?? mobileViewportFontFitState.fittedFontPointSize
             ?? mobileViewportFontFitState.baseFontPointSize
             ?? configuredFont
-        mobileViewportFontFitState.reconcile(
-            liveFontPointSize: liveFont,
-            configuredFontPointSize: configuredFont
-        )
         mobileViewportFontFitState.begin(
             baseFontPointSize: liveFont,
             configuredFontPointSize: configuredFont

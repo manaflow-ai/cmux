@@ -72,28 +72,17 @@ extension TerminalSurface {
 
     @discardableResult
     @MainActor
-    func restoreMobileViewportFitFontIfNeeded() -> Bool {
+    func restoreMobileViewportFitFontIfNeeded() -> MobileViewportFontRestoreOutcome {
         let plan = mobileViewportFontFitState.restorePlan(
             configuredFontPointSize: configuredMobileViewportFontPointSize()
         )
-        guard plan != .none else {
-            mobileViewportFontFitState.clear()
-            return false
-        }
-
-        let restored: Bool
-        switch plan {
-        case .none:
-            restored = false
-        case .resetToConfigured:
-            restored = performBindingAction("reset_font_size")
-        case .resetThenSet(let baseFontPointSize):
-            restored = performBindingAction("reset_font_size") &&
-                applyMobileViewportFontPointSize(baseFontPointSize)
-        }
-        guard restored else { return false }
-        mobileViewportFontFitState.clear()
-        return restored
+        let outcome = MobileViewportFontRestorer.restore(
+            plan: plan,
+            reset: { performBindingAction("reset_font_size") },
+            set: { applyMobileViewportFontPointSize($0) }
+        )
+        mobileViewportFontFitState.reconcileRestoreOutcome(outcome)
+        return outcome
     }
 
     /// Synchronously yields automatic font ownership before a configuration reload.
@@ -118,7 +107,8 @@ extension TerminalSurface {
         let userAdjustedBaseFontPointSize = mobileViewportFontFitState.baseWasUserAdjusted == true
             ? mobileViewportFontFitState.baseFontPointSize
             : nil
-        let surrendered = !hadAutomaticFit || restoreMobileViewportFitFontIfNeeded()
+        let surrendered = !hadAutomaticFit ||
+            restoreMobileViewportFitFontIfNeeded().surrenderedAutomaticFit
         let lease = MobileViewportFontFitReloadLease(
             columns: limit.columns,
             rows: limit.rows,

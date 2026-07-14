@@ -85,6 +85,24 @@ struct MobileViewportFitGeometryTests {
         #expect(state.baseWasUserAdjusted == true)
     }
 
+    @Test func unavailableLiveFontProbeRearmsUntilTheOwnerCanAnswer() {
+        var state = MobileViewportFontFitState()
+        var probeCount = 0
+
+        let unavailable = state.reconcilePendingLiveFontProbe(configuredFontPointSize: 12) {
+            probeCount += 1
+            return nil
+        }
+        let available = state.reconcilePendingLiveFontProbe(configuredFontPointSize: 12) {
+            probeCount += 1
+            return 14
+        }
+
+        #expect(unavailable == nil)
+        #expect(available == 14)
+        #expect(probeCount == 2)
+    }
+
     @Test func activeRuntimeConfigWinsWhenSurfaceHasNoTemplateFont() {
         let resolved = MobileViewportResetFontPointSize(
             surfaceConfigFontPointSize: nil,
@@ -170,6 +188,60 @@ struct MobileViewportFitGeometryTests {
 
         #expect(automatic.restorePlan(configuredFontPointSize: 12) == .resetToConfigured)
         #expect(userAdjusted.restorePlan(configuredFontPointSize: 12) == .resetThenSet(14))
+    }
+
+    @Test func failedBaseReapplyRecordsThatResetAlreadySurrenderedTheFit() {
+        var state = MobileViewportFontFitState(
+            baseFontPointSize: 14,
+            fittedFontPointSize: 9,
+            baseWasUserAdjusted: true
+        )
+        var resetCount = 0
+        var reappliedFont: Float?
+
+        let outcome = MobileViewportFontRestorer.restore(
+            plan: state.restorePlan(configuredFontPointSize: 12),
+            reset: {
+                resetCount += 1
+                return true
+            },
+            set: {
+                reappliedFont = $0
+                return false
+            }
+        )
+        state.reconcileRestoreOutcome(outcome)
+
+        #expect(outcome == .resetAfterBaseReapplyFailure)
+        #expect(outcome.surrenderedAutomaticFit)
+        #expect(resetCount == 1)
+        #expect(reappliedFont == 14)
+        #expect(state == .init())
+    }
+
+    @Test func failedResetLeavesTheFitStateForAFutureRetry() {
+        var state = MobileViewportFontFitState(
+            baseFontPointSize: 14,
+            fittedFontPointSize: 9,
+            baseWasUserAdjusted: true
+        )
+        let originalState = state
+        var attemptedBaseReapply = false
+
+        let outcome = MobileViewportFontRestorer.restore(
+            plan: state.restorePlan(configuredFontPointSize: 12),
+            reset: { false },
+            set: { _ in
+                attemptedBaseReapply = true
+                return true
+            }
+        )
+        state.reconcileRestoreOutcome(outcome)
+
+        #expect(outcome == .failed)
+        #expect(!outcome.surrenderedAutomaticFit)
+        #expect(!attemptedBaseReapply)
+        #expect(state == originalState)
     }
 
     @Test func reloadRefitPreservesUserAdjustedFontOwnership() {

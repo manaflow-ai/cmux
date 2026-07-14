@@ -23,7 +23,7 @@ import Foundation
 ///   makes exactly the granted rows fill the container. Callers can use
 ///   ``maximumFontSize(forEffectiveColumns:atBaseFontSize:)`` to keep that
 ///   vertical fit from exceeding the granted column width.
-public struct TerminalRowCapacityFit {
+public nonisolated struct TerminalRowCapacityFit {
     /// Rows past which a mismatch between the rendered grid and the effective
     /// grid triggers a re-fit. One row of slack is inherent to cell flooring;
     /// two rows means a visible band (or clipping) worth a font adjustment.
