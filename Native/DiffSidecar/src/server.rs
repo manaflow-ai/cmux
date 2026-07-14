@@ -903,14 +903,14 @@ async fn prune_orphaned_session_temp_files(
 }
 
 fn reconcile_session_owners(root: &Path, minimum_age: Duration, scan_limit: usize) {
-    let Ok(entries) = std::fs::read_dir(root) else {
+    let Ok(entries) = std::fs::read_dir(session_owner_directory(root)) else {
         return;
     };
     for entry in entries.flatten().take(scan_limit) {
         let name = entry.file_name();
         let name = name.to_string_lossy();
         let Some(session_id) = name
-            .strip_prefix(".diff-session-")
+            .strip_prefix("diff-session-")
             .and_then(|value| value.strip_suffix(".owner.json"))
             .filter(|value| uuid::Uuid::parse_str(value).is_ok())
         else {
@@ -1050,10 +1050,22 @@ fn session_temp_id(name: &str) -> Option<&str> {
 }
 
 fn session_owner_path(root: &Path, session_id: &str) -> PathBuf {
-    root.join(format!(".diff-session-{session_id}.owner.json"))
+    session_owner_directory(root).join(format!("diff-session-{session_id}.owner.json"))
+}
+
+fn session_owner_directory(root: &Path) -> PathBuf {
+    root.join(".diff-session-owners")
 }
 
 fn reserve_session_owner(root: &Path, session_id: &str, token: &str) -> Result<PathBuf, String> {
+    let directory = session_owner_directory(root);
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+            .map_err(|error| error.to_string())?;
+    }
     let path = session_owner_path(root, session_id);
     let owner = SessionOwner {
         session_id: session_id.to_owned(),
@@ -1185,8 +1197,14 @@ fn mutate_temp_index<T>(
         ".diff-session-temp-index-{}.tmp",
         uuid::Uuid::new_v4()
     ));
-    std::fs::write(&temporary, entries.join("\n")).map_err(|error| error.to_string())?;
-    std::fs::rename(temporary, index_path).map_err(|error| error.to_string())?;
+    if let Err(error) = std::fs::write(&temporary, entries.join("\n")) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    if let Err(error) = std::fs::rename(&temporary, index_path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
     Ok(value)
 }
 
@@ -1277,18 +1295,27 @@ fn mutate_manifest<T>(
     }
     manifest.files_by_path()?;
     let temporary = root.join(format!(".manifest-{token}-{}.tmp", uuid::Uuid::new_v4()));
-    std::fs::write(
+    if let Err(error) = std::fs::write(
         &temporary,
         serde_json::to_vec_pretty(&manifest).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
+    ) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o600))
-            .map_err(|error| error.to_string())?;
+        if let Err(error) =
+            std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o600))
+        {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(error.to_string());
+        }
     }
-    std::fs::rename(temporary, manifest_path).map_err(|error| error.to_string())?;
+    if let Err(error) = std::fs::rename(&temporary, manifest_path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
     Ok(value)
 }
 
@@ -2045,11 +2072,7 @@ mod tests {
         prune_orphaned_session_temp_files(&root, Duration::ZERO, Duration::ZERO, 64).await;
 
         assert!(!final_path.exists());
-        assert!(
-            !root
-                .join(format!(".diff-session-{session_id}.owner.json"))
-                .exists()
-        );
+        assert!(!super::session_owner_path(&root, &session_id).exists());
         let repaired: Manifest = serde_json::from_slice(
             &std::fs::read(root.join(format!(".manifest-{token}.json")))
                 .expect("read repaired manifest"),

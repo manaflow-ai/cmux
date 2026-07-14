@@ -7819,20 +7819,22 @@ extension CMUXCLI {
             try? FileManager.default.removeItem(at: manifestURL)
         }
 
-        // Branch-picker sidecars and transient locks accumulate unbounded in this
+        // Branch-picker sidecars, abandoned atomic writes, and transient locks accumulate in this
         // shared per-uid dir, and the refs authorization path scans ALL
         // `.branch-session-*.json` on every request, so stale sessions also grow
         // request latency. Age-prune them on the SAME 24h staleness rule the diff
         // files above use: a `.branch-session-*.json` older than 24h backs no live
         // page (its HTML/patch/manifest siblings are already past the prune
-        // threshold too), a `.refs-cache-*.json` is a pure recomputable cache, and
-        // a `.lock` is a transient append guard that is only ever held briefly.
+        // threshold too), and refs caches/atomic writes are recomputable. Lock
+        // files are removed only while this process holds their exclusive lock.
         for entry in entries {
             let name = entry.lastPathComponent
             let isBranchSession = name.hasPrefix(".branch-session-") && entry.pathExtension == "json"
             let isRefsCache = name.hasPrefix(".refs-cache-") && entry.pathExtension == "json"
             let isLock = entry.pathExtension == "lock"
-            guard isBranchSession || isRefsCache || isLock else {
+            let isAtomicWrite = entry.pathExtension == "tmp"
+                && (name.hasPrefix(".diff-session-temp-index-") || name.hasPrefix(".manifest-"))
+            guard isBranchSession || isRefsCache || isLock || isAtomicWrite else {
                 continue
             }
             if isBranchSession,
@@ -7847,7 +7849,19 @@ extension CMUXCLI {
                   now.timeIntervalSince(values.contentModificationDate ?? values.creationDate ?? .distantPast) > 24 * 60 * 60 else {
                 continue
             }
-            try? FileManager.default.removeItem(at: entry)
+            if isLock {
+                let descriptor = Darwin.open(entry.path, O_RDWR)
+                guard descriptor >= 0 else { continue }
+                guard Darwin.flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+                    Darwin.close(descriptor)
+                    continue
+                }
+                try? FileManager.default.removeItem(at: entry)
+                _ = Darwin.flock(descriptor, LOCK_UN)
+                Darwin.close(descriptor)
+            } else {
+                try? FileManager.default.removeItem(at: entry)
+            }
         }
     }
 
