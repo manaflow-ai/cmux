@@ -51,6 +51,17 @@ public struct ChatArtifactGallerySnapshot: Sendable, Equatable {
         )
     }
 
+    func limitingReferenced(to maximumCount: Int) -> ChatArtifactGallerySnapshot {
+        ChatArtifactGallerySnapshot(
+            created: created,
+            attached: attached,
+            referenced: Array(referenced.prefix(max(0, maximumCount))),
+            referencedTotal: referencedTotal,
+            nextCursor: nextCursor,
+            generation: generation
+        )
+    }
+
     private init(
         created: [ChatArtifactGalleryItem],
         attached: [ChatArtifactGalleryItem],

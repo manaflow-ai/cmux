@@ -138,6 +138,48 @@
         }
       }
     },
+    "terminal.artifact.gallery.filter.all" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "All" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべて" } }
+      }
+    },
+    "terminal.artifact.gallery.filter.code" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コード" } }
+      }
+    },
+    "terminal.artifact.gallery.filter.docs" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Docs" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "書類" } }
+      }
+    },
+    "terminal.artifact.gallery.filter.folders" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Folders" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フォルダ" } }
+      }
+    },
+    "terminal.artifact.gallery.filter.images" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Images" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "画像" } }
+      }
+    },
+    "terminal.artifact.gallery.filter.logs" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Logs" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ログ" } }
+      }
+    },
     "terminal.artifact.gallery.kind.binary" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -240,6 +282,13 @@
         }
       }
     },
+    "terminal.artifact.gallery.loading_all" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Loading all files…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべてのファイルを読み込み中…" } }
+      }
+    },
     "terminal.artifact.gallery.missing" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -331,6 +380,41 @@
             "value" : "このセッションにはファイルがありません"
           }
         }
+      }
+    },
+    "terminal.artifact.gallery.showing_first" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Showing first %lld files" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最初の%lld件のファイルを表示" } }
+      }
+    },
+    "terminal.artifact.gallery.sort" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sort" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "並べ替え" } }
+      }
+    },
+    "terminal.artifact.gallery.sort.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Name" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "名前" } }
+      }
+    },
+    "terminal.artifact.gallery.sort.recent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Recent" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "最近" } }
+      }
+    },
+    "terminal.artifact.gallery.sort.size" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Size" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サイズ" } }
       }
     },
     "terminal.artifact.gallery.search" : {

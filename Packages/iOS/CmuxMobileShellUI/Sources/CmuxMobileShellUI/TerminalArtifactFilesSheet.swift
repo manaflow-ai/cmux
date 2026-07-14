@@ -33,6 +33,11 @@ struct TerminalArtifactFilesSheet: View {
     @State var sessionLoader = ChatArtifactLoader.unsupported()
     @State var scope: Scope = .session
     @State var viewMode: ViewMode = .list
+    @State var galleryFilter: ChatArtifactGalleryFilter = .all
+    @State var gallerySort: ChatArtifactGallerySort = .recent
+    @State var eagerPagingState: EagerPagingState = .idle
+    @State var eagerPagingRetryGeneration = 0
+    @State var eagerPagingRevision = 0
     @State var searchQuery = ""
     @State var selection: TerminalArtifactPathSelection?
     @State var createdExpanded = true
@@ -179,6 +184,7 @@ struct TerminalArtifactFilesSheet: View {
             } else {
                 sessionState = .loaded(snapshot)
             }
+            eagerPagingRevision += 1
             startThumbnailPrefetch(page.referenced)
         } catch is CancellationError {
             return
@@ -223,6 +229,66 @@ struct TerminalArtifactFilesSheet: View {
         }
     }
 
+    func loadRemainingSessionPages(query: String?) async {
+        guard let source, let sessionID, usesCompleteSessionSnapshot else {
+            eagerPagingState = .idle
+            return
+        }
+        let initialState = query == nil ? sessionState : searchState
+        guard case .loaded(let initialSnapshot) = initialState else {
+            eagerPagingState = .idle
+            return
+        }
+        guard initialSnapshot.nextCursor != nil else {
+            eagerPagingState = initialSnapshot.referenced.count
+                < initialSnapshot.referencedTotal ? .capped : .idle
+            return
+        }
+
+        let expectedFilter = galleryFilter
+        let expectedSort = gallerySort
+        let expectedQuery = query
+        eagerPagingState = .loading
+        do {
+            let result = try await ChatArtifactGalleryEagerPager().loadRemaining(
+                from: initialSnapshot
+            ) { cursor in
+                try await source.chatArtifactGallery(
+                    sessionID: sessionID,
+                    cursor: cursor,
+                    pageSize: Self.pageSize,
+                    query: expectedQuery
+                )
+            }
+            let currentQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            let queryIsCurrent = expectedQuery.map { $0 == currentQuery }
+                ?? currentQuery.isEmpty
+            guard !Task.isCancelled,
+                  galleryFilter == expectedFilter,
+                  gallerySort == expectedSort,
+                  queryIsCurrent else { return }
+            let currentState = query == nil ? sessionState : searchState
+            guard case .loaded(let currentSnapshot) = currentState,
+                  currentSnapshot.generation == initialSnapshot.generation,
+                  currentSnapshot.nextCursor == initialSnapshot.nextCursor else { return }
+            if query == nil {
+                sessionState = .loaded(result.snapshot)
+            } else {
+                searchState = .loaded(result.snapshot)
+            }
+            let previousPaths = Set(initialSnapshot.referenced.map(\.path))
+            startThumbnailPrefetch(
+                result.snapshot.referenced.filter { !previousPaths.contains($0.path) }
+            )
+            eagerPagingState = result.reachedSafetyCap ? .capped : .idle
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else { return }
+            eagerPagingState = .failed
+        }
+    }
+
     private func startThumbnailPrefetch(_ items: [ChatArtifactGalleryItem]) {
         let loader = sessionLoader
         let task = Task(priority: .low) {
@@ -243,6 +309,29 @@ struct TerminalArtifactFilesSheet: View {
     }
 
     static let pageSize = 60
+
+    var usesCompleteSessionSnapshot: Bool {
+        galleryFilter != .all || gallerySort != .recent
+    }
+
+    var eagerPagingTaskID: String {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let state = query.isEmpty ? sessionState : searchState
+        let cursor: String
+        if case .loaded(let snapshot) = state {
+            cursor = "\(snapshot.generation)#\(snapshot.nextCursor ?? "exhausted")"
+        } else {
+            cursor = "unloaded"
+        }
+        return [
+            galleryFilter.rawValue,
+            gallerySort.rawValue,
+            query,
+            cursor,
+            String(eagerPagingRevision),
+            String(eagerPagingRetryGeneration),
+        ].joined(separator: "#")
+    }
 
     enum InViewLoadState: Equatable {
         case loading
@@ -267,6 +356,13 @@ struct TerminalArtifactFilesSheet: View {
     enum ViewMode: Hashable {
         case list
         case grid
+    }
+
+    enum EagerPagingState: Equatable {
+        case idle
+        case loading
+        case capped
+        case failed
     }
 
     struct TerminalArtifactPathSelection: Identifiable {
