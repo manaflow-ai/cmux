@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxGit
 
@@ -126,6 +127,41 @@ import Testing
             "pr", "view", "feature/fork", "--repo", "example/repo", "--json",
             "number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid",
         ])
+    }
+
+    @Test func mismatchedNumericBranchResponseStopsBeforeDetailRequests() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("123")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/example/repo.git
+        """)
+        let loader = PullRequestFixtureLoader()
+        var response = try #require(
+            JSONSerialization.jsonObject(with: loader.data(named: "pull-request-view"))
+                as? [String: Any]
+        )
+        response["headRefName"] = "unrelated-branch"
+        let responseData = try JSONSerialization.data(withJSONObject: response)
+        let runner = RecordingPullRequestCommandRunner(
+            outputs: [try #require(String(data: responseData, encoding: .utf8))]
+        )
+        let service = GitHubPullRequestPanelService(commandRunner: runner)
+
+        do {
+            _ = try await service.refresh(for: PullRequestWorkspaceInput(
+                directory: fixture.root.path,
+                branchHint: "123"
+            ))
+            Issue.record("Expected the mismatched pull request to be rejected")
+        } catch let error as PullRequestPanelServiceError {
+            #expect(error == .refreshFailed)
+        }
+
+        #expect(await runner.invocationArguments.count == 1)
+        #expect(await runner.lastArguments.starts(with: [
+            "pr", "view", "123", "--repo", "example/repo",
+        ]))
     }
 
     @Test func olderRefreshCannotOverwriteNewerCompletedRefresh() async throws {
