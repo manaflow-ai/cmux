@@ -118,7 +118,7 @@ final class ClaudeHookSessionStore {
     func lookup(sessionId: String) throws -> ClaudeHookSessionRecord? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
-        return try withLockedState { state in
+        return withSnapshotState { state in
             state.sessions[normalized]
         }
     }
@@ -163,7 +163,7 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else {
             return AutoNamingRecentMessagesSnapshot(messages: [], totalMessageCount: 0)
         }
-        return try withLockedState { state in
+        return withSnapshotState { state in
             let record = state.sessions[normalized]
             let messages = record?.autoNameRecentMessages ?? []
             return AutoNamingRecentMessagesSnapshot(
@@ -719,7 +719,7 @@ final class ClaudeHookSessionStore {
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
-        return try withLockedState { state in
+        return withSnapshotState { state in
             guard let record = state.sessions[normalized] else { return false }
             return codexSessionStartIsStale(
                 record,
@@ -732,7 +732,7 @@ final class ClaudeHookSessionStore {
     func codexPromptTurnIsTerminal(sessionId: String, turnId: String?) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty, let normalizedTurnId = normalizeOptional(turnId) else { return false }
-        return try withLockedState { state in
+        return withSnapshotState { state in
             guard let record = state.sessions[normalized] else { return false }
             return terminalPromptTurnSet(from: record).contains(normalizedTurnId)
         }
@@ -1084,7 +1084,7 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return false }
         let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedFingerprint.isEmpty else { return false }
-        return try withLockedState { state in
+        return withSnapshotState { state in
             guard let record = state.sessions[normalized] else { return false }
             let now = Date().timeIntervalSince1970
             if let emittedAt = record.recentEmittedNotificationFingerprints?[normalizedFingerprint],
@@ -1195,7 +1195,7 @@ final class ClaudeHookSessionStore {
               let normalizedWorkspace = normalizeOptional(workspaceId) else {
             return true
         }
-        return try withLockedState { state in
+        return withSnapshotState { state in
             // The pane's own active boundary decides first: a hook is stale when a
             // DIFFERENT session was promoted in the SAME surface (post-/clear or
             // replaced-session races in one pane). This stays true even after a
@@ -1248,7 +1248,7 @@ final class ClaudeHookSessionStore {
               let normalizedWorkspace = normalizeOptional(workspaceId) else {
             return false
         }
-        return try withLockedState { state in
+        return withSnapshotState { state in
             // Replacement is pane-scoped like staleness: a stopped session in
             // THIS surface allows its own pane to start a new session even when
             // another pane currently holds the workspace-active slot.
@@ -1401,6 +1401,15 @@ final class ClaudeHookSessionStore {
         let result = try body(&state)
         try saveUnlocked(state)
         return result
+    }
+
+    /// Read-only hook decisions use an immutable file snapshot. Writers publish
+    /// with an atomic rename, so readers observe either the complete previous
+    /// state or the complete next state without joining the global writer lock.
+    /// This keeps prompt hooks responsive when many cmux versions and agents
+    /// share the durable history file. Pruning remains a writer responsibility.
+    private func withSnapshotState<T>(_ body: (ClaudeHookSessionStoreFile) -> T) -> T {
+        body(loadUnlocked())
     }
 
     private func loadUnlocked() -> ClaudeHookSessionStoreFile {
