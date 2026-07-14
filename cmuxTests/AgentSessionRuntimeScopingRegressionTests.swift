@@ -264,6 +264,124 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(Set(historyNodes.compactMap { $0["session_id"] as? String }) == ["current-session", "other-session"])
     }
 
+    @Test func agentsDefaultViewsExcludeEndedRunsFromTheCurrentRuntime() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-live-default-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let runtime: [String: Any] = ["id": "current-runtime"]
+        func record(
+            sessionId: String,
+            runId: String,
+            foregroundState: String,
+            endedAt: TimeInterval? = nil
+        ) -> [String: Any] {
+            var run: [String: Any] = [
+                "runId": runId,
+                "restoreAuthority": true,
+                "cmuxRuntime": runtime,
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]
+            run["endedAt"] = endedAt
+            var result: [String: Any] = [
+                "sessionId": sessionId,
+                "workspaceId": "workspace",
+                "surfaceId": "surface-\(sessionId)",
+                "runId": runId,
+                "activeRunId": runId,
+                "restoreAuthority": true,
+                "foregroundState": foregroundState,
+                "cmuxRuntime": runtime,
+                "runs": [run],
+                "startedAt": 100.0,
+                "updatedAt": 200.0,
+            ]
+            result["completedAt"] = endedAt
+            return result
+        }
+
+        let codexStore: [String: Any] = [
+            "version": 2,
+            "sessions": [
+                "ended-root": record(
+                    sessionId: "ended-root",
+                    runId: "ended-root-run",
+                    foregroundState: "completed",
+                    endedAt: 150
+                ),
+                "ended-child": record(
+                    sessionId: "ended-child",
+                    runId: "ended-child-run",
+                    foregroundState: "completed",
+                    endedAt: 160
+                ),
+                "live-codex": record(
+                    sessionId: "live-codex",
+                    runId: "live-codex-run",
+                    foregroundState: "idle"
+                ),
+            ],
+        ]
+        let claudeStore: [String: Any] = [
+            "version": 2,
+            "sessions": [
+                "live-claude": record(
+                    sessionId: "live-claude",
+                    runId: "live-claude-run",
+                    foregroundState: "working"
+                ),
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: codexStore, options: [.sortedKeys])
+            .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        try JSONSerialization.data(withJSONObject: claudeStore, options: [.sortedKeys])
+            .write(to: root.appendingPathComponent("claude-hook-sessions.json"), options: .atomic)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_RUNTIME_ID"] = "current-runtime"
+
+        for command in [["agents", "tree", "--json"], ["agents", "list", "--json"]] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: command,
+                environment: environment,
+                timeout: 5
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stdout))
+            #expect(result.status == 0, Comment(rawValue: result.stdout))
+            let output = try #require(
+                JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+            )
+            let rows = (output["nodes"] as? [[String: Any]]) ?? (output["sessions"] as? [[String: Any]])
+            let sessionIds = Set(try #require(rows).compactMap { $0["session_id"] as? String })
+            #expect(sessionIds == ["live-claude", "live-codex"], Comment(rawValue: result.stdout))
+        }
+
+        let history = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree", "--all", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!history.timedOut, Comment(rawValue: history.stdout))
+        #expect(history.status == 0, Comment(rawValue: history.stdout))
+        let historyOutput = try #require(
+            JSONSerialization.jsonObject(with: Data(history.stdout.utf8)) as? [String: Any]
+        )
+        let historyNodes = try #require(historyOutput["nodes"] as? [[String: Any]])
+        #expect(Set(historyNodes.compactMap { $0["session_id"] as? String }) == [
+            "ended-root", "ended-child", "live-claude", "live-codex",
+        ])
+    }
+
     @Test func agentsTreeKeepsDistinctSessionsThatShareAProcessGeneration() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
