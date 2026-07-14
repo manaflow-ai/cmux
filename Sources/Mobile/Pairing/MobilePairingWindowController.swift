@@ -56,7 +56,7 @@ final class MobilePairingWindowController: ReleasingWindowController {
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         // Tall enough that the title, the manual-entry block, and the whole QR
         // are visible without scrolling out of the box; the 540x720 default
-        // clipped the heading and pushed Copy IP/Port below the fold in
+        // clipped the heading and pushed Copy Address below the fold in
         // dogfood. The minimum keeps the QR plus the manual block usable on
         // small screens.
         window.setContentSize(NSSize(width: 560, height: 800))

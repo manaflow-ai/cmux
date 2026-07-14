@@ -1,8 +1,9 @@
 import Darwin
 import Foundation
 
-/// The single `host` + `port` the Mac pairing window offers for manual entry
-/// (the "Copy IP" / "Copy Port" buttons next to the QR code).
+/// The single `host:port` address the Mac pairing window offers for manual
+/// entry (the "Copy Address" button next to the QR code) and the phone's
+/// address box parses back.
 ///
 /// Selection mirrors the QR's trust rules and the phone's manual-entry needs:
 /// only routes a phone can actually dial qualify (loopback never does, by the
@@ -11,15 +12,22 @@ import Foundation
 /// works even when the phone's DNS is not pointed at the tailnet. Ties fall
 /// back to the Mac's own route priority order.
 public struct CmxManualPairingEntry: Equatable, Sendable {
-    /// The address the user types into the phone's host field.
+    /// The bare host part of the address (no brackets, no port).
     public let host: String
-    /// The port the user types into the phone's port field.
+    /// The port part of the address.
     public let port: Int
+
+    /// The one-string `host:port` form the Mac copies and the phone pastes.
+    /// IPv6 hosts are bracketed (`[fe80::1]:58465`) so the port separator
+    /// stays unambiguous.
+    public var displayString: String {
+        host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+    }
 
     /// Creates a manual-entry pair.
     /// - Parameters:
-    ///   - host: The address for the phone's host field.
-    ///   - port: The port for the phone's port field.
+    ///   - host: The bare host part of the address.
+    ///   - port: The port part of the address.
     public init(host: String, port: Int) {
         self.host = host
         self.port = port
@@ -42,6 +50,81 @@ public struct CmxManualPairingEntry: Equatable, Sendable {
         let pick = pool.first { isIPLiteral($0.entry.host) } ?? pool.first
         return pick?.entry
     }
+
+    /// Why ``parse(_:defaultPort:)`` rejected an address, so the caller can
+    /// show the host-shaped or port-shaped error instead of guessing (a user
+    /// typing `:58465` has a host problem, not a port problem).
+    public enum ParseError: Error, Equatable, Sendable {
+        /// The host part is missing or the bracket form is malformed
+        /// (empty input, `:port`, `[]`, `[v6` with no closing bracket,
+        /// or junk between `]` and the port separator).
+        case invalidHost
+        /// An explicit port separator is present but the port is not a
+        /// number in `1...65535`. Carries the intact host part so host-keyed
+        /// UI (the manual-route trust warning) keeps working while the user
+        /// is mid-typing a port, e.g. on the trailing colon of `10.0.0.5:`.
+        case invalidPort(host: String)
+    }
+
+    /// Splits a user-entered address into host + port, inverting
+    /// ``displayString``: accepts `host`, `host:port`, `[v6]`, `[v6]:port`,
+    /// and a bare bracketless IPv6 literal (two or more colons, which can
+    /// never be a `host:port` split, so the whole string is the host).
+    ///
+    /// Only the shape is decided here; host *validity* (no schemes, paths,
+    /// or whitespace) stays with the caller's host policy. Failures carry a
+    /// ``ParseError`` naming the broken part so error messages stay honest.
+    /// - Parameters:
+    ///   - input: The raw address string the user typed or pasted.
+    ///   - defaultPort: The port used when `input` has no port suffix.
+    public static func parse(
+        _ input: String, defaultPort: Int
+    ) -> Result<CmxManualPairingEntry, ParseError> {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return .failure(.invalidHost)
+        }
+
+        if trimmed.hasPrefix("[") {
+            guard let closing = trimmed.firstIndex(of: "]") else {
+                return .failure(.invalidHost)
+            }
+            let host = String(trimmed[trimmed.index(after: trimmed.startIndex)..<closing])
+            let remainder = trimmed[trimmed.index(after: closing)...]
+            guard !host.isEmpty else {
+                return .failure(.invalidHost)
+            }
+            if remainder.isEmpty {
+                return .success(CmxManualPairingEntry(host: host, port: defaultPort))
+            }
+            guard remainder.hasPrefix(":") else {
+                return .failure(.invalidHost)
+            }
+            guard let port = validPort(remainder.dropFirst()) else {
+                return .failure(.invalidPort(host: host))
+            }
+            return .success(CmxManualPairingEntry(host: host, port: port))
+        }
+
+        let colonCount = trimmed.filter { $0 == ":" }.count
+        switch colonCount {
+        case 0:
+            return .success(CmxManualPairingEntry(host: trimmed, port: defaultPort))
+        case 1:
+            let separator = trimmed.firstIndex(of: ":")!
+            let host = String(trimmed[..<separator])
+            guard !host.isEmpty else {
+                return .failure(.invalidHost)
+            }
+            guard let port = validPort(trimmed[trimmed.index(after: separator)...]) else {
+                return .failure(.invalidPort(host: host))
+            }
+            return .success(CmxManualPairingEntry(host: host, port: port))
+        default:
+            // Bracketless IPv6 literal; there is no unambiguous port split.
+            return .success(CmxManualPairingEntry(host: trimmed, port: defaultPort))
+        }
+    }
 }
 private extension CmxManualPairingEntry {
     /// Whether `host` is a strict numeric IP literal (dotted-quad IPv4 or any
@@ -53,5 +136,14 @@ private extension CmxManualPairingEntry {
         }
         var ipv6 = in6_addr()
         return inet_pton(AF_INET6, host, &ipv6) == 1
+    }
+
+    /// Parses a port substring, requiring all digits and the 1...65535 range.
+    static func validPort(_ text: Substring) -> Int? {
+        guard !text.isEmpty, text.allSatisfy({ $0.isASCII && $0.isNumber }), let port = Int(text),
+              (1...65535).contains(port) else {
+            return nil
+        }
+        return port
     }
 }

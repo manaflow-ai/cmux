@@ -56,9 +56,9 @@ import Testing
     @Test func valueIsNilWhenBlank() {
         let env = [
             "CMUX_UITEST_MOCK_DATA": "1",
-            "CMUX_UITEST_ADD_DEVICE_HOST": "   ",
+            "CMUX_UITEST_ADD_DEVICE_ADDRESS": "   ",
         ]
-        #expect(UITestConfig.value(for: "CMUX_UITEST_ADD_DEVICE_HOST", env: env) == nil)
+        #expect(UITestConfig.value(for: "CMUX_UITEST_ADD_DEVICE_ADDRESS", env: env) == nil)
     }
 
     // MARK: - dogfoodAttachURL (NOT mock-gated)
