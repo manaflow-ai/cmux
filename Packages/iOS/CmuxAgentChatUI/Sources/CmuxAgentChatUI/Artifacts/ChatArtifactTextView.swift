@@ -6,6 +6,8 @@ import UIKit
 struct ChatArtifactTextView: UIViewRepresentable {
     let documentID: String
     let chunks: [String]
+    let topRequestID: Int
+    let bottomRequestID: Int
 
     func makeCoordinator() -> ChatArtifactTextViewCoordinator {
         ChatArtifactTextViewCoordinator()
@@ -39,6 +41,8 @@ struct ChatArtifactTextView: UIViewRepresentable {
             textView.selectedRange = NSRange(location: 0, length: 0)
             context.coordinator.documentID = documentID
             context.coordinator.appliedChunkCount = 0
+            context.coordinator.handledTopRequestID = topRequestID
+            context.coordinator.handledBottomRequestID = bottomRequestID
         }
 
         guard context.coordinator.appliedChunkCount <= chunks.count else {
@@ -68,14 +72,29 @@ struct ChatArtifactTextView: UIViewRepresentable {
         }
 
         if isNewDocument {
-            textView.setContentOffset(
-                CGPoint(
-                    x: -textView.adjustedContentInset.left,
-                    y: -textView.adjustedContentInset.top
-                ),
-                animated: false
-            )
+            Self.scrollToTop(textView)
+        } else {
+            if context.coordinator.handledTopRequestID != topRequestID {
+                context.coordinator.handledTopRequestID = topRequestID
+                Self.scrollToTop(textView)
+            }
+            if context.coordinator.handledBottomRequestID != bottomRequestID {
+                context.coordinator.handledBottomRequestID = bottomRequestID
+                textView.scrollRangeToVisible(
+                    NSRange(location: textView.textStorage.length, length: 0)
+                )
+            }
         }
+    }
+
+    private static func scrollToTop(_ textView: UITextView) {
+        textView.setContentOffset(
+            CGPoint(
+                x: -textView.adjustedContentInset.left,
+                y: -textView.adjustedContentInset.top
+            ),
+            animated: false
+        )
     }
 }
 #endif

@@ -5,5 +5,7 @@ import Foundation
 final class ChatArtifactTextViewCoordinator {
     var documentID: String?
     var appliedChunkCount = 0
+    var handledTopRequestID = 0
+    var handledBottomRequestID = 0
 }
 #endif

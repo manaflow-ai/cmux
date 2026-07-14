@@ -16,6 +16,8 @@ struct ChatArtifactViewerRouteView: View {
     @Environment(\.chatArtifactLoader) private var loader
     @State private var model = ChatArtifactViewerModel()
     @State private var retryGeneration = 0
+    @State private var topRequestID = 0
+    @State private var bottomRequestID = 0
 
     var body: some View {
         content
@@ -29,6 +31,29 @@ struct ChatArtifactViewerRouteView: View {
                         onDone()
                     }
                 }
+                #if os(iOS)
+                if model.state == .text {
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        Button {
+                            topRequestID += 1
+                        } label: {
+                            Label(
+                                String(
+                                    localized: "chat.artifact.jump.top",
+                                    defaultValue: "Top",
+                                    bundle: .module
+                                ),
+                                systemImage: "arrow.up.to.line"
+                            )
+                        }
+                        Button {
+                            bottomRequestID += 1
+                        } label: {
+                            Label(jumpToBottomTitle, systemImage: "arrow.down.to.line")
+                        }
+                    }
+                }
+                #endif
             }
             .task(id: "\(path)\u{0}\(retryGeneration)") {
                 await model.load(path: path, loader: loader)
@@ -77,7 +102,12 @@ struct ChatArtifactViewerRouteView: View {
                     streamingProgressHeader
                 }
                 #if canImport(UIKit)
-                ChatArtifactTextView(documentID: path, chunks: model.textChunks)
+                ChatArtifactTextView(
+                    documentID: path,
+                    chunks: model.textChunks,
+                    topRequestID: topRequestID,
+                    bottomRequestID: bottomRequestID
+                )
                 #else
                 ScrollView {
                     Text(model.renderedText)
@@ -203,6 +233,21 @@ struct ChatArtifactViewerRouteView: View {
 
     private var displayName: String {
         URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private var jumpToBottomTitle: String {
+        if model.textReachedEOF {
+            return String(
+                localized: "chat.artifact.jump.end",
+                defaultValue: "End",
+                bundle: .module
+            )
+        }
+        return String(
+            localized: "chat.artifact.jump.bottom",
+            defaultValue: "Bottom",
+            bundle: .module
+        )
     }
 
     private var forbiddenMessage: String {
