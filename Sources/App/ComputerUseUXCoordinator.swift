@@ -18,6 +18,7 @@ final class ComputerUseUXCoordinator {
 
     private var menuBarController: ComputerUseMenuBarController?
     private var cursorOverlayController: ComputerUseCursorOverlayController?
+    private var watchTargetController: ComputerUseWatchTargetController?
     private var onboardingWindowController: ComputerUseOnboardingWindowController?
     private var enabledSettingTask: Task<Void, Never>?
     private var agentSessionRequiresRestart = false
@@ -90,7 +91,17 @@ final class ComputerUseUXCoordinator {
                 else {
                     return
                 }
-                _ = application.activate(options: [.activateAllWindows])
+                // NSRunningApplication.activate is unreliable at fronting another
+                // app on macOS 14+; NSWorkspace.openApplication genuinely brings
+                // the already-running target to the front.
+                if let bundleURL = application.bundleURL {
+                    let configuration = NSWorkspace.OpenConfiguration()
+                    configuration.activates = true
+                    configuration.createsNewApplicationInstance = false
+                    NSWorkspace.shared.openApplication(at: bundleURL, configuration: configuration) { _, _ in }
+                } else {
+                    _ = application.activate(options: [.activateAllWindows])
+                }
             }
         )
 
@@ -104,6 +115,16 @@ final class ComputerUseUXCoordinator {
         cursorOverlay.start()
         cursorOverlayController = cursorOverlay
 
+        // Bring the app the local driver is steering to the front (once per target)
+        // so the user watches the automation instead of the cmux-hosted cursor
+        // clicking on top of a hidden target. Gated the same way via `featureEnabled`.
+        let watchTarget = ComputerUseWatchTargetController(
+            stateDirectoryURL: stateDirectoryURL,
+            featureEnabled: featureEnabled
+        )
+        watchTarget.start()
+        watchTargetController = watchTarget
+
         // Offer permission setup at app startup so the embedded driver does not
         // have to be the first process to discover missing TCC grants.
         presentOnboardingAutomaticallyIfNeeded()
@@ -112,6 +133,8 @@ final class ComputerUseUXCoordinator {
     func teardown() {
         cursorOverlayController?.stop()
         cursorOverlayController = nil
+        watchTargetController?.stop()
+        watchTargetController = nil
     }
 
     func presentOnboarding() {

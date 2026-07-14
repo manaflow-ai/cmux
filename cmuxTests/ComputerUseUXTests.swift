@@ -254,6 +254,72 @@ struct ComputerUseUXTests {
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "1")
     }
 
+    // MARK: - Watch-the-target activation
+
+    @Test func watchTargetActivatesEachNewTargetExactlyOnce() {
+        // A brand-new target (nothing activated yet) is fronted.
+        #expect(ComputerUseWatchTargetDecision.activation(current: 100, lastActivated: nil) == 100)
+        // The same target driving again (every action rewrites the state file) is
+        // NOT re-fronted — this is what keeps cmux from stealing focus repeatedly.
+        #expect(ComputerUseWatchTargetDecision.activation(current: 100, lastActivated: 100) == nil)
+        // A different app starts being driven -> front it once.
+        #expect(ComputerUseWatchTargetDecision.activation(current: 200, lastActivated: 100) == 200)
+    }
+
+    @Test func watchTargetDoesNotReFrontAfterUserFocusAwayOrIdleGap() {
+        // The user manually clicks into cmux mid-session. The driver keeps driving
+        // the same target pid, so `current` stays equal to `lastActivated` and we
+        // return nil: cmux does not yank focus back to the target.
+        #expect(ComputerUseWatchTargetDecision.activation(current: 100, lastActivated: 100) == nil)
+        // A brief idle gap between actions makes the state file momentarily stale
+        // (current == nil). We must keep the last target and do nothing, so that
+        // when the same target resumes it is still deduped rather than re-fronted.
+        #expect(ComputerUseWatchTargetDecision.activation(current: nil, lastActivated: 100) == nil)
+    }
+
+    @Test func watchTargetActivatesNewTargetAfterPreviousOneCleared() {
+        // Target A was fronted; its session ended (state went stale -> nil). When a
+        // genuinely different target B begins being driven, front B once. `lastActivated`
+        // remains A across the idle gap, so B (!= A) is correctly detected as new.
+        #expect(ComputerUseWatchTargetDecision.activation(current: nil, lastActivated: 100) == nil)
+        #expect(ComputerUseWatchTargetDecision.activation(current: 300, lastActivated: 100) == 300)
+    }
+
+    @Test func watchTargetFeedSelectsNewestFreshDriverState() throws {
+        try withStateDirectory { directory in
+            let now = Date(timeIntervalSince1970: 2_000_000_000)
+            try writeState(
+                to: directory.appendingPathComponent("older.json"),
+                pid: 10, session: nil, targetPID: 500, lastActionAt: now.addingTimeInterval(-3)
+            )
+            try writeState(
+                to: directory.appendingPathComponent("newer.json"),
+                pid: 11, session: nil, targetPID: 600, lastActionAt: now.addingTimeInterval(-1)
+            )
+            // A cursor feed file in the same directory must never be mistaken for a
+            // driver state.
+            try writeCursorState(
+                to: directory.appendingPathComponent("11.cursor.json"),
+                driverPID: 11, visible: true, x: 1, y: 1, updatedAt: now
+            )
+            let selected = ComputerUseWatchTargetFeed().scan(directoryURL: directory, now: now)
+            #expect(selected?.targetPID == 600)
+        }
+    }
+
+    @Test func watchTargetFeedRejectsStaleDriverState() throws {
+        try withStateDirectory { directory in
+            let now = Date(timeIntervalSince1970: 2_000_000_000)
+            // Older than the freshness window -> the session is no longer driving.
+            try writeState(
+                to: directory.appendingPathComponent("stale.json"),
+                pid: 10, session: nil, targetPID: 500, lastActionAt: now.addingTimeInterval(-30)
+            )
+            let feed = ComputerUseWatchTargetFeed(freshnessInterval: 5)
+            #expect(feed.scan(directoryURL: directory, now: now) == nil)
+        }
+    }
+
     // MARK: - Cursor overlay
 
     @Test func cursorFeedFlipsGlobalTopLeftToAppKitBottomLeft() {
