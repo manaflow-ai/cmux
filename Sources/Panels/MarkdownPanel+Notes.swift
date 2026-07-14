@@ -94,15 +94,32 @@ extension MarkdownPanel {
         guard !isClosed, let slug = noteSlug else { return }
         let bodyPath = (filePath as NSString).standardizingPath
         guard let projectRoot = NoteSupport.projectRoot(forNotePath: bodyPath) else { return }
+        let trimmed = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        // Optimistic: drive the shared retitle path immediately so the
+        // header, tab, sibling panels, and derived workspace title switch
+        // once — no flash back to the old title while the index write runs.
+        // The store's result reconciles below (repost with the recorded
+        // title, or the previous title as rollback when the write fails).
+        let previousTitle = displayTitle
+        // Apply to this panel synchronously (the notification observer hops a
+        // runloop turn, which is exactly the stale frame the flicker was),
+        // then post so siblings and the tree follow.
+        followRetitle(bodyPath: bodyPath, title: trimmed)
+        NotificationCenter.default.post(
+            name: .cmuxNoteRetitled,
+            object: nil,
+            userInfo: ["bodyPath": bodyPath, "title": trimmed]
+        )
         Task.detached(priority: .userInitiated) {
-            guard let record = try? CmuxNoteStore.retitle(
-                slug: slug, projectRoot: projectRoot, title: rawTitle
-            ) else { return }
+            let record = try? CmuxNoteStore.retitle(
+                slug: slug, projectRoot: projectRoot, title: trimmed
+            )
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: .cmuxNoteRetitled,
                     object: nil,
-                    userInfo: ["bodyPath": bodyPath, "title": record.title]
+                    userInfo: ["bodyPath": bodyPath, "title": record?.title ?? previousTitle]
                 )
             }
         }

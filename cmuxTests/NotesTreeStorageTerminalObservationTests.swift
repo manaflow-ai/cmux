@@ -367,6 +367,29 @@ import Testing
     /// components, non-markdown files, and the notes root itself — otherwise
     /// opening them in a markdown panel would enable implicit autosave over
     /// cmux metadata.
+    /// Renaming from the note header must repaint every title surface
+    /// (header, tab, sibling panels, derived workspace title) exactly once:
+    /// the shared retitle notification fires synchronously with the new
+    /// title before the index write, so nothing flashes back to the old
+    /// title while the store round-trips (it reconciles afterwards).
+    @Test @MainActor func renameNoteTitleUpdatesDisplayTitleSynchronously() throws {
+        let result = try CmuxNoteStore.createOrOpen(
+            slug: nil, title: "Old Title", projectRoot: projectRoot, createIfMissing: true
+        )
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: result.path)
+        panel.markAsProjectNote(
+            slug: result.note.slug, id: result.note.id,
+            bodyPath: result.note.bodyPath, title: result.note.title
+        )
+        #expect(panel.displayTitle == "Old Title")
+
+        panel.renameNoteTitle("New Title")
+
+        // No awaiting: the optimistic retitle must have landed already.
+        #expect(panel.displayTitle == "New Title")
+        panel.close()
+    }
+
     @Test @MainActor func noteClassificationRejectsMetadataAndNonMarkdownPaths() throws {
         let notesDir = (projectRoot as NSString).appendingPathComponent(".cmux/notes")
         try fm.createDirectory(atPath: notesDir, withIntermediateDirectories: true)
