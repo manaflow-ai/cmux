@@ -209,8 +209,12 @@ extension AppDelegateSurfaceShortcutRoutingTests {
 
     @Test func reorderShortcutsDoNotMutateMainWindowFromAuxiliaryWindowEvent() throws {
         let appDelegate = try #require(AppDelegate.shared)
+        let previousTabManager = appDelegate.tabManager
         let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+        defer {
+            closeWindow(withId: windowId)
+            appDelegate.tabManager = previousTabManager
+        }
 
         let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
         let firstWorkspace = try #require(manager.selectedWorkspace)
