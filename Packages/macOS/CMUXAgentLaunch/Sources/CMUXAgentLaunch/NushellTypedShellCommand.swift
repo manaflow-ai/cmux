@@ -15,6 +15,7 @@ import Foundation
 /// ``AgentResumeArgv/portableClaudeResumeShellCommand(posixCommand:)``
 /// (issue #5639) and the `/bin/zsh <launcher-script>` startup inputs.
 public struct NushellTypedShellCommand {
+    /// The renderer is stateless; construct at the call site.
     public init() {}
 
     /// A nushell-parseable line that runs `posixCommand` through `/bin/sh`.

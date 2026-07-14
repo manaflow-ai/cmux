@@ -12,10 +12,12 @@
 # cannot mutate the environment; cmux registers string hooks that call the
 # `def --env` entry points below, so mutations persist across prompts.
 
+# Whether the cmux integration is active (CMUX_SHELL_INTEGRATION=0 disables it).
 def _cmux_integration_enabled [] {
     ($env.CMUX_SHELL_INTEGRATION? | default "1") != "0"
 }
 
+# Picks the socket transport once at source time: ncat, socat, or nc.
 def _cmux_pick_send_tool [] {
     if (which ncat | is-not-empty) {
         "ncat"
@@ -28,6 +30,8 @@ def _cmux_pick_send_tool [] {
     }
 }
 
+# Whether CMUX_SOCKET_PATH points at a live unix socket; positive results are
+# cached for the session because the probe forks /bin/test.
 def --env _cmux_socket_is_unix [] {
     let sock = ($env.CMUX_SOCKET_PATH? | default "")
     if ($sock | is-empty) { return false }
@@ -41,12 +45,14 @@ def --env _cmux_socket_is_unix [] {
     $live
 }
 
+# Resolves the cmux CLI used for remote-relay RPCs, preferring the bundled binary.
 def _cmux_relay_cli_path [] {
     let bundled = ($env.CMUX_BUNDLED_CLI_PATH? | default "")
     if ($bundled != "") and ($bundled | path exists) { return $bundled }
     which cmux | get -o 0.path | default ""
 }
 
+# Whether CMUX_SOCKET_PATH is a host:port relay address reachable through the cmux CLI.
 def _cmux_socket_uses_remote_relay [] {
     let sock = ($env.CMUX_SOCKET_PATH? | default "")
     if ($sock | is-empty) { return false }
@@ -55,6 +61,7 @@ def _cmux_socket_uses_remote_relay [] {
     (_cmux_relay_cli_path) != ""
 }
 
+# Sends one payload line to the cmux socket, synchronously.
 def _cmux_send [payload: string] {
     if ($payload | is-empty) { return }
     let sock = ($env.CMUX_SOCKET_PATH? | default "")
@@ -73,6 +80,9 @@ def _cmux_send [payload: string] {
     }
 }
 
+# Sends a payload without blocking the prompt (job spawn). CMUX_TEST_SYNC_SEND=1
+# forces the synchronous path so tests are deterministic (nushell kills jobs at
+# shell exit, which a -c script would race).
 def _cmux_send_bg [payload: string] {
     if ($env.CMUX_TEST_SYNC_SEND? | default "") == "1" {
         _cmux_send $payload
@@ -81,6 +91,8 @@ def _cmux_send_bg [payload: string] {
     job spawn { _cmux_send $payload } | ignore
 }
 
+# Escapes a value for the quoted field of a socket payload, mirroring the fish
+# integration's escaping so the app-side parser sees identical wire format.
 def _cmux_json_escape [value: string] {
     $value
     | str replace -a "\\" "\\\\"
@@ -90,12 +102,14 @@ def _cmux_json_escape [value: string] {
     | str replace -a "\t" "\\t"
 }
 
+# Workspace id for relay RPC params, falling back to the tab id.
 def _cmux_relay_workspace_id [] {
     let workspace = ($env.CMUX_WORKSPACE_ID? | default "")
     if $workspace != "" { return $workspace }
     $env.CMUX_TAB_ID? | default ""
 }
 
+# Fires a cmux relay RPC without blocking the prompt.
 def _cmux_relay_rpc_bg [method: string, params: string] {
     let cli = (_cmux_relay_cli_path)
     if ($cli | is-empty) { return }
@@ -106,11 +120,7 @@ def _cmux_relay_rpc_bg [method: string, params: string] {
     job spawn { ^$cli rpc $method $params | complete | ignore } | ignore
 }
 
-def _cmux_relay_params [pairs: record] {
-    mut params = ($pairs | to json --raw)
-    $params
-}
-
+# Reports the tty name through the remote relay.
 def _cmux_report_tty_via_relay [] {
     if not (_cmux_socket_uses_remote_relay) { return }
     let name = ($env._CMUX_TTY_NAME? | default "")
@@ -123,6 +133,7 @@ def _cmux_report_tty_via_relay [] {
     _cmux_relay_rpc_bg surface.report_tty ($payload | to json --raw)
 }
 
+# Reports a cwd change through the remote relay; returns true when dispatched.
 def _cmux_report_pwd_via_relay [pwd: string] {
     if not (_cmux_socket_uses_remote_relay) { return false }
     if ($pwd | is-empty) { return false }
@@ -135,6 +146,7 @@ def _cmux_report_pwd_via_relay [pwd: string] {
     true
 }
 
+# Requests a port scan through the remote relay.
 def _cmux_ports_kick_via_relay [reason: string] {
     if not (_cmux_socket_uses_remote_relay) { return }
     let workspace = (_cmux_relay_workspace_id)
@@ -145,6 +157,8 @@ def _cmux_ports_kick_via_relay [reason: string] {
     _cmux_relay_rpc_bg surface.ports_kick ($payload | to json --raw)
 }
 
+# Reports the surface tty once per session so cmux can map this shell to its
+# panel. Honors a preset _CMUX_TTY_NAME (tests have no tty to probe).
 def --env _cmux_report_tty_once [] {
     if ($env._CMUX_TTY_REPORTED? | default "") == "1" { return }
     mut name = ($env._CMUX_TTY_NAME? | default "")
@@ -169,6 +183,7 @@ def --env _cmux_report_tty_once [] {
     }
 }
 
+# Reports busy/idle transitions (running/prompt), deduped across repeated prompts.
 def --env _cmux_report_shell_activity_state [state: string] {
     if ($state | is-empty) { return }
     # Dedupe before the socket probe: this runs on every prompt and the
@@ -183,6 +198,8 @@ def --env _cmux_report_shell_activity_state [state: string] {
     _cmux_send_bg $"report_shell_state ($state) --tab=($tab) --panel=($panel)"
 }
 
+# Reports the cwd when it changed since the last prompt; feeds cmux's
+# workspace current-directory tracking.
 def --env _cmux_report_pwd_if_changed [] {
     let pwd = $env.PWD
     if $pwd == ($env._CMUX_PWD_LAST_PWD? | default "") { return }
@@ -199,6 +216,7 @@ def --env _cmux_report_pwd_if_changed [] {
     }
 }
 
+# Requests a cmux port scan (reason: command or refresh).
 def --env _cmux_ports_kick [reason: string] {
     mut why = $reason
     if ($why | is-empty) { $why = "command" }
@@ -214,12 +232,15 @@ def --env _cmux_ports_kick [reason: string] {
     }
 }
 
+# Resets modifyOtherKeys/kitty keyboard protocols a crashed TUI can leave enabled.
 def _cmux_reset_terminal_keyboard_protocols [] {
     let forced = ($env.CMUX_TEST_FORCE_KEYBOARD_RESET? | default "") + ($env.CMUX_TEST_FORCE_KITTY_RESET? | default "")
     if ($forced | is-empty) and not (is-terminal --stdout) { return }
     print -n "\e[>m\e[<8u"
 }
 
+# Replays saved scrollback into a restored surface, bracketed by the OSC 1337
+# markers cmux recognizes, then deletes the replay file.
 def --env _cmux_restore_scrollback_once [] {
     let path = ($env.CMUX_RESTORE_SCROLLBACK_FILE? | default "")
     if ($path | is-empty) { return }
@@ -235,6 +256,7 @@ def --env _cmux_restore_scrollback_once [] {
     print -n $"\e]1337;CurrentDir=kitty-shell-cwd://($host)($env.PWD)\u{07}"
 }
 
+# Locates a bundled cmux CLI wrapper relative to CMUX_SHELL_INTEGRATION_DIR.
 def _cmux_wrapper_path [wrapper_file: string] {
     let dir = ($env.CMUX_SHELL_INTEGRATION_DIR? | default "")
     if ($dir | is-empty) { return "" }
@@ -260,6 +282,7 @@ def --wrapped claude [...args: string] {
     }
 }
 
+# Routes grok through the bundled cmux wrapper when present.
 def --wrapped grok [...args: string] {
     let wrapper = (_cmux_wrapper_path "grok")
     if ($wrapper != "") {
@@ -269,6 +292,8 @@ def --wrapped grok [...args: string] {
     }
 }
 
+# pre_execution hook: report tty + busy state and kick a port scan before a
+# command runs.
 def --env _cmux_pre_execution [] {
     if not (_cmux_integration_enabled) { return }
     _cmux_report_tty_once
@@ -276,6 +301,8 @@ def --env _cmux_pre_execution [] {
     _cmux_ports_kick command
 }
 
+# pre_prompt hook: keyboard reset, tty/idle/cwd reports, and a port-scan
+# refresh at most every 5 seconds.
 def --env _cmux_pre_prompt [] {
     if not (_cmux_integration_enabled) { return }
     _cmux_reset_terminal_keyboard_protocols

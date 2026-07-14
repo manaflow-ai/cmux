@@ -39,6 +39,10 @@ enum TerminalStartupShellDialect: Equatable {
     case posix
     case nushell
 
+    /// Maps a shell executable path to its dialect by basename. Everything
+    /// except `nu` is treated as POSIX: every other login shell cmux supports
+    /// (zsh/bash/fish/csh/dash/ksh) parses the POSIX command strings cmux
+    /// generates.
     static func forShellPath(_ shell: String?) -> TerminalStartupShellDialect {
         guard let shell = shell?.trimmingCharacters(in: .whitespacesAndNewlines),
               !shell.isEmpty else {
@@ -68,12 +72,18 @@ enum TerminalStartupShellDialect: Equatable {
 /// Launcher-script inputs (`/bin/zsh '<script>'`) parse in every supported
 /// shell and do not need this.
 struct TerminalStartupTypedShellCommand {
+    /// Dialect of the shell that will parse the rendered input.
     let dialect: TerminalStartupShellDialect
 
+    /// Defaults to the login shell cmux spawns local surfaces with; pass
+    /// ``TerminalStartupShellDialect/remoteHost`` when the input is typed
+    /// into a remote host's shell instead.
     init(dialect: TerminalStartupShellDialect = .loginShell) {
         self.dialect = dialect
     }
 
+    /// Renders `posixCommand` for typing: verbatim for POSIX shells,
+    /// delegated through `/bin/sh` for nushell (which cannot parse POSIX).
     func typedInput(posixCommand: String) -> String {
         switch dialect {
         case .posix:
@@ -876,6 +886,9 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         return restoreCommand.map { $0 + "\n" }
     }
 
+    /// Input that forks this agent conversation when typed into a shell.
+    /// `dialect` must match the shell that will parse it — `.remoteHost` for
+    /// remote forks.
     func forkStartupInput(
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,

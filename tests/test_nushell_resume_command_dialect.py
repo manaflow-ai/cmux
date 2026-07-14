@@ -51,6 +51,7 @@ from typing import Optional
 
 
 def _find_nu() -> Optional[str]:
+    """Locate a nu binary: CMUX_TEST_NU_BIN override, PATH, then Homebrew paths."""
     override = os.environ.get("CMUX_TEST_NU_BIN")
     candidates = [
         override,
@@ -65,6 +66,7 @@ def _find_nu() -> Optional[str]:
 
 
 def _require_nu() -> Optional[str]:
+    """Return a nu path, skip loudly when absent locally, fail when CI is set."""
     nu = _find_nu()
     if nu is None:
         if os.environ.get("CI"):
@@ -98,11 +100,13 @@ def posix_printf_substitution(value: str) -> str:
 
 
 def legacy_resume_command(workdir: str, argv_tail: str) -> str:
+    """The historical POSIX resume one-liner shape for `workdir` + agent argv."""
     quoted = posix_quote(workdir)
     return f"cd -- {quoted} 2>/dev/null || [ ! -d {quoted} ] && {argv_tail}"
 
 
 def _sandbox(tmp: Path) -> dict:
+    """Build an isolated env whose PATH resolves `claude` to an argv/cwd/env recorder."""
     record_dir = tmp / "record"
     record_dir.mkdir()
     bin_dir = tmp / "bin"
@@ -135,6 +139,7 @@ def _sandbox(tmp: Path) -> dict:
 
 
 def _run_nu_c(nu: str, env: dict, command: str, cwd: Path) -> subprocess.CompletedProcess:
+    """Run `command` through plain `nu -c`, matching the auto-resume dispatch and typed input."""
     # Matches the auto-resume dispatch and typed input: plain `nu -c '<cmd>'`.
     return subprocess.run(
         [nu, "-c", command],
@@ -148,12 +153,14 @@ def _run_nu_c(nu: str, env: dict, command: str, cwd: Path) -> subprocess.Complet
 
 
 def _read(record_dir: Path, name: str) -> str:
+    """Read a file the fake agent recorded, failing if the agent never ran."""
     path = record_dir / name
     assert path.exists(), f"agent never wrote {name} (was it launched?)"
     return path.read_text(encoding="utf-8").rstrip("\n")
 
 
 def _debug(proc: subprocess.CompletedProcess) -> str:
+    """Render process (and socket) state for assertion failure messages."""
     return (
         f"\nexit={proc.returncode}"
         f"\n--- nu stdout ---\n{proc.stdout}"
