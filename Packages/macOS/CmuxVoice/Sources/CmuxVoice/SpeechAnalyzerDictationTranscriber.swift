@@ -112,6 +112,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     private var audioEngine: AVAudioEngine?
     private var resultsTask: Task<Void, Never>?
     private var configurationChangeTask: Task<Void, Never>?
+    private var outputContinuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
     private var isFinishing = false
 
     /// Creates an engine for one session.
@@ -175,6 +176,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         observeConfigurationChanges()
 
         let (stream, continuation) = AsyncThrowingStream<DictationTranscriptionEvent, any Error>.makeStream()
+        outputContinuation = continuation
         resultsTask = Task {
             do {
                 for try await result in transcriber.results {
@@ -198,9 +200,15 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         isFinishing = true
         stopAudioEngine()
         inputBox.finish()
-        // Finalizes the trailing volatile hypothesis; the results sequence
-        // then ends, which ends the caller's event stream.
-        try? await analyzer?.finalizeAndFinishThroughEndOfInput()
+        do {
+            // Finalizes the trailing volatile hypothesis; the results
+            // sequence then ends, which ends the caller's event stream.
+            try await analyzer?.finalizeAndFinishThroughEndOfInput()
+        } catch {
+            // The results sequence may never end after a failed finalize;
+            // end the caller's stream directly so the session can settle.
+            outputContinuation?.finish()
+        }
         analyzer = nil
         transcriber = nil
     }
@@ -251,6 +259,16 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         engine.stop()
         audioEngine = nil
         inputBox.resetConverter()
-        try? startAudioEngine()
+        do {
+            try startAudioEngine()
+        } catch {
+            // No usable input device after the change: fail the session
+            // instead of listening to silence forever.
+            isFinishing = true
+            inputBox.finish()
+            outputContinuation?.finish(
+                throwing: DictationFailure.audioCaptureFailed(error.localizedDescription)
+            )
+        }
     }
 }

@@ -23,6 +23,7 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
     private weak var pinnedWebView: WKWebView?
     private weak var pinnedTerminalPanel: TerminalPanel?
     private var activeRoute: DictationInsertionRoute?
+    private var webViewInsertionBroken = false
 
     init(focusedTerminalPanel: @escaping () -> TerminalPanel?) {
         self.focusedTerminalPanel = focusedTerminalPanel
@@ -61,10 +62,19 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
             return true
         case .webViewEditable:
             guard let webView = pinnedWebView, webView.window != nil,
+                  !webViewInsertionBroken,
                   let literal = text.javaScriptStringLiteral else { return false }
+            // evaluateJavaScript reports failure asynchronously; a failed
+            // insert (page navigated, editable lost focus) marks the route
+            // broken so the next segment ends the session instead of
+            // silently dropping text.
             webView.evaluateJavaScript(
                 "document.execCommand('insertText', false, \(literal));"
-            )
+            ) { [weak self] result, error in
+                if error != nil || (result as? Bool) == false {
+                    self?.webViewInsertionBroken = true
+                }
+            }
             return true
         case .terminalSurface:
             guard let panel = pinnedTerminalPanel else { return false }
@@ -79,6 +89,7 @@ final class VoiceDictationInsertionRouter: DictationTextInserting {
         pinnedWebView = nil
         pinnedTerminalPanel = nil
         activeRoute = nil
+        webViewInsertionBroken = false
     }
 
     private static func enclosingWebView(of view: NSView) -> WKWebView? {
