@@ -27,4 +27,12 @@ public enum PullRequestPanelPhase: Equatable, Sendable {
         if case .loaded = self { return true }
         return false
     }
+
+    /// Whether a GitHub refresh request is currently active.
+    public var isRefreshInFlight: Bool {
+        switch self {
+        case .loading, .refreshing: true
+        case .idle, .loaded, .failed: false
+        }
+    }
 }

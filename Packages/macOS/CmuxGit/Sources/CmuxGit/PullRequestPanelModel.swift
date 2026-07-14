@@ -58,6 +58,7 @@ public final class PullRequestPanelModel {
     /// - Parameter input: The selected workspace checkout.
     public func activate(_ input: PullRequestWorkspaceInput) async {
         guard isVisible else { return }
+        if currentInput == input, phase.isRefreshInFlight { return }
         let didChangeInput = currentInput != input
         if didChangeInput {
             currentInput = input
@@ -91,7 +92,10 @@ public final class PullRequestPanelModel {
     }
 
     private func refresh(resetMergeabilityAttempts: Bool) async {
-        guard isVisible, !actionPhase.isBusy, let input = currentInput else { return }
+        guard isVisible,
+              !phase.isRefreshInFlight,
+              !actionPhase.isBusy,
+              let input = currentInput else { return }
         if resetMergeabilityAttempts { mergeabilityRefreshAttemptCount = 0 }
         generation &+= 1
         let refreshGeneration = generation
@@ -105,9 +109,12 @@ public final class PullRequestPanelModel {
     }
 
     /// Merges the displayed pull request immediately or enables auto-merge.
-    /// - Parameter whenReady: `true` to enable auto-merge; `false` to merge immediately.
-    public func merge(whenReady: Bool) async {
+    /// - Parameters:
+    ///   - whenReady: `true` to enable auto-merge; `false` to merge immediately.
+    ///   - input: The currently visible workspace input that must own the snapshot.
+    public func merge(whenReady: Bool, for input: PullRequestWorkspaceInput) async {
         guard !actionPhase.isBusy,
+              currentInput == input,
               case .loaded(.pullRequest(let snapshot)) = phase else { return }
         if whenReady, snapshot.mergeAvailability == .allowed { return }
         let inputAtStart = currentInput
@@ -130,8 +137,10 @@ public final class PullRequestPanelModel {
     }
 
     /// Disables auto-merge for the displayed pull request.
-    public func disableAutoMerge() async {
+    /// - Parameter input: The currently visible workspace input that must own the snapshot.
+    public func disableAutoMerge(for input: PullRequestWorkspaceInput) async {
         guard !actionPhase.isBusy,
+              currentInput == input,
               case .loaded(.pullRequest(let snapshot)) = phase else { return }
         let inputAtStart = currentInput
         actionPhase = .disablingAutoMerge
@@ -150,8 +159,10 @@ public final class PullRequestPanelModel {
     }
 
     /// Opens GitHub's web pull-request creation flow for the active branch.
-    public func createPullRequest() async {
+    /// - Parameter input: The currently visible workspace input that must own the snapshot.
+    public func createPullRequest(for input: PullRequestWorkspaceInput) async {
         guard !actionPhase.isBusy,
+              currentInput == input,
               case .loaded(.noPullRequest(let context)) = phase else { return }
         let inputAtStart = currentInput
         actionPhase = .creatingPullRequest
@@ -209,6 +220,13 @@ public final class PullRequestPanelModel {
 
     private func accepts(_ expectedGeneration: UInt64, input: PullRequestWorkspaceInput) -> Bool {
         isVisible && generation == expectedGeneration && currentInput == input
+    }
+
+    /// Whether the latest successful content belongs to the supplied visible input.
+    /// - Parameter input: The workspace input currently rendered by the panel.
+    /// - Returns: `true` only when fresh content belongs to `input`.
+    public func hasFreshContent(for input: PullRequestWorkspaceInput) -> Bool {
+        currentInput == input && phase.isFresh
     }
 
     private func serviceError(

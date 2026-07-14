@@ -33,7 +33,7 @@ import Testing
         )
         let cached = PullRequestPanelContent.pullRequest(PullRequestPanelSnapshot(
             context: context,
-            pullRequest: try pullRequestFixture(),
+            pullRequest: try PullRequestFixtureLoader().pullRequest(),
             checks: [],
             checksStatus: .success,
             unresolvedReviewThreadCount: nil,
@@ -47,7 +47,7 @@ import Testing
 
         model.setVisible(true)
         await model.activate(input)
-        await model.merge(whenReady: false)
+        await model.merge(whenReady: false, for: input)
 
         #expect(await service.mergeCallCount == 0)
         model.setVisible(false)
@@ -62,7 +62,7 @@ import Testing
         )
         let content = PullRequestPanelContent.pullRequest(PullRequestPanelSnapshot(
             context: context,
-            pullRequest: try pullRequestFixture(),
+            pullRequest: try PullRequestFixtureLoader().pullRequest(),
             checks: [],
             checksStatus: .success,
             unresolvedReviewThreadCount: nil,
@@ -73,9 +73,81 @@ import Testing
 
         model.setVisible(true)
         await model.activate(input)
-        await model.merge(whenReady: true)
+        await model.merge(whenReady: true, for: input)
 
         #expect(await service.mergeCallCount == 0)
+        model.setVisible(false)
+    }
+
+    @Test @MainActor func branchTransitionRejectsActionsFromOldContent() async throws {
+        let oldInput = PullRequestWorkspaceInput(directory: "/repo", branchHint: "old")
+        let visibleInput = PullRequestWorkspaceInput(directory: "/repo", branchHint: "new")
+        let context = PullRequestPanelContext(
+            repositoryRoot: "/repo",
+            branch: "old",
+            repositorySlug: "example/repo"
+        )
+        let pullRequestContent = PullRequestPanelContent.pullRequest(PullRequestPanelSnapshot(
+            context: context,
+            pullRequest: try PullRequestFixtureLoader().pullRequest(),
+            checks: [],
+            checksStatus: .success,
+            unresolvedReviewThreadCount: nil,
+            mergeMethods: [.squash]
+        ))
+        let pullRequestService = StubPullRequestPanelService(
+            cached: nil,
+            refreshResult: .success(pullRequestContent)
+        )
+        let pullRequestModel = PullRequestPanelModel(service: pullRequestService)
+        pullRequestModel.setVisible(true)
+        await pullRequestModel.activate(oldInput)
+
+        await pullRequestModel.merge(whenReady: false, for: visibleInput)
+        await pullRequestModel.disableAutoMerge(for: visibleInput)
+
+        #expect(await pullRequestService.mergeCallCount == 0)
+        #expect(await pullRequestService.disableAutoMergeCallCount == 0)
+        pullRequestModel.setVisible(false)
+
+        let noPullRequestContent = PullRequestPanelContent.noPullRequest(context)
+        let noPullRequestService = StubPullRequestPanelService(
+            cached: nil,
+            refreshResult: .success(noPullRequestContent)
+        )
+        let noPullRequestModel = PullRequestPanelModel(service: noPullRequestService)
+        noPullRequestModel.setVisible(true)
+        await noPullRequestModel.activate(oldInput)
+
+        await noPullRequestModel.createPullRequest(for: visibleInput)
+
+        #expect(await noPullRequestService.createPullRequestCallCount == 0)
+        noPullRequestModel.setVisible(false)
+    }
+
+    @Test @MainActor func manualRefreshCoalescesWithActiveRefresh() async {
+        let input = PullRequestWorkspaceInput(directory: "/repo", branchHint: "feature")
+        let context = PullRequestPanelContext(
+            repositoryRoot: "/repo",
+            branch: "feature",
+            repositorySlug: "example/repo"
+        )
+        let content = PullRequestPanelContent.noPullRequest(context)
+        let service = StubPullRequestPanelService(
+            cached: content,
+            refreshResult: .success(content),
+            suspendsRefresh: true
+        )
+        let model = PullRequestPanelModel(service: service)
+        model.setVisible(true)
+
+        let activation = Task { await model.activate(input) }
+        await service.waitForRefreshStart()
+        await model.refresh()
+
+        #expect(await service.refreshCallCount == 1)
+        await service.resumeRefreshes()
+        await activation.value
         model.setVisible(false)
     }
 }

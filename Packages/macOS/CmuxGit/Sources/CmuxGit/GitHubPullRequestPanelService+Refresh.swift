@@ -5,6 +5,8 @@ extension GitHubPullRequestPanelService {
     /// Refreshes the branch's pull-request content and stores successful results in the actor cache.
     public func refresh(for input: PullRequestWorkspaceInput) async throws -> PullRequestPanelContent {
         let context = try await resolvedContext(for: input)
+        let refreshSequence = beginRefresh(for: context)
+        defer { finishRefresh(refreshSequence, for: context) }
         let viewResult = await commandRunner.run(
             directory: context.repositoryRoot,
             executable: "gh",
@@ -17,7 +19,7 @@ extension GitHubPullRequestPanelService {
 
         if isNoPullRequest(viewResult) {
             let content = PullRequestPanelContent.noPullRequest(context)
-            storeCachedContent(content, for: context)
+            storeCachedContentIfLatest(content, for: context, refreshSequence: refreshSequence)
             return content
         }
         let viewOutput = try requiredOutput(from: viewResult, failure: .refreshFailed)
@@ -41,7 +43,7 @@ extension GitHubPullRequestPanelService {
             )
         )
         let content = PullRequestPanelContent.pullRequest(snapshot)
-        storeCachedContent(content, for: context)
+        storeCachedContentIfLatest(content, for: context, refreshSequence: refreshSequence)
         return content
     }
 

@@ -1,4 +1,3 @@
-import Combine
 import CmuxGit
 import Foundation
 import SwiftUI
@@ -32,10 +31,13 @@ struct PullRequestPanelWorkspaceView: View {
             isVisible: isVisible,
             onOpenURL: onOpenURL
         )
-        .onReceive(workspace.sidebarObservationPublisher.receive(on: RunLoop.main)) { _ in
-            let updatedInput = Self.pullRequestInput(for: workspace)
-            if input != updatedInput {
-                input = updatedInput
+        .task(id: workspace.id) { @MainActor in
+            for await _ in workspace.sidebarObservationStream() {
+                if Task.isCancelled { break }
+                let updatedInput = Self.pullRequestInput(for: workspace)
+                if input != updatedInput {
+                    input = updatedInput
+                }
             }
         }
     }

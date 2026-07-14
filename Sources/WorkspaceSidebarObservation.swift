@@ -104,6 +104,21 @@ private struct SidebarObservationState: Equatable {
 }
 
 extension Workspace {
+    /// Bridges the legacy sidebar publisher into a task-cancellable async sequence.
+    func sidebarObservationStream() -> AsyncStream<Void> {
+        let publisher = sidebarObservationPublisher
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let observationTask = Task { @MainActor in
+                for await _ in publisher.values {
+                    if Task.isCancelled { break }
+                    continuation.yield(())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in observationTask.cancel() }
+        }
+    }
+
     // User-owned sidebar fields keep a synchronous leading edge. Automatic
     // process titles settle separately: agent TUIs can animate their terminal
     // title at 10 Hz, and per-workspace burst coalescing cannot reduce changes

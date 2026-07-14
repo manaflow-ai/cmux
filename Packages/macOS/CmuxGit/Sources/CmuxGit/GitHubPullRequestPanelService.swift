@@ -9,6 +9,8 @@ public actor GitHubPullRequestPanelService: PullRequestPanelServing {
     nonisolated let gitMetadataService: GitMetadataService
     var cacheByContext: [PullRequestPanelContext: PullRequestPanelContent] = [:]
     var cacheRecency: [PullRequestPanelContext] = []
+    var latestRefreshSequenceByContext: [PullRequestPanelContext: UInt64] = [:]
+    var refreshSequence: UInt64 = 0
 
     /// Creates a GitHub CLI pull-request service.
     /// - Parameters:
@@ -38,5 +40,25 @@ public actor GitHubPullRequestPanelService: PullRequestPanelServing {
         while cacheRecency.count > Self.cacheCapacity {
             cacheByContext.removeValue(forKey: cacheRecency.removeFirst())
         }
+    }
+
+    func beginRefresh(for context: PullRequestPanelContext) -> UInt64 {
+        refreshSequence &+= 1
+        latestRefreshSequenceByContext[context] = refreshSequence
+        return refreshSequence
+    }
+
+    func finishRefresh(_ sequence: UInt64, for context: PullRequestPanelContext) {
+        guard latestRefreshSequenceByContext[context] == sequence else { return }
+        latestRefreshSequenceByContext.removeValue(forKey: context)
+    }
+
+    func storeCachedContentIfLatest(
+        _ content: PullRequestPanelContent,
+        for context: PullRequestPanelContext,
+        refreshSequence: UInt64
+    ) {
+        guard latestRefreshSequenceByContext[context] == refreshSequence else { return }
+        storeCachedContent(content, for: context)
     }
 }

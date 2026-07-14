@@ -4,12 +4,12 @@ import Testing
 @Suite struct PullRequestMergeAvailabilityTests {
     @Test(arguments: ["UNSTABLE", "HAS_HOOKS"])
     func optionalCheckAndHookStatesRemainMergeable(_ state: String) throws {
-        let pullRequest = try pullRequestFixture(mergeStateStatus: state)
+        let pullRequest = try PullRequestFixtureLoader().pullRequest(mergeStateStatus: state)
         #expect(PullRequestMergeAvailability.derive(pullRequest: pullRequest) == .allowed)
     }
 
     @Test func githubBlockedStateBlocksMerge() throws {
-        let pullRequest = try pullRequestFixture(mergeStateStatus: "BLOCKED")
+        let pullRequest = try PullRequestFixtureLoader().pullRequest(mergeStateStatus: "BLOCKED")
         #expect(
             PullRequestMergeAvailability.derive(pullRequest: pullRequest)
                 == .blocked(.githubBlocked)
@@ -23,7 +23,7 @@ import Testing
                 branch: "feature",
                 repositorySlug: "example/repo"
             ),
-            pullRequest: try pullRequestFixture(),
+            pullRequest: try PullRequestFixtureLoader().pullRequest(),
             checks: [],
             checksStatus: .failure,
             unresolvedReviewThreadCount: nil,

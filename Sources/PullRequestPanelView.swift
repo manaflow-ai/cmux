@@ -41,7 +41,7 @@ struct PullRequestPanelView: View {
                     String(localized: "pullRequestPanel.merge.confirm.button", defaultValue: "Merge Pull Request"),
                     role: .destructive
                 ) {
-                    Task { await model.merge(whenReady: false) }
+                    Task { await model.merge(whenReady: false, for: input) }
                 }
                 Button(
                     String(localized: "common.cancel", defaultValue: "Cancel"),
@@ -165,7 +165,7 @@ struct PullRequestPanelView: View {
 
     private func mergeSection(_ snapshot: PullRequestPanelSnapshot) -> some View {
         @Bindable var bindableModel = model
-        let hasFreshContent = model.phase.isFresh
+        let hasFreshContent = model.hasFreshContent(for: input)
         let canMerge = hasFreshContent
             && snapshot.mergeAvailability == .allowed
             && !model.actionPhase.isBusy
@@ -212,7 +212,7 @@ struct PullRequestPanelView: View {
                     localized: "pullRequestPanel.autoMerge.disable",
                     defaultValue: "Disable Auto-Merge"
                 )) {
-                    Task { await model.disableAutoMerge() }
+                    Task { await model.disableAutoMerge(for: input) }
                 }
                 .disabled(!canConfigureAutoMerge)
             } else if snapshot.mergeAvailability != .allowed {
@@ -220,7 +220,7 @@ struct PullRequestPanelView: View {
                     localized: "pullRequestPanel.autoMerge.enable",
                     defaultValue: "Enable Auto-Merge"
                 )) {
-                    Task { await model.merge(whenReady: true) }
+                    Task { await model.merge(whenReady: true, for: input) }
                 }
                 .disabled(!canConfigureAutoMerge)
             }
@@ -328,10 +328,10 @@ struct PullRequestPanelView: View {
                 localized: "pullRequestPanel.create.button",
                 defaultValue: "Create Pull Request"
             )) {
-                Task { await model.createPullRequest() }
+                Task { await model.createPullRequest(for: input) }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!model.phase.isFresh || model.actionPhase.isBusy)
+            .disabled(!model.hasFreshContent(for: input) || model.actionPhase.isBusy)
             if model.actionPhase.isBusy {
                 ProgressView().controlSize(.small)
             }
@@ -361,7 +361,7 @@ struct PullRequestPanelView: View {
             Image(systemName: "arrow.clockwise")
         }
         .buttonStyle(.plain)
-        .disabled(model.actionPhase.isBusy)
+        .disabled(model.phase.isRefreshInFlight || model.actionPhase.isBusy)
         .safeHelp(String(
             localized: "pullRequestPanel.refresh.tooltip",
             defaultValue: "Refresh Pull Request"
