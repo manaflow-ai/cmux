@@ -72,10 +72,24 @@ public struct ChatArtifactGalleryBuilder: Sendable {
         includeDirectories: Bool
     ) -> [ChatArtifactIndexedReference] {
         guard !includeDirectories else { return items }
-        let reader = ArtifactByteReader()
+        let fileManager = FileManager.default
         return items.filter { reference in
-            (try? reader.stat(path: reference.path).isDirectory) != true
+            var isDirectory: ObjCBool = false
+            fileManager.fileExists(atPath: reference.path, isDirectory: &isDirectory)
+            return !isDirectory.boolValue
         }
+    }
+
+    /// Counts immediate children for a gallery directory row without sorting
+    /// or per-entry metadata, capped at the shared listing limit.
+    private func directoryChildCount(path: String) -> (count: Int, isCapped: Bool)? {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: path) else {
+            return nil
+        }
+        return (
+            count: min(names.count, ArtifactByteReader.maximumDirectoryEntryCount),
+            isCapped: names.count > ArtifactByteReader.maximumDirectoryEntryCount
+        )
     }
 
     private func statItems(
@@ -85,7 +99,7 @@ public struct ChatArtifactGalleryBuilder: Sendable {
         return references.map { reference in
             do {
                 let stat = try reader.stat(path: reference.path)
-                let listing = stat.isDirectory ? try? reader.list(path: reference.path) : nil
+                let children = stat.isDirectory ? directoryChildCount(path: reference.path) : nil
                 return ChatArtifactGalleryItem(
                     path: reference.path,
                     kind: stat.kind,
@@ -93,8 +107,8 @@ public struct ChatArtifactGalleryBuilder: Sendable {
                     size: stat.size,
                     modifiedAt: stat.modifiedAt,
                     exists: stat.exists,
-                    childCount: listing?.entries.count,
-                    childCountIsCapped: listing?.isTruncated ?? false,
+                    childCount: children?.count,
+                    childCountIsCapped: children?.isCapped ?? false,
                     provenance: reference.provenance
                 )
             } catch {
