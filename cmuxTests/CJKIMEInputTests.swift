@@ -1848,7 +1848,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         try processTerminalOutput(keyboardResetData, in: hostedTerminal)
 
         // Mirrors the surface.clear_history socket handler path: clear_screen binding, then refresh.
-        XCTAssertTrue(hostedTerminal.surface.performBindingAction("clear_screen"))
+        XCTAssertTrue(hostedTerminal.surface.performInternalBindingAction("clear_screen"))
         hostedTerminal.surface.forceRefresh(reason: "unit.clearHistory")
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
