@@ -4,12 +4,24 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
     static let defaultResolutionTimeout: Duration = .seconds(5)
 
     let fileManager: FileManager
+    private let resolutionOverride: (@Sendable (String) -> Result<String, CmuxRunURLExecutionError>)?
 
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
+        self.resolutionOverride = nil
+    }
+
+    init(
+        resolveForTesting: @escaping @Sendable (String) -> Result<String, CmuxRunURLExecutionError>
+    ) {
+        self.fileManager = .default
+        self.resolutionOverride = resolveForTesting
     }
 
     func resolve(_ requestedPath: String) -> Result<String, CmuxRunURLExecutionError> {
+        if let resolutionOverride {
+            return resolutionOverride(requestedPath)
+        }
         guard requestedPath == requestedPath.trimmingCharacters(in: .whitespacesAndNewlines) else {
             return .failure(.workingDirectoryContainsSurroundingWhitespace)
         }

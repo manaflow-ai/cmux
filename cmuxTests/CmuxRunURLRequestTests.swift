@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -302,6 +303,36 @@ struct CmuxRunURLRequestTests {
         if case .success = CmuxRunWorkingDirectoryResolver().resolve(safeLink.path) {
             Issue.record("Canonical working directories must reject hidden characters")
         }
+    }
+
+    @Test func timedOutResolutionDoesNotAdmitAnotherBlockingResolution() async throws {
+        let pipe = Pipe()
+        let readDescriptor = pipe.fileHandleForReading.fileDescriptor
+        let (completionStream, completionContinuation) = AsyncStream.makeStream(of: Void.self)
+        let resolver = CmuxRunWorkingDirectoryResolver { _ in
+            var byte: UInt8 = 0
+            _ = Darwin.read(readDescriptor, &byte, 1)
+            completionContinuation.yield()
+            return .success("/tmp")
+        }
+        defer {
+            pipe.fileHandleForReading.closeFile()
+            pipe.fileHandleForWriting.closeFile()
+            completionContinuation.finish()
+        }
+
+        #expect(
+            await resolver.resolveWithDeadline("/tmp", timeout: .zero)
+                == .failure(.workingDirectoryResolutionTimedOut)
+        )
+        #expect(
+            await resolver.resolveWithDeadline("/tmp", timeout: .zero)
+                == .failure(.busy)
+        )
+
+        try pipe.fileHandleForWriting.write(contentsOf: Data([1, 1]))
+        var completionIterator = completionStream.makeAsyncIterator()
+        _ = await completionIterator.next()
     }
 
     private func parsed(_ queryItems: [URLQueryItem]) throws -> CmuxRunURLRequest {
