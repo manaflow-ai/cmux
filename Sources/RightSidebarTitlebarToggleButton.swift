@@ -23,11 +23,7 @@ struct RightSidebarTitlebarToggleButton: View {
             action: action,
             isSelected: isVisible
         ) {
-            CmuxSystemSymbolImage(
-                systemName: "sidebar.right",
-                pointSize: config.iconSize,
-                weight: HeaderChromeIconStyle.weight
-            )
+            TitlebarSidebarGlyph(edge: .trailing, iconSize: config.iconSize)
             .frame(
                 width: HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize),
                 height: HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)

@@ -15,7 +15,7 @@ final class TitlebarTrailingAccessoryHostingView: NSHostingView<TitlebarTrailing
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        report(width: newSize.width)
+        reportCurrentWidth()
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -44,9 +44,10 @@ final class TitlebarTrailingAccessoryHostingView: NSHostingView<TitlebarTrailing
 
     func reportCurrentWidth(force: Bool = false) {
         let intrinsicWidth = super.intrinsicContentSize.width
-        let candidates = [bounds.width, frame.width, intrinsicWidth, fittingSize.width]
-            .filter { $0.isFinite && $0 > 0 }
-        report(width: candidates.max() ?? 0, force: force)
+        let width = intrinsicWidth.isFinite && intrinsicWidth > 0
+            ? intrinsicWidth
+            : fittingSize.width
+        report(width: width, force: force)
     }
 
     private func report(width rawWidth: CGFloat, force: Bool = false) {

@@ -1644,6 +1644,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F50030020000000000000001 /* TitlebarInteractiveControlModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */; };
 		F50030040000000000000001 /* TitlebarInteractiveControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */; };
 		C4160A070000000000000001 /* TitlebarLayoutDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */; };
+		7998A0097998A0097998A009 /* TitlebarSidebarGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7998B0097998B0097998B009 /* TitlebarSidebarGlyph.swift */; };
 		7998A0067998A0067998A006 /* TitlebarTrailingAccessoryHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7998B0067998B0067998B006 /* TitlebarTrailingAccessoryHostingView.swift */; };
 		C0DEA7710000000000000009 /* TitlebarTrailingAccessoryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000A /* TitlebarTrailingAccessoryViewController.swift */; };
 		7998A0057998A0057998A005 /* TitlebarTrailingControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7998B0057998B0057998B005 /* TitlebarTrailingControls.swift */; };
@@ -3437,6 +3438,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F50030020000000000000002 /* TitlebarInteractiveControlModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlModifier.swift; sourceTree = "<group>"; };
 		F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarInteractiveControlTests.swift; sourceTree = "<group>"; };
 		C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarLayoutDebugWindow.swift; sourceTree = "<group>"; };
+		7998B0097998B0097998B009 /* TitlebarSidebarGlyph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarSidebarGlyph.swift; sourceTree = "<group>"; };
 		7998B0067998B0067998B006 /* TitlebarTrailingAccessoryHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarTrailingAccessoryHostingView.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000A /* TitlebarTrailingAccessoryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarTrailingAccessoryViewController.swift; sourceTree = "<group>"; };
 		7998B0057998B0057998B005 /* TitlebarTrailingControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarTrailingControls.swift; sourceTree = "<group>"; };
@@ -3967,6 +3969,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7998B0067998B0067998B006 /* TitlebarTrailingAccessoryHostingView.swift */,
 				7998B0057998B0057998B005 /* TitlebarTrailingControls.swift */,
 				7998B0087998B0087998B008 /* TitlebarTrailingControlsLayoutState.swift */,
+				7998B0097998B0097998B009 /* TitlebarSidebarGlyph.swift */,
 				7998B0037998B0037998B003 /* TitlebarControlButtonStyleBody.swift */,
 				C0DEA771000000000000000C /* ProBadgeStyle.swift */,
 				C0DEA771000000000000000E /* PricingPlansScreen.swift */,
@@ -6942,6 +6945,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7998A0037998A0037998A003 /* TitlebarControlButtonStyleBody.swift in Sources */,
 					F50030020000000000000001 /* TitlebarInteractiveControlModifier.swift in Sources */,
 				C4160A070000000000000001 /* TitlebarLayoutDebugWindow.swift in Sources */,
+				7998A0097998A0097998A009 /* TitlebarSidebarGlyph.swift in Sources */,
 				7998A0067998A0067998A006 /* TitlebarTrailingAccessoryHostingView.swift in Sources */,
 				C0DEA7710000000000000009 /* TitlebarTrailingAccessoryViewController.swift in Sources */,
 				7998A0057998A0057998A005 /* TitlebarTrailingControls.swift in Sources */,

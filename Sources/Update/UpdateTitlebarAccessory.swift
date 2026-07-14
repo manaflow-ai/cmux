@@ -626,7 +626,6 @@ private enum TitlebarControlIconStyle {
     static let pressedOpacity = HeaderChromeIconStyle.pressedOpacity
     static let weight = HeaderChromeIconStyle.weight
     static let foregroundColor = HeaderChromeIconStyle.foregroundColor
-    static let sidebarGlyphStrokeWidth = HeaderChromeIconStyle.sidebarGlyphStrokeWidth
 
     static func iconFrameSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
         HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)
@@ -1183,7 +1182,7 @@ struct TitlebarControlsView: View {
         iconGeometryKeyPrefix: String? = nil
     ) -> some View {
         titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
-            TitlebarSidebarGlyph(iconSize: config.iconSize)
+            TitlebarSidebarGlyph(edge: .leading, iconSize: config.iconSize)
         }
     }
 
@@ -1199,38 +1198,6 @@ struct TitlebarControlsView: View {
                 height: TitlebarControlIconStyle.iconFrameSize(for: config)
             )
             .background(TitlebarChromeGeometryReporter(keyPrefix: iconGeometryKeyPrefix ?? ""))
-    }
-}
-
-private struct TitlebarSidebarGlyph: View {
-    let iconSize: CGFloat
-
-    var body: some View {
-        TitlebarSidebarGlyphShape()
-            .stroke(
-                style: StrokeStyle(
-                    lineWidth: TitlebarControlIconStyle.sidebarGlyphStrokeWidth,
-                    lineCap: .round,
-                    lineJoin: .round
-                )
-            )
-            .frame(width: max(13, iconSize + 2), height: max(11, iconSize - 1))
-    }
-}
-
-private struct TitlebarSidebarGlyphShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let insetRect = rect.insetBy(dx: 0.5, dy: 0.5)
-        path.addRoundedRect(
-            in: insetRect,
-            cornerSize: CGSize(width: 2, height: 2)
-        )
-
-        let dividerX = insetRect.minX + insetRect.width * 0.36
-        path.move(to: CGPoint(x: dividerX, y: insetRect.minY + 1.5))
-        path.addLine(to: CGPoint(x: dividerX, y: insetRect.maxY - 1.5))
-        return path
     }
 }
 

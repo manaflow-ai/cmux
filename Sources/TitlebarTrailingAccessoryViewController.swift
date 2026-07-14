@@ -33,6 +33,7 @@ final class TitlebarTrailingAccessoryViewController: NSTitlebarAccessoryViewCont
             self?.handleMeasuredWidth(width)
         }
         hostingView.setContentHuggingPriority(.required, for: .horizontal)
+        hostingView.setContentCompressionResistancePriority(.required, for: .horizontal)
         view = hostingView
         applyVisibility()
         hostingView.reportCurrentWidth(force: true)
@@ -77,6 +78,13 @@ final class TitlebarTrailingAccessoryViewController: NSTitlebarAccessoryViewCont
     private func handleMeasuredWidth(_ width: CGFloat) {
         if width > 0 {
             lastMeasuredWidth = width
+            let intrinsicHeight = hostingView.intrinsicContentSize.height
+            preferredContentSize = NSSize(
+                width: width,
+                height: intrinsicHeight.isFinite && intrinsicHeight > 0
+                    ? intrinsicHeight
+                    : WindowChromeMetrics.appTitlebarHeight
+            )
         }
         publishReservationWidth(controlsAreEffectivelyVisible ? width : 0)
     }
