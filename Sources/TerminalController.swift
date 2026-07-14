@@ -263,7 +263,7 @@ class TerminalController {
         "surface.focus",
         "pane.focus",
         "pane.last",
-        "file.open",
+        "file.open", "workspace.todo.open",
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
@@ -5445,7 +5445,7 @@ class TerminalController {
     ) -> String? {
         var actionSucceeded = false
         let exportedPath = GhosttyApp.terminalPasteboard.captureNextStandardClipboardWrite {
-            let ok = terminalPanel.performBindingAction(bindingAction)
+            let ok = terminalPanel.performInternalBindingAction(bindingAction)
             actionSucceeded = ok
             return ok
         }

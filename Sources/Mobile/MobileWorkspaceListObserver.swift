@@ -212,6 +212,12 @@ final class MobileWorkspaceListObserver {
                 workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+                // Todo status override + checklist are workspace-list-facing
+                // (status lane, checklist progress) and live in their own
+                // sub-model, so a pure todo mutation would otherwise never
+                // re-emit to external listeners.
+                workspace.todoState.$statusOverride.map { _ in () }.eraseToAnyPublisher(),
+                workspace.todoState.$checklist.map { _ in () }.eraseToAnyPublisher(),
                 workspace.currentDirectoryChangeRevisionPublisher()
                     .map { _ in () }
                     .eraseToAnyPublisher(),
@@ -258,7 +264,7 @@ final class MobileWorkspaceListObserver {
             tabs: tabManager.tabs,
             resampling: workspaceIDs
         ) { [workspacePreviewSignatures] workspace in
-            MobileWorkspaceListProjection.workspaceDigest(
+            Self.workspaceDigest(
                 workspace: workspace,
                 previewSignature: workspacePreviewSignatures[workspace.id]
             )
@@ -283,6 +289,21 @@ final class MobileWorkspaceListObserver {
         MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
     }
 
+    @MainActor
+    private static func workspaceDigest(
+        workspace: Workspace,
+        previewSignature: Int?
+    ) -> Int {
+        var hasher = Hasher()
+        hasher.combine(MobileWorkspaceListProjection.workspaceDigest(
+            workspace: workspace,
+            previewSignature: previewSignature
+        ))
+        hasher.combine(workspace.todoState.statusOverride)
+        hasher.combine(workspace.todoState.checklist)
+        return hasher.finalize()
+    }
+
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their
     /// panels grouped by pane + each panel's displayed
     /// (custom-aware) title and directory. Mutations that don't show up on the
@@ -304,12 +325,20 @@ final class MobileWorkspaceListObserver {
         previewSignatures: [UUID: Int]
     ) -> Int {
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-summary-hash", "workspaces=\(tabs.count) groups=\(groups.count) previews=\(previewSignatures.count) selected=\(selectedTabID.map { String($0.uuidString.prefix(5)) } ?? "nil")"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
+        let workspaceDigests = Dictionary(uniqueKeysWithValues: tabs.map { workspace in
+            (
+                workspace.id,
+                workspaceDigest(
+                    workspace: workspace,
+                    previewSignature: previewSignatures[workspace.id]
+                )
+            )
+        })
         return MobileWorkspaceListProjection.digest(
             tabs: tabs,
             groups: groups,
             selectedTabID: selectedTabID,
-            previewSignatures: previewSignatures
+            workspaceDigests: workspaceDigests
         )
     }
-
 }
