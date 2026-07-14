@@ -8,7 +8,7 @@ Three levels inside a workspace. The existing workspace list screen is unchanged
 
 1. **Workspace miniature hub.** Tapping a workspace in the list lands on a live-updating miniature of the Mac's real split-pane layout for that workspace: each pane rendered at its true relative position and size, showing a live preview of its active tab plus name, tab count, and agent status. Tap a pane to enter it. This is the only pane selector; panes are selectable, never swipeable.
 2. **In-pane view.** Full-screen render of the pane's active tab with a bottom thumbnail strip. Back-swipe (or back button) returns to the miniature hub.
-3. **Tab strip.** Horizontal strip of live preview thumbnails for the pane's tabs, in the Mac's tab order. Tap to switch. Auto-hides after typing/scrolling begins, leaving a thin handle; swipe up or tap the handle to reveal. Keyboard-aware: never occludes input, collapses gracefully when the keyboard is up.
+3. **Tab strip.** Horizontal strip of live preview thumbnails for the pane's tabs, in the Mac's tab order. Tap to switch. Every pane entry starts with the strip visible. It auto-hides after typing/scrolling begins, leaving a thin handle; swipe up or tap the handle to reveal. Keyboard-aware: never occludes input, collapses gracefully when the keyboard is up.
 
 ## Attention shelf
 

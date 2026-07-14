@@ -3845,10 +3845,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Creates a terminal in `workspaceID`, or the selected workspace when nil.
     ///
-    /// Callers that act on a specific workspace (e.g. the "+" button on a
-    /// workspace row) should pass its id so an in-flight create can't land in a
-    /// different workspace if the selection drifts before the async work runs.
-    public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
+    /// Callers acting on a workspace row or pane strip pass explicit ids so an
+    /// in-flight create cannot follow drifting phone or Mac selection.
+    public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil, paneID: String? = nil) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
@@ -3863,7 +3862,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             createTerminalTask = Task { @MainActor [weak self] in
                 defer { self?.clearCreateTerminalTask(id: taskID) }
                 guard let self else { return }
-                await self.createRemoteTerminal(in: targetWorkspaceID)
+                await self.createRemoteTerminal(in: targetWorkspaceID, paneID: paneID)
             }
             return
         }
@@ -5711,18 +5710,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileTerminalViewportKey(workspaceID: workspaceID, terminalID: terminalID)
     }
 
-    private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil) async {
+    private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil, paneID: String? = nil) async {
         guard let client = remoteClient,
               let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
         let generation = connectionGeneration
         do {
-            let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "terminal.create",
-                    params: ["workspace_id": requestedWorkspaceID.rawValue]
-                )
-            )
+            let params = ["workspace_id": Optional(requestedWorkspaceID.rawValue), "pane_id": paneID].compactMapValues { $0 }
+            let resultData = try await client.sendRequest(MobileCoreRPCClient.requestData(
+                method: "terminal.create",
+                params: params
+            ))
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }

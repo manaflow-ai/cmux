@@ -2104,11 +2104,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         data
     }
 
-    /// The final DECTCEM cursor-visibility state in `data`, or nil if the chunk
-    /// contains no cursor show/hide. Scans for the exact sequences the
-    /// render-grid producer emits: `ESC [ ? 2 5 h` (show) / `ESC [ ? 2 5 l`
-    /// (hide). The last occurrence wins, so a delta that toggles ends on the
-    /// applied state.
+    /// The final DECTCEM cursor visibility in `data`, with the last sequence winning.
     nonisolated static func lastCursorVisibility(in data: Data) -> Bool? {
         TerminalDECTCEMCursorScanner.lastVisibility(in: data)
     }
@@ -2122,13 +2118,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         inputProxy.becomeFirstResponder()
     }
 
-    /// Resigns the currently focused terminal input proxy, if any.
-    ///
-    /// Use before presenting SwiftUI chrome over the terminal so UIKit releases
-    /// the hidden text input and the terminal can recalculate full-height
-    /// geometry after the keyboard leaves.
+    /// Resigns active terminal input before SwiftUI presents covering chrome.
     public static func resignActiveInput() {
         activeInputSurface?.resignInput()
+    }
+
+    /// Whether a mounted terminal input proxy currently owns first responder.
+    public static var isTerminalInputFocused: Bool {
+        activeInputSurface?.inputProxy.isFirstResponder == true
     }
 
     /// Resigns this surface's hidden text input and clears keyboard geometry.
@@ -3634,9 +3631,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 }
 
 extension GhosttySurfaceView: UIGestureRecognizerDelegate {
-    /// Keep a tap that lands on the visible zoom HUD from also focusing the
-    /// terminal (which would pop the keyboard). Only the focus tap carries this
-    /// delegate, so scroll/pinch are unaffected.
+    /// Keep zoom-HUD taps from focusing the terminal; scroll/pinch are unaffected.
     public func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldReceive touch: UITouch
@@ -3658,6 +3653,11 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
 }
 
 extension GhosttySurfaceView: UIScrollViewDelegate {
+    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === scrollMechanicsView else { return }
+        delegate?.ghosttySurfaceViewDidBeginScroll(self)
+    }
+
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === scrollMechanicsView,
               !scrollMechanicsIsRecentering else {

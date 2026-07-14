@@ -14238,13 +14238,8 @@ class TerminalController {
         return workspace.terminalPanel(for: surfaceID)
     }
 
-    // Restored: still used by the v1 close-workspace path (its v2
-    // counterpart moved to ControlCommandCoordinator).
     private func workspaceCloseProtectedMessage() -> String {
-        String(
-            localized: "workspace.closeProtected.message",
-            defaultValue: "Pinned workspaces can't be closed while pinned. Unpin the workspace first."
-        )
+        String(localized: "workspace.closeProtected.message", defaultValue: "Pinned workspaces can't be closed while pinned. Unpin the workspace first.")
     }
 
     func v2MobileTerminalCreate(params: [String: Any]) -> V2CallResult {
@@ -14257,7 +14252,12 @@ class TerminalController {
         guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        let paneIds = workspace.bonsplitController.allPaneIds
+        let requestedPaneID = v2UUID(params, "pane_id")
+        guard requestedPaneID == nil || paneIds.contains(where: { $0.id == requestedPaneID }) else { return .err(code: "not_found", message: "Pane not found", data: nil) }
+        guard let paneId = paneIds.first(where: { $0.id == requestedPaneID })
+            ?? workspace.bonsplitController.focusedPaneId
+            ?? paneIds.first else {
             return .err(code: "not_found", message: "Pane not found", data: nil)
         }
         guard let terminal = workspace.newTerminalSurface(

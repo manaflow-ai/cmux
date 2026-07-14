@@ -40,9 +40,10 @@ extension WorkspaceShellView {
                 )
             )
             .background(InteractiveSwipeBackEnabler())
-        case .pane(let workspaceID, _, _):
+        case .pane(let workspaceID, let paneID, _):
             paneDestination(
                 for: workspaceID,
+                paneID: paneID,
                 createWorkspace: createWorkspaceInCompactStack
             )
         }
@@ -53,9 +54,10 @@ extension WorkspaceShellView {
         switch route {
         case .hub(let workspaceID):
             workspaceHubDestination(for: workspaceID, backButtonConfiguration: nil)
-        case .pane(let workspaceID, _, _):
+        case .pane(let workspaceID, let paneID, _):
             paneDestination(
                 for: workspaceID,
+                paneID: paneID,
                 createWorkspace: createWorkspaceIfConnected,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
@@ -98,12 +100,14 @@ extension WorkspaceShellView {
     @ViewBuilder
     func paneDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
+        paneID: String,
         createWorkspace: @escaping () -> Void,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth
     ) -> some View {
         WorkspaceDetailContainer(
             store: store,
             workspaceID: workspaceID,
+            paneID: paneID,
             createWorkspace: createWorkspace,
             canCreateWorkspace: canCreateWorkspaceForMacSelection,
             renameWorkspace: renameWorkspaceClosure,

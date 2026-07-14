@@ -42,9 +42,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// advances, it rebuilds the runtime config and refreshes the mounted
     /// surface's background/colors in place via `GhosttyRuntime.applyLiveThemeIfRunning()`.
     var themeGeneration: UInt64 = 0
+    /// Reports explicit user input so surrounding chrome can auto-hide.
+    let onTerminalKeystroke: @MainActor () -> Void
+    /// Reports the start of native terminal scrolling so chrome can auto-hide.
+    let onTerminalScrollBegan: @MainActor () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(surfaceID: surfaceID, store: store)
+        Coordinator(
+            surfaceID: surfaceID,
+            store: store,
+            onTerminalKeystroke: onTerminalKeystroke,
+            onTerminalScrollBegan: onTerminalScrollBegan
+        )
     }
 
     func makeUIView(context: Context) -> UIView {
@@ -157,10 +166,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// its completion, which must not unmount a composer that was remounted in
         /// the meantime.
         private var composerMountGeneration = 0
+        private let onTerminalKeystroke: @MainActor () -> Void
+        private let onTerminalScrollBegan: @MainActor () -> Void
 
-        init(surfaceID: String, store: CMUXMobileShellStore) {
+        init(
+            surfaceID: String,
+            store: CMUXMobileShellStore,
+            onTerminalKeystroke: @escaping @MainActor () -> Void,
+            onTerminalScrollBegan: @escaping @MainActor () -> Void
+        ) {
             self.surfaceID = surfaceID
             self.store = store
+            self.onTerminalKeystroke = onTerminalKeystroke
+            self.onTerminalScrollBegan = onTerminalScrollBegan
             super.init()
         }
 
@@ -400,9 +418,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // mouse reports). Forward to the Mac sync server which
             // writes them into the Mac's libghostty surface, which in
             // turn writes them down the PTY.
+            onTerminalKeystroke()
             Task { @MainActor [weak store] in
                 await store?.submitTerminalRawInput(data, surfaceID: self.surfaceID)
             }
+        }
+
+        func ghosttySurfaceViewDidBeginScroll(_ surfaceView: GhosttySurfaceView) {
+            onTerminalScrollBegan()
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {

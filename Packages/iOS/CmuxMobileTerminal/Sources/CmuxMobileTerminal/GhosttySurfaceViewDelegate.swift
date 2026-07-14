@@ -23,6 +23,8 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// (sign = direction), `col`/`row` is the grid cell under the finger (so
     /// alt-screen mouse-wheel reports at the right cell). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int)
+    /// The terminal's native scroll gesture began tracking. Optional.
+    func ghosttySurfaceViewDidBeginScroll(_ surfaceView: GhosttySurfaceView)
     /// Forward a tap to the Mac's real surface as a left click at the given grid
     /// cell, so TUIs with mouse reporting (lazygit/htop/fzf) receive the click.
     /// The Mac's libghostty self-gates: a normal screen treats it as a harmless
@@ -60,6 +62,8 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
 public extension GhosttySurfaceViewDelegate {
     /// Default no-op so hosts without remote scroll forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
+    /// Default no-op so hosts without scroll chrome can ignore gesture start.
+    func ghosttySurfaceViewDidBeginScroll(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without remote click forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
     /// Default no-op so hosts without a toolbar editor can ignore the request.

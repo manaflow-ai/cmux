@@ -2976,6 +2976,41 @@
         }
       }
     },
+    "mobile.paneTabStrip.attention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Prioritize Attention" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "要対応を優先" } }
+      }
+    },
+    "mobile.paneTabStrip.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Off" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オフ" } }
+      }
+    },
+    "mobile.paneTabStrip.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "On" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オン" } }
+      }
+    },
+    "mobile.paneTabStrip.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択中" } }
+      }
+    },
+    "mobile.paneTabStrip.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブを表示" } }
+      }
+    },
     "mobile.pairing.accountMismatch": {
       "extractionState": "manual",
       "localizations": {

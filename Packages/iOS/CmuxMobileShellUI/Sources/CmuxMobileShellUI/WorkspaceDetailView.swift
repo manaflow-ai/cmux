@@ -1,5 +1,6 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
+import CMUXMobileCore
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -18,6 +19,8 @@ struct WorkspaceDetailView: View {
     let host: String
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
+    let paneID: String
+    let workspaceLayout: MobileWorkspaceLayout?
     @Bindable var store: CMUXMobileShellStore
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
@@ -33,7 +36,7 @@ struct WorkspaceDetailView: View {
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
-    @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileDisplaySettings.self) var displaySettings
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -43,7 +46,7 @@ struct WorkspaceDetailView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
-    /// Drives the rename-workspace dialog launched from the picker menu, and its
+    /// Drives the rename-workspace dialog launched from the title menu, and its
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
@@ -51,7 +54,7 @@ struct WorkspaceDetailView: View {
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
-    @State var terminalPickerRows: [TerminalPickerMenuRow] = []
+    @State var paneTabStripVisibility = PaneTabStripVisibilityState()
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -89,15 +92,20 @@ struct WorkspaceDetailView: View {
 
         #if os(iOS)
         content
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                paneTabStripChrome
+            }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
+            .task(id: paneID) {
+                handlePaneTabStripEvent(.enteredPane)
+            }
             .onChange(of: selectedTerminalID) { _, _ in
                 refreshCachedChatToggleAnchor()
-                syncTerminalPickerRows(includeTitleChanges: true)
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
@@ -148,8 +156,10 @@ struct WorkspaceDetailView: View {
                 }
             }
         }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            toolbarTrailingCluster
+        if shouldShowChatToggle {
+            ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+                toolbarTrailingCluster
+            }
         }
     }
 
@@ -157,9 +167,9 @@ struct WorkspaceDetailView: View {
         WorkspaceTitleMenu(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
-            hasTrailingCluster: true,
+            hasTrailingCluster: shouldShowChatToggle,
             hasChatToggle: shouldShowChatToggle,
-            isEnabled: hasTitleMenuActions,
+            isEnabled: true,
             menuContent: { titleMenuContent }
         ) {
             toolbarTitleLabel
@@ -212,12 +222,18 @@ struct WorkspaceDetailView: View {
                     // config + recolors the mounted surface in place (background,
                     // letterbox, default cell colors) without a remount, so
                     // scrollback survives a theme change.
-                    themeGeneration: store.terminalThemeGeneration
+                    themeGeneration: store.terminalThemeGeneration,
+                    onTerminalKeystroke: {
+                        handlePaneTabStripEvent(.terminalKeystroke)
+                    },
+                    onTerminalScrollBegan: {
+                        handlePaneTabStripEvent(.terminalScrollBegan)
+                    }
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and
                 // `updateUIView` is a no-op, so without a per-terminal id SwiftUI
-                // reuses the first terminal's surface and the dropdown never switches.
+                // reuses the first terminal's surface and the tab strip never switches.
                 // Keying on terminalID tears down the old surface (unregistering its
                 // sink via dismantleUIView) and builds the newly-selected one.
                 //
@@ -307,7 +323,6 @@ struct WorkspaceDetailView: View {
     @ViewBuilder
     private var terminalToolbarButtons: some View {
         newWorkspaceToolbarButton
-        terminalPickerToolbarButton
     }
 
     #if os(iOS)
@@ -329,9 +344,20 @@ struct WorkspaceDetailView: View {
             canRenameWorkspace: renameWorkspace != nil,
             canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
+            canCreateWorkspace: canCreateWorkspace,
+            canViewAsText: activeSurface == .terminal,
             presentRename: presentRenameFromMenu,
             toggleReadState: toggleWorkspaceReadStateFromMenu,
-            requestClose: requestCloseWorkspaceFromMenu
+            requestClose: requestCloseWorkspaceFromMenu,
+            createWorkspace: createWorkspaceFromToolbar,
+            openBrowser: openBrowserFromToolbar,
+            openTextSheet: openTextSheetFromMenu,
+            copyDebugLogs: {
+                #if DEBUG
+                copyDebugLogsFromMenu()
+                #endif
+            },
+            sendFeedback: openFeedbackComposerFromMenu
         )
     }
 
@@ -345,38 +371,6 @@ struct WorkspaceDetailView: View {
         .foregroundStyle(TerminalPalette.foreground)
         .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
-    }
-
-    // Native menu keeps press-drag-release selection and routes through
-    // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
-    var terminalPickerToolbarButton: some View {
-        TerminalPickerMenu(
-            value: TerminalPickerMenuValue(
-                liveTerminals: workspace.terminals,
-                snapshotRows: terminalPickerRows,
-                selectedID: store.selectedTerminalID,
-                canCreateWorkspace: canCreateWorkspace,
-                hasActiveBrowser: activeBrowser != nil,
-                isChatMode: isChatMode
-            ),
-            actions: TerminalPickerMenuActions(
-                selectTerminal: selectTerminalFromPicker,
-                createWorkspace: createWorkspaceFromToolbar,
-                createTerminal: createTerminalFromToolbar,
-                openBrowser: openBrowserFromToolbar,
-                openTextSheet: openTextSheetFromMenu,
-                copyDebugLogs: {
-                    #if DEBUG
-                    copyDebugLogsFromMenu()
-                    #endif
-                },
-                sendFeedback: openFeedbackComposerFromMenu
-            )
-        )
-        .equatable()
-        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
-        .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-        .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
     }
 
     #if canImport(UIKit)
@@ -580,7 +574,7 @@ struct WorkspaceDetailView: View {
     }
     #endif
 
-    private func createTerminalFromToolbar() {
+    func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
@@ -595,19 +589,6 @@ struct WorkspaceDetailView: View {
         // detail view flips to the browser because `activeBrowser` becomes
         // non-nil; the picker shows a check next to "New Browser" while it is up.
         browserStore.openBrowser(for: workspace.id.rawValue)
-    }
-
-    private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
-        dismissTerminalKeyboardForChrome()
-        // Choosing a terminal returns from the browser pane (if up) to the
-        // terminal. Closing the browser is enough to flip the detail view back.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
-        // Switching from the picker is chrome, not a typing intent, so the
-        // newly-selected surface must not grab the keyboard on attach. The
-        // store suppresses the target's autofocus (and is a no-op when it is
-        // already selected). A push-notification deep link uses the plain
-        // `selectTerminal` path instead and is allowed to autofocus.
-        store.selectTerminalFromChrome(terminalID)
     }
 
     func dismissTerminalKeyboardForChrome() {

@@ -116,16 +116,9 @@ extension WorkspaceDetailView {
 
     @ViewBuilder
     var toolbarTrailingCluster: some View {
-        HStack(spacing: 8) {
-            if shouldShowChatToggle {
-                chatToggleButton
-                    .frame(width: 44, height: 44)
-                    .transition(.scale(scale: 0.82, anchor: .trailing).combined(with: .opacity))
-            }
-            terminalPickerToolbarButton
-                .frame(width: 44, height: 44)
-        }
-        .frame(width: shouldShowChatToggle ? 96 : 44, height: 44, alignment: .trailing)
+        chatToggleButton
+            .frame(width: 44, height: 44)
+            .transition(.scale(scale: 0.82, anchor: .trailing).combined(with: .opacity))
         .animation(.snappy(duration: 0.25), value: shouldShowChatToggle)
     }
 
@@ -309,7 +302,7 @@ extension WorkspaceDetailView {
             return
         }
 
-        if let selectedTerminalID {
+        if selectedTerminalID != nil {
             cachedChatToggleTerminalID = nil
             return
         }
