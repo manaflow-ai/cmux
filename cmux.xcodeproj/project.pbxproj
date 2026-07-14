@@ -1036,10 +1036,12 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */; };
 		50AC0001000000000000001C /* PortalDividerCursorKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50AC0001000000000000001B /* PortalDividerCursorKind.swift */; };
 		5B0C00010000000000000005 /* PortalDividerCursorOcclusionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */; };
+		50AC0001000000000000000E /* PortalDividerDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50AC0001000000000000000D /* PortalDividerDragTests.swift */; };
 		50AC00010000000000000002 /* PortalDividerIntersectionDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50AC00010000000000000001 /* PortalDividerIntersectionDrag.swift */; };
 		50AC00010000000000000006 /* PortalDividerIntersectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50AC00010000000000000005 /* PortalDividerIntersectionTests.swift */; };
 		B1D5CEE0407545B6B57E3B0E /* PortalHitTestingPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */; };
 		D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */; };
+		D0C658660000000000000006 /* PortalSplitDividerRegion+Collection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000005 /* PortalSplitDividerRegion+Collection.swift */; };
 		D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000001 /* PortalSplitDividerRegion.swift */; };
 		D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */; };
 		B79500310000000000000001 /* PortLsofScanResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500310000000000000002 /* PortLsofScanResult.swift */; };
@@ -2826,10 +2828,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		50AC0001000000000000001B /* PortalDividerCursorKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalDividerCursorKind.swift; sourceTree = "<group>"; };
 		5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalDividerCursorOcclusionTests.swift; sourceTree = "<group>"; };
+		50AC0001000000000000000D /* PortalDividerDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalDividerDragTests.swift; sourceTree = "<group>"; };
 		50AC00010000000000000001 /* PortalDividerIntersectionDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalDividerIntersectionDrag.swift; sourceTree = "<group>"; };
 		50AC00010000000000000005 /* PortalDividerIntersectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalDividerIntersectionTests.swift; sourceTree = "<group>"; };
 		4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalHitTestingPerformanceTests.swift; sourceTree = "<group>"; };
 		D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalSplitDividerCacheInvalidator.swift; sourceTree = "<group>"; };
+		D0C658660000000000000005 /* PortalSplitDividerRegion+Collection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PortalSplitDividerRegion+Collection.swift"; sourceTree = "<group>"; };
 		D0C658660000000000000001 /* PortalSplitDividerRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalSplitDividerRegion.swift; sourceTree = "<group>"; };
 		D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalTabDragRoutingTests.swift; sourceTree = "<group>"; };
 		B79500310000000000000002 /* PortLsofScanResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortLsofScanResult.swift; sourceTree = "<group>"; };
@@ -4251,6 +4255,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001531 /* TerminalWindowPortal.swift */,
 				D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */,
 				D0C658660000000000000001 /* PortalSplitDividerRegion.swift */,
+				D0C658660000000000000005 /* PortalSplitDividerRegion+Collection.swift */,
 				50AC0001000000000000001B /* PortalDividerCursorKind.swift */,
 				50AC00010000000000000003 /* TerminalWindowPortal+DebugRouteLogging.swift */,
 				50AC00010000000000000001 /* PortalDividerIntersectionDrag.swift */,
@@ -5310,6 +5315,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5B0C00010000000000000004 /* SidebarResizerOcclusionResolverTests.swift */,
 				5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */,
 				50AC00010000000000000005 /* PortalDividerIntersectionTests.swift */,
+				50AC0001000000000000000D /* PortalDividerDragTests.swift */,
 				50AC0001000000000000000B /* BrowserThemeSettingsTests.swift */,
 				C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */,
 				C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */,
@@ -6485,6 +6491,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				50AC0001000000000000001C /* PortalDividerCursorKind.swift in Sources */,
 				50AC00010000000000000002 /* PortalDividerIntersectionDrag.swift in Sources */,
 				D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */,
+				D0C658660000000000000006 /* PortalSplitDividerRegion+Collection.swift in Sources */,
 				D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */,
 				B79500310000000000000001 /* PortLsofScanResult.swift in Sources */,
 				B79500030000000000000001 /* PortScanCoordination.swift in Sources */,
@@ -7417,6 +7424,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */,
 					B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
 				5B0C00010000000000000005 /* PortalDividerCursorOcclusionTests.swift in Sources */,
+				50AC0001000000000000000E /* PortalDividerDragTests.swift in Sources */,
 				50AC00010000000000000006 /* PortalDividerIntersectionTests.swift in Sources */,
 					B1D5CEE0407545B6B57E3B0E /* PortalHitTestingPerformanceTests.swift in Sources */,
 					D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */,
