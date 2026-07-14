@@ -171,7 +171,7 @@ final class SidebarInteractionLifecycleTests {
             self.hostingView = hostingView
         }
 
-        static func mount(workspaceCount: Int) async throws -> Harness {
+        static func mountHost(workspaceCount: Int) async throws -> Harness {
             _ = NSApplication.shared
             _ = NSApp.setActivationPolicy(.regular)
             #expect(
@@ -254,7 +254,6 @@ final class SidebarInteractionLifecycleTests {
                 defaults: defaults,
                 hostingView: placeholder
             )
-            placeholder.rootView = harness.rootView()
             window.contentView = placeholder
             NSRunningApplication.current.activate(options: [.activateAllWindows])
             NSApp.activate(ignoringOtherApps: true)
@@ -267,6 +266,11 @@ final class SidebarInteractionLifecycleTests {
             #expect(window.isVisible, "The #8004 harness must use a visible NSWindow.")
             #expect(window.isKeyWindow, "The #8004 harness must use a key NSWindow.")
             return harness
+        }
+
+        func mountProductionSidebar() async {
+            hostingView.rootView = rootView()
+            await Self.drainMainRunLoop(iterations: 30)
         }
 
         func tearDown() {
@@ -407,18 +411,20 @@ final class SidebarInteractionLifecycleTests {
     @Test
     @MainActor
     func visibleKeyWindowLifecycleChurnHasNoRuntimeFaultsOrLivelock() async throws {
-        // OSLogStore rounds date positions and may include host diagnostics
-        // emitted before this test starts. Subtract that baseline while still
-        // counting production sidebar mount and churn lifecycle work.
+        let harness = try await Harness.mountHost(workspaceCount: Self.workspaceCount)
+        defer { harness.tearDown() }
+        // OSLogStore rounds date positions and may include host diagnostics.
+        // Baseline after activating the empty host, then count production
+        // sidebar environment adoption, row mounting, and churn.
         let logStart = Date.now
         let baselineFaults = try RuntimeFaultCounts.read(since: logStart)
-        let harness = try await Harness.mount(workspaceCount: Self.workspaceCount)
-        defer { harness.tearDown() }
-        try harness.positionStationaryPointerOverWorkspaceRow()
 
         let heartbeat = Heartbeat()
         heartbeat.start()
         defer { heartbeat.stop() }
+
+        await harness.mountProductionSidebar()
+        try harness.positionStationaryPointerOverWorkspaceRow()
 
         var worstRealizationPass = 0
         for pass in 0..<Self.churnPasses {
