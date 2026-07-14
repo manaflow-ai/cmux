@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOGO_DIR = os.path.join(HERE, "logos")
@@ -183,6 +184,14 @@ def compose_ipad(raw, out, bg, title, font, logo):
         ], check=True)
 
 
+def compose(job):
+    kind, src, dst, bg, frame, mask, title, font, logo = job
+    if kind == "ipad":
+        compose_ipad(src, dst, bg, title, font, logo)
+    else:
+        compose_iphone(src, dst, bg, frame, mask, title, font, logo)
+
+
 def main():
     if not MAGICK:
         raise SystemExit("ImageMagick not found")
@@ -196,7 +205,7 @@ def main():
     mask = os.path.join(tempfile.gettempdir(), "cmux_iphone_opening_mask.png")
     build_opening_mask(frame, mask)
     en, loc = load_titles()
-    n = 0
+    jobs = []
     for locale in sorted(os.listdir(ss)):
         d = os.path.join(ss, locale)
         if not os.path.isdir(d):
@@ -216,11 +225,18 @@ def main():
             src, dst = os.path.join(d, f), os.path.join(d, f[:-4] + "_framed.png")
             idx = int(m.group(2)) - 1  # screen 01 -> bg index 0
             if "ipad" in m.group(1).lower():
-                compose_ipad(src, dst, bgs_l[idx % len(bgs_l)], title, font, logo)
+                jobs.append(("ipad", src, dst, bgs_l[idx % len(bgs_l)], frame, mask, title, font, logo))
             else:
-                compose_iphone(src, dst, bgs_p[idx % len(bgs_p)], frame, mask, title, font, logo)
-            n += 1
-    print(f"composed {n} framed screenshots")
+                jobs.append(("iphone", src, dst, bgs_p[idx % len(bgs_p)], frame, mask, title, font, logo))
+
+    # ImageMagick runs in child processes, so worker threads provide real parallel
+    # composition while keeping each image's temporary files isolated. Four workers
+    # stays below the memory envelope of the six-core macOS CI lane.
+    workers = int(os.environ.get("CMUX_FRAME_WORKERS", min(4, os.cpu_count() or 1)))
+    workers = max(1, min(workers, len(jobs))) if jobs else 1
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        list(executor.map(compose, jobs))
+    print(f"composed {len(jobs)} framed screenshots with {workers} workers")
 
 
 if __name__ == "__main__":
