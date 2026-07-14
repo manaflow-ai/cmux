@@ -138,7 +138,7 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(hostedView.hasPendingNotificationScrollRestore)
     }
 
-    @Test func rowSpaceRevisionMismatchRetriesAgainstFreshGeometry() {
+    @Test func provisionalReplayFailsClosedAfterRowSpaceRevisionChanges() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
         let staleGeometry = geometry(
@@ -167,9 +167,9 @@ struct NotificationScrollRestoreRecoveryTests {
 
         postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
-        #expect(surfaceView.performedRows == [256, 256])
-        #expect(surfaceView.attemptedRowSpaceRevisions == [1, 2])
-        #expect(surfaceView.acceptedRowSpaceRevisions == [2])
+        #expect(surfaceView.performedRows == [256])
+        #expect(surfaceView.attemptedRowSpaceRevisions == [1])
+        #expect(surfaceView.acceptedRowSpaceRevisions.isEmpty)
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 

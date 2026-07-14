@@ -157,17 +157,8 @@ extension GhosttySurfaceScrollView {
             : authoritativeGeometry ?? currentGeometry else {
             return false
         }
-        let effectiveReplayContext: NotificationReplayRestoreContext
-        if case .provisional = replayContext,
-           replayContext.geometry.rowSpaceRevision != geometry.rowSpaceRevision {
-            notificationScrollRestoreState.replay = .completed(geometry)
-            effectiveReplayContext = .provisional(geometry)
-        } else {
-            effectiveReplayContext = replayContext
-        }
-        let anchorGeometry = effectiveReplayContext.geometry
-        if case .stable = effectiveReplayContext,
-           position.row != 0,
+        let anchorGeometry = replayContext.geometry
+        if position.row != 0,
            anchorGeometry.rowSpaceRevision != geometry.rowSpaceRevision {
             clearPendingNotificationScrollRestore()
             return false
@@ -203,19 +194,10 @@ extension GhosttySurfaceScrollView {
                 ) != nil
             },
             pendingRequest: { remaining in
-                let retryContext: NotificationReplayRestoreContext = switch effectiveReplayContext {
-                case .provisional:
-                    .provisional(geometry)
-                case .stable:
-                    effectiveReplayContext
-                }
-                if case .provisional = effectiveReplayContext {
-                    self.notificationScrollRestoreState.replay = .completed(geometry)
-                }
                 return .awaitingPostReplayRestore(
                     position: position,
                     attemptsRemaining: remaining,
-                    replayContext: retryContext
+                    replayContext: replayContext
                 )
             }
         )
