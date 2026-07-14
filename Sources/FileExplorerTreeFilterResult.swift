@@ -3,9 +3,10 @@ import Foundation
 /// Path-only filename filter output that can safely cross concurrency domains.
 nonisolated struct FileExplorerTreeFilterResult: Sendable {
     let query: String
-    let visiblePaths: Set<String>
+    let rootPaths: [String]
+    let childrenByPath: [String: [String]]
 
     static func empty(query: String = "") -> FileExplorerTreeFilterResult {
-        FileExplorerTreeFilterResult(query: query, visiblePaths: [])
+        FileExplorerTreeFilterResult(query: query, rootPaths: [], childrenByPath: [:])
     }
 }

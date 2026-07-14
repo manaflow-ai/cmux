@@ -88,7 +88,23 @@ nonisolated struct FileExplorerTreeFilterSnapshot: Sendable {
                 path = parentByPath[currentPath]
             }
         }
-        return FileExplorerTreeFilterResult(query: query, visiblePaths: visiblePaths)
+        let filteredRootPaths = rootPaths.filter(visiblePaths.contains)
+        var filteredChildrenByPath: [String: [String]] = [:]
+        for (index, path) in visiblePaths.enumerated() {
+            if checksCancellation, index.isMultiple(of: 256) {
+                try Task.checkCancellation()
+            }
+            guard let children = childrenByPath[path] else { continue }
+            let visibleChildren = children.filter(visiblePaths.contains)
+            if !visibleChildren.isEmpty {
+                filteredChildrenByPath[path] = visibleChildren
+            }
+        }
+        return FileExplorerTreeFilterResult(
+            query: query,
+            rootPaths: filteredRootPaths,
+            childrenByPath: filteredChildrenByPath
+        )
     }
 
     @MainActor

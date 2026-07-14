@@ -992,7 +992,10 @@ final class FileExplorerContainerView: NSView {
     private func setDisplayedSearchScope(_ scope: FileExplorerSearchScope) {
         captureDisplayedQuery()
         let previousScope = displayedSearchScope
-        if previousScope == .names, scope != .names { cancelPendingFileFilterRefresh() }
+        if previousScope == .names, scope != .names {
+            cancelPendingFileFilterRefresh()
+            coordinator.suspendFileFilter()
+        }
         if previousScope == .contents, scope != .contents {
             pauseSearchPreservingState()
         }
@@ -1088,7 +1091,20 @@ final class FileExplorerContainerView: NSView {
         } else {
             activationMode = presentation.rightSidebarMode
         }
-        setDisplayedSearchScope(FileExplorerSearchScope(mode: activationMode))
+        let requestedScope = FileExplorerSearchScope(mode: activationMode)
+        let focusedScope: FileExplorerSearchScope?
+        if let responder = window?.firstResponder,
+           let focusedMode = rightSidebarActivationMode(owning: responder) {
+            focusedScope = FileExplorerSearchScope(mode: focusedMode)
+        } else {
+            focusedScope = nil
+        }
+        let preservesFocusedUnifiedProjection = presentation == .unified
+            && focusedScope != nil
+            && focusedScope != requestedScope
+        if !preservesFocusedUnifiedProjection {
+            setDisplayedSearchScope(requestedScope)
+        }
         if presentationChanged { registerWithKeyboardFocusCoordinatorIfNeeded() }
     }
     func updateVisibility(hasContent: Bool, isLoading: Bool, statusMessage: String?) {

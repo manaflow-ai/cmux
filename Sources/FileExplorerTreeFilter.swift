@@ -5,7 +5,8 @@ struct FileExplorerTreeFilter {
     private(set) var query = ""
     private(set) var snapshot = FileExplorerTreeFilterSnapshot.empty
     private var nodesByPath: [String: FileExplorerNode] = [:]
-    private var visiblePaths: Set<String> = []
+    private var filteredRootNodes: [FileExplorerNode] = []
+    private var filteredChildrenByPath: [String: [FileExplorerNode]] = [:]
     private(set) var needsFiltering = false
 
     var isActive: Bool { !query.isEmpty }
@@ -17,7 +18,8 @@ struct FileExplorerTreeFilter {
         query = nextQuery
         needsFiltering = !nextQuery.isEmpty
         if nextQuery.isEmpty {
-            visiblePaths.removeAll(keepingCapacity: true)
+            filteredRootNodes.removeAll(keepingCapacity: true)
+            filteredChildrenByPath.removeAll(keepingCapacity: true)
         }
         return true
     }
@@ -33,25 +35,21 @@ struct FileExplorerTreeFilter {
     @discardableResult
     mutating func apply(_ result: FileExplorerTreeFilterResult) -> Bool {
         guard result.query == query else { return false }
-        visiblePaths = result.visiblePaths
+        filteredRootNodes = result.rootPaths.compactMap { nodesByPath[$0] }
+        filteredChildrenByPath.removeAll(keepingCapacity: true)
+        for (path, children) in result.childrenByPath {
+            filteredChildrenByPath[path] = children.compactMap { nodesByPath[$0] }
+        }
         needsFiltering = false
         return true
     }
 
     func visibleRootNodes(in nodes: [FileExplorerNode]) -> [FileExplorerNode] {
-        guard isActive else { return nodes }
-        return snapshot.rootPaths.compactMap { path in
-            guard visiblePaths.contains(path) else { return nil }
-            return nodesByPath[path]
-        }
+        isActive ? filteredRootNodes : nodes
     }
 
     func visibleChildren(of node: FileExplorerNode) -> [FileExplorerNode] {
-        guard isActive else { return node.sortedChildren ?? [] }
-        return (snapshot.childrenByPath[node.path] ?? []).compactMap { path in
-            guard visiblePaths.contains(path) else { return nil }
-            return nodesByPath[path]
-        }
+        isActive ? filteredChildrenByPath[node.path] ?? [] : node.sortedChildren ?? []
     }
 
     func hasVisibleChildren(_ node: FileExplorerNode) -> Bool {

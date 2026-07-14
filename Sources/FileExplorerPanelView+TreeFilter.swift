@@ -2,6 +2,10 @@ import AppKit
 
 @MainActor
 extension FileExplorerPanelView.Coordinator {
+    func suspendFileFilter() {
+        cancelFileFilterTask(discardingPendingActions: true)
+    }
+
     func setFileFilterQuery(
         _ query: String,
         in outlineView: NSOutlineView,
@@ -84,6 +88,7 @@ extension FileExplorerPanelView.Coordinator {
                 guard let self, let outlineView,
                       self.fileFilterGeneration == generation else { return }
                 self.fileFilterTask = nil
+                guard self.containerView?.displayedSearchScope == .names else { return }
                 guard treeRevision == self.store.treeRevision else {
                     self.setFileFilterQuery(self.fileFilter.query, in: outlineView)
                     return
