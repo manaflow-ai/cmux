@@ -155,6 +155,52 @@ struct AgentNotificationRegressionTests {
         #expect(resolutionCount == 1)
     }
 
+    @Test("Workspace clear cancels a blocked reliable admission after its surface moves")
+    func workspaceClearCancelsBlockedReliableAdmissionAtMovedSurface() async throws {
+        let fixture = try makeFixture()
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.discardPendingNotifications()
+            bus.drainForTesting()
+            bus.setDrainsSuspendedForTesting(false)
+            fixture.restore()
+        }
+        for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
+            #expect(bus.enqueueNotification(
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "Capacity seed \(index)",
+                subtitle: "",
+                body: ""
+            ))
+        }
+        let delivery = Task { @MainActor in
+            await AgentNotificationDelivery().enqueueReliably(
+                workspaceID: fixture.source.id,
+                surfaceID: fixture.panelId,
+                title: "Must not cross moved-surface clear",
+                subtitle: "",
+                body: "",
+                category: nil,
+                pending: false
+            )
+        }
+        for _ in 0..<10_000 {
+            if bus.reliablyWaitingNotificationProducerCountForTesting() == 1 { break }
+            await Task.yield()
+        }
+        #expect(bus.reliablyWaitingNotificationProducerCountForTesting() == 1)
+
+        try movePanel(fixture)
+        fixture.store.clearNotifications(forTabId: fixture.destination.id, surfaceId: nil)
+        bus.drainForBackpressure()
+
+        #expect(await delivery.value == .cancelled)
+        #expect(!bus.notificationQueueStateForTesting().1.contains("Must not cross moved-surface clear"))
+    }
+
     @Test("Source-confined synchronous delivery does not follow a moved surface")
     func sourceConfinedSynchronousDeliveryDoesNotRetarget() throws {
         let fixture = try makeFixture()

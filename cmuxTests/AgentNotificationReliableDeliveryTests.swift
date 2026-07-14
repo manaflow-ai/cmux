@@ -184,6 +184,42 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         XCTAssertEqual(identity.3, unmappedSurfaceId)
     }
 
+    func testReliableAdmissionStartedAfterSessionTransferUsesReplacementRoute() async {
+        let bus = TerminalMutationBus.shared
+        let oldTabId = UUID()
+        let newTabId = UUID()
+        let oldSurfaceId = UUID()
+        let newSurfaceId = UUID()
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer { reset(bus) }
+
+        bus.transferPendingNotifications(
+            fromTabId: oldTabId,
+            toTabId: newTabId,
+            panelIdMap: [oldSurfaceId: newSurfaceId]
+        )
+
+        let result = await AgentNotificationDelivery().enqueueReliably(
+            workspaceID: oldTabId,
+            surfaceID: oldSurfaceId,
+            title: "Accepted after replacement scan",
+            subtitle: "",
+            body: "",
+            category: nil,
+            pending: false
+        )
+
+        XCTAssertEqual(result, .accepted)
+        let titles = bus.notificationQueueStateForTesting().1
+        guard let index = titles.firstIndex(of: "Accepted after replacement scan") else {
+            return XCTFail("Replacement-routed reliable notification was not admitted")
+        }
+        let identity = bus.notificationIdentityStateForTesting()[index]
+        XCTAssertEqual(identity.2, newTabId)
+        XCTAssertEqual(identity.3, newSurfaceId)
+    }
+
     func testReliableAdmissionBacklogIsBounded() async {
         let bus = TerminalMutationBus.shared
         bus.discardPendingNotifications()
