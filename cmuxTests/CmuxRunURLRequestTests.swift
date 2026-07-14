@@ -386,13 +386,22 @@ struct CmuxRunURLRequestTests {
 
         let firstAcquisition = await limiter.acquire()
         let overlappingAcquisition = await limiter.acquire()
-        #expect(firstAcquisition)
-        #expect(!overlappingAcquisition)
+        guard case .acquired(let permit) = firstAcquisition else {
+            Issue.record("Expected the first verifier permit to be acquired")
+            return
+        }
+        #expect(overlappingAcquisition == .busy)
 
-        await limiter.release()
+        await limiter.markUnavailable(permit)
+        #expect(await limiter.acquire() == .unavailable)
+
+        await limiter.recordTermination(permit)
         let acquisitionAfterTermination = await limiter.acquire()
-        #expect(acquisitionAfterTermination)
-        await limiter.release()
+        guard case .acquired(let retryPermit) = acquisitionAfterTermination else {
+            Issue.record("Expected termination to recover the verifier permit")
+            return
+        }
+        await limiter.recordTermination(retryPermit)
     }
 
     @Test func resolutionDeadlineDoesNotWaitForProcessTermination() async {

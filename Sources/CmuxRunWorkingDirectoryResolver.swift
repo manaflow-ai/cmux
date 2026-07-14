@@ -8,17 +8,24 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
 
     let fileManager: FileManager
     private let commandOverride: (@Sendable (String) -> CmuxRunWorkingDirectoryCommand)?
+    private let processLimiter: CmuxRunWorkingDirectoryProcessLimiter
 
-    init(fileManager: FileManager = .default) {
+    init(
+        fileManager: FileManager = .default,
+        processLimiter: CmuxRunWorkingDirectoryProcessLimiter = CmuxRunWorkingDirectoryProcessLimiter()
+    ) {
         self.fileManager = fileManager
         self.commandOverride = nil
+        self.processLimiter = processLimiter
     }
 
     init(
-        commandForTesting: @escaping @Sendable (String) -> CmuxRunWorkingDirectoryCommand
+        commandForTesting: @escaping @Sendable (String) -> CmuxRunWorkingDirectoryCommand,
+        processLimiter: CmuxRunWorkingDirectoryProcessLimiter = CmuxRunWorkingDirectoryProcessLimiter()
     ) {
         self.fileManager = .default
         self.commandOverride = commandForTesting
+        self.processLimiter = processLimiter
     }
 
     func resolve(_ requestedPath: String) -> Result<String, CmuxRunURLExecutionError> {
@@ -57,9 +64,14 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
             return .failure(error)
         }
 
-        let limiter = CmuxRunWorkingDirectoryProcessLimiter.shared
-        guard await limiter.acquire() else {
+        let permit: CmuxRunWorkingDirectoryProcessLimiter.Permit
+        switch await processLimiter.acquire() {
+        case .acquired(let acquiredPermit):
+            permit = acquiredPermit
+        case .busy:
             return .failure(.busy)
+        case .unavailable:
+            return .failure(.workingDirectoryVerifierUnavailable)
         }
         let command = commandOverride?(expanded) ?? Self.canonicalDirectoryCommand(for: expanded)
         let process = Process()
@@ -73,7 +85,7 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
         process.terminationHandler = { process in
             let output = standardOutput.fileHandleForReading.readDataToEndOfFile()
             Task {
-                await limiter.release()
+                await processLimiter.recordTermination(permit)
                 await gate.complete(status: process.terminationStatus, output: output)
             }
         }
@@ -81,7 +93,7 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
         do {
             try process.run()
         } catch {
-            await limiter.release()
+            await processLimiter.recordTermination(permit)
             return .failure(.workingDirectoryNotFound)
         }
 
@@ -117,10 +129,10 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
 
         switch outcome {
         case .timedOut:
-            // The caller's deadline is independent of child cleanup, but the
-            // process-wide permit remains held until termination is observed.
-            // Releasing here could admit unbounded verifier processes stuck in
-            // uninterruptible filesystem I/O.
+            // Preserve the process cap until termination is observed. If the
+            // child is stuck in uninterruptible filesystem I/O, later requests
+            // receive an explicit recovery message instead of spawning more.
+            await processLimiter.markUnavailable(permit)
             return .failure(.workingDirectoryResolutionTimedOut)
         case .completed(let status, let output):
             guard status == EXIT_SUCCESS,

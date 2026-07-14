@@ -7,6 +7,7 @@ enum CmuxRunURLExecutionError: Error, Equatable {
     case workingDirectoryMustBeAbsolute
     case workingDirectoryNotFound
     case workingDirectoryResolutionTimedOut
+    case workingDirectoryVerifierUnavailable
     case targetNotFound
     case remoteWorkspaceUnsupported
     case emptyPane

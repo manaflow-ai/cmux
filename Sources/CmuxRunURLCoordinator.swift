@@ -11,11 +11,13 @@ final class CmuxRunURLCoordinator {
 
     init(
         appDelegate: AppDelegate,
-        directoryResolver: CmuxRunWorkingDirectoryResolver = CmuxRunWorkingDirectoryResolver(),
+        directoryResolver: CmuxRunWorkingDirectoryResolver? = nil,
         confirmationPresenter: CmuxRunURLConfirmationPresenter? = nil
     ) {
         self.appDelegate = appDelegate
-        self.directoryResolver = directoryResolver
+        self.directoryResolver = directoryResolver ?? CmuxRunWorkingDirectoryResolver(
+            processLimiter: appDelegate.cmuxRunWorkingDirectoryProcessLimiter
+        )
         self.confirmationPresenter = confirmationPresenter ?? CmuxRunURLConfirmationPresenter()
     }
 
@@ -274,6 +276,8 @@ final class CmuxRunURLCoordinator {
             return .failure(.targetChanged)
         case .failure(.workingDirectoryResolutionTimedOut):
             return .failure(.workingDirectoryResolutionTimedOut)
+        case .failure(.workingDirectoryVerifierUnavailable):
+            return .failure(.workingDirectoryVerifierUnavailable)
         case .failure(.workingDirectoryContainsUnsafeCharacters):
             return .failure(.workingDirectoryContainsUnsafeCharacters)
         case .failure:

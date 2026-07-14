@@ -1045,6 +1045,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Queues at most one command link during startup so untrusted sources cannot queue approval dialogs.
     var pendingStartupRunURLRequest: CmuxRunURLRequest?
     var isHandlingCmuxRunURLRequest = false
+    let cmuxRunWorkingDirectoryProcessLimiter = CmuxRunWorkingDirectoryProcessLimiter()
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false

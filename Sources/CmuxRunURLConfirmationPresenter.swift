@@ -284,6 +284,11 @@ final class CmuxRunURLConfirmationPresenter {
                 localized: "dialog.runURL.error.directoryTimeout",
                 defaultValue: "The working directory could not be verified before the request timed out."
             )
+        case .workingDirectoryVerifierUnavailable:
+            return String(
+                localized: "dialog.runURL.error.verifierUnavailable",
+                defaultValue: "The previous directory check is still stopping. Wait and try again. If this continues, restart cmux."
+            )
         case .targetNotFound:
             return String(localized: "dialog.runURL.error.targetNotFound", defaultValue: "The requested cmux window, workspace, pane, or surface is no longer available.")
         case .remoteWorkspaceUnsupported:
