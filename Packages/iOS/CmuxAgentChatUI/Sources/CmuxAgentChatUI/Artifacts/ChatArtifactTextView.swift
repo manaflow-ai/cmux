@@ -7,7 +7,12 @@ struct ChatArtifactTextView: UIViewRepresentable {
     let text: String
 
     func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
+        // A default UITextView uses TextKit 2 on modern iOS. Large artifacts
+        // then synchronously create layout fragments during fast scrolling.
+        // Opt into the TextKit 1 stack so non-contiguous glyph layout remains
+        // genuinely lazy instead of entering TextKit 2 compatibility mode.
+        let textView = UITextView(usingTextLayoutManager: false)
+        textView.layoutManager.allowsNonContiguousLayout = true
         textView.isEditable = false
         textView.isSelectable = true
         textView.isScrollEnabled = true
