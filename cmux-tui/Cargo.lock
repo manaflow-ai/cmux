@@ -190,6 +190,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cmux-tui-core",
+ "crossterm",
+ "ghostty-vt",
+ "libc",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "toml",
+ "unicode-width",
+]
+
+[[package]]
+name = "cmux-tui-cdp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "tungstenite",
+]
+
+[[package]]
+name = "cmux-tui-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cmux-tui-cdp",
+ "ghostty-vt",
+ "libc",
+ "portable-pty",
+ "regex",
+ "serde",
+ "serde_json",
+ "tungstenite",
+ "uds_windows",
+]
+
+[[package]]
 name = "compact_str"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -798,49 +841,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys",
-]
-
-[[package]]
-name = "cmux-tui-cdp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde_json",
- "tungstenite",
-]
-
-[[package]]
-name = "cmux-tui-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "ghostty-vt",
- "libc",
- "cmux-tui-cdp",
- "portable-pty",
- "regex",
- "serde",
- "serde_json",
- "tungstenite",
- "uds_windows",
-]
-
-[[package]]
-name = "cmux-tui"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "crossterm",
- "ghostty-vt",
- "libc",
- "cmux-tui-core",
- "ratatui",
- "serde",
- "serde_json",
- "toml",
- "unicode-width",
 ]
 
 [[package]]
