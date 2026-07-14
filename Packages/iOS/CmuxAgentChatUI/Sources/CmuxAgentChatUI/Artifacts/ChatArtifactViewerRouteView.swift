@@ -27,6 +27,11 @@ struct ChatArtifactViewerRouteView: View {
     @State private var searchSummary = ChatArtifactSearchSummary.empty
     @State private var previousSearchRequestID = 0
     @State private var nextSearchRequestID = 0
+    @State private var showsLineNumbers = true
+    @State private var isGoToLinePresented = false
+    @State private var goToLineText = ""
+    @State private var goToLineUTF16Offset = 0
+    @State private var goToLineRequestID = 0
 
     var body: some View {
         content
@@ -48,6 +53,7 @@ struct ChatArtifactViewerRouteView: View {
                                 if isSearchPresented {
                                     dismissSearch()
                                 } else {
+                                    dismissGoToLine()
                                     isSearchPresented = true
                                 }
                             }
@@ -59,6 +65,48 @@ struct ChatArtifactViewerRouteView: View {
                                     bundle: .module
                                 ),
                                 systemImage: "magnifyingglass"
+                            )
+                        }
+                        Menu {
+                            Button {
+                                withAnimation(.snappy) {
+                                    if isGoToLinePresented {
+                                        dismissGoToLine()
+                                    } else {
+                                        dismissSearch()
+                                        isGoToLinePresented = true
+                                    }
+                                }
+                            } label: {
+                                Label(
+                                    String(
+                                        localized: "chat.artifact.line.goto",
+                                        defaultValue: "Go to line",
+                                        bundle: .module
+                                    ),
+                                    systemImage: "text.line.first.and.arrowtriangle.forward"
+                                )
+                            }
+                            Button {
+                                showsLineNumbers.toggle()
+                            } label: {
+                                Label(
+                                    String(
+                                        localized: "chat.artifact.line.numbers",
+                                        defaultValue: "Line numbers",
+                                        bundle: .module
+                                    ),
+                                    systemImage: showsLineNumbers ? "checkmark" : "number"
+                                )
+                            }
+                        } label: {
+                            Label(
+                                String(
+                                    localized: "chat.artifact.text_options",
+                                    defaultValue: "Text options",
+                                    bundle: .module
+                                ),
+                                systemImage: "textformat"
                             )
                         }
                         Button {
@@ -197,6 +245,7 @@ struct ChatArtifactViewerRouteView: View {
                     streamingProgressHeader
                 }
                 searchBar
+                goToLineBar
                 highlightingStatusPill
                 rawTextView
             }
@@ -209,6 +258,7 @@ struct ChatArtifactViewerRouteView: View {
                     ChatArtifactMarkdownView(markdown: model.renderedText)
                 } else {
                     searchBar
+                    goToLineBar
                     highlightingStatusPill
                     rawTextView
                 }
@@ -285,6 +335,10 @@ struct ChatArtifactViewerRouteView: View {
             onSearchSummaryChanged: { summary in
                 searchSummary = summary
             },
+            lineIndex: model.textLineIndex,
+            showsLineNumbers: showsLineNumbers,
+            goToLineUTF16Offset: goToLineUTF16Offset,
+            goToLineRequestID: goToLineRequestID,
             topRequestID: topRequestID,
             bottomRequestID: bottomRequestID
         )
@@ -297,6 +351,22 @@ struct ChatArtifactViewerRouteView: View {
                 .padding()
         }
         #endif
+    }
+
+    @ViewBuilder
+    private var goToLineBar: some View {
+        if isGoToLinePresented {
+            ChatArtifactGoToLineBar(
+                lineText: $goToLineText,
+                onGo: goToLine,
+                onClose: {
+                    withAnimation(.snappy) {
+                        dismissGoToLine()
+                    }
+                }
+            )
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 
     @ViewBuilder
@@ -400,6 +470,7 @@ struct ChatArtifactViewerRouteView: View {
             set: { mode in
                 if mode == .rendered {
                     dismissSearch()
+                    dismissGoToLine()
                 }
                 model.selectMarkdownMode(mode)
             }
@@ -410,6 +481,18 @@ struct ChatArtifactViewerRouteView: View {
         isSearchPresented = false
         searchQuery = ""
         searchSummary = .empty
+    }
+
+    private func dismissGoToLine() {
+        isGoToLinePresented = false
+        goToLineText = ""
+    }
+
+    private func goToLine(_ requestedLine: Int) {
+        let line = model.textLineIndex.clampedLine(requestedLine)
+        goToLineText = String(line)
+        goToLineUTF16Offset = model.textLineIndex.offset(forLine: line)
+        goToLineRequestID += 1
     }
 
     private var shouldShowTextJumpControls: Bool {

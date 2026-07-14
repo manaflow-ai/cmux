@@ -13,6 +13,10 @@ struct ChatArtifactTextView: UIViewRepresentable {
     let previousSearchRequestID: Int
     let nextSearchRequestID: Int
     let onSearchSummaryChanged: (ChatArtifactSearchSummary) -> Void
+    let lineIndex: ChatArtifactLineIndex
+    let showsLineNumbers: Bool
+    let goToLineUTF16Offset: Int
+    let goToLineRequestID: Int
     let topRequestID: Int
     let bottomRequestID: Int
 
@@ -20,28 +24,17 @@ struct ChatArtifactTextView: UIViewRepresentable {
         ChatArtifactTextViewCoordinator()
     }
 
-    func makeUIView(context: Context) -> UITextView {
-        // A default UITextView uses TextKit 2 on modern iOS. Large artifacts
-        // then synchronously create layout fragments during fast scrolling.
-        // Opt into the TextKit 1 stack so non-contiguous glyph layout remains
-        // genuinely lazy instead of entering TextKit 2 compatibility mode.
-        let textView = UITextView(usingTextLayoutManager: false)
-        textView.layoutManager.allowsNonContiguousLayout = true
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isScrollEnabled = true
-        textView.backgroundColor = .clear
-        textView.adjustsFontForContentSizeCategory = true
-        textView.font = .monospacedSystemFont(
-            ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize,
-            weight: .regular
-        )
-        textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
-        textView.textContainer.lineFragmentPadding = 0
-        return textView
+    func makeUIView(context: Context) -> ChatArtifactTextContainerView {
+        // The container constructs `UITextView(usingTextLayoutManager: false)`
+        // so non-contiguous TextKit 1 layout remains genuinely viewport-lazy.
+        let containerView = ChatArtifactTextContainerView()
+        containerView.textView.delegate = context.coordinator
+        context.coordinator.attach(containerView)
+        return containerView
     }
 
-    func updateUIView(_ textView: UITextView, context: Context) {
+    func updateUIView(_ containerView: ChatArtifactTextContainerView, context: Context) {
+        let textView = containerView.textView
         let isNewDocument = context.coordinator.documentID != documentID
         if isNewDocument {
             context.coordinator.resetHighlighting()
@@ -52,6 +45,7 @@ struct ChatArtifactTextView: UIViewRepresentable {
             context.coordinator.appliedChunkCount = 0
             context.coordinator.handledTopRequestID = topRequestID
             context.coordinator.handledBottomRequestID = bottomRequestID
+            context.coordinator.handledGoToLineRequestID = goToLineRequestID
         }
 
         if context.coordinator.appliedChunkCount > chunks.count {
@@ -100,6 +94,7 @@ struct ChatArtifactTextView: UIViewRepresentable {
             nextRequestID: nextSearchRequestID,
             onSummaryChanged: onSearchSummaryChanged
         )
+        containerView.updateLineNumbers(index: lineIndex, isVisible: showsLineNumbers)
 
         if isNewDocument {
             Self.scrollToTop(textView)
@@ -113,6 +108,13 @@ struct ChatArtifactTextView: UIViewRepresentable {
                 textView.scrollRangeToVisible(
                     NSRange(location: textView.textStorage.length, length: 0)
                 )
+            }
+            if context.coordinator.handledGoToLineRequestID != goToLineRequestID {
+                context.coordinator.handledGoToLineRequestID = goToLineRequestID
+                textView.scrollRangeToVisible(NSRange(
+                    location: min(max(goToLineUTF16Offset, 0), textView.textStorage.length),
+                    length: 0
+                ))
             }
         }
     }

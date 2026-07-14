@@ -14,6 +14,7 @@ final class ChatArtifactViewerModel {
     private(set) var activePath: String?
     private(set) var markdownPresentation = ChatArtifactMarkdownPresentation(byteCount: 0)
     private(set) var textHighlightDecision: ChatArtifactHighlightDecision = .skippedNoLanguage
+    private(set) var textLineIndex = ChatArtifactLineIndex()
     private let temporaryFileStore: ChatArtifactTemporaryFileStore
     private var temporaryFileURL: URL?
 
@@ -142,6 +143,7 @@ final class ChatArtifactViewerModel {
         textReachedEOF = false
         markdownPresentation = ChatArtifactMarkdownPresentation(byteCount: 0)
         textHighlightDecision = .skippedNoLanguage
+        textLineIndex = ChatArtifactLineIndex()
     }
 
     private func streamText(
@@ -172,6 +174,7 @@ final class ChatArtifactViewerModel {
         guard path == activePath else { return }
         if !text.isEmpty {
             textChunks.append(text)
+            textLineIndex.append(text)
         }
         updateProgress(for: chunk)
         textReachedEOF = chunk.eof

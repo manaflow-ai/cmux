@@ -4,11 +4,13 @@ import UIKit
 
 /// Tracks which streamed chunks have been applied to one text-storage instance.
 @MainActor
-final class ChatArtifactTextViewCoordinator {
+final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     var documentID: String?
     var appliedChunkCount = 0
     var handledTopRequestID = 0
     var handledBottomRequestID = 0
+    var handledGoToLineRequestID = 0
+    private weak var containerView: ChatArtifactTextContainerView?
     private let syntaxHighlighter = ChatArtifactSyntaxHighlighter()
     private var highlightTask: Task<Void, Never>?
     private var highlightGeneration = 0
@@ -38,6 +40,15 @@ final class ChatArtifactTextViewCoordinator {
 
     init(searchDebounce: Duration = .milliseconds(160)) {
         self.searchDebounce = searchDebounce
+        super.init()
+    }
+
+    func attach(_ containerView: ChatArtifactTextContainerView) {
+        self.containerView = containerView
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        containerView?.gutterView.setNeedsDisplay()
     }
 
     func resetHighlighting() {
@@ -289,6 +300,7 @@ final class ChatArtifactTextViewCoordinator {
         textView.selectedRange = selection
         textView.setContentOffset(contentOffset, animated: false)
         applyCurrentSearchHighlight(in: textView, scrollToMatch: false)
+        containerView?.gutterView.setNeedsDisplay()
     }
 
     private func applyCurrentSearchHighlight(
