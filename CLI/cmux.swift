@@ -973,11 +973,10 @@ final class ClaudeHookSessionStore {
         hadPendingBackgroundWorkAtStop: Bool? = nil,
         now: TimeInterval
     ) -> Bool {
-        let effectivePID = pid ?? record.pid
         let lineage = lineageResolver.resolve(
             agentName: agentName,
             sessionId: record.sessionId,
-            pid: effectivePID,
+            pid: pid,
             environment: processEnv
         )
         guard AgentHookSessionActivationPolicy().canActivate(
@@ -24128,6 +24127,7 @@ struct CMUXCLI {
                         surfaceId: surfaceId,
                         cwd: parsedInput.cwd,
                         transcriptPath: parsedInput.transcriptPath,
+                        pid: claudePid,
                         isRestorable: true,
                         // Pending background work keeps the pane out of the
                         // hibernatable .idle state so the planner cannot SIGTERM
@@ -24292,7 +24292,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    pid: mappedSession == nil ? claudePid : nil,
+                        pid: claudePid,
                     launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,
@@ -24507,6 +24507,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
+                    pid: claudePid,
                     agentLifecycle: .needsInput,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
@@ -24783,6 +24784,7 @@ struct CMUXCLI {
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
+                    pid: claudePid,
                     agentLifecycle: .needsInput,
                     lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody
@@ -24851,6 +24853,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
+                    pid: claudePid,
                     agentLifecycle: .running
                 )) ?? false
                 guard acceptedToolUse else {
@@ -30570,7 +30573,7 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            let pid = mapped?.pid ?? inferredPID
+            let pid = inferredPID
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -30918,7 +30921,7 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let pid = inferredPID
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
             if def.name == "codex" {

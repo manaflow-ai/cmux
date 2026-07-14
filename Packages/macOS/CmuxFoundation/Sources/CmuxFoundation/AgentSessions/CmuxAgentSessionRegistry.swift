@@ -102,6 +102,11 @@ public struct CmuxAgentSessionRegistry: Sendable {
         }
     }
 
+    public enum ActiveSlotRemoval: Sendable {
+        case all
+        case updatedThrough(TimeInterval)
+    }
+
     public struct LegacyStamp: Equatable, Sendable {
         public var path: String
         public var size: Int64
@@ -394,6 +399,7 @@ public struct CmuxAgentSessionRegistry: Sendable {
         provider: String,
         sessionID: String,
         updatedAt: TimeInterval,
+        activeSlotRemoval: ActiveSlotRemoval? = nil,
         shouldMutate: ([String: Any]) -> Bool = { _ in true },
         mutate: (inout [String: Any]) -> Void
     ) throws -> Bool {
@@ -421,21 +427,17 @@ public struct CmuxAgentSessionRegistry: Sendable {
                     ),
                     database: database
                 )
+                if let activeSlotRemoval {
+                    try removeActiveSlots(
+                        database: database,
+                        provider: provider,
+                        sessionID: sessionID,
+                        removal: activeSlotRemoval,
+                        maximumWriterGeneration: Self.currentWriterGeneration
+                    )
+                }
                 return true
             }
-        }
-    }
-
-    public func removeActiveSlots(provider: String, sessionID: String) throws {
-        try withDatabase { database in
-            let statement = try prepare(
-                database,
-                "DELETE FROM agent_active_slots WHERE provider = ?1 AND session_id = ?2"
-            )
-            defer { sqlite3_finalize(statement) }
-            try bind(provider, to: 1, in: statement)
-            try bind(sessionID, to: 2, in: statement)
-            try stepDone(statement, database: database, operation: "remove session active slots")
         }
     }
 

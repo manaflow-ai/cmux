@@ -4,11 +4,20 @@ import Foundation
 extension RestorableAgentSessionIndex {
     static func agentRegistrySnapshots(
         _ sources: [(kind: RestorableAgentKind, fileURL: URL)],
-        fileManager: FileManager
+        fileManager: FileManager,
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String: CmuxAgentSessionRegistry.Snapshot]? {
-        guard let registryURL = sources.first?.fileURL.deletingLastPathComponent()
-            .appendingPathComponent(CmuxAgentSessionRegistry.filename, isDirectory: false) else {
+        guard let firstSource = sources.first else {
             return nil
+        }
+        let registryURL: URL
+        if let explicit = environment["CMUX_AGENT_SESSION_REGISTRY_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            registryURL = URL(fileURLWithPath: NSString(string: explicit).expandingTildeInPath)
+        } else {
+            registryURL = firstSource.fileURL.deletingLastPathComponent()
+                .appendingPathComponent(CmuxAgentSessionRegistry.filename, isDirectory: false)
         }
         return try? CmuxAgentSessionRegistry(url: registryURL).snapshotsImportingLegacy(
             sources: sources.map {

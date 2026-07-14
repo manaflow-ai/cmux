@@ -149,6 +149,16 @@ struct AgentHookSessionActivationPolicy: Sendable {
         lineage: AgentHookSessionLineage,
         hasIncomingPID: Bool
     ) -> Bool {
+        if !hasIncomingPID,
+           let activeRunId = record.activeRunId,
+           record.runs?.contains(where: {
+               $0.runId == activeRunId
+                   && $0.endedAt == nil
+                   && $0.pid != nil
+                   && $0.processStartedAt != nil
+           }) == true {
+            return false
+        }
         if let activeRunId = record.activeRunId,
            activeRunId != lineage.runId,
            let activeRun = (record.runs ?? []).first(where: {

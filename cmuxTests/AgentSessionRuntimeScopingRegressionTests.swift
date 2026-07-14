@@ -36,15 +36,10 @@ extension CMUXCLIErrorOutputRegressionTests {
             ),
         ])
 
-        let key = "CMUX_AGENT_SESSION_REGISTRY_PATH"
-        let previous = ProcessInfo.processInfo.environment[key]
-        setenv(key, registryURL.path, 1)
-        defer {
-            if let previous { setenv(key, previous, 1) } else { unsetenv(key) }
-        }
         let snapshots = RestorableAgentSessionIndex.agentRegistrySnapshots(
             [(.codex, legacyDirectory.appendingPathComponent("codex-hook-sessions.json"))],
-            fileManager: .default
+            fileManager: .default,
+            environment: ["CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path]
         )
 
         #expect(snapshots?["codex"]?.records.contains { $0.sessionID == sessionID } == true)

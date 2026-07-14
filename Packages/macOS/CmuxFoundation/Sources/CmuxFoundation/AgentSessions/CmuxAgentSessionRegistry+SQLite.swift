@@ -365,6 +365,38 @@ extension CmuxAgentSessionRegistry {
         try stepDone(statement, database: database, operation: "delete active slot")
     }
 
+    func removeActiveSlots(
+        database: OpaquePointer,
+        provider: String,
+        sessionID: String,
+        removal: ActiveSlotRemoval,
+        maximumWriterGeneration: Int
+    ) throws {
+        let sql: String
+        switch removal {
+        case .all:
+            sql = """
+            DELETE FROM agent_active_slots
+            WHERE provider = ?1 AND session_id = ?2 AND writer_generation <= ?3
+            """
+        case .updatedThrough:
+            sql = """
+            DELETE FROM agent_active_slots
+            WHERE provider = ?1 AND session_id = ?2
+              AND writer_generation <= ?3 AND updated_at <= ?4
+            """
+        }
+        let statement = try prepare(database, sql)
+        defer { sqlite3_finalize(statement) }
+        try bind(provider, to: 1, in: statement)
+        try bind(sessionID, to: 2, in: statement)
+        sqlite3_bind_int64(statement, 3, sqlite3_int64(maximumWriterGeneration))
+        if case let .updatedThrough(updatedAt) = removal {
+            sqlite3_bind_double(statement, 4, updatedAt)
+        }
+        try stepDone(statement, database: database, operation: "remove session active slots")
+    }
+
     func writeLegacyStamp(
         database: OpaquePointer,
         provider: String,

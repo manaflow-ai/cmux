@@ -151,10 +151,13 @@ struct AgentHookSessionStateWriter: Sendable {
         now: TimeInterval
     ) {
         let registry = preparedRegistry(provider: provider, stateURL: stateURL)
-        let patched = try? registry.patchRecord(
+        _ = try? registry.patchRecord(
             provider: provider,
             sessionID: sessionId,
             updatedAt: now,
+            activeSlotRemoval: expectedRecordUpdatedAt.map {
+                .updatedThrough($0)
+            } ?? .all,
             shouldMutate: { record in
                 guard let expectedRecordUpdatedAt else { return true }
                 guard let actualUpdatedAt = record["updatedAt"] as? TimeInterval else { return false }
@@ -162,9 +165,6 @@ struct AgentHookSessionStateWriter: Sendable {
             }
         ) { registryRecord in
             applyCompletion(to: &registryRecord, now: now)
-        }
-        if patched == true {
-            try? registry.removeActiveSlots(provider: provider, sessionID: sessionId)
         }
 
         let wroteLegacy = updateLegacyRecordNonblocking(stateURL: stateURL, sessionID: sessionId) { root, record in
