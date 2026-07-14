@@ -51,6 +51,10 @@ struct UnifiedFileExplorerTests {
 
     @Test("Typing in the persistent search field restores Find activation")
     func typingInPersistentSearchRestoresFindActivation() throws {
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: "rightSidebar.mode")
+        defer { Self.restore(previousMode, forKey: "rightSidebar.mode") }
+
         let state = FileExplorerState()
         state.mode = .files
         let coordinator = FileExplorerPanelView.Coordinator(
