@@ -104,4 +104,26 @@ struct WorktreeCreateTests {
             #expect(error == .invalidPath(".cmux/../elsewhere"))
         }
     }
+
+    @Test
+    func returnsCanonicalPathWhenDestinationUsesSymlink() async throws {
+        let fixture = try await GitTestRepository.make()
+        defer { fixture.cleanup() }
+        let realParent = fixture.path("real-worktrees")
+        let linkedParent = fixture.path("linked-worktrees")
+        try FileManager.default.createDirectory(at: realParent, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: linkedParent, withDestinationURL: realParent)
+        let requestedPath = linkedParent.appendingPathComponent("topic")
+
+        let created = try await WorktreeService().create(
+            repoRoot: fixture.repository.path,
+            name: "topic",
+            baseRef: "HEAD",
+            options: WorktreeCreateOptions(worktreePath: requestedPath.path),
+            on: fixture.host
+        )
+
+        #expect(created.identity.worktreePath.hasSuffix("/real-worktrees/topic"))
+        #expect(!created.identity.worktreePath.contains("/linked-worktrees/"))
+    }
 }

@@ -48,6 +48,7 @@ extension WorktreeService {
             ],
             timeout: WorktreeService.addTimeout
         )
+        let canonicalWorktreePath = try await repositoryRoot(containing: worktreePath, on: host)
 
         let warnings = await configureCreatedBranch(
             branch: branch,
@@ -62,9 +63,9 @@ extension WorktreeService {
 
         let worktrees = try await list(repoRoot: stableRepoRoot, on: host)
         guard let created = worktrees.first(where: {
-            samePath($0.identity.worktreePath, worktreePath)
+            samePath($0.identity.worktreePath, canonicalWorktreePath)
         }) else {
-            throw WorktreeServiceError.worktreeNotFound(worktreePath)
+            throw WorktreeServiceError.worktreeNotFound(canonicalWorktreePath)
         }
 
         let context = WorktreePostCreateContext(worktree: created, baseRef: baseRef)

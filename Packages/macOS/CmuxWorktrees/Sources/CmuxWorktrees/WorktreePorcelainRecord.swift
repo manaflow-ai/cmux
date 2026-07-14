@@ -8,6 +8,7 @@ struct WorktreePorcelainRecord {
     var lockReason: String?
     var isPrunable = false
     var prunableReason: String?
+    var hasUnknownFields = false
 
     init(lines: [String]) {
         for line in lines {
@@ -31,6 +32,8 @@ struct WorktreePorcelainRecord {
             } else if line.hasPrefix("prunable ") {
                 isPrunable = true
                 prunableReason = String(line.dropFirst("prunable ".count))
+            } else {
+                hasUnknownFields = true
             }
         }
     }

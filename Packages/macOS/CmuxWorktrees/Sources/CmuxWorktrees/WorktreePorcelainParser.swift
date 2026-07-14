@@ -1,6 +1,6 @@
 import Foundation
 
-/// Parses the stable line-oriented output of `git worktree list --porcelain`.
+/// Parses the stable output of `git worktree list --porcelain`, with or without `-z`.
 public struct WorktreePorcelainParser: Sendable {
     /// Creates a porcelain parser.
     public init() {}
@@ -21,16 +21,13 @@ public struct WorktreePorcelainParser: Sendable {
         host: WorktreeHostID,
         fallbackRepoPath: String
     ) -> [WorktreeInfo] {
-        let records = output
-            .components(separatedBy: "\n\n")
-            .flatMap { block -> [WorktreePorcelainRecord] in
-                let lines = block.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-                return lines.isEmpty ? [] : [WorktreePorcelainRecord(lines: lines)]
-            }
+        let records = output.contains("\0")
+            ? nulTerminatedRecords(output)
+            : lineTerminatedRecords(output)
 
         let stableRepoPath = records.first?.path ?? fallbackRepoPath
         return records.enumerated().compactMap { index, record in
-            guard let path = record.path else { return nil }
+            guard let path = record.path, !record.hasUnknownFields else { return nil }
             let branch = record.branchReference.map { reference in
                 let prefix = "refs/heads/"
                 return reference.hasPrefix(prefix) ? String(reference.dropFirst(prefix.count)) : reference
@@ -54,4 +51,31 @@ public struct WorktreePorcelainParser: Sendable {
         }
     }
 
+    private func nulTerminatedRecords(_ output: String) -> [WorktreePorcelainRecord] {
+        var records: [WorktreePorcelainRecord] = []
+        var fields: [String] = []
+        for field in output.components(separatedBy: "\0") {
+            if field.isEmpty {
+                if !fields.isEmpty {
+                    records.append(WorktreePorcelainRecord(lines: fields))
+                    fields.removeAll(keepingCapacity: true)
+                }
+            } else {
+                fields.append(field)
+            }
+        }
+        if !fields.isEmpty {
+            records.append(WorktreePorcelainRecord(lines: fields))
+        }
+        return records
+    }
+
+    private func lineTerminatedRecords(_ output: String) -> [WorktreePorcelainRecord] {
+        output
+            .components(separatedBy: "\n\n")
+            .flatMap { block -> [WorktreePorcelainRecord] in
+                let lines = block.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+                return lines.isEmpty ? [] : [WorktreePorcelainRecord(lines: lines)]
+            }
+    }
 }

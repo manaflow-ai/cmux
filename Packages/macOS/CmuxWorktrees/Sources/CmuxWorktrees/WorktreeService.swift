@@ -7,7 +7,10 @@ import Foundation
 /// beyond standard Git config and branch refs, and it re-reads Git before every
 /// destructive transition.
 public struct WorktreeService: Sendable {
-    static let gitEnvironment = ["GIT_OPTIONAL_LOCKS": "0"]
+    static let gitEnvironment = [
+        "GIT_OPTIONAL_LOCKS": "0",
+        "LC_ALL": "C",
+    ]
     static let readTimeout: TimeInterval = 30
     static let addTimeout: TimeInterval = 180
 

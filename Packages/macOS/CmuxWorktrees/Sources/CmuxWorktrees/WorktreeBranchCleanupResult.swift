@@ -5,5 +5,5 @@ public enum WorktreeBranchCleanupResult: Equatable, Codable, Sendable {
     /// The branch was deleted.
     case deleted(branch: String)
     /// The branch was deliberately or safely preserved.
-    case preserved(branch: String, reason: String)
+    case preserved(branch: String, reason: WorktreeBranchPreservationReason)
 }

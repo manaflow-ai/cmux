@@ -51,7 +51,10 @@ struct WorktreeRemoveTests {
             return
         }
         #expect(branch == "unmerged")
-        #expect(!reason.isEmpty)
+        guard case .deleteIfMergedRefused = reason else {
+            Issue.record("Expected git branch -d refusal")
+            return
+        }
         let branchStillExists = await fixture.gitRaw(["show-ref", "--verify", "refs/heads/unmerged"])
         #expect(branchStillExists.exitStatus == 0)
     }
@@ -99,7 +102,10 @@ struct WorktreeRemoveTests {
             return
         }
         #expect(branch == "cas")
-        #expect(reason.contains("compare-and-swap"))
+        guard case .compareAndSwapRefused = reason else {
+            Issue.record("Expected compare-and-swap refusal")
+            return
+        }
         let branchStillExists = await fixture.gitRaw(["show-ref", "--verify", "refs/heads/cas"])
         #expect(branchStillExists.exitStatus == 0)
     }

@@ -63,4 +63,27 @@ struct WorktreePorcelainParserTests {
         #expect(worktree.identity.worktreePath == "/repo/line\nbreak")
         #expect(worktree.branch == "main")
     }
+
+    @Test
+    func omitsAmbiguousLineTerminatedRecord() {
+        let fixture = """
+        worktree /repo
+        HEAD 1111111111111111111111111111111111111111
+        branch refs/heads/main
+
+        worktree /repo/line
+        break
+        HEAD 2222222222222222222222222222222222222222
+        branch refs/heads/topic
+
+        """
+
+        let parsed = WorktreePorcelainParser().parse(
+            fixture,
+            host: WorktreeHostID(rawValue: "fixture-host"),
+            fallbackRepoPath: "/unused"
+        )
+
+        #expect(parsed.map(\.identity.worktreePath) == ["/repo"])
+    }
 }

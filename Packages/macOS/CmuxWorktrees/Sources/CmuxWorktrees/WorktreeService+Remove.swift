@@ -127,7 +127,7 @@ extension WorktreeService {
         guard let branch else { return .notApplicable }
         switch policy {
         case .keep:
-            return .preserved(branch: branch, reason: "requested by caller")
+            return .preserved(branch: branch, reason: .requestedByCaller)
         case .deleteIfMerged:
             let result = await host.run(
                 directory: repoRoot,
@@ -142,7 +142,7 @@ extension WorktreeService {
             let reason = commandMessage(result)
             return .preserved(
                 branch: branch,
-                reason: reason.isEmpty ? "git branch -d refused deletion" : reason
+                reason: .deleteIfMergedRefused(message: reason.isEmpty ? nil : reason)
             )
         case let .forceDelete(expectedOID):
             let result = await host.run(
@@ -156,10 +156,9 @@ extension WorktreeService {
                 return .deleted(branch: branch)
             }
             let detail = commandMessage(result)
-            let suffix = detail.isEmpty ? "" : ": \(detail)"
             return .preserved(
                 branch: branch,
-                reason: "branch moved; compare-and-swap deletion refused\(suffix)"
+                reason: .compareAndSwapRefused(message: detail.isEmpty ? nil : detail)
             )
         }
     }
