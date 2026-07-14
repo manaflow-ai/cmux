@@ -12,8 +12,11 @@ public import AppKit
 /// remaining system glyphs with drawn ones read as two visual families, so
 /// every variant is drawn.
 public extension NSCursor {
+    /// The cmux horizontal resize cursor.
     @MainActor static var cmuxResizeLeftRight: NSCursor { cmuxLeftRightCursor }
+    /// The cmux vertical resize cursor.
     @MainActor static var cmuxResizeUpDown: NSCursor { cmuxUpDownCursor }
+    /// The cmux four-direction resize cursor.
     @MainActor static var cmuxResizeAllAxes: NSCursor { cmuxAllAxesCursor }
     /// Northwest–southeast diagonal (top-left/bottom-right corners).
     @MainActor static var cmuxResizeDiagonalNWSE: NSCursor { cmuxDiagonalNWSECursor }
