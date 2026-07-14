@@ -265,8 +265,14 @@ extension GhosttySurfaceScrollView {
     }
 
     func cancelPendingNotificationScrollRestoreForUserInput() {
-        guard notificationScrollRestoreState.pendingPosition != nil else { return }
-        clearPendingNotificationScrollRestore()
+        switch notificationScrollRestoreState.replay {
+        case .armed, .replaying:
+            notificationScrollRestoreState.replay = .inactive
+            clearPendingNotificationScrollRestore()
+        case .inactive, .completedAwaitingGeometry, .completed:
+            guard notificationScrollRestoreState.pendingPosition != nil else { return }
+            clearPendingNotificationScrollRestore()
+        }
     }
 
     func armSessionScrollbackReplay(expectedStartBoundary: String, expectedEndBoundary: String) {
