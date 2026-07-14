@@ -2236,6 +2236,7 @@ class TerminalController {
         // ControlCommandCoordinator (create_for_caller keeps its app-side resolver).
         case "notification.create_for_caller":
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
+        case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
 
         // App focus (app.focus_override.set/app.simulate_active) handled by ControlCommandCoordinator.
 
@@ -2465,7 +2466,7 @@ class TerminalController {
             "pane.join",
             "pane.last",
             "notification.create",
-            "notification.create_for_caller",
+            "notification.create_for_caller", "agent.resolve_delivery_target",
             "notification.create_for_surface",
             "notification.create_for_target",
             "notification.list",
@@ -12161,10 +12162,9 @@ class TerminalController {
             guard deliver else { return "OK" }
 
             if let fastPath {
-                guard let tab = self.tabForSidebarMutation(id: fastPath.workspaceId) else {
-                    return "ERROR: Tab not found"
-                }
-                guard tab.panels[fastPath.panelId] != nil else {
+                // The surface's current workspace wins over the claimed one (the
+                // sync deliverer retargets); only a target gone everywhere errors.
+                guard AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: fastPath.workspaceId, surfaceId: fastPath.panelId) != nil else {
                     return "ERROR: Panel not found"
                 }
                 self.deliverNotificationSynchronously(
@@ -12187,7 +12187,7 @@ class TerminalController {
                 return "ERROR: Tab not found"
             }
             guard let panelId = UUID(uuidString: panelArg),
-                  tab.panels[panelId] != nil else {
+                  AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tab.id, surfaceId: panelId) != nil else {
                 return "ERROR: Panel not found"
             }
             self.deliverNotificationSynchronously(
@@ -12328,7 +12328,7 @@ class TerminalController {
                     TerminalNotificationStore.shared.clearNotifications(
                         forTabId: tab.id,
                         surfaceId: panelId,
-                        discardQueuedNotifications: false
+                        discardQueuedNotifications: false, throughNotificationGeneration: clearBoundary
                     )
                 } else {
                     TerminalMutationBus.shared.discardPendingNotifications(
@@ -12337,7 +12337,7 @@ class TerminalController {
                     )
                     TerminalNotificationStore.shared.clearNotifications(
                         forTabId: tab.id,
-                        discardQueuedNotifications: false
+                        discardQueuedNotifications: false, throughNotificationGeneration: clearBoundary
                     )
                 }
             }
@@ -13947,6 +13947,8 @@ class TerminalController {
             result = v2MobileTerminalScroll(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
+        case let method where method.hasPrefix("mobile.terminal.artifact."):
+            result = await v2MobileTerminalArtifactDispatch(method: method, params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
         case "workspace.move":
@@ -14912,11 +14914,6 @@ class TerminalController {
         // rather than focused-first/UUID order. `is_focused` in the payload still
         // tells the phone which terminal is active.
         orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }
-    }
-
-    func mobileNonEmpty(_ raw: String?) -> String? {
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     deinit {
