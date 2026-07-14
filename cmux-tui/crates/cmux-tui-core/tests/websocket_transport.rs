@@ -2,7 +2,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::platform::transport;
@@ -151,6 +151,51 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
     let identify = read_json(&mut second);
     assert_eq!(identify["ok"], true);
     assert_eq!(identify["data"]["protocol"], server::PROTOCOL_VERSION);
+
+    mux.shutdown();
+}
+
+#[test]
+fn websocket_subscriber_receives_cross_connection_event_without_poll_delay() {
+    let mux = Mux::new("ws-outbound-latency", SurfaceOptions::default());
+    let server =
+        server::serve_websocket(mux.clone(), "127.0.0.1:0".parse().unwrap(), None, false).unwrap();
+
+    let mut subscriber = connect(server.local_addr());
+    send_json(&mut subscriber, json!({"id": 1, "cmd": "subscribe"}));
+    assert_eq!(read_until(&mut subscriber, |value| value["id"] == 1)["ok"], true);
+
+    let mut trigger = connect(server.local_addr());
+    send_json(&mut trigger, json!({"id": 2, "cmd": "identify"}));
+    assert_eq!(read_until(&mut trigger, |value| value["id"] == 2)["ok"], true);
+
+    // Round-trip a ping so the server has returned to waiting for this
+    // connection's next inbound frame before another connection emits.
+    subscriber.send(Message::Ping(Vec::new().into())).unwrap();
+    loop {
+        match subscriber.read().unwrap() {
+            Message::Pong(_) => break,
+            Message::Ping(data) => subscriber.send(Message::Pong(data)).unwrap(),
+            Message::Text(_) => {}
+            message => panic!("expected pong while synchronizing reader, got {message:?}"),
+        }
+    }
+    std::thread::sleep(Duration::from_millis(5));
+
+    let started = Instant::now();
+    send_json(&mut trigger, json!({"id": 3, "cmd": "set-window-title", "title": "latency-marker"}));
+    let event = read_until(&mut subscriber, |value| {
+        value["event"] == "window-title-requested" && value["title"] == "latency-marker"
+    });
+    let elapsed = started.elapsed();
+
+    eprintln!("cross-connection outbound event latency: {elapsed:?}");
+    assert_eq!(event["title"], "latency-marker");
+    assert!(
+        elapsed < Duration::from_millis(50),
+        "outbound event took {elapsed:?}; expected it well below the 100 ms disconnect poll"
+    );
+    assert_eq!(read_until(&mut trigger, |value| value["id"] == 3)["ok"], true);
 
     mux.shutdown();
 }

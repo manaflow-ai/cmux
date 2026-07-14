@@ -23,7 +23,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Sender, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::frame::coding::CloseCode;
-use tungstenite::{Error as WebSocketError, Message, accept};
+use tungstenite::{Error as WebSocketError, Message, WebSocket, accept};
 
 use crate::model::{Screen, State};
 use crate::platform::{self, transport};
@@ -446,6 +446,7 @@ struct Response {
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
 const CLIENT_DETACH_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
+const WEBSOCKET_READ_LOCK_TIMEOUT: Duration = Duration::from_millis(5);
 
 trait MessageSink: Send + Sync {
     fn send(&self, value: &Value) -> std::io::Result<()>;
@@ -543,14 +544,21 @@ impl MessageSink for LineSink {
 }
 
 struct WebSocketSink {
-    outbound: Sender<String>,
+    outbound: Mutex<Option<Sender<String>>>,
     control: TcpStream,
 }
 
 impl MessageSink for WebSocketSink {
     fn send(&self, value: &Value) -> std::io::Result<()> {
         let text = serde_json::to_string(value)?;
-        self.outbound.send(text).map_err(|_| {
+        let outbound = self.outbound.lock().unwrap();
+        let Some(outbound) = outbound.as_ref() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "WebSocket connection closed",
+            ));
+        };
+        outbound.send(text).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::BrokenPipe, "WebSocket connection closed")
         })
     }
@@ -560,13 +568,88 @@ impl MessageSink for WebSocketSink {
     }
 
     fn close(&self) {
-        // No socket shutdown here: the connection thread's read already polls
-        // on STREAM_DISCONNECT_POLL, so it observes the closed writer within
-        // one interval with an UNPOISONED tungstenite session — shutting down
-        // the read side made its own read() fail mid-stream, which poisons
-        // the session and turns the final close handshake into a raw TCP
-        // reset at the peer. A wedged peer is still bounded: the final drain
-        // and close-frame writes run under CLIENT_DETACH_WRITE_TIMEOUT.
+        // Dropping the last sender wakes the dedicated writer after every
+        // previously queued frame. It can then send the Close frame with an
+        // unpoisoned tungstenite session. Do not shut down the read side here:
+        // that can turn the close handshake into a raw TCP reset at the peer.
+        self.outbound.lock().unwrap().take();
+    }
+}
+
+fn run_websocket_writer(
+    websocket: Arc<Mutex<WebSocket<TcpStream>>>,
+    outbound: Receiver<String>,
+    failed: Arc<AtomicBool>,
+) {
+    while let Ok(text) = outbound.recv() {
+        let result = websocket.lock().unwrap().send(Message::Text(text.into()));
+        if result.is_err() {
+            failed.store(true, Ordering::Release);
+            return;
+        }
+    }
+
+    // recv() reports disconnection only after draining every queued message,
+    // preserving detached/response delivery before the close handshake.
+    let _ = websocket.lock().unwrap().close(None);
+}
+
+#[cfg(unix)]
+fn wait_for_websocket_readable(stream: &TcpStream, timeout: Duration) -> std::io::Result<bool> {
+    use std::os::fd::AsRawFd;
+
+    let timeout_ms = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+    loop {
+        let mut poll_fd = libc::pollfd { fd: stream.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: poll_fd points to one initialized pollfd for the duration of
+        // the call, and the TcpStream keeps its file descriptor alive.
+        let result = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+        if result >= 0 {
+            return Ok(result > 0);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn wait_for_websocket_readable(stream: &TcpStream, timeout: Duration) -> std::io::Result<bool> {
+    use std::os::windows::io::AsRawSocket;
+
+    #[repr(C)]
+    struct WsaPollFd {
+        fd: usize,
+        events: i16,
+        revents: i16,
+    }
+
+    #[link(name = "ws2_32")]
+    unsafe extern "system" {
+        fn WSAPoll(fd_array: *mut WsaPollFd, fds: u32, timeout: i32) -> i32;
+        fn WSAGetLastError() -> i32;
+    }
+
+    const POLLIN: i16 = 0x0300;
+    const SOCKET_ERROR: i32 = -1;
+
+    let timeout_ms = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+    loop {
+        let mut poll_fd =
+            WsaPollFd { fd: stream.as_raw_socket() as usize, events: POLLIN, revents: 0 };
+        // SAFETY: poll_fd points to one initialized WSAPOLLFD for the duration
+        // of the call, and the TcpStream keeps its socket alive.
+        let result = unsafe { WSAPoll(&mut poll_fd, 1, timeout_ms) };
+        if result != SOCKET_ERROR {
+            return Ok(result > 0);
+        }
+        // SAFETY: WSAGetLastError has no preconditions and reads thread-local
+        // Winsock error state immediately after the failed WSAPoll call.
+        let error = std::io::Error::from_raw_os_error(unsafe { WSAGetLastError() });
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
     }
 }
 
@@ -896,37 +979,45 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
             return;
         }
     }
-    let _ = websocket.get_mut().set_read_timeout(Some(STREAM_DISCONNECT_POLL));
+    let _ = websocket.get_mut().set_read_timeout(Some(WEBSOCKET_READ_LOCK_TIMEOUT));
+    let Ok(readiness) = websocket.get_ref().try_clone() else { return };
     let Ok(control) = websocket.get_ref().try_clone() else { return };
     let _ = control.set_nodelay(true);
     let (outbound_tx, outbound_rx) = channel();
-    let writer = MessageWriter::new(WebSocketSink { outbound: outbound_tx, control });
+    let writer =
+        MessageWriter::new(WebSocketSink { outbound: Mutex::new(Some(outbound_tx)), control });
+    let websocket = Arc::new(Mutex::new(websocket));
+    let writer_failed = Arc::new(AtomicBool::new(false));
+    let writer_websocket = websocket.clone();
+    let thread_writer_failed = writer_failed.clone();
+    let Ok(writer_thread) = std::thread::Builder::new()
+        .name("mux-ws-writer".into())
+        .spawn(move || run_websocket_writer(writer_websocket, outbound_rx, thread_writer_failed))
+    else {
+        return;
+    };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    // accept() and each tungstenite read may read ahead past the frame it
+    // returns. Drain that protocol buffer before waiting on socket readiness.
+    let mut may_have_buffered_message = true;
 
-    'connection: loop {
-        loop {
-            match outbound_rx.try_recv() {
-                Ok(text) => {
-                    if websocket.send(Message::Text(text.into())).is_err() {
-                        break 'connection;
-                    }
-                }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => break 'connection,
-            }
-        }
-
-        if !writer.is_open() {
-            while let Ok(text) = outbound_rx.try_recv() {
-                if websocket.send(Message::Text(text.into())).is_err() {
-                    break;
-                }
-            }
+    loop {
+        if !writer.is_open() || writer_failed.load(Ordering::Acquire) {
             break;
         }
 
-        match websocket.read() {
+        if !may_have_buffered_message {
+            match wait_for_websocket_readable(&readiness, STREAM_DISCONNECT_POLL) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(_) => break,
+            }
+        }
+
+        let message = websocket.lock().unwrap().read();
+        match message {
             Ok(Message::Text(text)) => {
+                may_have_buffered_message = true;
                 if !handle_message(&mux, client, &text, &writer) {
                     if writer.is_open() {
                         break;
@@ -935,7 +1026,8 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
                 }
             }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
-                let _ = websocket.flush();
+                may_have_buffered_message = true;
+                let _ = websocket.lock().unwrap().flush();
             }
             Ok(Message::Close(_)) => break,
             Ok(_) => break,
@@ -943,13 +1035,16 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
                 if matches!(
                     error.kind(),
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
+                ) =>
+            {
+                may_have_buffered_message = false;
+            }
             Err(_) if !writer.is_open() => continue,
             Err(_) => break,
         }
     }
     disconnect_client(&mux, client, false);
-    let _ = websocket.close(None);
+    let _ = writer_thread.join();
 }
 
 fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
