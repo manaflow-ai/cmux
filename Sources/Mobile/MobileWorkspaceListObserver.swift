@@ -208,6 +208,12 @@ final class MobileWorkspaceListObserver {
                 workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+                // Todo status override + checklist are workspace-list-facing
+                // (status lane, checklist progress) and live in their own
+                // sub-model, so a pure todo mutation would otherwise never
+                // re-emit to external listeners.
+                workspace.todoState.$statusOverride.map { _ in () }.eraseToAnyPublisher(),
+                workspace.todoState.$checklist.map { _ in () }.eraseToAnyPublisher(),
                 workspace.currentDirectoryChangeRevisionPublisher()
                     .map { _ in () }
                     .eraseToAnyPublisher(),
@@ -344,6 +350,10 @@ final class MobileWorkspaceListObserver {
                 hasher.combine(workspace.reportedPanelDirectory(panelId: id))
             }
             hasher.combine(workspace.presentedCurrentDirectory)
+            // Todo mutations change the list-facing shape; without these the
+            // hash-diff would suppress the re-emit the publishers above fire.
+            hasher.combine(workspace.todoState.statusOverride)
+            hasher.combine(workspace.todoState.checklist)
             // Hash every panelDirectories entry (including ids not yet in
             // `panels`) so a directory update is detected even before its panel
             // registers. The ordered loop above already covers in-panel
