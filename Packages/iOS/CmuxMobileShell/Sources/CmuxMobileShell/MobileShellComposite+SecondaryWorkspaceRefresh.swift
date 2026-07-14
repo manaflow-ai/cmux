@@ -1,4 +1,5 @@
 internal import CmuxMobileRPC
+internal import CmuxMobilePairedMac
 internal import CmuxMobileShellModel
 internal import Foundation
 internal import OSLog
@@ -166,7 +167,35 @@ extension MobileShellComposite {
                     on: client,
                     macDeviceID: macID
                 )
-                guard self.secondaryMacSubscriptions[macID] === subscription else { return }
+                // Revalidate both scope and per-Mac authority across the fetch.
+                // A backup refresh can replace instance A with B while A's RPC is
+                // in flight; never attribute A's response to B's paired row.
+                let scope = await self.currentScopeSnapshot()
+                let refreshedMac: MobilePairedMac?
+                if let scope, let pairedMacStore = self.pairedMacStore {
+                    refreshedMac = try? await pairedMacStore.loadAll(
+                        stackUserID: scope.userID,
+                        teamID: scope.teamID
+                    ).first(where: { $0.macDeviceID == macID })
+                } else {
+                    refreshedMac = nil
+                }
+                guard self.secondaryMacSubscriptions[macID] === subscription,
+                      let scope,
+                      !Task.isCancelled,
+                      await self.isScopeCurrent(scope),
+                      let refreshedMac,
+                      MobileMacInstanceTagAuthority.sameStoredAuthority(
+                          refreshedMac.instanceTag,
+                          subscription.storedInstanceTag
+                      ) else {
+                    if self.secondaryMacSubscriptions[macID] === subscription {
+                        subscription.cancel()
+                        self.secondaryMacSubscriptions[macID] = nil
+                        self.markSecondaryMacUnavailable(macID)
+                    }
+                    return
+                }
                 subscription.refreshFinishedGeneration = generation
                 if let previews {
                     subscription.refreshCompletedGeneration = generation

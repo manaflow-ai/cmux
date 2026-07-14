@@ -45,12 +45,24 @@ extension WorkspaceDetailView {
         let rows = terminalPickerLiveRows
         if includeTitleChanges {
             guard terminalPickerRows != rows else { return }
+            #if DEBUG
+            TerminalPickerMenuDiagnostics().recordRowsWrite(
+                rowCount: rows.count,
+                includesTitleChanges: true
+            )
+            #endif
             terminalPickerRows = rows
             return
         }
         guard terminalPickerRows.isEmpty
             || TerminalPickerMenuMembership(terminalPickerRows) != TerminalPickerMenuMembership(rows)
         else { return }
+        #if DEBUG
+        TerminalPickerMenuDiagnostics().recordRowsWrite(
+            rowCount: rows.count,
+            includesTitleChanges: false
+        )
+        #endif
         terminalPickerRows = rows
     }
 

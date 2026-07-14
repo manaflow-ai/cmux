@@ -13,6 +13,7 @@ final class MarkdownViewerAssets {
     private let highlightLightCSS: String
     private let highlightDarkCSS: String
     private let githubMarkdownCSS: String
+    private let viewerNavigationJS: String
     private let shellTemplate: String
     private let localizedStringsJSON: String
 
@@ -24,6 +25,7 @@ final class MarkdownViewerAssets {
         highlightLightCSS = MarkdownViewerAssets.loadAsset(name: "highlight-github", ext: "css")
         highlightDarkCSS = MarkdownViewerAssets.loadAsset(name: "highlight-github-dark", ext: "css")
         githubMarkdownCSS = MarkdownViewerAssets.loadAsset(name: "github-markdown", ext: "css")
+        viewerNavigationJS = MarkdownViewerAssets.loadAsset(name: "viewer-navigation", ext: "js")
         shellTemplate = MarkdownViewerAssets.loadAsset(name: "shell", ext: "html")
         localizedStringsJSON = MarkdownViewerAssets.localizedStringsJSON()
     }
@@ -36,6 +38,7 @@ final class MarkdownViewerAssets {
             .replacingOccurrences(of: "{{highlightDarkCSS}}", with: highlightDarkCSS)
             .replacingOccurrences(of: "{{markedJS}}", with: markedJS)
             .replacingOccurrences(of: "{{highlightJS}}", with: highlightJS)
+            .replacingOccurrences(of: "{{viewerNavigationJS}}", with: viewerNavigationJS)
             .replacingOccurrences(of: "{{localizedStringsJSON}}", with: localizedStringsJSON)
     }
 

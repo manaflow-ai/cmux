@@ -939,6 +939,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Максимальное количество строк последнего уведомления, отображаемых под заголовком каждого рабочего пространства.",
           "rightMaxWidth": "Максимальная ширина правой боковой панели в пунктах. Если не указано, применяется встроенное динамическое ограничение."
         },
         "fileExplorer": {

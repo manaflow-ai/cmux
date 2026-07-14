@@ -1922,7 +1922,7 @@ final class SocketClient {
         )
         recordOperation(operation)
 
-        let payload = command + "\n"
+        let payload = capabilityWrappedCommand(command) + "\n"
         try writeAll(
             Data(payload.utf8),
             timeoutMessage: "Command timed out",
@@ -2014,7 +2014,7 @@ final class SocketClient {
 
         do {
             try writeAllNonBlocking(
-                Data((command + "\n").utf8),
+                Data((capabilityWrappedCommand(command) + "\n").utf8),
                 deadline: Date().addingTimeInterval(writeTimeout),
                 timeoutMessage: "Command timed out",
                 failureMessage: "Failed to write to socket"
@@ -2736,7 +2736,7 @@ final class SocketClient {
         }
 
         try writeAll(
-            Data((requestLine + "\n").utf8),
+            Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
             timeoutMessage: "Stream request timed out",
             failureMessage: "Failed to write stream request"
         )
@@ -8683,16 +8683,8 @@ struct CMUXCLI {
         )
     }
 
-    /// `cmux ssh-tmux <destination>` — mirror a remote host's tmux sessions as
-    /// workspaces in the current window over `tmux -CC` (the remote-tmux beta).
-    ///
-    /// Unlike `cmux ssh`, this carries no cmuxd-remote/relay bootstrap: it only
-    /// drives the SSH ControlMaster the mirror multiplexes over. The app's mirror
-    /// control client uses plain pipes and cannot service interactive auth, so if
-    /// the host needs a password / host-key confirmation / MFA / FIDO touch, the
-    /// app returns the `ssh` argv and this CLI runs it **inline in the user's
-    /// terminal** (which supplies the tty), then retries the mirror over the
-    /// now-authenticated master.
+    /// Mirrors a remote host's tmux sessions; interactive SSH authentication runs
+    /// inline in the caller's terminal before retrying over the shared master.
     private func runRemoteTmux(
         commandArgs: [String],
         client: SocketClient,
@@ -8702,11 +8694,10 @@ struct CMUXCLI {
         var port: Int?
         var identityFile: String?
         var noFocus = false
+        var newWindow = false
 
-        // Intentional subset of parseSSHCommandOptions: the mirror verb has a
-        // different pipeline (no relay/cmuxd bootstrap, no `--` passthrough, no
-        // --ssh-option/--name/--window), so it parses only the flags it supports
-        // rather than reusing the heavier SSH-workspace parser.
+        // Intentional subset of parseSSHCommandOptions: ssh-tmux has no relay,
+        // passthrough, --ssh-option, --name, or --window support.
         var index = 0
         while index < commandArgs.count {
             let arg = commandArgs[index]
@@ -8728,6 +8719,9 @@ struct CMUXCLI {
                 index += 2
             case "--no-focus":
                 noFocus = true
+                index += 1
+            case "--new-window":
+                newWindow = true
                 index += 1
             default:
                 if arg.hasPrefix("-") {
@@ -8752,21 +8746,20 @@ struct CMUXCLI {
         if let port { params["port"] = port }
         if let identityFile, !identityFile.isEmpty { params["identity_file"] = identityFile }
         params["activate"] = !noFocus
-        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
-
-        // The first call runs a non-interactive (BatchMode) discovery in the app,
-        // which can take a couple of seconds; show progress so it doesn't look idle.
+        if !newWindow {
+            try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
+        }
+        // BatchMode discovery can take a couple of seconds; show progress.
         if !jsonOutput {
             print("Connecting to \(destination)…")
         }
 
-        // The app reports `auth_required` at most once per attempt; run the
-        // returned interactive ssh, then retry exactly once. `didAuthenticate`
-        // bounds the loop so a host that keeps reporting auth-required can't spin.
+        // Retry interactive authentication once; never spin on auth-required.
+        let method = newWindow ? "remote.tmux.window" : "remote.tmux.mirror"
         var didAuthenticate = false
         while true {
             let result = try client.sendV2(
-                method: "remote.tmux.mirror",
+                method: method,
                 params: params,
                 responseTimeout: 75  // > the app-side 60s timeout, so the app's result/error always arrives first
             )
@@ -8793,8 +8786,7 @@ struct CMUXCLI {
                 }
                 try runInteractiveAuthSSH(sshArgv: sshArgv, destination: destination)
                 didAuthenticate = true
-                // Retry immediately so the just-opened ControlMaster (ControlPersist)
-                // is still warm; tell the user we're proceeding.
+                // Retry while the just-opened ControlMaster is warm.
                 if !jsonOutput {
                     print("Authenticated; opening remote tmux mirror for \(destination)…")
                 }
@@ -15862,7 +15854,7 @@ struct CMUXCLI {
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
             """)
         case "ssh-tmux":
-            return String(localized: "cli.help.ssh-tmux", defaultValue: """
+            let help = String(localized: "cli.help.ssh-tmux", defaultValue: """
             Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
 
             Mirror a remote host's tmux sessions into the current window's sidebar over
@@ -15885,6 +15877,14 @@ struct CMUXCLI {
               cmux ssh-tmux dev@my-host
               cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519
             """)
+            let newWindowHelp = String(
+                localized: "cli.help.ssh-tmux.newWindow",
+                defaultValue: """
+                Additional flag:
+                  --new-window        Open the mirror in a dedicated new window
+                """
+            )
+            return "\(help)\n\n\(newWindowHelp)"
         case "ssh-session-list":
             return """
             Usage: cmux ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
@@ -23989,7 +23989,7 @@ struct CMUXCLI {
             ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.session-start.unresolved")
-                print(String(localized: "common.ok", defaultValue: "OK"))
+                printClaudeHookAck()
                 return
             }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -24108,7 +24108,7 @@ struct CMUXCLI {
                     pid: claudePid
                 )
             }
-            print("OK")
+            printClaudeHookAck()
 
         case "stop", "idle":
             telemetry.breadcrumb("claude-hook.stop")
@@ -24125,7 +24125,7 @@ struct CMUXCLI {
                 ) else {
                     didSendFeedTelemetry = true
                     telemetry.breadcrumb("claude-hook.stop.unresolved")
-                    print(String(localized: "common.ok", defaultValue: "OK"))
+                    printClaudeHookAck()
                     return
                 }
                 let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -24152,13 +24152,13 @@ struct CMUXCLI {
                     telemetry: telemetry
                 ) else {
                     telemetry.breadcrumb("claude-hook.stop.stale")
-                    print("OK")
+                    printClaudeHookAck()
                     return
                 }
 
                 guard !suppressVisibleMutations else {
                     telemetry.breadcrumb("claude-hook.stop.nested-suppressed")
-                    print("OK")
+                    printClaudeHookAck()
                     return
                 }
 
@@ -24246,11 +24246,11 @@ struct CMUXCLI {
                     )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
-                print("OK")
+                printClaudeHookAck()
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
                     telemetry.breadcrumb("claude-hook.stop.ignored", data: ["error": String(describing: error)])
-                    print("OK")
+                    printClaudeHookAck()
                     return
                 }
                 throw error
@@ -24268,7 +24268,7 @@ struct CMUXCLI {
             ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.prompt-submit.unresolved")
-                print(String(localized: "common.ok", defaultValue: "OK"))
+                printClaudeHookAck()
                 return
             }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -24303,12 +24303,12 @@ struct CMUXCLI {
                 )
             guard shouldApplyPromptSubmit else {
                 telemetry.breadcrumb("claude-hook.prompt-submit.stale")
-                print("OK")
+                printClaudeHookAck()
                 return
             }
             guard !suppressVisibleMutations else {
                 telemetry.breadcrumb("claude-hook.prompt-submit.nested-suppressed")
-                print("OK")
+                printClaudeHookAck()
                 return
             }
             if let sessionId = parsedInput.sessionId {
@@ -24366,7 +24366,7 @@ struct CMUXCLI {
                 icon: "bolt.fill",
                 color: "#4C8DFF"
             )
-            print("OK")
+            printClaudeHookAck()
 
         case "auto-name":
             telemetry.breadcrumb("claude-hook.auto-name")
@@ -24383,7 +24383,7 @@ struct CMUXCLI {
                     client: client
                 ) else {
                     telemetry.breadcrumb("claude-hook.auto-name.unresolved")
-                    print(String(localized: "common.ok", defaultValue: "OK"))
+                    printClaudeHookAck()
                     return
                 }
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
@@ -24406,7 +24406,7 @@ struct CMUXCLI {
             } catch {
                 telemetry.breadcrumb("claude-hook.auto-name.error")
             }
-            print("OK")
+            printClaudeHookAck()
 
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
@@ -24428,7 +24428,7 @@ struct CMUXCLI {
             ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.notification.unresolved")
-                print(String(localized: "common.ok", defaultValue: "OK"))
+                printClaudeHookAck()
                 return
             }
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
@@ -24454,12 +24454,12 @@ struct CMUXCLI {
                 telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.notification.stale")
-                print("OK")
+                printClaudeHookAck()
                 return
             }
             guard !suppressVisibleMutations else {
                 telemetry.breadcrumb("claude-hook.notification.nested-suppressed")
-                print("OK")
+                printClaudeHookAck()
                 return
             }
             if let mappedSession,
@@ -24564,8 +24564,8 @@ struct CMUXCLI {
                     color: "#4C8DFF", pid: claudePid
                 )
             }
-            let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
-            print(response)
+            _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+            printClaudeHookAck()
         case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, workspaceArg: workspaceArg, surfaceArg: surfaceArg, hookSurfaceFlagIsExplicit: hookSurfaceFlag != nil, preferCallerTTYRouting: preferCallerTTYRouting, callerTTYBindingProvider: callerTTYBindingProvider, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
@@ -24615,7 +24615,7 @@ struct CMUXCLI {
                         client: client
                     )
                 }
-                print("OK")
+                printClaudeHookAck()
                 return
             }
             // Final cleanup when Claude process exits.
@@ -24687,7 +24687,7 @@ struct CMUXCLI {
                     telemetry.breadcrumb("claude-hook.session-end.stale")
                 }
             }
-            print("OK")
+            printClaudeHookAck()
 
         case "cron-create-guard":
             telemetry.breadcrumb("claude-hook.cron-create-guard")
@@ -24710,7 +24710,7 @@ struct CMUXCLI {
             ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.pre-tool-use.unresolved")
-                print(String(localized: "common.ok", defaultValue: "OK"))
+                printClaudeHookAck()
                 return
             }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -24736,12 +24736,12 @@ struct CMUXCLI {
                 telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.stale")
-                print("OK")
+                printClaudeHookAck()
                 return
             }
             guard !suppressVisibleMutations else {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.nested-suppressed")
-                print("OK")
+                printClaudeHookAck()
                 return
             }
 
@@ -24839,7 +24839,7 @@ struct CMUXCLI {
                         client: client
                     )
                 }
-                print("OK")
+                printClaudeHookAck()
                 return
             }
 
@@ -24878,7 +24878,7 @@ struct CMUXCLI {
                 color: "#4C8DFF",
                 pid: claudePid
             )
-            print("OK")
+            printClaudeHookAck()
 
         case "help", "--help", "-h":
             telemetry.breadcrumb("claude-hook.help")
@@ -35202,7 +35202,7 @@ export default CMUXSessionRestore;
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
-          ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
+          ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus] [--new-window]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
           ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
           ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
