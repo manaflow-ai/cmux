@@ -22,7 +22,7 @@ final class CmuxTabButton: NSButton {
     }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: ceil(attributedTitle.size().width), height: 28)
+        NSSize(width: max(34, ceil(attributedTitle.size().width)), height: 28)
     }
 
     func configure(label: String, active: Bool) {

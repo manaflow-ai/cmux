@@ -16,7 +16,10 @@ let package = Package(
         ),
     ],
     targets: [
-        .target(name: "CmuxLiteCore"),
+        .target(
+            name: "CmuxLiteCore",
+            resources: [.process("Resources")]
+        ),
         .executableTarget(
             name: "CmuxLiteApp",
             dependencies: [
@@ -27,7 +30,8 @@ let package = Package(
         ),
         .executableTarget(
             name: "CmuxLiteSmoke",
-            dependencies: ["CmuxLiteCore"]
+            dependencies: ["CmuxLiteCore"],
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "CmuxLiteCoreTests",

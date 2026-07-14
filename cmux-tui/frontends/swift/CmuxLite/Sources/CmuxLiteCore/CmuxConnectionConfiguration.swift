@@ -1,79 +1,275 @@
 import Foundation
 
-/// Describes the WebSocket endpoint and optional transport token for one cmux-tui connection.
+/// Describes one resolved cmux-tui transport endpoint and its optional WebSocket token.
 public struct CmuxConnectionConfiguration: Sendable, Equatable {
-    /// The default local cmux-tui WebSocket endpoint.
+    /// The default local WebSocket parity endpoint.
     public static let defaultURL = URL(string: "ws://127.0.0.1:7682")!
 
-    /// The WebSocket URL.
-    public let url: URL
+    /// The selected Unix socket or WebSocket endpoint.
+    public let endpoint: CmuxConnectionEndpoint
 
-    /// The token sent in the WebSocket authentication preamble, when configured.
+    /// The token sent only for WebSocket authentication, when configured.
     public let token: String?
 
-    /// Creates connection configuration from explicit values.
+    /// Creates connection configuration from a resolved endpoint.
+    /// - Parameters:
+    ///   - endpoint: The selected transport and address.
+    ///   - token: An optional WebSocket transport token. Unix endpoints discard this value.
+    public init(endpoint: CmuxConnectionEndpoint, token: String? = nil) {
+        self.endpoint = endpoint
+        switch endpoint {
+        case .unixSocket:
+            self.token = nil
+        case .webSocket:
+            self.token = token
+        }
+    }
+
+    /// Creates WebSocket connection configuration from explicit values.
     /// - Parameters:
     ///   - url: A `ws` or `wss` URL.
     ///   - token: An optional transport token.
-    public init(url: URL = Self.defaultURL, token: String? = nil) {
-        self.url = url
-        self.token = token
+    public init(url: URL, token: String? = nil) {
+        self.init(endpoint: .webSocket(url: url), token: token)
     }
 
-    /// The config file consulted for the token when no token argument is
-    /// given, so a Finder-launched app (which receives no arguments) can
-    /// still authenticate: `~/.config/cmux-lite/token`.
-    public static var defaultTokenFile: String {
-        (NSHomeDirectory() as NSString).appendingPathComponent(".config/cmux-lite/token")
+    /// Creates Unix socket connection configuration from an explicit path.
+    /// - Parameter socketPath: The filesystem path of the cmux-tui socket.
+    public init(socketPath: String) {
+        self.init(endpoint: .unixSocket(path: socketPath))
     }
 
-    /// Parses `--url`, `--token`, and `--token-file` command-line arguments.
-    /// Without a token argument, falls back to ``defaultTokenFile`` when that
-    /// file exists.
+    /// Returns the server-compatible runtime directory for one environment and user id.
+    /// - Parameters:
+    ///   - environment: Environment variables used to resolve `TMPDIR`.
+    ///   - userID: The decimal Unix user id component.
+    /// - Returns: `$TMPDIR/cmux-tui-<uid>`, falling back to `/tmp`.
+    public static func socketDirectory(
+        environment: [String: String],
+        userID: UInt32
+    ) -> String {
+        let temporaryDirectory = environment["TMPDIR"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? "/tmp"
+        return URL(fileURLWithPath: temporaryDirectory, isDirectory: true)
+            .appendingPathComponent("cmux-tui-\(userID)", isDirectory: true)
+            .path
+    }
+
+    /// Returns the server-compatible socket path for a named session.
+    /// - Parameters:
+    ///   - session: The cmux-tui session name.
+    ///   - environment: Environment variables used to resolve `TMPDIR`.
+    ///   - userID: The decimal Unix user id component.
+    /// - Returns: `$TMPDIR/cmux-tui-<uid>/<session>.sock`.
+    public static func socketPath(
+        session: String,
+        environment: [String: String],
+        userID: UInt32
+    ) -> String {
+        URL(
+            fileURLWithPath: socketDirectory(environment: environment, userID: userID),
+            isDirectory: true
+        )
+        .appendingPathComponent("\(session).sock", isDirectory: false)
+        .path
+    }
+
+    /// Returns the WebSocket token fallback path for a home directory.
+    /// - Parameter homeDirectory: The current user's home directory.
+    /// - Returns: `~/.config/cmux-lite/token`.
+    public static func tokenFile(homeDirectory: String) -> String {
+        URL(fileURLWithPath: homeDirectory, isDirectory: true)
+            .appendingPathComponent(".config/cmux-lite/token", isDirectory: false)
+            .path
+    }
+
+    /// Parses endpoint and authentication command-line arguments.
+    ///
+    /// `--socket` and `--session` select Unix transport. `--url` selects
+    /// WebSocket transport. With no selector, exactly one socket in the
+    /// runtime directory is adopted; zero or multiple sockets require an
+    /// explicit flag.
+    ///
     /// - Parameters:
     ///   - arguments: Arguments after the executable name.
+    ///   - environment: Environment variables used for runtime and token paths.
+    ///   - userID: The decimal Unix user id component.
     ///   - readFile: An injected UTF-8 text-file reader.
-    /// - Returns: Parsed connection configuration.
-    /// - Throws: ``CmuxProtocolError`` when an option is malformed.
+    ///   - listDirectory: An injected directory listing that returns child paths.
+    /// - Returns: A fully resolved connection configuration.
+    /// - Throws: ``CmuxProtocolError`` when options or default resolution are ambiguous.
     public static func parse(
         arguments: [String],
-        readFile: (String) throws -> String
+        environment: [String: String],
+        userID: UInt32,
+        readFile: (String) throws -> String,
+        listDirectory: (String) throws -> [String]
     ) throws -> CmuxConnectionConfiguration {
-        var url = defaultURL
+        var endpoint: CmuxConnectionEndpoint?
         var token: String?
+        var tokenWasExplicit = false
         var index = 0
 
         while index < arguments.count {
             let option = arguments[index]
             guard index + 1 < arguments.count else {
-                throw CmuxProtocolError.invalidArgument("missing value for \(option)")
+                throw CmuxProtocolError.invalidArgument(
+                    String(
+                        format: String(
+                            localized: "connection.argument.missing_value",
+                            defaultValue: "Missing value for %@",
+                            bundle: .module
+                        ),
+                        option
+                    )
+                )
             }
             let value = arguments[index + 1]
 
             switch option {
             case "--url":
+                try requireUnselected(endpoint, newOption: option)
                 guard let parsed = URL(string: value),
                       parsed.scheme == "ws" || parsed.scheme == "wss"
                 else {
-                    throw CmuxProtocolError.invalidArgument("invalid WebSocket URL: \(value)")
+                    throw CmuxProtocolError.invalidArgument(
+                        String(
+                            format: String(
+                                localized: "connection.argument.invalid_url",
+                                defaultValue: "Invalid WebSocket URL: %@",
+                                bundle: .module
+                            ),
+                            value
+                        )
+                    )
                 }
-                url = parsed
+                endpoint = .webSocket(url: parsed)
+            case "--socket":
+                try requireUnselected(endpoint, newOption: option)
+                guard !value.isEmpty else {
+                    throw CmuxProtocolError.invalidArgument(
+                        String(
+                            localized: "connection.argument.socket_empty",
+                            defaultValue: "Socket path must not be empty",
+                            bundle: .module
+                        )
+                    )
+                }
+                endpoint = .unixSocket(path: value)
+            case "--session":
+                try requireUnselected(endpoint, newOption: option)
+                guard !value.isEmpty else {
+                    throw CmuxProtocolError.invalidArgument(
+                        String(
+                            localized: "connection.argument.session_empty",
+                            defaultValue: "Session name must not be empty",
+                            bundle: .module
+                        )
+                    )
+                }
+                endpoint = .unixSocket(
+                    path: socketPath(session: value, environment: environment, userID: userID)
+                )
             case "--token":
                 token = value
+                tokenWasExplicit = true
             case "--token-file":
-                token = try readFile(value)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                token = try readFile(value).trimmingCharacters(in: .whitespacesAndNewlines)
+                tokenWasExplicit = true
             default:
-                throw CmuxProtocolError.invalidArgument("unknown option: \(option)")
+                throw CmuxProtocolError.invalidArgument(
+                    String(
+                        format: String(
+                            localized: "connection.argument.unknown_option",
+                            defaultValue: "Unknown option: %@",
+                            bundle: .module
+                        ),
+                        option
+                    )
+                )
             }
             index += 2
         }
 
-        if token == nil, let fallback = try? readFile(defaultTokenFile) {
-            let trimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { token = trimmed }
+        let resolvedEndpoint = try endpoint ?? discoverSocket(
+            environment: environment,
+            userID: userID,
+            listDirectory: listDirectory
+        )
+
+        switch resolvedEndpoint {
+        case .unixSocket:
+            if tokenWasExplicit {
+                throw CmuxProtocolError.invalidArgument(
+                    String(
+                        localized: "connection.argument.token_requires_url",
+                        defaultValue: "--token and --token-file require --url",
+                        bundle: .module
+                    )
+                )
+            }
+            return CmuxConnectionConfiguration(endpoint: resolvedEndpoint)
+        case .webSocket:
+            if token == nil, let home = environment["HOME"], !home.isEmpty,
+               let fallback = try? readFile(tokenFile(homeDirectory: home))
+            {
+                let trimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { token = trimmed }
+            }
+            return CmuxConnectionConfiguration(endpoint: resolvedEndpoint, token: token)
+        }
+    }
+
+    private static func requireUnselected(
+        _ endpoint: CmuxConnectionEndpoint?,
+        newOption: String
+    ) throws {
+        guard endpoint == nil else {
+            throw CmuxProtocolError.invalidArgument(
+                String(
+                    format: String(
+                        localized: "connection.argument.selector_conflict",
+                        defaultValue: "%@ cannot be combined with another transport selector",
+                        bundle: .module
+                    ),
+                    newOption
+                )
+            )
+        }
+    }
+
+    private static func discoverSocket(
+        environment: [String: String],
+        userID: UInt32,
+        listDirectory: (String) throws -> [String]
+    ) throws -> CmuxConnectionEndpoint {
+        let directory = socketDirectory(environment: environment, userID: userID)
+        let sockets = (try? listDirectory(directory))?
+            .filter { URL(fileURLWithPath: $0).pathExtension == "sock" }
+            .sorted() ?? []
+
+        if sockets.count == 1, let socket = sockets.first {
+            return .unixSocket(path: socket)
         }
 
-        return CmuxConnectionConfiguration(url: url, token: token)
+        let found = sockets.isEmpty
+            ? String(
+                localized: "connection.argument.no_sockets",
+                defaultValue: "none",
+                bundle: .module
+            )
+            : sockets.joined(separator: ", ")
+        throw CmuxProtocolError.invalidArgument(
+            String(
+                format: String(
+                    localized: "connection.argument.socket_discovery",
+                    defaultValue: "Expected exactly one *.sock in %1$@, found %2$lld: %3$@; pass --socket <path>, --session <name>, or --url <ws://...>",
+                    bundle: .module
+                ),
+                directory,
+                Int64(sockets.count),
+                found
+            )
+        )
     }
 }

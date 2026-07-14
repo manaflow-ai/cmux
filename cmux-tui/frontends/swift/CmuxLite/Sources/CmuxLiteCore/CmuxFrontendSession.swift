@@ -31,7 +31,7 @@ public actor CmuxFrontendSession {
     /// - Parameters:
     ///   - client: The long-lived command and tree-event client.
     ///   - attachmentClientFactory: A factory for one disposable client per surface attachment.
-    ///   - configuration: WebSocket endpoint and token.
+    ///   - configuration: Resolved transport endpoint and optional WebSocket token.
     ///   - resizeDebounce: The bounded window-resize coalescing delay.
     public init(
         client: CmuxProtocolClient,

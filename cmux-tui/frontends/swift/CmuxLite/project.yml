@@ -13,6 +13,8 @@ targets:
     platform: macOS
     sources:
       - Sources/CmuxLiteCore
+    resources:
+      - Sources/CmuxLiteCore/Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.cmux.cmux-lite.core
