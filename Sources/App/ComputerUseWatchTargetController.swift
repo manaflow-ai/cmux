@@ -126,6 +126,7 @@ final class ComputerUseWatchTargetController {
     private let directoryWatchQueue = DispatchQueue(label: "com.cmuxterm.app.computerUseWatchTarget")
     private var pollTimer: Timer?
     private var cancellables: Set<AnyCancellable> = []
+    private var refreshCoalesceScheduled = false
     private var started = false
 
     init(
@@ -247,10 +248,26 @@ final class ComputerUseWatchTargetController {
             queue: directoryWatchQueue
         )
         source.setEventHandler { [weak self] in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in self?.scheduleCoalescedRefresh() }
         }
         source.setCancelHandler { Darwin.close(descriptor) }
         source.resume()
         directoryWatchSource = source
+    }
+
+    /// Coalesce a burst of filesystem events into at most one refresh per ~quarter
+    /// second. The driver rewrites its state file on every action; this only needs
+    /// to notice a *new* target, so refreshing on every raw event would needlessly
+    /// flood the main thread during active computer use.
+    private func scheduleCoalescedRefresh() {
+        guard started, !refreshCoalesceScheduled else { return }
+        refreshCoalesceScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.refreshCoalesceScheduled = false
+                self.refresh()
+            }
+        }
     }
 }

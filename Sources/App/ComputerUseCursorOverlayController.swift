@@ -386,6 +386,7 @@ final class ComputerUseCursorOverlayController {
     private let directoryWatchQueue = DispatchQueue(label: "com.cmuxterm.app.computerUseCursorWatch")
     private var pollTimer: Timer?
     private var cancellables: Set<AnyCancellable> = []
+    private var refreshCoalesceScheduled = false
     private var started = false
 
     init(
@@ -535,11 +536,27 @@ final class ComputerUseCursorOverlayController {
             queue: directoryWatchQueue
         )
         source.setEventHandler { [weak self] in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in self?.scheduleCoalescedRefresh() }
         }
         source.setCancelHandler { Darwin.close(descriptor) }
         source.resume()
         directoryWatchSource = source
+    }
+
+    /// Coalesce a burst of filesystem events into at most one refresh per frame.
+    /// The driver rewrites the cursor feed many times per second while driving;
+    /// refreshing on every raw event would flood the main thread with directory
+    /// scans and beachball the app during active computer use.
+    private func scheduleCoalescedRefresh() {
+        guard started, !refreshCoalesceScheduled else { return }
+        refreshCoalesceScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.refreshCoalesceScheduled = false
+                self.refresh()
+            }
+        }
     }
 
     private func ensurePanel() -> NSPanel {
