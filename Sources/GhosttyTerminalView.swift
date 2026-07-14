@@ -2435,15 +2435,6 @@ class GhosttyApp {
         }
     }
 
-    func performOnMain<T>(_ work: @MainActor () -> T) -> T {
-        if Thread.isMainThread {
-            return MainActor.assumeIsolated { work() }
-        }
-        return DispatchQueue.main.sync {
-            MainActor.assumeIsolated { work() }
-        }
-    }
-
     @MainActor
     private func applyAppColorChange(
         _ change: ghostty_action_color_change_s,
@@ -2486,6 +2477,15 @@ class GhosttyApp {
                     "app color change ignored kind=\(colorKindLabel(change.kind)) color=\(newColor.hexString()) source=\(source)"
                 )
             }
+        }
+    }
+
+    private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated { work() }
+        }
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated { work() }
         }
     }
 

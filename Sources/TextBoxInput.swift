@@ -1358,7 +1358,7 @@ protocol TextBoxSubmitSurfaceControlling: AnyObject {
     @discardableResult
     func sendNamedKey(_ keyName: String) -> TerminalSurface.NamedKeySendResult
     @discardableResult
-    func performExplicitInputBindingAction(_ action: String) -> Bool
+    func performBindingAction(_ action: String) -> Bool
 }
 
 extension TerminalSurface: TextBoxSubmitSurfaceControlling {
@@ -2292,7 +2292,7 @@ private final class TextBoxSubmitEventRunner {
         )
 #endif
 
-        let handled = surface.performExplicitInputBindingAction("paste_from_clipboard")
+        let handled = surface.performBindingAction("paste_from_clipboard")
 #if DEBUG
         cmuxDebugLog("textbox.submit.pasteFile.binding id=\(id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)")
 #endif
