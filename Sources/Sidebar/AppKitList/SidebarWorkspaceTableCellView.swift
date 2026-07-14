@@ -8,10 +8,14 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
 
     private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
     private(set) var representedRowId: SidebarWorkspaceRenderItemID?
+    private var representedRow: SidebarWorkspaceTableRowConfiguration?
+    private var representedPointerHovering = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         identifier = Self.reuseIdentifier
+        wantsLayer = true
+        hostingView.wantsLayer = true
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         hostingView.setContentHuggingPriority(.required, for: .vertical)
         hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -28,13 +32,22 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    @discardableResult
     func configure(
         row: SidebarWorkspaceTableRowConfiguration,
         isPointerHovering: Bool,
         contextMenuDidOpen: @escaping () -> Void,
         contextMenuDidClose: @escaping () -> Void
-    ) {
+    ) -> Bool {
+        if let representedRow,
+           representedRow.id == row.id,
+           representedRow.hasEquivalentContent(to: row),
+           representedPointerHovering == isPointerHovering {
+            return false
+        }
         representedRowId = row.id
+        representedRow = row
+        representedPointerHovering = isPointerHovering
         hostingView.rootView = row.makeContent(
             isPointerHovering,
             SidebarWorkspaceTableContextMenuActions(
@@ -42,5 +55,6 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
                 didClose: contextMenuDidClose
             )
         )
+        return true
     }
 }

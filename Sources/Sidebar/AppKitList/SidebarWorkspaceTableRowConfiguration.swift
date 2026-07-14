@@ -52,4 +52,17 @@ struct SidebarWorkspaceTableRowConfiguration {
         environment.hasEquivalentPresentation(to: other.environment)
             && isEquivalentValue(other.equivalenceValue)
     }
+
+    var estimatedHeight: CGFloat {
+        let fontScale = CGFloat(environment.globalFontMagnificationPercent) / 100
+        let calculator = SidebarWorkspaceTableRowHeightCalculator()
+        if isGroupHeader {
+            return calculator.estimatedGroupHeaderHeight(fontScale: fontScale)
+        }
+        return calculator.estimatedWorkspaceHeight(
+            fontScale: fontScale,
+            titleLineCount: 1,
+            auxiliaryLineCount: 0
+        )
+    }
 }

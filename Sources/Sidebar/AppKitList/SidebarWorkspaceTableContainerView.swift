@@ -12,7 +12,9 @@ final class SidebarWorkspaceTableContainerView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = false
+        // One layer-backed subtree keeps recycled hosted rows on AppKit's
+        // accelerated scroll path without per-cell layer topology changes.
+        wantsLayer = true
         scrollView.contentView = clipView
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false

@@ -18,6 +18,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
     private var clipBoundsObserver: NSObjectProtocol?
+    private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let bonsplitTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()
 
 #if DEBUG
@@ -29,7 +30,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             NotificationCenter.default.removeObserver(clipBoundsObserver)
         }
     }
-
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
         containerView = container
@@ -51,12 +51,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         table.allowsMultipleSelection = false
         table.allowsTypeSelect = false
         table.intercellSpacing = NSSize(width: 0, height: 2)
-        table.usesAutomaticRowHeights = true
-        table.rowHeight = SidebarWorkspaceTableRowHeightCalculator().estimatedWorkspaceHeight(
-            fontScale: 1,
-            titleLineCount: 1,
-            auxiliaryLineCount: 0
-        )
+        table.usesAutomaticRowHeights = false
+        table.rowHeight = SidebarWorkspaceTableRowHeightCalculator().defaultWorkspaceHeight
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.setDraggingSourceOperationMask(.move, forLocal: false)
@@ -114,17 +110,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
         let previousRows = rows
         let hasStructuralChanges = previousRows.map(\.id) != nextRows.map(\.id)
+        let contentChanges = IndexSet(nextRows.indices.filter { index in
+            previousRows.indices.contains(index)
+                && !previousRows[index].hasEquivalentContent(to: nextRows[index])
+        })
+        let heightChanges = rowHeightCache.prepareHostedRows(nextRows, columnWidth: currentColumnWidth())
         rows = nextRows
 
         if hasStructuralChanges {
             containerView.tableView.reloadData()
         } else {
-            let changed = IndexSet(nextRows.indices.filter { index in
-                !previousRows[index].hasEquivalentContent(to: nextRows[index])
-            })
-            reconfigureVisibleRows(changed)
-            if !changed.isEmpty {
-                containerView.tableView.noteHeightOfRows(withIndexesChanged: changed)
+            reconfigureVisibleRows(contentChanges)
+            if !heightChanges.isEmpty {
+                containerView.tableView.noteHeightOfRows(withIndexesChanged: heightChanges)
             }
         }
 
@@ -147,6 +145,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func numberOfRows(in tableView: NSTableView) -> Int {
         rows.count
+    }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        guard rows.indices.contains(row) else { return tableView.rowHeight }
+        let configuration = rows[row]
+        let columnWidth = currentColumnWidth()
+        return rowHeightCache.height(
+            for: configuration,
+            columnWidth: columnWidth
+        ) ?? configuration.estimatedHeight
     }
 
     func tableView(
@@ -245,8 +253,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func viewportDidChange() {
+        if let changed = rowHeightCache.prepareHostedRowsIfWidthChanged(
+            rows,
+            columnWidth: currentColumnWidth()
+        ), !changed.isEmpty {
+            containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
+        }
         recomputeHoveredRow()
         updateDropTargets()
+    }
+
+    private func currentColumnWidth() -> CGFloat {
+        guard let containerView else { return 0 }
+        return containerView.clipView.bounds.width
     }
 
     private func setHoveredRowId(_ next: SidebarWorkspaceRenderItemID?) {
@@ -286,7 +305,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func configure(cell: SidebarWorkspaceTableCellView, at row: Int) {
         let configuration = rows[row]
         let rowId = configuration.id
-        cell.configure(
+        let didReconfigure = cell.configure(
             row: configuration,
             isPointerHovering: hoveredRowId == rowId && contextMenuRowId != rowId,
             contextMenuDidOpen: { [weak self] in
@@ -297,7 +316,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             }
         )
 #if DEBUG
-        reconfigurationProbe?()
+        if didReconfigure {
+            reconfigurationProbe?()
+        }
 #endif
     }
 
