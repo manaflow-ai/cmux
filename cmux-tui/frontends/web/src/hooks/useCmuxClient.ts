@@ -107,7 +107,10 @@ export function useCmuxClient() {
       try {
         const info = await client.identify();
         if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
-        if (info.protocol !== 6) throw new Error(t("wrongProtocol", { protocol: info.protocol }));
+        // v6 is the baseline this client speaks; v7 servers are additive
+        // (byte mode and coarse tree events are their defaults), so any
+        // newer protocol is acceptable until we opt into v7 features.
+        if (info.protocol < 6) throw new Error(t("wrongProtocol", { protocol: info.protocol }));
         // Presence commands are additive (7c5a9e3e60); a protocol-6 server
         // predating them still serves everything else, so degrade instead of
         // failing the whole connect.
