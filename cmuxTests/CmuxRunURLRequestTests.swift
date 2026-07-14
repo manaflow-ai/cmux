@@ -305,7 +305,7 @@ struct CmuxRunURLRequestTests {
         }
     }
 
-    @Test func timedOutResolutionDoesNotAdmitAnotherBlockingResolution() async throws {
+    @Test func timedOutResolutionAllowsOneBoundedRetry() async throws {
         let pipe = Pipe()
         let readDescriptor = pipe.fileHandleForReading.fileDescriptor
         let (completionStream, completionContinuation) = AsyncStream.makeStream(of: Void.self)
@@ -327,7 +327,7 @@ struct CmuxRunURLRequestTests {
         )
         #expect(
             await resolver.resolveWithDeadline("/tmp", timeout: .zero)
-                == .failure(.busy)
+                == .failure(.workingDirectoryResolutionTimedOut)
         )
 
         try pipe.fileHandleForWriting.write(contentsOf: Data([1, 1]))
