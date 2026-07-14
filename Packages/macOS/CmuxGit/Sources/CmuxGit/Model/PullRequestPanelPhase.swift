@@ -21,4 +21,10 @@ public enum PullRequestPanelPhase: Equatable, Sendable {
         case .idle, .loading: nil
         }
     }
+
+    /// Whether displayed content came from the latest successful refresh.
+    public var isFresh: Bool {
+        if case .loaded = self { return true }
+        return false
+    }
 }

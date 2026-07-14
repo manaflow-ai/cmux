@@ -449,11 +449,9 @@ class TabManager: ObservableObject {
     // the legacy shared limiter; tests inject their own instance.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
 
-    // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
-    // is the per-window composition point: it constructs the concrete
-    // services, stores only the seams, implements SidebarGitHosting
-    // (see TabManager+SidebarGitHosting.swift), and forwards its legacy
-    // entry points.
+    // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager is its
+    // per-window composition point: it constructs concrete services, stores seams,
+    // implements SidebarGitHosting, and forwards legacy entry points.
     let sidebarGitMetadataService: any SidebarGitMetadataServing
     let pullRequestProbing: any PullRequestProbing
     let pullRequestPanelService: any PullRequestPanelServing
@@ -465,7 +463,6 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
-        pullRequestPanelService: (any PullRequestPanelServing)? = nil,
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
@@ -476,10 +473,7 @@ class TabManager: ObservableObject {
         self.settings = settings
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
-        self.pullRequestPanelService = pullRequestPanelService ?? GitHubPullRequestPanelService(
-            commandRunner: commandRunner,
-            gitMetadataService: gitMetadataService
-        )
+        self.pullRequestPanelService = GitHubPullRequestPanelService(commandRunner: commandRunner, gitMetadataService: gitMetadataService)
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
 #if DEBUG

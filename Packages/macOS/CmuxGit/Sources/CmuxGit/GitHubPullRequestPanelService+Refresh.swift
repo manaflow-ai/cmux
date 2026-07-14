@@ -17,7 +17,7 @@ extension GitHubPullRequestPanelService {
 
         if isNoPullRequest(viewResult) {
             let content = PullRequestPanelContent.noPullRequest(context)
-            cacheByContext[context] = content
+            storeCachedContent(content, for: context)
             return content
         }
         let viewOutput = try requiredOutput(from: viewResult, failure: .refreshFailed)
@@ -41,7 +41,7 @@ extension GitHubPullRequestPanelService {
             )
         )
         let content = PullRequestPanelContent.pullRequest(snapshot)
-        cacheByContext[context] = content
+        storeCachedContent(content, for: context)
         return content
     }
 
@@ -97,6 +97,8 @@ extension GitHubPullRequestPanelService {
         number: Int,
         context: PullRequestPanelContext
     ) async throws -> PullRequestReviewCommentsPayload {
+        // The v1 data contract intentionally uses the exact `comments` query. Current gh
+        // versions omit review-thread metadata; the decoder reports nil unless it appears.
         let result = await commandRunner.run(
             directory: context.repositoryRoot,
             executable: "gh",

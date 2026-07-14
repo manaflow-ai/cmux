@@ -60,7 +60,6 @@ extension PullRequestPanelView {
         case .changesRequested: return String(localized: "pullRequestPanel.merge.blocked.changesRequested", defaultValue: "A reviewer requested changes.")
         case .githubBlocked: return String(localized: "pullRequestPanel.merge.blocked.github", defaultValue: "GitHub reports that this pull request is blocked.")
         case .computing: return String(localized: "pullRequestPanel.merge.blocked.computing", defaultValue: "GitHub is still computing merge status.")
-        case .checksFailing: return String(localized: "pullRequestPanel.merge.blocked.checks", defaultValue: "Required checks are failing or require action.")
         case .alreadyMerged: return String(localized: "pullRequestPanel.merge.blocked.merged", defaultValue: "This pull request is already merged.")
         case .closed: return String(localized: "pullRequestPanel.merge.blocked.closed", defaultValue: "This pull request is closed.")
         }

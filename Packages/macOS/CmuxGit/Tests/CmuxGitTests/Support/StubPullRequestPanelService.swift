@@ -3,6 +3,7 @@
 actor StubPullRequestPanelService: PullRequestPanelServing {
     let cached: PullRequestPanelContent?
     let refreshResult: Result<PullRequestPanelContent, PullRequestPanelServiceError>
+    private(set) var mergeCallCount = 0
 
     init(
         cached: PullRequestPanelContent?,
@@ -25,10 +26,12 @@ actor StubPullRequestPanelService: PullRequestPanelServing {
     func merge(
         number: Int,
         context: PullRequestPanelContext,
+        headRefOid: String,
         method: PullRequestMergeMethod,
         whenReady: Bool
     ) async throws {
-        _ = (number, context, method, whenReady)
+        _ = (number, context, headRefOid, method, whenReady)
+        mergeCallCount += 1
     }
 
     func disableAutoMerge(number: Int, context: PullRequestPanelContext) async throws {

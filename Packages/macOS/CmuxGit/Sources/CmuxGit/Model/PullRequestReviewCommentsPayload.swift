@@ -5,7 +5,7 @@ struct PullRequestReviewCommentsPayload: Decodable, Equatable, Sendable {
     /// Comments included in the GitHub CLI response.
     let comments: [PullRequestReviewComment]
 
-    /// The number of distinct unresolved review threads, or `nil` when thread metadata is absent.
+    /// The number of distinct unresolved review threads, or `nil` for current gh issue comments.
     var unresolvedThreadCount: Int? {
         let threadedComments = comments.compactMap { comment -> (String, Bool)? in
             guard let threadId = comment.threadId,

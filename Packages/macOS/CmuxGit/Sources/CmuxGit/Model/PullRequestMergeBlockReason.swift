@@ -12,8 +12,6 @@ public enum PullRequestMergeBlockReason: Equatable, Sendable {
     case githubBlocked
     /// GitHub is still computing mergeability.
     case computing
-    /// Required checks are failing or require action.
-    case checksFailing
     /// The pull request is already merged.
     case alreadyMerged
     /// The pull request is closed without being merged.

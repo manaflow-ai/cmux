@@ -3,17 +3,20 @@ import Testing
 
 @Suite struct PullRequestReviewCommentTests {
     @Test func countsDistinctUnresolvedThreadIdentifiersWhenAvailable() throws {
+        let payload = PullRequestReviewCommentsPayload(comments: [
+            PullRequestReviewComment(threadId: "thread-1", isResolved: false),
+            PullRequestReviewComment(threadId: "thread-1", isResolved: false),
+            PullRequestReviewComment(threadId: "thread-2", isResolved: true),
+            PullRequestReviewComment(threadId: "thread-3", isResolved: false),
+        ])
+        #expect(payload.unresolvedThreadCount == 2)
+    }
+
+    @Test func capturedGitHubCLICommentsReportThreadCountAsUnavailable() throws {
         let payload = try PullRequestFixtureLoader().decode(
             PullRequestReviewCommentsPayload.self,
             named: "pull-request-comments"
         )
-        #expect(payload.unresolvedThreadCount == 2)
-    }
-
-    @Test func missingThreadMetadataIsReportedAsUnavailable() {
-        let payload = PullRequestReviewCommentsPayload(comments: [
-            PullRequestReviewComment(threadId: "one", isResolved: nil),
-        ])
         #expect(payload.unresolvedThreadCount == nil)
     }
 

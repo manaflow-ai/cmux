@@ -165,8 +165,12 @@ struct PullRequestPanelView: View {
 
     private func mergeSection(_ snapshot: PullRequestPanelSnapshot) -> some View {
         @Bindable var bindableModel = model
-        let canMerge = snapshot.mergeAvailability == .allowed && !model.actionPhase.isBusy
-        let canConfigureAutoMerge = snapshot.pullRequest.state.uppercased() == "OPEN"
+        let hasFreshContent = model.phase.isFresh
+        let canMerge = hasFreshContent
+            && snapshot.mergeAvailability == .allowed
+            && !model.actionPhase.isBusy
+        let canConfigureAutoMerge = hasFreshContent
+            && snapshot.pullRequest.state.uppercased() == "OPEN"
             && !snapshot.pullRequest.isDraft
             && !model.actionPhase.isBusy
 
@@ -211,7 +215,7 @@ struct PullRequestPanelView: View {
                     Task { await model.disableAutoMerge() }
                 }
                 .disabled(!canConfigureAutoMerge)
-            } else {
+            } else if snapshot.mergeAvailability != .allowed {
                 Button(String(
                     localized: "pullRequestPanel.autoMerge.enable",
                     defaultValue: "Enable Auto-Merge"
@@ -327,7 +331,7 @@ struct PullRequestPanelView: View {
                 Task { await model.createPullRequest() }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(model.actionPhase.isBusy)
+            .disabled(!model.phase.isFresh || model.actionPhase.isBusy)
             if model.actionPhase.isBusy {
                 ProgressView().controlSize(.small)
             }

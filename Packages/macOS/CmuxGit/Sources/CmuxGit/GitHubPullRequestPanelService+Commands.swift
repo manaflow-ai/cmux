@@ -6,12 +6,17 @@ extension GitHubPullRequestPanelService {
     public func merge(
         number: Int,
         context: PullRequestPanelContext,
+        headRefOid: String,
         method: PullRequestMergeMethod,
         whenReady: Bool
     ) async throws {
         var arguments = ["pr", "merge", String(number)]
         if whenReady { arguments.append("--auto") }
         arguments.append(method.commandFlag)
+        arguments.append(contentsOf: [
+            "--repo", context.repositorySlug,
+            "--match-head-commit", headRefOid,
+        ])
         let result = await commandRunner.run(
             directory: context.repositoryRoot,
             executable: "gh",
@@ -26,7 +31,10 @@ extension GitHubPullRequestPanelService {
         let result = await commandRunner.run(
             directory: context.repositoryRoot,
             executable: "gh",
-            arguments: ["pr", "merge", String(number), "--disable-auto"],
+            arguments: [
+                "pr", "merge", String(number), "--disable-auto",
+                "--repo", context.repositorySlug,
+            ],
             timeout: 30
         )
         _ = try requiredOutput(from: result, failure: .mergeFailed, allowsEmptyOutput: true)

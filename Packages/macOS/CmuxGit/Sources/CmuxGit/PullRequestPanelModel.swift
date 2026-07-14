@@ -21,6 +21,9 @@ public final class PullRequestPanelModel {
     @ObservationIgnored private var isVisible = false
     @ObservationIgnored private var periodicRefreshTimer: Timer?
     @ObservationIgnored private var mergeabilityRefreshTimer: Timer?
+    @ObservationIgnored private var mergeabilityRefreshAttemptCount = 0
+
+    private static let mergeabilityRefreshAttemptLimit = 5
 
     /// Creates a pull-request panel model.
     /// - Parameter service: The injected GitHub CLI service.
@@ -39,6 +42,7 @@ public final class PullRequestPanelModel {
         guard isVisible != visible else { return }
         isVisible = visible
         if visible {
+            mergeabilityRefreshAttemptCount = 0
             startPeriodicRefreshTimer()
             scheduleMergeabilityRefreshIfNeeded()
         } else {
@@ -54,9 +58,12 @@ public final class PullRequestPanelModel {
     /// - Parameter input: The selected workspace checkout.
     public func activate(_ input: PullRequestWorkspaceInput) async {
         guard isVisible else { return }
-        if currentInput != input {
+        let didChangeInput = currentInput != input
+        if didChangeInput {
             currentInput = input
             actionPhase = .idle
+            phase = .loading
+            mergeabilityRefreshAttemptCount = 0
             mergeabilityRefreshTimer?.invalidate()
             mergeabilityRefreshTimer = nil
         }
@@ -80,7 +87,12 @@ public final class PullRequestPanelModel {
 
     /// Manually refreshes the active repository and branch.
     public func refresh() async {
+        await refresh(resetMergeabilityAttempts: true)
+    }
+
+    private func refresh(resetMergeabilityAttempts: Bool) async {
         guard isVisible, !actionPhase.isBusy, let input = currentInput else { return }
+        if resetMergeabilityAttempts { mergeabilityRefreshAttemptCount = 0 }
         generation &+= 1
         let refreshGeneration = generation
         let cached = phase.displayedContent
@@ -96,13 +108,15 @@ public final class PullRequestPanelModel {
     /// - Parameter whenReady: `true` to enable auto-merge; `false` to merge immediately.
     public func merge(whenReady: Bool) async {
         guard !actionPhase.isBusy,
-              case .pullRequest(let snapshot)? = phase.displayedContent else { return }
+              case .loaded(.pullRequest(let snapshot)) = phase else { return }
+        if whenReady, snapshot.mergeAvailability == .allowed { return }
         let inputAtStart = currentInput
         actionPhase = whenReady ? .enablingAutoMerge : .merging
         do {
             try await service.merge(
                 number: snapshot.pullRequest.number,
                 context: snapshot.context,
+                headRefOid: snapshot.pullRequest.headRefOid,
                 method: selectedMergeMethod,
                 whenReady: whenReady
             )
@@ -118,7 +132,7 @@ public final class PullRequestPanelModel {
     /// Disables auto-merge for the displayed pull request.
     public func disableAutoMerge() async {
         guard !actionPhase.isBusy,
-              case .pullRequest(let snapshot)? = phase.displayedContent else { return }
+              case .loaded(.pullRequest(let snapshot)) = phase else { return }
         let inputAtStart = currentInput
         actionPhase = .disablingAutoMerge
         do {
@@ -138,7 +152,7 @@ public final class PullRequestPanelModel {
     /// Opens GitHub's web pull-request creation flow for the active branch.
     public func createPullRequest() async {
         guard !actionPhase.isBusy,
-              case .noPullRequest(let context)? = phase.displayedContent else { return }
+              case .loaded(.noPullRequest(let context)) = phase else { return }
         let inputAtStart = currentInput
         actionPhase = .creatingPullRequest
         do {
@@ -166,13 +180,17 @@ public final class PullRequestPanelModel {
                 cached: cached,
                 error: serviceError(error, fallback: .refreshFailed)
             )
-            scheduleMergeabilityRefreshIfNeeded()
+            mergeabilityRefreshTimer?.invalidate()
+            mergeabilityRefreshTimer = nil
         }
     }
 
     private func apply(_ content: PullRequestPanelContent) {
         phase = .loaded(content)
         updateSelectedMergeMethod(for: content)
+        if case .pullRequest(let snapshot) = content, !snapshot.isMergeabilityComputing {
+            mergeabilityRefreshAttemptCount = 0
+        }
         scheduleMergeabilityRefreshIfNeeded()
     }
 
@@ -204,7 +222,7 @@ public final class PullRequestPanelModel {
         guard periodicRefreshTimer == nil else { return }
         periodicRefreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.refresh()
+                await self?.refresh(resetMergeabilityAttempts: false)
             }
         }
     }
@@ -214,10 +232,13 @@ public final class PullRequestPanelModel {
         mergeabilityRefreshTimer = nil
         guard isVisible,
               case .pullRequest(let snapshot)? = phase.displayedContent,
-              snapshot.isMergeabilityComputing else { return }
+              snapshot.isMergeabilityComputing,
+              mergeabilityRefreshAttemptCount < Self.mergeabilityRefreshAttemptLimit else { return }
         mergeabilityRefreshTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.refresh()
+                guard let self else { return }
+                self.mergeabilityRefreshAttemptCount += 1
+                await self.refresh(resetMergeabilityAttempts: false)
             }
         }
     }

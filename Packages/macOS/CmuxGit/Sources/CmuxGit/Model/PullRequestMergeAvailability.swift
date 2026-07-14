@@ -7,15 +7,10 @@ public enum PullRequestMergeAvailability: Equatable, Sendable {
     /// Direct merge is unavailable for the associated reason.
     case blocked(PullRequestMergeBlockReason)
 
-    /// Derives direct-merge availability from GitHub PR and check state.
-    /// - Parameters:
-    ///   - pullRequest: The GitHub pull request.
-    ///   - checksStatus: The derived checks rollup.
+    /// Derives direct-merge availability from GitHub's authoritative PR state.
+    /// - Parameter pullRequest: The GitHub pull request.
     /// - Returns: Direct-merge availability and any blocking reason.
-    static func derive(
-        pullRequest: GitHubPullRequest,
-        checksStatus: PullRequestChecksStatus
-    ) -> PullRequestMergeAvailability {
+    static func derive(pullRequest: GitHubPullRequest) -> PullRequestMergeAvailability {
         switch pullRequest.state.uppercased() {
         case "MERGED": return .blocked(.alreadyMerged)
         case "CLOSED": return .blocked(.closed)
@@ -36,9 +31,8 @@ public enum PullRequestMergeAvailability: Equatable, Sendable {
         if pullRequest.mergeable.uppercased() == "CONFLICTING" {
             return .blocked(.githubBlocked)
         }
-        if checksStatus == .failure { return .blocked(.checksFailing) }
         let blockedMergeStates: Set<String> = [
-            "BLOCKED", "BEHIND", "DIRTY", "DRAFT", "HAS_HOOKS", "UNSTABLE",
+            "BLOCKED", "BEHIND", "DIRTY", "DRAFT",
         ]
         if blockedMergeStates.contains(pullRequest.mergeStateStatus.uppercased()) {
             return .blocked(.githubBlocked)

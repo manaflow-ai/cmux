@@ -1,6 +1,6 @@
 import Foundation
 
-/// A review comment decoded from `gh pr view <number> --json comments`.
+/// Optional review-thread metadata defensively decoded from a PR issue comment.
 struct PullRequestReviewComment: Decodable, Equatable, Sendable {
     /// The review-thread identifier, when the GitHub CLI payload exposes it.
     let threadId: String?

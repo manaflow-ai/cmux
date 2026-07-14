@@ -17,7 +17,7 @@ public struct PullRequestPanelSnapshot: Equatable, Sendable {
 
     /// Direct-merge availability for the current snapshot.
     public var mergeAvailability: PullRequestMergeAvailability {
-        .derive(pullRequest: pullRequest, checksStatus: checksStatus)
+        .derive(pullRequest: pullRequest)
     }
 
     /// Whether GitHub's mergeability calculation should be re-polled quickly.

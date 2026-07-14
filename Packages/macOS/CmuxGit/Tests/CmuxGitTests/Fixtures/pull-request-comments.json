@@ -1,9 +1,17 @@
 {
   "comments": [
-    { "threadId": "thread-1", "isResolved": false },
-    { "threadId": "thread-1", "isResolved": false },
-    { "threadId": "thread-2", "isResolved": true },
-    { "threadId": 3, "isResolved": false },
-    { "body": "Issue comment without review thread metadata" }
+    {
+      "id": "IC_kwDORDHQWM8AAAABJ-hg-g",
+      "author": { "login": "cursor" },
+      "authorAssociation": "NONE",
+      "body": "Bugbot is paused — on-demand spend limit reached",
+      "createdAt": "2026-07-14T01:26:32Z",
+      "includesCreatedEdit": false,
+      "isMinimized": false,
+      "minimizedReason": "",
+      "reactionGroups": [],
+      "url": "https://github.com/manaflow-ai/cmux/pull/8028#issuecomment-4964507898",
+      "viewerDidAuthor": false
+    }
   ]
 }

@@ -17,12 +17,14 @@ public protocol PullRequestPanelServing: Sendable {
     /// - Parameters:
     ///   - number: The pull-request number.
     ///   - context: The repository and branch identity.
+    ///   - headRefOid: The displayed head commit that the merge must still match.
     ///   - method: The requested merge method.
     ///   - whenReady: `true` to enable auto-merge; `false` to merge immediately.
     /// - Throws: ``PullRequestPanelServiceError/mergeFailed`` when `gh pr merge` fails.
     func merge(
         number: Int,
         context: PullRequestPanelContext,
+        headRefOid: String,
         method: PullRequestMergeMethod,
         whenReady: Bool
     ) async throws
