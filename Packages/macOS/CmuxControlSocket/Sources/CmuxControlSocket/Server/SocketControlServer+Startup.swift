@@ -116,6 +116,11 @@ extension SocketControlServer {
             )
         }
 
+        if accessMode == .off {
+            stop()
+            return false
+        }
+
         if existing.isRunning && SocketControlSettings.pathsMatch(existing.socketPath, socketPath) {
             guard applySocketPermissions() else {
                 stop()
