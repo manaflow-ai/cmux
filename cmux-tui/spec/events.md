@@ -74,7 +74,7 @@ Each subscription retains at most 4,096 pending events. If a client falls behind
 
 `attach-surface` has a stronger ordering contract. The server takes the VT replay snapshot and registers the live output tap under the same terminal lock. The attach stream therefore has no gap and no duplicated bytes between the `vt-state` replay and subsequent `output` chunks. In v5, the `vt-state` event is sent before the `attach-surface` command response.
 
-Protocol v6 attach streams are ordered as `vt-state -> (resized | output | colors-changed)* -> detached`. The v6 `resized` event carries a fresh replay, and attach clients must replace their mirror terminal from that replay before applying later `output` chunks. `colors-changed` is ordered with `resized` and `output` for its attached surface. Clients that support only protocol 5 or older must refuse protocol v6 attach streams. The field name `replay` on the v6 `resized` event could not be verified against this branch's code.
+Protocol v6 attach streams are ordered as `vt-state -> (resized | output | colors-changed)* -> detached`. The v6 `resized` event carries a fresh replay, and attach clients must replace their mirror terminal from that replay before applying later `output` chunks. `colors-changed` is ordered with `resized` and `output` for its attached surface. Clients that support only protocol 5 or older must refuse protocol v6 attach streams. The v6 `resized` replay is carried in the `data` field (verified against `server.rs`; an earlier draft called it `replay`).
 
 Protocol v7 render attach streams are ordered as `render-state -> (render-delta | scroll-changed)* -> detached`. The initial state snapshot and render tap are registered under one terminal lock, matching the byte stream's no-gap/no-duplication guarantee. `render-delta` frames coalesce damage but preserve authoritative state order. See [`render.md`](render.md#stream-ordering).
 
@@ -753,15 +753,15 @@ Example:
 Payload:
 
 ```text
-object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay:Base64}
+object{event:"resized",surface:Id,cols:uint16,rows:uint16,data:Base64}
 ```
 
-Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Clients must create a fresh terminal mirror at `cols` by `rows`, replay `replay`, then continue applying later `output` chunks. The `replay` field name could not be verified against this branch's `server.rs`.
+Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Clients must create a fresh terminal mirror at `cols` by `rows`, replay the `data` field, then continue applying later `output` chunks. (Verified against `server.rs`: the replay is carried in `data`, matching `vt-state`; an earlier draft note called it `replay`.)
 
 Example:
 
 ```json
-{"event":"resized","surface":1,"cols":100,"rows":30,"replay":"G1s/bA=="}
+{"event":"resized","surface":1,"cols":100,"rows":30,"data":"G1s/bA=="}
 ```
 
 ### colors-changed

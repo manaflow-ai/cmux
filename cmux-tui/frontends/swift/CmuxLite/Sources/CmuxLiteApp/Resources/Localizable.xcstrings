@@ -1,0 +1,48 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "app.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux-lite" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux-lite" } }
+      }
+    },
+    "sidebar.workspaces" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspaces" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース" } }
+      }
+    },
+    "status.connected" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Protocol %lld · surface %lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プロトコル %1$lld · サーフェス %2$lld" } }
+      }
+    },
+    "status.connecting" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connecting…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続中…" } }
+      }
+    },
+    "status.connection_failed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connection failed: %@" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続に失敗しました: %@" } }
+      }
+    },
+    "status.detached" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Surface detached" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "サーフェスが切断されました" } }
+      }
+    },
+    "terminal.accessibility_label" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Remote terminal" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "リモートターミナル" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}
