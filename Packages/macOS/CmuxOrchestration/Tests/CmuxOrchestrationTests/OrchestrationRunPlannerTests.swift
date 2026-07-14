@@ -219,6 +219,12 @@ import Testing
         var versionBump = plan.trust
         versionBump.templateVersion = "9.9.9"
         #expect(versionBump.fingerprint != plan.trust.fingerprint)
+
+        // Editing the prompt file's contents (same path, same version, same
+        // commands) must also change the fingerprint.
+        fixture.fileSystem.addFile("/i/template/prompts/task.md", "Do something else: {{task}}")
+        let edited = try fixture.planner.plan(fixture.request(tasks: [OrchestrationTaskInput(title: "x")]))
+        #expect(edited.trust.fingerprint != plan.trust.fingerprint)
     }
 
     @Test func trustFingerprintTracksPromptContent() throws {
