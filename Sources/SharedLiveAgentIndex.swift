@@ -24,10 +24,19 @@ final class SharedLiveAgentIndex {
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
+    private static let maxEventReloadInterval: TimeInterval = 30.0
+    private static let liveAgentsPerReloadIntervalStep = 8
 
     static func hookEventReloadInterval(liveAgentCount: Int) -> TimeInterval {
-        _ = liveAgentCount
-        return minEventReloadInterval
+        let clampedAgentCount = max(0, liveAgentCount)
+        let intervalSteps = max(
+            1,
+            (clampedAgentCount + liveAgentsPerReloadIntervalStep - 1) / liveAgentsPerReloadIntervalStep
+        )
+        return min(
+            maxEventReloadInterval,
+            TimeInterval(intervalSteps) * minEventReloadInterval
+        )
     }
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
