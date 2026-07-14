@@ -1,8 +1,35 @@
 internal import CmuxMobilePairedMac
+internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 internal import Foundation
 
 extension MobileShellComposite {
+    /// Returns real Mac directories matching a task-composer query. Older Macs
+    /// degrade to the local open/recent suggestions without surfacing an error.
+    public func searchTaskDirectories(macDeviceID: String, query rawQuery: String) async -> [String] {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        if macDeviceID != foregroundMacDeviceID || remoteClient == nil {
+            guard await switchToMac(macDeviceID: macDeviceID) else { return [] }
+        }
+        guard !Task.isCancelled, foregroundMacDeviceID == macDeviceID,
+              let client = remoteClient else { return [] }
+        // The last learned capability set can be stale after a tagged Mac
+        // relaunch. This optional read is safe to probe; genuinely older Macs
+        // return an RPC error and fall back to contextual suggestions below.
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.directory.search",
+                params: ["query": query]
+            )
+            let data = try await client.sendRequest(request, timeoutNanoseconds: 4_000_000_000)
+            guard !Task.isCancelled, foregroundMacDeviceID == macDeviceID else { return [] }
+            return try MobileTaskDirectorySearchResponse.decode(data).directories
+        } catch {
+            return []
+        }
+    }
+
     /// Persists an unsent composer draft only for the signed-in session that
     /// created the sheet. A stale disappearing sheet must not restore the
     /// previous account's draft after sign-out has cleared it.

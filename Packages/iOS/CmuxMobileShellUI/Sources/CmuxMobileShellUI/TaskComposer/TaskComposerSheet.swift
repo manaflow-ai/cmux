@@ -209,7 +209,13 @@ struct TaskComposerSheet: View {
                 TaskComposerDirectoryPickerView(
                     candidates: directoryCandidates,
                     selectedPath: directory,
-                    select: selectDirectory
+                    select: selectDirectory,
+                    searchMac: { query in
+                        await store.searchTaskDirectories(
+                            macDeviceID: selectedMacDeviceID,
+                            query: query
+                        )
+                    }
                 )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)

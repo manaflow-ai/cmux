@@ -7301,6 +7301,23 @@
         }
       }
     },
+    "mobile.taskComposer.directoryPicker.searching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Searching this Mac…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacを検索中…"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.directoryPicker.source.activeTerminal": {
       "extractionState": "manual",
       "localizations": {
@@ -7331,6 +7348,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "現在のワークスペース"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.directoryPicker.source.filesystem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMac上"
           }
         }
       }

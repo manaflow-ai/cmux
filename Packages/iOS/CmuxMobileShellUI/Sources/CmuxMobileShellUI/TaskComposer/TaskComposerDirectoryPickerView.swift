@@ -6,25 +6,30 @@ import SwiftUI
 struct TaskComposerDirectoryPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    @State private var remotePaths: [String] = []
+    @State private var isSearchingMac = false
 
-    private let index: MobileTaskDirectorySuggestionIndex
+    private let candidates: [MobileTaskDirectoryCandidate]
     private let selectedPathID: MobileTaskDirectoryPathID
     private let select: (String) -> Void
+    private let searchMac: (String) async -> [String]
 
     init(
         candidates: [MobileTaskDirectoryCandidate],
         selectedPath: String,
-        select: @escaping (String) -> Void
+        select: @escaping (String) -> Void,
+        searchMac: @escaping (String) async -> [String]
     ) {
-        index = MobileTaskDirectorySuggestionIndex(candidates: candidates)
+        self.candidates = candidates
         selectedPathID = MobileTaskDirectoryPathID(path: selectedPath)
         self.select = select
+        self.searchMac = searchMac
     }
 
     var body: some View {
         NavigationStack {
             List {
-                if suggestions.isEmpty {
+                if suggestions.isEmpty, !isSearchingMac {
                     ContentUnavailableView(
                         L10n.string(
                             "mobile.taskComposer.directoryPicker.empty.title",
@@ -57,6 +62,19 @@ struct TaskComposerDirectoryPickerView: View {
                         .accessibilityAddTraits(suggestion.id == selectedPathID ? .isSelected : [])
                     }
                 }
+                if isSearchingMac {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text(
+                            L10n.string(
+                                "mobile.taskComposer.directoryPicker.searching",
+                                defaultValue: "Searching this Mac…"
+                            )
+                        )
+                        .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
             }
             .searchable(
                 text: $query,
@@ -82,11 +100,46 @@ struct TaskComposerDirectoryPickerView: View {
                     }
                 }
             }
+            .task(id: query) {
+                await updateRemoteSuggestions()
+            }
         }
     }
 
     private var suggestions: [MobileTaskDirectoryCandidate] {
-        index.suggestions(matching: query)
+        let remoteCandidates = remotePaths.map {
+            MobileTaskDirectoryCandidate(
+                path: $0,
+                source: .filesystemSearch,
+                context: nil
+            )
+        }
+        return MobileTaskDirectorySuggestionIndex(candidates: candidates + remoteCandidates)
+            .suggestions(matching: query)
+    }
+
+    @MainActor
+    private func updateRemoteSuggestions() async {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else {
+            remotePaths = []
+            isSearchingMac = false
+            return
+        }
+        remotePaths = []
+        isSearchingMac = true
+        do {
+            try await Task.sleep(for: .milliseconds(120))
+            let paths = await searchMac(trimmedQuery)
+            guard !Task.isCancelled else { return }
+            remotePaths = paths
+            isSearchingMac = false
+        } catch is CancellationError {
+        } catch {
+            guard !Task.isCancelled else { return }
+            remotePaths = []
+            isSearchingMac = false
+        }
     }
 
     private func detail(for suggestion: MobileTaskDirectoryCandidate) -> String {
@@ -97,6 +150,8 @@ struct TaskComposerDirectoryPickerView: View {
 
     private func sourceLabel(for source: MobileTaskDirectorySource) -> String {
         switch source {
+        case .filesystemSearch:
+            L10n.string("mobile.taskComposer.directoryPicker.source.filesystem", defaultValue: "On this Mac")
         case .activeTerminal:
             L10n.string("mobile.taskComposer.directoryPicker.source.activeTerminal", defaultValue: "Focused terminal")
         case .activeWorkspace:

@@ -3,6 +3,7 @@ public import Foundation
 /// The context that made a directory useful to the task composer.
 public enum MobileTaskDirectorySource: Int, CaseIterable, Hashable, Sendable {
     case home
+    case filesystemSearch
     case recentSuccessful
     case openTerminal
     case openWorkspace
