@@ -96,6 +96,51 @@ test("streamPatch uses localized fallback for unnamed file tree paths", async ()
   expect(treeSources.at(-1)?.preparedInput).toBeUndefined();
 });
 
+test("streamPatch stops callbacks after its abort signal fires", async () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>");
+  (globalThis as any).document = dom.window.document;
+  (globalThis as any).window = dom.window;
+  dom.window.document.hasFocus = () => false;
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode("diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\ndiff --git a/b.ts b/b.ts\n"));
+      setTimeout(() => {
+        controller.enqueue(encoder.encode("--- a/b.ts\n+++ b/b.ts\n"));
+        controller.close();
+      }, 0);
+    },
+  });
+  (globalThis as any).fetch = () => Promise.resolve(new Response(stream, { status: 200 }));
+
+  const controller = new AbortController();
+  let batches = 0;
+  let completed = 0;
+  const options = {
+    getCollapsed: () => false,
+    initialFileTreeRowCount: 1,
+    label: createDiffViewerLabelResolver(undefined),
+    onBatch: () => {
+      batches += 1;
+      controller.abort();
+    },
+    onComplete: () => { completed += 1; },
+    onMetrics: () => {},
+    onRename: () => {},
+    onTreeSource: () => {},
+    parsePatchFiles: () => [],
+    patchURL: "/patch.diff",
+    processFile: () => ({ name: "unused", type: "modified", hunks: [] }),
+    signal: controller.signal,
+  };
+
+  await streamPatch(options).catch(() => {});
+
+  expect(batches).toBe(1);
+  expect(completed).toBe(0);
+  dom.window.close();
+});
+
 test("streamPatch reuses incremental tree collections with revisioned flushes", async () => {
   const dom = new JSDOM("<!doctype html><html><body></body></html>");
   (globalThis as any).document = dom.window.document;
