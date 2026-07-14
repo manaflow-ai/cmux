@@ -1345,7 +1345,12 @@ enum TerminalStartupReturnShellScript {
             #"  _cmux_nu_bootstrap="$(/usr/bin/grep -v '^[[:space:]]*#' "$CMUX_SHELL_INTEGRATION_DIR/nushell/cmux-nushell-bootstrap.nu" | /usr/bin/grep -v '^[[:space:]]*$' | /usr/bin/paste -sd ';' -)""#,
             #"  if [ -n "$_cmux_nu_bootstrap" ]; then"#,
             #"    if [ -r "$CMUX_SHELL_INTEGRATION_DIR/nushell/cmux-nushell-integration.nu" ]; then"#,
-            #"      _cmux_nu_bootstrap="$_cmux_nu_bootstrap; source \"$CMUX_SHELL_INTEGRATION_DIR/nushell/cmux-nushell-integration.nu\"""#,
+            // The path lands inside a nushell double-quoted string: escape
+            // backslashes then double quotes so an unusual bundle path cannot
+            // break the payload.
+            #"      _cmux_nu_integration_dir="${CMUX_SHELL_INTEGRATION_DIR//\\/\\\\}""#,
+            #"      _cmux_nu_integration_dir="${_cmux_nu_integration_dir//\"/\\\"}""#,
+            #"      _cmux_nu_bootstrap="$_cmux_nu_bootstrap; source \"$_cmux_nu_integration_dir/nushell/cmux-nushell-integration.nu\"""#,
             #"    fi"#,
             #"    exec "$_cmux_resume_shell" -l -e "$_cmux_nu_bootstrap""#,
             #"  fi"#,

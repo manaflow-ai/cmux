@@ -248,6 +248,80 @@ def test_nushell_integration_hook_reports() -> None:
         shutil.rmtree(td, ignore_errors=True)
 
 
+def test_nushell_integration_background_sends_deliver() -> None:
+    """Without CMUX_TEST_SYNC_SEND, reports go through `job spawn` — the
+    spawned job must still resolve the sourced `_cmux_send` def and deliver.
+    (The interactive path always uses background sends, so this cannot be
+    covered only by the sync-mode test above.)"""
+    nu = _require_nu()
+    if nu is None:
+        return
+    assert INTEGRATION.exists(), f"missing bundled nushell integration: {INTEGRATION}"
+
+    td = _short_tmpdir()
+    try:
+        tmp = Path(td).resolve()
+        sock_path = tmp / "cmux.sock"
+        collector = _SocketCollector(sock_path)
+        home = tmp / "home"
+        home.mkdir()
+
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("CMUX")
+        }
+        env.update(
+            {
+                "LC_ALL": "C",
+                "LANG": "C",
+                "TERM": "xterm-256color",
+                "HOME": str(home),
+                "XDG_CONFIG_HOME": str(home / ".config"),
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": str(sock_path),
+                "CMUX_TAB_ID": TAB_ID,
+                "CMUX_PANEL_ID": PANEL_ID,
+                "CMUX_SURFACE_ID": "surface-nu-bg",
+                "_CMUX_TTY_NAME": TTY_NAME,
+                # No CMUX_TEST_SYNC_SEND: exercise the job spawn path. The
+                # trailing sleep keeps the shell alive long enough for the
+                # background job to flush (nushell kills jobs at exit; real
+                # prompts outlive them).
+            }
+        )
+        script = "; ".join(
+            [
+                f'source "{INTEGRATION}"',
+                "_cmux_pre_execution",
+                "sleep 800ms",
+            ]
+        )
+        proc = subprocess.run(
+            [nu, "-n", "-c", script],
+            env=env,
+            cwd=str(home),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        lines = collector.stop()
+        debug = _debug(proc, lines)
+
+        assert proc.returncode == 0, "integration errored on background sends" + debug
+        suffix = f"--tab={TAB_ID} --panel={PANEL_ID}"
+        assert f"report_shell_state running {suffix}" in lines, (
+            "background (job spawn) send did not deliver report_shell_state"
+            + debug
+        )
+        assert f"report_tty {TTY_NAME} {suffix}" in lines, (
+            "background (job spawn) send did not deliver report_tty" + debug
+        )
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+
 def test_nushell_integration_keyboard_reset_test_knob() -> None:
     nu = _require_nu()
     if nu is None:
@@ -299,6 +373,7 @@ def test_nushell_integration_keyboard_reset_test_knob() -> None:
 
 if __name__ == "__main__":
     test_nushell_integration_hook_reports()
+    test_nushell_integration_background_sends_deliver()
     test_nushell_integration_keyboard_reset_test_knob()
     if _find_nu() is None:
         print("SKIP: nushell (nu) not found; nothing was verified")
