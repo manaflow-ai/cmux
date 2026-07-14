@@ -49,7 +49,6 @@ struct AppState {
     port: u16,
     manifests: Arc<RwLock<HashMap<String, CachedManifest>>>,
     child_processes: Arc<Semaphore>,
-    retain_rpc_session_ownership: bool,
 }
 
 #[derive(Clone)]
@@ -84,6 +83,7 @@ const BRANCH_LIST_CHILD_TIMEOUT: Duration = Duration::from_secs(30);
 const SESSION_GIT_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
 const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_secs(2 * 60);
+const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
 const MAX_ORPHAN_REMOVALS: usize = 64;
 const MAX_TEMP_INDEX_ENTRIES: usize = 4096;
@@ -112,6 +112,7 @@ pub async fn run(config: ServerConfig) -> Result<(), String> {
     prune_orphaned_session_temp_files(
         &config.root,
         ORPHAN_SESSION_TEMP_MIN_AGE,
+        ORPHAN_SESSION_FINAL_MIN_AGE,
         MAX_ORPHAN_SCAN_ENTRIES,
     )
     .await;
@@ -127,7 +128,7 @@ pub async fn run(config: ServerConfig) -> Result<(), String> {
         .port();
     write_state_file(&config, port).await?;
 
-    let state = app_state(config, port, false)?;
+    let state = app_state(config, port)?;
     let app = router(state);
 
     let mut stdout = tokio::io::stdout();
@@ -141,11 +142,7 @@ pub async fn run(config: ServerConfig) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-fn app_state(
-    config: ServerConfig,
-    port: u16,
-    retain_rpc_session_ownership: bool,
-) -> Result<AppState, String> {
+fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
     Ok(AppState {
         config: Arc::new(config),
         client: reqwest::Client::builder()
@@ -156,7 +153,6 @@ fn app_state(
         port,
         manifests: Arc::new(RwLock::new(HashMap::new())),
         child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
-        retain_rpc_session_ownership,
     })
 }
 
@@ -173,6 +169,7 @@ pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
     prune_orphaned_session_temp_files(
         &config.root,
         ORPHAN_SESSION_TEMP_MIN_AGE,
+        ORPHAN_SESSION_FINAL_MIN_AGE,
         MAX_ORPHAN_SCAN_ENTRIES,
     )
     .await;
@@ -192,26 +189,12 @@ pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
 async fn run_rpc_request(config: ServerConfig) -> Result<(), String> {
     let response = match read_rpc_request(tokio::io::stdin(), RPC_STDIN_READ_TIMEOUT).await? {
         RpcRequestRead::Request(request) => {
-            let state = app_state(config.clone(), 0, true)?;
+            let state = app_state(config, 0)?;
             handle_protocol_request(request, Some(&state)).await
         }
         RpcRequestRead::Rejected(response) => response,
     };
-    write_rpc_response(&response).await?;
-    if let Some(path) = rpc_generated_session_path(&config.root, &response) {
-        let _ = unregister_session_temp(&config.root, &path);
-    }
-    Ok(())
-}
-
-fn rpc_generated_session_path(root: &Path, response: &DiffResponse) -> Option<PathBuf> {
-    let DiffResult::SessionOpened(opened) = response.result.as_ref()? else {
-        return None;
-    };
-    if matches!(opened.source, DiffSource::Patch { .. }) {
-        return None;
-    }
-    Some(root.join(format!("diff-session-{}.patch", opened.session_id)))
+    write_rpc_response(&response).await
 }
 
 enum RpcRequestRead {
@@ -591,9 +574,6 @@ async fn open_session(
         return Err(SessionOpenError::Failed);
     }
     temporary_file.disarm();
-    if !state.retain_rpc_session_ownership {
-        let _ = unregister_session_temp(&state.config.root, &final_path);
-    }
 
     Ok(SessionOpened {
         session_id,
@@ -839,13 +819,19 @@ async fn append_manifest_file(
     .await
     .map_err(|error| error.to_string())??;
     for request_path in replaced {
-        let _ =
-            tokio::fs::remove_file(cleanup_root.join(request_path.trim_start_matches('/'))).await;
+        let path = cleanup_root.join(request_path.trim_start_matches('/'));
+        let _ = tokio::fs::remove_file(&path).await;
+        let _ = unregister_session_temp(&cleanup_root, &path);
     }
     Ok(())
 }
 
-async fn prune_orphaned_session_temp_files(root: &Path, minimum_age: Duration, scan_limit: usize) {
+async fn prune_orphaned_session_temp_files(
+    root: &Path,
+    temporary_minimum_age: Duration,
+    final_minimum_age: Duration,
+    scan_limit: usize,
+) {
     let root = root.to_owned();
     let _ = tokio::task::spawn_blocking(move || {
         mutate_temp_index(&root, |entries| {
@@ -855,6 +841,11 @@ async fn prune_orphaned_session_temp_files(root: &Path, minimum_age: Duration, s
                 let path = root.join(name);
                 let Ok(metadata) = std::fs::metadata(&path) else {
                     return false;
+                };
+                let minimum_age = if name.starts_with('.') {
+                    temporary_minimum_age
+                } else {
+                    final_minimum_age
                 };
                 let old_enough = metadata
                     .modified()
@@ -999,8 +990,9 @@ async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
     .and_then(Result::ok)
     .unwrap_or(false);
     if removed {
-        let _ = tokio::fs::remove_file(file_path).await;
+        let _ = tokio::fs::remove_file(&file_path).await;
     }
+    let _ = unregister_session_temp(&state.config.root, &file_path);
     true
 }
 
@@ -1694,7 +1686,7 @@ mod tests {
         std::fs::write(&unrelated, b"keep").expect("write unrelated file");
 
         for _ in 0..6 {
-            prune_orphaned_session_temp_files(&root, Duration::ZERO, 2).await;
+            prune_orphaned_session_temp_files(&root, Duration::ZERO, Duration::ZERO, 2).await;
         }
 
         assert!(orphans.iter().all(|orphan| !orphan.exists()));

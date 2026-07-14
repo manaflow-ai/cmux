@@ -468,7 +468,8 @@ export function App({ config, initialStatus }: ConfigProps) {
         activeSessionSource={resolvedSessionSource ?? activeSessionSource}
         onSelectSessionSource={(source) => {
           const currentSource = resolvedSessionSource ?? activeSessionSource;
-          const selectedSource = source.kind === "branch" && currentSource?.kind !== "branch"
+          const selectedSource = source.kind === "branch"
+            && (currentSource?.kind !== "branch" || source.baseRef == null)
             ? branchSourceByRepoRef.current.get(source.repoRoot) ?? source
             : source;
           if (selectedSource.kind === "branch") {

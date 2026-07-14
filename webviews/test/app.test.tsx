@@ -310,7 +310,11 @@ test("typed source switching preserves the last resolved branch base", async () 
             return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
           }
           const source = request.params.source.kind === "branch"
-            ? { ...request.params.source, baseRef: request.params.source.baseRef ?? "chosen-base" }
+            ? {
+                ...request.params.source,
+                baseRef: request.params.source.baseRef
+                  ?? (request.params.source.repoRoot === "/tmp/other-repo" ? "other-base" : "chosen-base"),
+              }
             : request.params.source;
           return {
             id: request.id,
@@ -339,6 +343,10 @@ test("typed source switching preserves the last resolved branch base", async () 
           { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo" }, value: "branch" },
           { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
         ],
+        repoOptions: [
+          { label: "repo", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo" }, value: "/tmp/repo" },
+          { label: "other-repo", selected: false, sessionSource: { kind: "branch", repoRoot: "/tmp/other-repo" }, value: "/tmp/other-repo" },
+        ],
         transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
       } }}
       initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
@@ -355,6 +363,17 @@ test("typed source switching preserves the last resolved branch base", async () 
   sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
   expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source)
+    .toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "chosen-base" });
+
+  const repoSelect = dom.window.document.getElementById("repo-select") as HTMLSelectElement;
+  repoSelect.value = "/tmp/other-repo";
+  repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 4);
+  await waitFor(() => dom?.window.document.querySelector(".base-picker-button")?.textContent?.includes("other-base") === true);
+  repoSelect.value = "/tmp/repo";
+  repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 5);
+  expect(requests.filter((request) => request.method === "sessionOpen")[4].params.source)
     .toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "chosen-base" });
 });
 
