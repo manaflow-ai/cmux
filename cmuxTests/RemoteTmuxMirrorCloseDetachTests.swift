@@ -114,6 +114,69 @@ import Testing
         #expect(connection.exited)
     }
 
+    /// The ordinary non-last tab-close route shares the same detach contract as
+    /// socket/window close: removing the mirror from a mixed local window must
+    /// stop its control client without issuing `tmux kill-session`.
+    @Test func ordinaryCloseOfLiveMirrorDetachesWithoutKillingSession() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("remote-tmux-tab-close-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let logURL = root.appendingPathComponent("ssh.log")
+        let sshURL = root.appendingPathComponent("ssh")
+        try writeExecutable(
+            at: sshURL,
+            contents: """
+            #!/bin/sh
+            for arg in "$@"; do
+              printf 'ARG=%s\\n' "$arg" >> "${CMUX_PR7264_SSH_LOG:?}"
+            done
+            exit 0
+            """
+        )
+        let previousSSH = environmentValue(for: sshOverrideKey)
+        let previousLog = environmentValue(for: sshLogKey)
+        setenv(sshOverrideKey, sshURL.path, 1)
+        setenv(sshLogKey, logURL.path, 1)
+        defer {
+            restoreEnvironment(sshOverrideKey, previousValue: previousSSH)
+            restoreEnvironment(sshLogKey, previousValue: previousLog)
+        }
+
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let host = RemoteTmuxHost(destination: "tab-close-\(UUID().uuidString)@example.test")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
+        let controller = harness.controller
+        defer {
+            if controller.sessionMirror(host: host, sessionName: "dev") != nil {
+                controller.detach(host: host, sessionName: "dev")
+            }
+        }
+        controller.cacheConnection(connection)
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
+        let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        #expect(harness.manager.tabs.count == 2)
+
+        harness.manager.closeWorkspace(mirrorWorkspace, recordHistory: false)
+
+        let log = try await waitForSSHArgument("exit", at: logURL)
+        #expect(!log.contains("kill-session"), Comment(rawValue: log))
+        #expect(harness.manager.tabs.map(\.id) == [harness.workspace.id])
+        #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
+        #expect(connection.exited)
+    }
+
+    @Test func windowCreationFailureUsesLocalErrorMessage() {
+        let message = RemoteTmuxError.windowCreationFailed.message
+
+        #expect(message == String(
+            localized: "remoteTmux.error.windowCreationFailed",
+            defaultValue: "cmux could not create a new window"
+        ))
+        #expect(!message.localizedCaseInsensitiveContains("host unreachable"))
+    }
+
     /// `--new-window` must consolidate every mirror for the host even when the
     /// Move Workspace action previously distributed those mirrors across several
     /// source windows. The fake SSH executable supplies discovery and readiness

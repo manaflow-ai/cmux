@@ -60,7 +60,7 @@ extension RemoteTmuxController {
             guard let newWindowManager = appDelegate.tabManagerFor(windowId: resolvedWindowId) else {
                 appDelegate.discardMainWindowWithoutClosedHistory(windowId: resolvedWindowId)
                 cleanUpTransportAfterFailedMirror(host: host)
-                throw RemoteTmuxError.unreachable("could not create window")
+                throw RemoteTmuxError.windowCreationFailed
             }
             targetManager = newWindowManager
             bootstrapWorkspaceId = newWindowManager.tabs.first?.id
