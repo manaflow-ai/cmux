@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxMobileTerminalKit
 import Foundation
 import Testing
 import UIKit
@@ -476,6 +477,83 @@ struct TerminalViewportSpacingTests {
                 && abs(snap.liveFontSize - snap.baseFontSize) < 0.5
         }
         #expect(recovered, "after mac grow: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize) vs base \(harness.snapshot.baseFontSize)")
+    }
+
+    /// A viewport-fit request belongs to the geometry that produced it. Once
+    /// the Mac sends an explicit font choice, that user-owned target must beat
+    /// an older report acknowledgement that was already in flight.
+    @Test("Mac font choice fences an older viewport font acknowledgement")
+    func macFontChoiceFencesOlderViewportFontAcknowledgement() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let report = try #require(await harness.waitForReport(after: 0))
+        let reportID = try #require(harness.delegate.reportIDs[report])
+        let oldViewportTarget: Float32 = 24
+        let explicitMacTarget: Float32 = 14
+        let request = TerminalViewportFontGrantRequest(
+            fontSize: oldViewportTarget,
+            reportColumns: report.columns,
+            reportRows: report.rows,
+            sourceEffectiveRows: max(1, report.rows - 1)
+        )
+        #expect(harness.view.viewportFontGrantState.decision(for: request) == .wait(requestNewReport: true))
+        harness.view.viewportFontGrantState.bindPendingRequest(
+            toReportID: reportID,
+            columns: request.reportColumns,
+            rows: request.reportRows
+        )
+
+        harness.view.setLiveFontSize(explicitMacTarget)
+        #expect(harness.view.pendingFontSize == explicitMacTarget)
+        #expect(!harness.view.viewportFontGrantState.isAwaitingAcknowledgement(reportID: reportID))
+
+        harness.view.applyConfirmedViewSize(
+            cols: request.reportColumns,
+            rows: request.sourceEffectiveRows,
+            reportID: reportID
+        )
+
+        #expect(harness.view.userBaseFontSize == explicitMacTarget)
+        #expect(harness.view.pendingFontSize == explicitMacTarget)
+    }
+
+    /// Local zoom owns the same transition as a Mac-pushed absolute font. A
+    /// late viewport acknowledgement must not replace the queued zoom target.
+    @Test("local zoom fences an older viewport font acknowledgement")
+    func localZoomFencesOlderViewportFontAcknowledgement() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let report = try #require(await harness.waitForReport(after: 0))
+        let reportID = try #require(harness.delegate.reportIDs[report])
+        let oldViewportTarget: Float32 = 24
+        let expectedZoomTarget = harness.view.liveFontSize + 1
+        let request = TerminalViewportFontGrantRequest(
+            fontSize: oldViewportTarget,
+            reportColumns: report.columns,
+            reportRows: report.rows,
+            sourceEffectiveRows: max(1, report.rows - 1)
+        )
+        #expect(harness.view.viewportFontGrantState.decision(for: request) == .wait(requestNewReport: true))
+        harness.view.viewportFontGrantState.bindPendingRequest(
+            toReportID: reportID,
+            columns: request.reportColumns,
+            rows: request.reportRows
+        )
+
+        harness.view.debugStressZoomStep(.increase)
+        #expect(harness.view.pendingFontSize == expectedZoomTarget)
+        #expect(!harness.view.viewportFontGrantState.isAwaitingAcknowledgement(reportID: reportID))
+
+        harness.view.applyConfirmedViewSize(
+            cols: request.reportColumns,
+            rows: request.sourceEffectiveRows,
+            reportID: reportID
+        )
+
+        #expect(harness.view.userBaseFontSize == expectedZoomTarget)
+        #expect(harness.view.pendingFontSize == expectedZoomTarget)
     }
 
     /// Whether the render rect currently reflects the effective pin (used to
