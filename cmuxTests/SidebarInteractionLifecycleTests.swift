@@ -407,14 +407,14 @@ final class SidebarInteractionLifecycleTests {
     @Test
     @MainActor
     func visibleKeyWindowLifecycleChurnHasNoRuntimeFaultsOrLivelock() async throws {
+        // OSLogStore rounds date positions and may include host diagnostics
+        // emitted before this test starts. Subtract that baseline while still
+        // counting production sidebar mount and churn lifecycle work.
+        let logStart = Date.now
+        let baselineFaults = try RuntimeFaultCounts.read(since: logStart)
         let harness = try await Harness.mount(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
         try harness.positionStationaryPointerOverWorkspaceRow()
-        // The host app may emit unrelated launch-time diagnostics before the
-        // production sidebar window is mounted. Gate only the accelerated
-        // sidebar lifecycle scenario below.
-        let logStart = Date.now
-        let baselineFaults = try RuntimeFaultCounts.read(since: logStart)
 
         let heartbeat = Heartbeat()
         heartbeat.start()
