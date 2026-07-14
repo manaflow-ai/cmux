@@ -180,8 +180,18 @@ final class BonsplitTabDragUITests: XCTestCase {
     }
 
     func testRightSidebarUsesCloseButtonWhenVisibleAndTitlebarToggleWhenHidden() {
+        for presentationMode in [WorkspacePresentationMode.standard, .minimal] {
+            verifyRightSidebarUsesCloseButtonWhenVisibleAndTitlebarToggleWhenHidden(
+                presentationMode: presentationMode
+            )
+        }
+    }
+
+    private func verifyRightSidebarUsesCloseButtonWhenVisibleAndTitlebarToggleWhenHidden(
+        presentationMode: WorkspacePresentationMode
+    ) {
         let (app, dataPath) = launchConfiguredApp(
-            presentationMode: .standard,
+            presentationMode: presentationMode,
             showRightSidebar: true,
             alwaysShowShortcutHints: true
         )
@@ -231,6 +241,23 @@ final class BonsplitTabDragUITests: XCTestCase {
             closeButton.frame.minX,
             "Expected open-as-pane to remain immediately left of the internal close control."
         )
+
+        let mobileConnectButton = app.buttons["TitlebarMobileConnectButton"]
+        if presentationMode == .standard {
+            XCTAssertTrue(
+                mobileConnectButton.waitForExistence(timeout: 5.0),
+                "Expected Mobile Connect in the standard titlebar."
+            )
+            XCTAssertTrue(mobileConnectButton.isHittable, "Expected Mobile Connect to remain hittable.")
+            XCTAssertLessThanOrEqual(
+                mobileConnectButton.frame.maxX,
+                closeButton.frame.minX,
+                "Expected the native trailing cluster to stay left of the visible-sidebar X."
+            )
+        } else {
+            XCTAssertFalse(mobileConnectButton.exists, "Expected native titlebar accessories to stay hidden in minimal mode.")
+        }
+
         closeButton.click()
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
@@ -239,6 +266,13 @@ final class BonsplitTabDragUITests: XCTestCase {
             },
             "Expected the title-bar toggle to replace X after hiding the right sidebar."
         )
+        if presentationMode == .standard {
+            XCTAssertLessThanOrEqual(
+                mobileConnectButton.frame.maxX,
+                titlebarToggle.frame.minX,
+                "Expected the native trailing cluster to stay left of the collapsed-sidebar edge cell."
+            )
+        }
 
         titlebarToggle.click()
         XCTAssertTrue(
