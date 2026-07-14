@@ -34,6 +34,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
             remoteStatus: .object([:]),
             currentDirectory: nil,
             customColor: nil,
+            tag: nil,
             latestConversationMessage: nil,
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil

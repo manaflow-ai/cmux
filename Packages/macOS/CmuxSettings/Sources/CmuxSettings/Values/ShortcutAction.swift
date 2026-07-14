@@ -12,6 +12,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case reloadConfiguration
     case showHideAllWindows
     case globalSearch
+    case leaderKey
     case newWindow
     case closeWindow
     case toggleFullScreen
@@ -212,6 +213,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
 }
 
 extension ShortcutAction {
+
     /// Whether this action binds the whole `1…9` digit range through a
     /// single stored placeholder.
     ///
@@ -328,5 +330,6 @@ extension ShortcutAction {
             return .always
         }
     }
+
 
 }

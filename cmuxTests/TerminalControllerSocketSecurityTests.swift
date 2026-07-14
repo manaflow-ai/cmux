@@ -1444,17 +1444,18 @@ final class TerminalControllerSocketSecurityTests {
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true)
         let defaults = UserDefaults.standard
-        let previousSuppressionDefault = defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
+        let suppressionKey = IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey
+        let previousSuppressionDefault = defaults.object(forKey: suppressionKey)
 
-        defaults.set(true, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
+        defaults.set(true, forKey: suppressionKey)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
             }
             if let previousSuppressionDefault {
-                defaults.set(previousSuppressionDefault, forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
+                defaults.set(previousSuppressionDefault, forKey: suppressionKey)
             } else {
-                defaults.removeObject(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey)
+                defaults.removeObject(forKey: suppressionKey)
             }
         }
 
@@ -1492,7 +1493,63 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: sourcePanelId))
     }
 
-    @Test func testSurfaceRelayRPCsReturnResolvedFocusedSurfaceWhenSurfaceIDOmitted() async throws {
+    private func withTemporaryDefault(key: String, value: Any, _ body: () async throws -> Void) async rethrows {
+        let defaults = UserDefaults.standard
+        let original = defaults.object(forKey: key)
+        defaults.set(value, forKey: key)
+        defer {
+            if let original {
+                defaults.set(original, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        try await body()
+    }
+
+    func testWorkspaceSetTagFailsWhenTagsDisplayIsDisabled() async throws {
+        try await withTemporaryDefault(key: LeaderKeySettings.workspaceTagsEnabledKey, value: false) {
+            let socketPath = self.makeSocketPath("workspace-tag")
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace else {
+                XCTFail("Expected selected workspace")
+                return
+            }
+
+            TerminalController.shared.start(
+                tabManager: manager,
+                socketPath: socketPath,
+                accessMode: .allowAll
+            )
+            try self.waitForSocket(at: socketPath)
+
+            let response = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let response = try self.sendV2Request(
+                            method: "workspace.set_tag",
+                            params: [
+                                "workspace_id": workspace.id.uuidString,
+                                "tag": "api"
+                            ],
+                            to: socketPath
+                        )
+                        continuation.resume(returning: response)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+
+            XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+            let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+            XCTAssertEqual(error["code"] as? String, "disabled")
+            XCTAssertEqual(error["message"] as? String, "Workspace tags are disabled in settings")
+            XCTAssertNil(workspace.tag)
+        }
+    }
+
+    func testSurfaceRelayRPCsReturnResolvedFocusedSurfaceWhenSurfaceIDOmitted() async throws {
         let socketPath = makeSocketPath("relay-fallback")
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: true)

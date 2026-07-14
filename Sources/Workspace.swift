@@ -162,6 +162,7 @@ extension Workspace {
             customTitle: customTitle,
             customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
+            tag: tag,
             customColor: customColor,
             isPinned: isPinned,
             groupId: groupId,
@@ -279,6 +280,7 @@ extension Workspace {
 
         restoreTitleState(from: snapshot, restoredPanelIds: oldToNewPanelIds)
         setCustomDescription(snapshot.customDescription)
+        setTag(snapshot.tag)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
@@ -2135,6 +2137,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         customDescriptionRevision &+= 1
     }
 
+    @Published var tag: String?
     @Published var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
@@ -4960,6 +4963,30 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
     }
 
+    func setTag(_ newTag: String?) {
+        let normalized = newTag?
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ") ?? ""
+        let capped = String(normalized.prefix(20))
+        tag = capped.isEmpty ? nil : capped
+    }
+
+    /// Title with tag prefix for sidebar display, respecting customTitle when set.
+    var displayTitle: String {
+        let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let base: String
+        if !custom.isEmpty {
+            base = custom
+        } else {
+            let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            base = title.isEmpty
+                ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
+                : title
+        }
+        guard LeaderKeySettings.workspaceTagsEnabled, let tag, !tag.isEmpty else { return base }
+        return String(format: String(localized: "workspace.displayTitle.tagged", defaultValue: "[%@] %@"), tag, base)
+    }
     // MARK: - Directory Updates
 
     private func notifyPresentedCurrentDirectoryChanged(from previousDirectory: String?, force: Bool = false) {
@@ -10338,6 +10365,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         return false
     }
+
 
     /// Create a new terminal surface in the currently focused pane
     @discardableResult

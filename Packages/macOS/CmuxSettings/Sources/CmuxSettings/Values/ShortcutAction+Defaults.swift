@@ -38,6 +38,7 @@ extension ShortcutAction {
         case .reloadConfiguration: return ShortcutStroke(key: ",", command: true, shift: true)
         case .showHideAllWindows: return ShortcutStroke(key: ".", command: true, option: true, control: true)
         case .globalSearch: return ShortcutStroke(key: "f", command: true, option: true)
+        case .leaderKey: return ShortcutStroke(key: "b", control: true)
         case .newWindow: return ShortcutStroke(key: "n", command: true, shift: true)
         case .closeWindow: return ShortcutStroke(key: "w", command: true, control: true)
         case .toggleFullScreen: return ShortcutStroke(key: "f", command: true, control: true)

@@ -341,4 +341,59 @@ extension Workspace {
             applyTabSelection(tabId: tabId, inPane: focusedPaneId)
         }
     }
+    /// Cycle focus to the previous split pane.
+    func focusPreviousPane() {
+        let paneIds = visuallyOrderedPaneIds()
+#if DEBUG
+        dlog("pane.cyclePrev count=\(paneIds.count) focusedId=\(bonsplitController.focusedPaneId.map { "\($0)" } ?? "nil")")
+#endif
+        guard paneIds.count > 1 else { return }
+        let currentId = bonsplitController.focusedPaneId ?? paneIds[0]
+        guard let index = paneIds.firstIndex(of: currentId) else { return }
+        switchFocusToPane(paneIds[(index - 1 + paneIds.count) % paneIds.count])
+    }
+
+    /// Cycle focus to the next split pane.
+    func focusNextPane() {
+        let paneIds = visuallyOrderedPaneIds()
+#if DEBUG
+        dlog("pane.cycleNext count=\(paneIds.count) focusedId=\(bonsplitController.focusedPaneId.map { "\($0)" } ?? "nil")")
+#endif
+        guard paneIds.count > 1 else { return }
+        let currentId = bonsplitController.focusedPaneId ?? paneIds[0]
+        guard let index = paneIds.firstIndex(of: currentId) else { return }
+        switchFocusToPane(paneIds[(index + 1) % paneIds.count])
+    }
+
+    /// Focus a split pane by its visual index.
+    func focusPaneByIndex(_ index: Int) {
+        let paneIds = visuallyOrderedPaneIds()
+#if DEBUG
+        dlog("pane.focusByIndex index=\(index) count=\(paneIds.count) focusedId=\(bonsplitController.focusedPaneId.map { "\($0)" } ?? "nil")")
+#endif
+        guard paneIds.indices.contains(index) else { return }
+        switchFocusToPane(paneIds[index])
+    }
+
+    /// Unfocus the current panel, focus the target pane, and reconcile tab selection.
+    private func switchFocusToPane(_ targetPaneId: PaneID) {
+        if let previousPanelId = focusedPanelId, let previousPanel = panels[previousPanelId] {
+            previousPanel.unfocus()
+        }
+        bonsplitController.focusPane(targetPaneId)
+        if let paneId = bonsplitController.focusedPaneId,
+           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        }
+    }
+
+    /// Returns pane IDs in visual split-tree order, falling back to controller order.
+    private func visuallyOrderedPaneIds() -> [PaneID] {
+        let allPaneIds = bonsplitController.allPaneIds
+        let orderedIDs = SidebarBranchOrdering.orderedPaneIds(tree: bonsplitController.treeSnapshot())
+        let paneByID = Dictionary(uniqueKeysWithValues: allPaneIds.map { ($0.id.uuidString, $0) })
+        let orderedPaneIds = orderedIDs.compactMap { paneByID[$0] }
+        return orderedPaneIds.count == allPaneIds.count ? orderedPaneIds : allPaneIds
+    }
+
 }

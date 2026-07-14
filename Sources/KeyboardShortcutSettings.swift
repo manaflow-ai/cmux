@@ -207,6 +207,9 @@ enum KeyboardShortcutSettings {
         case simulatorToggleAppearance, simulatorToggleSoftwareKeyboard
         case diffViewerNextFile, diffViewerPreviousFile
 
+        // Leader key (tmux-style prefix)
+        case leaderKey
+
         var id: String { rawValue }
 
         var label: String {
@@ -367,6 +370,7 @@ enum KeyboardShortcutSettings {
                 return simulatorLabel
             case .diffViewerNextFile: return String(localized: "shortcut.diffViewerNextFile.label", defaultValue: "Diff Viewer: Next File")
             case .diffViewerPreviousFile: return String(localized: "shortcut.diffViewerPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
+            case .leaderKey: return String(localized: "shortcut.leaderKey.label", defaultValue: "Leader Key (tmux prefix)")
             }
         }
 
@@ -687,6 +691,9 @@ enum KeyboardShortcutSettings {
             case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
                  .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
                 return simulatorDefaultShortcut
+            case .leaderKey:
+                // tmux default: Ctrl+B
+                return StoredShortcut(key: "b", command: false, shift: false, option: false, control: true)
             }
         }
         func conflicts(

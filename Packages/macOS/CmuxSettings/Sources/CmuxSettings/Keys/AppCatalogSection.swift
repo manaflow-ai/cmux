@@ -200,6 +200,27 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspaceTitlebarVisible"
     )
 
+    /// Enables tmux-style leader-key chord routing.
+    public let leaderKeyEnabled = DefaultsKey<Bool>(
+        id: "app.leaderKey.enabled",
+        defaultValue: false,
+        userDefaultsKey: "leaderKey.enabled"
+    )
+
+    /// Seconds to wait for a leader sub-key before cancelling leader mode.
+    public let leaderKeyTimeout = DefaultsKey<Double>(
+        id: "app.leaderKey.timeout",
+        defaultValue: 0.5,
+        userDefaultsKey: "leaderKey.timeout"
+    )
+
+    /// Enables workspace tag assignment and display.
+    public let workspaceTagsEnabled = DefaultsKey<Bool>(
+        id: "app.workspaceTagsEnabled",
+        defaultValue: false,
+        userDefaultsKey: "workspaceTagsEnabled"
+    )
+
     public let systemWideHotkeyEnabled = DefaultsKey<Bool>(
         id: "app.systemWideHotkeyEnabled",
         defaultValue: false,

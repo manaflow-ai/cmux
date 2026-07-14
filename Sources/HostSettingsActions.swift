@@ -87,6 +87,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func resetAllSettingsSideEffects() {
+        LeaderKeySettings.resetAll()
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
         PhonePushClient.shared.reloadConfigurationFromDefaults()

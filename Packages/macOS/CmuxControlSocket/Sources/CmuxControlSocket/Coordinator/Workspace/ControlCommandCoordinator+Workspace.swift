@@ -93,6 +93,7 @@ extension ControlCommandCoordinator {
             "remote": summary.remoteStatus,
             "current_directory": orNull(summary.currentDirectory),
             "custom_color": orNull(summary.customColor),
+            "tag": orNull(summary.tag),
             "latest_conversation_message": orNull(summary.latestConversationMessage),
             "latest_submitted_message": orNull(summary.latestSubmittedMessage),
             "latest_submitted_at": orNull(summary.latestSubmittedAt),

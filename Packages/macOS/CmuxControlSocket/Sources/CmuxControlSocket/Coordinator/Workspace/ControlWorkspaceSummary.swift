@@ -27,6 +27,8 @@ public struct ControlWorkspaceSummary: Sendable, Equatable {
     public let currentDirectory: String?
     /// The user-set custom color, if any.
     public let customColor: String?
+    /// The user-set workspace tag, if any.
+    public let tag: String?
     /// The latest conversation message, if any.
     public let latestConversationMessage: String?
     /// The latest submitted message, if any.
@@ -46,6 +48,7 @@ public struct ControlWorkspaceSummary: Sendable, Equatable {
     ///   - remoteStatus: The bridged `remoteStatusPayload()` object.
     ///   - currentDirectory: The current working directory, if any.
     ///   - customColor: The custom color, if any.
+    ///   - tag: The user-set workspace tag, if any.
     ///   - latestConversationMessage: The latest conversation message, if any.
     ///   - latestSubmittedMessage: The latest submitted message, if any.
     ///   - latestSubmittedAt: The ISO-formatted latest submitted timestamp, if any.
@@ -59,6 +62,7 @@ public struct ControlWorkspaceSummary: Sendable, Equatable {
         remoteStatus: JSONValue,
         currentDirectory: String?,
         customColor: String?,
+        tag: String?,
         latestConversationMessage: String?,
         latestSubmittedMessage: String?,
         latestSubmittedAt: String?
@@ -72,6 +76,7 @@ public struct ControlWorkspaceSummary: Sendable, Equatable {
         self.remoteStatus = remoteStatus
         self.currentDirectory = currentDirectory
         self.customColor = customColor
+        self.tag = tag
         self.latestConversationMessage = latestConversationMessage
         self.latestSubmittedMessage = latestSubmittedMessage
         self.latestSubmittedAt = latestSubmittedAt

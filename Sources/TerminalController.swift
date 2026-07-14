@@ -2477,7 +2477,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceCloudVMTerminalReady(params: params))
         case "workspace.set_auto_title":
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
-
+        case "workspace.set_tag":
+            return v2Result(id: id, self.v2WorkspaceSetTag(params: params))
         // Settings/session/feedback: session.restore_previous, settings.open, and
         // feedback.open handled by ControlCommandCoordinator.
 
@@ -2754,6 +2755,7 @@ class TerminalController {
             "workspace.group.set_icon",
             "workspace.group.move",
             "workspace.group.focus",
+            "workspace.set_tag",
             "workspace.action",
             "extension.sidebar.snapshot",
             "workspace.next",
@@ -4102,6 +4104,49 @@ class TerminalController {
             "workspace_applied": workspaceApplied,
             "panel_applied": v2OrNull(panelApplied),
             "enabled": true
+        ])
+    }
+
+    private func v2WorkspaceSetTag(params: [String: Any]) -> V2CallResult {
+        guard LeaderKeySettings.workspaceTagsEnabled else {
+            return .err(code: "disabled", message: "Workspace tags are disabled in settings", data: nil)
+        }
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+
+        guard let tagRaw = v2RawString(params, "tag") else {
+            return .err(code: "invalid_params", message: "Missing 'tag' parameter. Pass empty string to clear.", data: nil)
+        }
+        let tag = tagRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveTag = tag.isEmpty ? nil : tag
+
+        var success = false
+        var storedTag: String?
+        v2MainSync {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            workspace.setTag(effectiveTag)
+            storedTag = workspace.tag
+            success = true
+        }
+
+        guard success else {
+            return .err(code: "not_found", message: "Workspace not found", data: [
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+            ])
+        }
+
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "tag": v2OrNull(storedTag)
         ])
     }
 

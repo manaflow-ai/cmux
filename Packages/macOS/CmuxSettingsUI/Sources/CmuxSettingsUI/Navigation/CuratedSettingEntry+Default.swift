@@ -356,6 +356,11 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .globalHotkey, id: "enable-hotkey", title: "Enable System-Wide Hotkey", synonyms: "app.systemWideHotkeyEnabled global hotkey enable system wide show hide all windows"),
             .init(section: .globalHotkey, id: "shortcut", title: "Show/Hide All Windows", synonyms: "global hotkey shortcut recorder key command option control"),
 
+            // Leader key
+            .init(section: .leaderKey, id: "enabled", title: String(localized: "settings.leaderKey.enabled", defaultValue: "Enable Leader Key"), synonyms: "app.leaderKey.enabled tmux prefix ctrl b chord"),
+            .init(section: .leaderKey, id: "timeout", title: String(localized: "settings.leaderKey.timeout", defaultValue: "Timeout"), synonyms: "app.leaderKey.timeout wait cancel seconds"),
+            .init(section: .leaderKey, id: "workspace-tags", title: String(localized: "settings.app.workspaceTags", defaultValue: "Workspace Tags"), synonyms: "app.workspaceTagsEnabled tag label prefix"),
+
             // Keyboard shortcuts
             .init(
                 section: .keyboardShortcuts,

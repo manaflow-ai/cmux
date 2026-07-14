@@ -8,6 +8,7 @@ extension ShortcutAction {
         case .reloadConfiguration: return "Reload Configuration"
         case .showHideAllWindows: return "Show/Hide All Windows"
         case .globalSearch: return "Global Search"
+        case .leaderKey: return String(localized: "shortcut.leaderKey.label", defaultValue: "Leader Key (tmux prefix)")
         case .newWindow: return "New Window"
         case .closeWindow: return "Close Window"
         case .toggleFullScreen: return "Toggle Full Screen"

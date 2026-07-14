@@ -9068,12 +9068,7 @@ struct ContentView: View {
     }
 
     private static func commandPaletteWorkspaceDisplayName(_ workspace: Workspace) -> String {
-        let custom = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !custom.isEmpty {
-            return custom
-        }
-        let title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
+        workspace.displayTitle
     }
 
     private func workspaceDisplayName(_ workspace: Workspace) -> String {
@@ -10177,7 +10172,13 @@ struct ContentView: View {
         }
         let target = CommandPaletteRenameTarget(
             focusedWorkspaceId: workspace.id,
-            focusedWorkspaceName: workspaceDisplayName(workspace),
+            focusedWorkspaceName: {
+                if let custom = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !custom.isEmpty {
+                    return custom
+                }
+                return workspace.title
+            }(),
             groupAnchors: tabManager.workspaceGroups.map { group in
                 CommandPaletteWorkspaceGroupAnchor(
                     groupId: group.id,
@@ -11384,20 +11385,37 @@ struct VerticalTabsSidebar: View, Equatable {
             visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
         let _ = SidebarProfilingSignposts.end(signpost)
-        ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
-                workspaceScrollArea(renderContext: renderContext)
-            } else {
-                extensionSidebarScrollArea(renderContext: renderContext)
+        VStack(spacing: 0) {
+            // Leader key mode indicator — pinned above the scroll area
+            if tabManager.isLeaderModeActive {
+                HStack {
+                    Spacer()
+                    Text(String(localized: "leader.mode.indicator", defaultValue: "LEADER"))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.2))
+                        .cornerRadius(3)
+                    Spacer()
+                }
+                .padding(.vertical, 4)
             }
-            if isPresented {
-                SidebarFooter(
-                    updateViewModel: updateViewModel,
-                    fileExplorerState: fileExplorerState,
-                    modifierKeyMonitor: modifierKeyMonitor,
-                    onSendFeedback: onSendFeedback
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+            ZStack(alignment: .bottomLeading) {
+                if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
+                    workspaceScrollArea(renderContext: renderContext)
+                } else {
+                    extensionSidebarScrollArea(renderContext: renderContext)
+                }
+                if isPresented {
+                    SidebarFooter(
+                        updateViewModel: updateViewModel,
+                        fileExplorerState: fileExplorerState,
+                        modifierKeyMonitor: modifierKeyMonitor,
+                        onSendFeedback: onSendFeedback
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         .accessibilityIdentifier("Sidebar")

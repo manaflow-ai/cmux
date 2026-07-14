@@ -207,6 +207,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
         AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
+        #if DEBUG
+        AppDelegate.shared?.debugWorkspaceTagPromptHandler = nil
+        #endif
         if AppDelegate.shared?.dismissNotificationsPopoverIfShown() == true {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
@@ -11539,13 +11542,182 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         return condition()
     }
 
+    func testLeaderCommaRequestsWorkspaceTagDialogWhenWorkspaceTagsEnabled() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected test window with selected workspace")
+            return
+        }
+
+        var requestedWorkspaceId: UUID?
+#if DEBUG
+        appDelegate.debugWorkspaceTagPromptHandler = { candidate in
+            requestedWorkspaceId = candidate.id
+            return AppDelegate.DebugWorkspaceTagPromptResult(
+                response: .alertSecondButtonReturn,
+                tag: candidate.tag ?? ""
+            )
+        }
+#endif
+
+        withTemporaryLeaderWorkspaceTagSettings(workspaceTagsEnabled: true) {
+            guard let leaderEvent = makeKeyDownEvent(
+                key: "b",
+                modifiers: [.control],
+                keyCode: 11,
+                windowNumber: window.windowNumber
+            ), let commaEvent = makeKeyDownEvent(
+                key: ",",
+                modifiers: [],
+                keyCode: 43,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct leader workspace-tag events")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: leaderEvent))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: commaEvent))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+
+        XCTAssertEqual(requestedWorkspaceId, workspace.id)
+        XCTAssertNil(workspace.tag)
+    }
+
+    func testLeaderCommaUsesLayoutCharacterFallbackWhenEventCharactersAreNotLiteralComma() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected test window with selected workspace")
+            return
+        }
+
+        var requestedWorkspaceId: UUID?
+        appDelegate.shortcutLayoutCharacterProvider = { keyCode, _ in
+            keyCode == 15 ? "," : nil
+        }
+#if DEBUG
+        appDelegate.debugWorkspaceTagPromptHandler = { candidate in
+            requestedWorkspaceId = candidate.id
+            return AppDelegate.DebugWorkspaceTagPromptResult(
+                response: .alertSecondButtonReturn,
+                tag: candidate.tag ?? ""
+            )
+        }
+#endif
+
+        withTemporaryLeaderWorkspaceTagSettings(workspaceTagsEnabled: true) {
+            guard let leaderEvent = makeKeyDownEvent(
+                key: "b",
+                modifiers: [.control],
+                keyCode: 11,
+                windowNumber: window.windowNumber
+            ), let commaEvent = makeKeyDownEvent(
+                key: "x",
+                modifiers: [],
+                keyCode: 15,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct layout-fallback leader events")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: leaderEvent))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: commaEvent))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+
+        XCTAssertEqual(requestedWorkspaceId, workspace.id)
+    }
+
+    func testLeaderCommaDoesNotRequestWorkspaceTagDialogWhenWorkspaceTagsDisabled() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected test window with selected workspace")
+            return
+        }
+
+        var requestCount = 0
+#if DEBUG
+        appDelegate.debugWorkspaceTagPromptHandler = { candidate in
+            requestCount += 1
+            return AppDelegate.DebugWorkspaceTagPromptResult(
+                response: .alertSecondButtonReturn,
+                tag: candidate.tag ?? ""
+            )
+        }
+#endif
+
+        withTemporaryLeaderWorkspaceTagSettings(workspaceTagsEnabled: false) {
+            guard let leaderEvent = makeKeyDownEvent(
+                key: "b",
+                modifiers: [.control],
+                keyCode: 11,
+                windowNumber: window.windowNumber
+            ), let commaEvent = makeKeyDownEvent(
+                key: ",",
+                modifiers: [],
+                keyCode: 43,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct leader workspace-tag events")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: leaderEvent))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: commaEvent))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+
+        XCTAssertEqual(requestCount, 0)
+        XCTAssertNil(workspace.tag)
+    }
+
     private func makeKeyDownEvent(
         key: String,
         modifiers: NSEvent.ModifierFlags,
         keyCode: UInt16,
         windowNumber: Int,
         isARepeat: Bool = false,
-        timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+        timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime,
+        characters: String? = nil,
+        charactersIgnoringModifiers: String? = nil
     ) -> NSEvent? {
         makeKeyEvent(
             type: .keyDown,
@@ -11554,7 +11726,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             keyCode: keyCode,
             windowNumber: windowNumber,
             isARepeat: isARepeat,
-            timestamp: timestamp
+            timestamp: timestamp,
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers
         )
     }
 
@@ -11582,7 +11756,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         keyCode: UInt16,
         windowNumber: Int,
         isARepeat: Bool = false,
-        timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+        timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime,
+        characters: String? = nil,
+        charactersIgnoringModifiers: String? = nil
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: type,
@@ -11591,8 +11767,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             timestamp: timestamp,
             windowNumber: windowNumber,
             context: nil,
-            characters: key,
-            charactersIgnoringModifiers: key,
+            characters: characters ?? key,
+            charactersIgnoringModifiers: charactersIgnoringModifiers ?? key,
             isARepeat: isARepeat,
             keyCode: keyCode
         )
@@ -12058,6 +12234,39 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 )
             }
         }
+    }
+
+    private func withTemporaryLeaderWorkspaceTagSettings(
+        workspaceTagsEnabled: Bool,
+        _ body: () -> Void
+    ) {
+        let defaults = UserDefaults.standard
+        let leaderChordKey = KeyboardShortcutSettings.Action.leaderKey.defaultsKey
+        let savedValues: [(String, Any?)] = [
+            (LeaderKeySettings.enabledKey, defaults.object(forKey: LeaderKeySettings.enabledKey)),
+            (LeaderKeySettings.workspaceTagsEnabledKey, defaults.object(forKey: LeaderKeySettings.workspaceTagsEnabledKey)),
+            (
+                LeaderKeySettings.LeaderAction.setWorkspaceTag.defaultsKey,
+                defaults.object(forKey: LeaderKeySettings.LeaderAction.setWorkspaceTag.defaultsKey)
+            ),
+            (leaderChordKey, defaults.object(forKey: leaderChordKey)),
+        ]
+
+        defer {
+            for (key, value) in savedValues {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        defaults.set(true, forKey: LeaderKeySettings.enabledKey)
+        defaults.set(workspaceTagsEnabled, forKey: LeaderKeySettings.workspaceTagsEnabledKey)
+        defaults.removeObject(forKey: LeaderKeySettings.LeaderAction.setWorkspaceTag.defaultsKey)
+        defaults.removeObject(forKey: leaderChordKey)
+        body()
     }
 
     private func assertEscapeKeyUpIsConsumedAfterCommandPaletteOpenRequest(

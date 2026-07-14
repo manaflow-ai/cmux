@@ -77,7 +77,7 @@ struct SidebarWorkspaceSnapshotFactory {
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey,
-            title: workspace.title,
+            title: workspace.displayTitle,
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
             customColorHex: workspace.customColor,

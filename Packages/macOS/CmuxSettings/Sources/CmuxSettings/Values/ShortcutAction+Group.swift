@@ -2,7 +2,7 @@ extension ShortcutAction {
     /// Which group this action belongs to in the settings pane.
     public var group: Group {
         switch self {
-        case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
+        case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch, .leaderKey,
              .newWindow, .closeWindow, .toggleFullScreen, .quit:
             return .app
         case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,

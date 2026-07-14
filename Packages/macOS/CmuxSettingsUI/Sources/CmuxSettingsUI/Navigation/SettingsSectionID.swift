@@ -28,6 +28,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case browser
     case browserImport
     case globalHotkey
+    case leaderKey
     case keyboardShortcuts
     case workspaceColors
     case settingsJSON
@@ -52,6 +53,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .browser: return "Browser"
         case .browserImport: return "Import Browser Data"
         case .globalHotkey: return "Global Hotkey"
+        case .leaderKey: return String(localized: "settings.section.leaderKey", defaultValue: "Leader Key")
         case .keyboardShortcuts: return "Keyboard Shortcuts"
         case .workspaceColors: return "Workspace Colors"
         case .settingsJSON: return "cmux.json"
@@ -76,6 +78,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .browser: return "globe"
         case .browserImport: return "square.and.arrow.down"
         case .globalHotkey: return "keyboard.badge.ellipsis"
+        case .leaderKey: return "keyboard.badge.clock"
         case .keyboardShortcuts: return "keyboard"
         case .workspaceColors: return "paintpalette"
         case .settingsJSON: return "doc.text"
@@ -102,6 +105,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .browser: return "search engine links history theme"
         case .browserImport: return "browser import bookmarks history cookies"
         case .globalHotkey: return "system wide shortcut"
+        case .leaderKey: return "tmux prefix leader chord workspace tags"
         case .keyboardShortcuts: return "keybindings commands chords"
         case .workspaceColors: return "palette tabs indicator"
         case .settingsJSON: return "config file preferences editor schema jsonc reload"
