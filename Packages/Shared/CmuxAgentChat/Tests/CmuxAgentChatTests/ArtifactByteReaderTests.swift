@@ -3,7 +3,7 @@ import Testing
 
 @testable import CmuxAgentChat
 
-@Suite("ArtifactByteReader directory listing")
+@Suite("ArtifactByteReader")
 struct ArtifactByteReaderTests {
     @Test("directory listings cap at 500 and report truncation")
     func listCap() throws {
@@ -36,6 +36,68 @@ struct ArtifactByteReaderTests {
             } catch {
                 Issue.record("unexpected error: \(error)")
             }
+        }
+    }
+
+    @Test("extensionless UTF-8 text is classified as text")
+    func extensionlessUTF8Text() throws {
+        try withTemporaryDirectory { directory in
+            let file = directory.appendingPathComponent("output")
+            try Data("hello, 漢字 and 🙂".utf8).write(to: file)
+
+            #expect(ArtifactByteReader().kind(path: file.path, isDirectory: false) == .text)
+        }
+    }
+
+    @Test("unknown-extension UTF-8 text is classified as text")
+    func unknownExtensionUTF8Text() throws {
+        try withTemporaryDirectory { directory in
+            let file = directory.appendingPathComponent("output.cmux-unknown-text-kind")
+            try Data("plain text".utf8).write(to: file)
+
+            #expect(ArtifactByteReader().kind(path: file.path, isDirectory: false) == .text)
+        }
+    }
+
+    @Test("binary junk remains binary")
+    func binaryJunk() throws {
+        try withTemporaryDirectory { directory in
+            let file = directory.appendingPathComponent("output")
+            try Data([0x00, 0xFF, 0xFE, 0x80]).write(to: file)
+
+            #expect(ArtifactByteReader().kind(path: file.path, isDirectory: false) == .binary)
+        }
+    }
+
+    @Test("empty extensionless files are valid UTF-8 text")
+    func emptyFile() throws {
+        try withTemporaryDirectory { directory in
+            let file = directory.appendingPathComponent("output")
+            try Data().write(to: file)
+
+            #expect(ArtifactByteReader().kind(path: file.path, isDirectory: false) == .text)
+        }
+    }
+
+    @Test("files smaller than the sniff budget are classified from all bytes")
+    func smallerThanSniffBudget() throws {
+        try withTemporaryDirectory { directory in
+            let file = directory.appendingPathComponent("output")
+            try Data(repeating: 0x61, count: 8 * 1024 - 1).write(to: file)
+
+            #expect(ArtifactByteReader().kind(path: file.path, isDirectory: false) == .text)
+        }
+    }
+
+    @Test("a multibyte scalar split at the 8 KiB edge is accepted")
+    func multibyteScalarSplitAtSniffEdge() throws {
+        try withTemporaryDirectory { directory in
+            let file = directory.appendingPathComponent("output")
+            var bytes = Data(repeating: 0x61, count: 8 * 1024 - 1)
+            bytes.append(contentsOf: "🙂".utf8)
+            try bytes.write(to: file)
+
+            #expect(ArtifactByteReader().kind(path: file.path, isDirectory: false) == .text)
         }
     }
 

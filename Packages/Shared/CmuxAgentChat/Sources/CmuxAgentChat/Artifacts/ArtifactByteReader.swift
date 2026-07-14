@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 public struct ArtifactByteReader: Sendable {
     /// Maximum immediate children returned by one directory-list request.
     public static let maximumDirectoryEntryCount = 500
+    private static let utf8SniffByteCount = 8 * 1024
 
     /// Filesystem/decoder failures surfaced by artifact RPC handlers.
     public enum Error: Swift.Error, Sendable {
@@ -131,17 +132,93 @@ public struct ArtifactByteReader: Sendable {
         )
     }
 
-    /// Infers preview category from a path extension and directory flag.
+    /// Infers preview category from a path extension and a bounded UTF-8 sniff.
     public func kind(path: String, isDirectory: Bool) -> ChatArtifactKind {
         if isDirectory { return .directory }
-        guard let type = UTType(filenameExtension: URL(fileURLWithPath: path).pathExtension) else {
-            return .binary
+        let fileExtension = URL(fileURLWithPath: path).pathExtension
+        let type = fileExtension.isEmpty ? nil : UTType(filenameExtension: fileExtension)
+        guard let type, !type.isDynamic else {
+            return isUTF8Text(path: path) ? .text : .binary
         }
         if type.conforms(to: .image) { return .image }
         if type.conforms(to: .text) || type.conforms(to: .sourceCode) || type.conforms(to: .json) {
             return .text
         }
         return .binary
+    }
+
+    private func isUTF8Text(path: String) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: path) else {
+            return false
+        }
+        defer { try? handle.close() }
+        let bytes: Data
+        do {
+            bytes = try handle.read(upToCount: Self.utf8SniffByteCount + 1) ?? Data()
+        } catch {
+            return false
+        }
+        let sample = Data(bytes.prefix(Self.utf8SniffByteCount))
+        if String(data: sample, encoding: .utf8) != nil {
+            return true
+        }
+        guard bytes.count > Self.utf8SniffByteCount else {
+            return false
+        }
+        return hasValidUTF8PrefixEndingInPartialScalar(sample)
+    }
+
+    private func hasValidUTF8PrefixEndingInPartialScalar(_ data: Data) -> Bool {
+        let bytes = Array(data)
+        guard !bytes.isEmpty else { return false }
+        let earliestCandidate = max(0, bytes.count - 4)
+        for start in stride(from: bytes.count - 1, through: earliestCandidate, by: -1) {
+            guard let expectedLength = utf8ScalarLength(leadingByte: bytes[start]) else {
+                continue
+            }
+            let actualLength = bytes.count - start
+            guard actualLength < expectedLength,
+                  utf8PartialScalarBytesAreValid(Array(bytes[start...])) else {
+                continue
+            }
+            let prefix = Data(bytes[..<start])
+            return String(data: prefix, encoding: .utf8) != nil
+        }
+        return false
+    }
+
+    private func utf8ScalarLength(leadingByte: UInt8) -> Int? {
+        switch leadingByte {
+        case 0xC2...0xDF:
+            return 2
+        case 0xE0...0xEF:
+            return 3
+        case 0xF0...0xF4:
+            return 4
+        default:
+            return nil
+        }
+    }
+
+    private func utf8PartialScalarBytesAreValid(_ bytes: [UInt8]) -> Bool {
+        guard let leadingByte = bytes.first else { return false }
+        for byte in bytes.dropFirst() where byte & 0xC0 != 0x80 {
+            return false
+        }
+        guard bytes.count > 1 else { return true }
+        let firstContinuation = bytes[1]
+        switch leadingByte {
+        case 0xE0:
+            return firstContinuation >= 0xA0
+        case 0xED:
+            return firstContinuation <= 0x9F
+        case 0xF0:
+            return firstContinuation >= 0x90
+        case 0xF4:
+            return firstContinuation <= 0x8F
+        default:
+            return true
+        }
     }
 
     private func attributes(path: String) throws -> [FileAttributeKey: Any] {
