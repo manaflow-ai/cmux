@@ -7,17 +7,22 @@ actor StubPullRequestPanelService: PullRequestPanelServing {
     private(set) var disableAutoMergeCallCount = 0
     private(set) var createPullRequestCallCount = 0
     private(set) var refreshCallCount = 0
+    private var createPullRequestCallCountWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
+    private var createPullRequestContinuations: [CheckedContinuation<Void, Never>] = []
     private var refreshCallCountWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var refreshContinuations: [CheckedContinuation<Void, Never>] = []
+    private let suspendsCreatePullRequest: Bool
     private let suspendsRefresh: Bool
 
     init(
         cached: PullRequestPanelContent?,
         refreshResult: Result<PullRequestPanelContent, PullRequestPanelServiceError>,
+        suspendsCreatePullRequest: Bool = false,
         suspendsRefresh: Bool = false
     ) {
         self.cached = cached
         self.refreshResult = refreshResult
+        self.suspendsCreatePullRequest = suspendsCreatePullRequest
         self.suspendsRefresh = suspendsRefresh
     }
 
@@ -60,6 +65,24 @@ actor StubPullRequestPanelService: PullRequestPanelServing {
     func createPullRequest(context: PullRequestPanelContext) async throws {
         _ = context
         createPullRequestCallCount += 1
+        let waiters = createPullRequestCallCountWaiters
+            .removeValue(forKey: createPullRequestCallCount) ?? []
+        waiters.forEach { $0.resume() }
+        if suspendsCreatePullRequest {
+            await withCheckedContinuation { createPullRequestContinuations.append($0) }
+        }
+    }
+
+    func waitForCreatePullRequestCallCount(_ count: Int) async {
+        guard createPullRequestCallCount < count else { return }
+        await withCheckedContinuation { continuation in
+            createPullRequestCallCountWaiters[count, default: []].append(continuation)
+        }
+    }
+
+    func resumeNextCreatePullRequest() {
+        guard !createPullRequestContinuations.isEmpty else { return }
+        createPullRequestContinuations.removeFirst().resume()
     }
 
     func waitForRefreshStart() async {

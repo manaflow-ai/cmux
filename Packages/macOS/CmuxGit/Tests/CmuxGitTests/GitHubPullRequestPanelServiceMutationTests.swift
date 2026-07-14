@@ -197,4 +197,57 @@ import Testing
         let cache = await service.cacheByContext
         #expect(cache[context] == newContent)
     }
+
+    @Test func subdirectoriesOfOneContextShareTheSameRefreshTask() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("feat-pr-sidebar")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/example/repo.git
+        """)
+        let firstDirectory = fixture.root.appendingPathComponent("first", isDirectory: true)
+        let secondDirectory = fixture.root.appendingPathComponent("second", isDirectory: true)
+        try FileManager.default.createDirectory(at: firstDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondDirectory, withIntermediateDirectories: true)
+        let loader = PullRequestFixtureLoader()
+        let runner = SuspendingPullRequestCommandRunner(
+            pullRequestViewOutput: try #require(String(
+                data: loader.data(named: "pull-request-view"),
+                encoding: .utf8
+            )),
+            checksOutput: try #require(String(
+                data: loader.data(named: "pull-request-checks"),
+                encoding: .utf8
+            )),
+            commentsOutput: try #require(String(
+                data: loader.data(named: "pull-request-comments"),
+                encoding: .utf8
+            )),
+            mergeSettingsOutput: try #require(String(
+                data: loader.data(named: "repository-merge-settings"),
+                encoding: .utf8
+            ))
+        )
+        let service = GitHubPullRequestPanelService(commandRunner: runner)
+        let firstInput = PullRequestWorkspaceInput(
+            directory: firstDirectory.path,
+            branchHint: "feat-pr-sidebar"
+        )
+        let secondInput = PullRequestWorkspaceInput(
+            directory: secondDirectory.path,
+            branchHint: "feat-pr-sidebar"
+        )
+
+        let firstRefresh = Task { try await service.refresh(for: firstInput) }
+        await runner.waitForBranchViewInvocationCount(1)
+        let secondRefresh = Task { try await service.refresh(for: secondInput) }
+        await Task.yield()
+        #expect(await runner.branchViewInvocationCount == 1)
+        await runner.resumeFirstBranchView()
+
+        let firstContent = try await firstRefresh.value
+        let secondContent = try await secondRefresh.value
+        #expect(firstContent == secondContent)
+        #expect(await runner.branchViewInvocationCount == 1)
+    }
 }

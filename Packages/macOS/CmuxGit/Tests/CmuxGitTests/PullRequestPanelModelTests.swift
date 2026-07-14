@@ -186,4 +186,42 @@ import Testing
         await secondActivation.value
         model.setVisible(false)
     }
+
+    @Test @MainActor func oldMutationCannotFinishAReplacementMutationAfterReturningToInput() async {
+        let inputA = PullRequestWorkspaceInput(directory: "/repo", branchHint: "a")
+        let inputB = PullRequestWorkspaceInput(directory: "/repo", branchHint: "b")
+        let context = PullRequestPanelContext(
+            repositoryRoot: "/repo",
+            branch: "a",
+            repositorySlug: "example/repo"
+        )
+        let content = PullRequestPanelContent.noPullRequest(context)
+        let service = StubPullRequestPanelService(
+            cached: nil,
+            refreshResult: .success(content),
+            suspendsCreatePullRequest: true
+        )
+        let model = PullRequestPanelModel(service: service)
+        model.setVisible(true)
+        await model.activate(inputA)
+
+        let oldMutation = Task { await model.createPullRequest(for: inputA) }
+        await service.waitForCreatePullRequestCallCount(1)
+        model.visibleInputDidChange(to: inputB)
+        await model.activate(inputB)
+        model.visibleInputDidChange(to: inputA)
+        await model.activate(inputA)
+
+        let replacementMutation = Task { await model.createPullRequest(for: inputA) }
+        await service.waitForCreatePullRequestCallCount(2)
+        await service.resumeNextCreatePullRequest()
+        await oldMutation.value
+
+        #expect(model.actionPhase == .creatingPullRequest)
+
+        await service.resumeNextCreatePullRequest()
+        await replacementMutation.value
+        #expect(model.actionPhase == .idle)
+        model.setVisible(false)
+    }
 }
