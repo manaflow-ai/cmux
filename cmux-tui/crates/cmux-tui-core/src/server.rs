@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use ghostty_vt::{KeyEncoder, key_input_from_chord};
@@ -32,6 +32,7 @@ use serde_json::{Value, json};
 
 use crate::model::{Screen, State};
 use crate::platform::{self, transport};
+use crate::surface::AttachLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
     LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId, SidebarPluginStatus,
@@ -833,12 +834,18 @@ fn spawn_attach_notification_stream(
     mux: Arc<Mux>,
     surface_id: SurfaceId,
     writer: LineWriter,
+    lifecycle: AttachLifecycle,
 ) -> std::io::Result<()> {
     let events = mux.subscribe();
     std::thread::Builder::new()
         .name("mux-attach-notifications".into())
         .spawn(move || {
-            while let Ok(event) = events.recv() {
+            while !lifecycle.is_canceled() {
+                let event = match events.recv_timeout(Duration::from_millis(100)) {
+                    Ok(event) => event,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                };
                 let value = match event {
                     MuxEvent::Notification(notification)
                         if notification.surface == Some(surface_id) =>
@@ -865,19 +872,27 @@ fn spawn_attach_notification_stream(
                     _ => continue,
                 };
                 if writer.send(&value).is_err() {
+                    lifecycle.cancel();
                     break;
                 }
             }
             if events.overflowed() {
-                let _ = writer.send(&json!({
-                    "event": "overflow",
-                    "scope": "surface",
-                    "surface": surface_id,
-                    "error": "surface event subscriber fell behind; reattach the surface",
-                }));
+                lifecycle.mark_overflow();
             }
+            report_attach_overflow(&writer, surface_id, &lifecycle);
         })
         .map(|_| ())
+}
+
+fn report_attach_overflow(writer: &LineWriter, surface_id: SurfaceId, lifecycle: &AttachLifecycle) {
+    if lifecycle.claim_overflow_report() {
+        let _ = writer.send(&json!({
+            "event": "overflow",
+            "scope": "surface",
+            "surface": surface_id,
+            "error": "surface stream fell behind; reattach the surface",
+        }));
+    }
 }
 
 fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::Result<Value> {
@@ -966,7 +981,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                 }
                 anyhow::bail!("timeout waiting for pattern");
             }
-            let deadline = start + std::time::Duration::from_millis(timeout_ms);
+            let deadline = start + Duration::from_millis(timeout_ms);
             let attach = surface.attach_stream()?;
             if let Some(text) = check()? {
                 return Ok(json!({
@@ -1389,17 +1404,43 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         }
         Command::AttachSurface { surface: surface_id } => {
             let surface = get_surface(mux, surface_id)?;
-            spawn_attach_notification_stream(mux.clone(), surface_id, writer.clone())?;
+            let lifecycle = AttachLifecycle::default();
+            spawn_attach_notification_stream(
+                mux.clone(),
+                surface_id,
+                writer.clone(),
+                lifecycle.clone(),
+            )?;
             if surface.kind() == SurfaceKind::Browser {
-                let (state, frames) = surface.attach_frames()?;
-                writer.send(&browser_state_json(surface_id, &state, true))?;
+                let (state, frames) = match surface.attach_frames() {
+                    Ok(attach) => attach,
+                    Err(error) => {
+                        lifecycle.cancel();
+                        return Err(error);
+                    }
+                };
+                if let Err(error) = writer.send(&browser_state_json(surface_id, &state, true)) {
+                    lifecycle.cancel();
+                    return Err(error.into());
+                }
                 let writer = writer.clone();
                 std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                    while frames.notify.recv().is_ok() {
+                    while !lifecycle.is_canceled() {
+                        match frames.notify.recv_timeout(Duration::from_millis(100)) {
+                            Ok(()) => {}
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                lifecycle.cancel();
+                                let _ = writer
+                                    .send(&json!({"event": "detached", "surface": surface_id}));
+                                return;
+                            }
+                        }
                         let update = std::mem::take(&mut *frames.slot.lock().unwrap());
                         if let Some(state) = update.state
                             && writer.send(&browser_state_json(surface_id, &state, false)).is_err()
                         {
+                            lifecycle.cancel();
                             break;
                         }
                         if let Some(frame) = update.frame {
@@ -1412,25 +1453,45 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                                 "data": frame.data_b64,
                             });
                             if writer.send(&value).is_err() {
+                                lifecycle.cancel();
                                 break;
                             }
                         }
                     }
-                    let _ = writer.send(&json!({"event": "detached", "surface": surface_id}));
+                    report_attach_overflow(&writer, surface_id, &lifecycle);
                 })?;
                 return Ok(json!({}));
             }
-            let attach = surface.attach_stream()?;
-            writer.send(&json!({
+            let attach = match surface.attach_stream_with_lifecycle(lifecycle.clone()) {
+                Ok(attach) => attach,
+                Err(error) => {
+                    lifecycle.cancel();
+                    return Err(error.into());
+                }
+            };
+            if let Err(error) = writer.send(&json!({
                 "event": "vt-state",
                 "surface": surface_id,
                 "cols": attach.cols,
                 "rows": attach.rows,
                 "data": base64::engine::general_purpose::STANDARD.encode(attach.replay),
-            }))?;
+            })) {
+                lifecycle.cancel();
+                return Err(error.into());
+            }
             let writer = writer.clone();
             std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                while let Ok(frame) = attach.stream.recv() {
+                while !attach.lifecycle.is_canceled() {
+                    let frame = match attach.stream.recv_timeout(Duration::from_millis(100)) {
+                        Ok(frame) => frame,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            attach.lifecycle.cancel();
+                            let _ =
+                                writer.send(&json!({"event": "detached", "surface": surface_id}));
+                            return;
+                        }
+                    };
                     let value = match frame {
                         AttachFrame::Output(chunk) => json!({
                             "event": "output",
@@ -1446,11 +1507,11 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                         }),
                     };
                     if writer.send(&value).is_err() {
+                        attach.lifecycle.cancel();
                         break;
                     }
                 }
-                // Surface gone (or reader stopped): signal end of stream.
-                let _ = writer.send(&json!({"event": "detached", "surface": surface_id}));
+                report_attach_overflow(&writer, surface_id, &attach.lifecycle);
             })?;
             Ok(json!({}))
         }

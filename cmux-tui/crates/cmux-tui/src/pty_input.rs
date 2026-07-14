@@ -444,12 +444,14 @@ fn enqueue_bounded_with_evictions(
     max_bytes: usize,
 ) -> BoundedEnqueueOutcome {
     let mut evicted = Vec::new();
+    let mut replaced = None;
     if let Some(key) = event.coalesce_key {
         for index in (0..events.len()).rev() {
             if events[index].coalesce_key == Some(key) {
-                let mut replaced = std::mem::replace(&mut events[index], event);
-                let superseded = replaced.on_superseded.take();
-                return BoundedEnqueueOutcome { accepted: true, evicted, superseded };
+                let previous = events.remove(index).unwrap();
+                *queued_bytes = queued_bytes.saturating_sub(previous.bytes.len());
+                replaced = Some((index, previous));
+                break;
             }
             if events[index].coalesce_key.is_none() {
                 break;
@@ -466,11 +468,16 @@ fn enqueue_bounded_with_evictions(
             + event.bytes.len()
             + release_reservations.len() * RESERVED_RELEASE_BYTES;
         if projected_bytes > max_bytes {
+            if let Some((index, previous)) = replaced.take() {
+                *queued_bytes += previous.bytes.len();
+                events.insert(index, previous);
+            }
             return BoundedEnqueueOutcome { accepted: false, evicted, superseded: None };
         }
         *queued_bytes = queued_bytes.saturating_sub(previous_len) + event.bytes.len();
         *events.back_mut().unwrap() = event;
-        return BoundedEnqueueOutcome { accepted: true, evicted, superseded: None };
+        let superseded = replaced.as_mut().and_then(|(_, previous)| previous.on_superseded.take());
+        return BoundedEnqueueOutcome { accepted: true, evicted, superseded };
     }
 
     let merge_stream = event.kind == PtyInputKind::Ordered
@@ -504,6 +511,10 @@ fn enqueue_bounded_with_evictions(
     while projected > capacity || projected_bytes > max_bytes {
         let Some(index) = events.iter().position(|queued| queued.kind == PtyInputKind::Motion)
         else {
+            if let Some((index, previous)) = replaced.take() {
+                *queued_bytes += previous.bytes.len();
+                events.insert(index, previous);
+            }
             return BoundedEnqueueOutcome { accepted: false, evicted, superseded: None };
         };
         let removed = events.remove(index).unwrap();
@@ -538,7 +549,8 @@ fn enqueue_bounded_with_evictions(
         *queued_bytes += event.bytes.len();
         events.push_back(event);
     }
-    BoundedEnqueueOutcome { accepted: true, evicted, superseded: None }
+    let superseded = replaced.as_mut().and_then(|(_, previous)| previous.on_superseded.take());
+    BoundedEnqueueOutcome { accepted: true, evicted, superseded }
 }
 
 fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>) {
@@ -857,8 +869,8 @@ mod tests {
         }
 
         assert_eq!(events.len(), 2);
-        assert_eq!(events[0].label, "resize one latest");
-        assert_eq!(events[1].label, "resize two");
+        assert_eq!(events[0].label, "resize two");
+        assert_eq!(events[1].label, "resize one latest");
 
         assert!(enqueue_bounded(
             &mut events,
@@ -914,6 +926,37 @@ mod tests {
         assert!(superseded.load(std::sync::atomic::Ordering::Acquire));
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].label, "resize latest");
+    }
+
+    #[test]
+    fn rejected_coalescing_replacement_restores_the_previous_sample() {
+        let mut events = VecDeque::new();
+        let mut queued_bytes = 0;
+        let mut releases = ReleaseReservations::default();
+        let superseded = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let replaced = superseded.clone();
+        let mut previous = PtyInputEvent::mutation_with_superseded(
+            "resize old",
+            Some(("resize", 1)),
+            false,
+            Some(Box::new(move || {
+                replaced.store(true, std::sync::atomic::Ordering::Release);
+            })),
+            || Ok(()),
+        );
+        previous.bytes = PtyInputBytes::from_slice(&[1]);
+        assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, previous, 8, 1,));
+
+        let mut too_large =
+            PtyInputEvent::mutation("resize latest", Some(("resize", 1)), false, || Ok(()));
+        too_large.bytes = PtyInputBytes::from_slice(&[2, 3]);
+        assert!(!enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, too_large, 8, 1,));
+
+        assert!(!superseded.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(queued_bytes, 1);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].label, "resize old");
+        assert_eq!(events[0].bytes.as_slice(), &[1]);
     }
 
     #[test]

@@ -1581,6 +1581,7 @@ struct DeferredInput {
     event: Event,
     destination: Option<SurfaceId>,
     routing_intent: Option<u64>,
+    sidebar_focus_intent: bool,
 }
 
 pub struct App {
@@ -2090,11 +2091,16 @@ impl App {
                 break;
             }
             let Some(input) = self.deferred_input.pop_front() else { break };
-            let follows_pending_route = input.routing_intent.is_some_and(|intent| {
-                self.session.routing_mutation_committed() >= intent
-                    && self.session.routing_mutation_started() == intent
-            });
-            if !follows_pending_route && self.input_destination(&input.event) != input.destination {
+            let follows_pending_route = matches!(&input.event, Event::Key(_) | Event::Paste(_))
+                && input.routing_intent.is_some_and(|intent| {
+                    self.session.routing_mutation_committed() >= intent
+                        && self.session.routing_mutation_started() == intent
+                });
+            let follows_sidebar_focus = input.sidebar_focus_intent && self.sidebar_focused;
+            if !follows_pending_route
+                && !follows_sidebar_focus
+                && self.input_destination(&input.event) != input.destination
+            {
                 self.status_message = Some(
                     "Deferred input was discarded because its destination changed".to_string(),
                 );
@@ -2700,6 +2706,17 @@ impl App {
                 self.queue_surface_attach(surface);
                 return Ok(self.defer_input(input));
             }
+            AppEvent::Input(input @ Event::Mouse(_))
+                if (self.session.has_pending_mutations()
+                    || self.session.remote_tree_is_stale()
+                    || self.mux_recovery_generation.load(Ordering::Acquire) != 0
+                    || self.routing_refresh_pending)
+                    && !self.input_can_update_pending_mutation(&input) =>
+            {
+                self.status_message =
+                    Some("Pointer input was discarded while the layout changed".to_string());
+                return Ok(RenderAction::Draw);
+            }
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
                 if (self.session.has_pending_mutations()
                     || self.session.remote_tree_is_stale()
@@ -3060,6 +3077,8 @@ impl App {
 
     fn defer_input(&mut self, input: Event) -> RenderAction {
         let destination = self.input_destination(&input);
+        let sidebar_focus_intent =
+            self.sidebar_focus_pending && matches!(&input, Event::Key(_) | Event::Paste(_));
         let routing_started = self.session.routing_mutation_started();
         let routing_intent =
             (routing_started > self.applied_routing_generation).then_some(routing_started);
@@ -3070,25 +3089,32 @@ impl App {
                     event: Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
                     destination: previous_destination,
                     routing_intent: previous_intent,
+                    sidebar_focus_intent: previous_sidebar_intent,
                 }),
-            ) => *previous_destination == destination && *previous_intent == routing_intent,
+            ) => {
+                *previous_destination == destination
+                    && *previous_intent == routing_intent
+                    && *previous_sidebar_intent == sidebar_focus_intent
+            }
             (
                 Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(button), .. }),
                 Some(DeferredInput {
                     event: Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(previous), .. }),
                     destination: previous_destination,
                     routing_intent: previous_intent,
+                    sidebar_focus_intent: previous_sidebar_intent,
                 }),
             ) => {
                 button == previous
                     && *previous_destination == destination
                     && *previous_intent == routing_intent
+                    && *previous_sidebar_intent == sidebar_focus_intent
             }
             _ => false,
         };
         if replace_motion {
             *self.deferred_input.back_mut().unwrap() =
-                DeferredInput { event: input, destination, routing_intent };
+                DeferredInput { event: input, destination, routing_intent, sidebar_focus_intent };
             return RenderAction::None;
         }
         let input_bytes = deferred_input_bytes(&input);
@@ -3111,7 +3137,12 @@ impl App {
             let Some(removed) = self.deferred_input.pop_front() else { break };
             queued_bytes = queued_bytes.saturating_sub(deferred_input_bytes(&removed.event));
         }
-        self.deferred_input.push_back(DeferredInput { event: input, destination, routing_intent });
+        self.deferred_input.push_back(DeferredInput {
+            event: input,
+            destination,
+            routing_intent,
+            sidebar_focus_intent,
+        });
         RenderAction::None
     }
 
@@ -6923,6 +6954,7 @@ mod tests {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: Some(77),
             routing_intent: None,
+            sidebar_focus_intent: false,
         });
         app.session.pending_mutations.store(1, Ordering::Release);
 
@@ -7025,6 +7057,7 @@ mod tests {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
             routing_intent: None,
+            sidebar_focus_intent: false,
         });
 
         app.handle(AppEvent::RemoteTreeUpdated {
@@ -7294,6 +7327,7 @@ mod tests {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: Some(surface),
             routing_intent: None,
+            sidebar_focus_intent: false,
         });
 
         assert_eq!(
@@ -7374,6 +7408,61 @@ mod tests {
     }
 
     #[test]
+    fn key_typed_during_pending_sidebar_focus_follows_successful_focus() {
+        let mux = Mux::new("sidebar-plugin-deferred-key-success-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, None).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        app.sidebar_focus_pending = true;
+        app.session.pending_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert!(app.deferred_input.front().unwrap().sidebar_focus_intent);
+
+        app.session.pending_mutations.store(0, Ordering::Release);
+        app.sidebar_focus_pending = false;
+        app.sidebar_focused = true;
+        app.sidebar_plugin_surface = Some(surface.id);
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert_ne!(
+            app.status_message.as_deref(),
+            Some("Deferred input was discarded because its destination changed")
+        );
+    }
+
+    #[test]
+    fn key_typed_during_pending_sidebar_focus_keeps_pane_target_on_failure() {
+        let mux = Mux::new("sidebar-plugin-deferred-key-failure-test", SurfaceOptions::default());
+        mux.new_workspace(None, None).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        app.sidebar_focus_pending = true;
+        app.session.pending_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+
+        app.session.pending_mutations.store(0, Ordering::Release);
+        app.sidebar_focus_pending = false;
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert_ne!(
+            app.status_message.as_deref(),
+            Some("Deferred input was discarded because its destination changed")
+        );
+    }
+
+    #[test]
     fn surface_output_is_paint_only_and_preserves_the_topology_index() {
         let mux = Mux::new("surface-output-paint-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -7394,6 +7483,7 @@ mod tests {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
             routing_intent: None,
+            sidebar_focus_intent: false,
         });
         app.session
             .enqueue("timed out mutation", |_| Err(crate::session::test_remote_timeout_error()));
@@ -7420,6 +7510,7 @@ mod tests {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
             routing_intent: None,
+            sidebar_focus_intent: false,
         });
 
         for (label, key) in [
@@ -7639,7 +7730,7 @@ mod tests {
     }
 
     #[test]
-    fn deferred_pointer_motion_keeps_only_the_latest_sample() {
+    fn pointer_motion_is_discarded_while_a_mutation_can_change_its_target() {
         let mux = Mux::new("deferred-motion-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -7651,21 +7742,19 @@ mod tests {
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
-        for column in [4, 9] {
-            app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-                kind: MouseEventKind::Moved,
-                column,
-                row: 3,
-                modifiers: KeyModifiers::NONE,
-            })))
-            .unwrap();
-        }
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
 
-        assert_eq!(app.deferred_input.len(), 1);
-        assert!(matches!(
-            app.deferred_input.front(),
-            Some(DeferredInput { event: Event::Mouse(MouseEvent { column: 9, .. }), .. })
-        ));
+        assert!(app.deferred_input.is_empty());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Pointer input was discarded while the layout changed")
+        );
         release_tx.send(()).unwrap();
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         app.handle(settled).unwrap();
@@ -7759,6 +7848,7 @@ mod tests {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
             routing_intent: None,
+            sidebar_focus_intent: false,
         });
 
         app.handle(AppEvent::SessionMutationSettled(

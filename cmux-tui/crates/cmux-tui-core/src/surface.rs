@@ -8,6 +8,7 @@
 use std::io::{Read, Write};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, Weak};
 
 use ghostty_vt::{Callbacks, RenderState, Rgb, Terminal};
@@ -94,12 +95,79 @@ pub struct AttachStream {
     pub rows: u16,
     pub replay: Vec<u8>,
     pub stream: std::sync::mpsc::Receiver<AttachFrame>,
+    pub(crate) lifecycle: AttachLifecycle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachFrame {
     Output(Vec<u8>),
     Resized { cols: u16, rows: u16, replay: Vec<u8> },
+}
+
+const ATTACH_STREAM_CAPACITY: usize = 256;
+
+#[derive(Clone, Default)]
+pub(crate) struct AttachLifecycle {
+    state: Arc<AttachLifecycleState>,
+}
+
+#[derive(Default)]
+struct AttachLifecycleState {
+    canceled: AtomicBool,
+    overflowed: AtomicBool,
+    overflow_reported: AtomicBool,
+}
+
+impl AttachLifecycle {
+    pub(crate) fn cancel(&self) {
+        self.state.canceled.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn mark_overflow(&self) {
+        self.state.overflowed.store(true, Ordering::Release);
+        self.cancel();
+    }
+
+    pub(crate) fn is_canceled(&self) -> bool {
+        self.state.canceled.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn overflowed(&self) -> bool {
+        self.state.overflowed.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn claim_overflow_report(&self) -> bool {
+        self.overflowed()
+            && self
+                .state
+                .overflow_reported
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+    }
+}
+
+struct AttachTap {
+    sender: SyncSender<AttachFrame>,
+    lifecycle: AttachLifecycle,
+}
+
+impl AttachTap {
+    fn try_send(&self, frame: AttachFrame) -> bool {
+        if self.lifecycle.is_canceled() {
+            return false;
+        }
+        match self.sender.try_send(frame) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) => {
+                self.lifecycle.mark_overflow();
+                false
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                self.lifecycle.cancel();
+                false
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,7 +236,7 @@ pub struct PtySurface {
     /// terminal lock, and [`Surface::attach_stream`] registers taps under
     /// the same lock, so a subscriber sees exactly the bytes applied
     /// after its replay snapshot — no gap, no duplication.
-    taps: Mutex<Vec<std::sync::mpsc::Sender<AttachFrame>>>,
+    taps: Mutex<Vec<AttachTap>>,
 }
 
 impl std::fmt::Debug for Surface {
@@ -283,11 +351,7 @@ impl Surface {
                         term.vt_write(&buf[..n]);
                         let after = terminal_scroll_position(&term);
                         {
-                            let mut taps = pty.taps.lock().unwrap();
-                            if !taps.is_empty() {
-                                let frame = AttachFrame::Output(buf[..n].to_vec());
-                                taps.retain(|tap| tap.send(frame.clone()).is_ok());
-                            }
+                            pty.broadcast_attach_frame(AttachFrame::Output(buf[..n].to_vec()));
                         }
                         if title_changed.swap(false, Ordering::Relaxed) {
                             let title = term.title().unwrap_or_default();
@@ -587,17 +651,24 @@ impl Surface {
 
     /// Attach to a PTY surface: a VT replay plus a live byte stream.
     pub fn attach_stream(&self) -> ghostty_vt::Result<AttachStream> {
+        self.attach_stream_with_lifecycle(AttachLifecycle::default())
+    }
+
+    pub(crate) fn attach_stream_with_lifecycle(
+        &self,
+        lifecycle: AttachLifecycle,
+    ) -> ghostty_vt::Result<AttachStream> {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::sync_channel(ATTACH_STREAM_CAPACITY);
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
         let replay = term.vt_replay()?;
         let (cols, rows) = (term.cols(), term.rows());
-        pty.taps.lock().unwrap().push(tx);
-        Ok(AttachStream { cols, rows, replay, stream: rx })
+        pty.taps.lock().unwrap().push(AttachTap { sender: tx, lifecycle: lifecycle.clone() });
+        Ok(AttachStream { cols, rows, replay, stream: rx, lifecycle })
     }
 
     pub fn kill(&self) {
@@ -771,6 +842,10 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    fn broadcast_attach_frame(&self, frame: AttachFrame) {
+        self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
+    }
+
     /// Resize both the PTY and the terminal state. Returns whether the
     /// final clamped size actually changed.
     fn resize(&self, cols: u16, rows: u16) -> bool {
@@ -795,12 +870,7 @@ impl PtySurface {
         // Nominal cell metrics; only pixel size reports observe these.
         let _ = term.resize(cols, rows, 8, 16);
         let replay = term.vt_replay().unwrap_or_default();
-        let mut taps = self.taps.lock().unwrap();
-        if !taps.is_empty() {
-            taps.retain(|tap| {
-                tap.send(AttachFrame::Resized { cols, rows, replay: replay.clone() }).is_ok()
-            });
-        }
+        self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay });
         true
     }
 }
@@ -809,5 +879,24 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
     match term.scrollbar() {
         Some(scrollbar) => (scrollbar.offset, !scrollbar.scrolled_back()),
         None => (0, true),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attach_tap_overflow_cancels_the_shared_lifecycle_once() {
+        let lifecycle = AttachLifecycle::default();
+        let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
+        let tap = AttachTap { sender, lifecycle: lifecycle.clone() };
+
+        assert!(tap.try_send(AttachFrame::Output(vec![1])));
+        assert!(!tap.try_send(AttachFrame::Output(vec![2])));
+        assert!(lifecycle.is_canceled());
+        assert!(lifecycle.overflowed());
+        assert!(lifecycle.claim_overflow_report());
+        assert!(!lifecycle.claim_overflow_report());
     }
 }
