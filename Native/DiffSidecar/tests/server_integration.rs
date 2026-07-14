@@ -1,4 +1,8 @@
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
@@ -40,6 +44,147 @@ fn rpc_accepts_request_at_one_mib_limit() {
     assert_eq!(response["result"]["type"], "handshake");
 }
 
+#[cfg(unix)]
+#[test]
+fn cancelling_rpc_terminates_its_process_group_and_removes_partial_patch() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-cancel-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let repo = create_large_changed_repo(&root);
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+        .expect("secure root permissions");
+
+    let token = "0123456789abcdef";
+    write_cancellation_test_authorization(&root, &repo, token);
+
+    let request = serde_json::to_vec(&serde_json::json!({
+        "id": "cancel-session",
+        "version": 1,
+        "method": "sessionOpen",
+        "params": {
+            "source": {"kind": "unstaged", "repoRoot": repo},
+            "capabilityToken": token
+        }
+    }))
+    .expect("encode request");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
+        .arg("rpc")
+        .arg("--root")
+        .arg(&root)
+        .arg("--cmux")
+        .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .expect("start cancellable sidecar");
+    child
+        .stdin
+        .take()
+        .expect("sidecar stdin")
+        .write_all(&request)
+        .expect("write request");
+
+    let sidecar_pid =
+        rustix::process::Pid::from_raw(child.id().cast_signed()).expect("sidecar pid");
+    let git_pid = wait_for_direct_child(child.id());
+    assert_eq!(
+        rustix::process::getpgid(Some(git_pid)).expect("git process group"),
+        sidecar_pid
+    );
+
+    rustix::process::kill_process_group(sidecar_pid, rustix::process::Signal::TERM)
+        .expect("terminate process group");
+    let _ = child.wait().expect("reap sidecar");
+    let _ = rustix::process::kill_process_group(sidecar_pid, rustix::process::Signal::KILL);
+    if rustix::process::test_kill_process(git_pid).is_ok() {
+        let status = Command::new("/bin/ps")
+            .args(["-o", "stat=", "-p", &git_pid.as_raw_nonzero().to_string()])
+            .output()
+            .expect("inspect terminated git");
+        assert!(
+            String::from_utf8_lossy(&status.stdout)
+                .trim()
+                .starts_with('Z'),
+            "git descendant remained live"
+        );
+    }
+    assert!(
+        std::fs::read_dir(&root)
+            .expect("read sidecar root")
+            .flatten()
+            .all(|entry| !entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".diff-session-"))
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+fn create_large_changed_repo(root: &Path) -> std::path::PathBuf {
+    let repo = root.join("repo");
+    std::fs::create_dir_all(&repo).expect("create repo");
+    run_git(&repo, &["init"]);
+    run_git(&repo, &["config", "user.name", "cmux tests"]);
+    run_git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    let mut contents = vec![b'a'; 32 * 1024 * 1024];
+    std::fs::write(repo.join("large.txt"), &contents).expect("write initial file");
+    run_git(&repo, &["add", "large.txt"]);
+    run_git(&repo, &["commit", "-m", "initial"]);
+    let last_index = contents.len() - 1;
+    contents[last_index] = b'b';
+    std::fs::write(repo.join("large.txt"), contents).expect("write changed file");
+    repo
+}
+
+#[cfg(unix)]
+fn write_cancellation_test_authorization(root: &Path, repo: &Path, token: &str) {
+    std::fs::write(
+        root.join(format!(".manifest-{token}.json")),
+        serde_json::to_vec(&serde_json::json!({"token": token, "files": []}))
+            .expect("encode manifest"),
+    )
+    .expect("write manifest");
+    std::fs::write(
+        root.join(".branch-session-cancel-test.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "token": token,
+            "groupID": "cancel-test",
+            "allowedRepoRoots": [repo]
+        }))
+        .expect("encode session"),
+    )
+    .expect("write session");
+}
+
+#[cfg(unix)]
+fn wait_for_direct_child(parent_pid: u32) -> rustix::process::Pid {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let output = Command::new("/usr/bin/pgrep")
+            .arg("-P")
+            .arg(parent_pid.to_string())
+            .output()
+            .expect("inspect sidecar children");
+        if let Some(pid) = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .find_map(|line| line.trim().parse::<i32>().ok())
+            .and_then(rustix::process::Pid::from_raw)
+        {
+            return pid;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "git child did not start"
+        );
+        std::thread::yield_now();
+    }
+}
+
 fn run_stdio_rpc(input: &[u8]) -> Output {
     let root = std::env::temp_dir().join(format!(
         "cmux-diff-sidecar-rpc-test-{}-{}",
@@ -49,7 +194,6 @@ fn run_stdio_rpc(input: &[u8]) -> Output {
     std::fs::create_dir_all(&root).expect("create root");
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
             .expect("secure root permissions");
     }
@@ -101,7 +245,6 @@ fn rpc_git_sessions_match_git_without_starting_a_server() {
     std::fs::create_dir_all(&repo).expect("create repo");
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
             .expect("secure root permissions");
     }
@@ -279,7 +422,6 @@ fn serves_only_manifest_allowlisted_files() {
     std::fs::create_dir_all(&root).expect("create root");
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
             .expect("secure root permissions");
     }

@@ -89,6 +89,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   const requests: any[] = [];
   const commentRequests: any[] = [];
   const fetched: string[] = [];
+  let releaseSecondSession: (() => void) | undefined;
   installDomGlobals(dom, (input) => {
     fetched.push(String(input));
     return new Response("", { status: 200 });
@@ -100,6 +101,11 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
           requests.push(request);
           if (request.method === "sessionClose") {
             return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
+          }
+          if (requests.filter((candidate) => candidate.method === "sessionOpen").length === 2) {
+            await new Promise<void>((resolve) => {
+              releaseSecondSession = resolve;
+            });
           }
           return {
             id: request.id,
@@ -160,6 +166,12 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
   sourceSelect.value = "unstaged";
   sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.length === 3);
+  dom.window.document.getElementById("options-button")?.click();
+  await waitFor(() => Boolean(copyGitApplyButton()));
+  copyGitApplyButton()?.click();
+  await waitFor(() => dom?.window.document.getElementById("copy-feedback")?.textContent === "Could not copy git apply command.");
+  releaseSecondSession?.();
   await waitFor(() => fetched.length === 2);
   expect(requests.map((request) => request.method)).toEqual(["sessionOpen", "sessionClose", "sessionOpen"]);
   expect(requests[2].params.source).toEqual({ kind: "unstaged", repoRoot: "/tmp/other-repo" });
