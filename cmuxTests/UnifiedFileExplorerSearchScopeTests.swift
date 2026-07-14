@@ -65,9 +65,6 @@ struct UnifiedFileExplorerSearchScopeTests {
 
     @Test("Switching scopes preserves the filtered tree and full-text results")
     func scopeSwitchPreservesBothProjections() throws {
-        let previousMode = UserDefaults.standard.object(forKey: "rightSidebar.mode")
-        defer { Self.restore(previousMode, forKey: "rightSidebar.mode") }
-
         let state = FileExplorerState.unifiedTestState(mode: .files)
         let store = FileExplorerStore()
         store.rootPath = "/repo"
@@ -161,9 +158,6 @@ struct UnifiedFileExplorerSearchScopeTests {
 
     @Test("Clearing a name filter restores nested expansion")
     func clearingNameFilterRestoresNestedExpansion() throws {
-        let previousMode = UserDefaults.standard.object(forKey: "rightSidebar.mode")
-        defer { Self.restore(previousMode, forKey: "rightSidebar.mode") }
-
         let state = FileExplorerState.unifiedTestState(mode: .files)
         let store = FileExplorerStore()
         store.rootPath = "/repo"
@@ -400,6 +394,39 @@ struct UnifiedFileExplorerSearchScopeTests {
         #expect(openedPath == match.path)
     }
 
+    @Test("Double-click flushes a pending name filter before resolving its row")
+    func doubleClickFlushesPendingNameFilter() throws {
+        let state = FileExplorerState.unifiedTestState(mode: .files)
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        let match = FileExplorerNode(name: "Needle.swift", path: "/repo/Needle.swift", isDirectory: false)
+        let hidden = FileExplorerNode(name: "Other.swift", path: "/repo/Other.swift", isDirectory: false)
+        store.rootNodes = [match, hidden]
+        store.select(node: hidden)
+        var openedPath: String?
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { openedPath = $0 }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: UnifiedSearchControllerSpy()
+        )
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+        let outline = try #require(Self.outlineView(in: container))
+
+        outline.keyDown(with: try Self.keyEvent(characters: "/", keyCode: 44))
+        outline.keyDown(with: try Self.keyEvent(characters: "needle", keyCode: 0))
+        coordinator.handleDoubleClick(outline)
+
+        #expect(outline.numberOfRows == 1)
+        #expect(openedPath == nil)
+    }
+
     private static func globValues(in arguments: [String]) -> [String] {
         arguments.indices.compactMap { index in
             guard arguments[index] == "--glob", arguments.indices.contains(index + 1) else { return nil }
@@ -438,13 +465,6 @@ struct UnifiedFileExplorerSearchScopeTests {
         ))
     }
 
-    private static func restore(_ value: Any?, forKey key: String) {
-        if let value {
-            UserDefaults.standard.set(value, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-    }
 }
 
 @MainActor
