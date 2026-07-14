@@ -1,4 +1,4 @@
-import Combine
+import Foundation
 import SwiftUI
 
 /// The built-in trailing title-bar cluster shared by every main window.
@@ -34,11 +34,17 @@ struct TitlebarTrailingControls: View {
         }
         .padding(.trailing, 8)
         .cmuxAppearanceColorScheme(appearanceMode)
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            appearanceRefreshTick &+= 1
+        .task {
+            for await _ in NotificationCenter.default.notifications(named: .ghosttyConfigDidReload) {
+                guard !Task.isCancelled else { return }
+                appearanceRefreshTick &+= 1
+            }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-            appearanceRefreshTick &+= 1
+        .task {
+            for await _ in NotificationCenter.default.notifications(named: .ghosttyDefaultBackgroundDidChange) {
+                guard !Task.isCancelled else { return }
+                appearanceRefreshTick &+= 1
+            }
         }
     }
 }

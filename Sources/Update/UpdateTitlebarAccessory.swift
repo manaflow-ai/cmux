@@ -2624,6 +2624,8 @@ final class UpdateTitlebarAccessoryController {
         }
         guard let state = AppDelegate.shared?.contextForMainWindow(window)?.fileExplorerState else {
             if let existingIndex {
+                (window.titlebarAccessoryViewControllers[existingIndex]
+                    as? TitlebarTrailingAccessoryViewController)?.prepareForRemoval()
                 window.removeTitlebarAccessoryViewController(at: existingIndex)
             }
             return
@@ -2636,11 +2638,14 @@ final class UpdateTitlebarAccessoryController {
             return
         }
         if let existingIndex {
+            (window.titlebarAccessoryViewControllers[existingIndex]
+                as? TitlebarTrailingAccessoryViewController)?.prepareForRemoval()
             window.removeTitlebarAccessoryViewController(at: existingIndex)
         }
 
         let trailingControls = TitlebarTrailingAccessoryViewController(
             fileExplorerState: state,
+            isVisible: !shouldHideTitlebarControls(in: window),
             onToggleRightSidebar: { [weak window] in
                 _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
                     preferredWindow: window
@@ -2653,23 +2658,30 @@ final class UpdateTitlebarAccessoryController {
 
     private func applyAccessoryVisibility(for window: NSWindow) {
         guard canAccessTitlebarAccessories(on: window) else {
+            AppDelegate.shared?.contextForMainWindow(window)?.fileExplorerState?
+                .setTrailingTitlebarControlsReservationWidth(0)
             attachedWindows.remove(window)
             pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
             return
         }
-        let shouldHide = WorkspacePresentationModeSettings.mode() == .minimal
-            || window.styleMask.contains(.fullScreen)
+        let shouldHide = shouldHideTitlebarControls(in: window)
         for accessory in window.titlebarAccessoryViewControllers
             where accessory.view.identifier == controlsIdentifier
                 || accessory.view.identifier == trailingControlsIdentifier {
-            accessory.isHidden = shouldHide
-            accessory.view.isHidden = shouldHide
-            accessory.view.alphaValue = shouldHide ? 0 : 1
+            if let trailing = accessory as? TitlebarTrailingAccessoryViewController {
+                trailing.setControlsVisible(!shouldHide)
+            } else {
+                accessory.isHidden = shouldHide
+                accessory.view.isHidden = shouldHide
+                accessory.view.alphaValue = shouldHide ? 0 : 1
+            }
         }
     }
 
     private func removeAccessoryIfPresent(from window: NSWindow) {
         guard canAccessTitlebarAccessories(on: window) else {
+            AppDelegate.shared?.contextForMainWindow(window)?.fileExplorerState?
+                .setTrailingTitlebarControlsReservationWidth(0)
             attachedWindows.remove(window)
             pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
             return
@@ -2684,6 +2696,9 @@ final class UpdateTitlebarAccessoryController {
             let accessory = window.titlebarAccessoryViewControllers[index]
             if let controls = accessory as? TitlebarControlsAccessoryViewController {
                 controls.dismissNotificationsPopover()
+            }
+            if let trailing = accessory as? TitlebarTrailingAccessoryViewController {
+                trailing.prepareForRemoval()
             }
             window.removeTitlebarAccessoryViewController(at: index)
         }
@@ -2713,6 +2728,11 @@ final class UpdateTitlebarAccessoryController {
             return true
         }
         return window.title == "Settings"
+    }
+
+    private func shouldHideTitlebarControls(in window: NSWindow) -> Bool {
+        WorkspacePresentationModeSettings.mode() == .minimal
+            || window.styleMask.contains(.fullScreen)
     }
 
     private func isMainTerminalWindow(_ window: NSWindow) -> Bool {

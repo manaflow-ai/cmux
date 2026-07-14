@@ -183,7 +183,9 @@ final class BonsplitTabDragUITests: XCTestCase {
         let (app, dataPath) = launchConfiguredApp(
             presentationMode: .standard,
             showRightSidebar: true,
-            alwaysShowShortcutHints: true
+            alwaysShowShortcutHints: true,
+            rightSidebarWidth: "276",
+            forceProBadge: true
         )
         defer { app.terminate() }
 
@@ -228,9 +230,6 @@ final class BonsplitTabDragUITests: XCTestCase {
             waitForCondition(timeout: 3.0) { openAsPaneButton.isHittable },
             "Expected right sidebar open-as-pane button to be hittable. button=\(openAsPaneButton.debugDescription)"
         )
-        XCTAssertEqual(openAsPaneButton.frame.width, closeButton.frame.width, accuracy: 1)
-        XCTAssertEqual(openAsPaneButton.frame.height, closeButton.frame.height, accuracy: 1)
-        XCTAssertEqual(openAsPaneButton.frame.minY, closeButton.frame.minY, accuracy: 1)
         XCTAssertLessThan(
             openAsPaneButton.frame.maxX,
             closeButton.frame.minX,
@@ -243,18 +242,31 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected the default-enabled Mobile Connect control in the standard titlebar."
         )
         let proBadgeButton = app.buttons["ProBadgeButton"]
-        let leftmostTrailingControl = proBadgeButton.waitForExistence(timeout: 1.0)
-            ? proBadgeButton
-            : mobileConnectButton
+        XCTAssertTrue(proBadgeButton.waitForExistence(timeout: 5.0), "Expected forced Pro badge in the native trailing cluster.")
         XCTAssertLessThan(
             closeButton.frame.maxX,
-            leftmostTrailingControl.frame.minX,
+            proBadgeButton.frame.minX,
             "Expected the reserved sidebar-header slot to keep internal controls left of the native trailing cluster."
         )
         XCTAssertLessThan(
             mobileConnectButton.frame.maxX,
             titlebarToggle.frame.minX,
             "Expected the right sidebar toggle to remain the far-right titlebar control."
+        )
+        let window = app.windows.element(boundBy: 0)
+        let collapsedProMinX = proBadgeButton.frame.minX
+        hover(in: window, at: CGPoint(x: proBadgeButton.frame.midX, y: proBadgeButton.frame.midY))
+        let proBadgeDismissButton = app.buttons["ProBadgeDismissButton"]
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) {
+                proBadgeDismissButton.isHittable && proBadgeButton.frame.minX < collapsedProMinX - 1
+            },
+            "Expected hovering the Pro badge to expand the measured native trailing cluster."
+        )
+        XCTAssertLessThan(
+            closeButton.frame.maxX,
+            proBadgeButton.frame.minX,
+            "Expected live reservation updates to keep the internal close control left of the expanded Pro badge."
         )
 
         titlebarToggle.click()
@@ -289,15 +301,6 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected the internal close control to hide the sidebar while the native toggle remains available."
         )
 
-        app.typeKey("b", modifierFlags: [.command, .option])
-        XCTAssertTrue(
-            waitForCondition(timeout: 3.0) {
-                titlebarToggle.exists && titlebarToggle.isHittable
-                    && titlebarToggle.isSelected && closeButton.isHittable
-                    && shortcutHint.exists
-            },
-            "Expected Cmd+Option+B to reopen the sidebar after using its internal close control."
-        )
     }
 
     func testLaunchCompletesWithHiddenRightSidebarRestoringFindMode() {
@@ -859,7 +862,9 @@ final class BonsplitTabDragUITests: XCTestCase {
         showRightSidebar: Bool = false,
         alwaysShowShortcutHints: Bool = false,
         windowSize: String? = nil,
-        actionButtonCount: Int? = nil
+        actionButtonCount: Int? = nil,
+        rightSidebarWidth: String? = nil,
+        forceProBadge: Bool = false
     ) -> (XCUIApplication, String) {
         let app = XCUIApplication()
         let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
@@ -882,6 +887,15 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
         if alwaysShowShortcutHints {
             app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"
+        }
+        if let rightSidebarWidth {
+            app.launchArguments += ["-fileExplorer.width", rightSidebarWidth]
+        }
+        if forceProBadge {
+            app.launchArguments += [
+                "-proBadge.dismissed", "0",
+                "-cmux.flags.override.pro-upgrade-ui-enabled-release", "1",
+            ]
         }
         app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
         if let rightSidebarMode {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 import Testing
 
@@ -236,5 +237,42 @@ struct TitlebarInteractiveControlTests {
             !hitView.mouseDownCanMoveWindow,
             "Registered SwiftUI titlebar controls must not degrade into hosting-view drag hits."
         )
+    }
+
+    @Test func trailingReservationTracksNativeAccessoryVisibility() {
+        _ = NSApplication.shared
+
+        let state = FileExplorerState()
+        let controller = TitlebarTrailingAccessoryViewController(
+            fileExplorerState: state,
+            isVisible: true,
+            onToggleRightSidebar: {}
+        )
+        controller.view.identifier = NativeTitlebarBackdropCoordinator.trailingControlsIdentifier
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            controller.prepareForRemoval()
+            window.orderOut(nil)
+        }
+        window.addTitlebarAccessoryViewController(controller)
+        controller.view.layoutSubtreeIfNeeded()
+
+        #expect(state.trailingTitlebarControlsReservationWidth > 0)
+
+        let backdrop = NativeTitlebarBackdropCoordinator(fullscreenAuxiliaryWindows: { [] })
+        backdrop.setTitlebarControlsHidden(true, in: window, isMinimalMode: false)
+        #expect(state.trailingTitlebarControlsReservationWidth == 0)
+
+        backdrop.setTitlebarControlsHidden(false, in: window, isMinimalMode: false)
+        controller.view.layoutSubtreeIfNeeded()
+        #expect(state.trailingTitlebarControlsReservationWidth > 0)
+
+        controller.prepareForRemoval()
+        #expect(state.trailingTitlebarControlsReservationWidth == 0)
     }
 }

@@ -290,7 +290,7 @@ struct RightSidebarPanelView: View {
     private var trailingTitlebarControlReservation: some View {
         Color.clear
         .frame(
-            width: RightSidebarChromeMetrics.headerControlSize,
+            width: fileExplorerState.trailingTitlebarControlsReservationWidth,
             height: RightSidebarChromeMetrics.headerControlSize
         )
         .rightSidebarHeaderControlAlignment()
