@@ -340,32 +340,26 @@ final class PortalSplitDividerRegion {
                 var remainder: [NSRect] = []
                 if overlap.minY > piece.minY {
                     remainder.append(NSRect(
-                        x: piece.minX,
-                        y: piece.minY,
-                        width: piece.width,
+                        x: piece.minX, y: piece.minY, width: piece.width,
                         height: overlap.minY - piece.minY
                     ))
                 }
                 if overlap.maxY < piece.maxY {
                     remainder.append(NSRect(
-                        x: piece.minX,
-                        y: overlap.maxY,
-                        width: piece.width,
+                        x: piece.minX, y: overlap.maxY, width: piece.width,
                         height: piece.maxY - overlap.maxY
                     ))
                 }
                 if overlap.minX > piece.minX {
                     remainder.append(NSRect(
-                        x: piece.minX,
-                        y: overlap.minY,
+                        x: piece.minX, y: overlap.minY,
                         width: overlap.minX - piece.minX,
                         height: overlap.height
                     ))
                 }
                 if overlap.maxX < piece.maxX {
                     remainder.append(NSRect(
-                        x: overlap.maxX,
-                        y: overlap.minY,
+                        x: overlap.maxX, y: overlap.minY,
                         width: piece.maxX - overlap.maxX,
                         height: overlap.height
                     ))
