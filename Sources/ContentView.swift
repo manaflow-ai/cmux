@@ -9891,6 +9891,8 @@ struct VerticalTabsSidebar: View {
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @State private var workspaceMiddleClickMonitor = SidebarWorkspaceMiddleClickMonitor()
+    @State private var hoveredWorkspaceId: UUID?
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
@@ -10350,6 +10352,9 @@ struct VerticalTabsSidebar: View {
             .frame(width: 0, height: 0)
         )
         .onAppear {
+            workspaceMiddleClickMonitor.start(window: observedWindow) {
+                handleWorkspaceMiddleClick()
+            }
             if showModifierHoldHints {
                 modifierKeyMonitor.setHostWindow(observedWindow)
                 modifierKeyMonitor.start()
@@ -10373,6 +10378,7 @@ struct VerticalTabsSidebar: View {
             )
         }
         .onDisappear {
+            workspaceMiddleClickMonitor.stop()
             modifierKeyMonitor.stop()
             dragAutoScrollController.stop()
             dragFailsafeMonitor.stop()
@@ -10571,6 +10577,18 @@ struct VerticalTabsSidebar: View {
     private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
         guard let scrollView else { return }
         scrollView.applySidebarOverlayScrollerConfiguration()
+    }
+
+    private func handleWorkspaceMiddleClick() -> Bool {
+        guard let workspaceId = hoveredWorkspaceId,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return false
+        }
+#if DEBUG
+        cmuxDebugLog("sidebar.close workspace=\(workspace.id.uuidString.prefix(5)) method=middleClick")
+#endif
+        tabManager.closeWorkspaceWithConfirmation(workspace)
+        return true
     }
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
@@ -12268,6 +12286,13 @@ struct VerticalTabsSidebar: View {
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
+            onPointerHoverChanged: { [workspaceId = tab.id] hovering in
+                if hovering {
+                    hoveredWorkspaceId = workspaceId
+                } else if hoveredWorkspaceId == workspaceId {
+                    hoveredWorkspaceId = nil
+                }
+            },
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
         )
@@ -13159,6 +13184,7 @@ struct TabItemView: View, Equatable {
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
+    let onPointerHoverChanged: (Bool) -> Void
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
     /// modifier-key transitions from flipping the badges on the row sitting
@@ -13182,6 +13208,7 @@ struct TabItemView: View, Equatable {
     @State var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
     @State private var isEditing = false
     @State private var renameDraft = ""
+    @State private var renameBaselineTitle = ""
     @State private var renameBaselineHadUserCustomTitle = false
 
     private static let maxWrappedTitleLines = 8
@@ -13595,8 +13622,12 @@ struct TabItemView: View, Equatable {
 
                 if isEditing {
                     SidebarInlineRenameField(
-                        initialText: renameDraft,
-                        fontSize: GlobalFontMagnification.scaledSize(scaledFontSize(12.5), percent: globalFontMagnificationPercent), textColor: selectedWorkspaceForegroundNSColor(opacity: 1.0),
+                        text: $renameDraft,
+                        fontSize: GlobalFontMagnification.scaledSize(
+                            scaledFontSize(12.5),
+                            percent: globalFontMagnificationPercent
+                        ),
+                        textColor: Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0)),
                         accessibilityLabel: String(
                             localized: "sidebar.workspace.rename.field.accessibilityLabel",
                             defaultValue: "Rename workspace"
@@ -13605,17 +13636,8 @@ struct TabItemView: View, Equatable {
                             localized: "commandPalette.rename.workspacePlaceholder",
                             defaultValue: "Workspace name"
                         ),
-                        onCommit: { newName in
-                            if let title = SidebarInlineRenameCommit().titleToCommit(
-                                draft: newName,
-                                baseline: renameDraft,
-                                baselineHadUserCustomTitle: renameBaselineHadUserCustomTitle
-                            ) {
-                                tabManager.setCustomTitle(tabId: tab.id, title: title)
-                            }
-                            isEditing = false
-                        },
-                        onCancel: { isEditing = false }
+                        onCommit: commitInlineRename,
+                        onCancel: cancelInlineRename
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
@@ -13904,30 +13926,11 @@ struct TabItemView: View, Equatable {
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .contentShape(Rectangle())
-        .sidebarWorkspaceRowHoverTracking($rowInteractionState)
+        .onHover { hovering in
+            rowInteractionState.setPointerHovering(hovering)
+            onPointerHoverChanged(hovering)
+        }
         .opacity(isBeingDragged ? 0.6 : 1)
-        .overlay {
-            MiddleClickCapture {
-                #if DEBUG
-                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
-                #endif
-                tabManager.closeWorkspaceWithConfirmation(tab)
-            }
-        }
-        .overlay {
-            if rowInteractionState.contextMenuVisible {
-                SidebarWorkspaceRowMenuTrackingReconciler { pointerInsideRow in
-                    guard rowInteractionState.contextMenuTrackingDidEnd(pointerInsideRow: pointerInsideRow) else {
-                        return
-                    }
-                    onContextMenuDisappear()
-                    flushDeferredWorkspaceObservationInvalidation()
-                }
-                .onAppear {
-                    rowInteractionState.contextMenuTrackingObserverDidInstall()
-                }
-            }
-        }
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
@@ -13946,6 +13949,9 @@ struct TabItemView: View, Equatable {
         .onAppear {
             updateObservedActiveState(tabManager.selectedTabId == tab.id)
             refreshWorkspaceSnapshot(force: true)
+        }
+        .onDisappear {
+            rowInteractionState.setPointerHovering(false)
         }
         .onReceive(
             tabManager.selectedTabIdPublisher
@@ -14053,8 +14059,25 @@ struct TabItemView: View, Equatable {
     private func beginInlineRename() {
         updateSelection()
         renameDraft = workspaceSnapshot.title
+        renameBaselineTitle = workspaceSnapshot.title
         renameBaselineHadUserCustomTitle = tab.effectiveCustomTitleSource == .user
         isEditing = true
+    }
+
+    private func commitInlineRename(_ draft: String) {
+        guard isEditing else { return }
+        if let title = SidebarInlineRenameCommit().titleToCommit(
+            draft: draft,
+            baseline: renameBaselineTitle,
+            baselineHadUserCustomTitle: renameBaselineHadUserCustomTitle
+        ) {
+            tabManager.setCustomTitle(tabId: tab.id, title: title)
+        }
+        isEditing = false
+    }
+
+    private func cancelInlineRename() {
+        isEditing = false
     }
 
     private func updateObservedActiveState(_ isActive: Bool) {

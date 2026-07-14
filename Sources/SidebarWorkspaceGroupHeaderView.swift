@@ -278,7 +278,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         )
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
-        .sidebarWorkspaceRowHoverTracking($rowInteractionState)
+        .onHover { hovering in
+            rowInteractionState.setPointerHovering(hovering)
+        }
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
@@ -298,15 +300,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .overlay {
-            if rowInteractionState.contextMenuVisible {
-                SidebarWorkspaceRowMenuTrackingReconciler { pointerInsideRow in
-                    rowInteractionState.contextMenuTrackingDidEnd(pointerInsideRow: pointerInsideRow)
-                }
-                .onAppear {
-                    rowInteractionState.contextMenuTrackingObserverDidInstall()
-                }
-            }
+        .onDisappear {
+            rowInteractionState.setPointerHovering(false)
         }
         .contextMenu {
             Button(

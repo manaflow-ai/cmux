@@ -1,54 +1,43 @@
-import AppKit
 import SwiftUI
 
-/// Single-line AppKit text field used for inline workspace renaming in the
-/// sidebar. SwiftUI's `TextField` can't control selection/caret or distinguish a
-/// first vs second Escape, so this bridges `NSTextField`. Inputs are value +
-/// closures only (no store reference), per the sidebar snapshot-boundary rule.
-struct SidebarInlineRenameField: NSViewRepresentable {
-    let initialText: String
+/// Native single-line field used for inline workspace renaming in the sidebar.
+struct SidebarInlineRenameField: View {
+    @Binding var text: String
     let fontSize: CGFloat
-    let textColor: NSColor
+    let textColor: Color
     let accessibilityLabel: String
     let placeholder: String
     let onCommit: (String) -> Void
     let onCancel: () -> Void
+    @FocusState private var isFocused: Bool
+    @State private var hasResolved = false
 
-    /// Creates the delegate coordinator that bridges field-editor commands and
-    /// focus loss to the `onCommit` / `onCancel` closures.
-    func makeCoordinator() -> SidebarInlineRenameCoordinator {
-        SidebarInlineRenameCoordinator(onCommit: onCommit, onCancel: onCancel)
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.plain)
+            .font(.system(size: fontSize, weight: .semibold))
+            .foregroundColor(textColor)
+            .lineLimit(1)
+            .focused($isFocused)
+            .onAppear { isFocused = true }
+            .onSubmit { commitOnce() }
+            .onExitCommand { cancelOnce() }
+            .onChange(of: isFocused) { wasFocused, isFocused in
+                guard wasFocused, !isFocused else { return }
+                commitOnce()
+            }
+            .accessibilityLabel(Text(accessibilityLabel))
     }
 
-    /// Builds the borderless, single-line text field seeded with `initialText`
-    /// and wired to the coordinator.
-    func makeNSView(context: Context) -> SidebarInlineRenameTextField {
-        let field = SidebarInlineRenameTextField(string: initialText)
-        field.isBordered = false
-        field.drawsBackground = false
-        field.focusRingType = .none
-        field.usesSingleLineMode = true
-        field.cell?.usesSingleLineMode = true
-        field.lineBreakMode = .byTruncatingTail
-        field.font = .systemFont(ofSize: fontSize, weight: .semibold)
-        field.inlineRenameTextColor = textColor
-        field.placeholderString = placeholder
-        field.setAccessibilityLabel(accessibilityLabel)
-        field.delegate = context.coordinator
-        return field
+    private func commitOnce() {
+        guard !hasResolved else { return }
+        hasResolved = true
+        onCommit(text)
     }
 
-    /// Refreshes the coordinator's closures and the field's driven visual and
-    /// accessibility state on each parent update (never its text — see below).
-    func updateNSView(_ nsView: SidebarInlineRenameTextField, context: Context) {
-        context.coordinator.onCommit = onCommit
-        context.coordinator.onCancel = onCancel
-        // Keep driven visual/accessibility state in sync (NSViewRepresentable
-        // convention). initialText/stringValue is intentionally NOT synced here:
-        // doing so would reset the cursor and clobber in-progress typing.
-        nsView.font = .systemFont(ofSize: fontSize, weight: .semibold)
-        nsView.inlineRenameTextColor = textColor
-        nsView.placeholderString = placeholder
-        nsView.setAccessibilityLabel(accessibilityLabel)
+    private func cancelOnce() {
+        guard !hasResolved else { return }
+        hasResolved = true
+        onCancel()
     }
 }
