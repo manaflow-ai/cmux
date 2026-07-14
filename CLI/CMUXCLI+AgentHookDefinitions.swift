@@ -156,20 +156,11 @@ extension CMUXCLI {
         let command = "cmux hooks \(def.name) \(event.cmuxSubcommand)"
         let inline: String
         if def.name == "codex", codexHookCanRunFireAndForget(event.cmuxSubcommand) {
-            let target: CodexHookDispatchTarget
-            if let executablePath = pinnedAgentHookCLIPath() {
-                target = .pinned(
-                    executablePath: executablePath,
-                    socketPath: pinnedAgentHookSocketPath()
-                )
-            } else {
-                target = .unavailable
-            }
             inline = codexFireAndForgetAgentHookShellCommand(
                 command,
                 for: def,
                 ownership: .persistent,
-                target: target
+                target: .wrapperEnvironment
             )
         } else {
             inline = agentHookShellCommand(command, for: def)

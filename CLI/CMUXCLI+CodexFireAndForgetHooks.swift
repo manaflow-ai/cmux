@@ -7,7 +7,6 @@ enum CodexHookWriterOwnership {
 
 enum CodexHookDispatchTarget {
     case wrapperEnvironment
-    case pinned(executablePath: String, socketPath: String?)
     case unavailable
 }
 
@@ -161,14 +160,15 @@ extension CMUXCLI {
         let socketSetup: String
         switch target {
         case .wrapperEnvironment:
-            // The wrapper exports an exact bundled CLI before starting Codex.
-            // Fail closed if Codex strips it instead of selecting another cmux
-            // from PATH and allowing an older schema writer into this store.
+            // Every wrapper exports its exact bundled CLI and socket before
+            // starting Codex. Keeping those values in the native process
+            // environment makes the persistent hook command identical across
+            // concurrent cmux instances, so shared hooks.json can never route
+            // one Codex launch through another instance's pinned socket.
+            // Fail closed if Codex strips the environment instead of selecting
+            // an arbitrary cmux from PATH.
             targetSetup = "cmux_cli=\"${CMUX_CODEX_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}\""
             socketSetup = "cmux_socket=\"${CMUX_SOCKET_PATH:-}\""
-        case let .pinned(executablePath, socketPath):
-            targetSetup = "cmux_cli=\(codexHookShellSingleQuote(executablePath))"
-            socketSetup = "cmux_socket=\(socketPath.map { codexHookShellSingleQuote($0) } ?? "\"\"")"
         case .unavailable:
             // State-mutating persistent hooks must not fall back to an arbitrary
             // PATH cmux. An older CLI can decode the shared store and erase fields
@@ -197,13 +197,9 @@ extension CMUXCLI {
         ].joined(separator: "; ")
     }
 
-    private static func codexHookShellSingleQuote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    /// Content-addressed hook filenames change with their pinned cmux binary
-    /// and socket. Reinstall must still replace older cmux generations, while
-    /// preserving user hooks outside cmux's private hook directory.
+    /// Content-addressed hook filenames change when the dispatcher generation
+    /// changes. Reinstall must replace older cmux generations while preserving
+    /// user hooks outside cmux's private hook directory.
     static func isCmuxManagedCodexHookScript(_ command: String) -> Bool {
         var path = command.trimmingCharacters(in: .whitespacesAndNewlines)
         if path.count >= 2,
