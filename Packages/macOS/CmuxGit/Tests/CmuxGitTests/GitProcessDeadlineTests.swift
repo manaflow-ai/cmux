@@ -125,6 +125,23 @@ import Testing
         #expect(start.duration(to: clock.now) < .seconds(5))
     }
 
+    @Test func failureWinsWhenSupervisedResultIsAlsoCapped() {
+        let result = GitProcessRunner.translateSupervisedResult(
+            GitProcessResult(
+                rawOutput: Data(repeating: 0x78, count: 32),
+                output: nil,
+                capped: true,
+                failure: .timedOut,
+                terminationStatus: SIGKILL
+            ),
+            acceptedTerminationStatuses: [0],
+            maxOutputBytes: 32
+        )
+
+        #expect(result.timedOut)
+        #expect(!result.capped)
+    }
+
     @Test func deadlineDoesNotDependOnAvailableDispatchWorkers() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
