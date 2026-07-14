@@ -39,6 +39,14 @@ struct CLIExplicitSurfaceRoutingTests {
         )
     }
 
+    @Test func browserEvalPlainOutputPreservesNumericZero() throws {
+        try assertExplicitSurfaceCommand(
+            arguments: ["browser", Self.targetSurfaceRef, "eval", "0"],
+            expectedMethod: "browser.eval",
+            expectedStdout: "0\n"
+        )
+    }
+
     @Test func numericSurfaceHandleStillInheritsCallerWorkspaceForIndexResolution() throws {
         let socketPath = Self.makeSocketPath("numeric")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
@@ -100,7 +108,8 @@ struct CLIExplicitSurfaceRoutingTests {
         arguments: [String],
         expectedMethod: String,
         expectedText: String? = nil,
-        expectedKey: String? = nil
+        expectedKey: String? = nil,
+        expectedStdout: String? = nil
     ) throws {
         let socketPath = Self.makeSocketPath(expectedMethod)
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
@@ -121,6 +130,8 @@ struct CLIExplicitSurfaceRoutingTests {
                 return Self.v2Response(id: id, ok: true, result: ["text": "agent screen\n"])
             case "surface.send_text", "surface.send_key":
                 return Self.v2Response(id: id, ok: true, result: ["surface_id": Self.targetSurfaceRef])
+            case "browser.eval":
+                return Self.v2Response(id: id, ok: true, result: ["value": 0])
             default:
                 return Self.v2Response(
                     id: id,
@@ -141,6 +152,9 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        if let expectedStdout {
+            #expect(result.stdout == expectedStdout, Comment(rawValue: result.stdout))
+        }
 
         let requests = try state.requestObjects()
         #expect(requests.compactMap { $0["method"] as? String } == [expectedMethod])
