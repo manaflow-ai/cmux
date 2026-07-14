@@ -51,6 +51,7 @@ final class UsageTipsController {
     }
 
     func register(windowID: UUID) {
+        updateEnabled(store.isEnabled)
         registeredWindowIDs.insert(windowID)
     }
 

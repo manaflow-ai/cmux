@@ -172,16 +172,26 @@ enum SettingsNavigationRequest {
         let shouldHighlight = notification.userInfo?[highlightKey] as? Bool ?? false
         return SettingsNavigationDestination(
             target: target,
-            anchorID: anchorID ?? SettingsSearchIndex.sectionID(for: target),
+            anchorID: anchorID,
             shouldHighlight: shouldHighlight
         )
     }
 }
 
-struct SettingsNavigationDestination {
+struct SettingsNavigationDestination: Equatable {
     let target: SettingsNavigationTarget
     let anchorID: String
     let shouldHighlight: Bool
+
+    init(
+        target: SettingsNavigationTarget,
+        anchorID: String? = nil,
+        shouldHighlight: Bool = false
+    ) {
+        self.target = target
+        self.anchorID = anchorID ?? SettingsSearchIndex.sectionID(for: target)
+        self.shouldHighlight = shouldHighlight
+    }
 }
 
 struct SettingsSearchHighlightState: Equatable {

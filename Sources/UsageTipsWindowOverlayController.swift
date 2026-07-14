@@ -263,7 +263,11 @@ final class UsageTipsWindowOverlayController: NSObject {
                 onAcknowledge: { [weak self] in self?.usageTipsController?.acknowledge() },
                 onDismiss: { [weak self] in self?.usageTipsController?.dismiss() },
                 onOpenSettings: {
-                    AppDelegate.presentPreferencesWindow(navigationTarget: .app)
+                    AppDelegate.presentPreferencesWindow(
+                        navigationTarget: .app,
+                        navigationAnchorID: "setting:app:usage-tips",
+                        highlight: true
+                    )
                 }
             )
             .focusable(false)
