@@ -35,14 +35,14 @@ final class UsageTipsController {
         store: UsageTipsStore,
         catalog: UsageTipsCatalog = UsageTipsCatalog(),
         shortcutResolver: UsageTipShortcutResolver? = nil,
-        scheduler: UsageTipScheduler = UsageTipScheduler(),
+        scheduler: UsageTipScheduler? = nil,
         initialDelay: TimeInterval = 45,
         autoHideDelay: TimeInterval = 120
     ) {
         self.store = store
         self.catalog = catalog
         self.shortcutResolver = shortcutResolver ?? UsageTipShortcutResolver()
-        self.scheduler = scheduler
+        self.scheduler = scheduler ?? UsageTipScheduler()
         self.initialDelay = initialDelay
         self.autoHideDelay = autoHideDelay
         self.isEligibleLaunch = store.hasShownWelcome
