@@ -276,17 +276,17 @@ final class ClaudeHookSessionStore {
     }
 
     /// Records the hook-observed permission mode on an existing session record.
-    /// Hooks fire on every tool use and the mode rarely changes, so an unlocked
-    /// pre-check skips the lock+rewrite cycle when the stored value already
-    /// matches. Unknown sessions are left alone (the session-start upsert owns
-    /// record creation).
+    /// The already-current check happens INSIDE the lock: an unlocked pre-check
+    /// can race an overlapping hook's write and skip persisting the newest mode,
+    /// leaving restore on a stale (possibly more permissive) mode. Unknown
+    /// sessions are left alone (the session-start upsert owns record creation).
     func updateLastPermissionMode(sessionId: String, permissionMode: String) throws {
         let normalized = normalizeSessionId(sessionId)
         let mode = permissionMode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty, !mode.isEmpty else { return }
-        guard loadUnlocked().sessions[normalized]?.lastPermissionMode != mode else { return }
         try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return }
+            guard var record = state.sessions[normalized],
+                  record.lastPermissionMode != mode else { return }
             record.lastPermissionMode = mode
             state.sessions[normalized] = record
         }
