@@ -1,9 +1,9 @@
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { blogIndexSeoCopy } from "@/i18n/audited-seo";
 import { Link } from "@/i18n/navigation";
-import { blogPosts } from "@/app/[locale]/components/blog-posts";
+import { blogPostsForLocale } from "@/app/[locale]/components/blog-posts";
 
 export async function generateMetadata({
   params,
@@ -31,6 +31,8 @@ export async function generateMetadata({
 
 export default function BlogPage() {
   const t = useTranslations("blog");
+  const locale = useLocale();
+  const blogPosts = blogPostsForLocale(locale);
 
   return (
     <>

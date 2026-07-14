@@ -58,7 +58,7 @@ extension RestorableAgentKind {
         case .rovodev: return "AgentIcons/RovoDev"
         case .hermesAgent: return "AgentIcons/HermesAgent"
         case .cursor: return "AgentIcons/Cursor"
-        case .amp, .gemini, .kiro, .copilot, .codebuddy, .factory, .qoder:
+        case .amp, .gemini, .kiro, .copilot, .codebuddy, .factory, .qoder, .ollama:
             return nil
         case .custom(let id):
             // Process detection encodes even built-in agents as `.custom(id)` (e.g. a
