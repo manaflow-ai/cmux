@@ -1,6 +1,6 @@
 import Foundation
 
-/// Rendering of cmux-generated POSIX one-liners for shells that cannot parse
+/// Renders cmux-generated POSIX one-liners for shells that cannot parse
 /// POSIX syntax.
 ///
 /// cmux builds resume/relaunch commands as POSIX strings (AND-OR lists,
@@ -14,14 +14,16 @@ import Foundation
 /// boundary — the same portable-envelope approach as
 /// ``AgentResumeArgv/portableClaudeResumeShellCommand(posixCommand:)``
 /// (issue #5639) and the `/bin/zsh <launcher-script>` startup inputs.
-public enum NushellTypedShellCommand {
+public struct NushellTypedShellCommand {
+    public init() {}
+
     /// A nushell-parseable line that runs `posixCommand` through `/bin/sh`.
     ///
     /// `^` forces external-command resolution for the absolute-path head and
     /// the body rides in a nushell double-quoted string (no interpolation;
     /// only `\` and `"` need escaping). Verified against real nu by
     /// `tests/test_nushell_resume_command_dialect.py`.
-    public static func wrapping(posixCommand: String) -> String {
+    public func wrapping(posixCommand: String) -> String {
         "^/bin/sh -c " + doubleQuoted(posixCommand)
     }
 
@@ -29,7 +31,7 @@ public enum NushellTypedShellCommand {
     /// single-quoted strings cannot contain single quotes at all, so double
     /// quotes are the safe general form; escaping every backslash first
     /// guarantees no invalid escape sequence remains.
-    public static func doubleQuoted(_ value: String) -> String {
+    public func doubleQuoted(_ value: String) -> String {
         "\"" + value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")

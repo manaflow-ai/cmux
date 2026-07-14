@@ -11707,7 +11707,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: !isRemoteFork,
                   // Remote forks type into the remote host's shell: keep POSIX.
-                  dialect: isRemoteFork ? .posix : .loginShell
+                  dialect: isRemoteFork ? .remoteHost : .loginShell
               ) else {
             return nil
         }
@@ -11742,7 +11742,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: remoteStartupCommand == nil,
                   // Remote forks type into the remote host's shell: keep POSIX.
-                  dialect: remoteStartupCommand == nil ? .loginShell : .posix
+                  dialect: remoteStartupCommand == nil ? .loginShell : .remoteHost
               ) else {
             return nil
         }
@@ -11811,7 +11811,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: remoteStartupCommand == nil,
                   // Remote forks type into the remote host's shell: keep POSIX.
-                  dialect: remoteStartupCommand == nil ? .loginShell : .posix
+                  dialect: remoteStartupCommand == nil ? .loginShell : .remoteHost
               ) else {
             return nil
         }
