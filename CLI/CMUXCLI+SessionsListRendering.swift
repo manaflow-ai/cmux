@@ -40,9 +40,7 @@ extension CMUXCLI {
         return parts.joined(separator: "  ")
     }
 
-    func sessionsListTimestamp(_ value: TimeInterval) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    func sessionsListTimestamp(_ value: TimeInterval, formatter: ISO8601DateFormatter) -> String {
         return formatter.string(from: Date(timeIntervalSince1970: value))
     }
 }

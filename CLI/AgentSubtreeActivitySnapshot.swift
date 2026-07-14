@@ -83,11 +83,12 @@ struct AgentSubtreeActivityProjector: Sendable {
     func project(nodes: inout [AgentSessionGraphNode], edges: [AgentSessionGraphEdge]) {
         nodes = AgentSessionGraphNodeIndex.canonicalNodes(nodes)
         let indexByRun = AgentSessionGraphNodeIndex.indices(nodes)
+        let edgeResolver = AgentSessionGraphEdgeResolver(nodes: nodes)
         var parentsByChild: [Int: [Int]] = [:]
         var remainingChildren = Array(repeating: 0, count: nodes.count)
         var seenEdges: Set<String> = []
         for edge in edges {
-            guard let parentRun = edge.fromRunId,
+            guard let parentRun = edgeResolver.parentRunId(for: edge),
                   let parent = indexByRun[parentRun],
                   let child = indexByRun[edge.toRunId],
                   parent != child else { continue }

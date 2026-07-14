@@ -109,6 +109,7 @@
 		A78670220000000000000001 /* AgentSessionCLIRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670220000000000000002 /* AgentSessionCLIRegressionTests.swift */; };
 		A9F200000000000000000003 /* AgentSessionDebugMenuButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000003 /* AgentSessionDebugMenuButtons.swift */; };
 		A78670070000000000000001 /* AgentSessionGraphEdge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670070000000000000002 /* AgentSessionGraphEdge.swift */; };
+		A79700090000000000000001 /* AgentSessionGraphEdgeResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79700090000000000000002 /* AgentSessionGraphEdgeResolver.swift */; };
 		A78670060000000000000001 /* AgentSessionGraphNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670060000000000000002 /* AgentSessionGraphNode.swift */; };
 		A78670080000000000000001 /* AgentSessionGraphSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670080000000000000002 /* AgentSessionGraphSnapshot.swift */; };
 		A78670230000000000000001 /* AgentSessionHibernationLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78670230000000000000002 /* AgentSessionHibernationLifecycleTests.swift */; };
@@ -440,6 +441,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		773600000000000000000001 /* CLIWindowCommandMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773600000000000000000002 /* CLIWindowCommandMockServer.swift */; };
 		773600000000000000000003 /* CLIWindowHandleRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773600000000000000000004 /* CLIWindowHandleRoutingTests.swift */; };
 		C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D51700000000000000001 /* ClosedItemHistory.swift */; };
+		A797000B0000000000000001 /* ClosedItemHistoryStore+AgentEnrichment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A797000B0000000000000002 /* ClosedItemHistoryStore+AgentEnrichment.swift */; };
 		7375A0037375A0037375A003 /* ClosedMainWindowRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */; };
 		A79700080000000000000001 /* ClosedPanelAgentHistoryRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79700080000000000000002 /* ClosedPanelAgentHistoryRegressionTests.swift */; };
 		B9000025A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */; };
@@ -1745,6 +1747,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000008 /* Workspace+AgentChat.swift */; };
 		A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
+		A797000A0000000000000001 /* Workspace+ClosedPanelAgentHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A797000A0000000000000002 /* Workspace+ClosedPanelAgentHistory.swift */; };
 		C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */; };
 		A5FB120D /* Workspace+CustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120E /* Workspace+CustomLayout.swift */; };
 		C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */; };
@@ -2007,6 +2010,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A78670220000000000000002 /* AgentSessionCLIRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionCLIRegressionTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000003 /* AgentSessionDebugMenuButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionDebugMenuButtons.swift; sourceTree = "<group>"; };
 		A78670070000000000000002 /* AgentSessionGraphEdge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionGraphEdge.swift; sourceTree = "<group>"; };
+		A79700090000000000000002 /* AgentSessionGraphEdgeResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionGraphEdgeResolver.swift; sourceTree = "<group>"; };
 		A78670060000000000000002 /* AgentSessionGraphNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionGraphNode.swift; sourceTree = "<group>"; };
 		A78670080000000000000002 /* AgentSessionGraphSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionGraphSnapshot.swift; sourceTree = "<group>"; };
 		A78670230000000000000002 /* AgentSessionHibernationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionHibernationLifecycleTests.swift; sourceTree = "<group>"; };
@@ -2323,6 +2327,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		773600000000000000000002 /* CLIWindowCommandMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowCommandMockServer.swift; sourceTree = "<group>"; };
 		773600000000000000000004 /* CLIWindowHandleRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWindowHandleRoutingTests.swift; sourceTree = "<group>"; };
 		C10D51700000000000000001 /* ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistory.swift; sourceTree = "<group>"; };
+		A797000B0000000000000002 /* ClosedItemHistoryStore+AgentEnrichment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClosedItemHistoryStore+AgentEnrichment.swift"; sourceTree = "<group>"; };
 		7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedMainWindowRoutingTests.swift; sourceTree = "<group>"; };
 		A79700080000000000000002 /* ClosedPanelAgentHistoryRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedPanelAgentHistoryRegressionTests.swift; sourceTree = "<group>"; };
 		B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWindowConfirmDialogUITests.swift; sourceTree = "<group>"; };
@@ -3555,6 +3560,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE43000000000000000008 /* Workspace+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentChat.swift"; sourceTree = "<group>"; };
 		A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentLifecycle.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
+		A797000A0000000000000002 /* Workspace+ClosedPanelAgentHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ClosedPanelAgentHistory.swift"; sourceTree = "<group>"; };
 		C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CmuxNavigationDescriptor.swift"; sourceTree = "<group>"; };
 		A5FB120E /* Workspace+CustomLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomLayout.swift"; sourceTree = "<group>"; };
 		C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPane.swift"; sourceTree = "<group>"; };
@@ -4221,6 +4227,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F0C05170000000000000001 /* FocusHistory.swift */,
 				C0DEFB100000000000000002 /* FocusSurfaceBroadcaster.swift */,
 				C10D51700000000000000001 /* ClosedItemHistory.swift */,
+				A797000B0000000000000002 /* ClosedItemHistoryStore+AgentEnrichment.swift */,
 				D1FFC0DE000000000000D001 /* DiffCommentSubmissionPool.swift */,
 				D1FFC0DE000000000000A001 /* DiffCommentStore.swift */,
 				E3309A04 /* TabManager+EqualizeSplits.swift */,
@@ -4259,6 +4266,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
 				C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */,
 				A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */,
+				A797000A0000000000000002 /* Workspace+ClosedPanelAgentHistory.swift */,
 				9864510B84F2428BB83568CF /* RestoredAgentCompletedGeneration.swift */,
 				9864510A84F2428BB83568CF /* RestoredAgentLifecycleCoordinator.swift */,
 				42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */,
@@ -5073,6 +5081,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A78670240000000000000002 /* AgentHookSessionStoreModels.swift */,
 				A78670060000000000000002 /* AgentSessionGraphNode.swift */,
 				A78670070000000000000002 /* AgentSessionGraphEdge.swift */,
+				A79700090000000000000002 /* AgentSessionGraphEdgeResolver.swift */,
 				A78670080000000000000002 /* AgentSessionGraphSnapshot.swift */,
 				A78670090000000000000002 /* CMUXCLI+AgentsTree.swift */,
 				A78670250000000000000002 /* CMUXCLI+Agents.swift */,
@@ -6273,6 +6282,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
 				C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */,
+				A797000B0000000000000001 /* ClosedItemHistoryStore+AgentEnrichment.swift in Sources */,
 				C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */,
 				A5001654 /* CmuxActionTrust.swift in Sources */,
 				C0DE43000000000000000001 /* CmuxAgentChatConfig.swift in Sources */,
@@ -7064,6 +7074,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */,
 				A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
+				A797000A0000000000000001 /* Workspace+ClosedPanelAgentHistory.swift in Sources */,
 				C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */,
 				A5FB120D /* Workspace+CustomLayout.swift in Sources */,
 				C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */,
@@ -7144,6 +7155,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A78670010000000000000001 /* AgentProcessIdentity.swift in Sources */,
 				A79700040000000000000001 /* AgentSessionAuthorityEvidence.swift in Sources */,
 				A78670070000000000000001 /* AgentSessionGraphEdge.swift in Sources */,
+				A79700090000000000000001 /* AgentSessionGraphEdgeResolver.swift in Sources */,
 				A78670060000000000000001 /* AgentSessionGraphNode.swift in Sources */,
 				A78670080000000000000001 /* AgentSessionGraphSnapshot.swift in Sources */,
 				A78670020000000000000001 /* AgentSessionRelationship.swift in Sources */,

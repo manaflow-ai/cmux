@@ -115,6 +115,17 @@ final class SharedLiveAgentIndex {
         return index
     }
 
+    /// Waits for the already scheduled cold-cache fill without blocking the
+    /// main actor. Callers capture UI state first, then enrich durable records.
+    func currentIndexAfterRefreshing() async -> RestorableAgentSessionIndex? {
+        scheduleRefreshIfStale()
+        let scheduledRefresh = refreshTask
+        let scheduledForkRefresh = forkAvailabilityRefreshTask
+        await scheduledRefresh?.value
+        await scheduledForkRefresh?.value
+        return index
+    }
+
     func scheduleRefreshIfStale(validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil) {
         ensureWatchingHookStoreDirectory()
         guard refreshTask == nil, forkAvailabilityRefreshTask == nil else {

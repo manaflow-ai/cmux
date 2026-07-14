@@ -160,7 +160,7 @@ struct AgentHookSessionLineageResolver: Sendable {
         guard let process = kernelProcessInfo(pid) else { return nil }
         let start = process.kp_proc.p_un.__p_starttime
         let startedAt = TimeInterval(start.tv_sec) + TimeInterval(start.tv_usec) / 1_000_000
-        let arguments = processArguments(pid) ?? []
+        let arguments = processArguments(pid)
         return AgentProcessIdentity(
             pid: pid,
             parentPID: Int(process.kp_eproc.e_ppid),
@@ -194,18 +194,18 @@ struct AgentHookSessionLineageResolver: Sendable {
         return arguments.first.map { URL(fileURLWithPath: $0).lastPathComponent }
     }
 
-    private func processArguments(_ pid: Int) -> [String]? {
+    private func processArguments(_ pid: Int) -> [String] {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
         var size: size_t = 0
         guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0,
               size > MemoryLayout<Int32>.size else {
-            return nil
+            return []
         }
         var bytes = [UInt8](repeating: 0, count: size)
         let success = bytes.withUnsafeMutableBytes { buffer in
             sysctl(&mib, u_int(mib.count), buffer.baseAddress, &size, nil, 0) == 0
         }
-        guard success else { return nil }
+        guard success else { return [] }
         bytes = Array(bytes.prefix(Int(size)))
 
         var argcRaw: Int32 = 0
@@ -213,7 +213,7 @@ struct AgentHookSessionLineageResolver: Sendable {
             destination.copyBytes(from: bytes.prefix(MemoryLayout<Int32>.size))
         }
         let argc = Int(Int32(littleEndian: argcRaw))
-        guard argc > 0 else { return nil }
+        guard argc > 0 else { return [] }
 
         var index = MemoryLayout<Int32>.size
         Self.skipString(bytes, index: &index)
@@ -227,7 +227,7 @@ struct AgentHookSessionLineageResolver: Sendable {
             }
             if index < bytes.count { index += 1 }
         }
-        return arguments.isEmpty ? nil : arguments
+        return arguments
     }
 
     private static func skipString(_ bytes: [UInt8], index: inout Int) {

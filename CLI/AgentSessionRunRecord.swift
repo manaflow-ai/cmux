@@ -103,7 +103,7 @@ struct AgentSessionRunReconciler: Sendable {
         }
         run.pid = lineage.pid ?? run.pid
         run.processStartedAt = lineage.processStartedAt ?? run.processStartedAt
-        run.cmuxRuntime = run.cmuxRuntime ?? lineage.cmuxRuntime
+        run.cmuxRuntime = lineage.cmuxRuntime ?? run.cmuxRuntime
         if recoversProvisionalFork {
             run.parentRunId = lineage.parentRunId ?? run.parentRunId
             run.parentSessionId = lineage.parentSessionId ?? run.parentSessionId

@@ -102,7 +102,7 @@ extension CMUXCLI {
                 data = try Data(contentsOf: url)
                 store = try decoder.decode(ClaudeHookSessionStoreFile.self, from: data)
             } catch {
-                throw CLIError(message: "\(url.path): \(error.localizedDescription)")
+                throw CLIError(message: "\(url.path): \(String(describing: error))")
             }
             let activeSessionIds = Set(store.activeSessionsBySurface.values.map(\.sessionId))
                 .union(store.activeSessionsByWorkspace.values.map(\.sessionId))
@@ -207,12 +207,13 @@ extension CMUXCLI {
             return String(localized: "cli.agents.tree.output.noMatches", defaultValue: "No saved agent runs matched.")
         }
         let nodeByRunId = AgentSessionGraphNodeIndex.nodes(snapshot.nodes)
+        let edgeResolver = AgentSessionGraphEdgeResolver(nodes: snapshot.nodes)
         let childrenByRunId = Dictionary(grouping: snapshot.edges.compactMap { edge -> (String, AgentSessionGraphEdge)? in
-            guard let parent = edge.fromRunId, nodeByRunId[parent] != nil else { return nil }
+            guard let parent = edgeResolver.parentRunId(for: edge) else { return nil }
             return (parent, edge)
         }, by: \.0).mapValues { $0.map(\.1) }
         let childRunIds = Set(snapshot.edges.compactMap { edge in
-            edge.fromRunId.flatMap { nodeByRunId[$0] == nil ? nil : edge.toRunId }
+            edgeResolver.parentRunId(for: edge).map { _ in edge.toRunId }
         })
         let roots = snapshot.nodes.filter { !childRunIds.contains($0.runId) }
         var lines: [String] = []

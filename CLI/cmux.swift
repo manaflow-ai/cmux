@@ -738,7 +738,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    func markNotificationResolved(
+    @discardableResult func markNotificationResolved(
         sessionId: String,
         workspaceId: String,
         surfaceId: String,
@@ -748,10 +748,10 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil
-    ) throws {
+    ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
             let now = Date().timeIntervalSince1970
             var record = makeSessionRecord(
                 state: state,
@@ -777,11 +777,9 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: runtimeStatus != nil,
                 now: now
-            ) else { return }
-            record.lastSubtitle = nil
-            record.lastBody = nil
-            record.lastNotificationStatus = nil
-            state.sessions[normalized] = record
+            ) else { return false }
+            record.lastSubtitle = nil; record.lastBody = nil; record.lastNotificationStatus = nil
+            state.sessions[normalized] = record; return true
         }
     }
 
@@ -31306,9 +31304,9 @@ export default CMUXSessionRestore;
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
-            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
+            var suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             if !sessionId.isEmpty, !suppressVisibleMutations {
-                try? store.markNotificationResolved(
+                let accepted = (try? store.markNotificationResolved(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
@@ -31318,17 +31316,19 @@ export default CMUXSessionRestore;
                     launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
                     agentLifecycle: .running,
                     runtimeStatus: .running
-                )
-                publishAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
-                    cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
-                )
+                )) ?? false
+                if accepted {
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: def.name,
+                        displayName: def.displayName,
+                        sessionId: sessionId,
+                        cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
+                    )
+                } else { suppressVisibleMutations = true }
             }
             if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(

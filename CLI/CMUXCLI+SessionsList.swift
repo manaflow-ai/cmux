@@ -145,6 +145,8 @@ extension CMUXCLI {
         var stores: [[String: Any]] = []
 
         let decoder = JSONDecoder()
+        let timestampFormatter = ISO8601DateFormatter()
+        timestampFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         for spec in selectedSpecs {
             let storePath = URL(fileURLWithPath: stateDir, isDirectory: true)
                 .appendingPathComponent("\(spec.sessionStoreSuffix)-hook-sessions.json", isDirectory: false)
@@ -199,8 +201,8 @@ extension CMUXCLI {
                     "workspace_id": record.workspaceId,
                     "surface_id": record.surfaceId,
                     "store_path": storePath,
-                    "started_at": sessionsListTimestamp(record.startedAt),
-                    "updated_at": sessionsListTimestamp(record.updatedAt),
+                    "started_at": sessionsListTimestamp(record.startedAt, formatter: timestampFormatter),
+                    "updated_at": sessionsListTimestamp(record.updatedAt, formatter: timestampFormatter),
                     "updated_at_unix": record.updatedAt
                 ]
                 if rawRecord.sessionId != record.sessionId {

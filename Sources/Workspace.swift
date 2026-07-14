@@ -789,7 +789,7 @@ extension Workspace {
         guard let entry = closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane) else {
             return false
         }
-        ClosedItemHistoryStore.shared.push(.panel(entry))
+        pushClosedPanelHistoryEntryWithAgentEnrichment(entry)
         return true
     }
 
@@ -12312,7 +12312,7 @@ extension Workspace: BonsplitDelegate {
         if !closedPanelIds.isEmpty {
             if !isDetachingCloseTransaction && !suppressClosedPanelHistory {
                 for entry in closedHistoryEntries {
-                    ClosedItemHistoryStore.shared.push(.panel(entry))
+                    pushClosedPanelHistoryEntryWithAgentEnrichment(entry)
                 }
             }
 
