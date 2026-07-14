@@ -120,6 +120,22 @@ struct BrowserViewportLayoutTests {
         #expect(plan.outputPixelCount <= BrowserViewportSnapshotPlan.maximumOutputPixelCount)
     }
 
+    @Test func fullPageTilePlanRejectsExcessiveCaptureCount() throws {
+        #expect(BrowserFullPageTilePlan(
+            contentSize: CGSize(width: 1_000, height: 1_000),
+            viewportSize: CGSize(width: 1, height: 1)
+        ) == nil)
+
+        let plan = try #require(BrowserFullPageTilePlan(
+            contentSize: CGSize(width: 4_096, height: 4_096),
+            viewportSize: CGSize(width: 512, height: 512)
+        ))
+        #expect(plan.columnCount == 8)
+        #expect(plan.rowCount == 8)
+        #expect(plan.tileCount == 64)
+        #expect(plan.origin(column: 7, row: 7) == CGPoint(x: 3_584, y: 3_584))
+    }
+
     @Test func contentMetricsKeepReportedCSSViewportAtPageZoom() {
         let metrics = BrowserViewportContentMetrics(
             contentSize: CGSize(width: 2_560, height: 2_160),
@@ -189,5 +205,15 @@ struct BrowserViewportModelTests {
         #expect(!model.setViewport(viewport))
         #expect(model.setViewport(nil))
         #expect(model.viewport == nil)
+    }
+
+    @Test func attachedInspectorResetsEmulatedViewport() throws {
+        let model = BrowserViewportModel()
+        let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
+
+        model.setViewport(viewport)
+        #expect(model.resetForAttachedInspector())
+        #expect(model.viewport == nil)
+        #expect(!model.resetForAttachedInspector())
     }
 }
