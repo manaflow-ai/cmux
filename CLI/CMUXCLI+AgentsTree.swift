@@ -163,6 +163,8 @@ extension CMUXCLI {
             }
         }
 
+        let edgeResolver = AgentSessionGraphEdgeResolver(nodes: nodes)
+        edges.removeAll { edgeResolver.parentRunId(for: $0) == nil }
         AgentSubtreeActivityProjector().project(nodes: &nodes, edges: edges)
 
         nodes.sort { lhs, rhs in
