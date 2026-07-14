@@ -115,6 +115,15 @@ public struct VPSHostHealth: Equatable, Sendable {
                 uptimeSeconds: running.uptimeSeconds
             )
         }
+        if facts.unitScope == .user, !facts.lingerEnabled {
+            return VPSHostHealth(
+                state: .degraded,
+                detail: "lingering is disabled, so the daemon and its PTY sessions stop when the last SSH connection closes; run `sudo loginctl enable-linger <user>` on the host",
+                daemonVersion: runningVersion,
+                liveSessions: liveSessions,
+                uptimeSeconds: running.uptimeSeconds
+            )
+        }
 
         return VPSHostHealth(
             state: .running,

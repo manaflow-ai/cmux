@@ -130,9 +130,13 @@ public actor VPSProvisioner {
             case .daemonReload(let scope):
                 try await runStep(scripts.daemonReloadScript(scope: scope), step: "systemd daemon-reload")
             case .enableLinger:
-                // Best effort by design: the script swallows polkit refusals
-                // and the plan already carries the advisory note.
-                _ = try await ssh.runScript(scripts.enableLingerScript(), timeout: 30)
+                // The script escalates (plain loginctl → passwordless sudo)
+                // and reports the verified result; a refusal is surfaced as a
+                // note here and as degraded health, not treated as fatal.
+                let linger = try await ssh.runScript(scripts.enableLingerScript(), timeout: 30)
+                if !linger.stdout.contains("\(VPSRemoteScripts.lingerResultMarker)yes") {
+                    yield(.note(.lingerUnavailable))
+                }
             case .enableUnit(let scope):
                 try await runStep(scripts.enableUnitScript(scope: scope), step: "enable unit")
             case .restartUnit(let scope):

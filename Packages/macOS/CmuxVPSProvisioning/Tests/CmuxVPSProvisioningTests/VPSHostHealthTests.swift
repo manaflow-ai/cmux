@@ -6,15 +6,17 @@ struct VPSHostHealthTests {
     private let version = "0.99.0"
 
     private func facts(
+        uid: Int = 1000,
         hasSystemd: Bool = true,
         binaryExists: Bool = true,
         unitFileExists: Bool = true,
         unitActiveState: String = "active",
+        lingerEnabled: Bool = true,
         installedVersions: [String] = ["0.99.0"]
     ) -> VPSHostFacts {
         VPSHostFacts(
             homeDirectory: "/home/dev",
-            uid: 1000,
+            uid: uid,
             unameOS: "Linux",
             unameArch: "x86_64",
             goOS: "linux",
@@ -23,6 +25,7 @@ struct VPSHostHealthTests {
             binaryExists: binaryExists,
             unitFileExists: unitFileExists,
             unitActiveState: unitActiveState,
+            lingerEnabled: lingerEnabled,
             installedVersions: installedVersions
         )
     }
@@ -110,6 +113,38 @@ struct VPSHostHealthTests {
         )
         #expect(health.state == .degraded)
         #expect(health.liveSessions == 2)
+    }
+
+    @Test("user-scope unit without lingering is degraded even when healthy otherwise")
+    func degradedWithoutLinger() {
+        let health = VPSHostHealth.evaluate(
+            facts: facts(lingerEnabled: false),
+            report: report(version: version, sessions: 2),
+            desiredVersion: version
+        )
+        #expect(health.state == .degraded)
+        #expect(health.detail.contains("enable-linger"))
+        #expect(health.liveSessions == 2)
+    }
+
+    @Test("root system-scope unit ignores lingering")
+    func rootIgnoresLinger() {
+        let health = VPSHostHealth.evaluate(
+            facts: facts(uid: 0, lingerEnabled: false),
+            report: report(version: version, sessions: 0),
+            desiredVersion: version
+        )
+        #expect(health.state == .running)
+    }
+
+    @Test("version drift outranks missing lingering")
+    func driftOutranksLinger() {
+        let health = VPSHostHealth.evaluate(
+            facts: facts(lingerEnabled: false),
+            report: report(version: "0.98.0", sessions: 0),
+            desiredVersion: version
+        )
+        #expect(health.state == .needsUpgrade)
     }
 
     @Test("daemon-status JSON round-trips through the report parser")

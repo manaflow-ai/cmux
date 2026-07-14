@@ -11,6 +11,12 @@ public struct VPSProvisioningPlan: Equatable, Sendable {
         /// `loginctl enable-linger` may prompt for authorization on hosts
         /// with restrictive polkit policy; provisioning continues either way.
         case lingerBestEffort
+        /// Lingering could not be enabled (polkit refused and passwordless
+        /// sudo was unavailable): the user-scope daemon and its PTY sessions
+        /// stop when the user's last SSH connection closes. Emitted by the
+        /// executor after the enable attempt, and reflected as degraded
+        /// health until the user enables lingering manually.
+        case lingerUnavailable
     }
 
     /// Steps in execution order; empty means the host is already converged.

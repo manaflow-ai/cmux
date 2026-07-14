@@ -77,6 +77,16 @@ struct VPSSystemdUnitTests {
         #expect(script.hasSuffix("CMUX_UNIT_EOF"))
     }
 
+    @Test("linger script escalates to passwordless sudo and reports the verified state")
+    func lingerScript() {
+        let scripts = VPSRemoteScripts(layout: layout)
+        let script = scripts.enableLingerScript()
+        #expect(script.contains(#"loginctl enable-linger "$cmux_user""#))
+        #expect(script.contains(#"sudo -n loginctl enable-linger"#))
+        #expect(script.contains(#"/var/lib/systemd/linger/$cmux_user"#))
+        #expect(script.contains("__CMUX_VPS_LINGER_RESULT__="))
+    }
+
     @Test("hello script rides the persistent slot the unit serves")
     func helloScript() {
         let scripts = VPSRemoteScripts(layout: layout)

@@ -68,9 +68,27 @@ public struct VPSRemoteScripts: Equatable, Sendable {
         "\(systemctlPrefix(scope: scope)) daemon-reload"
     }
 
-    /// Best-effort `loginctl enable-linger` for the SSH user.
+    /// Marker line `enableLingerScript()` prints with the resulting linger
+    /// state (`yes`/`no`), parsed by the executor.
+    public static let lingerResultMarker = "__CMUX_VPS_LINGER_RESULT__="
+
+    /// Enables lingering for the SSH user so a user-scope daemon (and its
+    /// PTY sessions) survives the last SSH logout.
+    ///
+    /// Plain `loginctl enable-linger` is refused by polkit for remote
+    /// sessions on many hosts, so this escalates to passwordless sudo, then
+    /// verifies the on-disk linger flag (same check as the host probe) and
+    /// reports the final state — never a silent best-effort.
     public func enableLingerScript() -> String {
-        "loginctl enable-linger \"$(id -un)\" 2>/dev/null || true"
+        """
+        cmux_user="$(id -un)"
+        loginctl enable-linger "$cmux_user" >/dev/null 2>&1 || sudo -n loginctl enable-linger "$cmux_user" >/dev/null 2>&1 || true
+        if [ -e "/var/lib/systemd/linger/$cmux_user" ]; then
+          printf '%syes\\n' '\(Self.lingerResultMarker)'
+        else
+          printf '%sno\\n' '\(Self.lingerResultMarker)'
+        fi
+        """
     }
 
     /// `systemctl enable` for the unit.

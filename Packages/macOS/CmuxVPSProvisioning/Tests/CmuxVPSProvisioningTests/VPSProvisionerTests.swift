@@ -59,7 +59,8 @@ struct VPSProvisionerTests {
         unitActive: String,
         unitSHA256: String = "",
         currentLink: String = "",
-        systemd: String = "yes"
+        systemd: String = "yes",
+        linger: String = "yes"
     ) -> String {
         """
         __CMUX_VPS_HOME__=/home/dev
@@ -78,7 +79,7 @@ struct VPSProvisionerTests {
         __CMUX_VPS_UNIT_SHA256__=\(unitSHA256)
         __CMUX_VPS_UNIT_ACTIVE__=\(unitActive)
         __CMUX_VPS_UNIT_ENABLED__=\(unitPresent ? "enabled" : "")
-        __CMUX_VPS_LINGER__=yes
+        __CMUX_VPS_LINGER__=\(linger)
         __CMUX_VPS_INSTALLED_VERSIONS__=\(binaryExists ? "0.99.0" : "")
         """
     }
@@ -149,6 +150,110 @@ struct VPSProvisionerTests {
         #expect(commands.contains { $0.contains("systemctl --user restart") && $0.contains("cmux-vps.service") })
         #expect(commands.contains { $0.contains("loginctl enable-linger") == false } )
         _ = convergedUnitSHA
+    }
+
+    @Test("refused lingering surfaces a lingerUnavailable note and degraded health")
+    func lingerRefusalSurfaces() async throws {
+        // A host converged on binary + unit but with lingering off: the only
+        // plan steps are enableLinger + verifyHealth, so the outcome health
+        // isolates the linger refusal.
+        let layout = VPSRemoteLayout(
+            homeDirectory: "/home/dev", version: "0.99.0", goOS: "linux", goArch: "amd64"
+        )
+        let convergedUnitSHA = VPSSystemdUnit(layout: layout, scope: .user).contentSHA256()
+        let runner = FakeCommandRunner(rules: [
+            .init(
+                match: matching("__CMUX_VPS_HOME__"),
+                result: VPSCommandResult(
+                    status: 0,
+                    stdout: probeStdout(
+                        binaryExists: true,
+                        unitPresent: true,
+                        unitActive: "active",
+                        unitSHA256: convergedUnitSHA,
+                        currentLink: layout.binaryPath,
+                        linger: "no"
+                    ),
+                    stderr: ""
+                )
+            ),
+            .init(
+                match: matching("enable-linger"),
+                result: VPSCommandResult(status: 0, stdout: "__CMUX_VPS_LINGER_RESULT__=no", stderr: "")
+            ),
+            .init(
+                match: matching("serve --stdio --persistent"),
+                result: VPSCommandResult(status: 0, stdout: helloOK, stderr: "")
+            ),
+            .init(
+                match: matching("daemon-status --slot"),
+                result: VPSCommandResult(status: 0, stdout: daemonStatusJSON(sessions: 0), stderr: "")
+            ),
+        ])
+        let provisioner = VPSProvisioner(
+            host: VPSHostDescriptor(destination: "dev@vps.example"),
+            runner: runner,
+            artifacts: FakeArtifacts()
+        )
+
+        var events: [VPSProvisioningEvent] = []
+        for try await event in provisioner.provisionEvents(force: false) {
+            events.append(event)
+        }
+
+        #expect(events.contains { event in
+            if case .note(.lingerUnavailable) = event { return true }
+            return false
+        })
+        guard case .completed(let outcome)? = events.last else {
+            Issue.record("missing completed event: \(events)")
+            return
+        }
+        #expect(outcome.health.state == .degraded)
+        #expect(outcome.health.detail.contains("enable-linger"))
+    }
+
+    @Test("verified lingering emits no lingerUnavailable note")
+    func lingerSuccessStaysQuiet() async throws {
+        let runner = FakeCommandRunner(rules: [
+            .init(
+                match: matching("__CMUX_VPS_HOME__"),
+                result: VPSCommandResult(
+                    status: 0,
+                    stdout: probeStdout(binaryExists: false, unitPresent: false, unitActive: "", linger: "no"),
+                    stderr: ""
+                )
+            ),
+            .init(
+                match: matching("enable-linger"),
+                result: VPSCommandResult(status: 0, stdout: "__CMUX_VPS_LINGER_RESULT__=yes", stderr: "")
+            ),
+            .init(
+                match: matching("serve --stdio --persistent"),
+                result: VPSCommandResult(status: 0, stdout: helloOK, stderr: "")
+            ),
+            .init(
+                match: matching("daemon-status --slot"),
+                result: VPSCommandResult(status: 0, stdout: daemonStatusJSON(sessions: 0), stderr: "")
+            ),
+        ])
+        let provisioner = VPSProvisioner(
+            host: VPSHostDescriptor(destination: "dev@vps.example"),
+            runner: runner,
+            artifacts: FakeArtifacts()
+        )
+
+        var events: [VPSProvisioningEvent] = []
+        for try await event in provisioner.provisionEvents(force: false) {
+            events.append(event)
+        }
+
+        #expect(!events.contains { event in
+            if case .note(.lingerUnavailable) = event { return true }
+            return false
+        })
+        let commands = await runner.commandLines()
+        #expect(commands.contains { $0.contains("enable-linger") && $0.contains("sudo -n") })
     }
 
     @Test("upgrade with live sessions refuses without force")
