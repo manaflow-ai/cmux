@@ -18,6 +18,7 @@ extension CMUXCLI {
             isShellSnippet: isShellSnippet,
             passwordCredential: passwordCredential,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
+            oneTimeCommand: nil,
             retryPTYAttachStatus: retryPTYAttachStatus,
             reconnectLimitDefault: reconnectLimitDefault
         )
@@ -31,6 +32,7 @@ extension CMUXCLI {
         isShellSnippet: Bool = false,
         passwordCredential: String? = nil,
         controlPathPreflightShellFunction: String? = nil,
+        oneTimeCommand: String? = nil,
         retryPTYAttachStatus: Bool = false,
         reconnectLimitDefault: Int = 20
     ) -> String {
@@ -43,6 +45,7 @@ extension CMUXCLI {
             isShellSnippet: isShellSnippet,
             passwordCredential: nil,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
+            oneTimeCommand: oneTimeCommand,
             retryPTYAttachStatus: retryPTYAttachStatus,
             reconnectLimitDefault: reconnectLimitDefault
         )
@@ -277,6 +280,7 @@ extension CMUXCLI {
         isShellSnippet: Bool,
         passwordCredential: String?,
         controlPathPreflightShellFunction: String?,
+        oneTimeCommand: String?,
         retryPTYAttachStatus: Bool,
         reconnectLimitDefault: Int
     ) -> String {
@@ -290,6 +294,8 @@ extension CMUXCLI {
             : ":"
         let trimmedControlPathPreflight = controlPathPreflightShellFunction?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOneTimeCommand = oneTimeCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasOneTimeCommand = trimmedOneTimeCommand?.isEmpty == false
         var scriptLines: [String] = []
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
@@ -323,6 +329,14 @@ extension CMUXCLI {
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append(trimmedControlPathPreflight)
         }
+        if let trimmedOneTimeCommand, !trimmedOneTimeCommand.isEmpty {
+            scriptLines.append("trap 'cmux_ssh_cleanup_password' EXIT")
+            if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
+                scriptLines.append("cmux_ssh_preflight_control_path")
+            }
+            scriptLines.append(trimmedOneTimeCommand)
+            scriptLines.append("trap - EXIT")
+        }
         let reconnectConfiguration = retryPTYAttachStatus ? [
             "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_reconnect_limit\" in '') cmux_ssh_reconnect_limit='∞'; cmux_ssh_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_reconnect_limit=20; cmux_ssh_reconnect_unbounded=0 ;; *) cmux_ssh_reconnect_unbounded=0 ;; esac",
@@ -331,6 +345,7 @@ extension CMUXCLI {
             "cmux_ssh_reconnect_max_delay=\"${CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS:-30}\"",
             "case \"$cmux_ssh_reconnect_max_delay\" in ''|*[!0-9]*|0*) cmux_ssh_reconnect_max_delay=30 ;; esac",
             "if [ \"$cmux_ssh_reconnect_delay\" -gt \"$cmux_ssh_reconnect_max_delay\" ]; then cmux_ssh_reconnect_delay=\"$cmux_ssh_reconnect_max_delay\"; fi",
+            "cmux_ssh_reconnect_initial_delay=\"$cmux_ssh_reconnect_delay\"",
         ] : [
             "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-\(max(0, reconnectLimitDefault))}\"",
             "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
@@ -356,7 +371,8 @@ extension CMUXCLI {
             "trap 'cmux_ssh_signal_exit 143' TERM",
             "while :; do",
         ]
-        if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
+        if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty,
+           !hasOneTimeCommand {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
         if retryPTYAttachStatus {
@@ -389,6 +405,9 @@ extension CMUXCLI {
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
             "  case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
         ]
+        if retryPTYAttachStatus {
+            scriptLines.append("  if [ \"$cmux_ssh_status\" -eq 254 ]; then cmux_ssh_reconnect_delay=\"$cmux_ssh_reconnect_initial_delay\"; fi")
+        }
         let retryLimitCondition = retryPTYAttachStatus
             ? "  if [ \"$cmux_ssh_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi"
             : "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi"
