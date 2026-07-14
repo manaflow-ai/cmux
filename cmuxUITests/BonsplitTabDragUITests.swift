@@ -180,7 +180,7 @@ final class BonsplitTabDragUITests: XCTestCase {
     }
 
     func testRightSidebarUsesCloseButtonWhenVisibleAndTitlebarToggleWhenHidden() {
-        for presentationMode in [WorkspacePresentationMode.standard, .minimal] {
+        for presentationMode in [WorkspacePresentationMode.minimal, .standard] {
             verifyRightSidebarUsesCloseButtonWhenVisibleAndTitlebarToggleWhenHidden(
                 presentationMode: presentationMode
             )
