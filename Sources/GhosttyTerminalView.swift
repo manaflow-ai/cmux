@@ -3360,6 +3360,13 @@ extension TerminalSurface {
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
+    private struct PendingInputDemandKeyEvent {
+        let surfaceId: UUID
+        let event: NSEvent
+    }
+
+    private static let maxPendingInputDemandKeyEvents = 256
+
     private static let focusDebugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_FOCUS_DEBUG"] == "1" {
             return true
@@ -3606,6 +3613,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
+    private var runtimeSurfaceReadyObserver: NSObjectProtocol?
+    private var pendingInputDemandKeyEvents: [PendingInputDemandKeyEvent] = []
+    private var pendingInputDemandKeyEventFlushScheduled = false
     private var lastScrollEventTime: CFTimeInterval = 0
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
@@ -3682,8 +3692,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         layer?.masksToBounds = true
         setupKeyboardCopyModeCursorOverlay()
         installEventMonitor()
+        installRuntimeSurfaceReadyObserver()
         updateTrackingAreas()
         registerForDraggedTypes(Array(Self.dropTypes))
+    }
+
+    private func installRuntimeSurfaceReadyObserver() {
+        runtimeSurfaceReadyObserver = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let readySurface = notification.object as? TerminalSurface,
+                  readySurface === self.terminalSurface else {
+                return
+            }
+            self.schedulePendingInputDemandKeyEventFlush()
+        }
     }
 
     private func setupKeyboardCopyModeCursorOverlay() {
@@ -3834,6 +3860,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let isSameSurface = terminalSurface === surface
         let isAlreadyAttached = surface.isAttached(to: self)
         if !isSameSurface {
+            pendingInputDemandKeyEvents.removeAll(keepingCapacity: false)
             appliedColorScheme = nil
             // Reset any OSC 22 mouse shape carried over from the previous surface.
             updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
@@ -4260,6 +4287,52 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             "reason=\(reason) inWindow=\(window != nil ? 1 : 0)"
         )
 #endif
+    }
+
+    private func enqueueInputDemandKeyEvent(_ event: NSEvent, reason: String) {
+        guard let surfaceId = terminalSurface?.id else { return }
+        guard pendingInputDemandKeyEvents.count < Self.maxPendingInputDemandKeyEvents else {
+#if DEBUG
+            cmuxDebugLog(
+                "focus.input_recovery.reject surface=\(surfaceId.uuidString.prefix(5)) " +
+                "reason=queueFull type=\(event.type.rawValue)"
+            )
+#endif
+            requestInputRecoveryAfterSurfaceMiss(reason: reason)
+            return
+        }
+        pendingInputDemandKeyEvents.append(
+            PendingInputDemandKeyEvent(surfaceId: surfaceId, event: event)
+        )
+        requestInputRecoveryAfterSurfaceMiss(reason: reason)
+    }
+
+    private func schedulePendingInputDemandKeyEventFlush() {
+        guard !pendingInputDemandKeyEventFlushScheduled else { return }
+        pendingInputDemandKeyEventFlushScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.pendingInputDemandKeyEventFlushScheduled = false
+            self.flushPendingInputDemandKeyEventsIfReady()
+        }
+    }
+
+    private func flushPendingInputDemandKeyEventsIfReady() {
+        guard surface != nil, let surfaceId = terminalSurface?.id else { return }
+        let queued = pendingInputDemandKeyEvents
+        pendingInputDemandKeyEvents.removeAll(keepingCapacity: false)
+        for pending in queued where pending.surfaceId == surfaceId {
+            switch pending.event.type {
+            case .keyDown:
+                keyDown(with: pending.event)
+            case .keyUp:
+                keyUp(with: pending.event)
+            case .flagsChanged:
+                flagsChanged(with: pending.event)
+            default:
+                break
+            }
+        }
     }
 
     @discardableResult
@@ -5665,11 +5738,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
 #endif
         guard let surface = ensureSurfaceReadyForInput() else {
-            requestInputRecoveryAfterSurfaceMiss(reason: "keyDown.missingSurface")
+            enqueueInputDemandKeyEvent(event, reason: "keyDown.missingSurface")
 #if DEBUG
             ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
-            super.keyDown(with: event)
             return
         }
         recordDirectAgentHibernationTerminalInput()
@@ -6095,7 +6167,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func keyUp(with event: NSEvent) {
         guard let surface = ensureSurfaceReadyForInput() else {
-            super.keyUp(with: event)
+            enqueueInputDemandKeyEvent(event, reason: "keyUp.missingSurface")
             return
         }
         if event.keyCode != 53 {
@@ -6128,7 +6200,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func flagsChanged(with event: NSEvent) {
         guard let surface = ensureSurfaceReadyForInput() else {
-            super.flagsChanged(with: event)
+            enqueueInputDemandKeyEvent(event, reason: "flagsChanged.missingSurface")
             return
         }
 
@@ -7487,6 +7559,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
+        }
+        if let runtimeSurfaceReadyObserver {
+            NotificationCenter.default.removeObserver(runtimeSurfaceReadyObserver)
         }
         if let trackingArea {
             removeTrackingArea(trackingArea)

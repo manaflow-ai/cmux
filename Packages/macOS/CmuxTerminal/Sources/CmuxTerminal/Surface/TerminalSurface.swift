@@ -581,12 +581,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             workspaceId: tabId,
             reason: "deinit",
             surface: surfaceToFree,
-            callbackContext: callbackContext
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease
         )
-        // The teardown coordinator releases callbackContext; manualIOContext and
-        // teeLease are not transported through the request, so release them here.
-        manualIOContext?.release()
-        teeLease?.release()
+        // The teardown coordinator releases every callback owner after native
+        // free has stopped the PTY/manual-I/O thread.
     }
 }
 

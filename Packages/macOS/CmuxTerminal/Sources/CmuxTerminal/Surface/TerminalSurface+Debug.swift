@@ -181,9 +181,16 @@ extension TerminalSurface {
     public func releaseSurfaceForTesting() {
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let manualIOContext = manualIOContext
+        self.manualIOContext = nil
+        let teeLease = mobileByteTeeLease
+        mobileByteTeeLease = nil
+        byteTee.dropSurface(surfaceID: id)
 
         guard let surfaceToFree = surface else {
             callbackContext?.release()
+            manualIOContext?.release()
+            teeLease?.release()
             return
         }
 
@@ -191,6 +198,8 @@ extension TerminalSurface {
         surface = nil
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
+        manualIOContext?.release()
+        teeLease?.release()
     }
 
     /// Test-only helper to simulate a stale Swift wrapper whose native surface
@@ -201,9 +210,16 @@ extension TerminalSurface {
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let manualIOContext = manualIOContext
+        self.manualIOContext = nil
+        let teeLease = mobileByteTeeLease
+        mobileByteTeeLease = nil
+        byteTee.dropSurface(surfaceID: id)
 
         guard let surfaceToFree = surface else {
             callbackContext?.release()
+            manualIOContext?.release()
+            teeLease?.release()
             return
         }
 
@@ -211,6 +227,8 @@ extension TerminalSurface {
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
         callbackContext?.release()
+        manualIOContext?.release()
+        teeLease?.release()
     }
 
     /// Test-only helper to install a runtime surface pointer directly.
