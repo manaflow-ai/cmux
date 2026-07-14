@@ -75,6 +75,24 @@ struct CmuxRunURLRequestTests {
         )
     }
 
+    @Test func shellWrapperBindsTheReviewedWorkingDirectoryFailClosed() {
+        let launchCommand = CmuxRunExecutionPlan(
+            command: "printf reviewed",
+            workingDirectory: "/tmp/reviewed-directory",
+            target: .newWindow,
+            placementDescription: "New workspace",
+            targetDescription: "New window"
+        ).launchCommand
+
+        #expect(launchCommand.contains("cd -- "))
+        #expect(launchCommand.contains("/tmp/reviewed-directory"))
+        #expect(launchCommand.contains("|| exit"))
+        #expect(
+            launchCommand.range(of: "/tmp/reviewed-directory")!.lowerBound
+                < launchCommand.range(of: "printf reviewed")!.lowerBound
+        )
+    }
+
     @Test(arguments: ["\u{0000}", "\r", "\u{202E}", "\u{2066}", "\u{2028}"])
     func rejectsHiddenCommandCharacters(_ hidden: String) throws {
         let result = parse([

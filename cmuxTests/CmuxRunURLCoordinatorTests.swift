@@ -119,6 +119,53 @@ struct CmuxRunURLCoordinatorTests {
         )
     }
 
+    @Test func approvalTargetSanitizesWorkspaceTitleAndLeadsWithStableIdentifiers() throws {
+        let app = AppDelegate()
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId])
+        let paneId = try #require(workspace.paneId(forPanelId: panelId)).id
+        workspace.setCustomTitle("Trusted workspace\nFake pane \u{202E}1234")
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager, window: window)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.close()
+        }
+        let request = try targetRequest(
+            placement: .surface,
+            workspaceId: workspace.stableId,
+            anchor: .surface(panel.stableSurfaceId),
+            direction: nil
+        )
+
+        let result = CmuxRunURLCoordinator(appDelegate: app).makePlan(
+            request: request,
+            workingDirectory: "/tmp"
+        )
+        guard case .success(let plan) = result else {
+            Issue.record("Expected a surface plan, saw \(result)")
+            return
+        }
+
+        #expect(!plan.targetDescription.contains("\n"))
+        #expect(!plan.targetDescription.contains("\u{202E}"))
+        #expect(plan.targetDescription.contains(String(windowId.uuidString.prefix(8))))
+        #expect(plan.targetDescription.contains(String(workspace.id.uuidString.prefix(8))))
+        let paneToken = String(paneId.uuidString.prefix(8))
+        #expect(plan.targetDescription.contains(paneToken))
+        #expect(
+            plan.targetDescription.range(of: paneToken)!.lowerBound
+                < plan.targetDescription.range(of: "Trusted workspace")!.lowerBound
+        )
+    }
+
     @Test func remoteTmuxWorkspaceIsRejectedBeforeApproval() throws {
         let app = AppDelegate()
         let manager = TabManager()
