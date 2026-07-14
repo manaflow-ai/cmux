@@ -169,7 +169,7 @@ final class SidebarInteractionLifecycleTests {
                     )
                 }
                 if tabManager.tabs.count.isMultiple(of: 20) {
-                    Self.turnMainRunLoopOnce(layingOut: nil)
+                    Self.turnMainRunLoopOnce()
                     await Task.yield()
                 }
             }
@@ -231,9 +231,9 @@ final class SidebarInteractionLifecycleTests {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
-            await drainMainRunLoop(for: window, iterations: 30)
+            await drainMainRunLoop(iterations: 30)
             window.makeKey()
-            await drainMainRunLoop(for: window, iterations: 4)
+            await drainMainRunLoop(iterations: 4)
 
             #expect(window.isVisible, "The #8004 harness must use a visible NSWindow.")
             #expect(window.isKeyWindow, "The #8004 harness must use a key NSWindow.")
@@ -256,7 +256,7 @@ final class SidebarInteractionLifecycleTests {
                 y: displayBounds.minY + screen.frame.maxY - point.y
             )
             try #require(CGWarpMouseCursorPosition(quartzPoint) == .success)
-            Self.turnMainRunLoopOnce(layingOut: window)
+            Self.turnMainRunLoopOnce()
             #expect(
                 hypot(NSEvent.mouseLocation.x - point.x, NSEvent.mouseLocation.y - point.y) < 4,
                 "The test cursor must remain over a production workspace row."
@@ -302,7 +302,7 @@ final class SidebarInteractionLifecycleTests {
             scrollView.reflectScrolledClipView(clipView)
 
             counter.reset()
-            await Self.drainMainRunLoop(for: window, iterations: 6)
+            await Self.drainMainRunLoop(iterations: 6)
             return counter.total
         }
 
@@ -361,16 +361,15 @@ final class SidebarInteractionLifecycleTests {
             return nil
         }
 
-        private static func turnMainRunLoopOnce(layingOut window: NSWindow?) {
+        private static func turnMainRunLoopOnce() {
             autoreleasepool {
-                window?.contentView?.layoutSubtreeIfNeeded()
                 _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002))
             }
         }
 
-        private static func drainMainRunLoop(for window: NSWindow, iterations: Int) async {
+        private static func drainMainRunLoop(iterations: Int) async {
             for _ in 0..<iterations {
-                turnMainRunLoopOnce(layingOut: window)
+                turnMainRunLoopOnce()
                 await Task.yield()
             }
         }
