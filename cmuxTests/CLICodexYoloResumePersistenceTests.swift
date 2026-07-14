@@ -3,14 +3,27 @@ import XCTest
 import Darwin
 
 extension CLINotifyProcessIntegrationRegressionTests {
-    /// A weak, nonempty Codex argv must neither replace `--yolo` nor prevent repairing a legacy
-    /// binding from the rollout context immediately preceding its capture.
-    func testCodexHookPreservesOrRepairsStoredYoloLaunch() throws {
+    /// A bare Codex argv must persist the current turn's effective permissions, including when a
+    /// legacy record lacks a transcript path or an older policy falls outside the rollout tail.
+    func testCodexHookRepairsStoredPermissionsFromCurrentTurn() throws {
         let cliPath = try bundledCLIPath()
         let executable = "/Users/example/.bun/bin/codex"
-        let scenarios: [(name: String, storedArguments: [String], hasRollout: Bool)] = [
-            ("rich", [executable, "--yolo"], false),
-            ("legacy-bare", [executable], true),
+        let scenarios: [(
+            name: String,
+            storedArguments: [String],
+            approvalPolicy: String,
+            sandboxMode: String,
+            prefixBytes: Int,
+            expectedArguments: [String]
+        )] = [
+            (
+                "legacy-bare", [executable], "never", "danger-full-access", 4 * 1024 * 1024 + 1,
+                [executable, "--yolo"]
+            ),
+            (
+                "current-plain", [executable, "--yolo"], "on-request", "workspace-write", 0,
+                [executable, "-a", "on-request", "-s", "workspace-write"]
+            ),
         ]
 
         for (index, scenario) in scenarios.enumerated() {
@@ -32,14 +45,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
             let now = Date().timeIntervalSince1970
             let transcriptURL = root.appendingPathComponent("rollout.jsonl")
-            if scenario.hasRollout {
-                let formatter = ISO8601DateFormatter()
-                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                let timestamp = formatter.string(from: Date(timeIntervalSince1970: now - 120))
-                let line = #"{"timestamp":"\#(timestamp)","type":"turn_context","payload":{"approval_policy":"never","sandbox_policy":{"type":"danger-full-access"}}}"#
-                try (line + "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
-            }
-            var record: [String: Any] = [
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let timestamp = formatter.string(from: Date(timeIntervalSince1970: now - 120))
+            let padding = String(repeating: "x", count: scenario.prefixBytes)
+            let line = #"{"timestamp":"\#(timestamp)","type":"turn_context","payload":{"approval_policy":"\#(scenario.approvalPolicy)","sandbox_policy":{"type":"\#(scenario.sandboxMode)"}}}"#
+            try (padding + "\n" + line + "\n").write(
+                to: transcriptURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            let record: [String: Any] = [
                 "sessionId": sessionId, "workspaceId": workspaceId, "surfaceId": surfaceId,
                 "cwd": root.path, "startedAt": now - 300, "updatedAt": now,
                 "launchCommand": [
@@ -48,7 +64,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "capturedAt": now - 60, "source": "environment",
                 ],
             ]
-            if scenario.hasRollout { record["transcriptPath"] = transcriptURL.path }
             let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
             try JSONSerialization.data(
                 withJSONObject: ["version": 1, "sessions": [sessionId: record]],
@@ -92,7 +107,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 executablePath: cliPath,
                 arguments: ["hooks", "codex", "prompt-submit"],
                 environment: environment,
-                standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+                standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
                 timeout: 5
             )
             wait(for: [serverHandled], timeout: 5)
@@ -103,7 +118,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
             let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
             let launchCommand = try XCTUnwrap(persisted["launchCommand"] as? [String: Any])
-            XCTAssertEqual(launchCommand["arguments"] as? [String], [executable, "--yolo"], scenario.name)
+            XCTAssertEqual(
+                launchCommand["arguments"] as? [String],
+                scenario.expectedArguments,
+                scenario.name
+            )
 
             let commands = state.snapshot()
             let resumeParams = commands.compactMap { command -> [String: Any]? in
@@ -112,7 +131,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return payload["params"] as? [String: Any]
             }.last
             let command = try XCTUnwrap(resumeParams?["command"] as? String, commands.joined(separator: "\n"))
-            XCTAssertTrue(command.contains("'--yolo'"), "\(scenario.name): \(command)")
+            for argument in scenario.expectedArguments.dropFirst() {
+                XCTAssertTrue(command.contains("'\(argument)'"), "\(scenario.name): \(command)")
+            }
         }
     }
 }

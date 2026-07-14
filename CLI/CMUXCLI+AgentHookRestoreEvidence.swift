@@ -1,8 +1,10 @@
 import Foundation
 import CMUXAgentLaunch
 
-enum CodexLaunchPermissionPolicy {
-    static func hasExplicitArguments(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {
+extension CMUXCLI {
+    private static let codexPermissionEvidenceTailBytes = 256 * 1024
+
+    private func codexLaunchHasExplicitPermissions(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {
         guard let launchCommand,
               AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: "codex") else {
             return false
@@ -25,12 +27,17 @@ enum CodexLaunchPermissionPolicy {
             }
             if argument == "-c" || argument == "--config",
                index + 1 < arguments.count,
-               configOverridesPermissions(arguments[index + 1]) {
+               codexConfigOverridesPermissions(arguments[index + 1]) {
                 return true
             }
             if argument.hasPrefix("-c=") || argument.hasPrefix("--config=") {
-                let value = String(argument.split(separator: "=", maxSplits: 1)[1])
-                if configOverridesPermissions(value) {
+                let components = argument.split(
+                    separator: "=",
+                    maxSplits: 1,
+                    omittingEmptySubsequences: false
+                )
+                if components.count == 2,
+                   codexConfigOverridesPermissions(String(components[1])) {
                     return true
                 }
             }
@@ -38,21 +45,11 @@ enum CodexLaunchPermissionPolicy {
         return false
     }
 
-    static func wouldDropExplicitArguments(
-        existing: AgentHookLaunchCommandRecord?,
-        incoming: AgentHookLaunchCommandRecord?
-    ) -> Bool {
-        hasExplicitArguments(existing) && !hasExplicitArguments(incoming)
-    }
-
-    private static func configOverridesPermissions(_ value: String) -> Bool {
+    private func codexConfigOverridesPermissions(_ value: String) -> Bool {
         let key = value.split(separator: "=", maxSplits: 1).first?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return key == "approval_policy" || key == "sandbox_mode"
     }
-}
-
-extension CMUXCLI {
     func agentHookSessionHasDurableResumeEvidence(
         kind: String,
         launchCommand: AgentHookLaunchCommandRecord?
@@ -80,36 +77,38 @@ extension CMUXCLI {
     func preferredAgentHookResumeLaunchCommand(
         kind: String,
         current: AgentHookLaunchCommandRecord?,
-        mapped: ClaudeHookSessionRecord?
+        mapped: ClaudeHookSessionRecord?,
+        transcriptPath: String? = nil
     ) -> AgentHookLaunchCommandRecord? {
-        if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
-            return current
-        }
-        let mappedLaunchCommand = kind == "codex"
-            ? repairedCodexLaunchCommand(mapped)
-            : mapped?.launchCommand
-        if kind == "codex",
-           let current,
-           let mappedLaunchCommand,
-           !CodexLaunchPermissionPolicy.hasExplicitArguments(current),
-           CodexLaunchPermissionPolicy.hasExplicitArguments(mappedLaunchCommand) {
-            return mappedLaunchCommand
-        }
-        let currentSource = normalizedHookValue(current?.source)?.lowercased()
-        if let current, currentSource != "default", agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
-            return current
-        }
-        if let launchCommand = mappedLaunchCommand,
-           agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
-            return launchCommand
-        }
-        if let current, currentSource == "default", agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
-            return current
-        }
-        if agentHookMappedSessionHasDurableTargetEvidence(kind: kind, mapped: mapped) {
-            return nil
-        }
-        return current ?? mappedLaunchCommand
+        let selected: AgentHookLaunchCommandRecord? = {
+            if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
+                return current
+            }
+            let currentSource = normalizedHookValue(current?.source)?.lowercased()
+            if let current,
+               currentSource != "default",
+               agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
+                return current
+            }
+            if let mappedLaunchCommand = mapped?.launchCommand,
+               agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: mappedLaunchCommand) {
+                return mappedLaunchCommand
+            }
+            if let current,
+               currentSource == "default",
+               agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {
+                return current
+            }
+            if agentHookMappedSessionHasDurableTargetEvidence(kind: kind, mapped: mapped) {
+                return nil
+            }
+            return current ?? mapped?.launchCommand
+        }()
+        guard kind == "codex" else { return selected }
+        return repairedCodexLaunchCommand(
+            selected,
+            transcriptPath: transcriptPath
+        )
     }
 
     func preferredAgentHookResumeWorkingDirectory(
@@ -170,17 +169,20 @@ extension CMUXCLI {
     }
 
     private func repairedCodexLaunchCommand(
-        _ mapped: ClaudeHookSessionRecord?
+        _ launchCommand: AgentHookLaunchCommandRecord?,
+        transcriptPath: String?
     ) -> AgentHookLaunchCommandRecord? {
-        guard let mapped, var launchCommand = mapped.launchCommand else { return nil }
-        guard !CodexLaunchPermissionPolicy.hasExplicitArguments(launchCommand),
+        guard var launchCommand else { return nil }
+        guard !codexLaunchHasExplicitPermissions(launchCommand),
               let capturedAt = launchCommand.capturedAt,
-              let transcriptPath = normalizedHookValue(mapped.transcriptPath),
-              let permissionArguments = codexPermissionArguments(
-                  transcriptPath: transcriptPath,
-                  before: capturedAt
-              ),
-              !permissionArguments.isEmpty else {
+              let transcriptPath = normalizedHookValue(transcriptPath) else {
+            return launchCommand
+        }
+        let permissionArguments = codexPermissionArguments(
+            transcriptPath: transcriptPath,
+            before: capturedAt
+        )
+        guard !permissionArguments.isEmpty else {
             return launchCommand
         }
         launchCommand.arguments.append(contentsOf: permissionArguments)
@@ -190,17 +192,28 @@ extension CMUXCLI {
     private func codexPermissionArguments(
         transcriptPath: String,
         before capturedAt: TimeInterval
-    ) -> [String]? {
+    ) -> [String] {
         let expandedPath = (transcriptPath as NSString).expandingTildeInPath
-        guard let handle = FileHandle(forReadingAtPath: expandedPath) else { return nil }
+        guard let handle = FileHandle(forReadingAtPath: expandedPath) else { return [] }
         defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 4 * 1024 * 1024) else { return nil }
+        guard let endOffset = try? handle.seekToEnd() else { return [] }
+        let startOffset = endOffset > UInt64(Self.codexPermissionEvidenceTailBytes)
+            ? endOffset - UInt64(Self.codexPermissionEvidenceTailBytes)
+            : 0
+        do {
+            try handle.seek(toOffset: startOffset)
+        } catch {
+            return []
+        }
+        guard var data = try? handle.readToEnd() else { return [] }
+        if startOffset > 0,
+           let firstNewline = data.firstIndex(of: 0x0A) {
+            data.removeSubrange(data.startIndex...firstNewline)
+        }
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var approvalPolicy: String?
-        var sandboxMode: String?
-        for line in data.split(separator: 0x0A) {
+        for line in data.split(separator: 0x0A).reversed() {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                   object["type"] as? String == "turn_context",
                   let timestamp = object["timestamp"] as? String,
@@ -208,32 +221,31 @@ extension CMUXCLI {
                 continue
             }
             if date.timeIntervalSince1970 >= capturedAt {
-                break
+                continue
             }
             guard let payload = object["payload"] as? [String: Any] else { continue }
-            if let value = normalizedHookValue(payload["approval_policy"] as? String) {
-                approvalPolicy = value
-            }
+            let approvalPolicy = normalizedHookValue(payload["approval_policy"] as? String)
+            var sandboxMode: String?
             if let sandbox = payload["sandbox_policy"] as? [String: Any],
                let value = normalizedHookValue(sandbox["type"] as? String) {
                 sandboxMode = value
             }
+            if approvalPolicy == "never", sandboxMode == "danger-full-access" {
+                return ["--yolo"]
+            }
+            if approvalPolicy == "never", sandboxMode == "disabled" {
+                return ["--dangerously-bypass-approvals-and-sandbox"]
+            }
+            var arguments: [String] = []
+            if let approvalPolicy {
+                arguments.append(contentsOf: ["-a", approvalPolicy])
+            }
+            if let sandboxMode,
+               ["read-only", "workspace-write", "danger-full-access"].contains(sandboxMode) {
+                arguments.append(contentsOf: ["-s", sandboxMode])
+            }
+            return arguments
         }
-
-        if approvalPolicy == "never", sandboxMode == "danger-full-access" {
-            return ["--yolo"]
-        }
-        if approvalPolicy == "never", sandboxMode == "disabled" {
-            return ["--dangerously-bypass-approvals-and-sandbox"]
-        }
-        var arguments: [String] = []
-        if let approvalPolicy {
-            arguments.append(contentsOf: ["-a", approvalPolicy])
-        }
-        if let sandboxMode,
-           ["read-only", "workspace-write", "danger-full-access"].contains(sandboxMode) {
-            arguments.append(contentsOf: ["-s", sandboxMode])
-        }
-        return arguments.isEmpty ? nil : arguments
+        return []
     }
 }
