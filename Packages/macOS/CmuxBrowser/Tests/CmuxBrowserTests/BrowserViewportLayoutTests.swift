@@ -80,19 +80,47 @@ struct BrowserViewportLayoutTests {
         #expect(layout.scale == 1)
     }
 
-    @Test func temporaryReparentingPreservesOnlyExternallyManagedGeometry() {
-        #expect(!BrowserViewportLayout.shouldPreservePreviousGeometryOnRestore(
+    @Test func temporaryReparentingRestoresOnlyWhileItOwnsTheWebView() {
+        let temporaryHost = BrowserViewportRestorationPolicy(
+            hasCurrentHost: true,
+            temporaryHostIsCurrent: true,
             hasPreviousHost: true,
             hasVisibleWebKitCompanion: false
-        ))
-        #expect(BrowserViewportLayout.shouldPreservePreviousGeometryOnRestore(
+        )
+        #expect(temporaryHost.shouldRestorePreviousHost)
+        #expect(!temporaryHost.shouldPreservePreviousGeometry)
+
+        let detached = BrowserViewportRestorationPolicy(
+            hasCurrentHost: false,
+            temporaryHostIsCurrent: false,
+            hasPreviousHost: true,
+            hasVisibleWebKitCompanion: false
+        )
+        #expect(detached.shouldRestorePreviousHost)
+
+        let newerHost = BrowserViewportRestorationPolicy(
+            hasCurrentHost: true,
+            temporaryHostIsCurrent: false,
+            hasPreviousHost: true,
+            hasVisibleWebKitCompanion: false
+        )
+        #expect(!newerHost.shouldRestorePreviousHost)
+
+        let inspectorLayout = BrowserViewportRestorationPolicy(
+            hasCurrentHost: true,
+            temporaryHostIsCurrent: true,
             hasPreviousHost: true,
             hasVisibleWebKitCompanion: true
-        ))
-        #expect(BrowserViewportLayout.shouldPreservePreviousGeometryOnRestore(
+        )
+        #expect(inspectorLayout.shouldPreservePreviousGeometry)
+
+        let detachedPreviousHost = BrowserViewportRestorationPolicy(
+            hasCurrentHost: true,
+            temporaryHostIsCurrent: true,
             hasPreviousHost: false,
             hasVisibleWebKitCompanion: false
-        ))
+        )
+        #expect(detachedPreviousHost.shouldPreservePreviousGeometry)
     }
 }
 
