@@ -664,6 +664,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    /// The shell-owned live RPC session used for diff-viewer requests.
+    ///
+    /// The returned client is shared with terminal, workspace, and chat RPCs.
+    /// Consumers may send requests through it but must not disconnect it; the
+    /// shell owns replacement and teardown of the session.
+    public var mobileDiffRPCClient: (any MobileSyncing)? {
+        guard connectionState == .connected else { return nil }
+        return remoteClient
+    }
     /// Whether legacy connected-but-clientless shells use local iOS workspace creation.
     public var usesLocalWorkspaceCreationFallback: Bool {
         remoteClient == nil && connectionState == .connected

@@ -24,6 +24,37 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "terminal-build")
     }
 
+    @Test func diffRPCClientUsesLiveSessionWithoutActiveAttachState() throws {
+        let clock = TestClock()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { clock.now }
+        )
+        let store = MobileShellComposite.preview(runtime: runtime)
+        let ticket = try makeTicket(clock: clock)
+        let route = try #require(ticket.routes.first)
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+
+        store.remoteClient = client
+        store.connectionState = .connected
+
+        #expect(store.activeTicket == nil)
+        #expect(store.activeRoute == nil)
+        let diffClient = try #require(store.mobileDiffRPCClient as? MobileCoreRPCClient)
+        #expect(diffClient === client)
+
+        store.connectionState = .disconnected
+        #expect(store.mobileDiffRPCClient == nil)
+    }
+
     @Test func signInMovesToPairingUntilPreviewCodeConnects() {
         let store = MobileShellComposite.preview()
 

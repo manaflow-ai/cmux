@@ -35,7 +35,6 @@ struct WorkspaceDetailView: View {
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
     #if os(iOS) && DEBUG
-    @Environment(\.mobileDiffRPCClientFactory) private var mobileDiffRPCClientFactory
     var diffViewerFeature = MobileDiffViewerFeature()
     @State private var isDiffViewerPresented = false
     @State private var diffViewerModel: MobileDiffViewerModel?
@@ -193,17 +192,13 @@ struct WorkspaceDetailView: View {
     }
 
     private var canPresentDiffViewer: Bool {
-        mobileDiffRPCClientFactory != nil
+        store.mobileDiffRPCClient != nil
             && store.connectionState == .connected
-            && store.activeRoute != nil
-            && store.activeTicket != nil
     }
 
     private func presentDiffViewer() {
-        guard let mobileDiffRPCClientFactory,
-              let route = store.activeRoute,
-              let ticket = store.activeTicket else { return }
-        let client = mobileDiffRPCClientFactory.client(route: route, ticket: ticket)
+        guard store.connectionState == .connected,
+              let client = store.mobileDiffRPCClient else { return }
         diffViewerModel = MobileDiffViewerModel(service: MobileDiffRPCService(
             client: client,
             workspaceID: workspace.rpcWorkspaceID.rawValue

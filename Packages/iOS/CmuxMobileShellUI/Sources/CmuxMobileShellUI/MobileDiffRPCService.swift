@@ -49,10 +49,6 @@ struct MobileDiffRPCService: Sendable {
         }
     }
 
-    func disconnect() async {
-        await client.disconnect()
-    }
-
     private func loadDiff(paths: [MobileDiffRequestPath]) async throws -> MobileSyncGitDiffResponse {
         let wirePaths = paths.map(\.wireValue)
         let request = try MobileCoreRPCClient.requestData(

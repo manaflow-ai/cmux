@@ -31,9 +31,6 @@ struct MobileDiffViewerCover: View {
                 await model.load()
             }
         }
-        .onDisappear {
-            Task { await model.disconnect() }
-        }
     }
 }
 #endif

@@ -67,10 +67,6 @@ final class MobileDiffViewerModel {
         }
     }
 
-    func disconnect() async {
-        await service.disconnect()
-    }
-
     private static func presentation(for error: any Error) -> String {
         guard case let MobileShellConnectionError.rpcError(code, _) = error else {
             return L10n.string(
