@@ -358,11 +358,47 @@ struct UnifiedFileExplorerSearchScopeTests {
             isDirectory: false
         )
         root.children = [firstMatch, secondMatch]
+        store.rootNodes = [root]
         coordinator.reloadIfNeeded()
 
         #expect(outline.numberOfRows == 2)
         #expect(container.focusOutline())
         #expect(outline.numberOfRows == 3)
+    }
+
+    @Test("Return flushes a pending name filter before opening")
+    func returnFlushesPendingNameFilter() throws {
+        let state = FileExplorerState()
+        state.mode = .files
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        let match = FileExplorerNode(name: "Needle.swift", path: "/repo/Needle.swift", isDirectory: false)
+        let staleSelection = FileExplorerNode(name: "Other.swift", path: "/repo/Other.swift", isDirectory: false)
+        store.rootNodes = [match, staleSelection]
+        store.select(node: staleSelection)
+        var openedPath: String?
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { openedPath = $0 }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: UnifiedSearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+        let outline = try #require(Self.outlineView(in: container))
+
+        outline.keyDown(with: try Self.keyEvent(characters: "/", keyCode: 44))
+        outline.keyDown(with: try Self.keyEvent(characters: "needle", keyCode: 0))
+        outline.keyDown(with: try Self.keyEvent(characters: "\r", keyCode: 36))
+
+        #expect(outline.numberOfRows == 1)
+        #expect(openedPath == match.path)
     }
 
     private static func globValues(in arguments: [String]) -> [String] {

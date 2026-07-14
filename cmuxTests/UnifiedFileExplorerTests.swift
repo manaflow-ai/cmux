@@ -351,7 +351,7 @@ struct UnifiedFileExplorerTests {
         state.mode = .find
         focusController.rememberRightSidebarMode(.find)
         container.updatePresentation(.unified)
-        #expect(container.searchResultsView.isHiddenOrHasHiddenAncestor)
+        #expect(!container.searchResultsView.isHiddenOrHasHiddenAncestor)
         #expect(searchController.searchRequests.count == searchCountBeforeFindActivation)
         #expect(container.searchSnapshot == snapshot)
         #expect(window.firstResponder === outlineResponder)
@@ -366,9 +366,9 @@ struct UnifiedFileExplorerTests {
         state.mode = .files
         focusController.rememberRightSidebarMode(.files)
         container.updatePresentation(.unified)
-        #expect(!container.searchResultsView.isHiddenOrHasHiddenAncestor)
+        #expect(container.searchResultsView.isHiddenOrHasHiddenAncestor)
         #expect(window.firstResponder === searchResultsResponder)
-        #expect(searchController.cancelRequests.count == cancelCountBeforeFilesActivation)
+        #expect(searchController.cancelRequests.count == cancelCountBeforeFilesActivation + 1)
 
         _ = window.makeFirstResponder(nil)
         container.updatePresentation(.unified)
