@@ -525,12 +525,36 @@ final class RemoteTmuxController {
         workspaceId: UUID,
         panelId: UUID
     ) async -> MirrorTabActivity? {
-        await withCheckedContinuation { continuation in
-            queryLiveMirrorTabActivity(
-                workspaceId: workspaceId,
-                panelId: panelId
-            ) { activity in
-                continuation.resume(returning: activity)
+        guard let target = mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId) else {
+            return nil
+        }
+        let connection = target.mirror.connection
+        let windowId = target.windowId
+        let token = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                connection.queryWindowActivity(windowId: windowId, token: token) { states in
+                    guard let states else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    continuation.resume(returning: Self.mirrorTabActivity(
+                        states: states,
+                        paneOrder: connection.windowsByID[windowId]?.paneIDsInOrder
+                            ?? Array(states.keys).sorted(),
+                        activePaneId: connection.activePaneByWindow[windowId]
+                    ))
+                }
+                // Cancellation can happen before the handler's main-actor task
+                // runs. Recheck after registration so either ordering removes
+                // the same token through the exact-once finish path.
+                if Task.isCancelled {
+                    connection.cancelActivityQuery(token: token)
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak connection] in
+                connection?.cancelActivityQuery(token: token)
             }
         }
     }
@@ -563,8 +587,8 @@ final class RemoteTmuxController {
             completion(nil)
             return
         }
-        // Strong captures: the controller is app-lifetime and the completion
-        // fires exactly once (flushed on stream resets), so nothing can leak.
+        // The connection bounds and exact-once finishes every query across a
+        // reply, deadline, send failure, or stream reset.
         target.mirror.connection.queryWindowActivity(windowId: target.windowId) { states in
             guard let states else {
                 completion(nil)

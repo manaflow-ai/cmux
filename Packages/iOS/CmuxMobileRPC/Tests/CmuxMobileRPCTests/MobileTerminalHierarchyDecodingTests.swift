@@ -55,16 +55,18 @@ import Testing
 
 @Test func workspaceFocusEventDecodesScopedSelectionIncludingNullTerminal() throws {
     let selected = MobileWorkspaceFocusEvent(payloadJSON: Data("""
-    {"kind":"focus","workspace_id":"ws-1","focused_pane_id":"pane-right","selected_terminal_id":"terminal-c"}
+    {"kind":"focus","workspace_id":"ws-1","focused_pane_id":"pane-right","selected_terminal_id":"terminal-c","seq":42}
     """.utf8))
     #expect(selected?.workspaceID == "ws-1")
     #expect(selected?.focusedPaneID == "pane-right")
     #expect(selected?.selectedTerminalID == "terminal-c")
+    #expect(selected?.sequence == 42)
 
     let browser = MobileWorkspaceFocusEvent(payloadJSON: Data("""
     {"kind":"focus","workspace_id":"ws-1","focused_pane_id":"pane-right","selected_terminal_id":null}
     """.utf8))
     #expect(browser?.workspaceID == "ws-1")
     #expect(browser?.selectedTerminalID == nil)
+    #expect(browser?.sequence == nil)
     #expect(MobileWorkspaceFocusEvent(payloadJSON: Data("{}".utf8)) == nil)
 }

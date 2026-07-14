@@ -85,6 +85,10 @@ final class RemoteTmuxControlConnection {
     /// the cached classification instead of hanging until a reconnect that may
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
+    /// Deadline tasks paired one-to-one with ``activityQueryCompletions``. A
+    /// connected control stream can remain wedged without producing either a
+    /// reply or a reset, so stream lifecycle alone cannot bound close RPCs.
+    var activityQueryTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
 
     private var process: Process?

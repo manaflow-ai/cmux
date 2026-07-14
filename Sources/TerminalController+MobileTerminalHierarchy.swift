@@ -62,7 +62,7 @@ extension TerminalController {
         }
         let confirmed = v2Bool(params, "confirmed") == true
         let needsConfirmation: Bool
-        if resolved.workspace.isRemoteTmuxMirror {
+        if resolved.workspace.isRemoteTmuxMirror, !confirmed {
             let remoteTmuxController = AppDelegate.shared?.remoteTmuxController
             let cachedHasActiveCommand = remoteTmuxController?
                 .cachedMirrorTabActivity(
@@ -80,6 +80,12 @@ extension TerminalController {
                 cachedHasActiveCommand: cachedHasActiveCommand,
                 liveHasActiveCommand: liveHasActiveCommand
             )
+        } else if resolved.workspace.isRemoteTmuxMirror {
+            // The client already presented and accepted the destructive-close
+            // consequence. A second live query can only delay or strand the
+            // confirmed operation; the target and close constraints are still
+            // revalidated below immediately before mutation.
+            needsConfirmation = false
         } else {
             needsConfirmation = resolved.workspace.panelNeedsConfirmClose(panelId: surfaceID)
         }
@@ -90,7 +96,8 @@ extension TerminalController {
                 data: ["requires_confirmation": true]
             )
         }
-        // A live tmux query suspends this handler. Revalidate the destructive
+        // An unconfirmed live tmux query suspends this handler. Every path,
+        // including an already-confirmed retry, revalidates the destructive
         // target and its policy constraints before applying the close.
         guard resolved.workspace.terminalPanel(for: surfaceID) != nil else {
             return .err(code: "not_found", message: "Terminal not found", data: nil)

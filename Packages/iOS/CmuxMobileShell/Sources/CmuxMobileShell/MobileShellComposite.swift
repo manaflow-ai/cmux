@@ -734,6 +734,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var workspaceFocusEventRevisionsByMac: [
         String: [String: MobileWorkspaceFocusDimensionRevisions]
     ] = [:]
+    @ObservationIgnored var workspaceFocusHostSequencesByMac: [String: [String: UInt64]] = [:]
     var foregroundWorkspaceMutationRefreshTask: Task<ForegroundWorkspaceMutationRefreshResult, Never>?
     var foregroundWorkspaceMutationRefreshTaskID: UUID?
     /// The user pull-to-refresh round-trip, kept on its own handle so the
@@ -1199,6 +1200,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // above: the placeholder workspaces are ungrouped, and the previous
         // account's group names must not survive into the next session.
         workspaceFocusEventRevisionsByMac.removeAll()
+        workspaceFocusHostSequencesByMac.removeAll()
         workspacesByMac = [Self.foregroundAnonymousKey: MacWorkspaceState(
             macDeviceID: Self.foregroundAnonymousKey,
             workspaces: PreviewMobileHost.workspaces,
@@ -3346,6 +3348,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedHostCapabilities: handle.supportedHostCapabilities,
             actionCapabilities: handle.actionCapabilities
         )
+        resetWorkspaceFocusHostSequenceTracking(ownerKey: macID)
         secondaryMacSubscriptions[macID] = subscription
         let displayName = mac.displayName
         let refreshStartedGeneration = subscription.refreshStartedGeneration
@@ -4580,6 +4583,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         connectionAttemptGeneration = generation
         connectionGeneration = generation
+        for ownerKey in Set([
+            foregroundMacKey,
+            pairedMacDeviceID ?? "",
+            ticket.macDeviceID,
+            Self.foregroundAnonymousKey,
+        ]) where !ownerKey.isEmpty {
+            resetWorkspaceFocusHostSequenceTracking(ownerKey: ownerKey)
+        }
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
@@ -4731,6 +4742,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         ticket,
                         adoptingReportedDeviceID: reportedDeviceID
                     )
+                    let resolvedForegroundMacID = resolvedTicket.foregroundMacID(hint: pairedMacDeviceID)
+                    resetWorkspaceFocusHostSequenceTracking(ownerKey: resolvedForegroundMacID)
                     activeTicket = resolvedTicket
                     let reportedName = hasAuthenticatedIdentity ? status?.macDisplayName : nil
                     if let reportedName = reportedName?
@@ -4787,7 +4800,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // snapshot. Anonymous (empty-id) tickets keep the anonymous key. A
                     // manual fallback ticket carries a synthetic `manual-…` id, so
                     // prefer the caller's real paired-Mac id when it is known.
-                    let resolvedForegroundMacID = resolvedTicket.foregroundMacID(hint: pairedMacDeviceID)
                     let previousForegroundKey = foregroundMacKey
                     if !resolvedForegroundMacID.isEmpty {
                         foregroundMacDeviceID = resolvedForegroundMacID

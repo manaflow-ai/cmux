@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -175,6 +176,80 @@ import Testing
     #expect(updated.panes.first(where: { $0.id == paneB })?.isFocused == true)
     #expect(updated.terminals.first(where: { $0.id == "terminal-b" })?.isFocused == true)
     #expect(store.remoteTerminalCreationPaneID(in: updated, explicitPaneID: nil) == paneB)
+}
+
+@MainActor
+@Test func sequencedFocusRejectsLegacyRewindUntilOwnerReconnects() throws {
+    let workspace = MobileWorkspacePreview(
+        id: "workspace-focus-reconnect",
+        name: "Focus reconnect",
+        terminals: [
+            MobileTerminalPreview(id: "terminal-a", name: "A", paneID: "pane-a", isFocused: true),
+            MobileTerminalPreview(id: "terminal-b", name: "B", paneID: "pane-b"),
+        ],
+        panes: [
+            MobilePanePreview(id: "pane-a", spatialIndex: 0, isFocused: true, terminalIDs: ["terminal-a"]),
+            MobilePanePreview(id: "pane-b", spatialIndex: 1, terminalIDs: ["terminal-b"]),
+        ],
+        focusedPaneID: "pane-a",
+        selectedTerminalID: "terminal-a"
+    )
+    let store = MobileShellComposite(workspaces: [workspace])
+    let modern = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"workspace-focus-reconnect","focused_pane_id":"pane-b","selected_terminal_id":"terminal-b","seq":8}
+    """.utf8)))
+    let legacy = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"workspace-focus-reconnect","focused_pane_id":"pane-a","selected_terminal_id":"terminal-a"}
+    """.utf8)))
+
+    store.applyWorkspaceFocusEvent(modern, macID: nil)
+    store.applyWorkspaceFocusEvent(legacy, macID: nil)
+    #expect(store.workspaces.first?.focusedPaneID == "pane-b")
+
+    store.resetWorkspaceFocusHostSequenceTracking(macID: nil)
+    store.applyWorkspaceFocusEvent(legacy, macID: nil)
+    #expect(store.workspaces.first?.focusedPaneID == "pane-a")
+}
+
+@MainActor
+@Test func focusEventUsesAnonymousStateDuringDurableTicketPromotion() throws {
+    let workspace = MobileWorkspacePreview(
+        id: "workspace-ticket-promotion",
+        name: "Ticket promotion",
+        terminals: [
+            MobileTerminalPreview(id: "terminal-a", name: "A", paneID: "pane-a", isFocused: true),
+            MobileTerminalPreview(id: "terminal-b", name: "B", paneID: "pane-b"),
+        ],
+        panes: [
+            MobilePanePreview(id: "pane-a", spatialIndex: 0, isFocused: true, terminalIDs: ["terminal-a"]),
+            MobilePanePreview(id: "pane-b", spatialIndex: 1, terminalIDs: ["terminal-b"]),
+        ],
+        focusedPaneID: "pane-a",
+        selectedTerminalID: "terminal-a"
+    )
+    let store = MobileShellComposite(workspaces: [workspace])
+    let route = try CmxAttachRoute(
+        id: "promotion-loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 50906),
+        priority: 0
+    )
+    store.activeTicket = try CmxAttachTicket(
+        workspaceID: workspace.id.rawValue,
+        terminalID: nil,
+        macDeviceID: "durable-mac",
+        macDisplayName: "Durable Mac",
+        routes: [route],
+        expiresAt: nil
+    )
+    let event = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"workspace-ticket-promotion","focused_pane_id":"pane-b","selected_terminal_id":"terminal-b","seq":1}
+    """.utf8)))
+
+    store.applyWorkspaceFocusEvent(event, macID: nil)
+
+    #expect(store.workspaces.first?.focusedPaneID == "pane-b")
+    #expect(store.workspaceFocusHostSequencesByMac["durable-mac"]?[workspace.id.rawValue] == 1)
 }
 
 @MainActor

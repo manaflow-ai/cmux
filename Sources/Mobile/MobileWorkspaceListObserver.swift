@@ -46,6 +46,10 @@ final class MobileWorkspaceListObserver {
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var focusedHierarchyProjections: [UUID: MobileWorkspaceHierarchyProjection.FocusValue] = [:]
+    /// Host-lifetime ordering token for focus-only events. Event delivery fans
+    /// out through independent tasks, so receive order is not authoritative.
+    /// The phone keeps a per-workspace high-water mark and discards older tokens.
+    private var focusEventSequence: UInt64 = 0
     private var lastSummaryHash: Int = 0
     private var workspaceSummaryHashes: [UUID: Int] = [:]
     private var lastPreviewSignatures: [UUID: Int] = [:]
@@ -298,8 +302,12 @@ final class MobileWorkspaceListObserver {
         let projection = MobileWorkspaceHierarchyProjection.FocusValue(workspace: workspace)
         guard focusedHierarchyProjections[workspace.id] != projection else { return }
         focusedHierarchyProjections[workspace.id] = projection
+        focusEventSequence &+= 1
         mobileWorkspaceObserverLog.debug("emitting workspace.focused hierarchy workspace=\(workspace.id, privacy: .public)")
-        MobileHostService.shared.emitEvent(topic: "workspace.focused", payload: projection.eventPayload)
+        MobileHostService.shared.emitEvent(
+            topic: "workspace.focused",
+            payload: projection.eventPayload(sequence: focusEventSequence)
+        )
     }
 
     private func scheduleInvalidation(_ invalidation: MobileWorkspaceInvalidation) {

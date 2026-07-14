@@ -26,12 +26,13 @@ extension MobileWorkspaceHierarchyProjection {
             schemaVersion = MobileWorkspaceHierarchyProjection.schemaVersion
         }
 
-        var eventPayload: [String: Any] {
+        func eventPayload(sequence: UInt64) -> [String: Any] {
             [
                 "kind": "focus",
                 "workspace_id": workspaceID.uuidString,
                 "focused_pane_id": focusedPaneID?.uuidString ?? NSNull(),
                 "selected_terminal_id": selectedTerminalID?.uuidString ?? NSNull(),
+                "seq": sequence,
             ]
         }
     }

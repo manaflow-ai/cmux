@@ -18,11 +18,17 @@ struct MobileWorkspaceFocusDimensionRevisions: Equatable, Sendable {
 extension MobileShellComposite {
     /// Applies a focus-only event without fetching or decoding the full list.
     func applyWorkspaceFocusEvent(_ event: MobileWorkspaceFocusEvent, macID: String?) {
-        let ownerKey = macID ?? foregroundMacKey
-        guard var state = workspacesByMac[ownerKey],
+        // State may still live under the anonymous foreground key while an
+        // active ticket already exposes the Mac's durable identity. Keep the
+        // existing state lookup during that promotion window; only the ordering
+        // ledger resolves through the durable focus owner.
+        let stateOwnerKey = macID ?? foregroundMacKey
+        let sequenceOwnerKey = workspaceFocusOwnerKey(macID: macID)
+        guard var state = workspacesByMac[stateOwnerKey],
               let sourceIndex = state.workspaces.firstIndex(where: {
                   $0.rpcWorkspaceID.rawValue == event.workspaceID
               }) else { return }
+        guard claimWorkspaceFocusHostSequence(event, ownerKey: sequenceOwnerKey) else { return }
         var sourceWorkspace = state.workspaces[sourceIndex]
         let dimensions = sourceWorkspace.applyFocusSnapshot(event)
         guard !dimensions.isEmpty else { return }
@@ -38,7 +44,7 @@ extension MobileShellComposite {
         }
 
         state.workspaces[sourceIndex] = sourceWorkspace
-        replaceWorkspaceSourceFocus(for: ownerKey, with: state)
+        replaceWorkspaceSourceFocus(for: stateOwnerKey, with: state)
 
         var visibleWorkspace = workspaces[visibleIndex]
         _ = visibleWorkspace.applyFocusSnapshot(event)
@@ -87,22 +93,31 @@ extension MobileShellComposite {
     /// `workspacesByMac` key that no longer exists.
     func removeWorkspaceFocusRevisions(ownerKey: String) {
         workspaceFocusEventRevisionsByMac[ownerKey] = nil
+        workspaceFocusHostSequencesByMac[ownerKey] = nil
     }
 
     /// Re-keys revisions when an anonymous foreground owner adopts its real Mac
     /// identity. A workspace already observed under the destination keeps the
     /// newer revision, and the global monotonic counter is unchanged.
     func moveWorkspaceFocusRevisions(from oldOwnerKey: String, to newOwnerKey: String) {
-        guard oldOwnerKey != newOwnerKey,
-              let oldRevisions = workspaceFocusEventRevisionsByMac.removeValue(forKey: oldOwnerKey) else {
-            return
+        guard oldOwnerKey != newOwnerKey else { return }
+        if let oldRevisions = workspaceFocusEventRevisionsByMac.removeValue(forKey: oldOwnerKey) {
+            var merged = workspaceFocusEventRevisionsByMac[newOwnerKey] ?? [:]
+            for (workspaceID, revisions) in oldRevisions {
+                merged[workspaceID] = (merged[workspaceID] ?? .init()).maxMerged(with: revisions)
+            }
+            if !merged.isEmpty {
+                workspaceFocusEventRevisionsByMac[newOwnerKey] = merged
+            }
         }
-        var merged = workspaceFocusEventRevisionsByMac[newOwnerKey] ?? [:]
-        for (workspaceID, revisions) in oldRevisions {
-            merged[workspaceID] = (merged[workspaceID] ?? .init()).maxMerged(with: revisions)
-        }
-        if !merged.isEmpty {
-            workspaceFocusEventRevisionsByMac[newOwnerKey] = merged
+        if let oldHostSequences = workspaceFocusHostSequencesByMac.removeValue(forKey: oldOwnerKey) {
+            var mergedHostSequences = workspaceFocusHostSequencesByMac[newOwnerKey] ?? [:]
+            for (workspaceID, sequence) in oldHostSequences {
+                mergedHostSequences[workspaceID] = max(mergedHostSequences[workspaceID] ?? 0, sequence)
+            }
+            if !mergedHostSequences.isEmpty {
+                workspaceFocusHostSequencesByMac[newOwnerKey] = mergedHostSequences
+            }
         }
     }
 
@@ -160,6 +175,34 @@ extension MobileShellComposite {
         let ownerKey = workspaceFocusOwnerKey(macID: macID)
         workspaceFocusEventRevisionsByMac[ownerKey, default: [:]][event.workspaceID, default: .init()]
             .record(dimensions, at: workspaceFocusEventRevision)
+    }
+
+    /// Claims a host ordering token before mutating focus. Once a modern host
+    /// supplies a token for a workspace, lower/equal tokens and unsequenced
+    /// envelopes cannot rewind it. A legacy host remains fully compatible
+    /// because its new connection never establishes a high-water mark.
+    private func claimWorkspaceFocusHostSequence(
+        _ event: MobileWorkspaceFocusEvent,
+        ownerKey: String
+    ) -> Bool {
+        let lastSequence = workspaceFocusHostSequencesByMac[ownerKey]?[event.workspaceID]
+        guard let sequence = event.sequence else {
+            return lastSequence == nil
+        }
+        guard lastSequence.map({ sequence > $0 }) ?? true else { return false }
+        workspaceFocusHostSequencesByMac[ownerKey, default: [:]][event.workspaceID] = sequence
+        return true
+    }
+
+    /// A host process may restart its counter at zero. Clear only the owner
+    /// whose transport was replaced; other live Mac streams keep their guards.
+    func resetWorkspaceFocusHostSequenceTracking(ownerKey: String) {
+        guard !ownerKey.isEmpty else { return }
+        workspaceFocusHostSequencesByMac[ownerKey] = nil
+    }
+
+    func resetWorkspaceFocusHostSequenceTracking(macID: String?) {
+        resetWorkspaceFocusHostSequenceTracking(ownerKey: workspaceFocusOwnerKey(macID: macID))
     }
 
     /// Resolves one stable focus-revision owner through foreground promotion.

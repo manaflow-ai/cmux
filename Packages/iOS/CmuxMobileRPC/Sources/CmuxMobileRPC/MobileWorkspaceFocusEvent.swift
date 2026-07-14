@@ -8,12 +8,16 @@ public struct MobileWorkspaceFocusEvent: Decodable, Sendable {
     public let focusedPaneID: String?
     /// Selected terminal identity, or `nil` when a non-terminal tab is selected.
     public let selectedTerminalID: String?
+    /// Host-lifetime ordering token. Missing for hosts that predate sequenced
+    /// focus events; the shell accepts that legacy mode until a token is seen.
+    public let sequence: UInt64?
 
     private enum CodingKeys: String, CodingKey {
         case kind
         case workspaceID = "workspace_id"
         case focusedPaneID = "focused_pane_id"
         case selectedTerminalID = "selected_terminal_id"
+        case sequence = "seq"
     }
 
     /// Decodes only the focus-specific `workspace.updated` payload variant.
@@ -29,6 +33,7 @@ public struct MobileWorkspaceFocusEvent: Decodable, Sendable {
         workspaceID = try values.decode(String.self, forKey: .workspaceID)
         focusedPaneID = try values.decodeIfPresent(String.self, forKey: .focusedPaneID)
         selectedTerminalID = try values.decodeIfPresent(String.self, forKey: .selectedTerminalID)
+        sequence = try values.decodeIfPresent(UInt64.self, forKey: .sequence)
     }
 
     /// Decodes a focus event, returning `nil` for legacy/global payloads.

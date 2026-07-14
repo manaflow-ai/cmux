@@ -29,9 +29,8 @@ extension RemoteTmuxControlConnection {
         guard !isError else {
             // An errored activity query must still complete (with nil) — a close
             // decision is waiting on it and falls back to the cached state.
-            if case let .activityQuery(token) = kind,
-               let completion = activityQueryCompletions.removeValue(forKey: token) {
-                completion(nil)
+            if case let .activityQuery(token) = kind {
+                finishActivityQuery(token: token, states: nil)
             }
             if case let .newWindow(token) = kind,
                let completion = newWindowCompletions.removeValue(forKey: token) {
@@ -304,7 +303,6 @@ extension RemoteTmuxControlConnection {
             // lines → classifyAndEmitReflow defaults to no-reflow (safe).
             classifyAndEmitReflow(paneId: paneId, rawValue: lines.first ?? "", source: "oneshot")
         case let .activityQuery(token):
-            guard let completion = activityQueryCompletions.removeValue(forKey: token) else { break }
             var states: [Int: PaneForegroundState] = [:]
             for line in lines {
                 guard let parsed = Self.parseActivityQueryLine(line) else { continue }
@@ -313,7 +311,7 @@ extension RemoteTmuxControlConnection {
             // The fresh answer flows back into the cache, so the synchronous
             // consumers (batch close, workspace close, quit warning) benefit too.
             for (paneId, state) in states { paneForegroundStates[paneId] = state }
-            completion(states)
+            finishActivityQuery(token: token, states: states)
         case let .paneAltScreen(paneId):
             // Match the mirror surface to the remote pane's screen (alt = no reflow on
             // resize). Emitted before the capture paint that follows in the FIFO, so the

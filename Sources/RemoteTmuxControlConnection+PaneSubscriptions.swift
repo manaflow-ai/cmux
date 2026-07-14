@@ -1,6 +1,10 @@
 import Foundation
 
 extension RemoteTmuxControlConnection {
+    /// Leaves margin inside the mobile RPC response budget while allowing a
+    /// normal remote control-mode round trip to finish.
+    static let activityQueryTimeout: Duration = .seconds(1)
+
     /// Subscribes to live changes of `paneId`'s expanded `pane-border-format`
     /// (see ``headerSubscriptionPrefix``). The pane-rects fetch seeds the
     /// initial label; this keeps it current between layout events. Quoting is
@@ -169,33 +173,73 @@ extension RemoteTmuxControlConnection {
     /// workspace close, quit warning) get the freshness for free. `completion` is
     /// called exactly once, on the main actor; `nil` means the query could not be
     /// issued or the stream reset first (caller falls back to the cache).
-    func queryWindowActivity(windowId: Int, completion: @escaping ([Int: PaneForegroundState]?) -> Void) {
-        sendActivityQuery(Self.windowActivityQueryCommand(windowId: windowId), completion: completion)
+    @discardableResult
+    func queryWindowActivity(
+        windowId: Int,
+        token: UUID = UUID(),
+        completion: @escaping ([Int: PaneForegroundState]?) -> Void
+    ) -> UUID? {
+        sendActivityQuery(
+            Self.windowActivityQueryCommand(windowId: windowId),
+            token: token,
+            completion: completion
+        )
     }
 
 
     /// Single-pane variant of ``queryWindowActivity(windowId:completion:)``, for
     /// the multi-pane mirror's pane-header ✕ close.
-    func queryPaneActivity(paneId: Int, completion: @escaping ([Int: PaneForegroundState]?) -> Void) {
-        sendActivityQuery(Self.paneActivityQueryCommand(paneId: paneId), completion: completion)
+    @discardableResult
+    func queryPaneActivity(
+        paneId: Int,
+        token: UUID = UUID(),
+        completion: @escaping ([Int: PaneForegroundState]?) -> Void
+    ) -> UUID? {
+        sendActivityQuery(
+            Self.paneActivityQueryCommand(paneId: paneId),
+            token: token,
+            completion: completion
+        )
     }
 
 
+    @discardableResult
     func sendActivityQuery(
-        _ command: String, completion: @escaping ([Int: PaneForegroundState]?) -> Void
-    ) {
+        _ command: String,
+        token: UUID = UUID(),
+        completion: @escaping ([Int: PaneForegroundState]?) -> Void
+    ) -> UUID? {
         guard connectionState == .connected else {
             completion(nil)
-            return
+            return nil
         }
-        let token = UUID()
         activityQueryCompletions[token] = completion
         guard sendInternal(command, kind: .activityQuery(token)) else {
             // The stream could not accept the query, so no result can correlate.
             // Fail now and let the close decision proceed on the cached state.
-            activityQueryCompletions.removeValue(forKey: token)?(nil)
-            return
+            finishActivityQuery(token: token, states: nil)
+            return nil
         }
+        activityQueryTimeoutTasks[token] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.activityQueryTimeout)
+            guard !Task.isCancelled else { return }
+            self?.finishActivityQuery(token: token, states: nil)
+        }
+        return token
+    }
+
+
+    /// The single terminal transition for a live activity query. Response,
+    /// timeout, stream reset, and task cancellation all converge here so the
+    /// retained callback is removed before it is invoked and can resume once.
+    func finishActivityQuery(token: UUID, states: [Int: PaneForegroundState]?) {
+        activityQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
+        activityQueryCompletions.removeValue(forKey: token)?(states)
+    }
+
+
+    func cancelActivityQuery(token: UUID) {
+        finishActivityQuery(token: token, states: nil)
     }
 
 
@@ -222,8 +266,9 @@ extension RemoteTmuxControlConnection {
     /// a pending close decision falls back to the cached classification.
     func failPendingActivityQueries() {
         guard !activityQueryCompletions.isEmpty else { return }
-        let completions = Array(activityQueryCompletions.values)
-        activityQueryCompletions.removeAll()
-        for completion in completions { completion(nil) }
+        let tokens = Array(activityQueryCompletions.keys)
+        for token in tokens {
+            finishActivityQuery(token: token, states: nil)
+        }
     }
 }
