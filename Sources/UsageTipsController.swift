@@ -9,6 +9,7 @@ final class UsageTipsController {
         case idle
         case waiting
         case presenting(UsageTipPresentation)
+        case paused
         case finished
     }
 
@@ -21,7 +22,7 @@ final class UsageTipsController {
     private let isEligibleLaunch: Bool
     private var state: State = .idle
     @ObservationIgnored private var tipsEnabled: Bool
-    @ObservationIgnored private var registeredWindowIDs: [UUID] = []
+    @ObservationIgnored private var registeredWindowIDs: Set<UUID> = []
     @ObservationIgnored private var activeWindowID: UUID?
     @ObservationIgnored private var cancelInitialTip: UsageTipScheduler.Cancellation?
     @ObservationIgnored private var cancelAutoHide: UsageTipScheduler.Cancellation?
@@ -50,8 +51,7 @@ final class UsageTipsController {
     }
 
     func register(windowID: UUID) {
-        guard !registeredWindowIDs.contains(windowID) else { return }
-        registeredWindowIDs.append(windowID)
+        registeredWindowIDs.insert(windowID)
     }
 
     func windowDidBecomeKey(windowID: UUID) {
@@ -66,7 +66,7 @@ final class UsageTipsController {
     }
 
     func unregister(windowID: UUID) {
-        registeredWindowIDs.removeAll { $0 == windowID }
+        registeredWindowIDs.remove(windowID)
         if activeWindowID == windowID {
             activeWindowID = nil
         }
@@ -89,8 +89,16 @@ final class UsageTipsController {
             cancelAutoHide?()
             cancelInitialTip = nil
             cancelAutoHide = nil
-            state = .finished
+            switch state {
+            case .idle, .waiting, .paused:
+                state = .paused
+            case .presenting, .finished:
+                state = .finished
+            }
             return
+        }
+        if case .paused = state {
+            state = .idle
         }
         scheduleInitialTipIfNeeded()
     }
@@ -120,8 +128,13 @@ final class UsageTipsController {
     private func presentNextTip() {
         cancelInitialTip = nil
         guard case .waiting = state else { return }
-        guard tipsEnabled, let windowID = registeredWindowIDs.last else {
-            state = registeredWindowIDs.isEmpty ? .idle : .finished
+        guard tipsEnabled else {
+            state = .paused
+            return
+        }
+        guard let windowID = activeWindowID,
+              registeredWindowIDs.contains(windowID) else {
+            state = .idle
             return
         }
 
