@@ -13106,10 +13106,10 @@ struct CMUXCLI {
             if let string = value as? String {
                 return string
             }
-            if let bool = value as? Bool {
-                return bool ? "true" : "false"
-            }
             if let number = value as? NSNumber {
+                if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                    return number.boolValue ? "true" : "false"
+                }
                 return number.stringValue
             }
             if JSONSerialization.isValidJSONObject(value),
