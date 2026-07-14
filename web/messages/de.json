@@ -939,6 +939,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },
         "fileExplorer": {

@@ -99,6 +99,7 @@ final class NotificationNavSeamAdapter:
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool,
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?
@@ -107,6 +108,7 @@ final class NotificationNavSeamAdapter:
             tabId: tabId,
             surfaceId: surfaceId,
             panelId: panelId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             notificationId: notificationId,
             scrollRow: scrollRow,
             scrollTotalRows: scrollTotalRows
@@ -256,6 +258,7 @@ extension AppDelegate {
                 tabId: notification.tabId,
                 surfaceId: notification.surfaceId,
                 panelId: notification.panelId,
+                retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
                 isRead: notification.isRead,
                 clickAction: notification.clickAction.map(Self.navClickAction),
                 scrollRow: notification.scrollPosition?.row,
@@ -305,6 +308,7 @@ extension AppDelegate {
             tabId: notification.tabId,
             surfaceId: notification.surfaceId,
             panelId: notification.panelId,
+            retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
             isRead: notification.isRead,
             clickAction: notification.clickAction.map(navClickAction),
             scrollRow: notification.scrollPosition?.row,
@@ -384,6 +388,7 @@ extension AppDelegate {
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool,
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?
@@ -392,6 +397,7 @@ extension AppDelegate {
             tabId: tabId,
             surfaceId: surfaceId,
             panelId: panelId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             notificationId: notificationId,
             scrollPosition: navScrollPosition(row: scrollRow, totalRows: scrollTotalRows)
         )

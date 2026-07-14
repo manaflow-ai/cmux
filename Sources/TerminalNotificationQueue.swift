@@ -11,14 +11,14 @@ final class TerminalMutationBus: @unchecked Sendable {
         qos: .utility
     )
     private static let reliableSubmissionLock = NSLock()
-    private let lock = NSCondition()
-    private var pending: [TerminalSocketMutationEntry] = []
-    private var pendingHead = 0
+    let lock = NSCondition()
+    var pending: [TerminalSocketMutationEntry] = []
+    var pendingHead = 0
     private var drainScheduled = false
     private var nextSequence: UInt64 = 0
-    private var currentNotificationGeneration: UInt64 = 0
+    var currentNotificationGeneration: UInt64 = 0
     private var waitingNotificationProducerCount = 0
-    private var reliableAdmissionsById: [UUID: ReliableTerminalNotificationAdmission] = [:]
+    var reliableAdmissionsById: [UUID: ReliableTerminalNotificationAdmission] = [:]
     private var reliablyWaitingNotificationProducerCount = 0
     private let maxMutationsPerDrain = 16
 #if DEBUG
@@ -180,19 +180,20 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     nonisolated func enqueueClearAllNotifications() {
-        enqueueClear(.clearAllNotifications) { _ in true }
+        enqueueClear({ .clearAllNotifications(through: $0) }) { _ in true }
     }
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID) {
-        enqueueClear(.clearNotificationsForTab(tabId)) { key in
-            key.tabId == tabId
+        // Surface-addressed entries may have moved since enqueue. Keep them
+        // ahead of the barrier so delivery can resolve their live owner first.
+        enqueueClear({ .clearNotificationsForTab(tabId, through: $0) }) { key in
+            key.tabId == tabId && key.surfaceId == nil
         }
     }
 
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID, surfaceId: UUID) {
-        enqueueClear(
-            .clearNotificationsForSurface(tabId, surfaceId)
-        ) { key in
-            key.tabId == tabId && key.surfaceId == surfaceId
+        // Canonical surface identity: a stale-keyed entry would retarget here at drain.
+        enqueueClear({ .clearNotificationsForSurface(tabId, surfaceId, through: $0) }) { key in
+            key.surfaceId == surfaceId
         }
     }
 
@@ -200,75 +201,14 @@ final class TerminalMutationBus: @unchecked Sendable {
         enqueueBarrierMutation(.perform(mutation))
     }
 
-    nonisolated func markNotificationClearBoundary() -> UInt64 {
-        lock.lock()
-        let boundary = currentNotificationGeneration
-        currentNotificationGeneration &+= 1
-        lock.unlock()
-        return boundary
-    }
-
-    nonisolated func discardPendingNotifications(forTabId tabId: UUID, through boundary: UInt64) {
-        discardPendingNotifications { key, generation in
-            key.tabId == tabId && generation <= boundary
-        }
-    }
-
-    nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID, through boundary: UInt64) {
-        discardPendingNotifications { key, generation in
-            key.tabId == tabId
-                && key.surfaceId == surfaceId
-                && generation <= boundary
-        }
-    }
-
-    nonisolated func discardPendingNotifications() {
-        discardPendingNotifications(advanceGeneration: true) { _, _ in true }
-    }
-
-    nonisolated func discardPendingNotifications(forTabId tabId: UUID) {
-        discardPendingNotifications { key, _ in
-            key.tabId == tabId
-        }
-    }
-
-    nonisolated func discardPendingNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
-        discardPendingNotifications { key, _ in
-            key.tabId == tabId && key.surfaceId == surfaceId
-        }
-    }
-    nonisolated func transferPendingNotifications(
-        fromTabId: UUID,
-        toTabId: UUID,
-        panelIdMap: [UUID: UUID]
-    ) {
-        guard fromTabId != toTabId else { return }
-        lock.lock()
-        compactPendingForMutation()
-        pending = Self.remappingPendingEntries(
-            pending, fromTabId: fromTabId, toTabId: toTabId, panelIdMap: panelIdMap
-        )
-        let reliableIds = reliableAdmissionsById.compactMap { id, admission in
-            admission.key.tabId == fromTabId ? id : nil
-        }
-        for id in reliableIds {
-            guard var admission = reliableAdmissionsById[id] else { continue }
-            admission.key = QueuedTerminalNotificationKey(
-                tabId: toTabId,
-                surfaceId: admission.key.surfaceId.map { panelIdMap[$0] ?? $0 }
-            )
-            reliableAdmissionsById[id] = admission
-        }
-        lock.broadcast()
-        lock.unlock()
-    }
-
     private func enqueueClear(
-        _ mutation: TerminalSocketMutation,
+        _ mutation: (UInt64) -> TerminalSocketMutation,
         dropping shouldDrop: (QueuedTerminalNotificationKey) -> Bool
     ) {
         let shouldScheduleDrain: Bool
         lock.lock()
+        let boundary = currentNotificationGeneration
+        currentNotificationGeneration &+= 1
         reliableAdmissionsById = reliableAdmissionsById.filter { !shouldDrop($0.value.key) }
         compactPendingForMutation()
         pending.removeAll { entry in
@@ -280,7 +220,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         nextSequence &+= 1
         pending.append(TerminalSocketMutationEntry(
             sequence: nextSequence,
-            mutation: mutation,
+            mutation: mutation(boundary),
             notificationGeneration: nil,
             performReplaceKey: nil
         ))
@@ -339,29 +279,6 @@ final class TerminalMutationBus: @unchecked Sendable {
         lock.unlock()
         guard shouldScheduleDrain else { return }
         scheduleDrain()
-    }
-
-    private func discardPendingNotifications(
-        advanceGeneration: Bool = false,
-        where shouldDiscard: (QueuedTerminalNotificationKey, UInt64) -> Bool
-    ) {
-        lock.lock()
-        reliableAdmissionsById = reliableAdmissionsById.filter {
-            !shouldDiscard($0.value.key, $0.value.notificationGeneration)
-        }
-        compactPendingForMutation()
-        pending.removeAll { entry in
-            guard case .deliverNotification(let notification) = entry.mutation,
-                  let generation = entry.notificationGeneration else {
-                return false
-            }
-            return shouldDiscard(notification.key, generation)
-        }
-        if advanceGeneration {
-            currentNotificationGeneration &+= 1
-        }
-        lock.broadcast()
-        lock.unlock()
     }
 
     private func scheduleDrain() {
@@ -498,7 +415,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     /// Discards the consumed prefix before mutations scan live work.
-    private func compactPendingForMutation() {
+    func compactPendingForMutation() {
         guard pendingHead > 0 else { return }
         pending.removeFirst(pendingHead)
         pendingHead = 0

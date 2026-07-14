@@ -86,4 +86,23 @@ describe("docs search index", () => {
       ).toBe(true);
     }
   });
+
+  test("localizes the notification preview schema description in every locale", async () => {
+    for (const locale of routing.locales) {
+      const messages = (await import(`../messages/${locale}.json`)).default as {
+        docs: {
+          configuration: {
+            schemaDescriptions: {
+              sidebar: { notificationMessageLineLimit?: string };
+            };
+          };
+        };
+      };
+
+      expect(
+        messages.docs.configuration.schemaDescriptions.sidebar
+          .notificationMessageLineLimit,
+      ).toBeTruthy();
+    }
+  });
 });

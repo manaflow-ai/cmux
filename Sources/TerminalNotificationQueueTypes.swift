@@ -28,9 +28,9 @@ struct ReliableTerminalNotificationAdmission {
 
 enum TerminalSocketMutation {
     case deliverNotification(QueuedTerminalNotification)
-    case clearAllNotifications
-    case clearNotificationsForTab(UUID)
-    case clearNotificationsForSurface(UUID, UUID)
+    case clearAllNotifications(through: UInt64)
+    case clearNotificationsForTab(UUID, through: UInt64)
+    case clearNotificationsForSurface(UUID, UUID, through: UInt64)
     case perform(@MainActor () -> Void)
 }
 

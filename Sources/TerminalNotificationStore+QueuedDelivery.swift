@@ -1,47 +1,6 @@
 import Foundation
 
 extension TerminalNotificationStore {
-    func deliverQueuedNotification(_ notification: QueuedTerminalNotification) {
-        guard shouldDeliverQueuedNotification(notification) else {
-#if DEBUG
-            cmuxDebugLog(
-                "notification.queue.deliver.skip workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") reason=targetMissing titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
-            )
-#endif
-            return
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "notification.queue.deliver workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
-        )
-#endif
-        addNotification(
-            id: notification.id,
-            acceptedAt: notification.acceptedAt,
-            tabId: notification.key.tabId,
-            surfaceId: notification.key.surfaceId,
-            title: notification.title,
-            subtitle: notification.subtitle,
-            body: notification.body
-        )
-    }
-
-    private func shouldDeliverQueuedNotification(_ notification: QueuedTerminalNotification) -> Bool {
-        guard let appDelegate = AppDelegate.shared else { return false }
-        guard let surfaceId = notification.key.surfaceId else {
-            let tabManager = appDelegate.tabManagerFor(tabId: notification.key.tabId) ?? appDelegate.tabManager
-            return tabManager?.tabs.contains(where: { $0.id == notification.key.tabId }) == true
-        }
-
-        guard let target = appDelegate.workspaceContainingPanel(
-            panelId: surfaceId,
-            preferredWorkspaceId: notification.key.tabId
-        ) else {
-            return false
-        }
-        return target.workspace.id == notification.key.tabId
-    }
-
     static func cachedDeliveryAuthorizationDecision(
         for state: NotificationAuthorizationState,
         isAppActive: Bool
