@@ -456,6 +456,7 @@ class TabManager: ObservableObject {
     // entry points.
     let sidebarGitMetadataService: any SidebarGitMetadataServing
     let pullRequestProbing: any PullRequestProbing
+    let pullRequestPanelService: any PullRequestPanelServing
 
     init(
         initialWorkspaceTitle: String? = nil,
@@ -464,6 +465,7 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
+        pullRequestPanelService: (any PullRequestPanelServing)? = nil,
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
@@ -474,6 +476,10 @@ class TabManager: ObservableObject {
         self.settings = settings
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
+        self.pullRequestPanelService = pullRequestPanelService ?? GitHubPullRequestPanelService(
+            commandRunner: commandRunner,
+            gitMetadataService: gitMetadataService
+        )
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
 #if DEBUG

@@ -9300,24 +9300,15 @@ struct ContentView: View {
         let pullRequests = workspace.sidebarPullRequestsInDisplayOrder()
         guard !pullRequests.isEmpty else { return false }
 
-        var openedCount = 0
-        if BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser() {
-            for pullRequest in pullRequests {
-                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
-                    openedCount += 1
-                } else if NSWorkspace.shared.open(pullRequest.url) {
-                    openedCount += 1
-                }
-            }
-            return openedCount > 0
-        }
-
+        var opened = false
         for pullRequest in pullRequests {
-            if NSWorkspace.shared.open(pullRequest.url) {
-                openedCount += 1
-            }
+            opened = tabManager.openSidebarPullRequestURL(
+                pullRequest.url,
+                inWorkspace: workspace.id,
+                preferSplitRight: false
+            ) || opened
         }
-        return openedCount > 0
+        return opened
     }
 
     private func openFocusedDirectory(in target: TerminalDirectoryOpenTarget) -> Bool {
@@ -14602,18 +14593,11 @@ struct TabItemView: View, Equatable {
 
     private func openPullRequestLink(_ url: URL) {
         updateSelection()
-        if openSidebarPullRequestLinksInCmuxBrowser {
-            if tabManager.openBrowser(
-                inWorkspace: tab.id,
-                url: url,
-                preferSplitRight: true,
-                insertAtEnd: true
-            ) == nil {
-                NSWorkspace.shared.open(url)
-            }
-            return
-        }
-        NSWorkspace.shared.open(url)
+        _ = tabManager.openSidebarPullRequestURL(
+            url,
+            inWorkspace: tab.id,
+            preferSplitRight: true
+        )
     }
 
     private func openPortLink(_ port: Int) {

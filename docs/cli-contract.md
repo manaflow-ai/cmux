@@ -356,8 +356,8 @@ Right sidebar commands:
 | --- | --- |
 | `right-sidebar toggle`, `right-sidebar show`, `right-sidebar hide` | Change right-sidebar visibility without printing on success. |
 | `right-sidebar focus` | Focus the current right-sidebar mode. |
-| `right-sidebar set <files\|find\|vault\|sessions\|feed\|dock>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
-| `right-sidebar files`, `right-sidebar find`, `right-sidebar vault`, `right-sidebar sessions`, `right-sidebar feed`, `right-sidebar dock` | Short aliases for `right-sidebar set <mode>` with focus. |
+| `right-sidebar set <files\|find\|vault\|sessions\|pull-requests\|feed\|dock>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
+| `right-sidebar files`, `right-sidebar find`, `right-sidebar vault`, `right-sidebar sessions`, `right-sidebar pull-requests`, `right-sidebar feed`, `right-sidebar dock` | Short aliases for `right-sidebar set <mode>` with focus. |
 | `right-sidebar mode` | Print JSON with `visible` and `mode`. |
 | `--workspace <id\|ref\|index>` | Target the window containing a workspace. Refs and indexes resolve before the V1 socket command is sent. |
 | `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |

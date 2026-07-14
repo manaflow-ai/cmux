@@ -43,6 +43,9 @@ extension TerminalControllerSocketSecurityTests {
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set sessions --no-focus") == "OK")
         #expect(fileExplorerState.mode == .sessions)
 
+        #expect(TerminalController.shared.handleSocketLine("right_sidebar set pull-requests --no-focus") == "OK")
+        #expect(fileExplorerState.mode == .pullRequests)
+
         #expect(TerminalController.shared.handleSocketLine("right_sidebar hide") == "OK")
         #expect(!fileExplorerState.isVisible)
 
@@ -56,7 +59,7 @@ extension TerminalControllerSocketSecurityTests {
         let modeData = try #require(modeResponse.data(using: .utf8))
         let modePayload = try #require(JSONSerialization.jsonObject(with: modeData) as? [String: Any])
         #expect(modePayload["visible"] as? Bool == true)
-        #expect(modePayload["mode"] as? String == "sessions")
+        #expect(modePayload["mode"] as? String == "pull-requests")
 
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set unknown").hasPrefix("ERROR:"))
     }
@@ -141,6 +144,10 @@ extension TerminalControllerSocketSecurityTests {
                 RightSidebarRemoteRequest(command: .setMode(.sessions, focus: true), target: RightSidebarRemoteTarget())
             ),
             (
+                "right_sidebar pull-requests",
+                RightSidebarRemoteRequest(command: .setMode(.pullRequests, focus: true), target: RightSidebarRemoteTarget())
+            ),
+            (
                 "right_sidebar mode",
                 RightSidebarRemoteRequest(command: .getState, target: RightSidebarRemoteTarget())
             ),
@@ -188,6 +195,7 @@ extension TerminalControllerSocketSecurityTests {
             ("right_sidebar focus", true),
             ("right_sidebar set find", true),
             ("right_sidebar sessions", true),
+            ("right_sidebar pull-requests", true),
             ("right_sidebar set vault --no-focus", false),
             ("right_sidebar hide", false),
             ("right_sidebar mode", false),
