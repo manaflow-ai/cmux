@@ -948,7 +948,8 @@ final class FileExplorerContainerView: NSView {
         presentation = nextPresentation
         switch presentation {
         case .unified:
-            isSearchVisible = coordinator.state.mode == .find && hasSearchQuery
+            let activationMode = window?.firstResponder.flatMap(rightSidebarActivationMode(owning:)) ?? coordinator.state.mode
+            isSearchVisible = activationMode == .find && hasSearchQuery
         case .files:
             isSearchVisible = false
         case .find:
@@ -959,7 +960,6 @@ final class FileExplorerContainerView: NSView {
         updateSearchLayout()
         if presentationChanged { registerWithKeyboardFocusCoordinatorIfNeeded() }
     }
-
     func updateVisibility(hasContent: Bool, isLoading: Bool, statusMessage: String?) {
         let normalizedStatus = statusMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasStatus = normalizedStatus?.isEmpty == false
