@@ -55,7 +55,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
             coordinatedBy: sharedIndex
         ))
         let closeDeferrer = AgentMetadataCloseDeferrer()
-        let closeTask = closeDeferrer.deferClose(id: panelId, until: enrichment) {
+        let closeTask = closeDeferrer.deferClose(id: panelId, until: enrichment.enrichmentTask) {
             state.withLock { $0.closeCount += 1 }
         }
 
