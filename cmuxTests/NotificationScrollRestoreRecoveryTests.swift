@@ -283,6 +283,31 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(surfaceView.performedRows == [240])
     }
 
+    @Test func provisionalReplayAnchorUsesCurrentViewportHeight() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        let boundaryGeometry = geometry(
+            scrollbar(total: 400, offset: 356, len: 44),
+            rowSpaceRevision: 1
+        )
+        surfaceView.setAuthoritativeScrollbar(
+            scrollbar(total: 400, offset: 340, len: 60),
+            rowSpaceRevision: 1
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(
+            boundary,
+            authoritativeGeometry: boundaryGeometry
+        ))
+
+        #expect(surfaceView.performedRows == [240])
+    }
+
     @Test func unavailableAtomicRestoreRetriesOnLaterGeometry() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
