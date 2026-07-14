@@ -64,14 +64,12 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
             return .failure(error)
         }
 
-        let permit: CmuxRunWorkingDirectoryProcessLimiter.Permit
+        let permit: UUID
         switch await processLimiter.acquire() {
-        case .acquired(let acquiredPermit):
+        case .success(let acquiredPermit):
             permit = acquiredPermit
-        case .busy:
-            return .failure(.busy)
-        case .unavailable:
-            return .failure(.workingDirectoryVerifierUnavailable)
+        case .failure(let error):
+            return .failure(error)
         }
         let command = commandOverride?(expanded) ?? Self.canonicalDirectoryCommand(for: expanded)
         let process = Process()

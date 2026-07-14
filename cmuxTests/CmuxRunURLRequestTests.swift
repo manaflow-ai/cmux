@@ -386,18 +386,18 @@ struct CmuxRunURLRequestTests {
 
         let firstAcquisition = await limiter.acquire()
         let overlappingAcquisition = await limiter.acquire()
-        guard case .acquired(let permit) = firstAcquisition else {
+        guard case .success(let permit) = firstAcquisition else {
             Issue.record("Expected the first verifier permit to be acquired")
             return
         }
-        #expect(overlappingAcquisition == .busy)
+        #expect(overlappingAcquisition == .failure(.busy))
 
         await limiter.markUnavailable(permit)
-        #expect(await limiter.acquire() == .unavailable)
+        #expect(await limiter.acquire() == .failure(.workingDirectoryVerifierUnavailable))
 
         await limiter.recordTermination(permit)
         let acquisitionAfterTermination = await limiter.acquire()
-        guard case .acquired(let retryPermit) = acquisitionAfterTermination else {
+        guard case .success(let retryPermit) = acquisitionAfterTermination else {
             Issue.record("Expected termination to recover the verifier permit")
             return
         }
