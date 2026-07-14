@@ -1101,6 +1101,11 @@ final class TerminalNotificationStore: ObservableObject {
             clickAction: clickAction
         )
 
+        guard !indexes.ids.contains(notification.id) else {
+            restoreCooldownReservation(cooldownReservation)
+            return
+        }
+
         if effects.record {
             recordNotification(
                 notification,
@@ -1141,10 +1146,6 @@ final class TerminalNotificationStore: ObservableObject {
         acceptedAt: Date,
         cooldownReservation: NotificationCooldownReservations.Reservation?
     ) {
-        guard !indexes.ids.contains(notification.id) else {
-            restoreCooldownReservation(cooldownReservation)
-            return
-        }
         var updated = notifications
 
         if let existingIndicatorSurfaceId = focusedReadIndicatorByTabId[notification.tabId],
