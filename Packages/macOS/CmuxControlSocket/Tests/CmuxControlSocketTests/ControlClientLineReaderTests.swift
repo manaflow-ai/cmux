@@ -158,6 +158,37 @@ struct ControlClientLineReaderTests {
         #expect(stoppedAfterRevocation == .success)
     }
 
+    @Test func configuredReceiveTimeoutStillStopsIdlePollingReader() throws {
+        let pair = try SocketPairFixture()
+        var timeout = timeval(tv_sec: 0, tv_usec: 50_000)
+        let configured = withUnsafePointer(to: &timeout) { pointer in
+            setsockopt(
+                pair.readEnd,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                pointer,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+        #expect(configured == 0)
+        guard configured == 0 else { return }
+
+        let finished = DispatchSemaphore(value: 0)
+        let readEnd = pair.readEnd
+        DispatchQueue.global(qos: .userInitiated).async {
+            let reader = ControlClientLineReader(socket: readEnd)
+            _ = reader.nextLine(shouldContinueReading: { true })
+            finished.signal()
+        }
+
+        let stoppedAfterTimeout = finished.wait(timeout: .now() + 1.0)
+        if stoppedAfterTimeout != .success {
+            pair.closeWriteEnd()
+            _ = finished.wait(timeout: .now() + 1.0)
+        }
+        #expect(stoppedAfterTimeout == .success)
+    }
+
     @Test func discardsTrailingBytesWithoutNewlineAtEOF() throws {
         let pair = try SocketPairFixture()
         pair.write("complete\nincomplete")
