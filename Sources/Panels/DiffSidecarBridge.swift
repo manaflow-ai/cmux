@@ -38,6 +38,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
     private var invocations: [UUID: Task<Void, Never>] = [:]
     private var sessionInvocationByViewer: [ViewerInvocationKey: UUID] = [:]
+    private var discardedSessionInvocations: Set<UUID> = []
 
     /// Faults the Rust executable and its dynamic dependencies into the OS cache
     /// during app startup. The handshake uses stdio and exits; it never binds a
@@ -90,12 +91,12 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         let viewerKey = message.webView.flatMap { webView in
             viewerToken.map { ViewerInvocationKey(webView: ObjectIdentifier(webView), token: $0) }
         }
-        if method == "sessionClose", let viewerKey,
-           let pendingID = sessionInvocationByViewer[viewerKey] {
-            invocations[pendingID]?.cancel()
-        }
+        let closeSessionID = ((message.body as? [String: Any])?["params"] as? [String: Any])?["sessionId"] as? String
         if method == "sessionClose",
-           ((message.body as? [String: Any])?["params"] as? [String: Any])?["sessionId"] as? String == Self.pendingSessionID {
+           closeSessionID == Self.pendingSessionID {
+            if let viewerKey, let pendingID = sessionInvocationByViewer[viewerKey] {
+                discardedSessionInvocations.insert(pendingID)
+            }
             replyHandler([
                 "id": (message.body as? [String: Any])?["id"] as? String ?? "unknown",
                 "version": 1,
@@ -106,7 +107,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         }
         if method == "sessionOpen", let viewerKey,
            let previousID = sessionInvocationByViewer[viewerKey] {
-            invocations[previousID]?.cancel()
+            discardedSessionInvocations.insert(previousID)
         }
 
         let task = Task { [weak self] in
@@ -119,6 +120,13 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             guard let self else { return }
             switch result {
             case .success(let responseData):
+                if self.discardedSessionInvocations.remove(invocationID) != nil,
+                   let closeRequest = Self.sessionCloseRequest(
+                       openRequest: message.body,
+                       responseData: responseData
+                   ) {
+                    _ = try? await Self.processPool.run(request: closeRequest)
+                }
                 guard let response = try? JSONSerialization.jsonObject(with: responseData) else {
                     replyHandler(Self.failureResponse(body: message.body, code: "invalidResponse", message: "Diff sidecar returned invalid JSON"), nil)
                     self.finishInvocation(invocationID, viewerKey: viewerKey)
@@ -138,9 +146,32 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     private func finishInvocation(_ invocationID: UUID, viewerKey: ViewerInvocationKey?) {
         invocations.removeValue(forKey: invocationID)
+        discardedSessionInvocations.remove(invocationID)
         if let viewerKey, sessionInvocationByViewer[viewerKey] == invocationID {
             sessionInvocationByViewer.removeValue(forKey: viewerKey)
         }
+    }
+
+    nonisolated private static func sessionCloseRequest(openRequest: Any, responseData: Data) -> Data? {
+        guard let request = openRequest as? [String: Any],
+              let params = request["params"] as? [String: Any],
+              let capabilityToken = params["capabilityToken"] as? String,
+              let response = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              let result = response["result"] as? [String: Any],
+              result["type"] as? String == "sessionOpened",
+              let sessionID = result["sessionId"] as? String else {
+            return nil
+        }
+        let close: [String: Any] = [
+            "id": UUID().uuidString,
+            "version": 1,
+            "method": "sessionClose",
+            "params": [
+                "capabilityToken": capabilityToken,
+                "sessionId": sessionID,
+            ],
+        ]
+        return try? JSONSerialization.data(withJSONObject: close)
     }
 
     static func isTrustedSidecarFrame(_ frameInfo: WKFrameInfo) -> Bool {

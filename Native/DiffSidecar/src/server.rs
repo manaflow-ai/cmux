@@ -848,16 +848,9 @@ async fn prune_orphaned_session_temp_files(
                     .and_then(|modified| SystemTime::now().duration_since(modified).ok())
                     .is_some_and(|age| age >= minimum_age);
                 if old_enough {
-                    if name.starts_with('.') {
-                        match std::fs::remove_file(path) {
-                            Ok(()) => false,
-                            Err(error) => error.kind() != std::io::ErrorKind::NotFound,
-                        }
-                    } else {
-                        // Final patches remain manifest-owned. Drop only this
-                        // bounded recovery-index entry; the CLI's existing 24h
-                        // sweep removes the patch and stale manifest together.
-                        false
+                    match std::fs::remove_file(path) {
+                        Ok(()) => false,
+                        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
                     }
                 } else {
                     true
@@ -1683,11 +1676,14 @@ mod tests {
         let orphans: Vec<_> = (0..4)
             .map(|_| root.join(format!(".diff-session-{}.patch.tmp", uuid::Uuid::new_v4())))
             .collect();
+        let final_orphan = root.join(format!("diff-session-{}.patch", uuid::Uuid::new_v4()));
         let unrelated = root.join(".diff-session-invalid.patch.tmp");
         for orphan in &orphans {
             std::fs::write(orphan, b"private diff").expect("write orphan");
             register_session_temp(&root, orphan).expect("register orphan");
         }
+        std::fs::write(&final_orphan, b"private final diff").expect("write final orphan");
+        register_session_temp(&root, &final_orphan).expect("register final orphan");
         std::fs::write(&unrelated, b"keep").expect("write unrelated file");
 
         for _ in 0..6 {
@@ -1695,6 +1691,7 @@ mod tests {
         }
 
         assert!(orphans.iter().all(|orphan| !orphan.exists()));
+        assert!(!final_orphan.exists());
         assert!(unrelated.exists());
         let _ = std::fs::remove_dir_all(root);
     }
