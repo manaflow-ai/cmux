@@ -253,6 +253,50 @@ test("typed Rust empty diffs keep the localized source-specific message", async 
   expect(fetched).toBe(false);
 });
 
+test("typed branch empty diffs keep the base picker available before base resolution", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/branch.html");
+  installDomGlobals(dom, () => new Response("", { status: 200 }));
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          if (request.method === "sessionOpen") {
+            return {
+              id: request.id,
+              version: 1,
+              result: null,
+              error: { code: "emptyDiff", message: "No changes to diff" },
+            };
+          }
+          return {
+            id: request.id,
+            version: 1,
+            result: { type: "branches", value: { groups: [] } },
+            error: null,
+          };
+        },
+      },
+    },
+  };
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          capabilityToken: "0123456789abcdef",
+          emptyMessage: "No branch changes to diff.",
+          sessionSource: { kind: "branch", repoRoot: "/tmp/repo" },
+          transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
+    />,
+  );
+
+  await waitFor(() => dom?.window.document.getElementById("status-text")?.textContent === "No branch changes to diff.");
+  expect(dom.window.document.querySelector(".base-picker-button")).toBeTruthy();
+});
+
 test("pagehide cancels a typed session while its initial open is pending", async () => {
   dom = createDom("cmux-diff-viewer://0123456789abcdef/unstaged.html");
   const requests: any[] = [];
