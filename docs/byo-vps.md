@@ -36,7 +36,7 @@ Re-running `add` is idempotent: it converges the host (repairing a corrupt binar
 
 `cmux vps status` compares the daemon's self-reported version (from its handshake) with the version your cmux installs and shows `needs-upgrade` on drift. `cmux vps upgrade` installs the new binary, retargets the symlink, and restarts the unit.
 
-Restarting the daemon terminates the PTY sessions it hosts. Until daemon-restart reattach lands (#7978), upgrades are conservative: **if the supervised daemon reports live PTY sessions, `upgrade`/`add` refuse and tell you to pass `--force`.** The same guard protects `cmux vps remove`; use `--keep-sessions` to remove supervision while leaving the daemon (and your sessions) running.
+Restarting the daemon terminates the PTY sessions it hosts. Until daemon-restart reattach lands (#7978), upgrades are conservative: **if the supervised daemon reports live PTY sessions, `upgrade`/`add` refuse and tell you to pass `--force`.** The same guard protects `cmux vps remove`; use `--keep-sessions` to remove supervision while leaving the daemon (and your sessions) running. With `--keep-sessions` the on-host state directory (`~/.cmux/vps`) is preserved and the daemon keeps running, but it is **no longer supervised** — it will not restart after a crash or reboot. Re-run `cmux vps add` to restore supervision.
 
 ## What touches manaflow servers, exactly
 

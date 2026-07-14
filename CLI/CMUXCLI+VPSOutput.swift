@@ -129,7 +129,7 @@ extension CMUXCLI {
             "desired_version": status.desiredVersion,
             "live_sessions": status.health.liveSessions,
             "uptime_seconds": status.health.uptimeSeconds ?? NSNull(),
-            "unit_active": status.facts?.unitIsActive ?? false,
+            "unit_active": status.facts.map { $0.unitIsActive as Any } ?? NSNull(),
             "reachable": status.facts != nil,
             "mode": "direct",
         ]

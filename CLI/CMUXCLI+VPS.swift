@@ -43,24 +43,28 @@ extension CMUXCLI {
     }
 
     static func vpsUsageText() -> String {
-        """
-        cmux vps - provision a personal VPS as a direct cmux backend
+        String(
+            localized: "cli.vps.usage",
+            defaultValue: """
+            cmux vps - provision a personal VPS as a direct cmux backend
 
-        Usage:
-          cmux vps add <user@host> [--port N] [--identity FILE] [--ssh-option OPT]... [--name NAME] [--force]
-          cmux vps list
-          cmux vps status [<user@host>]
-          cmux vps upgrade <user@host> [--force]
-          cmux vps remove <user@host> [--keep-sessions] [--force]
+            Usage:
+              cmux vps add <user@host> [--port N] [--identity FILE] [--ssh-option OPT]... [--name NAME] [--force]
+              cmux vps list
+              cmux vps status [<user@host>]
+              cmux vps upgrade <user@host> [--force]
+              cmux vps remove <user@host> [--keep-sessions] [--force]
 
-        add installs the checksum-verified cmuxd-remote daemon over your existing
-        SSH auth, supervises it with a systemd unit, and verifies health end to
-        end. Re-running add (or upgrade) converges the host idempotently and
-        refuses to restart a daemon with live PTY sessions unless --force.
-        remove stops and deletes the unit; --keep-sessions leaves the daemon
-        (and its PTY sessions) running. All terminal, agent, and browser traffic
-        for VPS workspaces flows directly between this Mac and the host.
-        """
+            add installs the checksum-verified cmuxd-remote daemon over your existing
+            SSH auth, supervises it with a systemd unit, and verifies health end to
+            end. Re-running add (or upgrade) converges the host idempotently and
+            refuses to restart a daemon with live PTY sessions unless --force.
+            remove stops and deletes the unit; --keep-sessions leaves the daemon
+            (and its PTY sessions) running unsupervised. All terminal, agent, and
+            browser traffic for VPS workspaces flows directly between this Mac and
+            the host.
+            """
+        )
     }
 
     // MARK: - Shared plumbing
@@ -136,7 +140,27 @@ extension CMUXCLI {
             sshOptions.append(value)
             rest2 = next
         }
-        let positionals = rest2.filter { !$0.hasPrefix("-") }
+        if let unknown = rest2.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.vps.unknownOption",
+                    defaultValue: "unknown vps option: %@"
+                ),
+                locale: .current,
+                unknown
+            ))
+        }
+        let positionals = rest2
+        if positionals.count > 1 {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.vps.extraArguments",
+                    defaultValue: "unexpected extra arguments: %@"
+                ),
+                locale: .current,
+                positionals.dropFirst().joined(separator: " ")
+            ))
+        }
         let destination = positionals.first ?? registryEntry?.host.destination
         guard let destination, !destination.isEmpty else {
             throw CLIError(message: String(
@@ -184,7 +208,7 @@ extension CMUXCLI {
 
         let probeDescriptor = try vpsHostDescriptor(commandArgs: filteredArgs, registryEntry: nil).0
         let existingEntry = try runVPSBlocking { [registry = context.registry] in
-            try await registry.entry(for: probeDescriptor)
+            try await registry.resolve(destination: probeDescriptor.destination, port: probeDescriptor.port)
         }
         if requireRegistered, existingEntry == nil {
             throw CLIError(message: VPSProvisioningError.hostNotRegistered(
@@ -284,7 +308,11 @@ extension CMUXCLI {
         let targets: [VPSRegisteredHost]
         if hasPositional {
             let descriptor = try vpsHostDescriptor(commandArgs: commandArgs, registryEntry: nil).0
-            if let entry = allHosts.first(where: { $0.host.registryKey == descriptor.registryKey }) {
+            let uniqueByDestination = descriptor.port == nil
+                ? allHosts.filter { $0.host.destination == descriptor.destination }
+                : []
+            if let entry = allHosts.first(where: { $0.host.storageKey == descriptor.storageKey })
+                ?? (uniqueByDestination.count == 1 ? uniqueByDestination.first : nil) {
                 targets = [entry]
             } else {
                 targets = [VPSRegisteredHost(
@@ -339,7 +367,7 @@ extension CMUXCLI {
 
         let probeDescriptor = try vpsHostDescriptor(commandArgs: filteredArgs, registryEntry: nil).0
         let existingEntry = try runVPSBlocking { [registry = context.registry] in
-            try await registry.entry(for: probeDescriptor)
+            try await registry.resolve(destination: probeDescriptor.destination, port: probeDescriptor.port)
         }
         let (descriptor, _) = try vpsHostDescriptor(commandArgs: filteredArgs, registryEntry: existingEntry)
 
@@ -380,7 +408,7 @@ extension CMUXCLI {
         if outcome.keptSessions {
             print(String(
                 localized: "cli.vps.removedKeptSessions",
-                defaultValue: "VPS removed from cmux. The daemon and its PTY sessions were left running on the host."
+                defaultValue: "VPS removed from cmux. The daemon and its PTY sessions were left running on the host, but are no longer supervised (they will not restart after a crash or reboot)."
             ))
         } else {
             print(String(
@@ -398,7 +426,15 @@ extension CMUXCLI {
     /// per-workspace slot). Errors read as "not registered" — pinning is an
     /// optimization, never a gate.
     static func vpsRegisteredSlot(destination: String, port: Int?) -> String? {
-        let registry = VPSHostRegistry(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        // Fast path: nearly every `cmux ssh` invocation has no VPS registry
+        // at all — skip the async bridge entirely when the file is absent.
+        guard FileManager.default.fileExists(
+            atPath: VPSHostRegistry.registryFileURL(homeDirectory: home).path
+        ) else {
+            return nil
+        }
+        let registry = VPSHostRegistry(homeDirectory: home)
         final class SlotBox: @unchecked Sendable {
             // Written once before the semaphore signal, read after the wait.
             var slot: String?
