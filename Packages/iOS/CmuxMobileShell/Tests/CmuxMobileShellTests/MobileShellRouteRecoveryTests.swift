@@ -24,12 +24,12 @@ import Testing
         databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
     )
     let staleRoute = try CmxAttachRoute(
-        id: "stale",
+        id: "debug_loopback",
         kind: .debugLoopback,
         endpoint: .hostPort(host: "127.0.0.1", port: 51_000)
     )
     let freshRoute = try CmxAttachRoute(
-        id: "fresh",
+        id: "debug_loopback",
         kind: .debugLoopback,
         endpoint: .hostPort(host: "127.0.0.1", port: 51_001)
     )
@@ -87,7 +87,7 @@ import Testing
     #expect(escalated, "failed replacement subscription must refresh the stored route")
 
     let retryRoute = try CmxAttachRoute(
-        id: "retry",
+        id: "debug_loopback",
         kind: .debugLoopback,
         endpoint: .hostPort(host: "127.0.0.1", port: 51_002)
     )
