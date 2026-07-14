@@ -3403,3 +3403,4 @@ mod tests {
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 }
+
