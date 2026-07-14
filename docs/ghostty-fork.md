@@ -12,10 +12,13 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `3349567f6`. It advances the previous cmux pin
-`5e5039068` with the live surface font-adjustment ownership accessor used by
-mobile viewport fitting.
-Published via
+Current cmux pinned fork head: `fa64f7ac4`. It merges the notification replay
+viewport-authority history through `cbbddb292` (including the prior cmux pin
+`eb500e9f4`) with `3349567f6`, which adds the live surface font-adjustment
+ownership accessor used by mobile viewport fitting.
+
+The combined compression, selection, scrollback, notification replay, and
+mobile font-ownership changes were published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
@@ -24,6 +27,21 @@ https://github.com/manaflow-ai/ghostty/pull/106 and
 https://github.com/manaflow-ai/ghostty/pull/108 and
 https://github.com/manaflow-ai/ghostty/pull/112 and
 https://github.com/manaflow-ai/ghostty/pull/113.
+
+### Notification replay viewport authority
+
+- OSC PWD actions carry the terminal scrollbar snapshot and row-space revision
+  from the exact byte position where the replay boundary was parsed.
+- `ghostty_surface_scrollbar` reads live terminal geometry without waiting for
+  renderer publication.
+- `ghostty_surface_scroll_to_row_if_revision` validates the row-space identity,
+  scrolls, and returns the resulting geometry under one terminal lock. A reset,
+  reflow, screen replacement, surface replacement, or scrollback eviction makes
+  a stale request fail closed instead of scrolling the wrong rows.
+- Conflict note: keep the PWD snapshot fields ABI-stable in
+  `src/apprt/action.zig` / `include/ghostty.h`, preserve the PageList revision
+  increments around row renumbering, and keep the embedded compare-and-set API
+  adjacent to `ghostty_surface_scrollbar` during future fork merges.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -103,19 +121,23 @@ build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
 and clearing.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3349567f66e559f72c089d45a8ca2a68d047fbdd-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fa64f7ac4443853d9ba8de72e394ecd87cf6fec9-crashsubdir-cmux-crash-v1
 
 ### Previous pin
 
-The previous cmux pin was `5ae712a89`. It added the bounded VT screen-tail
-export to `e215e78bf`, which preserved compressed scrollback during full-text
-reads and moved selection notifications to a lock-free terminal-wide epoch.
-The initial compression merge for that update was `870ed36f9`; it was
-superseded by `4117298e4` after the preserved-page OOM ownership fix, by
-`bdf4baa80` after the selection notification callback fix, then by
-`1ae98c991` after preserving public action tag values. The fork's prior `main`
-head was `cc31d54ee`, which merged upstream through `d560c645`; both histories
-are ancestors of `e215e78bf`.
+The current merge combines two previous cmux histories. `eb500e9f4` advanced
+`5ae712a89` through the bounded-scrollback merge and added terminal-owned
+scrollbar snapshots, absolute row-space identity, OSC-boundary geometry, and
+compare-and-set absolute-row restoration. `3349567f6` advanced `5e5039068`
+with the live font-adjustment accessor. Before those branches, `5ae712a89`
+added the bounded VT screen-tail export on top of `e215e78bf`, which preserved
+compressed scrollback during full-text reads and moved selection notifications
+to a lock-free terminal-wide epoch. The initial compression merge for that
+update was `870ed36f9`; it was superseded by `4117298e4` after the
+preserved-page OOM ownership fix, by `bdf4baa80` after the selection
+notification callback fix, then by `1ae98c991` after preserving public action
+tag values. The fork's prior `main` head was `cc31d54ee`, which merged upstream
+through `d560c645`; both histories are ancestors of `e215e78bf`.
 
 ### Earlier pin
 

@@ -158,7 +158,7 @@ extension TerminalSurface {
             configuredFontPointSize: configuredMobileViewportFontPointSize()
         )
         let outcome = plan.restore(
-            reset: { performBindingAction("reset_font_size") },
+            reset: { performInternalBindingAction("reset_font_size") },
             set: { applyMobileViewportFontPointSize($0) }
         )
         mobileViewportFontFitState.reconcileRestoreOutcome(outcome)
@@ -261,6 +261,6 @@ extension TerminalSurface {
     @discardableResult
     func applyMobileViewportFontPointSize(_ points: Float) -> Bool {
         let action = String(format: "set_font_size:%.3f", points)
-        return performBindingAction(action)
+        return performInternalBindingAction(action)
     }
 }

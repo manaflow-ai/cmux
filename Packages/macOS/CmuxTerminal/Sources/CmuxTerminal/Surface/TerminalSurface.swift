@@ -306,7 +306,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
                         logDebugEvent("find.needle updated tab=\(self?.tabId.uuidString.prefix(5) ?? "?") surface=\(self?.id.uuidString.prefix(5) ?? "?") chars=\(needle.count)")
 #endif
-                        _ = self?.performBindingAction("search:\(needle)")
+                        _ = self?.performInternalBindingAction("search:\(needle)")
                     }
             } else if let oldValue {
                 lastSearchNeedle = oldValue.needle
@@ -314,7 +314,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
                 logDebugEvent("find.searchState cleared tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
 #endif
-                _ = performBindingAction("end_search")
+                _ = performInternalBindingAction("end_search")
             }
         }
     }
@@ -373,8 +373,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// hopped through `MainActor.assumeIsolated`; the isolation is now
     /// compiler-enforced).
     ///
-    /// - Parameters mirror the legacy initializer, plus the injected
-    ///   `dependencies` bundle constructed at the composition root.
+    /// Parameters mirror the legacy initializer, plus the injected
+    /// `dependencies` bundle constructed at the composition root.
+    ///
+    /// - Parameter preparePaneHost: Configures the newly-created pane host
+    ///   before it is attached or any startup work can create a runtime.
     @MainActor
     public init(
         id: UUID = UUID(),
@@ -392,6 +395,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         manualIO: Bool = false,
         manualInputHandler: (@Sendable (Data) -> Void)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
+        preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
         self.id = id
@@ -433,6 +437,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         )
         self.surfaceView = views.surfaceView
         self.paneHost = views.paneHost
+        preparePaneHost(self.paneHost)
         registry.register(self)
         self.paneHost.attachSurface(self)
 
