@@ -21,6 +21,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    public let inlineImageThumbnails = DefaultsKey<Bool>(
+        id: "terminal.inlineImageThumbnails",
+        defaultValue: true,
+        userDefaultsKey: "terminal.inlineImageThumbnails"
+    )
+
     public let autoResumeAgentSessions = DefaultsKey<Bool>(
         id: "terminal.autoResumeAgentSessions",
         defaultValue: true,

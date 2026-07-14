@@ -11,9 +11,16 @@ extension TerminalSurface {
     @discardableResult
     public func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
-        return action.withCString { cString in
+        let performed = action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
+        if performed {
+            NotificationCenter.default.post(
+                name: .terminalSurfaceDidPerformBindingAction,
+                object: self
+            )
+        }
+        return performed
     }
 
     /// Toggles keyboard copy mode through the surface view.

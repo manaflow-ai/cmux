@@ -76,6 +76,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   // "terminal": {
   //   "showScrollBar": false,
   //   "copyOnSelect": true,
+  //   "inlineImageThumbnails": true,
   //   "autoResumeAgentSessions": true,
   //   "showTextBoxOnNewTerminals": false,
   //   "focusTextBoxOnNewTerminals": false,

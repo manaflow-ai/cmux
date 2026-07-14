@@ -372,6 +372,15 @@ class GhosttyApp {
     /// namespace enum).
     static let terminalPasteboard = TerminalPasteboardService()
 
+    /// The process-wide cache shared by visible inline-image controllers.
+    static let terminalInlineImageThumbnailCache = TerminalInlineImageThumbnailCache()
+
+    /// Bridges Ghostty's pre-parser PTY tee to post-parser inline-image scans.
+    static let terminalInlineImageOutputService = TerminalInlineImageOutputService(
+        scheduleTick: { GhosttyApp.shared.scheduleTick() },
+        retainTickDemand: { GhosttyApp.tickNotificationDemand.retain() }
+    )
+
     /// The process-wide serialized native-surface free queue (was the
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
@@ -4293,10 +4302,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func performBindingAction(_ action: String) -> Bool {
-        guard let surface = surface else { return false }
-        return action.withCString { cString in
-            ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
-        }
+        terminalSurface?.performBindingAction(action) ?? false
     }
 
     @discardableResult
@@ -4348,68 +4354,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ?? max(Int(ghostty_surface_size(surface).rows), 1)
         let fallback = rows - 1
         return max(0, min(rows - 1, keyboardCopyModeCursor?.row ?? fallback))
-    }
-
-    private struct KeyboardCopyModeGridMetrics {
-        let rows: Int
-        let columns: Int
-        let cellWidth: CGFloat
-        let cellHeight: CGFloat
-        let xInset: CGFloat
-        let yInset: CGFloat
-        let viewHeight: CGFloat
-
-        func topOriginRect(for cursor: TerminalKeyboardCopyModeCursor) -> CGRect {
-            CGRect(
-                x: xInset + (CGFloat(cursor.column) * cellWidth),
-                y: yInset + (CGFloat(cursor.row) * cellHeight),
-                width: cellWidth,
-                height: cellHeight
-            )
-        }
-
-        func appKitRect(for cursor: TerminalKeyboardCopyModeCursor) -> CGRect {
-            let topOrigin = topOriginRect(for: cursor)
-            let rawY = viewHeight - topOrigin.maxY
-            let maxY = max(viewHeight - topOrigin.height, 0)
-            return CGRect(
-                x: topOrigin.minX,
-                y: min(max(rawY, 0), maxY),
-                width: topOrigin.width,
-                height: topOrigin.height
-            )
-        }
-    }
-
-    private func keyboardCopyModeGridMetrics(surface: ghostty_surface_t) -> KeyboardCopyModeGridMetrics? {
-        let size = ghostty_surface_size(surface)
-        let backingRows = max(Int(size.rows), 1)
-        let columns = max(Int(size.columns), 1)
-        let backingScaleFactor = max(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1, 1)
-        let resolvedCellWidth = cellSize.width > 0
-            ? cellSize.width
-            : CGFloat(size.cell_width_px) / backingScaleFactor
-        let resolvedCellHeight = cellSize.height > 0
-            ? cellSize.height
-            : CGFloat(size.cell_height_px) / backingScaleFactor
-        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
-
-        let rows = terminalKeyboardCopyModeVisibleViewportRows(
-            backingRows: backingRows,
-            viewHeight: Double(bounds.height),
-            cellHeight: Double(resolvedCellHeight)
-        )
-        let terminalWidth = CGFloat(columns) * resolvedCellWidth
-        let terminalHeight = CGFloat(rows) * resolvedCellHeight
-        return KeyboardCopyModeGridMetrics(
-            rows: rows,
-            columns: columns,
-            cellWidth: resolvedCellWidth,
-            cellHeight: resolvedCellHeight,
-            xInset: max(0, (bounds.width - terminalWidth) / 2),
-            yInset: max(0, (bounds.height - terminalHeight) / 2),
-            viewHeight: bounds.height
-        )
     }
 
     private func keyboardCopyModeInitialCursor(surface: ghostty_surface_t) -> TerminalKeyboardCopyModeCursor {
@@ -5585,6 +5529,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // For performable bindings where the menu didn't handle the event,
             // fall through to keyDown so Ghostty can perform the action directly
             // (e.g. paste when no menu item exists).
+            terminalSurface?.hostedView.notePotentialInlineImageGridMutation()
             keyDown(with: event)
             return true
         }
@@ -8146,6 +8091,9 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
+    let inlineImageOverlayView = TerminalInlineImageOverlayView(frame: .zero)
+    var inlineImageController: TerminalInlineImageController?
+    var inlineImagePreviewURL: URL?
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -8436,6 +8384,7 @@ final class GhosttySurfaceScrollView: NSView {
         addSubview(scrollView)
         mobileViewportBorderOverlayView.isHidden = true
         addSubview(mobileViewportBorderOverlayView, positioned: .above, relativeTo: scrollView)
+        installInlineImageThumbnails()
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
@@ -9129,6 +9078,8 @@ final class GhosttySurfaceScrollView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        inlineImagePreviewDidMoveToWindow()
+        inlineImageController?.hostedViewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
         guard let window else { return }
@@ -9180,6 +9131,7 @@ final class GhosttySurfaceScrollView: NSView {
     func attachSurface(_ terminalSurface: TerminalSurface) {
         if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
         surfaceView.attachSurface(terminalSurface)
+        inlineImageController?.attachSurface(terminalSurface)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }
@@ -9875,6 +9827,18 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        // AppKit sends this for direct and ancestor visibility changes. Portal
+        // geometry churn can reveal this view without another window or UI-visible
+        // transition, so let the per-surface session reacquire notification demand.
+        inlineImageController?.hostedViewDidUnhide()
+    }
+
+    func notePotentialInlineImageGridMutation() {
+        inlineImageController?.notePotentialLocalGridMutation()
+    }
+
     var isVisibleInUI: Bool { surfaceView.isVisibleInUI }
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
@@ -9885,6 +9849,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
+        inlineImageController?.setVisibleInUI(visible)
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
             surfaceView.terminalSurface?.setOcclusion(visible)

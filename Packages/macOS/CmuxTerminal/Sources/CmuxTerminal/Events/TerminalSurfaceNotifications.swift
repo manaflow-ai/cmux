@@ -11,4 +11,8 @@ public extension Notification.Name {
     /// completes (`object`: the surface model).
     static let terminalSurfaceDidCompleteClipboardRead =
         Notification.Name("terminalSurfaceDidCompleteClipboardRead")
+
+    /// Posted after a Ghostty binding action is accepted (`object`: the surface model).
+    static let terminalSurfaceDidPerformBindingAction =
+        Notification.Name("cmux.terminalSurfaceDidPerformBindingAction")
 }

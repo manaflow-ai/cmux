@@ -50,15 +50,15 @@ extension TerminalSurface {
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
     }
 
-    /// Exports the surface grid as a mobile render frame (optionally filtered
-    /// to changed rows).
+    /// Exports the surface grid as the raw render-grid JSON payload that
+    /// `mobileRenderGridFrame` decodes. The export itself must run on the main
+    /// actor (it touches the live surface), but the returned bytes are plain
+    /// data so callers can decode and scan them off the main actor.
     @MainActor
-    public func mobileRenderGridFrame(
+    public func mobileRenderGridJSON(
         stateSeq: UInt64,
-        full: Bool = true,
-        changedRows: Set<Int>? = nil,
         scrollbackLines: Int = 0
-    ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
+    ) -> Data? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
         let exported = surfaceID.withCString { ptr in
@@ -72,9 +72,20 @@ extension TerminalSurface {
         }
         defer { ghostty_string_free(exported) }
         guard let ptr = exported.ptr, exported.len > 0 else { return nil }
+        return Data(bytes: ptr, count: Int(exported.len))
+    }
 
-        let data = Data(bytes: ptr, count: Int(exported.len))
-        guard let fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
+    /// Exports the surface grid as a mobile render frame (optionally filtered
+    /// to changed rows).
+    @MainActor
+    public func mobileRenderGridFrame(
+        stateSeq: UInt64,
+        full: Bool = true,
+        changedRows: Set<Int>? = nil,
+        scrollbackLines: Int = 0
+    ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
+        guard let data = mobileRenderGridJSON(stateSeq: stateSeq, scrollbackLines: scrollbackLines),
+              let fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
         }
         let frame: MobileTerminalRenderGridFrame
