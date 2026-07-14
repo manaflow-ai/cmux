@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -72,6 +73,88 @@ import Testing
         let layoutNode = try #require(decoded.layouts.first?.workspace.layout)
         let layoutData = try JSONEncoder().encode(layoutNode)
         _ = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
+    }
+
+    @Test func parameterizedTicketLayoutResolvesEveryLaunchStringLeaf() throws {
+        let definition = CmuxWorkspaceDefinition(
+            name: "{{ticket}} Dev",
+            cwd: "~/code/app/wt/{{ticket}}",
+            env: [
+                "API_PORT": "{{apiPort}}",
+                "TICKET": "{{ticket}}",
+                "VITE_PORT": "{{vitePort}}",
+            ],
+            setup: "echo preparing {{ticket}}",
+            params: ["vitePort": "5100"],
+            layout: .split(CmuxSplitDefinition(
+                direction: .horizontal,
+                children: [
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(
+                            type: .terminal,
+                            name: "API {{ticket}}",
+                            command: "uvicorn app:api --port {{apiPort}}",
+                            cwd: "services/{{ticket}}",
+                            env: ["SERVICE_PORT": "{{apiPort}}"],
+                            url: nil,
+                            focus: true
+                        ),
+                    ])),
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(
+                            type: .browser,
+                            name: "Vite {{ticket}}",
+                            command: nil,
+                            cwd: nil,
+                            env: nil,
+                            url: "http://localhost:{{vitePort}}/browse/{{ticket}}/",
+                            focus: nil
+                        ),
+                    ])),
+                ]
+            ))
+        )
+
+        let resolved = try definition.resolvingTemplateParameters(
+            ["ticket": "BERKS-87", "apiPort": "8087"],
+            processEnvironment: [:]
+        )
+
+        #expect(resolved.name == "BERKS-87 Dev")
+        #expect(resolved.cwd == "~/code/app/wt/BERKS-87")
+        #expect(resolved.env == [
+            "API_PORT": "8087",
+            "TICKET": "BERKS-87",
+            "VITE_PORT": "5100",
+        ])
+        #expect(resolved.setup == "echo preparing BERKS-87")
+        #expect(resolved.params == nil)
+        guard case .split(let split) = try #require(resolved.layout),
+              case .pane(let terminalPane) = split.children[0],
+              case .pane(let browserPane) = split.children[1] else {
+            Issue.record("Expected resolved split layout")
+            return
+        }
+        #expect(terminalPane.surfaces[0].name == "API BERKS-87")
+        #expect(terminalPane.surfaces[0].command == "uvicorn app:api --port 8087")
+        #expect(terminalPane.surfaces[0].cwd == "services/BERKS-87")
+        #expect(terminalPane.surfaces[0].env == ["SERVICE_PORT": "8087"])
+        #expect(browserPane.surfaces[0].name == "Vite BERKS-87")
+        #expect(browserPane.surfaces[0].url == "http://localhost:5100/browse/BERKS-87/")
+    }
+
+    @Test func parameterizedWorkspaceReportsEveryMissingVariableBeforeLaunch() {
+        let definition = CmuxWorkspaceDefinition(
+            name: "{{ticket}}",
+            env: ["API_PORT": "{{apiPort}}"],
+            layout: .pane(CmuxPaneDefinition(surfaces: [
+                CmuxSurfaceDefinition(type: .browser, url: "http://localhost:{{vitePort}}"),
+            ]))
+        )
+
+        #expect(throws: CmuxTemplateResolutionError.missingVariables(["ticket", "apiPort", "vitePort"])) {
+            try definition.resolvingTemplateParameters([:], processEnvironment: [:])
+        }
     }
 
     private static var nestedLayout: CmuxLayoutNode {
