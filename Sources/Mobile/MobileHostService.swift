@@ -2286,7 +2286,7 @@ actor MobileHostConnection {
             nextTopics: topics
         )
         publishRenderGridDemand()
-        browserPreviewDemand.publish(connectionID: id)
+        self.browserPreviewDemand.publish(connectionID: id)
         idleTimeoutTask?.cancel()
         idleTimeoutTask = nil
     }
