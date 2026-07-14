@@ -262,7 +262,7 @@ public struct OrchestrationStore: Sendable {
         }
         let manifest: OrchestrationManifest
         do {
-            manifest = try OrchestrationManifestParser.parse(data: fileSystem.readData(atPath: manifestPath)).manifest
+            manifest = try OrchestrationManifest.parse(data: fileSystem.readData(atPath: manifestPath)).manifest
         } catch {
             throw OrchestrationStoreError.corruptInstall(name: name, detail: String(describing: error))
         }

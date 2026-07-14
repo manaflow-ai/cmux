@@ -27,7 +27,7 @@ import Testing
 
 @Suite struct OrchestrationManifestParserTests {
     @Test func parsesMinimalManifest() throws {
-        let output = try OrchestrationManifestParser.parse(data: Data(minimalManifestJSON().utf8))
+        let output = try OrchestrationManifest.parse(data: Data(minimalManifestJSON().utf8))
         let manifest = output.manifest
         #expect(manifest.name == "demo-fleet")
         #expect(manifest.version == "1.0.0")
@@ -40,7 +40,7 @@ import Testing
 
     @Test func reportsUnknownTopLevelKeys() throws {
         let json = minimalManifestJSON(extra: ",\n  \"defualtAgent\": \"claude\"")
-        let output = try OrchestrationManifestParser.parse(data: Data(json.utf8))
+        let output = try OrchestrationManifest.parse(data: Data(json.utf8))
         #expect(output.unknownKeys == ["defualtAgent"])
     }
 
@@ -50,14 +50,14 @@ import Testing
             with: "\"schemaVersion\": 99"
         )
         #expect(throws: OrchestrationManifestError.self) {
-            try OrchestrationManifestParser.parse(data: Data(json.utf8))
+            try OrchestrationManifest.parse(data: Data(json.utf8))
         }
     }
 
     @Test func missingRequiredKeyProducesActionableError() {
         let json = "{ \"schemaVersion\": 1, \"name\": \"x\" }"
         do {
-            _ = try OrchestrationManifestParser.parse(data: Data(json.utf8))
+            _ = try OrchestrationManifest.parse(data: Data(json.utf8))
             Issue.record("expected parse to throw")
         } catch let error as OrchestrationManifestError {
             #expect(error.message.contains("missing required key"))
@@ -68,26 +68,26 @@ import Testing
 
     @Test func rejectsNonJSONAndNonObjectDocuments() {
         #expect(throws: OrchestrationManifestError.self) {
-            try OrchestrationManifestParser.parse(data: Data("not json".utf8))
+            try OrchestrationManifest.parse(data: Data("not json".utf8))
         }
         #expect(throws: OrchestrationManifestError.self) {
-            try OrchestrationManifestParser.parse(data: Data("[1, 2]".utf8))
+            try OrchestrationManifest.parse(data: Data("[1, 2]".utf8))
         }
     }
 
     @Test func decodesSubstrateVariants() throws {
-        let clonePool = try OrchestrationManifestParser.parse(
+        let clonePool = try OrchestrationManifest.parse(
             data: Data(minimalManifestJSON(substrate: "{ \"kind\": \"clone-pool\", \"poolSize\": 4 }").utf8)
         ).manifest
         #expect(clonePool.substrate == .clonePool(poolSize: 4))
 
-        let script = try OrchestrationManifestParser.parse(
+        let script = try OrchestrationManifest.parse(
             data: Data(minimalManifestJSON(substrate: "{ \"kind\": \"script\", \"provision\": \"scripts/up.sh\" }").utf8)
         ).manifest
         #expect(script.substrate == .script(provision: "scripts/up.sh", reset: nil))
         #expect(script.substrate.scriptPaths == ["scripts/up.sh"])
 
-        let scriptDefaults = try OrchestrationManifestParser.parse(
+        let scriptDefaults = try OrchestrationManifest.parse(
             data: Data(minimalManifestJSON(substrate: "{ \"kind\": \"script\" }").utf8)
         ).manifest
         #expect(scriptDefaults.substrate == .script(provision: "scripts/provision-workspace", reset: nil))
@@ -95,7 +95,7 @@ import Testing
 
     @Test func rejectsUnknownSubstrateKind() {
         #expect(throws: OrchestrationManifestError.self) {
-            try OrchestrationManifestParser.parse(
+            try OrchestrationManifest.parse(
                 data: Data(minimalManifestJSON(substrate: "{ \"kind\": \"teleport\" }").utf8)
             )
         }
@@ -121,7 +121,7 @@ import Testing
             }
           ]
         """
-        let manifest = try OrchestrationManifestParser.parse(data: Data(minimalManifestJSON(extra: extra).utf8)).manifest
+        let manifest = try OrchestrationManifest.parse(data: Data(minimalManifestJSON(extra: extra).utf8)).manifest
         let steps = try #require(manifest.steps)
         #expect(steps[0].success == .hookEvent(name: "Stop"))
         #expect(steps[0].onFailure == .retry(attempts: 2))
@@ -130,7 +130,7 @@ import Testing
     }
 
     @Test func manifestRoundTripsThroughCodable() throws {
-        let original = try OrchestrationManifestParser.parse(data: Data(minimalManifestJSON().utf8)).manifest
+        let original = try OrchestrationManifest.parse(data: Data(minimalManifestJSON().utf8)).manifest
         let encoded = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(OrchestrationManifest.self, from: encoded)
         #expect(decoded == original)
@@ -146,7 +146,7 @@ import Testing
             of: "\"agents\": [\n    { \"id\": \"claude\", \"registryAgent\": \"claude\", \"command\": \"claude {{prompt}}\" }\n  ]",
             with: "\"agents\": [ { \"id\": \"claude\", \"command\": \"claude {{prompt}}\" }, { \"id\": \"codex\", \"command\": \"codex exec {{prompt}}\" } ]"
         )
-        let manifest = try OrchestrationManifestParser.parse(data: Data(json.utf8)).manifest
+        let manifest = try OrchestrationManifest.parse(data: Data(json.utf8)).manifest
         #expect(manifest.effectiveDefaultAgent?.id == "codex")
     }
 

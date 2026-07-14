@@ -128,10 +128,7 @@ extension TerminalController: ControlOrchestrationContext {
         }
 
         let overrides: [String: OrchestrationParameterValue]
-        switch OrchestrationParameterResolution.coerce(
-            overrides: inputs.parameterOverrides,
-            manifest: installation.manifest
-        ) {
+        switch installation.manifest.coerceParameterOverrides(inputs.parameterOverrides) {
         case .success(let coerced):
             overrides = coerced
         case .failure(let problem):

@@ -4,21 +4,21 @@ import Testing
 
 @Suite struct OrchestrationPlaceholdersTests {
     @Test func scansDistinctPlaceholdersInOrder() {
-        let names = OrchestrationPlaceholders.scan("a {{task}} b {{ repo_root }} c {{task}}")
+        let names = OrchestrationPlaceholders().scan("a {{task}} b {{ repo_root }} c {{task}}")
         #expect(names == ["task", "repo_root"])
     }
 
     @Test func malformedBracesStayLiteral() throws {
-        #expect(OrchestrationPlaceholders.scan("{{not closed") == [])
-        #expect(OrchestrationPlaceholders.scan("{{Bad Name}}") == [])
-        #expect(OrchestrationPlaceholders.scan("{single}") == [])
-        #expect(OrchestrationPlaceholders.scan("{{UPPER}}") == [])
-        let rendered = try OrchestrationPlaceholders.render("{{not closed", values: [:])
+        #expect(OrchestrationPlaceholders().scan("{{not closed") == [])
+        #expect(OrchestrationPlaceholders().scan("{{Bad Name}}") == [])
+        #expect(OrchestrationPlaceholders().scan("{single}") == [])
+        #expect(OrchestrationPlaceholders().scan("{{UPPER}}") == [])
+        let rendered = try OrchestrationPlaceholders().render("{{not closed", values: [:])
         #expect(rendered == "{{not closed")
     }
 
     @Test func rendersValues() throws {
-        let rendered = try OrchestrationPlaceholders.render(
+        let rendered = try OrchestrationPlaceholders().render(
             "Fix {{task}} in {{ workspace_dir }}",
             values: ["task": "the bug", "workspace_dir": "/tmp/w"]
         )
@@ -27,7 +27,7 @@ import Testing
 
     @Test func missingPlaceholderThrowsWithAllMissingNames() {
         do {
-            _ = try OrchestrationPlaceholders.render("{{alpha}} {{beta}}", values: [:])
+            _ = try OrchestrationPlaceholders().render("{{alpha}} {{beta}}", values: [:])
             Issue.record("expected render to throw")
         } catch let error as OrchestrationManifestError {
             #expect(error.message.contains("{{alpha}}"))
@@ -38,7 +38,7 @@ import Testing
     }
 
     @Test func adjacentPlaceholdersAndBraces() throws {
-        let rendered = try OrchestrationPlaceholders.render(
+        let rendered = try OrchestrationPlaceholders().render(
             "{{a}}{{b}} {ok} {{{a}}}",
             values: ["a": "1", "b": "2"]
         )
@@ -47,16 +47,16 @@ import Testing
     }
 
     @Test func shellQuotingEscapesSingleQuotes() {
-        #expect(OrchestrationPlaceholders.shellQuoted("plain") == "'plain'")
-        #expect(OrchestrationPlaceholders.shellQuoted("it's") == "'it'\\''s'")
-        #expect(OrchestrationPlaceholders.shellQuoted("a\nb") == "'a\nb'")
+        #expect(OrchestrationPlaceholders().shellQuoted("plain") == "'plain'")
+        #expect(OrchestrationPlaceholders().shellQuoted("it's") == "'it'\\''s'")
+        #expect(OrchestrationPlaceholders().shellQuoted("a\nb") == "'a\nb'")
     }
 
     @Test func slugsSqueezeAndTrim() {
-        #expect(OrchestrationPlaceholders.slug("Fix: the Flaky test!!") == "fix-the-flaky-test")
-        #expect(OrchestrationPlaceholders.slug("__init__") == "init")
-        #expect(OrchestrationPlaceholders.slug("") == "")
-        #expect(OrchestrationPlaceholders.slug(String(repeating: "long word ", count: 20)).count <= 40)
-        #expect(!OrchestrationPlaceholders.slug("ends with punct...").hasSuffix("-"))
+        #expect(OrchestrationPlaceholders().slug("Fix: the Flaky test!!") == "fix-the-flaky-test")
+        #expect(OrchestrationPlaceholders().slug("__init__") == "init")
+        #expect(OrchestrationPlaceholders().slug("") == "")
+        #expect(OrchestrationPlaceholders().slug(String(repeating: "long word ", count: 20)).count <= 40)
+        #expect(!OrchestrationPlaceholders().slug("ends with punct...").hasSuffix("-"))
     }
 }

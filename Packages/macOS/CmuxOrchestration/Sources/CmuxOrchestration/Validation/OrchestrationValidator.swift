@@ -79,7 +79,7 @@ public struct OrchestrationValidator: Sendable {
         let manifest: OrchestrationManifest
         do {
             let data = try fileSystem.readData(atPath: manifestPath)
-            let output = try OrchestrationManifestParser.parse(data: data)
+            let output = try OrchestrationManifest.parse(data: data)
             manifest = output.manifest
             for key in output.unknownKeys {
                 findings.append(.init(
@@ -213,7 +213,7 @@ public struct OrchestrationValidator: Sendable {
                     message: "Duplicate agent id '\(agent.id)'"
                 ))
             }
-            let placeholders = Set(OrchestrationPlaceholders.scan(agent.command))
+            let placeholders = Set(OrchestrationPlaceholders().scan(agent.command))
             if placeholders.isDisjoint(with: ["prompt", "prompt_file"]) {
                 findings.append(.init(
                     severity: .warning,
@@ -384,7 +384,7 @@ public struct OrchestrationValidator: Sendable {
                   let data = try? fileSystem.readData(atPath: absolute),
                   let text = String(data: data, encoding: .utf8)
             else { continue }
-            for name in OrchestrationPlaceholders.scan(text) where !promptAllowed.contains(name) {
+            for name in OrchestrationPlaceholders().scan(text) where !promptAllowed.contains(name) {
                 findings.append(.init(
                     severity: .error,
                     code: "unknown-placeholder",
@@ -395,7 +395,7 @@ public struct OrchestrationValidator: Sendable {
         }
 
         for agent in manifest.agents {
-            for name in OrchestrationPlaceholders.scan(agent.command) where !commandAllowed.contains(name) {
+            for name in OrchestrationPlaceholders().scan(agent.command) where !commandAllowed.contains(name) {
                 findings.append(.init(
                     severity: .error,
                     code: "unknown-placeholder",

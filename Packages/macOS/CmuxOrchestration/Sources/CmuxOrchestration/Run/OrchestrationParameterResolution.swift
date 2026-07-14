@@ -1,14 +1,13 @@
-/// Coerces raw `--param key=value` strings against a manifest's declared
-/// parameter types. Shared by the CLI interview and the socket run path so
-/// both validate identically.
-public enum OrchestrationParameterResolution {
-    public static func coerce(
-        overrides: [String: String],
-        manifest: OrchestrationManifest
+extension OrchestrationManifest {
+    /// Coerces raw `--param key=value` strings against this manifest's
+    /// declared parameter types. Shared by the CLI interview and the socket
+    /// run path so both validate identically.
+    public func coerceParameterOverrides(
+        _ overrides: [String: String]
     ) -> Result<[String: OrchestrationParameterValue], OrchestrationParameterProblem> {
         var resolved: [String: OrchestrationParameterValue] = [:]
         for (key, rawValue) in overrides {
-            guard let parameter = manifest.parameters.first(where: { $0.key == key }) else {
+            guard let parameter = parameters.first(where: { $0.key == key }) else {
                 return .failure(OrchestrationParameterProblem(
                     key: key,
                     reason: "is not a parameter of this template"

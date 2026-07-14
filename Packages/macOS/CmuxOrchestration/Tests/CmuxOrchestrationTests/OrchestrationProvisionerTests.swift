@@ -173,32 +173,25 @@ final class FakeProcessRunner: OrchestrationProcessRunner, @unchecked Sendable {
 
 @Suite struct OrchestrationParameterResolutionTests {
     private func manifest() throws -> OrchestrationManifest {
-        try OrchestrationManifestParser.parse(data: Data(minimalManifestJSON().utf8)).manifest
+        try OrchestrationManifest.parse(data: Data(minimalManifestJSON().utf8)).manifest
     }
 
     @Test func coercesKnownKeysByDeclaredType() throws {
-        let result = OrchestrationParameterResolution.coerce(
-            overrides: ["repo_root": "/repos/x", "concurrency": "4"],
-            manifest: try manifest()
+        let result = try manifest().coerceParameterOverrides(
+            ["repo_root": "/repos/x", "concurrency": "4"]
         )
         #expect(result == .success(["repo_root": .string("/repos/x"), "concurrency": .int(4)]))
     }
 
     @Test func rejectsUnknownKeysAndBadValues() throws {
-        let unknown = OrchestrationParameterResolution.coerce(
-            overrides: ["ghost": "1"],
-            manifest: try manifest()
-        )
+        let unknown = try manifest().coerceParameterOverrides(["ghost": "1"])
         guard case .failure(let unknownProblem) = unknown else {
             Issue.record("expected failure")
             return
         }
         #expect(unknownProblem.key == "ghost")
 
-        let badValue = OrchestrationParameterResolution.coerce(
-            overrides: ["concurrency": "lots"],
-            manifest: try manifest()
-        )
+        let badValue = try manifest().coerceParameterOverrides(["concurrency": "lots"])
         guard case .failure(let badProblem) = badValue else {
             Issue.record("expected failure")
             return

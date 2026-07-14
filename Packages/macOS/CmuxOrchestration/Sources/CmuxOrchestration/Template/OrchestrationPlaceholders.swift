@@ -8,7 +8,9 @@ import Foundation
 /// strict: a placeholder that is neither a built-in nor a template parameter
 /// is an error, so typos fail at validate/plan time instead of producing a
 /// prompt with literal `{{...}}` residue.
-public enum OrchestrationPlaceholders {
+public struct OrchestrationPlaceholders: Sendable {
+    public init() {}
+
     /// Built-in placeholder names cmux provides per task at run time.
     /// Template parameters may not shadow these.
     public static let builtins: Set<String> = [
@@ -30,7 +32,7 @@ public enum OrchestrationPlaceholders {
 
     /// Returns the distinct placeholder names appearing in `template`, in
     /// first-appearance order.
-    public static func scan(_ template: String) -> [String] {
+    public func scan(_ template: String) -> [String] {
         var names: [String] = []
         var seen: Set<String> = []
         forEachToken(in: template) { token in
@@ -44,7 +46,7 @@ public enum OrchestrationPlaceholders {
 
     /// Substitutes placeholders from `values`. Throws when the template
     /// references a name absent from `values`.
-    public static func render(_ template: String, values: [String: String]) throws -> String {
+    public func render(_ template: String, values: [String: String]) throws -> String {
         var output = ""
         var missing: [String] = []
         forEachToken(in: template) { token in
@@ -69,13 +71,13 @@ public enum OrchestrationPlaceholders {
 
     /// Wraps `text` in single quotes for safe inclusion in a shell command
     /// typed into a terminal (`'` becomes `'\''`).
-    public static func shellQuoted(_ text: String) -> String {
+    public func shellQuoted(_ text: String) -> String {
         "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Lowercases `text` and squeezes everything but ASCII alphanumerics
     /// into single hyphens — used for branch and directory names.
-    public static func slug(_ text: String, maxLength: Int = 40) -> String {
+    public func slug(_ text: String, maxLength: Int = 40) -> String {
         var result = ""
         var previousWasHyphen = true
         for character in text.lowercased() {
@@ -99,7 +101,7 @@ public enum OrchestrationPlaceholders {
 
     /// Tokenizes `template` into literals and placeholders. Malformed braces
     /// (`{{not closed`, `{{Bad Name}}`) stay literal text.
-    private static func forEachToken(in template: String, _ body: (Token) -> Void) {
+    private func forEachToken(in template: String, _ body: (Token) -> Void) {
         var literal = ""
         var index = template.startIndex
         while index < template.endIndex {
@@ -121,7 +123,7 @@ public enum OrchestrationPlaceholders {
         }
     }
 
-    private static func placeholderName(
+    private func placeholderName(
         in template: String,
         openingAt start: String.Index
     ) -> (name: String, end: String.Index)? {

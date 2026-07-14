@@ -338,7 +338,7 @@ extension CMUXCLI {
             }
             let key = String(pair[..<equals])
             let raw = String(pair[pair.index(after: equals)...])
-            switch OrchestrationParameterResolution.coerce(overrides: [key: raw], manifest: manifest) {
+            switch manifest.coerceParameterOverrides([key: raw]) {
             case .success(let coerced):
                 values.merge(coerced) { _, new in new }
             case .failure(let problem):

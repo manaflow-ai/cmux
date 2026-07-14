@@ -23,7 +23,7 @@ import Testing
     }
 
     @Test func examplePlansAWorktreeRun() throws {
-        let manifest = try OrchestrationManifestParser.parse(
+        let manifest = try OrchestrationManifest.parse(
             data: Data(contentsOf: URL(fileURLWithPath: Self.exampleDirectory + "/orchestration.json"))
         ).manifest
         let installation = InstalledOrchestration(

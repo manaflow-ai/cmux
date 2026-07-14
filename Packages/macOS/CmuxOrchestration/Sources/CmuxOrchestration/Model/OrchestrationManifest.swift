@@ -160,17 +160,18 @@ public struct OrchestrationManifestError: Error, Sendable, Hashable, CustomStrin
     public var description: String { message }
 }
 
-/// Parses `orchestration.json` data with actionable error messages and
-/// unknown-key detection (unknown top-level keys are reported so typos like
-/// `defualtAgent` don't silently disappear).
-public enum OrchestrationManifestParser {
-    public struct Output: Sendable {
+extension OrchestrationManifest {
+    /// The result of parsing `orchestration.json` data.
+    public struct ParseOutput: Sendable {
         public var manifest: OrchestrationManifest
         /// Top-level keys present in the JSON that the schema does not know.
         public var unknownKeys: [String]
     }
 
-    public static func parse(data: Data) throws -> Output {
+    /// Parses `orchestration.json` data with actionable error messages and
+    /// unknown-key detection (unknown top-level keys are reported so typos
+    /// like `defualtAgent` don't silently disappear).
+    public static func parse(data: Data) throws -> ParseOutput {
         let object: Any
         do {
             object = try JSONSerialization.jsonObject(with: data)
@@ -200,7 +201,7 @@ public enum OrchestrationManifestParser {
 
         let knownKeys = Set(OrchestrationManifest.CodingKeys.allCases.map(\.stringValue))
         let unknownKeys = dictionary.keys.filter { !knownKeys.contains($0) }.sorted()
-        return Output(manifest: manifest, unknownKeys: unknownKeys)
+        return ParseOutput(manifest: manifest, unknownKeys: unknownKeys)
     }
 
     private static func describe(_ error: DecodingError) -> String {

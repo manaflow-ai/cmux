@@ -17,7 +17,7 @@ import Testing
             ]
         ) throws {
             addMinimalTemplate(to: fileSystem, at: "/i/template", substrate: substrate, extra: extra)
-            let manifest = try OrchestrationManifestParser.parse(
+            let manifest = try OrchestrationManifest.parse(
                 data: fileSystem.readData(atPath: "/i/template/orchestration.json")
             ).manifest
             planner = OrchestrationRunPlanner(fileSystem: fileSystem)

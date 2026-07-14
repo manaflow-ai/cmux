@@ -12,17 +12,18 @@ public struct OrchestrationPlanError: Error, Sendable, Hashable, CustomStringCon
 }
 
 /// Well-known parameter keys the run path understands. Templates declare
-/// these as ordinary parameters; the planner gives them meaning.
-public enum OrchestrationWellKnownParameter {
+/// these as ordinary parameters; the planner gives them meaning. The raw
+/// value is the parameter key as it appears in `orchestration.json`.
+public enum OrchestrationWellKnownParameter: String, Sendable, CaseIterable {
     /// Absolute path of the repository tasks operate on. Required by the
     /// worktree and clone-pool substrates.
-    public static let repoRoot = "repo_root"
+    case repoRoot = "repo_root"
     /// Directory task workspaces are provisioned under.
-    public static let workspaceRoot = "workspace_root"
+    case workspaceRoot = "workspace_root"
     /// Maximum simultaneous task workspaces for one run.
-    public static let concurrency = "concurrency"
+    case concurrency = "concurrency"
     /// Agent id to run tasks with (usually declared as type `agent`).
-    public static let agent = "agent"
+    case agent = "agent"
 }
 
 /// Turns (manifest, resolved parameters, tasks) into a concrete
@@ -107,13 +108,13 @@ public struct OrchestrationRunPlanner: Sendable {
         }
 
         var tasks = request.tasks
-        if case .int(let concurrency)? = parameters[OrchestrationWellKnownParameter.concurrency],
+        if case .int(let concurrency)? = parameters[OrchestrationWellKnownParameter.concurrency.rawValue],
            concurrency > 0, tasks.count > concurrency {
             notes.append("\(tasks.count) tasks given; planning the first \(concurrency) (concurrency parameter)")
             tasks = Array(tasks.prefix(concurrency))
         }
 
-        let repoRoot = expandedPath(parameters[OrchestrationWellKnownParameter.repoRoot]?.description, home: request.homeDirectory)
+        let repoRoot = expandedPath(parameters[OrchestrationWellKnownParameter.repoRoot.rawValue]?.description, home: request.homeDirectory)
         let workspaceRoot = try resolveWorkspaceRoot(
             manifest: manifest,
             parameters: parameters,
@@ -205,7 +206,7 @@ public struct OrchestrationRunPlanner: Sendable {
         repoRoot: String?,
         homeDirectory: String
     ) throws -> String {
-        if let explicit = parameters[OrchestrationWellKnownParameter.workspaceRoot]?.description,
+        if let explicit = parameters[OrchestrationWellKnownParameter.workspaceRoot.rawValue]?.description,
            !explicit.isEmpty {
             return expandedPath(explicit, home: homeDirectory) ?? explicit
         }
@@ -213,7 +214,7 @@ public struct OrchestrationRunPlanner: Sendable {
         case .worktree, .clonePool:
             guard let repoRoot else {
                 throw OrchestrationPlanError(
-                    message: "The \(manifest.substrate.kind.rawValue) substrate needs a '\(OrchestrationWellKnownParameter.repoRoot)' parameter"
+                    message: "The \(manifest.substrate.kind.rawValue) substrate needs a '\(OrchestrationWellKnownParameter.repoRoot.rawValue)' parameter"
                 )
             }
             return repoRoot + "/.cmux/orchestrations/" + manifest.name
@@ -237,7 +238,7 @@ public struct OrchestrationRunPlanner: Sendable {
         runShortID: String
     ) throws -> OrchestrationWorkspacePlan {
         let taskNumber = index + 1
-        let taskSlug = OrchestrationPlaceholders.slug(task.title)
+        let taskSlug = OrchestrationPlaceholders().slug(task.title)
         let directoryName = "\(runShortID)-t\(taskNumber)" + (taskSlug.isEmpty ? "" : "-\(taskSlug)")
         let directory = workspaceRoot + "/" + directoryName
 
@@ -254,14 +255,14 @@ public struct OrchestrationRunPlanner: Sendable {
         case .worktree:
             guard let repoRoot else {
                 throw OrchestrationPlanError(
-                    message: "The worktree substrate needs a '\(OrchestrationWellKnownParameter.repoRoot)' parameter"
+                    message: "The worktree substrate needs a '\(OrchestrationWellKnownParameter.repoRoot.rawValue)' parameter"
                 )
             }
             provision = .gitWorktree(repoRoot: repoRoot, branch: branch)
         case .clonePool:
             guard let repoRoot else {
                 throw OrchestrationPlanError(
-                    message: "The clone-pool substrate needs a '\(OrchestrationWellKnownParameter.repoRoot)' parameter"
+                    message: "The clone-pool substrate needs a '\(OrchestrationWellKnownParameter.repoRoot.rawValue)' parameter"
                 )
             }
             provision = .gitClone(repoRoot: repoRoot, branch: branch)
@@ -285,18 +286,18 @@ public struct OrchestrationRunPlanner: Sendable {
 
         let renderedPrompt: String
         do {
-            renderedPrompt = try OrchestrationPlaceholders.render(promptTemplate, values: values)
+            renderedPrompt = try OrchestrationPlaceholders().render(promptTemplate, values: values)
         } catch {
             throw OrchestrationPlanError(message: "Prompt template: \(String(describing: error))")
         }
 
         let promptFile = Self.promptFileRelativePath
-        values["prompt"] = OrchestrationPlaceholders.shellQuoted(renderedPrompt)
+        values["prompt"] = OrchestrationPlaceholders().shellQuoted(renderedPrompt)
         values["prompt_file"] = promptFile
 
         let commandText: String
         do {
-            commandText = try OrchestrationPlaceholders.render(agent.command, values: values)
+            commandText = try OrchestrationPlaceholders().render(agent.command, values: values)
         } catch {
             throw OrchestrationPlanError(message: "Agent '\(agent.id)' command: \(String(describing: error))")
         }
