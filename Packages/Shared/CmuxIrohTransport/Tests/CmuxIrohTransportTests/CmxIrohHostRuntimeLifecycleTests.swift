@@ -7,6 +7,38 @@ import Testing
 
 extension CmxIrohHostRuntimeTests {
     @Test
+    func unchangedReachabilityRenewsRegistrationBeforeHintExpiry() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let clock = HostRegistrationRenewalClock(now: now)
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { clock.now() },
+            registrationClock: clock,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+        let renewalDeadline = try #require(clock.observedSleepDeadlines().first)
+        #expect(renewalDeadline < now.addingTimeInterval(60 * 60))
+
+        clock.advance(to: renewalDeadline)
+        await broker.waitForRegistrationCount(2)
+
+        #expect(await broker.observedRegistrationCount() == 2)
+        await runtime.stop()
+        #expect(clock.observedCancellationCount() == 1)
+    }
+
+    @Test
     func startBindsExactRegisteredIdentityAndStopClosesIt() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(
@@ -336,5 +368,61 @@ extension CmxIrohHostRuntimeTests {
 extension CmxIrohHostRuntime {
     func waitForRegistrationRefreshForTesting() async {
         await registrationRefreshTask?.value
+    }
+}
+
+private final class HostRegistrationRenewalClock: CmxIrohRelayClock, @unchecked Sendable {
+    private let lock = NSLock()
+    private var date: Date
+    private var deadlines: [Date] = []
+    private var sleepers: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var cancellationCount = 0
+
+    init(now: Date) {
+        date = now
+    }
+
+    func now() -> Date {
+        lock.withLock { date }
+    }
+
+    func sleep(until deadline: Date) async throws {
+        let id = UUID()
+        lock.withLock { deadlines.append(deadline) }
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            try await withCheckedThrowingContinuation { continuation in
+                lock.withLock { sleepers[id] = continuation }
+                if Task.isCancelled { cancel(id: id) }
+            }
+        } onCancel: {
+            cancel(id: id)
+        }
+    }
+
+    func advance(to newDate: Date) {
+        let continuations = lock.withLock { () -> [CheckedContinuation<Void, any Error>] in
+            date = newDate
+            defer { sleepers.removeAll() }
+            return Array(sleepers.values)
+        }
+        for continuation in continuations { continuation.resume() }
+    }
+
+    func observedSleepDeadlines() -> [Date] {
+        lock.withLock { deadlines }
+    }
+
+    func observedCancellationCount() -> Int {
+        lock.withLock { cancellationCount }
+    }
+
+    private func cancel(id: UUID) {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, any Error>? in
+            guard let continuation = sleepers.removeValue(forKey: id) else { return nil }
+            cancellationCount += 1
+            return continuation
+        }
+        continuation?.resume(throwing: CancellationError())
     }
 }

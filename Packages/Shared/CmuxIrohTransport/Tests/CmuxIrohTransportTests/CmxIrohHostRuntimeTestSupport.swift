@@ -11,7 +11,10 @@ struct HostRuntimeFixture {
     let managedRelays: Set<String>
     let configuration: CmxIrohHostRuntimeConfiguration
 
-    init() throws {
+    init(
+        now: Date = Date(timeIntervalSince1970: 1_800_000_000),
+        publicHintLifetime: TimeInterval? = nil
+    ) throws {
         let secret = Data(repeating: 0x31, count: 32)
         identity = try CmxIrohIdentityMaterial(
             secretKey: CmxIrohSecretKey(bytes: secret),
@@ -24,7 +27,11 @@ struct HostRuntimeFixture {
                 .joined()
         )
         managedRelays = Set(Self.relayURLs)
-        binding = try Self.binding(endpointID: endpointID.endpointID)
+        binding = try Self.binding(
+            endpointID: endpointID.endpointID,
+            publicHintObservedAt: publicHintLifetime == nil ? nil : now,
+            publicHintExpiresAt: publicHintLifetime.map(now.addingTimeInterval)
+        )
         discovery = try Self.discovery(
             binding: binding,
             relays: Self.relayURLs
@@ -88,11 +95,18 @@ struct HostRuntimeFixture {
 
     static func binding(
         endpointID: String,
-        bindingID: String = "123e4567-e89b-42d3-a456-426614174010"
+        bindingID: String = "123e4567-e89b-42d3-a456-426614174010",
+        publicHintObservedAt: Date? = nil,
+        publicHintExpiresAt: Date? = nil
     ) throws -> CmxIrohBrokerBinding {
         try JSONDecoder().decode(
             CmxIrohBrokerBinding.self,
-            from: bindingJSON(endpointID: endpointID, bindingID: bindingID)
+            from: bindingJSON(
+                endpointID: endpointID,
+                bindingID: bindingID,
+                publicHintObservedAt: publicHintObservedAt,
+                publicHintExpiresAt: publicHintExpiresAt
+            )
         )
     }
 
@@ -103,13 +117,10 @@ struct HostRuntimeFixture {
         routeContractVersion: Int = 1,
         lanGeneration: Int = 1
     ) throws -> CmxIrohDiscoveryResponse {
-        let bindingObject = try JSONSerialization.jsonObject(
-            with: bindingJSON(
-                endpointID: binding.endpointID.endpointID,
-                bindingID: binding.bindingID,
-                deviceID: overrideDeviceID ?? binding.deviceID
-            )
-        )
+        var bindingObject = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(binding)
+        ) as? [String: Any] ?? [:]
+        bindingObject["device_id"] = overrideDeviceID ?? binding.deviceID
         let object: [String: Any] = [
             "route_contract_version": routeContractVersion,
             "bindings": [bindingObject],
@@ -137,9 +148,26 @@ struct HostRuntimeFixture {
     private static func bindingJSON(
         endpointID: String,
         bindingID: String = "123e4567-e89b-42d3-a456-426614174010",
-        deviceID: String = "123e4567-e89b-42d3-a456-426614174011"
+        deviceID: String = "123e4567-e89b-42d3-a456-426614174011",
+        publicHintObservedAt: Date? = nil,
+        publicHintExpiresAt: Date? = nil
     ) throws -> Data {
-        try JSONSerialization.data(withJSONObject: [
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let pathHints: [[String: Any]]
+        if let publicHintObservedAt, let publicHintExpiresAt {
+            pathHints = [[
+                "kind": "relay_url",
+                "value": "https://use1-1.relay.lawrence.cmux.iroh.link/",
+                "source": "managed_relay",
+                "privacy_scope": "public_internet",
+                "observed_at": formatter.string(from: publicHintObservedAt),
+                "expires_at": formatter.string(from: publicHintExpiresAt),
+            ]]
+        } else {
+            pathHints = []
+        }
+        return try JSONSerialization.data(withJSONObject: [
             "binding_id": bindingID,
             "device_id": deviceID,
             "app_instance_id": "123e4567-e89b-42d3-a456-426614174012",
@@ -150,7 +178,7 @@ struct HostRuntimeFixture {
             "identity_generation": 4,
             "pairing_enabled": true,
             "capabilities": ["rpc", "multistream"],
-            "path_hints": [],
+            "path_hints": pathHints,
             "last_seen_at": "2026-07-09T12:00:00.000Z",
         ])
     }

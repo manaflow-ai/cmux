@@ -49,6 +49,43 @@ struct CmxIrohRelayCredentialCoordinatorTests {
     }
 
     @Test
+    func stalledCredentialPersistenceDoesNotBlockRefreshScheduling() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let clock = TestRelayClock(now: fixture.now)
+        let persistence = TestRelayCredentialPersistenceGate()
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: TestRelayTokenBroker(steps: []),
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 },
+            credentialDidInstall: { response in
+                await persistence.persist(response)
+            }
+        )
+
+        let activation = Task {
+            try await coordinator.activate(
+                bindingID: fixture.bindingID,
+                endpointIdentity: fixture.identity,
+                bootstrap: try fixture.response()
+            )
+        }
+        await persistence.waitUntilStarted()
+        for _ in 0 ..< 20 { await Task.yield() }
+
+        #expect(clock.observedSleepDeadlines() == [fixture.refreshAfter])
+        #expect(await endpoint.observedRelayUpdates().count == 1)
+
+        await persistence.resume()
+        try await activation.value
+        await coordinator.deactivate()
+    }
+
+    @Test
     func bootstrapKeepsEachTokenAssociatedWithItsSignedRelayURL() async throws {
         let fixture = try RelayCoordinatorFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.identity)
@@ -285,6 +322,34 @@ private actor TestRelayCredentialInstallRecorder {
     }
 }
 
+private actor TestRelayCredentialPersistenceGate {
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var persistenceContinuation: CheckedContinuation<Void, Never>?
+
+    func persist(_: CmxIrohRelayTokenResponse) async {
+        started = true
+        let waiters = startWaiters
+        startWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { continuation in
+            persistenceContinuation = continuation
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func resume() {
+        persistenceContinuation?.resume()
+        persistenceContinuation = nil
+    }
+}
+
 private actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
     enum Step: Sendable {
         case response(CmxIrohRelayTokenResponse)
@@ -332,6 +397,7 @@ private final class TestRelayClock: CmxIrohRelayClock, @unchecked Sendable {
     private let lock = NSLock()
     private var currentDate: Date
     private var sleepers: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var sleepDeadlines: [Date] = []
     private let eventStream: AsyncStream<Event>
     private let continuation: AsyncStream<Event>.Continuation
 
@@ -347,6 +413,7 @@ private final class TestRelayClock: CmxIrohRelayClock, @unchecked Sendable {
     }
 
     func sleep(until deadline: Date) async throws {
+        lock.withLock { sleepDeadlines.append(deadline) }
         continuation.yield(.sleep(deadline))
         let id = UUID()
         try await withTaskCancellationHandler {
@@ -377,6 +444,10 @@ private final class TestRelayClock: CmxIrohRelayClock, @unchecked Sendable {
 
     func events() -> AsyncStream<Event> {
         eventStream
+    }
+
+    func observedSleepDeadlines() -> [Date] {
+        lock.withLock { sleepDeadlines }
     }
 
     private func cancelSleep(id: UUID) {
