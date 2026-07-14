@@ -4659,7 +4659,29 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         DispatchQueue.main.async {
             expectation.fulfill()
         }
-        XCTWaiter().wait(for: [expectation], timeout: 1.0)
+        // Generous timeout: the shared app host can hold seconds of unrelated
+        // main-queue work; a silently timed-out drain would let assertions run
+        // before the portal's queued sync pass.
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [expectation], timeout: 10.0),
+            .completed,
+            "Expected the main queue to drain"
+        )
+    }
+
+    /// Runs the main runloop until `condition` holds or `timeout` elapses.
+    /// Prefer this over fixed-interval runloop spins: the shared app host can
+    /// queue arbitrary amounts of unrelated main-queue work ahead of a test's
+    /// async blocks.
+    func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
     }
 
     func testPortalHostInstallsAboveContentViewForVisibility() {
@@ -4786,8 +4808,34 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(anchor2)
         portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
 
+        // Contract: an entry that is still visibleInUI is NOT pruned when its
+        // anchor detaches — SwiftUI/AppKit briefly detach/rehome anchor hosts
+        // during tab drag/reorder churn, and pruning there caused permanent
+        // terminal render loss (the entry is kept so a follow-up bind/sync can
+        // reattach it). The queued sync pass must still hide the anchorless
+        // hosted view so it cannot draw or hit-test at a stale location.
+        XCTAssertEqual(
+            portal.debugEntryCount(), 2,
+            "A visible entry with a vanished anchor should be kept for drag-churn recovery"
+        )
+        drainMainQueue()
+        drainMainQueue()
+        XCTAssertTrue(
+            hosted1.isHidden,
+            "An anchorless hosted view should be hidden by the queued sync pass"
+        )
+
+        // Once the entry is no longer visible in the UI, prune must drop it and
+        // detach the hosted view from the portal host.
+        portal.updateEntryVisibility(forHostedId: ObjectIdentifier(hosted1), visibleInUI: false)
+        portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
+
         XCTAssertEqual(portal.debugEntryCount(), 1, "Only the live anchored hosted view should remain tracked")
-        XCTAssertEqual(portal.debugHostedSubviewCount(), 1, "Stale anchorless hosted views should be detached from hostView")
+        XCTAssertEqual(
+            portal.debugStats().terminalSubviewCount, 1,
+            "Stale anchorless hosted views should be detached from hostView"
+        )
+        XCTAssertNil(hosted1.superview, "The pruned hosted view must leave the portal host view")
     }
 
     func testDeferredSyncHidesVisibleHostedViewAfterAnchorDisappears() {
@@ -4834,12 +4882,19 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         portal.bind(hostedView: activeHosted, to: activeAnchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(activeAnchor)
 
+        // Contract: outside an interactive drag, anchor syncs coalesce into a
+        // queued portal pass instead of running a synchronous full-portal
+        // sync (each anchor callback used to force hierarchy layout plus a
+        // sync of every hosted view, which kept the display cycle busy under
+        // churn). The stale hosted view must be hidden — and its hit-test
+        // region cleared — once that queued pass has run. Two drains cover
+        // the coalesced schedule's two main-queue hops.
+        drainMainQueue()
+        drainMainQueue()
         XCTAssertTrue(
             retiredHosted.isHidden,
-            "A visible hosted terminal whose anchor vanished should hide as soon as the replacement anchor sync runs"
+            "A visible hosted terminal whose anchor vanished should hide once the coalesced anchor sync pass runs"
         )
-        // Drain the queued full-sync turn so the portal clears any stale hit-test region left by the rebind.
-        drainMainQueue()
 
         let activeWindowPoint = activeAnchor.convert(
             NSPoint(x: activeAnchor.bounds.midX, y: activeAnchor.bounds.midY),
@@ -5022,14 +5077,25 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         portal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
         XCTAssertFalse(hosted.isHidden, "Healthy geometry should be visible")
 
+        // Contract: outside an interactive drag, synchronizeHostedViewForAnchor
+        // coalesces into a queued portal pass rather than syncing synchronously
+        // (synchronous full-portal syncs per anchor callback kept the display
+        // cycle busy under churn). Each hide/defer-reveal/reveal decision below
+        // therefore lands once the queued pass runs; two drains cover the
+        // coalesced schedule's two main-queue hops.
+
         // Collapse to a tiny frame first.
         anchor.frame = NSRect(x: 160.5, y: 1037.0, width: 79.0, height: 0.0)
         portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
         XCTAssertTrue(hosted.isHidden, "Tiny geometry should hide the portal-hosted terminal")
 
         // Then restore to a non-zero but still too-small frame. It should remain hidden.
         anchor.frame = NSRect(x: 160.9, y: 1026.5, width: 93.6, height: 10.3)
         portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
         XCTAssertTrue(
             hosted.isHidden,
             "Portal should defer reveal until geometry reaches a usable size"
@@ -5038,6 +5104,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         // Once the frame is large enough again, reveal should resume.
         anchor.frame = NSRect(x: 40, y: 40, width: 180, height: 40)
         portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
         XCTAssertFalse(hosted.isHidden, "Portal should unhide after geometry is usable")
     }
 
@@ -5160,21 +5228,32 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
         )
 
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+        // Contract: the non-immediate schedule is the "wait" under test — its
+        // coalesced pass takes an extra main-queue hop, so a layout mutation
+        // queued on the same turn (below) lands BEFORE the pass reads
+        // geometry. Dispatch FIFO makes this deterministic: hop one runs
+        // before the shift block, so the pass itself is enqueued after it.
+        // (forceImmediate: true is the opposite contract — flush now for drag
+        // responsiveness — and is covered by
+        // testScheduledExternalGeometrySyncKeepsDragDrivenResizeResponsive.)
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
         DispatchQueue.main.async {
             shiftedContainer.frame.origin.x += 72
             contentView.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
         }
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
-        XCTAssertGreaterThan(
-            shiftedAnchorFrameInWindow.minX,
-            originalAnchorFrameInWindow.minX + 1,
+        // The shared app host can queue unrelated main-queue work ahead of the
+        // shift block, so wait for the shift to land instead of spinning the
+        // runloop for a fixed interval.
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) {
+                anchor.convert(anchor.bounds, to: nil).minX > originalAnchorFrameInWindow.minX + 1
+            },
             "The queued layout shift should move the anchor to the right"
         )
+
+        let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
         XCTAssertGreaterThan(
             shiftedAnchorFrameInWindow.maxX,
             originalAnchorFrameInWindow.maxX + 1,
@@ -5188,8 +5267,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             x: (originalAnchorFrameInWindow.maxX + shiftedAnchorFrameInWindow.maxX) / 2,
             y: shiftedAnchorFrameInWindow.midY
         )
-        XCTAssertNil(
-            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window),
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) {
+                TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window) == nil
+            },
             "The queued external sync should wait until the later layout shift settles, clearing the stale portal location"
         )
         XCTAssertNotNil(
@@ -5435,6 +5516,16 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         TerminalWindowPortalRegistry.synchronizeForAnchor(secondAnchor)
         realizeWindowLayout(firstWindow)
         realizeWindowLayout(secondWindow)
+        // Settle every coalesced sync pass queued by bind/realize before
+        // mutating geometry: the anchor syncs above coalesce into queued
+        // passes (plus a possible follow-up hop when a flush folded them into
+        // an immediate request), and a leftover pass running after the shift
+        // below would legitimately refresh its own window — making it
+        // impossible to attribute the refresh to the window-scoped sync this
+        // test is about.
+        for _ in 0..<8 {
+            drainMainQueue()
+        }
 
         let originalFirstFrameInWindow = firstAnchor.convert(firstAnchor.bounds, to: nil)
         let originalSecondFrameInWindow = secondAnchor.convert(secondAnchor.bounds, to: nil)

@@ -256,8 +256,16 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             Issue.record("Nested trailing-border resize failed: \(String(describing: result))")
             return
         }
-        let commands = try readControlCommands(harness)
-        #expect(commands == "resize-pane -t @3.%33 -R 1\n")
+        // The control stream legitimately carries the attach-time
+        // `list-windows` topology fetch (sent when the first command result
+        // drains the attach block), so judge only the resize sends: exactly
+        // one, and it must target the ancestor (%33) that owns the nested
+        // trailing border rather than the requested inner pane.
+        let resizeCommands = try readControlCommands(harness)
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { $0.hasPrefix("resize-pane") }
+        #expect(resizeCommands == ["resize-pane -t @3.%33 -R 1"])
     }
 
     @Test func paneResizeRejectsMalformedExplicitUnitValues() throws {
@@ -367,8 +375,16 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             Issue.record("Native tmux absolute resize failed: \(String(describing: tmuxCompatibleAxis))")
             return
         }
-        let commands = try readControlCommands(harness)
-        #expect(commands == "resize-pane -t @3.%\(tmuxPaneID) -y 4\n")
+        // Same filtering rationale as
+        // paneResizeTargetsTheAncestorThatOwnsANestedTrailingBorder: ignore the
+        // attach-time `list-windows` topology fetch and require that the two
+        // rejected requests sent nothing while the tmux-compat request sent
+        // exactly one absolute resize.
+        let resizeCommands = try readControlCommands(harness)
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { $0.hasPrefix("resize-pane") }
+        #expect(resizeCommands == ["resize-pane -t @3.%\(tmuxPaneID) -y 4"])
     }
 
     private func readControlCommands(_ harness: Harness) throws -> String {
