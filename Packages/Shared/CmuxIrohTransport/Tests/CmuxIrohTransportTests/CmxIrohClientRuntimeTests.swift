@@ -39,6 +39,7 @@ struct CmxIrohClientRuntimeTests {
         #expect(prepared.challengeRequest.identityGeneration == fixture.identity.generation)
         #expect(await endpoint.observedRelayUpdates().last?.count == 4)
         #expect(await recorder.observedBindingCount() == 1)
+        await recorder.waitForRelayCount(1)
         #expect(await recorder.observedRelayCount() == 1)
         #expect(runtime.transportFactory.supportedKinds == [.iroh])
         await runtime.stop()
