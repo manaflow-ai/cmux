@@ -19,6 +19,7 @@
     "color", "background-color", "border-color", "border-width", "border-radius",
   ];
   const preferredAttributes = ["data-testid", "data-test", "data-qa", "aria-label", "name"];
+  const selectorAttributes = new Set(["id", "class", ...preferredAttributes]);
   const maxSnapshotCharacters = 128 * 1024;
   const maxTextCharacters = 16 * 1024;
   const maxTextNodeCount = 512;
@@ -40,6 +41,7 @@
   let overlay = null;
   let observer = null;
   let refreshScheduled = false;
+  let selectionIdentityNeedsRefresh = false;
   let overlayFrame = 0;
   let captureHidden = false;
   const edits = new Map();
@@ -439,7 +441,10 @@
     for (const edit of edits.values()) {
       if (edit.kind === "style") {
         rememberStyleOriginal(element, edit.property);
-        element.style.setProperty(edit.property, edit.value, "important");
+        if (element.style.getPropertyValue(edit.property) !== edit.value
+            || element.style.getPropertyPriority(edit.property) !== "important") {
+          element.style.setProperty(edit.property, edit.value, "important");
+        }
       } else if (edit.kind === "text") {
         if (!applyText(element, edit.value, notifyPage)) edits.delete(edit.id);
       }
@@ -585,11 +590,31 @@
 
   const refreshAfterMutation = () => {
     refreshScheduled = false;
+    let identityChanged = false;
+    if (selectionIdentityNeedsRefresh && selectedElement?.isConnected && selectedBaseline) {
+      const selectors = selectorsFor(selectedElement);
+      if (!selectors.length) {
+        restoreAll();
+        selectedElement = null;
+        selectedBaseline = null;
+        hoveredElement = null;
+        selectionIdentityNeedsRefresh = false;
+        revision += 1;
+        emit();
+        scheduleOverlayRefresh();
+        return;
+      }
+      identityChanged = selectors[0] !== selectedBaseline.selector
+        || selectors.length !== selectedBaseline.selectors.length
+        || selectors.some((selector, index) => selector !== selectedBaseline.selectors[index]);
+      selectedBaseline = { ...selectedBaseline, selector: selectors[0], selectors };
+    }
+    selectionIdentityNeedsRefresh = false;
     const previous = selectedElement;
     const current = resolveSelectedElement();
     if (previous && previous !== current) restoreAndForgetElement(previous);
     if (current) applyEditsTo(current, false);
-    if (previous !== current) {
+    if (previous !== current || identityChanged) {
       revision += 1;
       emit();
     }
@@ -603,14 +628,66 @@
     enqueue(refreshAfterMutation);
   };
 
+  const nodeContains = (container, candidate) => container === candidate
+    || (typeof container?.contains === "function" && container.contains(candidate));
+
+  const directChildOnPath = (ancestor, descendant) => {
+    let current = descendant;
+    while (current?.parentNode && current.parentNode !== ancestor) current = current.parentNode;
+    return current?.parentNode === ancestor ? current : null;
+  };
+
+  const mutationTouchesSelection = (mutation) => {
+    const selected = selectedElement;
+    if (!selected || !selectedBaseline) return false;
+    if (mutation.type === "characterData") return nodeContains(selected, mutation.target);
+    if (mutation.type === "attributes") {
+      if (mutation.target === selected && mutation.attributeName === "style") return true;
+      if (!selectorAttributes.has(mutation.attributeName || "")) return false;
+      if (mutation.target === selected || nodeContains(mutation.target, selected)) {
+        selectionIdentityNeedsRefresh = true;
+        return true;
+      }
+      return false;
+    }
+    if (mutation.type !== "childList") return false;
+    if (nodeContains(selected, mutation.target)) return true;
+    for (const node of mutation.removedNodes) {
+      if (nodeContains(node, selected)) return true;
+    }
+    const pathChild = directChildOnPath(mutation.target, selected);
+    if (!pathChild || pathChild.nodeType !== 1) return false;
+    for (const node of [...mutation.addedNodes, ...mutation.removedNodes]) {
+      if (node.nodeType === 1 && node.localName === pathChild.localName) {
+        selectionIdentityNeedsRefresh = true;
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const onMutations = (mutations) => {
+    let touchesSelection = false;
+    for (const mutation of mutations) {
+      if (mutationTouchesSelection(mutation)) touchesSelection = true;
+    }
+    if (touchesSelection) scheduleMutationRefresh();
+  };
+
   const selectElement = (element) => {
     if (!element || element === overlayHost || overlayHost?.contains(element)) return snapshot();
+    if (selectedElement === element && selectedBaseline) {
+      hoveredElement = null;
+      scheduleOverlayRefresh();
+      return snapshot();
+    }
     const validatedBaseline = baselineFor(element);
     if (!validatedBaseline) return snapshot();
     if (selectedElement !== element && edits.size) restoreAll();
     const baseline = element.isConnected ? baselineFor(element) || validatedBaseline : validatedBaseline;
     selectedElement = element;
     selectedBaseline = baseline;
+    selectionIdentityNeedsRefresh = false;
     hoveredElement = null;
     revision += 1;
     scheduleOverlayRefresh();
@@ -642,6 +719,7 @@
     restoreAll();
     selectedElement = null;
     selectedBaseline = null;
+    selectionIdentityNeedsRefresh = false;
     revision += 1;
     scheduleOverlayRefresh();
     emit();
@@ -653,8 +731,14 @@
     document.addEventListener("keydown", onKeyDown, true);
     globalThis.addEventListener("scroll", scheduleOverlayRefresh, true);
     globalThis.addEventListener("resize", scheduleOverlayRefresh, true);
-    observer = new MutationObserver(scheduleMutationRefresh);
-    observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    observer = new MutationObserver(onMutations);
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["id", "class", "style", ...preferredAttributes],
+    });
   };
 
   const removeListeners = () => {
@@ -688,6 +772,7 @@
       restoreAll();
       selectedElement = null;
       selectedBaseline = null;
+      selectionIdentityNeedsRefresh = false;
       hoveredElement = null;
       overlayHost?.remove();
       overlayHost = null;

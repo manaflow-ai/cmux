@@ -13,8 +13,7 @@ nonisolated struct BrowserDesignModePageURL {
         components.user = nil
         components.password = nil
         if let queryItems = components.queryItems {
-            let sanitizedItems = redactingSensitiveValues(in: queryItems)
-            if sanitizedItems != queryItems { components.queryItems = sanitizedItems }
+            components.queryItems = redactingValues(in: queryItems)
         }
         if let fragment = components.fragment {
             components.fragment = sanitizedFragment(fragment)
@@ -41,31 +40,19 @@ nonisolated struct BrowserDesignModePageURL {
         var query = URLComponents()
         query.percentEncodedQuery = String(encodedQuery)
         guard let queryItems = query.queryItems, !queryItems.isEmpty else {
-            return containsSensitiveFieldName(fragment) ? nil : fragment
+            return nil
         }
-        let sanitizedItems = redactingSensitiveValues(in: queryItems)
-        guard sanitizedItems != queryItems else { return fragment }
-        query.queryItems = sanitizedItems
+        query.queryItems = redactingValues(in: queryItems)
         let separator = includesQuestionMark ? "?" : ""
         return "\(prefix)\(separator)\(query.percentEncodedQuery ?? "")"
     }
 
-    private func redactingSensitiveValues(in items: [URLQueryItem]) -> [URLQueryItem] {
+    private func redactingValues(in items: [URLQueryItem]) -> [URLQueryItem] {
         items.map { item in
-            guard containsSensitiveFieldName(item.name) else { return item }
-            return URLQueryItem(name: item.name, value: "<redacted>")
+            URLQueryItem(
+                name: item.name,
+                value: item.value == nil ? nil : "<redacted>"
+            )
         }
-    }
-
-    private func containsSensitiveFieldName(_ value: String) -> Bool {
-        let boundaryNormalized = value.replacingOccurrences(
-            of: #"([a-z0-9])([A-Z])"#,
-            with: "$1-$2",
-            options: .regularExpression
-        )
-        return boundaryNormalized.range(
-            of: #"(?:^|[-_.:])(api[-_]?key|auth|authorization|code|credential|csrf|password|passwd|secret|session|token)(?:$|[-_.:])"#,
-            options: [.regularExpression, .caseInsensitive]
-        ) != nil
     }
 }

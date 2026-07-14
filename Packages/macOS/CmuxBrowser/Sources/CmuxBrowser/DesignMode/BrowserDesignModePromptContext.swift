@@ -2,7 +2,7 @@ import Foundation
 
 /// The complete context packaged for a coding agent after visual editing.
 public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
-    /// The page URL containing the edited element, with credential-bearing fields redacted.
+    /// The page URL containing the edited element, with query-like values redacted.
     public let pageURL: String
     /// The authoritative design-mode snapshot.
     public let snapshot: BrowserDesignModeSnapshot
@@ -11,7 +11,7 @@ public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
 
     /// Creates the context for one agent handoff.
     /// - Parameters:
-    ///   - pageURL: The page URL. User information and sensitive query or fragment values are redacted.
+    ///   - pageURL: The page URL. User information and query-like values are redacted.
     ///   - snapshot: The current design-mode snapshot.
     ///   - screenshotPath: The local screenshot crop path.
     public init(pageURL: String, snapshot: BrowserDesignModeSnapshot, screenshotPath: String?) {
