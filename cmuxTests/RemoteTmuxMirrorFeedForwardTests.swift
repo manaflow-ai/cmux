@@ -121,6 +121,61 @@ import Testing
         #expect(mirror.containerSizePt == CGSize(width: 1100, height: 700))
     }
 
+    /// During an AppKit window resize, SwiftUI can deliver the CORRECT
+    /// post-resize slot reading while the window's transient frame still
+    /// holds the old bound — the reading is truth, the bound is noise.
+    /// Dropping it permanently freezes the mirror at the pre-resize size:
+    /// geometry callbacks only re-fire when the region changes again, and
+    /// the pass-top clamp cannot recover the width because the window bound
+    /// overstates the mirror slot by the sidebar. A reading dropped against
+    /// a torn bound must be re-judged once against the next settled bound
+    /// and banked when it fits.
+    @Test func readingDroppedAgainstATornBoundIsReJudgedAtTheSettledBound() {
+        var hostingBound: CGSize? = CGSize(width: 1789, height: 875)
+        let (mirror, connection) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { hostingBound }
+        )
+        mirror.isVisibleForSizing = true
+        // A good reading on record, banked against a settled window.
+        mirror.noteContainerSize(pointSize: CGSize(width: 1549, height: 819), scale: 2)
+        #expect(mirror.containerSizePt == CGSize(width: 1549, height: 819))
+        // Mid-resize tear: the slot already reads its post-resize size while
+        // the window still reports a transient smaller frame. Oversized on
+        // both axes against that torn bound, so today this reading is lost.
+        hostingBound = CGSize(width: 1250, height: 583)
+        mirror.noteContainerSize(pointSize: CGSize(width: 1334, height: 593), scale: 2)
+        // The window settles larger than the reading; the next pass is the
+        // only re-judgment edge — no further geometry callback is coming.
+        hostingBound = CGSize(width: 1574, height: 617)
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == CGSize(width: 1334, height: 593))
+        // (1334 − 3 × (pad 4 + slack 1) − 2 × (divider 1 − cell 8)) / 8 → 166.
+        #expect(pushed(connection)?.cols == 166)
+    }
+
+    /// The asymmetry the drop guard exists for, pinned so the re-judgment
+    /// cannot decay into a clamp: a content-ideal reading that still exceeds
+    /// the settled bound carries no truth about the slot and stays dropped —
+    /// banking it (or the bound) would resurrect the ~40pt-wide-at-rest
+    /// plans the drop path was built to prevent.
+    @Test func parkedReadingStillOversizedAtTheSettledBoundStaysDropped() {
+        let bound = CGSize(width: 1728, height: 663)
+        let (mirror, _) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { bound }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.noteContainerSize(pointSize: CGSize(width: 1549, height: 639), scale: 2)
+        #expect(mirror.containerSizePt == CGSize(width: 1549, height: 639))
+        // An ancestor's content ideal, far beyond any real window.
+        mirror.noteContainerSize(pointSize: CGSize(width: 6133, height: 639), scale: 2)
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == CGSize(width: 1549, height: 639))
+    }
+
     /// An oversized FIRST reading clamps to the bound so the initial claim
     /// can still be made — only later readings have a good value to keep.
     @Test func oversizedFirstReadingClampsToTheWindowBound() {
