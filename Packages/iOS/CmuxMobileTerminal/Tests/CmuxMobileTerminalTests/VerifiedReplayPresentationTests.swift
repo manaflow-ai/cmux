@@ -28,9 +28,11 @@ struct VerifiedReplayPresentationTests {
         var fence = VerifiedReplayPresentationFence(expectedToken: 42)
 
         #expect(!fence.isSatisfied(modelIdentity: initial, presentationIdentity: initial))
-        #expect(!fence.acknowledge(token: 41, modelIdentity: stale))
+        let acceptedStale = fence.acknowledge(token: 41, modelIdentity: stale)
+        #expect(!acceptedStale)
         #expect(!fence.isSatisfied(modelIdentity: stale, presentationIdentity: stale))
-        #expect(fence.acknowledge(token: 42, modelIdentity: replay))
+        let acceptedReplay = fence.acknowledge(token: 42, modelIdentity: replay)
+        #expect(acceptedReplay)
         #expect(!fence.isSatisfied(modelIdentity: replay, presentationIdentity: stale))
         #expect(!fence.isSatisfied(modelIdentity: replay, presentationIdentity: replay))
         fence.markObservedFrameReady()

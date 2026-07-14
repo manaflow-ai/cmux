@@ -2,13 +2,18 @@
 import CMUXMobileCore
 import QuartzCore
 
-/// One verified replay readback and synchronous presentation awaiting completion.
+/// Successful presentation of one exact tokened Ghostty render. A drain render
+/// has no observed frame; a replay render carries its local grid readback.
+nonisolated struct VerifiedReplayPresentedSubmission: Sendable {
+    let observedFrame: MobileTerminalRenderGridFrame?
+}
+
+/// One verified replay readback and tokened presentation awaiting completion.
 nonisolated struct PendingVerifiedReplayPresentation {
     let id: UInt64
     let startedAt: CFTimeInterval
-    let fence: VerifiedReplayPresentationFence
+    var fence: VerifiedReplayPresentationFence
     var observedFrame: MobileTerminalRenderGridFrame?
-    var renderSubmitted: Bool
-    let continuation: CheckedContinuation<MobileTerminalRenderGridFrame?, Never>
+    let continuation: CheckedContinuation<VerifiedReplayPresentedSubmission?, Never>
 }
 #endif

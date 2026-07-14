@@ -90,6 +90,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var verifiedReplayFrozenImage: CGImage?
     var verifiedReplayFrozenTransactionID: UInt64?
     var verifiedReplayFrozenViewportRect: CGRect?
+    /// Set before the pre-freeze drain submission and kept set until an exact
+    /// replay presentation is revealed or the surface is torn down.
+    var verifiedReplayRenderSuppressed = false
     /// Whether the host terminal currently wants the cursor shown (DECTCEM).
     /// TUIs that hide the cursor (vim, fzf, htop, less, …) emit `ESC [ ? 25 l`;
     /// the render-grid producer forwards that in the VT-patch bytes, so we track
@@ -125,6 +128,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// GPU is available so any in-flight render drains — and gate dispatch so
     /// no `render_now` is sent into the background.
     private var renderingSuspended: Bool = false
+    var isRenderingSuspendedForVerifiedReplay: Bool { renderingSuspended }
     #if DEBUG
     /// Last time the display-link heartbeat logged (DEBUG diagnostic). The
     /// per-frame callback runs on the main thread, so a steady heartbeat proves
@@ -2742,7 +2746,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard !renderPipelineRecoveryPaused,
               !renderingSuspended,
               !isRenderDispatchSuppressed,
-              verifiedReplayFrozenPresentationLayer == nil,
+              !verifiedReplayRenderSuppressed,
               let surface,
               !isDismantled else { return }
         // Coalesce: never let more than one render_now sit on the serial queue.
@@ -3455,6 +3459,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         surfaceConfig.io_write_userdata = bridgePointer
+        surfaceConfig.render_presented_cb = { userdata, token in
+            GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
+        }
+        surfaceConfig.render_presented_userdata = bridgePointer
         return ghostty_surface_new(app, &surfaceConfig)
     }
 

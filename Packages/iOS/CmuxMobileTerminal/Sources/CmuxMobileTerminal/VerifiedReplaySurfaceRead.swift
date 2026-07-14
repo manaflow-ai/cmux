@@ -12,4 +12,12 @@ nonisolated struct VerifiedReplaySurfaceRead: @unchecked Sendable {
     let renderEpoch: String
     let renderRevision: UInt64
 }
+
+/// Tokened render invocation dereferenced only by the surface's serial queue.
+nonisolated struct VerifiedReplayRenderSubmission: @unchecked Sendable {
+    // Safety: the surface pointer remains owned by GhosttySurfaceView and every
+    // use is enqueued on the same generation-bound surface work queue.
+    let surface: ghostty_surface_t
+    let token: UInt64
+}
 #endif

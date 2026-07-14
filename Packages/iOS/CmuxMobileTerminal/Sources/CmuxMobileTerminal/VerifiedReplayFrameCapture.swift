@@ -9,24 +9,54 @@ nonisolated struct VerifiedReplayRendererSurfaceIdentity: Equatable, Sendable {
     let seed: UInt32
 }
 
-/// Event-driven fence for one Ghostty Metal submission.
-///
-/// Ghostty changes its renderer layer contents only from the Metal command
-/// buffer completion callback. Requiring the changed IOSurface to also appear
-/// in the presentation tree ensures Core Animation accepted that completed
-/// target before the last-good overlay can be removed.
+/// Event-driven fence for one explicitly tokened Ghostty Metal submission.
+/// A stale command-buffer completion cannot arm this fence even if its target
+/// reaches both the model and presentation trees.
 nonisolated struct VerifiedReplayPresentationFence: Sendable {
-    let initialIdentity: VerifiedReplayRendererSurfaceIdentity?
+    let expectedToken: UInt64
+    private(set) var acknowledgedIdentity: VerifiedReplayRendererSurfaceIdentity?
+    private(set) var observedFrameReady = false
+
+    mutating func markObservedFrameReady() {
+        observedFrameReady = true
+    }
+
+    mutating func acknowledge(
+        token: UInt64,
+        modelIdentity: VerifiedReplayRendererSurfaceIdentity?
+    ) -> Bool {
+        guard token == expectedToken,
+              let modelIdentity else {
+            return false
+        }
+        acknowledgedIdentity = modelIdentity
+        return true
+    }
 
     func isSatisfied(
         modelIdentity: VerifiedReplayRendererSurfaceIdentity?,
         presentationIdentity: VerifiedReplayRendererSurfaceIdentity?
     ) -> Bool {
-        guard let modelIdentity,
-              modelIdentity != initialIdentity else {
+        guard observedFrameReady,
+              let acknowledgedIdentity,
+              modelIdentity == acknowledgedIdentity else {
             return false
         }
-        return presentationIdentity == modelIdentity
+        return presentationIdentity == acknowledgedIdentity
+    }
+}
+
+/// Keeps authoritative grid export and its tokened Metal submission adjacent
+/// inside one serial surface-queue closure. Publishing the exported frame to
+/// MainActor happens only after this synchronous operation returns.
+nonisolated enum VerifiedReplayAtomicSubmission {
+    static func exportThenSubmit<Frame>(
+        export: () -> Frame?,
+        submit: () -> Void
+    ) -> Frame? {
+        guard let frame = export() else { return nil }
+        submit()
+        return frame
     }
 }
 

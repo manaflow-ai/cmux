@@ -11,11 +11,35 @@ extension GhosttySurfaceView {
     /// Retains an immutable copy of the last presented pixels and cursor above
     /// the live renderer while a replacement grid is replayed and verified.
     @discardableResult
-    public func freezeVerifiedReplayPresentation(transactionID: UInt64) -> Bool {
+    public func freezeVerifiedReplayPresentation(transactionID: UInt64) async -> Bool {
+        guard surface != nil,
+              !isDismantled else {
+            return false
+        }
         if verifiedReplayFrozenPresentationLayer != nil {
             verifiedReplayFrozenTransactionID = transactionID
             cursorOverlayLayer?.isHidden = true
             return true
+        }
+        guard !verifiedReplayRenderSuppressed,
+              !renderPipelineRecoveryPaused,
+              !isRenderingSuspendedForVerifiedReplay else {
+            return false
+        }
+        // Stop all ordinary submissions first. The tokened drain is queued
+        // behind prior surface work and acknowledged only after its exact Metal
+        // frame assigns the renderer layer on main. At that point every older
+        // GPU write and layer assignment is behind us, so the CPU pixel copy
+        // cannot race swap-chain reuse.
+        verifiedReplayRenderSuppressed = true
+        var retainedFrozenPresentation = false
+        defer {
+            if !retainedFrozenPresentation {
+                verifiedReplayRenderSuppressed = false
+            }
+        }
+        guard await submitVerifiedReplayRenderAndWait(read: nil) != nil else {
+            return false
         }
 
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
@@ -107,6 +131,7 @@ extension GhosttySurfaceView {
         MobileDebugLog.anchormux(
             "verified_replay.freeze transaction=\(transactionID) contents=\(contentLayer != nil)"
         )
+        retainedFrozenPresentation = true
         return true
     }
 
@@ -134,52 +159,15 @@ extension GhosttySurfaceView {
             return nil
         }
         let generation = surfaceGeneration
-        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
-        let initialIdentity = VerifiedReplayFrameCapture.rendererIdentity(from: renderer?.contents)
-        return await withCheckedContinuation { continuation in
-            let operationID = makeSurfaceOperationID()
-            if let existing = pendingVerifiedReplayPresentation {
-                pendingVerifiedReplayPresentation = nil
-                existing.continuation.resume(returning: nil)
-            }
-            pendingVerifiedReplayPresentation = PendingVerifiedReplayPresentation(
-                id: operationID,
-                startedAt: CACurrentMediaTime(),
-                fence: VerifiedReplayPresentationFence(initialIdentity: initialIdentity),
-                observedFrame: nil,
-                renderSubmitted: false,
-                continuation: continuation
-            )
-            ensureSurfaceOperationDeadlinePump()
-
-            let read = VerifiedReplaySurfaceRead(
-                surface: surface,
-                generation: generation,
-                surfaceID: surfaceID,
-                stateSeq: stateSeq,
-                renderEpoch: renderEpoch,
-                renderRevision: renderRevision
-            )
-            outputQueue.async { [weak self] in
-                let observed = Self.exportVerifiedReplayGrid(read)
-                ghostty_surface_render_now(read.surface)
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    guard self.surface == read.surface,
-                          self.surfaceGeneration == read.generation else {
-                        self.completePendingVerifiedReplayPresentation(
-                            id: operationID,
-                            returning: nil
-                        )
-                        return
-                    }
-                    self.markPendingVerifiedReplayRenderSubmitted(
-                        id: operationID,
-                        observedFrame: observed
-                    )
-                }
-            }
-        }
+        let read = VerifiedReplaySurfaceRead(
+            surface: surface,
+            generation: generation,
+            surfaceID: surfaceID,
+            stateSeq: stateSeq,
+            renderEpoch: renderEpoch,
+            renderRevision: renderRevision
+        )
+        return await submitVerifiedReplayRenderAndWait(read: read)?.observedFrame
     }
 
     func layoutVerifiedReplayFrozenPresentation(viewportRect: CGRect) {
@@ -207,19 +195,32 @@ extension GhosttySurfaceView {
         verifiedReplayFrozenImage = nil
         verifiedReplayFrozenTransactionID = nil
         verifiedReplayFrozenViewportRect = nil
+        verifiedReplayRenderSuppressed = false
         updateCursorOverlay()
         CATransaction.commit()
     }
 
-    /// Called by the display link until the exact completed Metal target has
-    /// reached Core Animation's presentation tree. Ghostty updates the model
-    /// layer only from its command-buffer completion callback, so this is both
-    /// the GPU completion fence and the presentation fence, without sleeping.
-    func completePendingVerifiedReplayPresentationIfPresented() {
-        guard let pending = pendingVerifiedReplayPresentation,
-              pending.renderSubmitted else {
+    /// Called by Ghostty after one exact tokened command reaches the model
+    /// renderer layer. A stale completion has a different token and cannot arm
+    /// the pending fence.
+    func handleVerifiedReplayRenderPresented(token: UInt64) {
+        guard var pending = pendingVerifiedReplayPresentation else { return }
+        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let modelIdentity = VerifiedReplayFrameCapture.rendererIdentity(from: renderer?.contents)
+        guard pending.fence.acknowledge(
+            token: token,
+            modelIdentity: modelIdentity
+        ) else {
             return
         }
+        pendingVerifiedReplayPresentation = pending
+        completePendingVerifiedReplayPresentationIfPresented()
+    }
+
+    /// Called by the display link until the exact acknowledged target reaches
+    /// Core Animation's presentation tree.
+    func completePendingVerifiedReplayPresentationIfPresented() {
+        guard let pending = pendingVerifiedReplayPresentation else { return }
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         let modelIdentity = VerifiedReplayFrameCapture.rendererIdentity(from: renderer?.contents)
         let presentationIdentity = VerifiedReplayFrameCapture.rendererIdentity(
@@ -233,38 +234,98 @@ extension GhosttySurfaceView {
         }
         completePendingVerifiedReplayPresentation(
             id: pending.id,
-            returning: pending.observedFrame
+            returning: VerifiedReplayPresentedSubmission(
+                observedFrame: pending.observedFrame
+            )
         )
     }
 
-    private func markPendingVerifiedReplayRenderSubmitted(
-        id: UInt64,
-        observedFrame: MobileTerminalRenderGridFrame?
-    ) {
-        guard var pending = pendingVerifiedReplayPresentation,
-              pending.id == id else {
-            return
+    private func submitVerifiedReplayRenderAndWait(
+        read: VerifiedReplaySurfaceRead?
+    ) async -> VerifiedReplayPresentedSubmission? {
+        guard let surface,
+              !isDismantled,
+              !renderPipelineRecoveryPaused,
+              !isRenderingSuspendedForVerifiedReplay else {
+            return nil
         }
-        pending.observedFrame = observedFrame
-        pending.renderSubmitted = true
-        pendingVerifiedReplayPresentation = pending
+        let generation = surfaceGeneration
+        let submission = VerifiedReplayRenderSubmission(
+            surface: surface,
+            token: makeSurfaceOperationID()
+        )
+        return await withCheckedContinuation { continuation in
+            if let existing = pendingVerifiedReplayPresentation {
+                pendingVerifiedReplayPresentation = nil
+                existing.continuation.resume(returning: nil)
+            }
+            var fence = VerifiedReplayPresentationFence(expectedToken: submission.token)
+            if read == nil {
+                fence.markObservedFrameReady()
+            }
+            pendingVerifiedReplayPresentation = PendingVerifiedReplayPresentation(
+                id: submission.token,
+                startedAt: CACurrentMediaTime(),
+                fence: fence,
+                observedFrame: nil,
+                continuation: continuation
+            )
+            ensureSurfaceOperationDeadlinePump()
+            guard let read else {
+                outputQueue.async {
+                    ghostty_surface_render_now_with_token(submission.surface, submission.token)
+                }
+                return
+            }
+            outputQueue.async { [weak self] in
+                let observed = VerifiedReplayAtomicSubmission.exportThenSubmit(
+                    export: {
+                        Self.exportVerifiedReplayGridSynchronously(read)
+                    },
+                    submit: {
+                        ghostty_surface_render_now_with_token(
+                            submission.surface,
+                            submission.token
+                        )
+                    }
+                )
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    guard self.surface == submission.surface,
+                          self.surfaceGeneration == generation,
+                          var pending = self.pendingVerifiedReplayPresentation,
+                          pending.id == submission.token,
+                          let observed else {
+                        self.completePendingVerifiedReplayPresentation(
+                            id: submission.token,
+                            returning: nil
+                        )
+                        return
+                    }
+                    pending.observedFrame = observed
+                    pending.fence.markObservedFrameReady()
+                    self.pendingVerifiedReplayPresentation = pending
+                    self.completePendingVerifiedReplayPresentationIfPresented()
+                }
+            }
+        }
     }
 
     @discardableResult
     private func completePendingVerifiedReplayPresentation(
         id: UInt64,
-        returning frame: MobileTerminalRenderGridFrame?
+        returning result: VerifiedReplayPresentedSubmission?
     ) -> Bool {
         guard let pending = pendingVerifiedReplayPresentation,
               pending.id == id else {
             return false
         }
         pendingVerifiedReplayPresentation = nil
-        pending.continuation.resume(returning: frame)
+        pending.continuation.resume(returning: result)
         return true
     }
 
-    nonisolated private static func exportVerifiedReplayGrid(
+    nonisolated private static func exportVerifiedReplayGridSynchronously(
         _ read: VerifiedReplaySurfaceRead
     ) -> MobileTerminalRenderGridFrame? {
         let exported = read.surfaceID.withCString { pointer in

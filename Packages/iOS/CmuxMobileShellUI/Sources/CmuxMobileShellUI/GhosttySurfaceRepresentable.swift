@@ -318,7 +318,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         continue
                     case .rejectUnverified:
                         let transactionID = self.verifiedReplayState.rejectUnverifiedOutput()
-                        surfaceView.freezeVerifiedReplayPresentation(transactionID: transactionID)
+                        _ = await surfaceView.freezeVerifiedReplayPresentation(
+                            transactionID: transactionID
+                        )
                         store.terminalOutputDidReset(
                             surfaceID: surfaceID,
                             streamToken: chunk.streamToken
@@ -409,7 +411,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             store: CMUXMobileShellStore
         ) async {
             guard case .apply(let transaction) = verifiedReplayState.begin(frame: frame) else {
-                surfaceView.freezeVerifiedReplayPresentation(transactionID: frame.renderRevision)
+                _ = await surfaceView.freezeVerifiedReplayPresentation(
+                    transactionID: frame.renderRevision
+                )
                 store.terminalOutputDidReset(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
@@ -417,7 +421,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 return
             }
 
-            guard surfaceView.freezeVerifiedReplayPresentation(transactionID: transaction.id) else {
+            guard await surfaceView.freezeVerifiedReplayPresentation(
+                transactionID: transaction.id
+            ) else {
                 _ = verifiedReplayState.complete(
                     transactionID: transaction.id,
                     observedFrame: nil

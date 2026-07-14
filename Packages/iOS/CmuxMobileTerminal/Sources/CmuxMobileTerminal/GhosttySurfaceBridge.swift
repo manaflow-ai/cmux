@@ -62,6 +62,12 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
         }
     }
 
+    func handleRenderPresented(token: UInt64) {
+        Task { @MainActor [weak self] in
+            self?.surfaceView?.handleVerifiedReplayRenderPresented(token: token)
+        }
+    }
+
     static func fromOpaque(_ userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceBridge? {
         guard let userdata else { return nil }
         return Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
