@@ -1,20 +1,22 @@
 import Foundation
 
 extension URL {
-    /// The standardized filesystem path represented by this URL.
+    /// The canonical filesystem path represented by this URL, with symbolic links resolved.
     public var browserWebExtensionStandardizedPath: String {
-        standardizedFileURL.path
+        standardizedFileURL.resolvingSymlinksInPath().path
     }
 
-    /// The resource root WebKit uses for a Safari app extension URL.
+    /// The canonical resource root WebKit uses for a Safari app extension URL.
     public var browserWebExtensionSafariResourceRootPath: String {
         let standardizedURL = standardizedFileURL
-        guard standardizedURL.pathExtension == "appex" else {
-            return standardizedURL.path
+        let resourceRootURL: URL
+        if standardizedURL.pathExtension == "appex" {
+            resourceRootURL = standardizedURL
+                .appendingPathComponent("Contents/Resources", isDirectory: true)
+                .standardizedFileURL
+        } else {
+            resourceRootURL = standardizedURL
         }
-        return standardizedURL
-            .appendingPathComponent("Contents/Resources", isDirectory: true)
-            .standardizedFileURL
-            .path
+        return resourceRootURL.resolvingSymlinksInPath().path
     }
 }

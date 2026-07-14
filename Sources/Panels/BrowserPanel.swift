@@ -5633,13 +5633,25 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Navigation
 
     /// Navigate to a URL
-    func navigate(to url: URL, recordTypedNavigation: Bool = false, allowWebExtensionContext: Bool = true) {
+    func navigate(
+        to url: URL, recordTypedNavigation: Bool = false,
+        preserveRestoredSessionHistory: Bool = false, allowWebExtensionContext: Bool = true
+    ) {
         let request = URLRequest(url: url)
         if shouldBlockInsecureHTTPNavigation(to: url) {
-            presentInsecureHTTPAlert(for: request, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
+            presentInsecureHTTPAlert(
+                for: request,
+                intent: .currentTab,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            )
             return
         }
-        navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation, allowWebExtensionContext: allowWebExtensionContext)
+        navigateWithoutInsecureHTTPPrompt(
+            request: request, recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            allowWebExtensionContext: allowWebExtensionContext
+        )
     }
 
     func navigateWithoutInsecureHTTPPrompt(
@@ -5713,11 +5725,10 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         cancelHiddenWebViewDiscard()
         clearWebContentTerminationRecovery()
-        if !preserveRestoredSessionHistory {
-            abandonRestoredSessionHistoryIfNeeded()
-        }
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
-        ensureWebExtensionNavigationConfiguration(for: originalURL, allowWebExtensionContext: allowWebExtensionContext)
+        let didReplaceWebView = ensureWebExtensionNavigationConfiguration(
+            for: originalURL, allowWebExtensionContext: allowWebExtensionContext)
+        if !preserveRestoredSessionHistory && !didReplaceWebView { abandonRestoredSessionHistoryIfNeeded() }
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
@@ -5741,32 +5752,25 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func ensureWebExtensionNavigationConfiguration(for url: URL, allowWebExtensionContext: Bool) {
-        let targetConfiguration = browserWebExtensionHost?.webViewConfiguration(forNavigatingTo: url)
-        let targetContextIdentifier = targetConfiguration?.contextIdentifier
-        guard targetContextIdentifier != webExtensionPageContextIdentifier else { return }
-        guard targetContextIdentifier == nil || allowWebExtensionContext else { return }
-        replaceWebViewForWebExtensionNavigation(webViewConfiguration: targetConfiguration?.webViewConfiguration, contextIdentifier: targetContextIdentifier)
-    }
-
-    func navigateFromWebExtension(to url: URL, webViewConfiguration: WKWebViewConfiguration?) {
-        if let webViewConfiguration {
-            let contextIdentifier = browserWebExtensionHost?
-                .webViewConfiguration(forNavigatingTo: url)?
-                .contextIdentifier
-            replaceWebViewForWebExtensionNavigation(
-                webViewConfiguration: webViewConfiguration,
-                contextIdentifier: contextIdentifier
-            )
-        }
-        navigate(to: url)
-    }
-
+    @discardableResult
     func replaceWebViewForWebExtensionNavigation(
-        webViewConfiguration: WKWebViewConfiguration?,
-        contextIdentifier: ObjectIdentifier?
-    ) {
+        webViewConfiguration: WKWebViewConfiguration?, contextIdentifier: ObjectIdentifier?,
+        targetURL: URL? = nil
+    ) -> Bool {
+        if let contextIdentifier, contextIdentifier == webExtensionPageContextIdentifier { return false }
+
         let oldWebView = webView
+        let history = sessionNavigationHistorySnapshot()
+        let previousCurrentURLString = Self.serializableSessionHistoryURLString(resolvedCurrentSessionHistoryURL())
+        let targetCurrentURLString = Self.serializableSessionHistoryURLString(targetURL) ?? previousCurrentURLString
+        var backHistoryURLStrings = history.backHistoryURLStrings
+        var forwardHistoryURLStrings = history.forwardHistoryURLStrings
+        if let previousCurrentURLString,
+           let targetCurrentURLString,
+           previousCurrentURLString != targetCurrentURLString {
+            backHistoryURLStrings.append(previousCurrentURLString)
+            forwardHistoryURLStrings.removeAll(keepingCapacity: false)
+        }
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
         let reason = contextIdentifier == nil ? "webExtensionNavigation.leave" : "webExtensionNavigation.enter"
         let restoreDeveloperTools = preferredDeveloperToolsVisible || isDeveloperToolsVisible()
@@ -5814,8 +5818,15 @@ final class BrowserPanel: Panel, ObservableObject {
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
         webExtensionPageContextIdentifier = contextIdentifier
+        if let targetURL { currentURL = targetURL }
         nativeCanGoBack = false
         nativeCanGoForward = false
+        if !backHistoryURLStrings.isEmpty || !forwardHistoryURLStrings.isEmpty {
+            restoreSessionNavigationHistory(
+                backHistoryURLStrings: backHistoryURLStrings,
+                forwardHistoryURLStrings: forwardHistoryURLStrings,
+                currentURLString: targetCurrentURLString)
+        }
         refreshWebViewLifecycleState()
         bindWebView(replacement)
         applyProxyConfigurationIfAvailable()
@@ -5824,6 +5835,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if restoreDeveloperTools {
             requestDeveloperToolsRefreshAfterNextAttach(reason: reason)
         }
+        return true
     }
 
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
@@ -5925,6 +5937,7 @@ final class BrowserPanel: Panel, ObservableObject {
         for request: URLRequest,
         intent: BrowserInsecureHTTPNavigationIntent,
         recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool = false,
         onResolution: @escaping (BrowserInsecureHTTPNavigationResolution) -> Void = { _ in }
     ) {
         guard let url = request.url else { return }
@@ -5949,6 +5962,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 url: url,
                 intent: intent,
                 recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory,
                 onResolution: onResolution
             )
         }
@@ -5973,7 +5987,9 @@ final class BrowserPanel: Panel, ObservableObject {
         request: URLRequest,
         url: URL,
         intent: BrowserInsecureHTTPNavigationIntent,
-        recordTypedNavigation: Bool, openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) },
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool = false,
+        openExternalURL: (URL) -> Bool = { NSWorkspace.shared.open($0) },
         onResolution: (BrowserInsecureHTTPNavigationResolution) -> Void
     ) {
         if browserShouldPersistInsecureHTTPAllowlistSelection(
@@ -5991,7 +6007,11 @@ final class BrowserPanel: Panel, ObservableObject {
             case .currentTab:
                 onResolution(.proceededInCurrentTab)
                 insecureHTTPBypassHostOnce = host
-                navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+                navigateWithoutInsecureHTTPPrompt(
+                    request: request,
+                    recordTypedNavigation: recordTypedNavigation,
+                    preserveRestoredSessionHistory: preserveRestoredSessionHistory
+                )
             case .newTab:
                 onResolution(.proceededInNewTab)
                 openLinkInNewTab(request: request, bypassInsecureHTTPHostOnce: host)

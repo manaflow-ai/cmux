@@ -7,6 +7,37 @@ struct BrowserWebExtensionNavigationConfiguration {
 }
 
 extension BrowserPanel {
+    @discardableResult
+    func ensureWebExtensionNavigationConfiguration(
+        for url: URL,
+        allowWebExtensionContext: Bool
+    ) -> Bool {
+        let targetConfiguration = browserWebExtensionHost?.webViewConfiguration(forNavigatingTo: url)
+        let targetContextIdentifier = targetConfiguration?.contextIdentifier
+        guard targetContextIdentifier != webExtensionPageContextIdentifier else { return false }
+        guard targetContextIdentifier == nil || allowWebExtensionContext else { return false }
+        return replaceWebViewForWebExtensionNavigation(
+            webViewConfiguration: targetConfiguration?.webViewConfiguration,
+            contextIdentifier: targetContextIdentifier,
+            targetURL: url
+        )
+    }
+
+    func navigateFromWebExtension(to url: URL, webViewConfiguration: WKWebViewConfiguration?) {
+        var didReplaceWebView = false
+        if let webViewConfiguration {
+            let contextIdentifier = browserWebExtensionHost?
+                .webViewConfiguration(forNavigatingTo: url)?
+                .contextIdentifier
+            didReplaceWebView = replaceWebViewForWebExtensionNavigation(
+                webViewConfiguration: webViewConfiguration,
+                contextIdentifier: contextIdentifier,
+                targetURL: url
+            )
+        }
+        navigate(to: url, preserveRestoredSessionHistory: didReplaceWebView)
+    }
+
     /// Retries an extension URL restored before its owning context finished loading.
     func retryPendingWebExtensionNavigationIfNeeded() {
         guard webExtensionPageContextIdentifier == nil,
@@ -16,12 +47,13 @@ extension BrowserPanel {
             return
         }
         let shouldResumeNavigation = shouldRenderWebView
-        replaceWebViewForWebExtensionNavigation(
+        let didReplaceWebView = replaceWebViewForWebExtensionNavigation(
             webViewConfiguration: targetConfiguration.webViewConfiguration,
-            contextIdentifier: targetConfiguration.contextIdentifier
+            contextIdentifier: targetConfiguration.contextIdentifier,
+            targetURL: url
         )
         if shouldResumeNavigation {
-            navigate(to: url)
+            navigate(to: url, preserveRestoredSessionHistory: didReplaceWebView)
         }
     }
 
