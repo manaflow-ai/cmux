@@ -479,6 +479,12 @@ final class ComputerUseCursorOverlayController {
             return
         }
 
+        // Re-assert front on every move: when cmux brings the driven app to the
+        // foreground (watchable mode) the activation can reshuffle window order,
+        // and a one-time orderFront at first appearance would let the cursor get
+        // buried behind the app it is supposed to be pointing at.
+        panel.orderFrontRegardless()
+
         if reduceMotion {
             panel.setFrameOrigin(origin)
         } else {
