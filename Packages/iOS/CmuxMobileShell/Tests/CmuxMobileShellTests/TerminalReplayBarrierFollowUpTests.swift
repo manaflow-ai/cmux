@@ -172,7 +172,7 @@ import Testing
 }
 
 @MainActor
-@Test func followUpCapFailOpenRestoresBaselineForPartialRenderGridDelta() async throws {
+@Test func followUpCapFailOpenReconcilesRetainedRenderGridDelta() async throws {
     let router = LivenessHostRouter()
     await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
     let box = TransportBox()
@@ -237,11 +237,16 @@ import Testing
     #expect(followUpDropRecorded)
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: followUpChunk.streamToken)
 
-    let failedOpenWithRestoredBaseline = try await pollUntil {
+    let failedOpenWithRetainedDelta = try await pollUntil {
         store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
-            && store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 55
+            && store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 57
     }
-    #expect(failedOpenWithRestoredBaseline)
+    #expect(failedOpenWithRetainedDelta)
+
+    let retainedDeltaChunk = try #require(await iterator.next())
+    let retainedDeltaText = try #require(String(data: retainedDeltaChunk.data, encoding: .utf8))
+    #expect(retainedDeltaText.contains("delta-dropped-by-follow-up-barrier"))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retainedDeltaChunk.streamToken)
 
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,

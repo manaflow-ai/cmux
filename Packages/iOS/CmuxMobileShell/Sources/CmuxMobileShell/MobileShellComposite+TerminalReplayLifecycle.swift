@@ -88,6 +88,7 @@ extension MobileShellComposite {
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierRetainedOutputBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
@@ -209,6 +210,7 @@ extension MobileShellComposite {
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierRetainedOutputBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
@@ -276,6 +278,7 @@ extension MobileShellComposite {
         restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
+        reconcileTerminalReplayBarrierRetainedOutput(surfaceID: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_fail_open surface=\(surfaceID) reason=\(reason)")
         return true
     }

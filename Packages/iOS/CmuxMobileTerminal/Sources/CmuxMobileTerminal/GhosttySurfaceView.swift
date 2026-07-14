@@ -1583,7 +1583,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // A pinch/accessory step is an explicit choice: it rebases the user
         // font so the stretch-to-fill auto-fit re-derives from the new size
         // instead of fighting the gesture.
-        userBaseFontSize = target
+        claimUserFontOwnership(target)
         MobileDebugLog.anchormux("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
         scheduleDisplayLinkWork()
         showZoomOverlay()
@@ -1649,11 +1649,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// user baseline that capacity reports and the auto-fit derive from, then
     /// drives the shared apply path.
     private func applyUserFontSize(_ target: Float32) {
-        userBaseFontSize = min(
+        let clamped = min(
             max(target, MobileTerminalFontPreference.minimumSize),
             MobileTerminalFontPreference.maximumSize
         )
-        applyAbsoluteFontSize(target)
+        claimUserFontOwnership(clamped)
+        applyAbsoluteFontSize(clamped)
+    }
+
+    /// Transfers font ownership from geometry-derived auto-fit to an explicit
+    /// local or Mac choice. Any acknowledgement already in flight belongs to
+    /// the previous baseline and must not replace the newly queued user target.
+    private func claimUserFontOwnership(_ target: Float32) {
+        viewportFontGrantState.reset()
+        viewportFontGrantNeedsReport = false
+        userBaseFontSize = target
     }
 
     /// Set the live zoom to an absolute size (clamped to the font range),

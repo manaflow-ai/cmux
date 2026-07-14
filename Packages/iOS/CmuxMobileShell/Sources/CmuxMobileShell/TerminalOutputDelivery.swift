@@ -53,6 +53,30 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             frame.vtPatchBytes()
         }
     }
+
+    var renderGridFrame: MobileTerminalRenderGridFrame? {
+        guard case .renderGrid(let frame) = payload else { return nil }
+        return frame
+    }
+}
+
+/// Bounded output retained while a replay barrier owns the surface.
+///
+/// Raw bytes remain ordered. Consecutive replaceable viewport deliveries
+/// coalesce exactly like the live output queue, so a busy render-grid stream
+/// cannot retain obsolete intermediate repaints before the barrier fails open.
+struct TerminalReplayBarrierRetainedOutput: Sendable {
+    private(set) var deliveries: [TerminalOutputDelivery] = []
+
+    mutating func append(_ delivery: TerminalOutputDelivery) {
+        if let replacementScope = delivery.replacementScope,
+           let lastIndex = deliveries.indices.last,
+           deliveries[lastIndex].replacementScope == replacementScope {
+            deliveries[lastIndex] = delivery
+        } else {
+            deliveries.append(delivery)
+        }
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.

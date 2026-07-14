@@ -775,6 +775,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalReplayBarrierAckStreamTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierDroppedOutputSurfaceIDs: Set<String>
     var terminalReplayBarrierDroppedOutputCountsBySurfaceID: [String: UInt64]
+    var terminalReplayBarrierRetainedOutputBySurfaceID: [String: TerminalReplayBarrierRetainedOutput]
     var terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID: [String: UInt64]
     var terminalViewportReplayBarrierPendingAckTokensBySurfaceID: [String: UUID]
     var terminalReplayFailureRetryCountsBySurfaceID: [String: Int]
@@ -991,6 +992,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplayBarrierAckStreamTokensBySurfaceID = [:]
         self.terminalReplayBarrierDroppedOutputSurfaceIDs = []
         self.terminalReplayBarrierDroppedOutputCountsBySurfaceID = [:]
+        self.terminalReplayBarrierRetainedOutputBySurfaceID = [:]
         self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
         self.terminalViewportReplayBarrierPendingAckTokensBySurfaceID = [:]
         self.terminalReplayFailureRetryCountsBySurfaceID = [:]
@@ -5196,6 +5198,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierAckStreamTokensBySurfaceID = [:]
         terminalReplayBarrierDroppedOutputSurfaceIDs = []
         terminalReplayBarrierDroppedOutputCountsBySurfaceID = [:]
+        terminalReplayBarrierRetainedOutputBySurfaceID = [:]
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID = [:]
         terminalReplayFailureRetryCountsBySurfaceID = [:]
@@ -6638,6 +6641,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierRetainedOutputBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
