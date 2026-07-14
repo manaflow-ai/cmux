@@ -2739,6 +2739,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
+    private var browserAutomationInitScripts: [WKUserScript] = []
+    private var browserAutomationStyleScripts: [WKUserScript] = []
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
@@ -3326,7 +3328,7 @@ final class BrowserPanel: Panel, ObservableObject {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
-        let replacement = Self.makeWebView(
+        let replacement = makeReplacementWebView(
             profileID: profileID,
             websiteDataStore: websiteDataStore
         )
@@ -3563,6 +3565,32 @@ final class BrowserPanel: Panel, ObservableObject {
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         return webView
+    }
+
+    func registerBrowserAutomationInitScript(_ userScript: WKUserScript) -> Int {
+        browserAutomationInitScripts.append(userScript)
+        webView.configuration.userContentController.addUserScript(userScript)
+        return browserAutomationInitScripts.count
+    }
+
+    func registerBrowserAutomationStyleScript(_ userScript: WKUserScript) -> Int {
+        browserAutomationStyleScripts.append(userScript)
+        webView.configuration.userContentController.addUserScript(userScript)
+        return browserAutomationStyleScripts.count
+    }
+
+    private func makeReplacementWebView(
+        profileID: UUID,
+        websiteDataStore: WKWebsiteDataStore
+    ) -> CmuxWebView {
+        let replacement = Self.makeWebView(
+            profileID: profileID,
+            websiteDataStore: websiteDataStore
+        )
+        for userScript in browserAutomationInitScripts + browserAutomationStyleScripts {
+            replacement.configuration.userContentController.addUserScript(userScript)
+        }
+        return replacement
     }
 
     static func configureWebViewConfiguration(
@@ -4629,7 +4657,7 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore = BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         }
 
-        let replacement = Self.makeWebView(
+        let replacement = makeReplacementWebView(
             profileID: resolvedProfileID,
             websiteDataStore: websiteDataStore
         )
@@ -5152,7 +5180,7 @@ final class BrowserPanel: Panel, ObservableObject {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
-        let replacement = Self.makeWebView(
+        let replacement = makeReplacementWebView(
             profileID: profileID,
             websiteDataStore: websiteDataStore
         )
@@ -6163,7 +6191,7 @@ extension BrowserPanel {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
-        let replacement = Self.makeWebView(
+        let replacement = makeReplacementWebView(
             profileID: profileID,
             websiteDataStore: websiteDataStore
         )
@@ -7134,6 +7162,7 @@ extension BrowserPanel {
         ) { result in
             switch result {
             case .success:
+                guard !didFinish else { return }
                 operation(captureWebView, false, finish)
             case .failure(let error):
                 finish(.failure(error))

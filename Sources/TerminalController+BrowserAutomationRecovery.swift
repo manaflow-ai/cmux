@@ -32,20 +32,23 @@ extension TerminalController {
     }
 
     nonisolated func v2RecoverTimedOutBrowserJavaScript(
-        _ result: V2JavaScriptResult,
+        _ result: BrowserJavaScriptEvaluationResult,
         webView: WKWebView,
         surfaceId: UUID
     ) -> V2JavaScriptResult {
-        guard case .failure(let message) = result,
-              message == "Timed out waiting for JavaScript result" else {
-            return result
+        switch result {
+        case .success(let value):
+            return .success(value)
+        case .failure(let message):
+            return .failure(message)
+        case .timedOut:
+            return .failure(v2BrowserAutomationMessageAfterLivenessCheck(
+                originalMessage: "Timed out waiting for JavaScript result",
+                surfaceId: surfaceId,
+                expectedWebViewIdentifier: ObjectIdentifier(webView),
+                channel: .javaScript
+            ))
         }
-        return .failure(v2BrowserAutomationMessageAfterLivenessCheck(
-            originalMessage: message,
-            surfaceId: surfaceId,
-            expectedWebViewIdentifier: ObjectIdentifier(webView),
-            channel: .javaScript
-        ))
     }
 
     nonisolated func v2BrowserAutomationMessageAfterLivenessCheck(
@@ -54,8 +57,13 @@ extension TerminalController {
         expectedWebViewIdentifier: ObjectIdentifier,
         channel: BrowserAutomationProbeChannel
     ) -> String {
+        var recoveryTask: Task<Void, Never>?
         let outcome: BrowserAutomationRecoveryOutcome? = socketAwaitCallback(timeout: 2.5) { finish in
-            Task { @MainActor in
+            recoveryTask = Task { @MainActor in
+                guard !Task.isCancelled else {
+                    finish(.cancelled)
+                    return
+                }
                 guard let app = AppDelegate.shared else {
                     finish(.superseded)
                     return
@@ -78,6 +86,9 @@ extension TerminalController {
 #endif
                 finish(result)
             }
+        }
+        if outcome == nil {
+            recoveryTask?.cancel()
         }
 
         switch outcome {

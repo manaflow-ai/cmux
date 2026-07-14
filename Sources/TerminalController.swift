@@ -305,8 +305,6 @@ class TerminalController {
     private var v2BrowserNextElementOrdinal: Int = 1
     private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
     private var v2BrowserFrameSelectorBySurface: [UUID: String] = [:]
-    private var v2BrowserInitScriptsBySurface: [UUID: [String]] = [:]
-    private var v2BrowserInitStylesBySurface: [UUID: [String]] = [:]
     private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
     private var v2ConsumedBrowserDownloadKeysBySurface: [UUID: [String]] = [:]
@@ -328,8 +326,6 @@ class TerminalController {
     func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
         for surfaceId in Set(surfaceIds) {
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
-            v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
-            v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
             v2ConsumedBrowserDownloadKeysBySurface.removeValue(forKey: surfaceId)
@@ -5742,7 +5738,7 @@ class TerminalController {
         timeout: TimeInterval = 5.0,
         preferAsync: Bool = false,
         world: V2JSContentWorld
-    ) -> V2JavaScriptResult {
+    ) -> BrowserJavaScriptEvaluationResult {
         let timeoutSeconds = max(0.01, timeout)
         // Capture the held browser-control service (a Sendable value) rather than
         // `self`, reusing the already-initialized instance for error description.
@@ -5798,7 +5794,7 @@ class TerminalController {
                 "world=\(world == .page ? "page" : "isolated") timeout=\(timeoutSeconds)"
             )
 #endif
-            return .failure("Timed out waiting for JavaScript result")
+            return .timedOut
         }
         if let resultError = outcome.1 {
             return .failure(resultError)
@@ -6062,7 +6058,7 @@ class TerminalController {
         return await __cmuxEvalInFrame();
         """
 
-        var rawResult: V2JavaScriptResult
+        var rawResult: BrowserJavaScriptEvaluationResult
         if #available(macOS 11.0, *) {
             rawResult = v2RunJavaScript(
                 webView,
@@ -6112,12 +6108,18 @@ class TerminalController {
                 if isolatedMessage != pageMessage {
                     rawResult = .failure("\(pageMessage) (isolated-world retry: \(isolatedMessage))")
                 }
+            case .timedOut:
+                rawResult = .timedOut
             }
         }
 
-        rawResult = v2RecoverTimedOutBrowserJavaScript(rawResult, webView: webView, surfaceId: surfaceId)
+        let resolvedResult = v2RecoverTimedOutBrowserJavaScript(
+            rawResult,
+            webView: webView,
+            surfaceId: surfaceId
+        )
 
-        switch rawResult {
+        switch resolvedResult {
         case .failure(let message):
             return .failure(message)
         case .success(let value):
@@ -6182,39 +6184,6 @@ class TerminalController {
         let first = queue.removeFirst()
         v2BrowserDialogQueueBySurface[surfaceId] = queue
         return first
-    }
-
-    private func v2BrowserEnsureInitScriptsApplied(surfaceId: UUID, browserPanel: BrowserPanel) {
-        let scripts = v2BrowserInitScriptsBySurface[surfaceId] ?? []
-        let styles = v2BrowserInitStylesBySurface[surfaceId] ?? []
-        guard !scripts.isEmpty || !styles.isEmpty else { return }
-
-        let injector = """
-        (() => {
-          window.__cmuxInitScriptsApplied = window.__cmuxInitScriptsApplied || { scripts: [], styles: [] };
-          return true;
-        })()
-        """
-        _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: injector)
-
-        for script in scripts {
-            _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script)
-        }
-        for css in styles {
-            let cssLiteral = v2JSONLiteral(css)
-            let styleScript = """
-            (() => {
-              const id = 'cmux-init-style-' + btoa(unescape(encodeURIComponent(\(cssLiteral)))).replace(/=+$/g, '');
-              if (document.getElementById(id)) return true;
-              const el = document.createElement('style');
-              el.id = id;
-              el.textContent = String(\(cssLiteral));
-              (document.head || document.documentElement || document.body).appendChild(el);
-              return true;
-            })()
-            """
-            _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: styleScript)
-        }
     }
 
     nonisolated func v2PNGData(from image: NSImage) -> Data? {
@@ -9989,13 +9958,8 @@ class TerminalController {
         }
         return v2BrowserWithPanelContext(params: params) { ctx in
             let scriptsCount = v2MainSync {
-                var scripts = v2BrowserInitScriptsBySurface[ctx.surfaceId] ?? []
-                scripts.append(script)
-                v2BrowserInitScriptsBySurface[ctx.surfaceId] = scripts
-
                 let userScript = WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false)
-                ctx.webView.configuration.userContentController.addUserScript(userScript)
-                return scripts.count
+                return ctx.browserPanel.registerBrowserAutomationInitScript(userScript)
             }
             _ = v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script, timeout: 10.0)
 
@@ -10033,13 +9997,8 @@ class TerminalController {
             """
 
             let stylesCount = v2MainSync {
-                var styles = v2BrowserInitStylesBySurface[ctx.surfaceId] ?? []
-                styles.append(css)
-                v2BrowserInitStylesBySurface[ctx.surfaceId] = styles
-
                 let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
-                ctx.webView.configuration.userContentController.addUserScript(userScript)
-                return styles.count
+                return ctx.browserPanel.registerBrowserAutomationStyleScript(userScript)
             }
             _ = v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: source, timeout: 10.0)
 

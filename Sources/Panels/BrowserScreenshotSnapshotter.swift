@@ -340,10 +340,10 @@ enum BrowserScreenshotWebViewSnapshotter {
         timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
             finish(.failure(BrowserScreenshotError.automationTimedOut))
         }
-
         prepareForVisualCapture(webView, expectedURL: expectedURL) { result in
             switch result {
             case .success:
+                guard !didFinish else { return }
                 operation(finish)
             case .failure(let error):
                 finish(.failure(error))
