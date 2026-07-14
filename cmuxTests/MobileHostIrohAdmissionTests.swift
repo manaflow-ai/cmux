@@ -13,6 +13,42 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
+    @Test func testBindingPublicationDoesNotWaitForPersistence() async {
+        let queue = MobileHostIrohPersistenceQueue()
+        let gate = MobileHostIrohPersistenceGate()
+        var published = false
+
+        queue.publishAndEnqueue(
+            publish: { published = true },
+            persist: { await gate.wait() }
+        )
+        await gate.waitUntilStarted()
+
+        #expect(published)
+        await queue.cancel()
+        await gate.resume()
+    }
+
+    #if DEBUG
+    @Test func testMacIrohVerificationModeUsesTheSharedDefaultsContract() throws {
+        let suiteName = "MobileHostIrohAdmissionTests.transport-mode.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .automatic)
+        defaults.set(
+            CmxIrohTransportVerificationMode.relayOnly.rawValue,
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        )
+        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .relayOnly)
+        defaults.set(
+            CmxIrohTransportVerificationMode.directOnly.rawValue,
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        )
+        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .directOnly)
+    }
+    #endif
+
     @Test func testIrohAdmissionReplacesPerRequestStackAuthorization() async throws {
         let recorder = MobileHostAuthorizationInvocationRecorder()
         let request = MobileHostRPCRequest(
@@ -78,5 +114,29 @@ extension MobileHostAuthorizationTests {
             return #expect(Bool(false), "TCP status must return an object")
         }
         #expect(tcpPayload["mac_device_id"] == nil)
+    }
+}
+
+private actor MobileHostIrohPersistenceGate {
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        started = true
+        let waiters = startWaiters
+        startWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func resume() {
+        continuation?.resume()
+        continuation = nil
     }
 }
