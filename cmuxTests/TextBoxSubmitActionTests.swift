@@ -1011,6 +1011,22 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
+    func testConfiguredDefaultChangeClearsRememberedMode() throws {
+        let defaults = try makeIsolatedDefaults()
+        defaults.set(TextBoxSubmitAction.textEntryAction.id, forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
+        let panelState = TerminalPanelTextBoxState(defaults: defaults)
+
+        panelState.selectSubmitAction("codex", defaults: defaults)
+        defaults.set("claude", forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
+
+        XCTAssertNil(TerminalPanelTextBoxState(defaults: defaults).selectedSubmitActionID)
+        XCTAssertEqual(TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults), "claude")
+
+        defaults.set(TextBoxSubmitAction.textEntryAction.id, forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
+        XCTAssertNil(TerminalPanelTextBoxState(defaults: defaults).selectedSubmitActionID)
+    }
+
+    @Test
     func testUnknownNonIdleTerminalStillCyclesSubmitAction() {
         let actions = TextBoxSubmitAction.builtInActions
         let shouldForceTextEntry = TextBoxInputContainer.shouldForceTextEntrySubmit(
