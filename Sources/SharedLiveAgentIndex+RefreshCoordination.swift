@@ -25,6 +25,8 @@ extension SharedLiveAgentIndex {
             return task
         }
 
+        // Timed-out generations keep their physical loader until it returns. Count them here
+        // because that synchronous work cannot be cancelled, so replacements could grow unbounded.
         guard refreshGenerationsByID.count < Self.maximumConcurrentPhysicalLoads else {
             return Task { nil }
         }
