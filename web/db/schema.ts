@@ -91,6 +91,7 @@ export const accountDeletionTombstones = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    analyticsDeletedAt: timestamp("analytics_deleted_at", { withTimezone: true }),
     errorMessage: text("error_message"),
   },
   (table) => [
@@ -152,6 +153,22 @@ export const irohRelayPreferences = pgTable(
     check("iroh_relay_preferences_selected_array", sql`jsonb_typeof(${table.selectedManagedRelayIds}) = 'array'`),
     check("iroh_relay_preferences_custom_array", sql`jsonb_typeof(${table.customRelays}) = 'array'`),
     check("iroh_relay_preferences_revision_nonnegative", sql`${table.revision} >= 0`),
+  ],
+);
+
+export const accountAnalyticsForwardLeases = pgTable(
+  "account_analytics_forward_leases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    operationId: uuid("operation_id").notNull(),
+    userIdHash: text("user_id_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("account_analytics_forward_leases_expiry_idx").on(table.expiresAt),
+    index("account_analytics_forward_leases_user_expiry_idx").on(table.userIdHash, table.expiresAt),
+    index("account_analytics_forward_leases_operation_idx").on(table.operationId),
   ],
 );
 

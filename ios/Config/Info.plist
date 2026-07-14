@@ -20,6 +20,8 @@
 	<string>$(CMUX_DEV_TAG)</string>
 	<key>CMUXGitSHA</key>
 	<string>$(CMUX_GIT_SHA)</string>
+	<key>CMUXCrashReportingEnabled</key>
+	<string>$(CMUX_CRASH_REPORTING_ENABLED)</string>
 	<key>CMUXPresenceBaseURL</key>
 	<string>$(CMUX_PRESENCE_BASE_URL)</string>
 	<key>CFBundleName</key>

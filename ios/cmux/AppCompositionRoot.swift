@@ -68,10 +68,12 @@ final class AppCompositionRoot {
         self.iroh = iroh
         self.reachability = reachability
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
-        MobileCrashReporter.startIfEnabled(
-            consent: telemetryConsent,
-            revocationWatcher: crashRevocationWatcher
-        )
+        if Self.crashReportingEnabled {
+            MobileCrashReporter().startIfEnabled(
+                consent: telemetryConsent,
+                revocationWatcher: crashRevocationWatcher
+            )
+        }
         self.analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
             tokenProvider: auth.coordinator,
@@ -119,6 +121,17 @@ final class AppCompositionRoot {
         #if DEBUG
         self.diagnosticLog = DiagnosticLog(buildStamp: MobileDebugLog.buildStamp)
         #endif
+    }
+
+    private static var crashReportingEnabled: Bool {
+        switch Bundle.main.object(forInfoDictionaryKey: "CMUXCrashReportingEnabled") {
+        case let enabled as Bool:
+            enabled
+        case let enabled as String:
+            enabled.caseInsensitiveCompare("NO") != .orderedSame
+        default:
+            true
+        }
     }
 
     /// The most recent scene phase, so a `.active` transition is classified as a

@@ -296,4 +296,3 @@ extension MobileHostAuthorizationTests {
     }
 
 }
-

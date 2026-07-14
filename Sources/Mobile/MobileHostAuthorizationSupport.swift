@@ -18,7 +18,6 @@ enum MobileHostAuthorizationError: Error {
     case accountMismatch
     case verificationTimedOut
 }
-
 enum MobileHostAuthorizationPolicy {
     static func authorizeStackUserID(localUserID: String?, remoteUserID: String?) throws {
         guard let localUserID = normalizedUserID(localUserID) else {
@@ -257,4 +256,3 @@ actor MobileHostSerializedTransportWriter {
         }
     }
 }
-

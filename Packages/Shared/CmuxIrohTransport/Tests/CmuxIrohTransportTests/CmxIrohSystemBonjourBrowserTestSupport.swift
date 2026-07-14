@@ -13,7 +13,6 @@ final class TestBonjourOperation: CmxIrohBonjourOperation, Sendable {
         onCancel()
     }
 }
-
 final class TestBonjourDNSService: CmxIrohBonjourDNSService, @unchecked Sendable {
     struct Snapshot: Sendable {
         let resolveStarts: [String]
@@ -293,4 +292,3 @@ actor TestBonjourClockState {
         idleWaiters.removeValue(forKey: id)?.resume()
     }
 }
-
