@@ -26,6 +26,7 @@ extension MobileHostService {
             "terminal.replay.v1",
             MobileTerminalScrollRun.orderedRunsCapability,
             "terminal.viewport.v1",
+            "terminal.artifact.v1",
             "workspace.actions.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
@@ -33,6 +34,8 @@ extension MobileHostService {
             "workspace.group_actions.v1",
             "workspace.group_create.v1",
             "workspace.create_in_group.v1",
+            "chat.artifact.v1",
+            "chat.artifact.gallery.v1",
             "dogfood.v1",
             // The workspace list carries group sections (group_id per workspace +
             // a top-level groups array) and the host accepts

@@ -12,27 +12,22 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `473c64f2a`. It combines the previous cmux pin
-`dd726a9a6`, current fork `main` (`8495e581a`), and upstream
-`ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
-render-grid preserved-page OOM fix, lock-free selection notifications, and
-compressed-storage-preserving full scrollback reads. It merges the bounded
-screen-tail export `5ae712a89` with bidirectional mobile render-grid export
-`267824293`, then adds explicit cursor viewport location metadata in
-`4df356ae6`, the exact active-screen cursor row in `10c0ea1e3`, and a bounded
-active-screen suffix for deep viewports in `c73796d44`. It then merges current
-fork `main` through `cbbddb292`, adds API and cursor visibility regressions in
-`f9de0abc9`, and fixes both in `c1674657c`. It adds the legacy row-bound
-regression in `6b09476c9` and separates legacy and bounded newer-row policy in
-`3a0b38a61`. It adds exact mobile-scroll and style-index regressions in
-`9510b71ae`, then preserves exact viewport rows and indexed render-grid style
-lookup in `473c64f2a`.
-Published via
+Current cmux pinned fork head: `11aa50527`. It merges fork `main` through
+`a6305908a` with the bidirectional mobile render-grid branch through
+`7e387fe81`. This retains terminal-owned notification-scroll geometry and the
+embedded terminal scrollback cap while adding bounded before/after viewport
+rows, exact primary-screen row scrolling, cursor location metadata, indexed
+style capture, and bounded JSON exports for iOS.
+
+The underlying compression, selection, full-scrollback, and mobile export
+changes were published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
-https://github.com/manaflow-ai/ghostty/pull/106.
+https://github.com/manaflow-ai/ghostty/pull/106 and
+https://github.com/manaflow-ai/ghostty/pull/107 and
+https://github.com/manaflow-ai/ghostty/pull/114.
 
 ### Pending bidirectional mobile render-grid export
 
@@ -48,6 +43,8 @@ https://github.com/manaflow-ai/ghostty/pull/106.
   - `3a0b38a61` (`fix: separate legacy and bounded render grid rows`)
   - `9510b71ae` (`test: cover exact mobile scroll and style indexing`)
   - `473c64f2a` (`fix: preserve exact mobile scroll rows`)
+  - `7e387fe81` (`fix: bound mobile render grid exports`)
+  - `11aa50527` (merge current fork `main` through `a6305908a`)
 - PR: https://github.com/manaflow-ai/ghostty/pull/107
 - Files:
   - `include/ghostty.h`
@@ -95,7 +92,22 @@ https://github.com/manaflow-ai/ghostty/pull/106.
   - universal ReleaseFast GhosttyKit build with the exported symbol present in
     the macOS, iOS device, and iOS simulator slices
 - Prebuilt archive:
-  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-473c64f2a4f05954680623645578e2af4a95c396-crashsubdir-cmux-crash-v1
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-11aa505279b7a864ec2c357b7c9bcd5d538fd31d-crashsubdir-cmux-crash-v1
+
+### Notification replay viewport authority
+
+- OSC PWD actions carry the terminal scrollbar snapshot and row-space revision
+  from the exact byte position where the replay boundary was parsed.
+- `ghostty_surface_scrollbar` reads live terminal geometry without waiting for
+  renderer publication.
+- `ghostty_surface_scroll_to_row_if_revision` validates the row-space identity,
+  scrolls, and returns the resulting geometry under one terminal lock. A reset,
+  reflow, screen replacement, surface replacement, or scrollback eviction makes
+  a stale request fail closed instead of scrolling the wrong rows.
+- Conflict note: keep the PWD snapshot fields ABI-stable in
+  `src/apprt/action.zig` / `include/ghostty.h`, preserve the PageList revision
+  increments around row renumbering, and keep the embedded compare-and-set API
+  adjacent to `ghostty_surface_scrollbar` during future fork merges.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -164,13 +176,14 @@ the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
 build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
 and clearing.
-The combined pin has the reviewed prebuilt archive listed above. The checksum
-manifest also retains the published component archives for `267824293` and
-`5ae712a89`.
+Prebuilt archive:
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-11aa505279b7a864ec2c357b7c9bcd5d538fd31d-crashsubdir-cmux-crash-v1
 
 ### Previous pin
 
-The previous cmux pin was `1ae98c991`. It was superseded by `e215e78bf` after
+The previous cmux pin was `5ae712a89`, which added the bounded VT screen-tail
+export on top of `e215e78bf`. Before that, `1ae98c991` was superseded by
+`e215e78bf` after
 full scrollback formatting was changed to preserve compressed storage and
 selection notifications moved to a lock-free terminal-wide epoch. The initial
 compression merge for this update was `870ed36f9`; it was superseded by

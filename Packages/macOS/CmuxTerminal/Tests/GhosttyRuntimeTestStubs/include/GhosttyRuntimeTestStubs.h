@@ -33,6 +33,7 @@ void ghostty_surface_mouse_scroll(void);
 void ghostty_surface_mouse_scroll_with_viewport_rows(void);
 bool ghostty_surface_needs_confirm_quit(void *surface);
 void ghostty_surface_new(void);
+void* ghostty_surface_new_with_scrollback_limit(void* app, const void* config, uintptr_t scrollback_limit_bytes);
 bool ghostty_surface_process_exited(void *surface);
 void ghostty_surface_process_output(void);
 void ghostty_surface_quicklook_font(void);
@@ -44,7 +45,7 @@ void ghostty_surface_render_grid_json_bounded(void);
 void ghostty_surface_set_content_scale(void);
 void ghostty_surface_set_display_id(void);
 void ghostty_surface_set_focus(void);
-void ghostty_surface_set_occlusion(void);
+void ghostty_surface_set_occlusion(void *surface, bool visible);
 void ghostty_surface_set_renderer_realized(void);
 void ghostty_surface_set_size(void);
 void ghostty_surface_size(void);
@@ -54,5 +55,8 @@ ghostty_string_s ghostty_surface_tty_name(void *surface);
 
 void cmux_test_ghostty_runtime_stubs_reset(void);
 void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name);
+uint64_t cmux_test_ghostty_surface_set_occlusion_call_count(void);
+bool cmux_test_ghostty_surface_last_occlusion_visible(void);
+uintptr_t cmux_test_ghostty_surface_last_scrollback_limit_bytes(void);
 
 #endif

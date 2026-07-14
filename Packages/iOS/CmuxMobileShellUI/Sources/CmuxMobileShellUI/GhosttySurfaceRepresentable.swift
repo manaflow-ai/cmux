@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxAgentChat
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -23,6 +24,7 @@ import UIKit
 /// field-grow pushes only the terminal up. There is no toolbar handoff and no second
 /// layout system reaching into the surface's bottom math.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
+    let workspaceID: String
     let surfaceID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
@@ -42,9 +44,25 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// advances, it rebuilds the runtime config and refreshes the mounted
     /// surface's background/colors in place via `GhosttyRuntime.applyLiveThemeIfRunning()`.
     var themeGeneration: UInt64 = 0
+    var artifactFilesEnabled: Bool = false
+    var sessionArtifactCountEnabled: Bool = false
+    var visibleArtifactCount: Int = 0
+    var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
+    var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
+    var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(surfaceID: surfaceID, store: store)
+        Coordinator(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            store: store,
+            artifactFilesEnabled: artifactFilesEnabled,
+            sessionArtifactCountEnabled: sessionArtifactCountEnabled,
+            visibleArtifactCount: visibleArtifactCount,
+            onArtifactFilesRequested: onArtifactFilesRequested,
+            onArtifactPathTapped: onArtifactPathTapped,
+            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged
+        )
     }
 
     func makeUIView(context: Context) -> UIView {
@@ -68,6 +86,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fontSize: fontSize
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        view.artifactFilesEnabled = artifactFilesEnabled
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
@@ -107,6 +126,24 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested
+        context.coordinator.onArtifactPathTapped = onArtifactPathTapped
+        context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
+        let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
+            artifactFilesEnabled: artifactFilesEnabled,
+            sessionArtifactCountEnabled: sessionArtifactCountEnabled
+        )
+        surfaceView.artifactFilesEnabled = artifactFilesEnabled
+        if artifactCountModeChanged {
+            surfaceView.resetVisibleArtifactCountTracking()
+        }
+        let projectedArtifactCount = context.coordinator.artifactCountNeedsRefresh
+            ? 0
+            : visibleArtifactCount
+        context.coordinator.updateArtifactChip(
+            count: projectedArtifactCount,
+            enabled: artifactFilesEnabled
+        )
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         // Live theme change: the shell bumped the generation after writing the new
@@ -125,21 +162,35 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
         (uiView as? GhosttySurfaceView)?.prepareForDismantle()
+        coordinator.tearDownArtifactChip()
         coordinator.tearDownComposer()
         coordinator.detach()
     }
 
     final class Coordinator: NSObject {
+        let workspaceID: String
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
+        var artifactFilesEnabled: Bool
+        var sessionArtifactCountEnabled: Bool
+        var visibleArtifactCount: Int
+        var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void
+        var onArtifactPathTapped: @MainActor (_ path: String) -> Void
+        var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         private var outputTask: Task<Void, Never>?
         private var liveFontTask: Task<Void, Never>?
         private var terminalScrollSessionToken: UUID?
+        var artifactCountTask: Task<Void, Never>?
+        var artifactCountTaskRequest: TerminalArtifactChipCountState.Request?
+        var artifactCountState = TerminalArtifactChipCountState()
+        var artifactCountNeedsRefresh: Bool
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
         private var composerController: UIHostingController<TerminalComposerView>?
+        var artifactChipController: UIHostingController<TerminalArtifactChipView>?
+        var lastArtifactChipRender: (count: Int, enabled: Bool)?
         private var composerMounted = false
         /// The theme generation already pushed to the live runtime, so a repeated
         /// `updateUIView` for the same generation does not rebuild the config again.
@@ -159,15 +210,38 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// the meantime.
         private var composerMountGeneration = 0
 
-        init(surfaceID: String, store: CMUXMobileShellStore) {
+        init(
+            workspaceID: String,
+            surfaceID: String,
+            store: CMUXMobileShellStore,
+            artifactFilesEnabled: Bool,
+            sessionArtifactCountEnabled: Bool,
+            visibleArtifactCount: Int,
+            onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
+            onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void,
+            onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void
+        ) {
+            self.workspaceID = workspaceID
             self.surfaceID = surfaceID
             self.store = store
+            self.artifactFilesEnabled = artifactFilesEnabled
+            self.sessionArtifactCountEnabled = sessionArtifactCountEnabled
+            self.visibleArtifactCount = visibleArtifactCount
+            self.artifactCountNeedsRefresh = artifactFilesEnabled
+            self.onArtifactFilesRequested = onArtifactFilesRequested
+            self.onArtifactPathTapped = onArtifactPathTapped
+            self.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
             super.init()
         }
 
         @MainActor
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
+            surfaceView.artifactFilesEnabled = artifactFilesEnabled
+            updateArtifactChip(
+                count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount,
+                enabled: artifactFilesEnabled
+            )
             guard let store else { return }
             let surfaceID = surfaceID
             let mount = store.mountTerminalSurfaceOutput(
@@ -299,9 +373,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask = nil
             liveFontTask?.cancel()
             liveFontTask = nil
+            artifactCountTask?.cancel()
+            artifactCountTask = nil
+            artifactCountTaskRequest = nil
+            artifactCountState.reset()
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
         }
+
 
         // MARK: - Composer band hosting
 

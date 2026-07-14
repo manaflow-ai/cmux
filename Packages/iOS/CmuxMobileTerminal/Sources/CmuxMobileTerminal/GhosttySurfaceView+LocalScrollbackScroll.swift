@@ -153,6 +153,7 @@ extension GhosttySurfaceView {
                         && !self.isDismantled
                     if isCurrent {
                         self.requestDrawAfterLocalScrollbackScroll(generation: state.generation)
+                        self.scheduleVisibleArtifactCountUpdate()
                     }
                     self.completePendingLocalScrollApply(id: operationID, returning: isCurrent)
                 }
