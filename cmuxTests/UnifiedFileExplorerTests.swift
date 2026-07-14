@@ -146,13 +146,16 @@ struct UnifiedFileExplorerTests {
         #expect(store.expandedPaths == [directory.path])
         #expect(store.selectedPath == directory.path)
 
+        searchController.emitsEmptySnapshotOnSearch = true
         let searchCountBeforeFindActivation = searchController.searchRequests.count
         let outlineResponder = window.firstResponder
         state.mode = .find
         container.updatePresentation(.unified)
         #expect(!container.searchResultsView.isHidden)
-        #expect(searchController.searchRequests.count == searchCountBeforeFindActivation + 1)
+        #expect(searchController.searchRequests.count == searchCountBeforeFindActivation)
+        #expect(container.searchSnapshot == snapshot)
         #expect(window.firstResponder === outlineResponder)
+        searchController.emitsEmptySnapshotOnSearch = false
 
         #expect(window.makeFirstResponder(container.searchResultsView))
         let searchResultsResponder = window.firstResponder
@@ -232,11 +235,22 @@ private final class SearchControllerSpy: FileSearchControlling {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
     private(set) var searchRequests: [SearchRequest] = []
     private(set) var cancelRequests: [Bool] = []
+    var emitsEmptySnapshotOnSearch = false
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {
         searchRequests.append(
             SearchRequest(query: rawQuery, rootPath: rootPath, contentRevision: contentRevision)
         )
+        if emitsEmptySnapshotOnSearch {
+            publish(
+                FileSearchSnapshot(
+                    query: rawQuery,
+                    results: [],
+                    status: .searching,
+                    isSearching: true
+                )
+            )
+        }
     }
     func cancel(clear: Bool) { cancelRequests.append(clear) }
     func publish(_ snapshot: FileSearchSnapshot) { onSnapshotChanged?(snapshot) }
