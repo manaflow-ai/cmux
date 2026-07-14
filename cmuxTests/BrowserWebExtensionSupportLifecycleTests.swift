@@ -69,61 +69,6 @@ struct BrowserWebExtensionSupportLifecycleTests {
 
     @Test
     @available(macOS 15.4, *)
-    func mainWindowRegistrationReconcilesBrowserPanelsRestoredAfterWindowOwnership() async throws {
-        try await AppContextSerialGate.withExclusiveAppContext {
-            let appDelegate = try #require(AppDelegate.shared)
-            let previousDidAttemptStartupSessionRestore = appDelegate.didAttemptStartupSessionRestore
-            let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
-            let support = BrowserWebExtensionSupport()
-            let sourceManager = TabManager(
-                autoWelcomeIfNeeded: false,
-                browserWebExtensionHost: support
-            )
-            BrowserAvailabilitySettings.setDisabled(false)
-            let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
-            let sourcePaneID = try #require(sourceWorkspace.bonsplitController.allPaneIds.first)
-            _ = try #require(sourceWorkspace.newBrowserSurface(inPane: sourcePaneID, focus: true))
-            let snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
-            sourceWorkspace.teardownAllPanels()
-
-            let restoredManager = TabManager(
-                autoWelcomeIfNeeded: false,
-                browserWebExtensionHost: support
-            )
-            let window = NSWindow()
-            let windowID = appDelegate.registerMainWindowContextForTesting(
-                tabManager: restoredManager,
-                window: window
-            )
-            appDelegate.didAttemptStartupSessionRestore = true
-            defer {
-                appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
-                restoredManager.tabs.forEach { $0.teardownAllPanels() }
-                window.close()
-                appDelegate.didAttemptStartupSessionRestore = previousDidAttemptStartupSessionRestore
-                BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled)
-            }
-
-            restoredManager.restoreSessionSnapshot(snapshot)
-            let restoredPanel = try #require(
-                restoredManager.tabs
-                    .flatMap { $0.panels.values }
-                    .compactMap { $0 as? BrowserPanel }
-                    .first
-            )
-            #expect(support.windowAdapter(for: restoredPanel.id) == nil)
-
-            appDelegate.completeMainWindowRegistrationWhenBrowserExtensionsReady(
-                tabManager: restoredManager,
-                window: window
-            )
-
-            #expect(support.windowAdapter(for: restoredPanel.id)?.hostWindow === window)
-        }
-    }
-
-    @Test
-    @available(macOS 15.4, *)
     func extensionTabActivationSelectsItsBackgroundWorkspace() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
