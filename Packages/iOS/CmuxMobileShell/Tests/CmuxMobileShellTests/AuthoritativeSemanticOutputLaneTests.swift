@@ -243,6 +243,117 @@ import Testing
     #expect(semanticBaseline.data == baseline.vtReplacementBytes())
 }
 
+@MainActor
+@Test func everyDualLaneReplayFencesSemanticRawFromRequestStart() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let baseline = try authoritativeSemanticFrame(seq: 10, revision: 1, text: "baseline")
+    await router.enqueueReplayRenderGrid(baseline)
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let streams = store.authoritativeTerminalOutputStreams(surfaceID: "live-terminal")
+    var visual = streams.visual.makeAsyncIterator()
+    var semantic = streams.semantic.makeAsyncIterator()
+    let visualValue = await visual.next()
+    let visualBaseline = try #require(visualValue)
+    let semanticValue = await semantic.next()
+    let semanticBaseline = try #require(semanticValue)
+    store.terminalOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: visualBaseline.streamToken,
+        disposition: .applied
+    )
+    store.terminalSemanticOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: semanticBaseline.streamToken,
+        disposition: .applied
+    )
+
+    await router.enqueueReplayRenderGrid(baseline)
+    await router.holdNextReplayResponses()
+    let replayCount = await router.count(of: "mobile.terminal.replay")
+    store.requestTerminalReplay(surfaceID: "live-terminal")
+    let replayStarted = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCount
+    }
+    #expect(replayStarted)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID["live-terminal"] != nil)
+
+    let transport = try #require(box.get())
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 10,
+        text: "raw-after-snapshot"
+    ))
+    let rawWasFenced = try await pollUntil {
+        store.terminalReplayBarrierDroppedOutputSurfaceIDs.contains("live-terminal")
+    }
+    #expect(rawWasFenced)
+    #expect(store.terminalSemanticScheduledEndSeqBySurfaceID["live-terminal"] == nil)
+    #expect(store.terminalSemanticOutputQueuesBySurfaceID["live-terminal"]?.isIdle == true)
+    await router.releaseAllHeld()
+}
+
+@MainActor
+@Test func rejectedVisualRotatesOnlyVisualGenerationAndReplayCanYield() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let baseline = try authoritativeSemanticFrame(seq: 10, revision: 1, text: "baseline")
+    await router.enqueueReplayRenderGrid(baseline)
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let streams = store.authoritativeTerminalOutputStreams(surfaceID: "live-terminal")
+    var visual = streams.visual.makeAsyncIterator()
+    var semantic = streams.semantic.makeAsyncIterator()
+    let visualBaselineValue = await visual.next()
+    let visualBaseline = try #require(visualBaselineValue)
+    let semanticBaselineValue = await semantic.next()
+    let semanticBaseline = try #require(semanticBaselineValue)
+    store.terminalOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: visualBaseline.streamToken,
+        disposition: .applied
+    )
+    store.terminalSemanticOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: semanticBaseline.streamToken,
+        disposition: .applied
+    )
+
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 11,
+        text: "rejected-visual"
+    ))
+    let rejectedValue = await visual.next()
+    let rejected = try #require(rejectedValue)
+    let oldVisualToken = rejected.streamToken
+    let oldSemanticToken = store.terminalSemanticOutputStreamTokensBySurfaceID["live-terminal"]
+    let recovery = try authoritativeSemanticFrame(seq: 11, revision: 2, text: "recovered-full")
+    await router.enqueueReplayRenderGrid(recovery)
+
+    store.terminalOutputDidReset(
+        surfaceID: "live-terminal",
+        streamToken: oldVisualToken
+    )
+    #expect(store.terminalOutputStreamTokensBySurfaceID["live-terminal"] != oldVisualToken)
+    #expect(store.terminalSemanticOutputStreamTokensBySurfaceID["live-terminal"] != oldSemanticToken)
+
+    let recoveredValue = await visual.next()
+    let recovered = try #require(recoveredValue)
+    #expect(recovered.streamToken != oldVisualToken)
+    #expect(recovered.renderGrid?.full == true)
+    #expect(recovered.renderGrid?.plainRows().first == "recovered-full")
+
+    store.terminalOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: oldVisualToken,
+        disposition: .applied
+    )
+    #expect(store.terminalOutputStreamTokensBySurfaceID["live-terminal"] == recovered.streamToken)
+}
+
 private func authoritativeSemanticFrame(
     seq: UInt64,
     revision: UInt64,
