@@ -126,7 +126,7 @@ struct ClosedItemHistoryPendingEnrichmentTests {
     }
 
     @Test
-    func equalTimestampOrderingBlocksOnlyWhenNewestRecordIsPending() {
+    func equalTimestampOrderingRestoresNewestCoreRecordWhileEnrichmentIsPending() {
         let timestamp = Date(timeIntervalSince1970: 42)
         let olderPending = ClosedItemHistoryRecord(
             closedAt: timestamp,
@@ -150,11 +150,13 @@ struct ClosedItemHistoryPendingEnrichmentTests {
         let pendingNewestStore = ClosedItemHistoryStore()
         pendingNewestStore.push(newerReady)
         pendingNewestStore.pushPendingEnrichment(olderPending)
-        #expect(!pendingNewestStore.canReopen)
-        #expect(!pendingNewestStore.restoreFirstRestorable { _ in
-            Issue.record("A newest pending record must block generic restore")
+        #expect(pendingNewestStore.canReopen)
+        var restoredPanelID: UUID?
+        #expect(pendingNewestStore.restoreFirstRestorable { entry in
+            restoredPanelID = Self.panelID(from: entry)
             return true
         })
+        #expect(restoredPanelID == Self.panelID(from: olderPending.entry))
     }
 
     @Test
