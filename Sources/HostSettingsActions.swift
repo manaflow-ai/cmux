@@ -18,6 +18,7 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
+    private let computerUsePermissionService = ComputerUsePermissionService()
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -93,6 +94,34 @@ final class HostSettingsActions: SettingsHostActions {
 
     func applyLanguageOverride(_ language: AppLanguage) {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
+    }
+
+    func computerUseAccessibilityGranted() -> Bool {
+        computerUsePermissionService.accessibilityGranted()
+    }
+
+    func computerUseScreenRecordingGranted() -> Bool {
+        computerUsePermissionService.screenRecordingGranted()
+    }
+
+    func requestComputerUseAccessibility() {
+        computerUsePermissionService.requestAccessibility()
+    }
+
+    func requestComputerUseScreenRecording() {
+        computerUsePermissionService.requestScreenRecording()
+    }
+
+    func openComputerUseAccessibilitySettings() {
+        computerUsePermissionService.openAccessibilitySettings()
+    }
+
+    func openComputerUseScreenRecordingSettings() {
+        computerUsePermissionService.openScreenRecordingSettings()
+    }
+
+    func runComputerUseOnboarding() {
+        ComputerUseUXCoordinator.shared.presentOnboarding()
     }
 
     func openConfigInExternalEditor() {

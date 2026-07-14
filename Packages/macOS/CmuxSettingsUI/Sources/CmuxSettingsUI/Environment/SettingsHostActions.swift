@@ -171,6 +171,27 @@ public protocol SettingsHostActions: AnyObject {
     /// Applies the host-side OS `AppleLanguages` override for a changed app
     /// language selection.
     func applyLanguageOverride(_ language: AppLanguage)
+
+    /// Whether cmux currently has Accessibility permission for local computer use.
+    func computerUseAccessibilityGranted() -> Bool
+
+    /// Whether cmux currently has Screen Recording permission for local computer use.
+    func computerUseScreenRecordingGranted() -> Bool
+
+    /// Requests Accessibility permission through the system trust prompt.
+    func requestComputerUseAccessibility()
+
+    /// Requests Screen Recording permission through the system capture prompt.
+    func requestComputerUseScreenRecording()
+
+    /// Opens the Accessibility pane in System Settings.
+    func openComputerUseAccessibilitySettings()
+
+    /// Opens the Screen Recording pane in System Settings.
+    func openComputerUseScreenRecordingSettings()
+
+    /// Presents the computer-use onboarding flow without changing its automatic-presentation gate.
+    func runComputerUseOnboarding()
 }
 
 public extension SettingsHostActions {
@@ -182,6 +203,14 @@ public extension SettingsHostActions {
 
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}
+
+    func computerUseAccessibilityGranted() -> Bool { false }
+    func computerUseScreenRecordingGranted() -> Bool { false }
+    func requestComputerUseAccessibility() {}
+    func requestComputerUseScreenRecording() {}
+    func openComputerUseAccessibilitySettings() {}
+    func openComputerUseScreenRecordingSettings() {}
+    func runComputerUseOnboarding() {}
 
     func openMobilePairingWindow() {}
 

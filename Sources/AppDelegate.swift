@@ -9145,6 +9145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
         syncActivationPolicy(defaults: defaults)
         syncMenuBarExtraVisibility(defaults: defaults)
+        ComputerUseUXCoordinator.shared.install(appDelegate: self)
     }
 
     private func installMobileHostSettingsObserver() {

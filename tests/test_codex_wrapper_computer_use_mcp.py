@@ -43,11 +43,19 @@ def expect_scrubbed_mcp_env(args: list[str], failures: list[str], context: str) 
     embedded = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED=")
     telemetry = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_TELEMETRY_ENABLED=")
     update_check = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_RS_UPDATE_CHECK=")
+    cursor_gradient = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_GRADIENT=")
+    cursor_bloom = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_BLOOM=")
+    cursor_label = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_CURSOR_LABEL=")
+    state_dir = arg_value(args, "mcp_servers.cmux-computer-use.env.CUA_DRIVER_STATE_DIR=")
     node_options = arg_value(args, "mcp_servers.cmux-computer-use.env.NODE_OPTIONS=")
     bun_options = arg_value(args, "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=")
     expect(embedded is not None, f"{context}: missing CUA_DRIVER_EMBEDDED config in {args}", failures)
     expect(telemetry is not None, f"{context}: missing telemetry opt-out config in {args}", failures)
     expect(update_check is not None, f"{context}: missing update-check opt-out config in {args}", failures)
+    expect(cursor_gradient is not None, f"{context}: missing cursor gradient config in {args}", failures)
+    expect(cursor_bloom is not None, f"{context}: missing cursor bloom config in {args}", failures)
+    expect(cursor_label is not None, f"{context}: missing cursor label config in {args}", failures)
+    expect(state_dir is not None, f"{context}: missing state directory config in {args}", failures)
     expect(node_options is not None, f"{context}: missing NODE_OPTIONS scrub config in {args}", failures)
     expect(bun_options is not None, f"{context}: missing BUN_OPTIONS scrub config in {args}", failures)
     if embedded is not None:
@@ -56,6 +64,15 @@ def expect_scrubbed_mcp_env(args: list[str], failures: list[str], context: str) 
         expect(json.loads(telemetry) == "false", f"{context}: expected telemetry disabled, got {telemetry}", failures)
     if update_check is not None:
         expect(json.loads(update_check) == "false", f"{context}: expected update check disabled, got {update_check}", failures)
+    if cursor_gradient is not None:
+        expect(json.loads(cursor_gradient) == "#12c7f5,#2d8cff,#6c5cff", f"{context}: unexpected cursor gradient {cursor_gradient}", failures)
+    if cursor_bloom is not None:
+        expect(json.loads(cursor_bloom) == "#2d8cff", f"{context}: unexpected cursor bloom {cursor_bloom}", failures)
+    if cursor_label is not None:
+        expect(json.loads(cursor_label) == "cmux", f"{context}: unexpected cursor label {cursor_label}", failures)
+    if state_dir is not None:
+        expected_state_dir = str(Path.home() / "Library/Application Support/cmux/computer-use/state")
+        expect(json.loads(state_dir) == expected_state_dir, f"{context}: expected state dir {expected_state_dir}, got {state_dir}", failures)
     if node_options is not None:
         expect(json.loads(node_options) == "", f"{context}: expected empty NODE_OPTIONS, got {node_options}", failures)
     if bun_options is not None:
