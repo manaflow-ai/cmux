@@ -104,6 +104,18 @@ public final class GhosttySurfaceCallbackContext {
             ?? surfaceHost?.attachedSurfaceController?.runtimeSurfacePointer
     }
 
+    /// Returns whether delayed work still belongs to this context's original
+    /// controller, host attachment, and libghostty runtime surface.
+    public func isCurrentOrigin(runtimeSurface: ghostty_surface_t?) -> Bool {
+        guard let runtimeSurface,
+              let surfaceController,
+              surfaceController.runtimeSurfacePointer == runtimeSurface,
+              let attachedController = surfaceHost?.attachedSurfaceController else {
+            return false
+        }
+        return (attachedController as AnyObject) === (surfaceController as AnyObject)
+    }
+
     /// Publishes content-free UI state for the renderer callback.
     public func updateRendererProfilingState(visible: Bool, focused: Bool) {
         guard rendererEventSignposts.collectionRequested else { return }

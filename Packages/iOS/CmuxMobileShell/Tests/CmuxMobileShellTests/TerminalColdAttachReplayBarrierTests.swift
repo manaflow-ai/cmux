@@ -125,6 +125,10 @@ import Testing
     #expect(failureSettled)
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
 
+    let retainedChunk = try #require(await iterator.next())
+    #expect(String(data: retainedChunk.data, encoding: .utf8) == "live-during-cold-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retainedChunk.streamToken)
+
     let accepted = store.deliverTerminalBytes(
         Data("live-after-follow-up-failure".utf8),
         surfaceID: surfaceID
@@ -470,11 +474,35 @@ import Testing
     #expect(failureSettled)
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
 
+    let retainedPartialChunk = try #require(await iterator.next())
+    #expect(
+        String(decoding: retainedPartialChunk.data, as: UTF8.self)
+            .contains("partial-during-baseline-replay"),
+        "fail-open must reconcile the partial retained before the failed follow-up"
+    )
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: retainedPartialChunk.streamToken
+    )
+
     let accepted = store.deliverTerminalBytes(
         Data("live-after-missing-baseline-follow-up-failure".utf8),
         surfaceID: surfaceID
     )
     #expect(accepted)
-    let chunk = try #require(await iterator.next())
-    #expect(String(data: chunk.data, encoding: .utf8) == "live-after-missing-baseline-follow-up-failure")
+    var deliveredLiveOutput = false
+    for _ in 0..<8 {
+        let chunk = try #require(await iterator.next())
+        let text = String(decoding: chunk.data, as: UTF8.self)
+        store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: chunk.streamToken)
+        if text == "live-after-missing-baseline-follow-up-failure" {
+            deliveredLiveOutput = true
+            break
+        }
+        #expect(
+            text.contains("partial-during-baseline-replay"),
+            "only retained baseline-recovery output may precede later live bytes"
+        )
+    }
+    #expect(deliveredLiveOutput)
 }

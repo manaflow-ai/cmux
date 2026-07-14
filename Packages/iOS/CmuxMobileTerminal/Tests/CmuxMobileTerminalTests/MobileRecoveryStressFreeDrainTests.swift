@@ -39,15 +39,28 @@ struct MobileRecoveryStressFreeDrainTests {
 
         try await waitForMountedSurface(harness.view)
         try await pumpRecoveryTraffic(on: harness.view)
+        let before = MobileTerminalSurfaceDiagnosticsSnapshot(surfaceID: "diagnostics-terminal")
+        #expect(before.surfaceMounted)
+        #expect(before.activeSurfaceCount >= 1)
+        #expect(before.pendingSurfaceFreeCount == 0)
+        #expect(before.recoveryCount == before.surfaceGeneration)
+        #expect(before.naturalColumns > 0)
+        #expect(before.naturalRows > 0)
 
         let drained = await waitForFreeDrain(afterForcingRecoveryOn: harness.view)
         #expect(drained, "the old surface free should drain after forced render-pipeline recovery")
+        let after = MobileTerminalSurfaceDiagnosticsSnapshot(surfaceID: "diagnostics-terminal")
+        #expect(after.surfaceMounted)
+        #expect(after.surfaceGeneration == before.surfaceGeneration + 1)
+        #expect(after.recoveryCount == before.recoveryCount + 1)
+        #expect(after.pendingSurfaceFreeCount == 0)
     }
 
     private func makeHarness() throws -> Harness {
         let runtime = try GhosttyRuntime.shared()
         let delegate = Delegate()
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
+        view.hostSurfaceID = "diagnostics-terminal"
         view.autoFocusOnWindowAttach = false
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         view.frame = window.bounds

@@ -30,6 +30,13 @@ bool ghostty_surface_clear_selection(void *surface) {
 
 void ghostty_config_diagnostics_count(void) {}
 void ghostty_config_get_diagnostic(void) {}
+bool ghostty_config_get(void *config, void *out, const char *key, uintptr_t len) {
+    (void)config;
+    (void)out;
+    (void)key;
+    (void)len;
+    return false;
+}
 void ghostty_string_free(ghostty_string_s string) {
     (void)string;
 }
@@ -66,6 +73,8 @@ void ghostty_surface_quicklook_font(void) {}
 void ghostty_surface_read_screen_tail_vt(void) {}
 void ghostty_surface_read_text(void) {}
 void ghostty_surface_refresh(void) {}
+float ghostty_surface_font_size(void *surface) { (void)surface; return 12; }
+bool ghostty_surface_font_size_adjusted(void *surface) { (void)surface; return false; }
 void ghostty_surface_render_grid_json(void) {}
 void ghostty_surface_set_content_scale(void) {}
 void ghostty_surface_set_display_id(void) {}

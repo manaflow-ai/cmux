@@ -1,10 +1,47 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxMobileTerminalKit
 import Foundation
 import Testing
 import UIKit
 
 @testable import CmuxMobileTerminal
+
+private struct ViewportSpacingGeometrySnapshot {
+    let renderRect: CGRect
+    let screenScale: CGFloat
+    let renderedSize: TerminalGridSize?
+    let isLetterboxBorderVisible: Bool
+    let viewportRect: CGRect
+    let effectiveGrid: (cols: Int, rows: Int)?
+    let cellPixelSize: CGSize
+    let liveFontSize: Float32
+    let baseFontSize: Float32
+}
+
+private extension GhosttySurfaceView {
+    func viewportSpacingSnapshot() -> ViewportSpacingGeometrySnapshot {
+        ViewportSpacingGeometrySnapshot(
+            renderRect: lastRenderRect,
+            screenScale: preferredScreenScale,
+            renderedSize: appliedNaturalSize,
+            isLetterboxBorderVisible: letterboxBorderLayer?.isHidden == false,
+            viewportRect: terminalViewportRect,
+            effectiveGrid: effectiveGrid,
+            cellPixelSize: cellPixelSize,
+            liveFontSize: liveFontSize,
+            baseFontSize: userBaseFontSize
+        )
+    }
+
+    func setViewportSpacingKeyboardHeight(_ height: CGFloat) {
+        stopKeyboardHeightAnimation()
+        keyboardHeight = max(0, height)
+        layoutRenderedTerminalForCurrentViewport()
+        layoutBottomDock()
+        syncSurfaceGeometry(shouldReassertNaturalSize: true)
+    }
+}
 
 /// In-simulator behavior coverage for the terminal's vertical spacing: the
 /// rendered grid must stretch to the full viewport (bounds minus keyboard /
@@ -97,8 +134,8 @@ private final class ViewportSpacingHarness {
         window.isHidden = true
     }
 
-    var snapshot: GhosttySurfaceView.DebugGeometrySnapshot {
-        view.debugGeometrySnapshotForTesting()
+    var snapshot: ViewportSpacingGeometrySnapshot {
+        view.viewportSpacingSnapshot()
     }
 
     /// Measured cell height in points; the tolerance unit for "fills".
@@ -190,6 +227,8 @@ struct TerminalViewportSpacingTests {
         let initial = try #require(report, "view never reported its natural grid")
         #expect(initial.columns > 10)
         #expect(initial.rows > 10)
+        let applied = try #require(harness.snapshot.renderedSize)
+        #expect(harness.view.currentGridSize == applied)
 
         harness.echo(initial)
         #expect(await harness.waitForFill(), "top gap \(harness.topGap)pt, bottom gap \(harness.bottomGap)pt, cell \(harness.cellHeightPoints)pt")
@@ -208,7 +247,7 @@ struct TerminalViewportSpacingTests {
 
         // Keyboard opens: viewport shrinks, view reports a smaller grid.
         let beforeOpen = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
+        harness.view.setViewportSpacingKeyboardHeight(ViewportSpacingHarness.keyboardHeight)
         let openReport = try #require(
             await harness.waitForReport(after: beforeOpen),
             "no report after keyboard open"
@@ -219,7 +258,7 @@ struct TerminalViewportSpacingTests {
 
         // Keyboard closes: viewport grows back, view re-reports, echo restores.
         let beforeClose = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(0)
+        harness.view.setViewportSpacingKeyboardHeight(0)
         let closeReport = try #require(
             await harness.waitForReport(after: beforeClose),
             "no report after keyboard close"
@@ -246,14 +285,14 @@ struct TerminalViewportSpacingTests {
 
         // Keyboard opens; the report goes out but its echo is DELAYED.
         let beforeOpen = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
+        harness.view.setViewportSpacingKeyboardHeight(ViewportSpacingHarness.keyboardHeight)
         let openReport = try #require(await harness.waitForReport(after: beforeOpen))
         #expect(openReport.rows < initial.rows)
 
         // Keyboard closes before the open echo lands; the close report's echo
         // arrives FIRST.
         let beforeClose = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(0)
+        harness.view.setViewportSpacingKeyboardHeight(0)
         let closeReport = try #require(await harness.waitForReport(after: beforeClose))
         #expect(closeReport.rows > openReport.rows)
         harness.echo(closeReport)
@@ -347,19 +386,20 @@ struct TerminalViewportSpacingTests {
 
         // Open + echo so a real pin exists, then close with the echo DROPPED.
         let beforeOpen = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
+        harness.view.setViewportSpacingKeyboardHeight(ViewportSpacingHarness.keyboardHeight)
         let openReport = try #require(await harness.waitForReport(after: beforeOpen))
         harness.echo(openReport)
 
         let beforeClose = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(0)
+        harness.view.setViewportSpacingKeyboardHeight(0)
         let closeReport = try #require(await harness.waitForReport(after: beforeClose))
         #expect(closeReport.rows > openReport.rows)
+        let closeReportID = try #require(harness.delegate.reportIDs[closeReport])
 
         // The Mac never answers the close report; the coordinator's nil-result
         // path re-arms the report.
         let beforeRetry = harness.delegate.reports.count
-        harness.view.retryViewportReport()
+        harness.view.retryViewportReport(reportID: closeReportID)
         let retried = try #require(
             await harness.waitForReport(after: beforeRetry),
             "retryViewportReport never re-emitted the natural grid"
@@ -406,7 +446,7 @@ struct TerminalViewportSpacingTests {
 
         // Keyboard opens: the phone itself becomes the row constraint, so the
         // font returns to base and the content still fills the viewport.
-        harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
+        harness.view.setViewportSpacingKeyboardHeight(ViewportSpacingHarness.keyboardHeight)
         let keyboardFit = await harness.pump(timeout: 8) {
             let snap = harness.snapshot
             return harness.topGap <= harness.cellHeightPoints * 1.5
@@ -416,7 +456,7 @@ struct TerminalViewportSpacingTests {
         #expect(keyboardFit, "keyboard-up: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize)")
 
         // Keyboard closes: back to the mac-constrained state, stretched again.
-        harness.view.setKeyboardHeightForTesting(0)
+        harness.view.setViewportSpacingKeyboardHeight(0)
         let restretched = await harness.pump(timeout: 8) {
             let snap = harness.snapshot
             return harness.topGap <= harness.cellHeightPoints * 1.5
@@ -437,6 +477,123 @@ struct TerminalViewportSpacingTests {
                 && abs(snap.liveFontSize - snap.baseFontSize) < 0.5
         }
         #expect(recovered, "after mac grow: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize) vs base \(harness.snapshot.baseFontSize)")
+    }
+
+    /// A viewport-fit request belongs to the geometry that produced it. Once
+    /// the Mac sends an explicit font choice, that user-owned target must beat
+    /// an older report acknowledgement that was already in flight.
+    @Test("Mac font choice fences an older viewport font acknowledgement")
+    func macFontChoiceFencesOlderViewportFontAcknowledgement() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let report = try #require(await harness.waitForReport(after: 0))
+        let reportID = try #require(harness.delegate.reportIDs[report])
+        let oldViewportTarget: Float32 = 24
+        let explicitMacTarget: Float32 = 14
+        let request = TerminalViewportFontGrantRequest(
+            fontSize: oldViewportTarget,
+            reportColumns: report.columns,
+            reportRows: report.rows,
+            sourceEffectiveRows: max(1, report.rows - 1)
+        )
+        #expect(harness.view.viewportFontGrantState.decision(for: request) == .wait(requestNewReport: true))
+        harness.view.viewportFontGrantState.bindPendingRequest(
+            toReportID: reportID,
+            columns: request.reportColumns,
+            rows: request.reportRows
+        )
+        let effectiveGridBeforeOwnershipTransfer = harness.snapshot.effectiveGrid
+
+        harness.view.setLiveFontSize(explicitMacTarget)
+        #expect(harness.view.pendingFontSize == explicitMacTarget)
+        #expect(!harness.view.viewportFontGrantState.isAwaitingAcknowledgement(reportID: reportID))
+
+        harness.view.applyConfirmedViewSize(
+            cols: request.reportColumns,
+            rows: request.sourceEffectiveRows,
+            reportID: reportID
+        )
+
+        #expect(harness.view.userBaseFontSize == explicitMacTarget)
+        #expect(harness.view.pendingFontSize == explicitMacTarget)
+        #expect(
+            harness.snapshot.effectiveGrid?.cols == effectiveGridBeforeOwnershipTransfer?.cols
+                && harness.snapshot.effectiveGrid?.rows == effectiveGridBeforeOwnershipTransfer?.rows,
+            "an acknowledgement from before the Mac font choice must not change the effective grid"
+        )
+    }
+
+    /// Local zoom owns the same transition as a Mac-pushed absolute font. A
+    /// late viewport acknowledgement must not replace the queued zoom target.
+    @Test("local zoom fences an older viewport font acknowledgement")
+    func localZoomFencesOlderViewportFontAcknowledgement() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let report = try #require(await harness.waitForReport(after: 0))
+        let reportID = try #require(harness.delegate.reportIDs[report])
+        let oldViewportTarget: Float32 = 24
+        let expectedZoomTarget = harness.view.liveFontSize + 1
+        let request = TerminalViewportFontGrantRequest(
+            fontSize: oldViewportTarget,
+            reportColumns: report.columns,
+            reportRows: report.rows,
+            sourceEffectiveRows: max(1, report.rows - 1)
+        )
+        #expect(harness.view.viewportFontGrantState.decision(for: request) == .wait(requestNewReport: true))
+        harness.view.viewportFontGrantState.bindPendingRequest(
+            toReportID: reportID,
+            columns: request.reportColumns,
+            rows: request.reportRows
+        )
+        let effectiveGridBeforeOwnershipTransfer = harness.snapshot.effectiveGrid
+
+        harness.view.debugStressZoomStep(.increase)
+        #expect(harness.view.pendingFontSize == expectedZoomTarget)
+        #expect(!harness.view.viewportFontGrantState.isAwaitingAcknowledgement(reportID: reportID))
+
+        harness.view.applyConfirmedViewSize(
+            cols: request.reportColumns,
+            rows: request.sourceEffectiveRows,
+            reportID: reportID
+        )
+
+        #expect(harness.view.userBaseFontSize == expectedZoomTarget)
+        #expect(harness.view.pendingFontSize == expectedZoomTarget)
+        #expect(
+            harness.snapshot.effectiveGrid?.cols == effectiveGridBeforeOwnershipTransfer?.cols
+                && harness.snapshot.effectiveGrid?.rows == effectiveGridBeforeOwnershipTransfer?.rows,
+            "an acknowledgement from before local zoom must not change the effective grid"
+        )
+    }
+
+    /// A natural policy handoff ends the report authority that existed before
+    /// the handoff. If a newer remote-grid policy arrives before that old RPC
+    /// echo, releasing the echo must not overwrite the newer remote grid.
+    @Test("natural handoff fences an older viewport acknowledgement")
+    func naturalHandoffFencesOlderViewportAcknowledgement() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let oldReport = try #require(await harness.waitForReport(after: 0))
+        let oldReportID = try #require(harness.delegate.reportIDs[oldReport])
+
+        harness.view.applyViewSize(cols: 90, rows: 40)
+        harness.view.useNaturalViewSize()
+        harness.view.applyViewSize(cols: 100, rows: 50)
+
+        harness.view.applyConfirmedViewSize(
+            cols: 80,
+            rows: 24,
+            reportID: oldReportID
+        )
+
+        #expect(harness.snapshot.effectiveGrid?.cols == 100)
+        #expect(
+            harness.snapshot.effectiveGrid?.rows == 50,
+            "an acknowledgement from before the natural handoff must not re-pin a newer remote grid"
+        )
     }
 
     /// Whether the render rect currently reflects the effective pin (used to

@@ -1,6 +1,50 @@
 import Foundation
+import CmuxTerminal
 
 extension GhosttyApp {
+    @MainActor
+    func updateAppConfigurationSurrenderingMobileViewportFontFits(
+        _ updatedConfig: ghostty_config_t,
+        source: String
+    ) {
+        let reason = "app.reloadConfig.\(source)"
+        AppDelegate.shared?.prepareTerminalSurfaceFontFitsForGhosttyAppConfigurationReload(
+            reason: reason
+        )
+        ghostty_app_update_config(app, updatedConfig)
+        // The scheduled per-surface refresh preserves this fitted state. Only
+        // an independent surface-action reload acquires another lease.
+    }
+
+    @MainActor
+    func reloadSurfaceConfigurationSurrenderingMobileViewportFontFit(
+        _ surface: ghostty_surface_t,
+        terminalSurface: TerminalSurface?,
+        soft: Bool,
+        source: String,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        guard let terminalSurface else {
+            reloadSurfaceConfiguration(
+                surface,
+                soft: soft,
+                source: source,
+                preferredColorScheme: preferredColorScheme
+            )
+            return
+        }
+        terminalSurface.withMobileViewportFontFitSurrenderedForConfigurationReload(
+            reason: "surface.reloadConfig"
+        ) {
+            self.reloadSurfaceConfiguration(
+                surface,
+                soft: soft,
+                source: source,
+                preferredColorScheme: preferredColorScheme
+            )
+        }
+    }
+
     func appearanceBackedColorSchemePreference() -> GhosttyConfig.ColorSchemePreference {
         if Thread.isMainThread {
             return GhosttyConfig.appearanceSyncColorSchemePreference(passedAppearance: nil).preference
@@ -35,6 +79,18 @@ extension GhosttyApp {
         ghostty_config_free(newConfig)
     }
 
+    func configuredFontPointSize(from config: ghostty_config_t) -> Float? {
+        var fontSize: Float32 = 0
+        let key = "font-size"
+        guard ghostty_config_get(
+            config,
+            &fontSize,
+            key,
+            UInt(key.lengthOfBytes(using: .utf8))
+        ), fontSize.isFinite, fontSize > 0 else { return nil }
+        return fontSize
+    }
+
     private func finishSurfaceConfigurationReload(source: String, soft: Bool, mode: String) {
 #if DEBUG
         cmuxDebugLog("surface.config.reload source=\(source) soft=\(soft) mode=\(mode)")
@@ -43,5 +99,17 @@ extension GhosttyApp {
         // Do not post .ghosttyConfigDidReload here. Its observers read the
         // app-scoped GhosttyApp.config, which this surface-only path leaves
         // unchanged to avoid desyncing the app and other surfaces.
+    }
+}
+
+extension AppDelegate {
+    func prepareTerminalSurfaceFontFitsForGhosttyAppConfigurationReload(
+        reason: String
+    ) {
+        for surface in GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces() {
+            _ = surface.prepareMobileViewportFontFitForConfigurationReload(
+                reason: reason
+            )
+        }
     }
 }

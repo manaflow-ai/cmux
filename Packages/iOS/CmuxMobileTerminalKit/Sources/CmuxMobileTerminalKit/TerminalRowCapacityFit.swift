@@ -23,7 +23,7 @@ import Foundation
 ///   makes exactly the granted rows fill the container. Callers can use
 ///   ``maximumFontSize(forEffectiveColumns:atBaseFontSize:)`` to keep that
 ///   vertical fit from exceeding the granted column width.
-public struct TerminalRowCapacityFit {
+public nonisolated struct TerminalRowCapacityFit {
     /// Rows past which a mismatch between the rendered grid and the effective
     /// grid triggers a re-fit. One row of slack is inherent to cell flooring;
     /// two rows means a visible band (or clipping) worth a font adjustment.
@@ -77,6 +77,19 @@ public struct TerminalRowCapacityFit {
         return abs(renderedRows - effectiveRows) >= refitThresholdRows
     }
 
+    /// Whether a capacity report should reserve width for the destination font.
+    public func shouldReportDestinationFont(
+        renderedRows: Int,
+        effectiveRows: Int,
+        baseFontSize: Float32
+    ) -> Bool {
+        guard liveFontSize > 0, baseFontSize > 0 else { return false }
+        if abs(liveFontSize - baseFontSize) >= 0.25 {
+            return true
+        }
+        return Self.shouldRefit(renderedRows: renderedRows, effectiveRows: effectiveRows)
+    }
+
     /// The row capacity this device should REPORT: how many rows fit in the
     /// container at the user's base font. Cell height scales linearly with
     /// the font point size, so the base-font cell height is derived from the
@@ -93,10 +106,19 @@ public struct TerminalRowCapacityFit {
     /// the font point size, so the base-font cell width is derived from the
     /// measured live cell without a second libghostty round trip.
     public func capacityColumns(atBaseFontSize baseFontSize: Float32) -> Int? {
-        guard let containerPixelWidth, let cellPixelWidth, baseFontSize > 0 else { return nil }
-        let baseCellWidth = cellPixelWidth * CGFloat(baseFontSize) / CGFloat(liveFontSize)
-        guard baseCellWidth > 0 else { return nil }
-        return max(1, Int((containerPixelWidth / baseCellWidth).rounded(.down)))
+        capacityColumns(atFontSize: baseFontSize)
+    }
+
+    /// The column capacity at an arbitrary rendered font size.
+    ///
+    /// Row-driven fitting uses this before changing the live font so the
+    /// daemon can grant a grid that will fit horizontally at the destination
+    /// font. The rendered font is applied only after that grant arrives.
+    public func capacityColumns(atFontSize fontSize: Float32) -> Int? {
+        guard let containerPixelWidth, let cellPixelWidth, fontSize > 0 else { return nil }
+        let targetCellWidth = cellPixelWidth * CGFloat(fontSize) / CGFloat(liveFontSize)
+        guard targetCellWidth > 0 else { return nil }
+        return max(1, Int((containerPixelWidth / targetCellWidth).rounded(.down)))
     }
 
     /// The font size at which exactly `effectiveRows` rows fill the container.

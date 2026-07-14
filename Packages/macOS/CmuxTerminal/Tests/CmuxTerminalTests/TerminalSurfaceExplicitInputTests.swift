@@ -43,14 +43,14 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
-    @Test func explicitBindingActionNotifiesWithoutChangingInternalBindingActions() {
+    @Test func automaticFontBindingRemainsInternalWhileUserFontBindingIsExplicitInput() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
 
-        #expect(!fixture.surface.performBindingAction("scroll_to_bottom"))
+        #expect(!fixture.surface.performInternalBindingAction("reset_font_size"))
         #expect(fixture.paneHost.explicitInputCount == 0)
 
-        #expect(!fixture.surface.performExplicitInputBindingAction("paste_from_clipboard"))
+        #expect(!fixture.surface.performExplicitInputBindingAction("set_font_size:14"))
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 

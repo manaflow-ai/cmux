@@ -215,11 +215,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var lastUncappedPixelHeight: UInt32 = 0
     var lastXScale: CGFloat = 0
     var lastYScale: CGFloat = 0
-    var mobileViewportCellLimit: (columns: Int, rows: Int)?
-    /// Runtime font size to restore when mobile viewport fitting clears.
-    var mobileFitBaseFontPointSize: Float?
-    /// Last runtime font size applied by mobile viewport fitting.
-    var mobileFittedFontPointSize: Float?
+    var mobileViewportCellLimit: MobileViewportCellLimit?
+    var nextMobileViewportCellLimitGeneration: UInt64 = 0
+    /// Owns the temporary mobile-fit font lease and its user/configured origin.
+    var mobileViewportFontFitState = MobileViewportFontFitState()
+    let mobileViewportMetricsReapplyState = MobileViewportMetricsReapplyState()
+    var mobileViewportConfiguredFontPointSize: Float?
+    var mobileViewportFontFitReloadLeaseState = MobileViewportFontFitReloadLeaseState()
     // Debug metadata is read from debug/CLI paths off the main thread; the
     // lock is the sanctioned carve-out for tiny values shared with
     // synchronous off-isolation readers.
@@ -612,16 +614,3 @@ extension TerminalSurface: TerminalSurfaceControlling {
 // TerminalSurfacing seam; TerminalSurface satisfies it with its immutable
 // `id` and `focusPlacement`.
 extension TerminalSurface: TerminalSurfacing {}
-
-/// Transports the hidden bootstrap window from a nonisolated `deinit` to the
-/// main actor for closing. `@unchecked Sendable` because the window is
-/// exclusively owned by the request from creation until `close()` runs.
-private struct TerminalSurfaceHeadlessWindowCloseRequest: @unchecked Sendable {
-    let window: NSWindow
-
-    @MainActor
-    func close() {
-        window.contentView = nil
-        window.close()
-    }
-}

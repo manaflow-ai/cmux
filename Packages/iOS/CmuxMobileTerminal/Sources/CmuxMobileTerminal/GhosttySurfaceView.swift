@@ -11,6 +11,25 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
+struct TerminalViewportReportAuthority {
+    private var lastIssuedID: UInt64 = 0
+    private(set) var currentID: UInt64?
+
+    mutating func issue() -> UInt64 {
+        lastIssuedID &+= 1
+        currentID = lastIssuedID
+        return lastIssuedID
+    }
+
+    mutating func invalidate() {
+        currentID = nil
+    }
+
+    func owns(_ reportID: UInt64) -> Bool {
+        currentID.map { $0 == reportID } ?? false
+    }
+}
+
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// The surface whose hidden text input is currently first responder, if any.
     ///
@@ -338,15 +357,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     var surface: ghostty_surface_t?
     var surfaceGeneration: UInt64 = 0
-    private var lastReportedSize: TerminalGridSize?
+    var lastReportedSize: TerminalGridSize?
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
     /// `viewportReportSettleThreshold` frames. Reporting every intermediate
     /// size during the attach / keyboard / zoom settle resized the Mac PTY
     /// repeatedly, so the shell redrew its prompt on each SIGWINCH and the
     /// initial scrollback filled with the prompt duplicated at every width.
-    private var pendingViewportReport: TerminalGridSize?
-    private var viewportReportSettleFrames = 0
+    var pendingViewportReport: TerminalGridSize?
+    var viewportReportSettleFrames = 0
     /// Widest container this surface has actually rendered in the current
     /// window geometry. A phone split-view sidebar is an overlay, but UIKit can
     /// briefly size the detail view as a split column while it transitions.
@@ -359,15 +378,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// though the main thread is fine. On a no-effective result we re-arm the
     /// report (display-link driven, no timers) up to `maxViewportReportRetries`
     /// so a transient drop self-heals; a confirmed result resets the count.
-    private var viewportReportRetries = 0
-    private static let maxViewportReportRetries = 3
+    var viewportReportRetries = 0
+    static let maxViewportReportRetries = 3
     /// Monotonic stamp for each natural-grid report handed to the delegate.
     /// `applyConfirmedViewSize(cols:rows:reportID:)` applies an echo only when
     /// its ID is still the newest, so an out-of-order RPC reply for an older
     /// (e.g. keyboard-up) report cannot re-pin a grid the surface outgrew —
     /// the natural grid would be unchanged afterwards, nothing would ever
     /// re-report, and the letterbox gap above the terminal would be permanent.
-    private var viewportReportID: UInt64 = 0
+    var viewportReportAuthority = TerminalViewportReportAuthority()
+    /// Holds a larger row-fit font behind the exact viewport report that makes
+    /// it horizontally safe. Failed signatures remain blocked until geometry
+    /// produces a different request.
+    var viewportFontGrantState = TerminalViewportFontGrantState()
+    var viewportFontGrantNeedsReport = false
     /// Frames of "no zoom in progress" required before the natural grid is
     /// reported to the Mac. Active zoom is already gated separately
     /// (`zoomSettleFrames != nil` holds the report during a pinch), so this is
@@ -386,10 +410,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// cols×rows pin into a pixel box without re-round-tripping through
     /// Ghostty. Zero until the first layout has measured.
     var cellPixelSize: CGSize = .zero
+    /// Natural grid committed by the latest successful geometry transaction.
+    /// This is the production source of truth for the grid currently applied
+    /// to the renderer, independent of whether its viewport report has settled.
+    var appliedNaturalSize: TerminalGridSize?
     /// 1 px separator stroke drawn around the pinned surface rect when the
     /// container is larger than the render target (i.e., this device is
     /// not the smallest). Added lazily on first letterbox.
-    private var letterboxBorderLayer: CAShapeLayer?
+    var letterboxBorderLayer: CAShapeLayer?
     /// Last render rect used for the Ghostty surface inside the host view's
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
@@ -400,69 +428,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
     private var keyboardHeightAnimationID = 0
 
-    #if DEBUG
-    struct DebugGeometrySnapshot {
-        let boundsSize: CGSize
-        let renderRect: CGRect
-        let screenScale: CGFloat
-        let reportedSize: TerminalGridSize?
-        let renderedSize: TerminalGridSize?
-        let isLetterboxBorderVisible: Bool
-        let letterboxBorderPathBounds: CGRect?
-        /// The viewport the terminal content may occupy right now (bounds minus
-        /// the keyboard/safe-area + composer + toolbar reservation). The render
-        /// rect is bottom-pinned inside this; any `renderRect.minY -
-        /// viewportRect.minY` difference is user-visible empty space at the top.
-        let viewportRect: CGRect
-        /// The daemon-authoritative grid pin, nil when filling naturally.
-        let effectiveGrid: (cols: Int, rows: Int)?
-        /// Measured cell size in device pixels (zero before first measure).
-        let cellPixelSize: CGSize
-        let keyboardHeight: CGFloat
-        /// The font actually rendering right now (may be auto-fit adjusted).
-        let liveFontSize: Float32
-        /// The user's explicit font choice that capacity reports are based on.
-        let baseFontSize: Float32
-    }
-
-    func debugGeometrySnapshotForTesting() -> DebugGeometrySnapshot {
-        let renderedSize: TerminalGridSize? = {
-            guard let surface else { return nil }
-            let size = ghostty_surface_size(surface)
-            return TerminalGridSize(
-                columns: Int(size.columns),
-                rows: Int(size.rows),
-                pixelWidth: Int(size.width_px),
-                pixelHeight: Int(size.height_px)
-            )
-        }()
-        return DebugGeometrySnapshot(
-            boundsSize: bounds.size,
-            renderRect: lastRenderRect,
-            screenScale: preferredScreenScale,
-            reportedSize: lastReportedSize,
-            renderedSize: renderedSize,
-            isLetterboxBorderVisible: letterboxBorderLayer?.isHidden == false,
-            letterboxBorderPathBounds: letterboxBorderLayer?.path?.boundingBoxOfPath,
-            viewportRect: terminalViewportRect,
-            effectiveGrid: effectiveGrid,
-            cellPixelSize: cellPixelSize,
-            keyboardHeight: keyboardHeight,
-            liveFontSize: liveFontSize,
-            baseFontSize: userBaseFontSize
-        )
-    }
-
-    func setKeyboardHeightForTesting(_ height: CGFloat) {
-        stopKeyboardHeightAnimation()
-        keyboardHeight = max(0, height)
-        layoutRenderedTerminalForCurrentViewport()
-        layoutBottomDock()
-        syncSurfaceGeometry(shouldReassertNaturalSize: true)
-    }
-
-    #endif
-
     /// Suppresses render dispatch while keeping the display link, geometry,
     /// and viewport reporting alive. Hosts where a Metal present can never
     /// complete (a scene-less xctest process) set this so a stalled present
@@ -472,7 +437,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var isRenderDispatchSuppressed = false
 
     var currentGridSize: TerminalGridSize {
-        lastReportedSize ?? TerminalGridSize(columns: 100, rows: 32, pixelWidth: 900, pixelHeight: 650)
+        appliedNaturalSize
+            ?? lastReportedSize
+            ?? TerminalGridSize(columns: 100, rows: 32, pixelWidth: 900, pixelHeight: 650)
     }
 
     #if DEBUG
@@ -731,7 +698,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         startDisplayLink()
     }
 
-    private var keyboardHeight: CGFloat = 0
+    var keyboardHeight: CGFloat = 0
     private var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
     /// toolbar is docked above the keyboard (when up) or the home indicator
@@ -872,7 +839,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func stopKeyboardHeightAnimation() {
+    func stopKeyboardHeightAnimation() {
         keyboardHeightAnimationID &+= 1
         keyboardHeightAnimation = nil
     }
@@ -1026,7 +993,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ).height
     }
 
-    private var terminalViewportRect: CGRect {
+    var terminalViewportRect: CGRect {
         viewportSnapshot().layoutViewportRect
     }
 
@@ -1051,7 +1018,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return abs(height - snapshot.layoutViewportRect.height) <= 1
     }
 
-    private func layoutRenderedTerminalForCurrentViewport() {
+    func layoutRenderedTerminalForCurrentViewport() {
         layoutRenderedTerminalForCurrentViewport(using: viewportSnapshot())
     }
 
@@ -1457,7 +1424,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private static let composerReflowDuration: TimeInterval = 0.25
 
     /// Position the composer band and docked toolbar from one viewport snapshot.
-    private func layoutBottomDock() {
+    func layoutBottomDock() {
         layoutBottomDock(using: viewportSnapshot())
     }
 
@@ -1635,7 +1602,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // A pinch/accessory step is an explicit choice: it rebases the user
         // font so the stretch-to-fill auto-fit re-derives from the new size
         // instead of fighting the gesture.
-        userBaseFontSize = target
+        claimUserFontOwnership(target)
         MobileDebugLog.anchormux("zoom.queue dir=\(direction) \(base)->\(target) live=\(liveFontSize)")
         scheduleDisplayLinkWork()
         showZoomOverlay()
@@ -1701,11 +1668,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// user baseline that capacity reports and the auto-fit derive from, then
     /// drives the shared apply path.
     private func applyUserFontSize(_ target: Float32) {
-        userBaseFontSize = min(
+        let clamped = min(
             max(target, MobileTerminalFontPreference.minimumSize),
             MobileTerminalFontPreference.maximumSize
         )
-        applyAbsoluteFontSize(target)
+        claimUserFontOwnership(clamped)
+        applyAbsoluteFontSize(clamped)
+    }
+
+    /// Transfers font ownership from geometry-derived auto-fit to an explicit
+    /// local or Mac choice. Any acknowledgement already in flight belongs to
+    /// the previous baseline and must not replace the newly queued user target.
+    private func claimUserFontOwnership(_ target: Float32) {
+        invalidateViewportReportOwnership()
+        userBaseFontSize = target
+    }
+
+    /// Ends the current viewport-report transaction and every font grant tied
+    /// to it. Policy handoffs must invalidate both together so a late echo from
+    /// the previous policy cannot reclaim grid or font ownership.
+    private func invalidateViewportReportOwnership() {
+        viewportReportAuthority.invalidate()
+        viewportFontGrantState.reset()
+        viewportFontGrantNeedsReport = false
     }
 
     /// Set the live zoom to an absolute size (clamped to the font range),
@@ -2458,7 +2443,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private var preferredScreenScale: CGFloat {
+    var preferredScreenScale: CGFloat {
         if let screen = window?.windowScene?.screen {
             return screen.scale
         }
@@ -2663,9 +2648,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 if viewportReportSettleFrames >= Self.viewportReportSettleThreshold {
                     pendingViewportReport = nil
                     viewportReportSettleFrames = 0
-                    viewportReportID &+= 1
-                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
-                    delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
+                    let reportID = viewportReportAuthority.issue()
+                    viewportFontGrantState.bindPendingRequest(
+                        toReportID: reportID,
+                        columns: pending.columns,
+                        rows: pending.rows
+                    )
+                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(reportID)")
+                    delegate?.ghosttySurfaceView(self, didResize: pending, reportID: reportID)
                 }
             }
         }
@@ -2929,23 +2919,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Re-arm the debounced viewport report after a round-trip returned no
-    /// effective grid, so a transient RPC drop does not leave the render pinned
-    /// to a stale effective grid (the "stuck letterbox" freeze). Bounded and
-    /// display-link driven (the existing settle machinery re-fires it); a
-    /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
-    public func retryViewportReport() {
-        guard viewportReportRetries < Self.maxViewportReportRetries,
-              let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
-        viewportReportRetries += 1
-        MobileDebugLog.anchormux(
-            "zoom.viewport.retry \(viewportReportRetries)/\(Self.maxViewportReportRetries) "
-            + "grid=\(pending.columns)x\(pending.rows)"
-        )
-        pendingViewportReport = pending
-        viewportReportSettleFrames = 0
-    }
-
     public func applyViewSize(cols: Int, rows: Int) {
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: false)
     }
@@ -2976,12 +2949,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// echo; the in-flight newer report's own echo is the one that settles the
     /// grid.
     public func applyConfirmedViewSize(cols: Int, rows: Int, reportID: UInt64) {
-        guard reportID == viewportReportID else {
+        guard viewportReportAuthority.owns(reportID) else {
+            let latest = viewportReportAuthority.currentID.map(String.init) ?? "none"
             MobileDebugLog.anchormux(
-                "zoom.viewport.staleEcho id=\(reportID) latest=\(viewportReportID) grid=\(cols)x\(rows)"
+                "zoom.viewport.staleEcho id=\(reportID) latest=\(latest) grid=\(cols)x\(rows)"
             )
             return
         }
+        applyAcknowledgedViewportFontGrant(cols: cols, rows: rows, reportID: reportID)
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: true)
     }
 
@@ -3029,6 +3004,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func clearEffectiveGrid() -> Bool {
+        invalidateViewportReportOwnership()
         guard effectiveGrid != nil else { return false }
         MobileDebugLog.anchormux("zoom.useNaturalViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->nil")
         effectiveGrid = nil
@@ -3094,7 +3070,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func syncSurfaceGeometry(
+    func syncSurfaceGeometry(
         shouldReassertNaturalSize: Bool = true,
         completion: (@MainActor @Sendable (Bool) -> Void)? = nil
     ) {
@@ -3223,6 +3199,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         containerH: CGFloat,
         shouldReassertNaturalSize: Bool
     ) {
+        appliedNaturalSize = result.naturalSize
         if result.cellPixelSize.width > 0, result.cellPixelSize.height > 0 {
             cellPixelSize = result.cellPixelSize
         }
@@ -3307,8 +3284,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
         let shouldReportNaturalSize = reportGrid != lastReportedSize ||
+            viewportFontGrantNeedsReport ||
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
         guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else { return }
+        viewportFontGrantNeedsReport = false
         lastReportedSize = reportGrid
         // Debounce the actual report (a PTY resize on the Mac) until the grid
         // settles; the display link fires it once it stops changing.
