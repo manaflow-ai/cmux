@@ -15,11 +15,19 @@ struct CLICodexHookTimeoutRegressionTests {
         try FileManager.default.createDirectory(at: hookDirectory, withIntermediateDirectories: true)
         try makeCodexHookExecutableShellFile(at: oldScript, lines: ["#!/bin/sh", "exit 0"])
         defer { try? FileManager.default.removeItem(at: root) }
+        let codexDef = try #require(CMUXCLI.agentDefs.first { $0.name == "codex" })
+        let oldInlineDispatcher = CMUXCLI.codexFireAndForgetAgentHookShellCommand(
+            "cmux hooks codex session-start",
+            for: codexDef,
+            ownership: .persistent,
+            target: .wrapperEnvironment
+        )
 
         let hooksJSON: [String: Any] = [
             "hooks": [
                 "SessionStart": [
                     ["hooks": [["command": oldScript.path, "timeout": 5, "type": "command"]]],
+                    ["hooks": [["command": oldInlineDispatcher, "timeout": 5, "type": "command"]]],
                     ["hooks": [["command": "user-session-hook", "timeout": 5, "type": "command"]]],
                 ],
             ],
@@ -38,6 +46,7 @@ struct CLICodexHookTimeoutRegressionTests {
         let sessionStartHooks = try codexHookEntries(in: codexHome)
             .filter { $0.eventName == "SessionStart" }
         #expect(!sessionStartHooks.contains { $0.command == oldScript.path })
+        #expect(!sessionStartHooks.contains { $0.command == oldInlineDispatcher })
         #expect(sessionStartHooks.contains { $0.command == "user-session-hook" })
         #expect(sessionStartHooks.filter { $0.body.contains("hooks codex session-start") }.count == 1)
     }
