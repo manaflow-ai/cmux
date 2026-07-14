@@ -254,7 +254,11 @@ struct NotificationRowSnapshotBoundaryTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             isRead: false,
             paneFlash: true,
-            scrollPosition: TerminalNotificationScrollPosition(row: 42, totalRows: 100)
+            scrollPosition: TerminalNotificationScrollPosition(
+                row: 42,
+                totalRows: 100,
+                rowSpaceRevision: 99
+            )
         )
         store.replaceNotificationsForTesting([notification])
 
@@ -262,6 +266,7 @@ struct NotificationRowSnapshotBoundaryTests {
         let panelSnapshot = try #require(snapshot.panels.first { $0.id == panelId })
         #expect(panelSnapshot.notifications?.first?.scrollPosition?.row == 42)
         #expect(panelSnapshot.notifications?.first?.scrollPosition?.totalRows == 100)
+        #expect(panelSnapshot.notifications?.first?.scrollPosition?.rowSpaceRevision == nil)
 
         store.replaceNotificationsForTesting([])
         let restored = Workspace()
@@ -270,6 +275,7 @@ struct NotificationRowSnapshotBoundaryTests {
         let restoredNotification = try #require(store.latestNotification(forTabId: restored.id))
         #expect(restoredNotification.scrollPosition?.row == 42)
         #expect(restoredNotification.scrollPosition?.totalRows == 100)
+        #expect(restoredNotification.scrollPosition?.rowSpaceRevision == nil)
     }
 
     @Test func openingNotificationCapturedAtBottomRestoresLiveViewport() {
@@ -280,7 +286,7 @@ struct NotificationRowSnapshotBoundaryTests {
             TerminalNotificationScrollPosition(row: 0, totalRows: 400)
         )
         #expect(didRestore)
-        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
     }
 
     @Test func openingNotificationWithoutScrollbackKeepsLiveViewportActive() {
@@ -291,7 +297,7 @@ struct NotificationRowSnapshotBoundaryTests {
             TerminalNotificationScrollPosition(row: 0, totalRows: 44)
         )
         #expect(didRestore)
-        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:0"])
     }
 
     @Test func openingNotificationBeforeViewportLayoutRestoresOnScrollbarUpdate() {
@@ -305,9 +311,9 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(surfaceView.performedBindingActions.isEmpty)
         let readyScrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
         postScrollbar(readyScrollbar, to: surfaceView)
-        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
         postScrollbar(readyScrollbar, to: surfaceView)
-        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
     }
 
     @Test func openingNotificationRetriesAfterBindingActionIsRejected() {
@@ -319,12 +325,12 @@ struct NotificationRowSnapshotBoundaryTests {
             TerminalNotificationScrollPosition(row: 0, totalRows: 400)
         )
         #expect(!didRestoreImmediately)
-        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
         let readyScrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
         postScrollbar(readyScrollbar, to: surfaceView)
-        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom", "scroll_to_bottom"])
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356", "scroll_to_row:356"])
         postScrollbar(readyScrollbar, to: surfaceView)
-        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom", "scroll_to_bottom"])
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356", "scroll_to_row:356"])
     }
 
     @Test func openingNotificationBoundsRejectedBindingActionRetries() {
@@ -363,7 +369,7 @@ struct NotificationRowSnapshotBoundaryTests {
         NotificationCenter.default.post(name: inputName, object: inputObject)
         postScrollbar(notificationScrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
 
-        #expect(surfaceView.performedBindingActions == ["scroll_to_bottom"])
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
     }
 
     @Test func keyboardInputCancelsPendingNotificationRestore() throws {
