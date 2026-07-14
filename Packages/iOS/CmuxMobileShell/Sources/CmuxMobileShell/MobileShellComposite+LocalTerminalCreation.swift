@@ -77,13 +77,12 @@ extension MobileShellComposite {
                 if !reconciled {
                     terminalReorderGate.requireRefresh(workspaceID: rowWorkspaceID)
                 } else if disposition == .ambiguous {
-                    selectResolvedRemoteTerminalCreation(
-                        responseCreatedTerminalID: nil,
-                        workspaceID: rowWorkspaceID,
-                        existingTerminalIDs: existingTerminalIDs,
-                        paneID: paneID,
-                        selectionRevision: createSelectionRevision
-                    )
+                    // The response was lost, so the refreshed hierarchy cannot
+                    // reliably attribute any one new terminal to this request.
+                    // Keep the user's selection and clear the transient
+                    // availability state now that an authoritative read worked.
+                    markMacConnectionHealthy()
+                    return
                 }
             }
             applyOperationalError(error)
