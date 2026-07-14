@@ -526,10 +526,22 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         if style.invisible { codes.append("8") }
         if style.strikethrough { codes.append("9") }
         if style.overline { codes.append("53") }
-        if let foreground = rgbComponents(style.foreground) {
+        if style.foregroundSource == .defaultColor {
+            codes.append("39")
+        } else if style.foregroundSource == .palette,
+                  let index = style.foregroundPaletteIndex,
+                  (0...255).contains(index) {
+            codes.append("38;5;\(index)")
+        } else if let foreground = rgbComponents(style.foreground) {
             codes.append("38;2;\(foreground.red);\(foreground.green);\(foreground.blue)")
         }
-        if let background = rgbComponents(style.background) {
+        if style.backgroundSource == .defaultColor {
+            codes.append("49")
+        } else if style.backgroundSource == .palette,
+                  let index = style.backgroundPaletteIndex,
+                  (0...255).contains(index) {
+            codes.append("48;5;\(index)")
+        } else if let background = rgbComponents(style.background) {
             codes.append("48;2;\(background.red);\(background.green);\(background.blue)")
         }
         return Data("\u{1B}[\(codes.joined(separator: ";"))m".utf8)
