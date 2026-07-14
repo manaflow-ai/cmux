@@ -93,6 +93,7 @@ struct TerminalAccessoryConfigurationTests {
         // so a reorder cannot silently shift them (new cases go after the max).
         #expect(TerminalInputAccessoryAction.returnKey.rawValue == 29)
         #expect(TerminalInputAccessoryAction.ollama.rawValue == 30)
+        #expect(TerminalInputAccessoryAction.files.rawValue == 31)
     }
 
     // MARK: - Reorder + hide/show round-trips

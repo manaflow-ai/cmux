@@ -77,13 +77,14 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// stable; its default on-bar position is curated separately in
     /// ``defaultConfigurableOrder``.
     case returnKey
-    /// Open the terminal files sheet for paths currently shown on screen.
-    case files
     /// Type the `ollama run ` launcher prefix. No trailing CR: unlike the
     /// Claude/Codex launchers there is no universal model argument, so the
     /// user completes the model name and submits. Appended at the end so
     /// existing persisted raw values stay stable.
     case ollama
+    /// Open the terminal files sheet for paths currently shown on screen.
+    /// Appended at the end so existing persisted raw values stay stable.
+    case files
     /// Short label rendered on the terminal accessory button.
     public var title: String {
         title(isMacRemote: false)
