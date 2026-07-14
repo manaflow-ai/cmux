@@ -45,7 +45,7 @@ struct ChatArtifactTextView: UIViewRepresentable {
             context.coordinator.handledBottomRequestID = bottomRequestID
         }
 
-        guard context.coordinator.appliedChunkCount <= chunks.count else {
+        if context.coordinator.appliedChunkCount > chunks.count {
             context.coordinator.appliedChunkCount = 0
             textView.textStorage.setAttributedString(NSAttributedString())
         }
