@@ -41,6 +41,82 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func registrationRenewalHonorsBrokerRetryAfterFloor() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            subsequentRegistrationErrors: [
+                .rateLimited(code: "slow_down", retryAfterSeconds: 300),
+            ]
+        )
+        let clock = HostRegistrationRenewalClock(now: now)
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { clock.now() },
+            registrationClock: clock,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+        await clock.waitUntilSleepCount(1)
+        let renewalDeadline = try #require(clock.observedSleepDeadlines().first)
+        clock.advance(to: renewalDeadline)
+        await broker.waitForRegistrationCount(2)
+        await clock.waitUntilSleepCount(2)
+
+        let retryDeadline = try #require(clock.observedSleepDeadlines().last)
+        #expect(retryDeadline >= renewalDeadline.addingTimeInterval(300))
+        await runtime.stop()
+    }
+
+    @Test
+    func registrationRenewalBacksOffConsecutiveFailures() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            subsequentRegistrationErrors: [.connectivity, .connectivity]
+        )
+        let clock = HostRegistrationRenewalClock(now: now)
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { clock.now() },
+            registrationClock: clock,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+        await clock.waitUntilSleepCount(1)
+        var deadline = try #require(clock.observedSleepDeadlines().last)
+
+        clock.advance(to: deadline)
+        await broker.waitForRegistrationCount(2)
+        await clock.waitUntilSleepCount(2)
+        let firstRetry = try #require(clock.observedSleepDeadlines().last)
+        #expect(firstRetry.timeIntervalSince(deadline) >= 30)
+
+        deadline = firstRetry
+        clock.advance(to: deadline)
+        await broker.waitForRegistrationCount(3)
+        await clock.waitUntilSleepCount(3)
+        let secondRetry = try #require(clock.observedSleepDeadlines().last)
+        #expect(secondRetry.timeIntervalSince(deadline) >= 60)
+
+        await runtime.stop()
+    }
+
+    @Test
     func startBindsExactRegisteredIdentityAndStopClosesIt() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(

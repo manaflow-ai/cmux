@@ -149,6 +149,12 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     func observedRegistrationCount() -> Int { registrationCount }
     func observedRelayIssueCount() -> Int { relayIssueCount }
 
+    func enqueueSubsequentRegistrationError(
+        _ error: CmxIrohTrustBrokerClientError
+    ) {
+        subsequentRegistrationErrors.append(error)
+    }
+
     func waitForRegistrationCount(_ minimum: Int) async {
         if registrationCount >= minimum { return }
         let id = UUID()
