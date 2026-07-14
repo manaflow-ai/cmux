@@ -90,6 +90,20 @@ jobs:
         if: ${{ inputs.platform == 'macos' }}
         run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
+      # The macOS app build compiles the bundled cua-driver (Rust) in a copy-
+      # resources phase via scripts/build-cua-driver.sh, so the runner needs a
+      # toolchain. Guarded so source refs that predate the driver are a no-op
+      # (scripts come from inputs.ref); install-rust-ci.sh is idempotent.
+      - name: Provision Rust for bundled cua-driver (macOS)
+        if: ${{ inputs.platform == 'macos' }}
+        run: |
+          set -euo pipefail
+          if [ -f scripts/build-cua-driver.sh ] && [ -f scripts/install-rust-ci.sh ]; then
+            ./scripts/install-rust-ci.sh
+          else
+            echo "cua-driver build script absent in source ref; skipping Rust provisioning"
+          fi
+
       - name: Mark deps-ready
         id: t1
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
