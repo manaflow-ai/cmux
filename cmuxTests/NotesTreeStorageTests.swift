@@ -12,6 +12,10 @@ extension NotesTreeStore {
     /// via `@testable import` (the store keeps no production test hook).
     @MainActor
     func waitForPendingReloadForTesting() async {
+        // Reloads are scheduled through the coalesce task first; awaiting
+        // only `reloadTask` races it and reads a stale tree under load
+        // (the intermittent cross-test failures in the observation suite).
+        await reloadCoalesceTask?.value
         await reloadTask?.value
     }
 }
