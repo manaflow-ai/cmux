@@ -10,25 +10,32 @@ import Testing
 
 #if DEBUG
 extension SettingsWindowSharedStateSuites {
-    /// Window-construction coverage for the modern Settings chrome contract
-    /// (https://github.com/manaflow-ai/cmux/issues/8010).
+    /// Window-construction coverage for the native Settings chrome contract
+    /// shipped in cmux 0.64.17, plus the reliable AppKit-owned lifecycle.
     @MainActor
     @Suite(.serialized)
     struct SettingsWindowChromeTests {
-        @Test func factoryBuildsModernUnifiedChromeWithNativeSidebarToolbar() throws {
-            let window = SettingsWindowFactory.makeSettingsWindow(onContentAppear: {})
-            defer {
-                window.orderOut(nil)
-                window.contentViewController = nil
-                window.contentView = nil
-                window.close()
-            }
+        @Test func presenterBuildsNative06417ChromeWithSidebarToolbar() throws {
+            closeSettingsWindows()
+            defer { closeSettingsWindows() }
 
-            #expect(window.styleMask.contains(.fullSizeContentView))
-            #expect(window.toolbarStyle == .unifiedCompact)
-            #expect(window.titlebarAppearsTransparent)
-            #expect(window.titleVisibility == .hidden)
-            #expect(window.titlebarSeparatorStyle == .none)
+            let presenter = SettingsWindowPresenter()
+            #expect(presenter.show() == .presented)
+            let window = try #require(
+                NSApp.windows.first {
+                    $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
+                }
+            )
+
+            // #8015 forced a full-size transparent titlebar, removed the
+            // native separator, and imposed compact toolbar styling. That
+            // produced a hybrid that did not match the SwiftUI-owned window
+            // shipped in 0.64.17. Keep AppKit lifecycle ownership, but let
+            // the bridged NavigationSplitView supply the standard chrome.
+            #expect(!window.styleMask.contains(.fullSizeContentView))
+            #expect(window.toolbarStyle == .automatic)
+            #expect(!window.titlebarAppearsTransparent)
+            #expect(window.titlebarSeparatorStyle == .automatic)
 
             let hostingController = try #require(
                 window.contentViewController as? NSHostingController<SettingsWindowHostRoot>
@@ -36,42 +43,44 @@ extension SettingsWindowSharedStateSuites {
             #expect(hostingController.sceneBridgingOptions.contains(.toolbars))
             #expect(hostingController.sceneBridgingOptions.contains(.title))
 
-            // Toolbar bridging is only observable after the hosting controller
-            // is attached to a live window. Require the NavigationSplitView's
-            // native sidebar item and exercise its responder-chain action so a
-            // bare option bit cannot satisfy this regression test.
-            window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
-            window.orderBack(nil)
-            window.contentView?.layoutSubtreeIfNeeded()
-
-            let toolbar = try #require(window.toolbar)
-            let sidebarToggle = try #require(
-                toolbar.items.first {
-                    $0.action == #selector(NSSplitViewController.toggleSidebar(_:))
-                }
-            )
+            // The scene bridge installs toolbar content after the real
+            // presenter makes the Settings window key. Pump the main run loop
+            // until that public AppKit action appears instead of forcing a
+            // re-entrant NSHostingView layout pass.
+            let sidebarToggle = try #require(waitForNativeSidebarToggle(in: window))
             let action = try #require(sidebarToggle.action)
-            let splitViewController = try #require(
-                NSApp.target(
-                    forAction: action,
-                    to: sidebarToggle.target,
-                    from: sidebarToggle
-                ) as? NSSplitViewController
-            )
-            let sidebarItem = try #require(
-                splitViewController.splitViewItems.first { $0.behavior == .sidebar }
-            )
-            let wasCollapsed = sidebarItem.isCollapsed
-
+            #expect(action == #selector(NSSplitViewController.toggleSidebar(_:)))
             #expect(sidebarToggle.isEnabled)
-            var handled = false
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0
-                handled = NSApp.sendAction(action, to: sidebarToggle.target, from: sidebarToggle)
+            #expect(NSApp.sendAction(action, to: sidebarToggle.target, from: sidebarToggle))
+        }
+
+        private func waitForNativeSidebarToggle(
+            in window: NSWindow,
+            timeout: TimeInterval = 2
+        ) -> NSToolbarItem? {
+            let deadline = Date().addingTimeInterval(timeout)
+            repeat {
+                if let item = window.toolbar?.items.first(where: {
+                    $0.action == #selector(NSSplitViewController.toggleSidebar(_:))
+                }) {
+                    return item
+                }
+                _ = RunLoop.main.run(
+                    mode: .default,
+                    before: Date().addingTimeInterval(0.01)
+                )
+            } while Date() < deadline
+            return nil
+        }
+
+        private func closeSettingsWindows() {
+            for window in NSApp.windows
+            where window.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier {
+                window.orderOut(nil)
+                window.identifier = nil
+                window.close()
             }
-            #expect(handled)
-            window.contentView?.layoutSubtreeIfNeeded()
-            #expect(sidebarItem.isCollapsed != wasCollapsed)
+            UserDefaults.standard.removeObject(forKey: "NSWindow Frame cmux.settings")
         }
     }
 }
