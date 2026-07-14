@@ -2005,8 +2005,8 @@ class TabManager: ObservableObject {
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             // Prefer the warm cached agent index over a synchronous
             // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
-            // workspace does not freeze the main thread. Use an empty index during
-            // the short cold-cache window; in-memory resume bindings remain fresh.
+            // workspace does not freeze the main thread. During a cold-cache window,
+            // durable history asynchronously backfills agents after the shared load.
             let snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
