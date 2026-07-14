@@ -70,7 +70,9 @@ final class HiveComputersService {
             macDeviceID: deviceID,
             displayName: computer.displayName,
             routes: best.routes,
-            retryDelay: HiveReconnectBackoff().delay(attempt:)
+            retryDelay: { @Sendable attempt in
+                await HiveReconnectBackoff().delay(attempt: attempt)
+            }
         )
     }
 
