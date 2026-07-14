@@ -233,6 +233,22 @@ import Testing
         #expect(!isExecutingProcess(childPID))
     }
 
+    @Test func outstandingDetachedReapBlocksNewLaunchesWithinBound() {
+        var state = GitProcessLifecycleState(maxProcesses: 2)
+        #expect(state.tryBeginProcess())
+        #expect(state.tryBeginProcess())
+
+        state.transferToReaper(processIdentifier: 101)
+        #expect(!state.tryBeginProcess())
+        state.transferToReaper(processIdentifier: 102)
+        #expect(state.reapingProcessCount == 2)
+
+        state.didReap(processIdentifier: 101)
+        #expect(!state.tryBeginProcess())
+        state.didReap(processIdentifier: 102)
+        #expect(state.tryBeginProcess())
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-deadline-tests-\(UUID().uuidString)")

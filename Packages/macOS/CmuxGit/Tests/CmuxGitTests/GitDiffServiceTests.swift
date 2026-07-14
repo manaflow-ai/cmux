@@ -420,6 +420,31 @@ import Testing
         #expect(diff.unifiedDiff.contains("Subproject commit"))
     }
 
+    @Test func conflictOnlyRepositoryIsMarkedPartial() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let conflictedFile = repo.appendingPathComponent("Conflict.txt")
+        try Data("base\n".utf8).write(to: conflictedFile)
+        try runTestGit(in: repo, ["add", "--", "Conflict.txt"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "base"])
+        try runTestGit(in: repo, ["checkout", "--quiet", "-b", "conflict-left"])
+        try Data("left\n".utf8).write(to: conflictedFile)
+        try runTestGit(in: repo, ["commit", "--all", "--quiet", "-m", "left"])
+        try runTestGit(in: repo, ["checkout", "--quiet", "-b", "conflict-right", "HEAD~1"])
+        try Data("right\n".utf8).write(to: conflictedFile)
+        try runTestGit(in: repo, ["commit", "--all", "--quiet", "-m", "right"])
+        try runTestGit(
+            in: repo,
+            ["merge", "--quiet", "conflict-left"],
+            acceptedTerminationStatuses: [1]
+        )
+
+        let changed = try #require(GitDiffService().changedFiles(repoRoot: repo.path))
+
+        #expect(changed.files.isEmpty)
+        #expect(changed.truncated)
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-tests-\(UUID().uuidString)")
@@ -443,7 +468,11 @@ import Testing
         return root
     }
 
-    private func runTestGit(in root: URL, _ arguments: [String]) throws {
+    private func runTestGit(
+        in root: URL,
+        _ arguments: [String],
+        acceptedTerminationStatuses: Set<Int32> = [0]
+    ) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = arguments
@@ -452,7 +481,7 @@ import Testing
         process.standardError = FileHandle.nullDevice
         try process.run()
         process.waitUntilExit()
-        try #require(process.terminationStatus == 0)
+        try #require(acceptedTerminationStatuses.contains(process.terminationStatus))
     }
 
 }
