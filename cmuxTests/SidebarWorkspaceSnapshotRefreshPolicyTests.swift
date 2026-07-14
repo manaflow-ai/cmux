@@ -119,6 +119,63 @@ import Testing
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
+    // MARK: - #7519 cold-load pill mis-attribution
+
+    /// `TabItemView.workspaceSnapshot` serves a memoized snapshot when its
+    /// `presentationKey` matches the row's current key
+    /// (`Sources/ContentView.swift`). This mirrors that guard so the cache
+    /// contract can be tested without a live SwiftUI hierarchy.
+    private static func servedSnapshot(
+        cached: SidebarWorkspaceSnapshotBuilder.Snapshot?,
+        currentKey: SidebarWorkspaceSnapshotBuilder.PresentationKey
+    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot? {
+        guard let cached, cached.presentationKey == currentKey else { return nil }
+        return cached
+    }
+
+    /// Two rows that differ only by which workspace they render must produce
+    /// distinct presentation keys. Before #7519 the key held only global
+    /// presentation settings, so every row's key compared equal and a recycled
+    /// snapshot silently passed the cache guard.
+    @Test func presentationKeyDistinguishesWorkspaces() {
+        let workspaceA = UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!
+        let workspaceB = UUID(uuidString: "BBBBBBBB-0000-0000-0000-000000000002")!
+        let keyA = Self.presentationKey(workspaceId: workspaceA)
+        let keyB = Self.presentationKey(workspaceId: workspaceB)
+        #expect(keyA != keyB)
+        #expect(Self.presentationKey(workspaceId: workspaceA) == keyA)
+    }
+
+    /// Regression for #7519: a workspace's memoized snapshot (carrying its
+    /// "Running" / "Needs input" pills) must never be served for a *different*
+    /// workspace after the `LazyVStack` recycles the row's `@State` across an
+    /// identity change. The recycled snapshot must fail the cache guard so the
+    /// row rebuilds from its own workspace instead of showing a neighbour's.
+    @Test func memoizedSnapshotIsNotServedForADifferentWorkspace() {
+        let workspaceA = UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!
+        let workspaceB = UUID(uuidString: "BBBBBBBB-0000-0000-0000-000000000002")!
+
+        // Workspace A has three running coding agents (its "Running" pill).
+        let cachedForA = Self.snapshot(
+            presentationKey: Self.presentationKey(workspaceId: workspaceA),
+            title: "workspace-a",
+            activeCodingAgentCount: 3
+        )
+
+        // The row is now bound to workspace B (idle) under identical global
+        // presentation settings — exactly the recycled-row state.
+        let currentKeyForB = Self.presentationKey(workspaceId: workspaceB)
+
+        let served = Self.servedSnapshot(cached: cachedForA, currentKey: currentKeyForB)
+
+        // Cache must MISS: B never inherits A's running-agent pill.
+        #expect(served == nil)
+
+        // And A's own row still serves its cached snapshot.
+        let currentKeyForA = Self.presentationKey(workspaceId: workspaceA)
+        #expect(Self.servedSnapshot(cached: cachedForA, currentKey: currentKeyForA) == cachedForA)
+    }
+
     static func snapshot(
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
@@ -161,7 +218,14 @@ import Testing
         )
     }
 
+    /// Stable default identity so `snapshot()` / `presentationKey()` calls model
+    /// successive snapshots of ONE workspace (the common same-workspace case).
+    /// Cross-workspace tests pass distinct ids explicitly; keeping the default
+    /// random would make key-difference assertions pass on unrelated UUIDs.
+    static let defaultWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+
     static func presentationKey(
+        workspaceId: UUID = SidebarWorkspaceSnapshotRefreshPolicyTests.defaultWorkspaceId,
         showsWorkspaceDescription: Bool = true,
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,
@@ -177,6 +241,7 @@ import Testing
         )
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
+            workspaceId: workspaceId,
             showsWorkspaceDescription: showsWorkspaceDescription,
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,
