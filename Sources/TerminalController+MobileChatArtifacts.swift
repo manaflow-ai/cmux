@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxSettings
 import Foundation
 
 private enum TerminalControllerChatArtifactIndexProvider {
@@ -244,7 +245,8 @@ extension TerminalController {
                 transcriptPath: transcriptPath,
                 workingDirectory: record.workingDirectory,
                 requestedPath: requestedPath,
-                operation: operation.indexOperation
+                operation: operation.indexOperation,
+                directoryAccessMode: mobileArtifactDirectoryAccessMode()
             )
             switch pathResult {
             case .success(let canonicalPath):
@@ -265,6 +267,22 @@ extension TerminalController {
             }
         } catch {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
+        }
+    }
+
+    /// Resolves the persisted mobile folder setting into the shared scope policy.
+    func mobileArtifactDirectoryAccessMode(
+        defaults: UserDefaults = .standard
+    ) -> ChatArtifactScope.DirectoryAccessMode {
+        let key = SettingCatalog().mobile.artifactFolderAccess
+        let setting = MobileArtifactFolderAccess.decodeFromUserDefaults(
+            defaults.object(forKey: key.userDefaultsKey)
+        ) ?? key.defaultValue
+        switch setting {
+        case .subtree:
+            return .subtree
+        case .oneLevel:
+            return .oneLevel
         }
     }
 

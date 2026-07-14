@@ -377,6 +377,9 @@ final class CmuxSettingsFileStore {
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let mobileSection = root["mobile"] as? [String: Any] {
+            parseMobileSection(mobileSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let markdownSection = root["markdown"] as? [String: Any] {
             parseMarkdownSection(markdownSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -936,6 +939,21 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
         }
         applyNormalizedStringArraySettings(BrowserSettingsFileMapping.stringArraySettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+    }
+
+    private func parseMobileSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard section.keys.contains("artifactFolderAccess") else { return }
+        guard let raw = jsonString(section["artifactFolderAccess"]),
+              let value = MobileArtifactFolderAccess(rawValue: raw) else {
+            logInvalid("mobile.artifactFolderAccess", sourcePath: sourcePath)
+            return
+        }
+        let key = SettingCatalog().mobile.artifactFolderAccess
+        snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
     }
 
     private func parseWorkspaceGroupsSection(

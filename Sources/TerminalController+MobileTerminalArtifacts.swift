@@ -171,6 +171,7 @@ extension TerminalController {
                 data: nil
             ))
         }
+        let directoryAccessMode = mobileArtifactDirectoryAccessMode()
         return v2MainSync { () -> TerminalArtifactContextResolution in
             guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
                   let resolvedSurfaceID = resolved.surfaceId,
@@ -196,7 +197,8 @@ extension TerminalController {
                 terminalText: terminalText,
                 workingDirectory: workingDirectory,
                 requestedPath: v2RawString(params, "path"),
-                sessionID: sessionID
+                sessionID: sessionID,
+                directoryAccessMode: directoryAccessMode
             ))
         }
     }
@@ -282,17 +284,20 @@ private struct TerminalArtifactReadContext: Sendable {
     private let workingDirectory: String?
     let requestedPath: String?
     let sessionID: String?
+    private let directoryAccessMode: ChatArtifactScope.DirectoryAccessMode
 
     init(
         terminalText: String,
         workingDirectory: String?,
         requestedPath: String?,
-        sessionID: String?
+        sessionID: String?,
+        directoryAccessMode: ChatArtifactScope.DirectoryAccessMode
     ) {
         self.terminalText = terminalText
         self.workingDirectory = workingDirectory
         self.requestedPath = requestedPath
         self.sessionID = sessionID
+        self.directoryAccessMode = directoryAccessMode
     }
 
     func scan() -> TerminalArtifactScanResponse {
@@ -300,7 +305,8 @@ private struct TerminalArtifactReadContext: Sendable {
         let scope = TerminalArtifactScope(
             terminalText: terminalText,
             workingDirectory: workingDirectory,
-            resolver: ChatArtifactScope.FoundationResolver()
+            resolver: ChatArtifactScope.FoundationResolver(),
+            directoryAccessMode: directoryAccessMode
         )
         let artifacts = scope.artifactPaths(limit: 200).compactMap { path -> TerminalArtifactReference? in
             guard let stat = try? reader.stat(path: path) else { return nil }
@@ -325,7 +331,8 @@ private struct TerminalArtifactReadContext: Sendable {
         let scope = TerminalArtifactScope(
             terminalText: terminalText,
             workingDirectory: workingDirectory,
-            resolver: ChatArtifactScope.FoundationResolver()
+            resolver: ChatArtifactScope.FoundationResolver(),
+            directoryAccessMode: directoryAccessMode
         )
         guard let canonicalPath = scope.canonicalPath(for: requestedPath) else {
             throw Error.forbidden

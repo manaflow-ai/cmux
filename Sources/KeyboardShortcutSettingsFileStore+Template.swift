@@ -209,6 +209,11 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "mobile": [
+                    "artifactFolderAccess": SettingCatalog().mobile.artifactFolderAccess.defaultValue.rawValue,
+                ],
+            ],
+            [
                 "markdown": [
                     "fontSize": Int(MarkdownFontSizeSettings.defaultPointSize),
                     "fontFamily": "",
