@@ -192,7 +192,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     }
 
     public func finishTranscribing() async {
-        guard !isFinishing else { return }
+        // Deliberately idempotent (no isFinishing guard): a stop that races
+        // transcribe() calls this again after startup completes to tear
+        // down the engine the first call could not see yet.
         isFinishing = true
         stopAudioEngine()
         inputBox.finish()
