@@ -77,6 +77,118 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(!machine.isFrozen)
     }
 
+    @Test("a new producer epoch may restart at revision one without reviving the retired epoch")
+    func producerEpochResetIsOrdered() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let beforeReconnect = try frame(
+            renderEpoch: "epoch-before-reconnect",
+            renderRevision: 42,
+            stateSeq: 9,
+            columns: 80,
+            text: "before reconnect"
+        )
+        commit(beforeReconnect, to: machine)
+
+        let afterReconnect = try frame(
+            renderEpoch: "epoch-after-reconnect",
+            renderRevision: 1,
+            stateSeq: 0,
+            columns: 80,
+            text: "after reconnect"
+        )
+        let reconnectTransaction = try #require(
+            extractTransaction(from: machine.begin(frame: afterReconnect))
+        )
+        #expect(
+            machine.complete(
+                transactionID: reconnectTransaction.id,
+                observedFrame: afterReconnect
+            ) == .reveal
+        )
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "after reconnect")
+
+        let delayedOldEpoch = try frame(
+            renderEpoch: "epoch-before-reconnect",
+            renderRevision: 43,
+            stateSeq: 10,
+            columns: 80,
+            text: "delayed old epoch"
+        )
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: delayedOldEpoch) else {
+            return Issue.record("a retired producer epoch must never become visible again")
+        }
+        #expect(machine.visibleSnapshot?.rows.first?.first?.text == "after reconnect")
+    }
+
+    @Test("verified replay rejects missing capture identity")
+    func missingCaptureIdentityFailsClosed() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let missingEpoch = try frame(
+            renderEpoch: "",
+            renderRevision: 1,
+            stateSeq: 1,
+            columns: 80,
+            text: "missing epoch"
+        )
+        let zeroRevision = try frame(
+            renderEpoch: "epoch",
+            renderRevision: 0,
+            stateSeq: 1,
+            columns: 80,
+            text: "missing revision"
+        )
+
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: missingEpoch) else {
+            return Issue.record("verified replay must reject a missing producer epoch")
+        }
+        guard case .keepFrozenAndRequestReplay = machine.begin(frame: zeroRevision) else {
+            return Issue.record("verified replay must reject revision zero")
+        }
+        #expect(machine.visibleSnapshot == nil)
+        #expect(machine.isFrozen)
+    }
+
+    @Test("verified transport cannot route missing or legacy frames around verification")
+    func verifiedTransportRoutingFailsClosed() throws {
+        let token = UUID()
+        let missingFrame = MobileTerminalOutputChunk(
+            data: Data("raw bypass".utf8),
+            streamToken: token,
+            requiresVerifiedReplay: true
+        )
+        #expect(terminalOutputApplicationPath(for: missingFrame) == .rejectUnverified)
+
+        let zeroRevisionFrame = try frame(
+            renderEpoch: "epoch",
+            renderRevision: 0,
+            stateSeq: 1,
+            columns: 80,
+            text: "legacy frame"
+        )
+        let zeroRevisionChunk = MobileTerminalOutputChunk(
+            data: zeroRevisionFrame.vtPatchBytes(),
+            streamToken: token,
+            sourceRenderGridFrame: zeroRevisionFrame,
+            requiresVerifiedReplay: true
+        )
+        #expect(terminalOutputApplicationPath(for: zeroRevisionChunk) == .rejectUnverified)
+
+        let verifiedFrame = try frame(
+            renderEpoch: "epoch",
+            renderRevision: 1,
+            stateSeq: 1,
+            columns: 80,
+            text: "verified frame"
+        )
+        let verifiedChunk = MobileTerminalOutputChunk(
+            data: verifiedFrame.vtPatchBytes(),
+            streamToken: token,
+            sourceRenderGridFrame: verifiedFrame,
+            requiresVerifiedReplay: true
+        )
+        #expect(terminalOutputApplicationPath(for: verifiedChunk) == .verifiedReplay)
+    }
+
     private func commit(
         _ frame: MobileTerminalRenderGridFrame,
         to machine: VerifiedTerminalReplayStateMachine
@@ -96,6 +208,7 @@ struct VerifiedTerminalReplayStateMachineTests {
     }
 
     private func frame(
+        renderEpoch: String = "epoch-default",
         renderRevision: UInt64,
         stateSeq: UInt64,
         columns: Int,
@@ -105,6 +218,7 @@ struct VerifiedTerminalReplayStateMachineTests {
         try MobileTerminalRenderGridFrame(
             surfaceID: "surface-verified-replay",
             stateSeq: stateSeq,
+            renderEpoch: renderEpoch,
             renderRevision: renderRevision,
             columns: columns,
             rows: 3,
