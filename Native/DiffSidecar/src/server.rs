@@ -566,14 +566,7 @@ async fn open_session(
         mime_type: "text/x-diff".to_owned(),
         remote_url: None,
     };
-    if append_manifest_file(
-        state.config.root.clone(),
-        params.capability_token.clone(),
-        allowed,
-    )
-    .await
-    .is_err()
-    {
+    if append_manifest_file(&state.config.root, &params.capability_token, allowed).is_err() {
         let _ = tokio::fs::remove_file(&final_path).await;
         return Err(SessionOpenError::Failed);
     }
@@ -816,22 +809,16 @@ async fn git_single_line(repo: &Path, arguments: &[&str]) -> Result<String, Sess
     Ok(line)
 }
 
-async fn append_manifest_file(
-    root: PathBuf,
-    token: String,
-    file: AllowedFile,
-) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || {
-        mutate_manifest(&root, &token, |manifest| {
-            manifest
-                .files
-                .retain(|entry| entry.request_path != file.request_path);
-            manifest.files.push(file);
-            Ok(())
-        })
+fn append_manifest_file(root: &Path, token: &str, file: AllowedFile) -> Result<(), String> {
+    // Keep publication synchronous so cancellation cannot detach a blocking
+    // task that commits after the patch ownership guard has deleted its file.
+    mutate_manifest(root, token, |manifest| {
+        manifest
+            .files
+            .retain(|entry| entry.request_path != file.request_path);
+        manifest.files.push(file);
+        Ok(())
     })
-    .await
-    .map_err(|error| error.to_string())?
 }
 
 async fn prune_orphaned_session_temp_files(
@@ -984,24 +971,26 @@ async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
     }
     let request_path = format!("/diff-session-{}.patch", params.session_id);
     let file_path = state.config.root.join(request_path.trim_start_matches('/'));
+    match std::fs::remove_file(&file_path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return false,
+    }
     let root = state.config.root.clone();
     let token = params.capability_token.clone();
     let transaction = tokio::task::spawn_blocking(move || {
         mutate_manifest(&root, &token, |manifest| {
-            let original = manifest.files.len();
             manifest
                 .files
                 .retain(|entry| entry.request_path != request_path);
-            Ok(original != manifest.files.len())
+            Ok(())
         })
     })
     .await;
-    let Ok(Ok(removed)) = transaction else {
+    let Ok(Ok(())) = transaction else {
         return false;
     };
-    if removed {
-        remove_owned_patch_sync(&state.config.root, &file_path);
-    }
+    let _ = unregister_session_temp(&state.config.root, &file_path);
     true
 }
 
