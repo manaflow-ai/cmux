@@ -87,6 +87,11 @@ TMPDIR_BUILD=""
 cleanup() {
   [[ -n "$TMPDIR_BUILD" ]] && rm -rf "$TMPDIR_BUILD"
   [[ -n "$SRC_LOCK_DIR" ]] && rm -rf "$SRC_LOCK_DIR"
+  # The src lock is released (SRC_LOCK_DIR="") before compiling, so the test
+  # above normally fails last; without an explicit success status the EXIT
+  # trap propagates 1 under set -e and fails the Xcode phase script even
+  # though the build succeeded.
+  return 0
 }
 trap cleanup EXIT
 
