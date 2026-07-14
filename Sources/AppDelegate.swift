@@ -791,6 +791,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
+    private(set) lazy var voiceDictationCoordinator: VoiceDictationCoordinator = makeVoiceDictationCoordinator()
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -13620,6 +13621,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
+        if matchConfiguredShortcut(event: event, action: .toggleVoiceDictation) {
+            // Only consume when dictation is enabled in Settings.
+            return voiceDictationCoordinator.handleShortcutToggle()
+        }
+
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         if matchConfiguredShortcut(event: event, action: .nextSidebarTab) {
 #if DEBUG
@@ -15568,27 +15574,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return numberedShortcutDigit(event: event, shortcut: currentShortcut) != nil
         }
         return matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut)
-    }
-
-    private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        action != .showHideAllWindows
-            && action != .globalSearch
-            && action != .clearScreenKeepScrollback
-            && action != .fileExplorerOpenSelection
-            && action != .fileExplorerOpenSelectionFinderAlias
-    }
-
-    private func canCurrentShortcutPreventStaleMenuSuppression(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        action != .fileExplorerOpenSelection && action != .fileExplorerOpenSelectionFinderAlias
-    }
-
-    private func isCloseShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        switch action {
-        case .closeTab, .closeWorkspace, .closeWindow:
-            return true
-        default:
-            return false
-        }
     }
 
     private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
