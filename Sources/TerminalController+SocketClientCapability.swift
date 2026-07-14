@@ -4,7 +4,7 @@ import Dispatch
 import Foundation
 
 extension TerminalController {
-    private nonisolated static let eventStreamCredentialRefreshIntervalNanoseconds: UInt64 = 1_000_000_000
+    private nonisolated static let socketCredentialRefreshIntervalNanoseconds: UInt64 = 1_000_000_000
 
     private nonisolated static var socketClientPreauthorizationLimits: ControlClientLineReadLimits {
         ControlClientLineReadLimits(
@@ -163,21 +163,6 @@ extension TerminalController {
     /// Checks both listener policy generation and password credential revision.
     nonisolated func socketAuthorizationIsCurrent(
         _ authorizationGeneration: UInt64,
-        passwordAuthorization: SocketPasswordAuthorization
-    ) -> Bool {
-        guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) else { return false }
-        let accessMode = socketServer.accessMode
-        let currentPassword = accessMode.requiresPasswordAuth
-            ? passwordStore.configuredPassword(allowLazyKeychainFallback: true)
-            : nil
-        return passwordAuthorization.permitsConnectionContinuation(
-            accessMode: accessMode,
-            currentPassword: currentPassword
-        )
-    }
-
-    nonisolated func socketEventStreamAuthorizationIsCurrent(
-        _ authorizationGeneration: UInt64,
         passwordAuthorization: inout SocketPasswordAuthorization
     ) -> Bool {
         guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) else { return false }
@@ -186,10 +171,20 @@ extension TerminalController {
             accessMode: accessMode,
             monotonicNowNanoseconds: DispatchTime.now().uptimeNanoseconds,
             minimumCredentialRefreshIntervalNanoseconds:
-                Self.eventStreamCredentialRefreshIntervalNanoseconds,
+                Self.socketCredentialRefreshIntervalNanoseconds,
             currentPassword: {
                 passwordStore.configuredPassword(allowLazyKeychainFallback: true)
             }
+        )
+    }
+
+    nonisolated func socketEventStreamAuthorizationIsCurrent(
+        _ authorizationGeneration: UInt64,
+        passwordAuthorization: inout SocketPasswordAuthorization
+    ) -> Bool {
+        socketAuthorizationIsCurrent(
+            authorizationGeneration,
+            passwordAuthorization: &passwordAuthorization
         )
     }
 }

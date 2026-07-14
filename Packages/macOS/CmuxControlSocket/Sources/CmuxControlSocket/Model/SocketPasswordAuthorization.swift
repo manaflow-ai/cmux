@@ -18,7 +18,7 @@ public struct SocketPasswordAuthorization: Sendable {
     /// Binds the connection to the password that just passed verification.
     /// - Parameter password: The verified password supplied by the client.
     public mutating func authenticate(password: String) {
-        credentialFingerprint = Self.fingerprint(password)
+        credentialFingerprint = fingerprint(password)
         nextCredentialRefreshUptimeNanoseconds = 0
     }
 
@@ -39,7 +39,7 @@ public struct SocketPasswordAuthorization: Sendable {
             return true
         }
         guard let currentPassword else { return false }
-        return credentialFingerprint == Self.fingerprint(currentPassword)
+        return credentialFingerprint == fingerprint(currentPassword)
     }
 
     /// Checks the current credential no more frequently than a caller-defined interval.
@@ -76,7 +76,7 @@ public struct SocketPasswordAuthorization: Sendable {
         )
     }
 
-    private static func fingerprint(_ password: String) -> Data {
+    private func fingerprint(_ password: String) -> Data {
         Data(SHA256.hash(data: Data(password.utf8)))
     }
 }

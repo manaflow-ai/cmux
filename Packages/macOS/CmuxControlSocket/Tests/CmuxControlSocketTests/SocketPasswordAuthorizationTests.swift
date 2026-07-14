@@ -61,7 +61,7 @@ struct SocketPasswordAuthorizationTests {
         ))
     }
 
-    @Test func streamedCredentialChecksAreCoalescedAndDetectTheNextRevision() {
+    @Test func credentialChecksAreCoalescedAndDetectTheNextRevision() {
         var authorization = SocketPasswordAuthorization()
         authorization.authenticate(password: "stream-secret")
         var passwordReads = 0

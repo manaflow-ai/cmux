@@ -30,6 +30,7 @@ The server is constructed with an injected initial path and a recording event se
 ```swift
 let server = SocketControlServer(
     initialSocketPath: path,
+    notificationCenter: .default,
     events: recorder.makeEvents()  // closures appending into a lock-guarded recorder
 )
 #expect(server.start(socketPath: path, accessMode: .cmuxOnly))

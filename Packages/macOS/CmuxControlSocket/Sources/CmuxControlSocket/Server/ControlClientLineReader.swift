@@ -20,6 +20,8 @@ internal import Foundation
 /// - `shouldContinueReading` is consulted before each blocking `read(2)` and
 ///   periodically while an authorized connection is idle. It is never polled
 ///   between lines already buffered.
+/// - The socket's configured `SO_RCVTIMEO` remains the maximum time spent
+///   waiting for each next read even though readiness polling precedes `read(2)`.
 /// - EOF, a read error, or a `false` poll ends the stream (`nil`); buffered
 ///   bytes without a trailing newline are discarded, as before.
 /// - While `initialLimits` remain active, raw bytes are counted cumulatively
@@ -34,6 +36,8 @@ public final class ControlClientLineReader {
     private var limitedBytesRead = 0
     private var limits: ControlClientLineReadLimits?
     private var deadlineUptimeNanoseconds: UInt64?
+    private let idleReadTimeoutNanoseconds: UInt64?
+    private var idleReadDeadlineUptimeNanoseconds: UInt64?
     private let continuationPollIntervalMilliseconds: Int32
     private let monotonicNowNanoseconds: @Sendable () -> UInt64
 
@@ -59,6 +63,23 @@ public final class ControlClientLineReader {
         self.monotonicNowNanoseconds = monotonicNowNanoseconds ?? {
             DispatchTime.now().uptimeNanoseconds
         }
+        self.idleReadTimeoutNanoseconds = {
+            var timeout = timeval()
+            var length = socklen_t(MemoryLayout<timeval>.size)
+            guard getsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, &length) == 0,
+                  timeout.tv_sec >= 0,
+                  timeout.tv_usec >= 0,
+                  timeout.tv_sec > 0 || timeout.tv_usec > 0 else {
+                return nil
+            }
+            let (seconds, secondsOverflowed) = UInt64(timeout.tv_sec)
+                .multipliedReportingOverflow(by: 1_000_000_000)
+            let (microseconds, microsecondsOverflowed) = UInt64(timeout.tv_usec)
+                .multipliedReportingOverflow(by: 1_000)
+            let (total, additionOverflowed) = seconds.addingReportingOverflow(microseconds)
+            return secondsOverflowed || microsecondsOverflowed || additionOverflowed ? .max : total
+        }()
+        self.idleReadDeadlineUptimeNanoseconds = nil
         limits = initialLimits
         if let initialLimits {
             let milliseconds = UInt64(clamping: max(0, initialLimits.timeoutMilliseconds))
@@ -82,6 +103,7 @@ public final class ControlClientLineReader {
     /// - Parameter shouldContinueReading: Polled before each `read(2)` and at
     ///   the configured continuation interval while the client is idle.
     public func nextLine(shouldContinueReading: () -> Bool) -> String? {
+        var startedReadWait = false
         while true {
             guard deadlineHasNotExpired else { return nil }
 
@@ -96,11 +118,16 @@ public final class ControlClientLineReader {
                 return line
             }
 
+            if !startedReadWait {
+                resetIdleReadDeadline()
+                startedReadWait = true
+            }
             guard waitForReadReadinessBeforeDeadline(
                 shouldContinueReading: shouldContinueReading
             ) else { return nil }
             let bytesRead = read(socket, &buffer, buffer.count - 1)
             guard bytesRead > 0 else { return nil }
+            resetIdleReadDeadline()
 
             if let limits {
                 let (totalBytesRead, overflowed) = limitedBytesRead.addingReportingOverflow(bytesRead)
@@ -169,13 +196,33 @@ public final class ControlClientLineReader {
     }
 
     private func nextReadinessPollTimeoutMilliseconds() -> Int32? {
-        guard let deadlineUptimeNanoseconds else {
+        let nextDeadline: UInt64?
+        switch (deadlineUptimeNanoseconds, idleReadDeadlineUptimeNanoseconds) {
+        case (.none, .none):
+            nextDeadline = nil
+        case (.some(let deadline), .none), (.none, .some(let deadline)):
+            nextDeadline = deadline
+        case (.some(let preauthorizationDeadline), .some(let idleReadDeadline)):
+            nextDeadline = min(preauthorizationDeadline, idleReadDeadline)
+        }
+        guard let nextDeadline else {
             return continuationPollIntervalMilliseconds
         }
         let now = monotonicNowNanoseconds()
-        guard now < deadlineUptimeNanoseconds else { return nil }
-        let remaining = deadlineUptimeNanoseconds - now
+        guard now < nextDeadline else { return nil }
+        let remaining = nextDeadline - now
         let milliseconds = remaining / 1_000_000 + (remaining % 1_000_000 == 0 ? 0 : 1)
         return Int32(min(milliseconds, UInt64(continuationPollIntervalMilliseconds)))
+    }
+
+    private func resetIdleReadDeadline() {
+        guard let idleReadTimeoutNanoseconds else {
+            idleReadDeadlineUptimeNanoseconds = nil
+            return
+        }
+        let (deadline, overflowed) = monotonicNowNanoseconds().addingReportingOverflow(
+            idleReadTimeoutNanoseconds
+        )
+        idleReadDeadlineUptimeNanoseconds = overflowed ? .max : deadline
     }
 }

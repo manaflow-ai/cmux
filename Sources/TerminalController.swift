@@ -1388,7 +1388,7 @@ class TerminalController {
             guard !receivedCommand.isEmpty else { continue }
             guard socketAuthorizationIsCurrent(
                 authorizationGeneration,
-                passwordAuthorization: passwordAuthorization
+                passwordAuthorization: &passwordAuthorization
             ) else {
                 _ = writeSocketResponse(Self.socketClientAccessDeniedResponse, to: socket)
                 return
