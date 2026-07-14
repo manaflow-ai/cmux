@@ -21,7 +21,6 @@ import Testing
 //    silence alone can never distinguish "idle" from "dead". The watchdog
 //    needs a bounded host probe before it may declare death.
 
-
 // MARK: - Tests
 
 /// The decoupling found by the bisect: events that the transport delivers
@@ -38,11 +37,9 @@ import Testing
     defer {
         Task { await router.releaseAllHeld() }
     }
-
     // The listener has sent its start subscribe; the ack is parked.
     let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
     #expect(sawSubscribe, "listener must request the server-side subscription")
-
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
@@ -52,7 +49,6 @@ import Testing
         router: router,
         "the cold replay response must settle before testing subscribe buffering"
     )
-
     let resources = store.connectionResourceSnapshotForTesting()
     #expect(resources.activeEpisodeCount == 0)
     #expect(resources.pendingRequestCount == 0)
@@ -68,7 +64,6 @@ import Testing
     #expect(resources.replayTaskCount <= 1)
     #expect(resources.byteContinuationCount == 1)
     #expect(resources.liveFontContinuationCount == 0)
-
     // The Mac pushes a live render-grid event while the subscribe ack is
     // still pending (the server-side subscription from a previous generation
     // keeps pushing across re-subscribes; the ack is an enable handshake,
@@ -82,14 +77,12 @@ import Testing
     )
     let transport = try #require(box.get())
     await transport.deliver(event)
-
     let delivered = try await pollUntil { collector.lines.isEmpty == false }
     #expect(
         delivered,
         "render-grid events must be consumed while the start-subscribe ack is in flight; buffering them unconsumed is what made a healthy stream look silent to the liveness watchdog"
     )
     #expect(collector.lines.first?.contains("live") == true)
-
     await router.releaseAllHeld()
     collector.unmount()
 }
@@ -101,7 +94,6 @@ import Testing
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     #expect(store.connectionState == .connected)
-
     let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
     #expect(sawSubscribe, "listener must request the server-side subscription")
     let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
@@ -117,13 +109,11 @@ import Testing
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     #expect(store.connectionState == .connected)
-
     let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
     #expect(sawSubscribe, "listener must request the server-side subscription")
     let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
     #expect(topics.contains("terminal.render_grid"))
     #expect(topics.contains("terminal.bytes") == false)
-
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
@@ -146,7 +136,6 @@ import Testing
     let router = LivenessHostRouter()
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
-
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
@@ -157,7 +146,6 @@ import Testing
         "the cold replay response must settle before testing alternate render-grid delivery"
     )
     let transport = try #require(box.get())
-
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
         seq: 3,
@@ -168,7 +156,6 @@ import Testing
     let altDelivered = try await pollUntil { collector.lines.contains { $0.contains("alt") } }
     #expect(altDelivered, "alternate-screen frames must still render through authoritative render-grid replay")
     #expect(collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4))
-
     let deliveredCount = collector.lines.count
     await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 3, text: "dup"))
     await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 6, text: "primary"))
@@ -188,7 +175,6 @@ import Testing
     let router = LivenessHostRouter()
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
-
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
@@ -199,11 +185,9 @@ import Testing
         "the cold replay response must settle before testing stale alternate suppression"
     )
     let transport = try #require(box.get())
-
     await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 0, text: "raw-a"))
     let firstRawDelivered = try await pollUntil { collector.lines.contains { $0.contains("raw-a") } }
     #expect(firstRawDelivered)
-
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
         seq: 1,

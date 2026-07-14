@@ -41,7 +41,6 @@ struct CMUXMobileRootView: View {
     /// foreground returns. `nil` when unwired (previews), which shows no
     /// Tailscale guidance.
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
-
     #if os(iOS)
     init(store: CMUXMobileShellStore, onboardingStore: MobileOnboardingStore) {
         self.store = store
@@ -53,7 +52,6 @@ struct CMUXMobileRootView: View {
         self.store = store
     }
     #endif
-
     private var shouldShowTerminalLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.terminalLayoutPreviewEnabled
@@ -61,7 +59,6 @@ struct CMUXMobileRootView: View {
         return false
         #endif
     }
-
     private var shouldShowWorkspaceListLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.workspaceListLayoutPreviewEnabled
@@ -69,7 +66,6 @@ struct CMUXMobileRootView: View {
         return false
         #endif
     }
-
     private var shouldShowStreamingChatPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.streamingChatPreviewEnabled
@@ -77,7 +73,6 @@ struct CMUXMobileRootView: View {
         return false
         #endif
     }
-
     @ViewBuilder private var streamingChatPreview: some View {
         #if os(iOS) && DEBUG
         StreamingChatPreviewView()
@@ -85,7 +80,6 @@ struct CMUXMobileRootView: View {
         EmptyView()
         #endif
     }
-
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
