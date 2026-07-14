@@ -443,12 +443,41 @@ extension CMUXCLI {
         // Codex also had older top-level codex-hook/feed-hook commands.
         // Other generic agents can have stale `cmux hooks ...` files from
         // earlier integration attempts, and setup should be able to prune them.
-        if def.name == "codex", isLegacyCodexProjectHookCommand(command) {
-            return true
+        if def.name == "codex" {
+            if isLegacyCodexProjectHookCommand(command)
+                || isCmuxManagedCodexHookScript(command) {
+                return true
+            }
         }
         return legacyCmuxCommandTokenLists(from: command, for: def).contains { tokens in
             isLegacyCmuxOwnedHookTokens(tokens, for: def)
         }
+    }
+
+    /// Content-addressed Codex hook filenames change when their pinned cmux
+    /// binary or socket changes. Reinstall must still replace every older cmux
+    /// generation, otherwise Codex dispatches each event to multiple runtimes.
+    /// Restrict ownership to cmux's private hook directory and filename prefix
+    /// so user hooks elsewhere remain untouched.
+    private static func isCmuxManagedCodexHookScript(_ command: String) -> Bool {
+        var path = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        if path.count >= 2,
+           let first = path.first,
+           let last = path.last,
+           first == last,
+           (first == "\"" || first == "'") {
+            path.removeFirst()
+            path.removeLast()
+        }
+        guard path.hasPrefix("/") else { return false }
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        let parent = url.deletingLastPathComponent().path
+            .replacingOccurrences(of: "\\", with: "/")
+            .lowercased()
+        let filename = url.lastPathComponent.lowercased()
+        return parent.hasSuffix("/.cmux/hooks")
+            && filename.hasPrefix("cmux-codex-hook-")
+            && filename.hasSuffix(".sh")
     }
 
     private static func isLegacyCodexProjectHookCommand(_ command: String) -> Bool {
