@@ -75,7 +75,9 @@
 	<key>NSMainStoryboardFile</key>
 	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>A program running within cmux would like to use your microphone.</string>
+	<string>A program running within cmux would like to use your microphone. Voice dictation also uses the microphone to transcribe your speech on this Mac.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>cmux transcribes your speech on this Mac to type it into the focused pane. No audio or transcripts leave your device.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>A program running within cmux would like to use your camera.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>

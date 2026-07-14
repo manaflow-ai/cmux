@@ -45023,6 +45023,23 @@
         }
       }
     },
+    "settings.search.alias.section.voice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "voice dictation speech speak microphone mic transcribe transcription on-device language"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力 ディクテーション 音声 マイク 書き起こし オンデバイス 言語 voice dictation speech"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.app.loading-spinner-position": {
       "extractionState": "manual",
       "localizations": {
@@ -45376,6 +45393,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity 載入 指示器 左 右 位置"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.voice.dictationEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "voice dictation speech to text speak microphone mic transcribe shortcut toggle on-device private"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力 音声認識 マイク 書き起こし ショートカット 切り替え オンデバイス プライベート voice dictation"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.voice.dictationLanguage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "voice dictation language locale speech recognition on-device model download"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力 言語 ロケール 音声認識 オンデバイス モデル ダウンロード voice language"
+          }
+        }
+      }
+    },
+    "settings.section.voice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声"
+          }
+        }
+      }
+    },
+    "settings.voice.dictationEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice Dictation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力"
+          }
+        }
+      }
+    },
+    "settings.voice.dictationEnabled.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The dictation shortcut is inert until you enable voice dictation here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで音声入力を有効にするまで、音声入力ショートカットは機能しません。"
+          }
+        }
+      }
+    },
+    "settings.voice.dictationEnabled.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press the dictation shortcut (default ⌃⌘V) to speak into the focused pane. Speech is transcribed on this Mac and never leaves the device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力ショートカット（デフォルト ⌃⌘V）を押すと、フォーカス中のペインに話した内容が入力されます。音声はこのMac上で書き起こされ、デバイスの外に送信されることはありません。"
+          }
+        }
+      }
+    },
+    "settings.voice.dictationLanguage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictation Language"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力の言語"
+          }
+        }
+      }
+    },
+    "settings.voice.dictationLanguage.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Languages with on-device speech recognition on this Mac. The model downloads on first use."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacでオンデバイス音声認識に対応している言語です。モデルは初回使用時にダウンロードされます。"
+          }
+        }
+      }
+    },
+    "settings.voice.dictationLanguage.system": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムのデフォルト"
           }
         }
       }
@@ -196088,6 +196258,23 @@
         }
       }
     },
+    "shortcut.toggleVoiceDictation.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Voice Dictation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力を切り替え"
+          }
+        }
+      }
+    },
     "shortcut.unbound.displayValue": {
       "extractionState": "manual",
       "localizations": {
@@ -226462,6 +226649,329 @@
           "stringUnit": {
             "state": "translated",
             "value": "檢視版本說明"
+          }
+        }
+      }
+    },
+    "voice.error.audioCapture.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t start the microphone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイクを開始できませんでした"
+          }
+        }
+      }
+    },
+    "voice.error.localeUnavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On-device speech recognition does not support “%@” on this Mac. Pick another language in Settings › Voice. cmux never sends audio to a server."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacのオンデバイス音声認識は「%@」に対応していません。設定 › 音声 で別の言語を選択してください。cmuxが音声をサーバーに送信することはありません。"
+          }
+        }
+      }
+    },
+    "voice.error.localeUnavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language not available for dictation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この言語は音声入力に使用できません"
+          }
+        }
+      }
+    },
+    "voice.error.micDenied.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice dictation needs the microphone. Allow cmux under Privacy & Security › Microphone in System Settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力にはマイクが必要です。システム設定の プライバシーとセキュリティ › マイク で cmux を許可してください。"
+          }
+        }
+      }
+    },
+    "voice.error.micDenied.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone access is off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイクへのアクセスがオフです"
+          }
+        }
+      }
+    },
+    "voice.error.modelDownload.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t download the speech model"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声モデルをダウンロードできませんでした"
+          }
+        }
+      }
+    },
+    "voice.error.openSystemSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open System Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定を開く"
+          }
+        }
+      }
+    },
+    "voice.error.speechDenied.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice dictation needs speech recognition. Allow cmux under Privacy & Security › Speech Recognition in System Settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力には音声認識が必要です。システム設定の プライバシーとセキュリティ › 音声認識 で cmux を許可してください。"
+          }
+        }
+      }
+    },
+    "voice.error.speechDenied.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speech recognition access is off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声認識へのアクセスがオフです"
+          }
+        }
+      }
+    },
+    "voice.error.transcription.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictation stopped unexpectedly"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力が予期せず停止しました"
+          }
+        }
+      }
+    },
+    "voice.hud.status.finishing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finishing…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仕上げ中…"
+          }
+        }
+      }
+    },
+    "voice.hud.status.listening": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聞き取り中…"
+          }
+        }
+      }
+    },
+    "voice.hud.status.preparing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing speech model…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声モデルを準備中…"
+          }
+        }
+      }
+    },
+    "voice.hud.status.requestingAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requesting access…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスを要求中…"
+          }
+        }
+      }
+    },
+    "voice.hud.stop.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop voice dictation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力を停止"
+          }
+        }
+      }
+    },
+    "voice.hud.stop.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop dictation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力を停止"
+          }
+        }
+      }
+    },
+    "voice.setup.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up Voice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力を設定"
+          }
+        }
+      }
+    },
+    "voice.setup.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speak into the focused pane and cmux types what you say. Speech is transcribed entirely on this Mac — no audio or text ever leaves the device. macOS will ask for microphone access (and speech recognition on older versions) when you continue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のペインに向かって話すと、cmuxが話した内容を入力します。音声はすべてこのMac上で書き起こされ、音声もテキストもデバイスの外に送信されることはありません。続行すると、macOSがマイクへのアクセス（旧バージョンでは音声認識も）を求めます。"
+          }
+        }
+      }
+    },
+    "voice.setup.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice Dictation is here"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力が使えるようになりました"
           }
         }
       }
