@@ -59,9 +59,21 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         )
     }
 
-    /// Tear down the persistent transport (called when the client is
-    /// replaced or the user signs out).
+    /// Atomically detaches the persistent transport (called when the client is
+    /// replaced or the user signs out). Physical close cleanup is serialized
+    /// separately so a transport callback cannot block logical disconnect.
     public func disconnect() async {
+        await session.tearDown(error: .connectionClosed)
+    }
+
+    /// Drops the current transport while preserving this client's route and ticket.
+    ///
+    /// The next request lazily establishes a fresh transport while physical
+    /// cleanup of the detached transport proceeds separately. Call this only
+    /// after a liveness probe or availability failure proves the
+    /// persistent session is stale; ordinary response timeouts remain isolated
+    /// to their request.
+    public func resetConnectionForRecovery() async {
         await session.tearDown(error: .connectionClosed)
     }
 

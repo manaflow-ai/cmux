@@ -1394,10 +1394,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// True while an automatic reconnect is in progress after a network change
     /// or drop.
-    public private(set) var isRecoveringConnection: Bool = false
+    public internal(set) var isRecoveringConnection: Bool = false
     /// True when automatic recovery could not restore the connection; the UI
     /// surfaces a manual Retry control in this state.
-    public private(set) var connectionRecoveryFailed: Bool = false {
+    public internal(set) var connectionRecoveryFailed: Bool = false {
         didSet {
             // Fire once on the false→true edge ("stuck disconnected, Retry is
             // dead"): the recovery-rate denominator.
@@ -1415,29 +1415,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Retrying cannot fix this, so the UI surfaces the auth message and a
     /// Sign Out action instead of a Retry control. ``connectionError`` carries
     /// the user-facing reason.
-    public private(set) var connectionRequiresReauth: Bool = false
+    public internal(set) var connectionRequiresReauth: Bool = false
 
     private var networkPathObservationStarted = false
     private var networkPathObservationTask: Task<Void, Never>?
-    private var recoveryInFlight = false
-    private var recoveryTask: Task<Void, Never>?
-    private var lastReconnectStackUserID: String?
-
-    enum RecoveryTrigger: CustomStringConvertible {
-        case networkChange
-        case manual
-        case presencePush
-
-        var reschedulesSecondaryAggregation: Bool { self != .presencePush }
-
-        var description: String {
-            switch self {
-            case .networkChange: return "networkChange"
-            case .manual: return "manual"
-            case .presencePush: return "presencePush"
-            }
-        }
-    }
+    var connectionRecoveryState: MobileConnectionRecoveryState?
+    var recoveryID: UUID? { connectionRecoveryState?.id }
+    var recoveryTask: Task<Void, Never>?
+    var lastReconnectStackUserID: String?
 
     /// Begin observing meaningful network path changes (Wi-Fi<->cellular,
     /// offline->online) so a live terminal recovers when the network moves out
@@ -1461,41 +1446,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func retryMobileConnection() {
         connectionRecoveryFailed = false
         recoverMobileConnection(trigger: .manual)
-    }
-
-    /// Single guarded recovery entry for every trigger (network change, manual
-    /// Retry). When still connected, a network move usually only broke the event
-    /// stream while input keeps flowing over the surviving connection, so a
-    /// resync re-subscribes and requests a render-grid replay to repaint.
-    /// Otherwise the connection dropped, so reconnect once; on failure the UI
-    /// shows Retry and the next network change re-attempts automatically.
-    func recoverMobileConnection(trigger: RecoveryTrigger) {
-        guard remoteClient != nil || pairedMacStore != nil else { return }
-        if connectionState == .connected, remoteClient != nil {
-            markMacConnectionReconnecting()
-            resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
-            if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
-                scheduleSecondaryAggregation()
-            }
-            return
-        }
-        guard !recoveryInFlight else { return }
-        recoveryInFlight = true
-        isRecoveringConnection = true
-        connectionRecoveryFailed = false
-        let stackUserID = lastReconnectStackUserID
-        recoveryTask?.cancel()
-        recoveryTask = Task { @MainActor [weak self] in
-            defer {
-                self?.recoveryInFlight = false
-                self?.isRecoveringConnection = false
-            }
-            guard let self, self.connectionState != .connected else { return }
-            let reconnected = await self.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-            if !reconnected, !Task.isCancelled {
-                self.connectionRecoveryFailed = true
-            }
-        }
     }
 
     public func connectPreviewHost() {
@@ -1557,7 +1507,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         port: Int,
         pairedMacDeviceID: String,
         instanceTag: String?,
-        ifStillCurrent: (() -> Bool)? = nil
+        ifStillCurrent: (() -> Bool)? = nil,
+        preservingConnectionRecoveryOnFailure: Bool = false
     ) async {
         await connectManualHost(
             name: name,
@@ -1568,7 +1519,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 storedInstanceTag: instanceTag
             ),
             recordsPairingAttempt: false,
-            ifStillCurrent: ifStillCurrent
+            ifStillCurrent: ifStillCurrent,
+            preservingConnectionRecoveryOnFailure: preservingConnectionRecoveryOnFailure
         )
     }
 
@@ -1584,7 +1536,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         recordsPairingAttempt: Bool,
-        ifStillCurrent: (() -> Bool)? = nil
+        ifStillCurrent: (() -> Bool)? = nil,
+        preservingConnectionRecoveryOnFailure: Bool = false
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
@@ -1592,7 +1545,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionErrorGuidance = nil
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearRemoteConnectionContext(
+                preservingConnectionRecovery: preservingConnectionRecoveryOnFailure
+            )
             analytics.capture("ios_pairing_failed", [
                 "method": .string("manual"),
                 "reason": .string("invalid_host"),
@@ -1606,7 +1561,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             connectionErrorGuidance = nil
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearRemoteConnectionContext(
+                preservingConnectionRecovery: preservingConnectionRecoveryOnFailure
+            )
             analytics.capture("ios_pairing_failed", [
                 "method": .string("manual"),
                 "reason": .string("invalid_port"),
@@ -1622,7 +1579,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
         let manualRoutes = directRoute.map { [$0] } ?? []
-        guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: manualRoutes) == .proceed else { return }
+        guard await failPairingIfOffline(
+            attemptID: attemptID,
+            phase: "preflight",
+            routes: manualRoutes,
+            preservingConnectionRecoveryOnFailure: preservingConnectionRecoveryOnFailure
+        ) == .proceed else { return }
         do {
             let ticket = try await manualHostTicket(
                 name: trimmedName,
@@ -1650,21 +1612,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard isCurrentPairingAttempt(attemptID) else { return }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearRemoteConnectionContext(
+                preservingConnectionRecovery: preservingConnectionRecoveryOnFailure
+            )
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return }
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
             // A definitive auth failure (expired/invalid token after the
             // refresh-then-retry in the RPC layer already gave up) must drive the
             // re-auth prompt, not the generic "could not connect / Retry" banner.
-            if disconnectForAuthorizationFailureIfNeeded(error) {
+            if disconnectForAuthorizationFailureIfNeeded(
+                error,
+                preservingConnectionRecovery: preservingConnectionRecoveryOnFailure
+            ) {
                 return
             }
             let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
             applyPairingFailure(category, phase: "connect")
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearRemoteConnectionContext(
+                preservingConnectionRecovery: preservingConnectionRecoveryOnFailure
+            )
         }
     }
 
@@ -1674,6 +1643,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// manual host flow. Auth tokens never persist; we always re-mint.
     @discardableResult
     public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
+        await reconnectActiveMacIfAvailable(
+            stackUserID: stackUserID,
+            preservingConnectionRecoveryOnFailure: false
+        )
+    }
+
+    @discardableResult
+    func reconnectActiveMacIfAvailable(
+        stackUserID: String?,
+        preservingConnectionRecoveryOnFailure: Bool
+    ) async -> Bool {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
         // Claim this attempt's generation. Only the current generation may resolve
@@ -1798,7 +1778,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     host: route.host,
                     port: route.port,
                     pairedMacDeviceID: mac.macDeviceID,
-                    instanceTag: mac.instanceTag)
+                    instanceTag: mac.instanceTag,
+                    preservingConnectionRecoveryOnFailure: preservingConnectionRecoveryOnFailure)
                 if connectionState == .connected { break }
             }
             if connectionState != .connected,
@@ -1816,7 +1797,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         host: route.host,
                         port: route.port,
                         pairedMacDeviceID: mac.macDeviceID,
-                        instanceTag: mac.instanceTag)
+                        instanceTag: mac.instanceTag,
+                        preservingConnectionRecoveryOnFailure: preservingConnectionRecoveryOnFailure)
                     if connectionState == .connected { break }
                 }
             }
@@ -5115,9 +5097,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
     }
 
-    private func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
+    func clearRemoteConnectionContext(
+        preservingOtherMacWorkspaceState: Bool = false,
+        preservingConnectionRecovery: Bool = false
+    ) {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
+        if !preservingConnectionRecovery {
+            cancelMobileConnectionRecovery()
+        }
         cancelRemoteOperationTasks()
         clearActiveConnectionContext()
         macConnectionStatus = .unavailable
@@ -5491,7 +5479,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func failPairingIfOffline(
         attemptID: UUID,
         phase: String,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        preservingConnectionRecoveryOnFailure: Bool = false
     ) async -> PairingPreflightOutcome {
         if routes.contains(where: MobileShellRouteAuthPolicy.routeIsLoopback) { return .proceed }
         guard await reachability.isOnline == false else { return .proceed }
@@ -5501,7 +5490,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         applyPairingFailure(.offline, phase: phase)
         connectionState = .disconnected
         macConnectionStatus = .unavailable
-        clearRemoteConnectionContext()
+        clearRemoteConnectionContext(
+            preservingConnectionRecovery: preservingConnectionRecoveryOnFailure
+        )
         return .failedOffline
     }
 
@@ -5527,42 +5518,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         generation == connectionGeneration
             && client === remoteClient
             && isSignedIn
-    }
-
-    func markMacConnectionHealthy() {
-        guard connectionState == .connected else {
-            macConnectionStatus = .unavailable
-            return
-        }
-        macConnectionStatus = .connected
-        isRecoveringConnection = false
-        connectionRecoveryFailed = false
-        connectionRequiresReauth = false
-    }
-
-    private func markMacConnectionReconnecting() {
-        guard connectionState == .connected, remoteClient != nil else {
-            macConnectionStatus = .unavailable
-            return
-        }
-        macConnectionStatus = .reconnecting
-        isRecoveringConnection = true
-        connectionRecoveryFailed = false
-    }
-
-    private func markMacConnectionUnavailable() {
-        guard connectionState == .connected else {
-            macConnectionStatus = .unavailable
-            return
-        }
-        macConnectionStatus = .unavailable
-        isRecoveringConnection = false
-        connectionRecoveryFailed = true
-    }
-
-    func markMacConnectionUnavailableIfNeeded(after error: any Error) {
-        guard MobileShellMacAvailabilityFailureClassifier().isAvailabilityFailure(error) else { return }
-        markMacConnectionUnavailable()
     }
 
     func syncSelectedTerminalForWorkspace() {
@@ -5742,7 +5697,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            recoverMacConnectionIfNeeded(after: error)
             applyOperationalError(error)
         }
     }
@@ -5803,7 +5758,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard generation == connectionGeneration else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            recoverMacConnectionIfNeeded(after: error)
             applyOperationalError(error)
         }
     }
@@ -5887,7 +5842,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard generation == connectionGeneration else { return false }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            recoverMacConnectionIfNeeded(after: error)
             applyOperationalError(error)
             return false
         }
@@ -5984,7 +5939,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             guard generation == connectionGeneration else { return false }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            recoverMacConnectionIfNeeded(after: error)
             applyOperationalError(error)
             return false
         }
@@ -6267,10 +6222,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
                 self.diagnosticLog?.record(DiagnosticEvent(.error))
                 self.stopTerminalRefreshPolling()
+                if self.handleMobileConnectionRecoverySubscriptionFailure() {
+                    return
+                }
                 self.markMacConnectionUnavailable()
                 return
             }
-            self.markMacConnectionHealthy()
+            self.markMacConnectionHealthy(completingRecovery: true)
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
             self.scheduleNotificationReconcile(client: client)
         }
@@ -6289,23 +6247,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // ever delivered. Restarting here would supersede the generation
             // and silently swallow the handshake's failure verdict (its ack
             // guard sees a newer listenerID), so a closed transport would
-            // loop `reconnecting` forever. Converge instead: a stream that
-            // dies before its handshake completes IS a failed start.
-            mobileShellLog.info("terminal event stream ended before subscribe ack, marking unavailable")
+            // loop `reconnecting` forever. A stream that dies before its
+            // handshake completes is a failed start. Recovery replacements get
+            // one route-level fallback; an initial connection still converges
+            // unavailable instead of continuously replacing a transport that
+            // has never established a subscription.
+            mobileShellLog.info("terminal event stream ended before subscribe ack")
             MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; failed start")
             diagnosticLog?.record(DiagnosticEvent(.error))
             stopTerminalRefreshPolling()
+            if handleMobileConnectionRecoverySubscriptionFailure() {
+                return
+            }
             markMacConnectionUnavailable()
             return
         }
-        mobileShellLog.info("terminal event stream ended, restarting")
-        MobileDebugLog.anchormux("sync.stream_ended restarting (render-grid push stopped; falling back to poll)")
+        mobileShellLog.info("terminal event stream ended, recovering")
+        MobileDebugLog.anchormux("sync.stream_ended recovering (render-grid push stopped)")
         diagnosticLog?.record(DiagnosticEvent(.streamEnded))
-        markMacConnectionReconnecting()
-        terminalEventListenerTask = nil
-        terminalEventListenerID = nil
-        startTerminalRefreshPolling()
-        scheduleWorkspaceListRefreshFromEvent()
+        recoverMobileConnection(trigger: .eventStreamEnded)
     }
 
     // MARK: - Render-grid liveness watchdog
@@ -6491,12 +6451,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
             self.diagnosticLog?.record(DiagnosticEvent(.livenessResubscribe, ms: UInt32(clamping: silentMs)))
             mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms and subscription probe failed, re-subscribing")
-            // resyncTerminalOutput(restartEventStream: true) stops the wedged
-            // listener (which cancels this watchdog via stopTerminalRefreshPolling)
-            // and starts a fresh subscription + watchdog, then replays every
-            // surface so the phone catches up on the deltas it missed while the
-            // stream was dead.
-            self.resyncTerminalOutput(reason: "liveness", restartEventStream: true)
+            // Rotate the wedged transport, then start a fresh subscription and
+            // replay every surface so the phone catches up on missed deltas.
+            self.recoverMobileConnection(trigger: .liveness)
         }
     }
 
@@ -7477,7 +7434,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
-    func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
+    func disconnectForAuthorizationFailureIfNeeded(
+        _ error: any Error,
+        preservingConnectionRecovery: Bool = false
+    ) -> Bool {
         guard Self.shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }
@@ -7492,7 +7452,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRequiresReauth = true
         connectionState = .disconnected
         macConnectionStatus = .unavailable
-        clearRemoteConnectionContext()
+        clearRemoteConnectionContext(
+            preservingConnectionRecovery: preservingConnectionRecovery
+        )
         // Only emits while a pairing attempt is in flight: `recordPairingFailed`
         // no-ops once `pairingAttemptMethod` is nil (cleared on success and by
         // `invalidatePairingAttempt`), so live-connection auth failures that
@@ -7520,7 +7482,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 || normalizedMessage.contains("invalid token")
                 || normalizedMessage.contains("expired token")
                 || normalizedMessage.contains("token expired")
-        case .invalidResponse, .connectionClosed, .requestTimedOut:
+        case .invalidResponse, .connectionClosed, .requestTimedOut, .transportWriteTimedOut:
             return false
         }
     }

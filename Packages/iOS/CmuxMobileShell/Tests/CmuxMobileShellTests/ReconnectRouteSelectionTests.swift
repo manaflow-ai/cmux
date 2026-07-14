@@ -370,11 +370,11 @@ import Testing
     }
 }
 
-private enum RouteRecordingTransportError: Error {
+enum RouteRecordingTransportError: Error {
     case routeFailed
 }
 
-private final class RouteRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
+final class RouteRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
     private let router: LivenessHostRouter
     private let box: TransportBox
     private let failingPorts: Set<Int>
@@ -455,7 +455,7 @@ private final class RouteRecordingTransportFactory: CmxByteTransportFactory, @un
     }
 }
 
-private actor HeldFailingConnectTransport: CmxByteTransport {
+actor HeldFailingConnectTransport: CmxByteTransport {
     private let factory: RouteRecordingTransportFactory
 
     init(factory: RouteRecordingTransportFactory) {

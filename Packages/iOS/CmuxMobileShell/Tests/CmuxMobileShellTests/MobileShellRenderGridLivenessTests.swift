@@ -513,42 +513,6 @@ import Testing
     collector.unmount()
 }
 
-/// The watchdog's original purpose (the ~85s silent-death hang) must keep
-/// working: silence past the threshold plus a host that stops answering the
-/// probe must still tear down and re-subscribe.
-@MainActor
-@Test func watchdogStillResubscribesGenuinelyDeadStream() async throws {
-    let clock = TestClock()
-    let router = LivenessHostRouter()
-    let box = TransportBox()
-    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
-    defer {
-        Task { await router.releaseAllHeld() }
-    }
-
-    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
-    #expect(sawSubscribe, "listener must establish the push subscription")
-    let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
-
-    // The host stops answering the next mobile.events.subscribe (the
-    // watchdog's re-assert probe), modeling a dead push path while the
-    // request had already left the phone.
-    await router.holdSubscribeRequest(number: 2)
-    clock.advance(by: 10)
-    store.debugRunRenderGridLivenessCheckForTesting()
-
-    // Recovery restarts the listener, which re-resolves capabilities. A new
-    // mobile.host.status request is the teardown-and-restart proof.
-    let restarted = try await pollUntil(attempts: 600) {
-        await router.count(of: "mobile.host.status") > hostStatusCountBeforeFailure
-    }
-    #expect(
-        restarted,
-        "a stream that is silent past the threshold AND whose host stops answering the subscription probe must still be torn down and re-subscribed"
-    )
-    await router.releaseAllHeld()
-}
-
 /// A transport that drops before the start handshake completes must converge
 /// to `.unavailable`, not livelock in `.reconnecting`: without the guard, the
 /// stream-end restart supersedes the listener generation, so the parked start

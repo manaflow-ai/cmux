@@ -34,6 +34,8 @@ actor LivenessHostRouter {
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var workspaceListRequestCount = 0
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
+    private var holdWorkspaceAction = false
+    private var workspaceActionErrorCode = "unavailable"
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
@@ -210,6 +212,11 @@ actor LivenessHostRouter {
         heldWorkspaceListRequestNumbers.insert(number)
     }
 
+    func holdNextWorkspaceAction(errorCode: String = "unavailable") {
+        holdWorkspaceAction = true
+        workspaceActionErrorCode = errorCode
+    }
+
     /// Hold the Nth `mobile.events.subscribe` request (1-based) forever,
     /// modeling a dead push path whose probe never completes.
     func holdSubscribeRequest(number: Int) {
@@ -249,6 +256,7 @@ actor LivenessHostRouter {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
         heldWorkspaceListRequestNumbers = []
+        holdWorkspaceAction = false
         heldSubscribeRequestNumbers = []
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
@@ -301,6 +309,16 @@ actor LivenessHostRouter {
             if let macInstanceTag { result["mac_instance_tag"] = macInstanceTag }
             if let macDisplayName { result["mac_display_name"] = macDisplayName }
             return try? Self.resultFrame(id: id, result: result)
+        case "workspace.action":
+            if holdWorkspaceAction {
+                holdWorkspaceAction = false
+                await park()
+            }
+            return try? Self.errorFrame(
+                id: id,
+                message: "workspace action unavailable",
+                code: workspaceActionErrorCode
+            )
         case "mobile.events.subscribe":
             subscribeRequestCount += 1
             if holdSubscribe || heldSubscribeRequestNumbers.contains(subscribeRequestCount) {
@@ -398,39 +416,19 @@ actor LivenessHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, message: String) throws -> Data {
+    private static func errorFrame(
+        id: String?,
+        message: String,
+        code: String? = nil
+    ) throws -> Data {
+        var error: [String: Any] = ["message": message]
+        if let code { error["code"] = code }
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": false,
-            "error": ["message": message],
+            "error": error,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
-    }
-}
-
-/// Holds the live transport instance so the test can push unsolicited
-/// server-side event frames through the same receive path production uses.
-final class TransportBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var transport: LivenessTransport?
-
-    func set(_ transport: LivenessTransport) {
-        lock.withLock { self.transport = transport }
-    }
-
-    func get() -> LivenessTransport? {
-        lock.withLock { transport }
-    }
-}
-
-struct LivenessTransportFactory: CmxByteTransportFactory {
-    let router: LivenessHostRouter
-    let box: TransportBox
-
-    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        let transport = LivenessTransport(router: router)
-        box.set(transport)
-        return transport
     }
 }
 
