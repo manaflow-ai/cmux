@@ -4417,6 +4417,8 @@ struct CMUXCLI {
 
         case "layout": try runLayoutNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
 
+        case "simulator": try runSimulatorNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
+
         case "list-workspaces":
             Self.warnLegacyVerbDeprecated("list-workspaces", replacement: "cmux workspace list")
             try runWorkspaceListCommand(
@@ -15792,6 +15794,8 @@ struct CMUXCLI {
             return Self.workspaceCommandUsage
         case "layout":
             return Self.layoutHelpText()
+        case "simulator":
+            return Self.simulatorUsage
         case "workspace-group":
             return """
             Usage: cmux workspace-group <subcommand> [flags]
@@ -35233,6 +35237,7 @@ export default CMUXSessionRestore;
           workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           workspace status [set <lane|auto>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           todo <add|list|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
+          simulator <list|open|close> [--device <name|udid>] [--workspace <id|ref|index>] [--focus <true|false>] (beta; see cmux simulator --help)
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
