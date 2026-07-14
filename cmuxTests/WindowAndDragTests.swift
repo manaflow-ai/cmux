@@ -1389,9 +1389,16 @@ final class WindowDragHandleHitTests: XCTestCase {
     }
 
     func testMinimalModeTitlebarControlRegionCanLimitHitsInsideRegisteredView() {
-        final class ButtonOnlyRegion: NSView, MinimalModeTitlebarControlHitRegionProviding {
+        final class ButtonOnlyRegion: NSView,
+            MinimalModeTitlebarControlHitRegionProviding,
+            MinimalModeTitlebarControlRectProviding
+        {
             nonisolated func containsMinimalModeTitlebarControlHit(localPoint: NSPoint) -> Bool {
                 localPoint.x >= 24 && localPoint.x <= 48
+            }
+
+            func minimalModeTitlebarControlHitRects() -> [NSRect] {
+                [NSRect(x: 24, y: bounds.minY, width: 24, height: bounds.height)]
             }
         }
 
@@ -1420,6 +1427,9 @@ final class WindowDragHandleHitTests: XCTestCase {
             isMinimalModeTitlebarControlHit(window: window, locationInWindow: NSPoint(x: 136, y: 100)),
             "Expected gaps inside the registered view to keep behaving like titlebar chrome."
         )
+        let cursorExclusionRects = MinimalModeTitlebarControlHitRegionRegistry.windowRects(in: window)
+        XCTAssertTrue(cursorExclusionRects.contains { $0.contains(NSPoint(x: 100, y: 100)) })
+        XCTAssertFalse(cursorExclusionRects.contains { $0.contains(NSPoint(x: 136, y: 100)) })
     }
 
     func testMinimalModeSidebarActionSlotUsesRegisteredHostFrame() {

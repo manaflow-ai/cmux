@@ -26,6 +26,14 @@ struct PortalHitTestingPerformanceTests {
         }
     }
 
+    private final class TabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
+        nonisolated func containsBonsplitTabItemHit(localPoint: NSPoint) -> Bool {
+            MainActor.assumeIsolated { bounds.contains(localPoint) }
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
     private final class CountingSplitView: NSSplitView {
         private(set) var pointConversionCount = 0
         private(set) var rectConversionCount = 0
@@ -130,6 +138,11 @@ struct PortalHitTestingPerformanceTests {
         BonsplitTabBarInteractiveHitRegionRegistry.register(tabBarAction)
         defer { BonsplitTabBarInteractiveHitRegionRegistry.unregister(tabBarAction) }
 
+        let tabItem = TabItemRegionView(frame: NSRect(x: 180, y: dividerY, width: 80, height: 24))
+        contentView.addSubview(tabItem)
+        BonsplitTabItemHitRegionRegistry.register(tabItem)
+        defer { BonsplitTabItemHitRegionRegistry.unregister(tabItem) }
+
         let host = WindowTerminalHostView(frame: container.convert(contentView.bounds, from: contentView))
         container.addSubview(host, positioned: .above, relativeTo: contentView)
 
@@ -154,6 +167,19 @@ struct PortalHitTestingPerformanceTests {
             #expect(
                 host.performHitTest(at: actionPointInHost, currentEvent: event) == nil,
                 "A tab-bar action inside the divider band must retain hover and mouse-down ownership."
+            )
+        }
+
+        let tabPointInWindow = contentView.convert(
+            NSPoint(x: tabItem.frame.midX, y: dividerY + 6),
+            to: nil
+        )
+        let tabPointInHost = host.convert(tabPointInWindow, from: nil)
+        for eventType in [NSEvent.EventType.mouseMoved, .leftMouseDown] {
+            let event = makeMouseEvent(type: eventType, at: tabPointInWindow, window: window)
+            #expect(
+                host.performHitTest(at: tabPointInHost, currentEvent: event) == nil,
+                "A tab item inside the divider band must retain hover and mouse-down ownership."
             )
         }
     }

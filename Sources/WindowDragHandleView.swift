@@ -440,7 +440,13 @@ protocol MinimalModeSidebarControlActionHitRegionProviding: MinimalModeTitlebarC
     func minimalModeSidebarControlActionSlot(localPoint: NSPoint) -> MinimalModeSidebarControlActionSlot?
 }
 
+protocol MinimalModeTitlebarControlRectProviding: AnyObject {
+    func minimalModeTitlebarControlHitRects() -> [NSRect]
+}
+
 enum MinimalModeTitlebarControlHitRegionRegistry {
+    static let didChangeNotification = Notification.Name("cmux.minimalModeTitlebarControlHitRegionsDidChange")
+
     private static let lock = NSLock()
     private static let registeredViews = NSHashTable<NSView>.weakObjects()
 
@@ -448,12 +454,19 @@ enum MinimalModeTitlebarControlHitRegionRegistry {
         lock.lock()
         registeredViews.add(view)
         lock.unlock()
+        notifyChanged(in: view.window)
     }
 
     static func unregister(_ view: NSView) {
+        let oldWindow = view.window
         lock.lock()
         registeredViews.remove(view)
         lock.unlock()
+        notifyChanged(in: oldWindow)
+    }
+
+    static func geometryDidChange(_ view: NSView) {
+        notifyChanged(in: view.window)
     }
 
     private static func snapshot() -> [NSView] {
@@ -488,6 +501,25 @@ enum MinimalModeTitlebarControlHitRegionRegistry {
             }
         }
         return false
+    }
+
+    static func windowRects(in window: NSWindow) -> [NSRect] {
+        let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
+        return snapshot().flatMap { view -> [NSRect] in
+            guard view.window === window, isVisibleInHierarchy(view) else { return [] }
+            let localRects = (view as? MinimalModeTitlebarControlRectProviding)?
+                .minimalModeTitlebarControlHitRects() ?? [view.bounds]
+            return localRects.compactMap { localRect in
+                let visibleRect = localRect.intersection(view.visibleRect).intersection(view.bounds)
+                guard !visibleRect.isNull, visibleRect.width > 0, visibleRect.height > 0 else { return nil }
+                return view.convert(visibleRect, to: nil).insetBy(dx: -epsilon, dy: -epsilon)
+            }
+        }
+    }
+
+    private static func notifyChanged(in window: NSWindow?) {
+        guard let window else { return }
+        NotificationCenter.default.post(name: didChangeNotification, object: window)
     }
 
     static func containsSidebarControlHostWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> Bool {
@@ -551,6 +583,18 @@ struct TitlebarInteractiveControlRegion: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         override var mouseDownCanMoveWindow: Bool { false }
+
+        override func setFrameOrigin(_ newOrigin: NSPoint) {
+            let changed = frame.origin != newOrigin
+            super.setFrameOrigin(newOrigin)
+            if changed { MinimalModeTitlebarControlHitRegionRegistry.geometryDidChange(self) }
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            let changed = frame.size != newSize
+            super.setFrameSize(newSize)
+            if changed { MinimalModeTitlebarControlHitRegionRegistry.geometryDidChange(self) }
+        }
 
         deinit {
             MinimalModeTitlebarControlHitRegionRegistry.unregister(self)

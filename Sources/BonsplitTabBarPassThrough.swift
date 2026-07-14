@@ -81,6 +81,15 @@ enum BonsplitTabBarPassThrough {
     }
 
     @MainActor
+    static func isTabItem(at point: NSPoint, in portalHost: NSView) -> Bool {
+        guard let window = portalHost.window else { return false }
+        return BonsplitTabItemHitRegionRegistry.containsWindowPoint(
+            portalHost.convert(point, to: nil),
+            in: window
+        )
+    }
+
+    @MainActor
     static func interactiveControlRects(in portalHost: NSView) -> [NSRect] {
         guard let window = portalHost.window else { return [] }
         return BonsplitTabBarInteractiveHitRegionRegistry.windowRects(in: window)

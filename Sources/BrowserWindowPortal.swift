@@ -229,6 +229,7 @@ final class WindowBrowserHostView: NSView {
     private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var tabBarInteractiveHitRegionObserver: NSObjectProtocol?
+    private var titlebarControlHitRegionObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
@@ -240,6 +241,7 @@ final class WindowBrowserHostView: NSView {
     deinit {
         if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
         if let tabBarInteractiveHitRegionObserver { NotificationCenter.default.removeObserver(tabBarInteractiveHitRegionObserver) }
+        if let titlebarControlHitRegionObserver { NotificationCenter.default.removeObserver(titlebarControlHitRegionObserver) }
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
@@ -350,6 +352,7 @@ final class WindowBrowserHostView: NSView {
         let plan = PortalSplitDividerRegion.cursorRectPlan(
             for: splitDividerRegions(),
             excluding: BonsplitTabBarPassThrough.interactiveControlRects(in: self)
+                + titlebarControlHitRects()
         )
         let planned = plan.bands.map { ($0.rect, ($0.isVertical ? PortalDividerCursorKind.vertical : .horizontal).cursor) }
             + plan.corners.map { ($0, PortalDividerCursorKind.both.cursor) }
@@ -434,6 +437,25 @@ final class WindowBrowserHostView: NSView {
             return nil
         }
 
+        if BonsplitTabBarPassThrough.isTabItem(at: point, in: self) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return nil
+        }
+
+        if sidebarPassThrough {
+#if DEBUG
+            debugLogPointerRouting(
+                stage: "hitTest.sidebarPass",
+                point: point,
+                titlebarPassThrough: false,
+                sidebarPassThrough: true,
+                dividerHit: dividerHit,
+                hitView: nil
+            )
+#endif
+            return nil
+        }
+
         // An app divider owns its full centered band, including the half that
         // overlaps the adjacent pane's tab strip. Hosted WebKit dividers keep
         // their native routing.
@@ -468,19 +490,6 @@ final class WindowBrowserHostView: NSView {
                 point: point,
                 titlebarPassThrough: false,
                 sidebarPassThrough: sidebarPassThrough,
-                dividerHit: dividerHit,
-                hitView: nil
-            )
-#endif
-            return nil
-        }
-        if sidebarPassThrough {
-#if DEBUG
-            debugLogPointerRouting(
-                stage: "hitTest.sidebarPass",
-                point: point,
-                titlebarPassThrough: false,
-                sidebarPassThrough: true,
                 dividerHit: dividerHit,
                 hitView: nil
             )
@@ -676,6 +685,11 @@ final class WindowBrowserHostView: NSView {
         return isMinimalModeTitlebarControlHit(window: window, locationInWindow: windowPoint)
     }
 
+    private func titlebarControlHitRects() -> [NSRect] {
+        guard let window else { return [] }
+        return MinimalModeTitlebarControlHitRegionRegistry.windowRects(in: window)
+    }
+
     private func shouldPassThroughToPaneTabBar(
         at point: NSPoint,
         eventType: NSEvent.EventType?
@@ -810,6 +824,20 @@ final class WindowBrowserHostView: NSView {
             clearActiveDividerCursor(restoreArrow: false)
             return
         }
+
+        if BonsplitTabBarPassThrough.isTabItem(at: point, in: self) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
+
+        if shouldPassThroughToSidebarResizer(
+            at: point,
+            dividerHit: resolvedDividerHit,
+            hostedInspectorHit: resolvedHostedInspectorHit
+        ) {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
         // Real titlebar controls win above; app dividers then outrank empty
         // titlebar drag space and pane tab bars.
         if let resolvedDividerHit, !resolvedDividerHit.isInHostedContent {
@@ -826,14 +854,6 @@ final class WindowBrowserHostView: NSView {
             return
         }
         if shouldPassThroughToPaneTabBar(at: point, eventType: NSApp.currentEvent?.type) {
-            clearActiveDividerCursor(restoreArrow: false)
-            return
-        }
-        if shouldPassThroughToSidebarResizer(
-            at: point,
-            dividerHit: resolvedDividerHit,
-            hostedInspectorHit: resolvedHostedInspectorHit
-        ) {
             clearActiveDividerCursor(restoreArrow: false)
             return
         }
@@ -1149,6 +1169,10 @@ final class WindowBrowserHostView: NSView {
             NotificationCenter.default.removeObserver(tabBarInteractiveHitRegionObserver)
             self.tabBarInteractiveHitRegionObserver = nil
         }
+        if let titlebarControlHitRegionObserver {
+            NotificationCenter.default.removeObserver(titlebarControlHitRegionObserver)
+            self.titlebarControlHitRegionObserver = nil
+        }
         guard let window else { return }
         splitDividerResizeObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main) { [weak self, weak window] notification in
             guard let self,
@@ -1160,6 +1184,14 @@ final class WindowBrowserHostView: NSView {
         }
         tabBarInteractiveHitRegionObserver = NotificationCenter.default.addObserver(
             forName: BonsplitTabBarPassThrough.interactiveHitRegionsDidChangeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.window?.invalidateCursorRects(for: self)
+        }
+        titlebarControlHitRegionObserver = NotificationCenter.default.addObserver(
+            forName: MinimalModeTitlebarControlHitRegionRegistry.didChangeNotification,
             object: window,
             queue: .main
         ) { [weak self] _ in
