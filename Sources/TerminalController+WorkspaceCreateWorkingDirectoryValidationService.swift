@@ -13,12 +13,13 @@ extension TerminalController {
         typealias DeadlineSleep = @Sendable (_ timeout: Duration) async -> Void
 
         private struct QueuedProbe {
+            let pathID: Data
             let path: String
             let lane: ProbeLane
         }
 
         private struct Waiter {
-            let path: String
+            let pathID: Data
             let continuation: CheckedContinuation<WorkspaceCreateWorkingDirectoryValidation, Never>
             let deadlineTask: Task<Void, Never>
         }
@@ -30,9 +31,9 @@ extension TerminalController {
         private let laneClassifier: LaneClassifier
         private let probe: Probe
         private let sleepUntilDeadline: DeadlineSleep
-        private var activeLanesByPath: [String: ProbeLane] = [:]
+        private var activeLanesByPath: [Data: ProbeLane] = [:]
         private var queuedProbes: [QueuedProbe] = []
-        private var waiterIDsByPath: [String: Set<UUID>] = [:]
+        private var waiterIDsByPath: [Data: Set<UUID>] = [:]
         private var waiters: [UUID: Waiter] = [:]
 
         init(
@@ -90,14 +91,20 @@ extension TerminalController {
                 guard !Task.isCancelled else { return }
                 await self?.timeoutWaiter(waiterID)
             }
+            let pathID = Data(path.utf8)
             waiters[waiterID] = Waiter(
-                path: path,
+                pathID: pathID,
                 continuation: continuation,
                 deadlineTask: deadlineTask
             )
-            waiterIDsByPath[path, default: []].insert(waiterID)
-            if activeLanesByPath[path] == nil, !queuedProbes.contains(where: { $0.path == path }) {
-                queuedProbes.append(QueuedProbe(path: path, lane: laneClassifier(path)))
+            waiterIDsByPath[pathID, default: []].insert(waiterID)
+            if activeLanesByPath[pathID] == nil,
+               !queuedProbes.contains(where: { $0.pathID == pathID }) {
+                queuedProbes.append(QueuedProbe(
+                    pathID: pathID,
+                    path: path,
+                    lane: laneClassifier(path)
+                ))
             }
             startProbesUpToLimit()
         }
@@ -116,13 +123,13 @@ extension TerminalController {
             result: WorkspaceCreateWorkingDirectoryValidation
         ) {
             guard let waiter = waiters.removeValue(forKey: waiterID) else { return }
-            let path = waiter.path
+            let pathID = waiter.pathID
             waiter.deadlineTask.cancel()
-            waiterIDsByPath[path]?.remove(waiterID)
-            if waiterIDsByPath[path]?.isEmpty == true {
-                waiterIDsByPath.removeValue(forKey: path)
-                if activeLanesByPath[path] == nil {
-                    queuedProbes.removeAll { $0.path == path }
+            waiterIDsByPath[pathID]?.remove(waiterID)
+            if waiterIDsByPath[pathID]?.isEmpty == true {
+                waiterIDsByPath.removeValue(forKey: pathID)
+                if activeLanesByPath[pathID] == nil {
+                    queuedProbes.removeAll { $0.pathID == pathID }
                 }
             }
             waiter.continuation.resume(returning: result)
@@ -131,19 +138,24 @@ extension TerminalController {
         private func startProbesUpToLimit() {
             while let index = queuedProbes.firstIndex(where: { hasCapacity(for: $0.lane) }) {
                 let queued = queuedProbes.remove(at: index)
+                let pathID = queued.pathID
                 let path = queued.path
-                guard waiterIDsByPath[path]?.isEmpty == false else { continue }
-                activeLanesByPath[path] = queued.lane
+                guard waiterIDsByPath[pathID]?.isEmpty == false else { continue }
+                activeLanesByPath[pathID] = queued.lane
                 Task { [weak self, probe, lane = queued.lane] in
                     let isDirectory = await probe(path, lane)
-                    await self?.completeProbe(path: path, isDirectory: isDirectory)
+                    await self?.completeProbe(
+                        pathID: pathID,
+                        path: path,
+                        isDirectory: isDirectory
+                    )
                 }
             }
         }
 
-        private func completeProbe(path: String, isDirectory: Bool) {
-            guard activeLanesByPath.removeValue(forKey: path) != nil else { return }
-            let waiterIDs = Array(waiterIDsByPath[path] ?? [])
+        private func completeProbe(pathID: Data, path: String, isDirectory: Bool) {
+            guard activeLanesByPath.removeValue(forKey: pathID) != nil else { return }
+            let waiterIDs = Array(waiterIDsByPath[pathID] ?? [])
             let result: WorkspaceCreateWorkingDirectoryValidation = isDirectory ? .valid(path) : .invalid
             for waiterID in waiterIDs {
                 finishWaiter(waiterID, result: result)

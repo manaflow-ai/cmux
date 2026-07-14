@@ -14,6 +14,9 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
     public var didEditDirectory: Bool
     /// Stable identity for retrying this logical task creation without duplication.
     public var operationID: UUID?
+    /// Accepted identity awaiting an explicit refresh before this draft may be
+    /// started with a fresh operation ID.
+    public var completedOperationID: UUID?
 
     /// Creates a restorable composer draft.
     public init(
@@ -22,7 +25,8 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         macDeviceID: String?,
         directory: String,
         didEditDirectory: Bool,
-        operationID: UUID? = nil
+        operationID: UUID? = nil,
+        completedOperationID: UUID? = nil
     ) {
         self.prompt = prompt
         self.templateID = templateID
@@ -30,6 +34,7 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         self.directory = directory
         self.didEditDirectory = didEditDirectory
         self.operationID = operationID
+        self.completedOperationID = completedOperationID
     }
 
     /// Selects a template and adopts its suggested directory until the user

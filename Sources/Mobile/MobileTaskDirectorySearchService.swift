@@ -9,6 +9,7 @@ actor MobileTaskDirectorySearchService {
         var maximumDirectories = 12_000
         var maximumDepth = 6
         var cacheLifetime: TimeInterval = 30
+        var maximumFilesystemEntries = 24_000
     }
 
     static let shared = MobileTaskDirectorySearchService()
@@ -165,11 +166,15 @@ actor MobileTaskDirectorySearchService {
         var queueIndex = 0
         var paths: [String] = []
         var seen = Set<Data>()
+        var remainingFilesystemEntries = configuration.maximumFilesystemEntries
 
-        while queueIndex < queue.count, paths.count < configuration.maximumDirectories {
+        while queueIndex < queue.count,
+              paths.count < configuration.maximumDirectories,
+              remainingFilesystemEntries > 0 {
             guard !Task.isCancelled else { break }
             let entry = queue[queueIndex]
             queueIndex += 1
+            remainingFilesystemEntries -= 1
             guard let values = try? entry.url.resourceValues(forKeys: keys), values.isDirectory == true else {
                 continue
             }
@@ -184,21 +189,53 @@ actor MobileTaskDirectorySearchService {
                   !skipsDescendants(named: entry.url.lastPathComponent) else {
                 continue
             }
-            guard var children = try? fileManager.contentsOfDirectory(
+            let queuedDirectoryCount = queue.count - queueIndex
+            let availableDirectorySlots = configuration.maximumDirectories
+                - paths.count
+                - queuedDirectoryCount
+            guard availableDirectorySlots > 0 else { continue }
+            var children = boundedChildDirectories(
                 at: entry.url,
-                includingPropertiesForKeys: Array(keys),
-                options: [.skipsHiddenFiles]
-            ) else { continue }
+                fileManager: fileManager,
+                keys: keys,
+                maximumDirectories: availableDirectorySlots,
+                remainingFilesystemEntries: &remainingFilesystemEntries
+            )
             if entry.depth == 0 {
                 children.sort { rootPriority($0.lastPathComponent) < rootPriority($1.lastPathComponent) }
             }
-            for child in children where paths.count + queue.count - queueIndex < configuration.maximumDirectories {
-                guard let childValues = try? child.resourceValues(forKeys: keys),
-                      childValues.isDirectory == true else { continue }
+            for child in children {
                 queue.append((child, entry.depth + 1))
             }
         }
         return paths
+    }
+
+    private nonisolated static func boundedChildDirectories(
+        at directory: URL,
+        fileManager: FileManager,
+        keys: Set<URLResourceKey>,
+        maximumDirectories: Int,
+        remainingFilesystemEntries: inout Int
+    ) -> [URL] {
+        guard maximumDirectories > 0, remainingFilesystemEntries > 0 else { return [] }
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+        ) else { return [] }
+
+        var directories: [URL] = []
+        directories.reserveCapacity(min(maximumDirectories, remainingFilesystemEntries))
+        while directories.count < maximumDirectories, remainingFilesystemEntries > 0 {
+            guard !Task.isCancelled else { break }
+            guard let child = enumerator.nextObject() as? URL else { break }
+            remainingFilesystemEntries -= 1
+            guard let values = try? child.resourceValues(forKeys: keys),
+                  values.isDirectory == true else { continue }
+            directories.append(child)
+        }
+        return directories
     }
 
     private nonisolated static func searchRoots(homeDirectory: URL, seedPaths: [String]) -> [URL] {

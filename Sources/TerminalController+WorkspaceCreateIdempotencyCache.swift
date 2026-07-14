@@ -15,6 +15,7 @@ extension TerminalController {
         private var workspaceIDs: [UUID: UUID] = [:]
         private var completedOperationIDs: Set<UUID> = []
         private var insertionOrder: [UUID] = []
+        private var stateRevision: UInt64 = 0
         private var pendingAcceptance: (id: UUID, task: Task<Bool, any Error>)?
 
         convenience init(capacity: Int) {
@@ -125,10 +126,18 @@ extension TerminalController {
                 guard let self else { return false }
                 try await retryInitialLoadAsynchronouslyIfNeeded()
                 guard !completedOperationIDs.contains(operationID) else { return false }
-                let nextOrder = orderByAppending(operationID)
-                try await persistenceWriter.saveOperationIDs(nextOrder)
-                commitAcceptedOrder(nextOrder)
-                return true
+                while true {
+                    let expectedRevision = stateRevision
+                    let nextOrder = orderByAppending(operationID)
+                    try await persistenceWriter.saveOperationIDs(nextOrder)
+                    guard stateRevision != expectedRevision else {
+                        commitAcceptedOrder(nextOrder)
+                        return true
+                    }
+                    // Session restore can add an in-memory tombstone while this
+                    // actor is suspended on I/O. Rebuild from that newer state
+                    // and save again so the completed write cannot erase it.
+                }
             }
             let pendingID = UUID()
             pendingAcceptance = (pendingID, task)
@@ -159,12 +168,7 @@ extension TerminalController {
                 workspaceCreateIdempotencyLogger.error(
                     "Restored task tombstone is memory-only: \(String(describing: error), privacy: .private)"
                 )
-                var nextOrder = insertionOrder.filter { $0 != operationID }
-                if nextOrder.count == capacity {
-                    nextOrder.removeFirst()
-                }
-                nextOrder.append(operationID)
-                commitInMemory(nextOrder)
+                commitInMemory(orderByAppending(operationID))
             }
         }
 
@@ -175,10 +179,11 @@ extension TerminalController {
             }
             insertionOrder = nextOrder
             completedOperationIDs = Set(nextOrder)
+            stateRevision &+= 1
         }
 
         private func orderByAppending(_ operationID: UUID) -> [UUID] {
-            var nextOrder = insertionOrder
+            var nextOrder = insertionOrder.filter { $0 != operationID }
             if nextOrder.count == capacity { nextOrder.removeFirst() }
             nextOrder.append(operationID)
             return nextOrder

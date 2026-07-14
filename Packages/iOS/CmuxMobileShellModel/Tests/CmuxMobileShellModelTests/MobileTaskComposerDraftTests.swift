@@ -43,4 +43,27 @@ import Testing
         #expect(draft.directory == "/Users/test/Suggested")
         #expect(!draft.didEditDirectory)
     }
+
+    @Test func completedOperationRecoverySurvivesDraftRoundTrip() throws {
+        let freshOperationID = UUID()
+        let completedOperationID = UUID()
+        let draft = MobileTaskComposerDraft(
+            prompt: "Keep this draft",
+            templateID: UUID(),
+            macDeviceID: "mac-a",
+            directory: "~/Dev/cmux",
+            didEditDirectory: true,
+            operationID: freshOperationID,
+            completedOperationID: completedOperationID
+        )
+
+        let restored = try JSONDecoder().decode(
+            MobileTaskComposerDraft.self,
+            from: JSONEncoder().encode(draft)
+        )
+
+        #expect(restored == draft)
+        #expect(restored.operationID == freshOperationID)
+        #expect(restored.completedOperationID == completedOperationID)
+    }
 }

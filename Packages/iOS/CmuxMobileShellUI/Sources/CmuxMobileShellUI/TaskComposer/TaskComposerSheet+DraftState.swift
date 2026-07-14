@@ -45,6 +45,8 @@ extension TaskComposerSheet {
     func updateSubmissionRequest(_ update: () -> Void) {
         update()
         submissionIdentity.markRequestDirty()
+        completedOperationRecovery = nil
+        isStartAgainConfirmationPresented = false
     }
 
     func submissionSnapshot() -> MobileTaskSubmissionSnapshot? {
@@ -65,7 +67,8 @@ extension TaskComposerSheet {
             macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
             directory: directory,
             didEditDirectory: didEditDirectory,
-            operationID: resolved?.operationID ?? submissionIdentity.id
+            operationID: resolved?.operationID ?? submissionIdentity.id,
+            completedOperationID: completedOperationRecovery?.submittedSnapshot.operationID
         )
     }
 

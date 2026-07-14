@@ -21,11 +21,43 @@ enum TaskComposerSubmissionPhase: Equatable {
     }
 }
 
+struct TaskComposerCompletedOperationRecovery: Equatable {
+    enum Phase: Equatable {
+        case refreshRequired
+        case startAgainAvailable
+    }
+
+    let submittedSnapshot: MobileTaskSubmissionSnapshot
+    private(set) var phase: Phase = .refreshRequired
+
+    var allowsStartAgain: Bool {
+        phase == .startAgainAvailable
+    }
+
+    mutating func recordReconciliationStillMissing() {
+        phase = .startAgainAvailable
+    }
+}
+
 extension TaskComposerSheet {
     static var createAccessibilityHint: String {
         L10n.string(
             "mobile.taskComposer.create.accessibilityHint",
             defaultValue: "Creates the task on the selected Mac."
+        )
+    }
+
+    static var recoveryRefreshAccessibilityHint: String {
+        L10n.string(
+            "mobile.taskComposer.recovery.refresh.accessibilityHint",
+            defaultValue: "Checks the Mac for the task that was already accepted."
+        )
+    }
+
+    static var recoveryStartAgainAccessibilityHint: String {
+        L10n.string(
+            "mobile.taskComposer.recovery.startAgain.accessibilityHint",
+            defaultValue: "Starts the same draft as a new task after confirmation."
         )
     }
 

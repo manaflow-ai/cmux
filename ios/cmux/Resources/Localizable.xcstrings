@@ -7699,6 +7699,142 @@
         }
       }
     },
+    "mobile.taskComposer.recovery.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを更新"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.recovery.refresh.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks the Mac for the task that was already accepted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macで、すでに受け付けたタスクを確認します。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.recovery.refreshAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度更新"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.recovery.startAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタスクとして開始"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.recovery.startAgain.accessibilityHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts the same draft as a new task after confirmation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認後、同じ下書きを新しいタスクとして開始します。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.recovery.startAgain.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only continue if the task is not present. Starting again may create a duplicate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクが見つからない場合のみ続行してください。再度開始すると重複する可能性があります。"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.recovery.startAgain.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start this task again?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタスクを新しく開始しますか？"
+          }
+        }
+      }
+    },
+    "mobile.taskComposer.recovery.stillMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The task is still missing. Refresh again or start it as a new task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクがまだ見つかりません。もう一度更新するか、新しいタスクとして開始してください。"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.template": {
       "extractionState": "manual",
       "localizations": {

@@ -9,7 +9,10 @@ struct TaskComposerPrimaryAction: View {
     let isSubmitting: Bool
     let isEnabled: Bool
     let failureText: String?
+    let completedOperationRecovery: TaskComposerCompletedOperationRecovery?
     let action: () -> Void
+    let refreshCompletedOperation: () -> Void
+    let requestStartAgain: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,29 +26,76 @@ struct TaskComposerPrimaryAction: View {
                     .padding(.top, 10)
                     .accessibilityIdentifier("MobileTaskComposerFailure")
             }
-            Button(action: action) {
-                Group {
-                    if isSubmitting {
-                        ProgressView()
-                    } else {
-                        Text(L10n.string("mobile.taskComposer.create", defaultValue: "Create"))
-                            .fontWeight(.semibold)
+            if let completedOperationRecovery {
+                HStack(spacing: 10) {
+                    Button(action: refreshCompletedOperation) {
+                        Group {
+                            if isSubmitting {
+                                ProgressView()
+                            } else {
+                                Text(
+                                    completedOperationRecovery.allowsStartAgain
+                                        ? L10n.string(
+                                            "mobile.taskComposer.recovery.refreshAgain",
+                                            defaultValue: "Refresh Again"
+                                        )
+                                        : L10n.string(
+                                            "mobile.taskComposer.recovery.refresh",
+                                            defaultValue: "Refresh Workspaces"
+                                        )
+                                )
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(isSubmitting)
+                    .accessibilityHint(TaskComposerSheet.recoveryRefreshAccessibilityHint)
+                    .accessibilityIdentifier("MobileTaskComposerRefreshButton")
+
+                    if completedOperationRecovery.allowsStartAgain {
+                        Button(
+                            L10n.string(
+                                "mobile.taskComposer.recovery.startAgain",
+                                defaultValue: "Start Again"
+                            ),
+                            action: requestStartAgain
+                        )
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .disabled(isSubmitting)
+                        .accessibilityHint(TaskComposerSheet.recoveryStartAgainAccessibilityHint)
+                        .accessibilityIdentifier("MobileTaskComposerStartAgainButton")
                     }
                 }
-                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+            } else {
+                Button(action: action) {
+                    Group {
+                        if isSubmitting {
+                            ProgressView()
+                        } else {
+                            Text(L10n.string("mobile.taskComposer.create", defaultValue: "Create"))
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isSubmitting || !isEnabled)
+                .accessibilityLabel(
+                    isSubmitting
+                        ? L10n.string("mobile.taskComposer.creating", defaultValue: "Creating Task")
+                        : L10n.string("mobile.taskComposer.create", defaultValue: "Create")
+                )
+                .accessibilityHint(TaskComposerSheet.createAccessibilityHint)
+                .accessibilityIdentifier("MobileTaskComposerCreateButton")
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(isSubmitting || !isEnabled)
-            .accessibilityLabel(
-                isSubmitting
-                    ? L10n.string("mobile.taskComposer.creating", defaultValue: "Creating Task")
-                    : L10n.string("mobile.taskComposer.create", defaultValue: "Create")
-            )
-            .accessibilityHint(TaskComposerSheet.createAccessibilityHint)
-            .accessibilityIdentifier("MobileTaskComposerCreateButton")
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
         }
         .background(.bar)
         .accessibilityIdentifier("MobileTaskComposerPrimaryAction")

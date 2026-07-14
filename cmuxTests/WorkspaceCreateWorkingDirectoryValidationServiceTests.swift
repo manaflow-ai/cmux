@@ -23,13 +23,10 @@ import Testing
         #expect(await first.value == .valid("/tmp/shared"))
         #expect(await second.value == .valid("/tmp/shared"))
     }
-
     @Test func canonicallyEquivalentPathsUseDistinctByteExactProbes() async {
         let composed = "/tmp/caf\u{00E9}"
         let decomposed = "/tmp/cafe\u{0301}"
-        #expect(composed == decomposed)
-        #expect(!Data(composed.utf8).elementsEqual(Data(decomposed.utf8)))
-
+        #expect(composed == decomposed && !Data(composed.utf8).elementsEqual(Data(decomposed.utf8)))
         let probe = ControlledDirectoryProbe()
         let deadlines = ControlledValidationDeadlines()
         let service = TerminalController.WorkspaceCreateWorkingDirectoryValidationService(
@@ -44,13 +41,11 @@ import Testing
         let first = Task { await service.validate(rawValue: composed, isProvided: true) }
         let second = Task { await service.validate(rawValue: decomposed, isProvided: true) }
         await probe.waitForCount(2)
-
         await probe.complete(path: composed, isDirectory: true)
         await probe.complete(path: decomposed, isDirectory: false)
         #expect(await first.value == .valid(composed))
         #expect(await second.value == .invalid)
     }
-
     @Test func pendingLimitRejectsNewPathsAndRecoversAfterAWaiterFinishes() async {
         let probe = ControlledDirectoryProbe()
         let deadlines = ControlledValidationDeadlines()

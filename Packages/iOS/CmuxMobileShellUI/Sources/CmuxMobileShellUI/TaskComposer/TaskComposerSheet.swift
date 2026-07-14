@@ -11,7 +11,7 @@ struct TaskComposerSheet: View {
         case prompt
     }
 
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismiss) var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Bindable var store: CMUXMobileShellStore
     @FocusState private var focusedField: Field?
@@ -23,18 +23,20 @@ struct TaskComposerSheet: View {
     @State var directory: String
     @State var didEditDirectory = false
     @State var submissionPhase: TaskComposerSubmissionPhase = .idle
-    @State private var submitTask: Task<Void, Never>?
+    @State var submitTask: Task<Void, Never>?
     @State var failureText: String?
     @State private var isEditorPresented = false
     @State var isDirectoryPickerPresented = false
     @State private var selectedDetent: PresentationDetent = .medium
-    @State private var shouldPersistDraftOnDisappear = true
+    @State var shouldPersistDraftOnDisappear = true
     @State var submissionIdentity: MobileTaskSubmissionIdentity
     @State private var activeSubmissionSnapshot: MobileTaskSubmissionSnapshot?
+    @State var completedOperationRecovery: TaskComposerCompletedOperationRecovery?
+    @State var isStartAgainConfirmationPresented = false
 
-    private let sessionGeneration: Int
+    let sessionGeneration: Int
     private let availableMachines: [MobilePairedMac]?
-    private let submitTaskComposer: @MainActor (
+    let submitTaskComposer: @MainActor (
         _ macDeviceID: String,
         _ spec: MobileWorkspaceCreateSpec,
         _ willStartCreate: @escaping @MainActor () -> Void
@@ -117,6 +119,15 @@ struct TaskComposerSheet: View {
                 operationID: initialOperationID
             )
         }
+        let canRestoreCompletedOperation = draft?.templateID == selectedTemplateID
+            && draft?.macDeviceID == (selectedMacID.isEmpty ? nil : selectedMacID)
+            && canRestoreDraftDirectory
+        let initialCompletedOperationRecovery = (canRestoreCompletedOperation
+            ? draft?.completedOperationID
+            : nil)
+            .flatMap { operationID in
+                initialRequest?.withOperationID(operationID)
+            }
         _prompt = State(initialValue: initialPrompt)
         _templates = State(initialValue: templates)
         _selectedTemplateID = State(initialValue: selectedTemplateID)
@@ -127,6 +138,16 @@ struct TaskComposerSheet: View {
             id: initialOperationID,
             initialRequest: initialRequest
         ))
+        _completedOperationRecovery = State(
+            initialValue: initialCompletedOperationRecovery.map {
+                TaskComposerCompletedOperationRecovery(submittedSnapshot: $0)
+            }
+        )
+        _failureText = State(
+            initialValue: initialCompletedOperationRecovery == nil
+                ? nil
+                : Self.failureMessage(.alreadyCompleted(hostDisplayName: nil))
+        )
     }
 
     var body: some View {
@@ -178,7 +199,10 @@ struct TaskComposerSheet: View {
                     isSubmitting: submissionPhase.showsProgress,
                     isEnabled: selectedTemplate != nil && selectedMachine != nil,
                     failureText: failureText,
-                    action: startSubmission
+                    completedOperationRecovery: completedOperationRecovery,
+                    action: startSubmission,
+                    refreshCompletedOperation: startCompletedOperationReconciliation,
+                    requestStartAgain: { isStartAgainConfirmationPresented = true }
                 )
             }
             .navigationTitle(L10n.string("mobile.taskComposer.title", defaultValue: "New Task"))
@@ -234,6 +258,10 @@ struct TaskComposerSheet: View {
             .onChange(of: machines.map(\.macDeviceID)) { _, _ in
                 validateMacSelection()
             }
+            .modifier(TaskComposerStartAgainConfirmationModifier(
+                isPresented: $isStartAgainConfirmationPresented,
+                confirm: confirmStartAgain
+            ))
         }
         .presentationDetents([.medium, .large], selection: $selectedDetent)
         .presentationDragIndicator(.visible)
@@ -354,8 +382,8 @@ struct TaskComposerSheet: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private func startSubmission() {
-        guard submitTask == nil else { return }
+    func startSubmission() {
+        guard submitTask == nil, completedOperationRecovery == nil else { return }
         submitTask = Task {
             await submit()
             submitTask = nil
@@ -371,13 +399,7 @@ struct TaskComposerSheet: View {
         submissionPhase = .preparing
         activeSubmissionSnapshot = snapshot
         failureText = nil
-        let spec = MobileWorkspaceCreateSpec(
-            title: snapshot.composition.title,
-            workingDirectory: snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
-            initialCommand: snapshot.composition.initialCommand,
-            initialEnv: snapshot.composition.initialEnv.isEmpty ? nil : snapshot.composition.initialEnv,
-            operationID: snapshot.operationID
-        )
+        let spec = Self.workspaceCreateSpec(for: snapshot)
         let result = await submitTaskComposer(snapshot.macDeviceID, spec) {
             submissionPhase = .committed
         }
@@ -388,18 +410,27 @@ struct TaskComposerSheet: View {
         guard !Task.isCancelled else { return }
         switch result {
         case .success:
-            guard store.completeTaskComposerSubmission(
-                snapshot,
-                ifSessionGeneration: sessionGeneration
-            ) else { return }
-            shouldPersistDraftOnDisappear = false
-            dismiss()
+            completeSubmission(snapshot)
         case .failure(let failure):
-            guard store.persistTaskComposerDraft(
-                snapshot.draft,
-                ifSessionGeneration: sessionGeneration
-            ) else { return }
             restoreSubmittedDraft(snapshot)
+            if case .alreadyCompleted = failure {
+                completedOperationRecovery = TaskComposerCompletedOperationRecovery(
+                    submittedSnapshot: snapshot
+                )
+                // Retire the host tombstone immediately. A relaunch preserves
+                // this same draft with a fresh ID, but UI recovery still gates
+                // sending it until refresh and explicit confirmation.
+                submissionIdentity.rotate()
+                guard store.persistTaskComposerDraft(
+                    draftSnapshot(),
+                    ifSessionGeneration: sessionGeneration
+                ) else { return }
+            } else {
+                guard store.persistTaskComposerDraft(
+                    snapshot.draft,
+                    ifSessionGeneration: sessionGeneration
+                ) else { return }
+            }
             let message = Self.failureMessage(failure)
             failureText = message
             announceFailure(message)
@@ -460,11 +491,6 @@ struct TaskComposerSheet: View {
             return
         }
         store.persistTaskComposerDraft(draftSnapshot(), ifSessionGeneration: sessionGeneration)
-    }
-
-    private func announceFailure(_ message: String) {
-        guard UIAccessibility.isVoiceOverRunning else { return }
-        AccessibilityNotification.Announcement(message).post()
     }
 
 }
