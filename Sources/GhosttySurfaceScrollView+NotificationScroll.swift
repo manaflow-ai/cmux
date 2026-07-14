@@ -4,11 +4,12 @@ import Foundation
 @MainActor
 extension GhosttySurfaceScrollView {
     var notificationScrollPosition: TerminalNotificationScrollPosition? {
-        guard let scrollbar = surfaceView.scrollbar else { return nil }
-        guard let anchor = TerminalScrollbackViewportAnchor(scrollbar: scrollbar) else { return nil }
+        guard let geometry = surfaceView.authoritativeScrollbarGeometry() else { return nil }
+        guard let anchor = TerminalScrollbackViewportAnchor(scrollbar: geometry.scrollbar) else { return nil }
         return TerminalNotificationScrollPosition(
             row: anchor.rowsBelowViewport,
-            totalRows: anchor.capturedTotalRows
+            totalRows: anchor.capturedTotalRows,
+            rowSpaceRevision: geometry.rowSpaceRevision
         )
     }
 
@@ -78,22 +79,30 @@ extension GhosttySurfaceScrollView {
             clearPendingNotificationScrollRestore()
             return false
         }
-        guard let scrollbar = surfaceView.scrollbar else { return false }
-        guard let targetTopRow = targetTopRow(for: position, in: scrollbar, rebaseToCurrentRows: false) else {
+        guard let geometry = surfaceView.authoritativeScrollbarGeometry() else { return false }
+        if let capturedRevision = position.rowSpaceRevision,
+           capturedRevision != geometry.rowSpaceRevision {
+            clearPendingNotificationScrollRestore()
+            return false
+        }
+        guard let targetTopRow = targetTopRow(
+            for: position,
+            in: geometry.scrollbar,
+            rebaseToCurrentRows: false
+        ) else {
             clearPendingNotificationScrollRestore()
             return false
         }
 
         return applyNotificationScrollRestore(
             targetTopRow: targetTopRow,
-            scrollbar: scrollbar,
+            scrollbar: geometry.scrollbar,
             attemptsRemaining: attemptsRemaining,
             perform: {
-                let lastTopRow = Int(clamping: scrollbar.total - min(scrollbar.total, scrollbar.len))
-                let action = targetTopRow == lastTopRow
-                    ? "scroll_to_bottom"
-                    : "scroll_to_row:\(targetTopRow)"
-                return self.surfaceView.performBindingAction(action)
+                self.surfaceView.scrollToRow(
+                    targetTopRow,
+                    ifRowSpaceRevisionMatches: position.rowSpaceRevision ?? geometry.rowSpaceRevision
+                ) != nil
             },
             pendingState: { remaining in
                 .awaitingInitialGeometry(position: position, attemptsRemaining: remaining)

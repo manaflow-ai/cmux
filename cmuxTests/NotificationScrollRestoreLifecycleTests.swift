@@ -296,6 +296,27 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(!panel.hostedView.hasPendingNotificationScrollRestore)
     }
 
+    @Test func ordinaryActivationFailsClosedWhenCapturedRowSpaceChanged() {
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)
+        surfaceView.authoritativeGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: scrollbar(total: 400, offset: 356, len: 44),
+            rowSpaceRevision: 2
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(
+                row: 100,
+                totalRows: 400,
+                rowSpaceRevision: 1
+            )
+        ))
+
+        #expect(surfaceView.performedBindingActions.isEmpty)
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
     @Test func internalBindingActionPreservesPendingRestore() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }

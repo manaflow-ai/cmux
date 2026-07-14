@@ -2292,7 +2292,11 @@ private final class TextBoxSubmitEventRunner {
         )
 #endif
 
-        let handled = surface.performBindingAction("paste_from_clipboard")
+        let handled = if let terminalSurface = surface.textBoxSubmitTerminalSurface {
+            terminalSurface.performExplicitInputBindingAction("paste_from_clipboard")
+        } else {
+            surface.performBindingAction("paste_from_clipboard")
+        }
 #if DEBUG
         cmuxDebugLog("textbox.submit.pasteFile.binding id=\(id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)")
 #endif
