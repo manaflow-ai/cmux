@@ -9,35 +9,6 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
-    @Test func inheritedForkMetadataCannotPromoteAManagedChild() {
-        let lineage = AgentHookSessionLineageResolver().resolve(
-            agentName: "codex",
-            sessionId: "child-session",
-            pid: nil,
-            environment: [
-                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
-                "CMUX_AGENT_RELATIONSHIP": "forked",
-                "CMUX_AGENT_PARENT_SESSION_ID": "root-session",
-            ]
-        )
-
-        #expect(lineage.relationship == .spawned)
-        #expect(lineage.restoreAuthority == false)
-    }
-
-    @Test func unresolvedProcessAncestryCannotGrantRestoreAuthority() {
-        let authority = AgentHookSessionAuthorityPolicy().classify(
-            managedChild: false,
-            explicitRelationship: nil,
-            processIdentityAvailable: true,
-            hasAgentAncestor: false,
-            ancestryProvenAbsent: false
-        )
-
-        #expect(authority.relationship == .spawned)
-        #expect(authority.restoreAuthority == false)
-    }
-
     @Test func lateHookFromCompletedProcessCannotReactivateSession() throws {
         let pid = Int(getpid())
         let lineage = AgentHookSessionLineageResolver().resolve(
