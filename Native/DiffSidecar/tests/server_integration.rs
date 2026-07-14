@@ -1,8 +1,6 @@
 use std::io::{BufRead, BufReader, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
@@ -75,12 +73,17 @@ fn cancelling_rpc_terminates_its_process_group_and_removes_partial_patch() {
         .arg(&root)
         .arg("--cmux")
         .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
+        .arg("--process-group-ready")
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .process_group(0)
+        .stderr(Stdio::piped())
         .spawn()
         .expect("start cancellable sidecar");
+    let mut ready = String::new();
+    BufReader::new(child.stderr.take().expect("sidecar stderr"))
+        .read_line(&mut ready)
+        .expect("read process-group readiness");
+    assert_eq!(ready, "cmux-diff-sidecar-process-group-ready\n");
     child
         .stdin
         .take()
@@ -100,18 +103,7 @@ fn cancelling_rpc_terminates_its_process_group_and_removes_partial_patch() {
         .expect("terminate process group");
     let _ = child.wait().expect("reap sidecar");
     let _ = rustix::process::kill_process_group(sidecar_pid, rustix::process::Signal::KILL);
-    if rustix::process::test_kill_process(git_pid).is_ok() {
-        let status = Command::new("/bin/ps")
-            .args(["-o", "stat=", "-p", &git_pid.as_raw_nonzero().to_string()])
-            .output()
-            .expect("inspect terminated git");
-        assert!(
-            String::from_utf8_lossy(&status.stdout)
-                .trim()
-                .starts_with('Z'),
-            "git descendant remained live"
-        );
-    }
+    assert_process_stopped(git_pid);
     assert!(
         std::fs::read_dir(&root)
             .expect("read sidecar root")
@@ -122,6 +114,31 @@ fn cancelling_rpc_terminates_its_process_group_and_removes_partial_patch() {
                 .starts_with(".diff-session-"))
     );
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+fn assert_process_stopped(pid: rustix::process::Pid) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if rustix::process::test_kill_process(pid).is_err() {
+            return;
+        }
+        let status = Command::new("/bin/ps")
+            .args(["-o", "stat=", "-p", &pid.as_raw_nonzero().to_string()])
+            .output()
+            .expect("inspect terminated git");
+        if String::from_utf8_lossy(&status.stdout)
+            .trim()
+            .starts_with('Z')
+        {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "git descendant remained live"
+        );
+        std::thread::yield_now();
+    }
 }
 
 #[cfg(unix)]
