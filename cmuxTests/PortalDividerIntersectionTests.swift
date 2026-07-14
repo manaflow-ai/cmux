@@ -452,9 +452,27 @@ import Testing
             "A claimed divider mouse-down must install one cursor owner for the full gesture."
         )
 
+        let draggedPoint = NSPoint(x: 450, y: 280)
+        let draggedEvent = try! #require(NSEvent.mouseEvent(
+            with: .leftMouseDragged,
+            location: draggedPoint,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+        #expect(
+            controller.handleActiveSessionEvent(draggedEvent) == nil,
+            "The resize session must consume drag samples so Ghostty cannot interpret them as text selection."
+        )
+        #expect(abs(inner.arrangedSubviews[0].frame.width - 450) < 1)
+
         // Moving diagonally across where another divider could be must still
         // resize only the captured vertical axis and retain its cursor kind.
-        controller.update(windowPoint: NSPoint(x: 450, y: 280))
+        controller.update(windowPoint: draggedPoint)
         #expect(controller.cursorKind == .vertical)
         #expect(abs(inner.arrangedSubviews[0].frame.width - 450) < 1)
 
