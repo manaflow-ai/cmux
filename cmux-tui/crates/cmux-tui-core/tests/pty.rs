@@ -1264,8 +1264,7 @@ fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
 
 #[test]
 fn send_paste_wraps_only_while_dec_mode_2004_is_enabled() {
-    let script =
-        "stty -echo; printf 'paste-ready\\n'; od -An -tx1 -N 14; od -An -tx1 -N 3; sleep 30";
+    let script = "stty -echo -icanon min 1 time 0; printf 'paste-ready\\n'; od -An -tx1 -N 14; od -An -tx1 -N 3; sleep 30";
     let mux = Mux::new(unique_session("test-paste-mode"), shell_opts(script));
     let surface = mux.new_workspace(None, Some((80, 8))).unwrap();
     wait_for(
@@ -1285,6 +1284,11 @@ fn send_paste_wraps_only_while_dec_mode_2004_is_enabled() {
     let mut reader = BufReader::new(stream);
 
     surface.try_with_terminal(|term| term.vt_write(b"\x1b[?2004h")).unwrap();
+    wait_for(
+        || surface.with_terminal(|term| term.mode(2004, false).then_some(())).flatten(),
+        Duration::from_secs(10),
+    )
+    .expect("DEC mode 2004 enabled");
     socket_request(
         &mut writer,
         &mut reader,
@@ -1308,9 +1312,19 @@ fn send_paste_wraps_only_while_dec_mode_2004_is_enabled() {
         },
         Duration::from_secs(10),
     )
-    .expect("bracketed bytes");
+    .unwrap_or_else(|| {
+        let state = surface.with_terminal(|term| {
+            (term.mode(2004, false), term.viewport_text().unwrap_or_default())
+        });
+        panic!("bracketed bytes; terminal state: {state:?}");
+    });
 
     surface.try_with_terminal(|term| term.vt_write(b"\x1b[?2004l")).unwrap();
+    wait_for(
+        || surface.with_terminal(|term| (!term.mode(2004, false)).then_some(())).flatten(),
+        Duration::from_secs(10),
+    )
+    .expect("DEC mode 2004 disabled");
     socket_request(
         &mut writer,
         &mut reader,
