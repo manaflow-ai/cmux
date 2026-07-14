@@ -453,7 +453,6 @@ extension CMUXCLI {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
         return shellQuote(scriptURL.path)
     }
-
     private func reusableShellStartupCommand(
         scriptBody: String,
         tempPrefix: String

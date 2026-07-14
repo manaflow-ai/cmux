@@ -23,7 +23,7 @@ extension RemotePTYBridgeServer {
         private static let maxPendingInputWrites = 256
         private static let maxPendingInputBytes = 4 * 1024 * 1024
 
-        private let connection: NWConnection
+        let connection: NWConnection
         let rpcClient: any RemotePTYBridgeRPCClient
         let sessionID: String
         private let attachmentID: String
@@ -35,12 +35,12 @@ extension RemotePTYBridgeServer {
         let rpcQueue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.rpc.\(UUID().uuidString)", qos: .userInitiated)
         let strings: any RemotePTYBridgeStrings
         private let clock: any RemoteProxyRetryClock
-        private let onClose: () -> Void
+        let onClose: () -> Void
         let inputFlow: RemotePTYBridgeInputFlow
         private let inputSeqAckEnabled: Bool
 
         var isClosed = false
-        private var isAttaching = false
+        var isAttaching = false
         private var isAttached = false
         private var handshakeBuffer = Data()
         private var pendingInputBeforeAttach = Data()
@@ -54,7 +54,7 @@ extension RemotePTYBridgeServer {
         var remoteAttachment: RemotePTYBridgeAttachment?
         private var clientPID: pid_t?
         private var clientProcessExitSource: (any DispatchSourceProcess)?
-        private var didNotifyClose = false
+        var didNotifyClose = false
 
         init(
             connection: NWConnection,
@@ -441,24 +441,6 @@ extension RemotePTYBridgeServer {
                 return
             }
             notifyCloseOnce()
-        }
-
-        private func forceClosePendingShutdown() {
-            // A transport error can mark the session closed while Network is
-            // still waiting to finish its graceful output close. Tunnel
-            // teardown must override that pending close so the local CLI sees
-            // EOF and can attach through the replacement transport.
-            connection.cancel()
-            if isAttaching {
-                return
-            }
-            notifyCloseOnce()
-        }
-
-        private func notifyCloseOnce() {
-            guard !didNotifyClose else { return }
-            didNotifyClose = true
-            onClose()
         }
 
         private static func strictInt(_ value: Any?) -> Int? {

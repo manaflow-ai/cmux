@@ -9384,14 +9384,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         return state.snapshot().contains(where: predicate)
     }
-
     func persistentSSHInitialStartupScriptForReconnectTest() throws -> String {
-        let run = try runMockedSSH(arguments: [])
-        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
-        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
-        return try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: try runMockedSSH(arguments: []).requests))
+        return try XCTUnwrap(decodedReusableStartupScript(from: try XCTUnwrap(createParams["initial_command"] as? String)))
     }
-
     private func decodedReusableStartupScript(from command: String) -> String? {
         guard let markerRange = command.range(of: "printf %s ") else {
             return nil
@@ -9403,12 +9399,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         return String(data: data, encoding: .utf8)
     }
-
     private func params(for method: String, in requests: [[String: Any]]) -> [String: Any]? {
         requests
             .first { $0["method"] as? String == method }?["params"] as? [String: Any]
     }
-
     private func notificationRows(from stdout: String) throws -> [[String: Any]] {
         let data = Data(stdout.utf8)
         return try XCTUnwrap(
@@ -9416,7 +9410,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "Expected notification JSON array, got: \(stdout)"
         )
     }
-
     private func jsonPayload(from stdout: String) throws -> [String: Any] {
         let data = Data(stdout.utf8)
         return try XCTUnwrap(
