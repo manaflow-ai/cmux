@@ -86,4 +86,24 @@ struct WorktreePorcelainParserTests {
 
         #expect(parsed.map(\.identity.worktreePath) == ["/repo"])
     }
+
+    @Test
+    func decodesCQuotedLineTerminatedPathEscapesAndUTF8OctalBytes() throws {
+        let fixture = #"""
+        worktree "/repo/\a\b\t\n\v\f\r\"\\Caf\303\251"
+        HEAD 1111111111111111111111111111111111111111
+        branch refs/heads/main
+
+        """#
+
+        let parsed = WorktreePorcelainParser().parse(
+            fixture,
+            host: WorktreeHostID(rawValue: "fixture-host"),
+            fallbackRepoPath: "/unused"
+        )
+
+        let worktree = try #require(parsed.first)
+        #expect(parsed.count == 1)
+        #expect(worktree.identity.worktreePath == "/repo/\u{7}\u{8}\t\n\u{B}\u{C}\r\"\\Café")
+    }
 }
