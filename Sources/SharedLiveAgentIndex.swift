@@ -24,18 +24,43 @@ final class SharedLiveAgentIndex {
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
+    private static let maxEventReloadInterval: TimeInterval = 30.0
+    private static let liveAgentsPerReloadIntervalStep = 8
+
+    static func hookEventReloadInterval(liveAgentCount: Int) -> TimeInterval {
+        let clampedAgentCount = max(0, liveAgentCount)
+        let intervalSteps = max(
+            1,
+            (clampedAgentCount + liveAgentsPerReloadIntervalStep - 1) / liveAgentsPerReloadIntervalStep
+        )
+        return min(
+            maxEventReloadInterval,
+            TimeInterval(intervalSteps) * minEventReloadInterval
+        )
+    }
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
+    /// Loaders must move synchronous CPU and file-I/O work off the main actor
+    /// before their first suspension point. This owner awaits the closure directly.
+    private let indexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
 
     init(
-        indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
-            SharedLiveAgentIndexLoader().loadResultSynchronously()
+        indexLoader: @escaping @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
+            let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+                requirements: [.processDetails, .cmuxScope],
+                maximumAge: 3,
+                consumer: .sharedLiveAgentIndex
+            )
+            return await Task.detached(priority: .utility) {
+                SharedLiveAgentIndexLoader(
+                    processSnapshotProvider: { processSnapshot }
+                ).loadResultSynchronously()
+            }.value
         },
         hookStoreDirectoryProvider: @escaping @MainActor () -> String = {
             RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path
@@ -185,9 +210,7 @@ final class SharedLiveAgentIndex {
 
     private func reload(forcePublish: Bool) async {
         let indexLoader = self.indexLoader
-        let result = await Task.detached(priority: .utility) {
-            indexLoader()
-        }.value
+        let result = await indexLoader()
         guard !Task.isCancelled else { return }
         let loadedAt = dateProvider()
         let hasPendingForkValidations = !pendingForkValidationPanels.isEmpty
@@ -221,6 +244,12 @@ final class SharedLiveAgentIndex {
         processScopeFingerprint: Set<String>,
         forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
     ) {
+#if DEBUG
+        let applyMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+            .restorableApply,
+            inputCount: newIndex.forkValidationEntries().count
+        )
+#endif
         index = newIndex
         self.loadedAt = loadedAt
         validatedForkPanels = forkValidatedPanels
@@ -231,6 +260,12 @@ final class SharedLiveAgentIndex {
         validatedMissingForkPanels.removeAll()
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
+#if DEBUG
+        ProcessPerformanceMetrics.shared.operationCompleted(
+            applyMetricsToken,
+            outputCount: newIndex.forkValidationEntries().count
+        )
+#endif
     }
 
     private func applyPendingForkValidations() {
@@ -279,13 +314,16 @@ final class SharedLiveAgentIndex {
             changePending = true
             return
         }
+        let reloadInterval = Self.hookEventReloadInterval(
+            liveAgentCount: liveAgentProcessFingerprint.count
+        )
         let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
-        if elapsed >= Self.minEventReloadInterval {
+        if elapsed >= reloadInterval {
             startReload()
         } else if deferredReloadTimer == nil {
             // DispatchSourceTimer coalesces hook-store event bursts without Task.sleep in runtime code.
             let timer = DispatchSource.makeTimerSource(queue: watchQueue)
-            timer.schedule(deadline: .now() + (Self.minEventReloadInterval - elapsed))
+            timer.schedule(deadline: .now() + (reloadInterval - elapsed))
             timer.setEventHandler { [weak self] in
                 Task { @MainActor in
                     guard let self else { return }
