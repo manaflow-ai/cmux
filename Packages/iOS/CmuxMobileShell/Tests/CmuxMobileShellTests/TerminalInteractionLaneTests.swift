@@ -176,9 +176,25 @@ struct TerminalInteractionLaneTests {
         harness.localReceipts[0].resolve(true)
         first.continuation.resume(returning: harness.response(for: first.request))
         try await requireEventually { harness.remoteScrolls.count == 2 }
-        #expect(harness.remoteScrolls[1].request.directionalRuns.map(\.lines) == [-3, 2])
-        session.cancelForUnmount(nextEpoch: 2)
-        harness.remoteScrolls[1].continuation.resume(returning: nil)
+        let second = harness.remoteScrolls[1]
+        #expect(second.request.directionalRuns.map(\.lines) == [-3, 2])
+
+        harness.localReceipts[1].resolve(true)
+        harness.localReceipts[2].resolve(true)
+        second.continuation.resume(returning: harness.response(for: second.request))
+        try await requireEventually {
+            harness.deliveredReconciliations.contains {
+                $0 == (second.request.interactionEpoch, second.request.clientRevision)
+            }
+        }
+        session.authoritativeDidApply(
+            interactionEpoch: second.request.interactionEpoch,
+            clientRevision: second.request.clientRevision
+        )
+        try await requireEventually {
+            guard case .idle = session.phase else { return false }
+            return session.queuedInteractionCount == 0
+        }
     }
 
     private func requireEventually(_ condition: @MainActor () async -> Bool) async throws {
