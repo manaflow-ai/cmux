@@ -30,6 +30,9 @@ pub enum DiffCommand {
 pub struct OpenSessionRequest {
     pub source: DiffSource,
     pub capability_token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub session_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]

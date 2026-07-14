@@ -534,7 +534,11 @@ async fn open_session(
     let canonical_repo = tokio::fs::canonicalize(repo)
         .await
         .map_err(|_| SessionOpenError::Unauthorized)?;
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_id = match params.session_id {
+        Some(session_id) if uuid::Uuid::parse_str(&session_id).is_ok() => session_id,
+        Some(_) => return Err(SessionOpenError::Unauthorized),
+        None => uuid::Uuid::new_v4().to_string(),
+    };
     let file_name = format!("diff-session-{session_id}.patch");
     let request_path = format!("/{file_name}");
     let final_path = state.config.root.join(&file_name);

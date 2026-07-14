@@ -435,11 +435,16 @@ fn open_session_matches_git(
     source: &serde_json::Value,
     git_arguments: &[&str],
 ) -> (String, String) {
+    let requested_session_id = uuid::Uuid::new_v4().to_string();
     let request = serde_json::to_vec(&serde_json::json!({
         "id": "open-session",
         "version": 1,
         "method": "sessionOpen",
-        "params": {"source": source, "capabilityToken": token}
+        "params": {
+            "source": source,
+            "capabilityToken": token,
+            "sessionId": requested_session_id,
+        }
     }))
     .expect("encode request");
     let output = run_stdio_rpc_in_root(&request, root);
@@ -458,6 +463,7 @@ fn open_session_matches_git(
         .as_str()
         .expect("session id")
         .to_owned();
+    assert_eq!(session_id, requested_session_id);
     let id = response["result"]["value"]["patch"]["id"]
         .as_str()
         .expect("patch id");

@@ -36,7 +36,7 @@ export type HandshakeResult = { protocolVersion: number, capabilities: Array<str
 
 export type NavigationResult = { url: string, };
 
-export type OpenSessionRequest = { source: DiffSource, capabilityToken: string, };
+export type OpenSessionRequest = { source: DiffSource, capabilityToken: string, sessionId?: string, };
 
 export type SessionOpened = { sessionId: string, patch: DiffResourceRef, source: DiffSource, };
 
