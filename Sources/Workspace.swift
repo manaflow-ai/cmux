@@ -2420,28 +2420,15 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
 
-        Task.detached(priority: .utility) { [weak self, trimmedDirectory, refreshID] in
-            let projectRootPath = Self.extensionSidebarProjectRootPath(onDiskFor: trimmedDirectory)
-            await MainActor.run { [weak self] in
-                guard let self,
-                      self.extensionSidebarProjectRootRefreshID == refreshID else {
-                    return
-                }
-                self.extensionSidebarProjectRootPath = projectRootPath
+        Task { @MainActor [weak self, trimmedDirectory, refreshID] in
+            let projectRootPath = await WorktreeSidebarProjectRootResolver()
+                .projectRoot(onDiskFor: trimmedDirectory)
+            guard let self,
+                  self.extensionSidebarProjectRootRefreshID == refreshID else {
+                return
             }
+            self.extensionSidebarProjectRootPath = projectRootPath
         }
-    }
-
-    nonisolated private static func extensionSidebarProjectRootPath(onDiskFor directory: String) -> String? {
-        var url = URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL
-        let fileManager = FileManager.default
-        while url.path != "/" {
-            if fileManager.fileExists(atPath: url.appendingPathComponent(".git").path) {
-                return url.path
-            }
-            url.deleteLastPathComponent()
-        }
-        return nil
     }
 
     private static func isProxyOnlyRemoteError(_ detail: String) -> Bool {

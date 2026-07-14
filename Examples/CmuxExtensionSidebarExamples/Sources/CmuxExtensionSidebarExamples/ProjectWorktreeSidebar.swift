@@ -2,8 +2,11 @@ import CmuxSidebarProviderKit
 import Foundation
 
 public struct ProjectWorktreeSidebar: CmuxSidebarProvider {
+    /// Stable identifier used by the host to install Git-backed worktree rows.
+    public static let providerID = "com.example.cmux.sidebar.project-worktrees"
+
     public let descriptor = CmuxSidebarProviderDescriptor(
-        id: "com.example.cmux.sidebar.project-worktrees",
+        id: Self.providerID,
         title: localized("example.sidebar.projectWorktrees.title", "Project Worktrees"),
         subtitle: localized("example.sidebar.projectWorktrees.subtitle", "User extension"),
         systemImageName: "folder",

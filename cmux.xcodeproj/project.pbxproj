@@ -694,8 +694,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */; };
 		5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */; };
 		E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
-		E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
-		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
 		C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000008 /* FeatureFlags.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
 		FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */; };
@@ -1704,6 +1702,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */; };
 		4DF302A0C8164672B8547449 /* Workspace+TitleOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = D21553D9A12B4EE4974E1943 /* Workspace+TitleOwnership.swift */; };
 		E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */; };
+		6510B0000000000000000001 /* Workspace+WorktreeSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000001 /* Workspace+WorktreeSidebar.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
 		7D77A0EBBE3D8E05CDC16229 /* WorkspaceActionDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */; };
 		7F0A0E04A8CADC84BB4F1DF7 /* WorkspaceActionDispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF7347934AB1BD387686EE43 /* WorkspaceActionDispatcherTests.swift */; };
@@ -1775,6 +1774,29 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		5732A0075732A0075732A007 /* WorkspaceTitlebarModeLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0075732B0075732B007 /* WorkspaceTitlebarModeLayer.swift */; };
 		440AC5D24915463C9670F510 /* WorkspaceTitleProvenanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E241BE1D74A7459C8D9C16BC /* WorkspaceTitleProvenanceTests.swift */; };
 		6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */; };
+		6510B0000000000000000002 /* WorktreeSidebarBranchName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000002 /* WorktreeSidebarBranchName.swift */; };
+		6510B0000000000000000003 /* WorktreeSidebarCreationResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000003 /* WorktreeSidebarCreationResult.swift */; };
+		6510B0000000000000000004 /* WorktreeSidebarDeletionInspection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000004 /* WorktreeSidebarDeletionInspection.swift */; };
+		6510B0000000000000000005 /* WorktreeSidebarDeletionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000005 /* WorktreeSidebarDeletionResult.swift */; };
+		6510B0000000000000000006 /* WorktreeSidebarDialogPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000006 /* WorktreeSidebarDialogPresenter.swift */; };
+		6510B0000000000000000007 /* WorktreeSidebarGitError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000007 /* WorktreeSidebarGitError.swift */; };
+		6510B0000000000000000008 /* WorktreeSidebarGitOperating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000008 /* WorktreeSidebarGitOperating.swift */; };
+		6510B0000000000000000009 /* WorktreeSidebarGitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000009 /* WorktreeSidebarGitService.swift */; };
+		6510B0000000000000000018 /* WorktreeSidebarGitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000018 /* WorktreeSidebarGitTests.swift */; };
+		6510B000000000000000000A /* WorktreeSidebarListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F000000000000000000A /* WorktreeSidebarListView.swift */; };
+		6510B000000000000000000B /* WorktreeSidebarLocalBranch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F000000000000000000B /* WorktreeSidebarLocalBranch.swift */; };
+		6510B000000000000000000C /* WorktreeSidebarModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F000000000000000000C /* WorktreeSidebarModel.swift */; };
+		6510B000000000000000000D /* WorktreeSidebarPorcelainParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F000000000000000000D /* WorktreeSidebarPorcelainParser.swift */; };
+		6510B000000000000000000E /* WorktreeSidebarProjectRootResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F000000000000000000E /* WorktreeSidebarProjectRootResolver.swift */; };
+		6510B000000000000000000F /* WorktreeSidebarRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F000000000000000000F /* WorktreeSidebarRow.swift */; };
+		6510B0000000000000000010 /* WorktreeSidebarRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000010 /* WorktreeSidebarRowActions.swift */; };
+		6510B0000000000000000011 /* WorktreeSidebarRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000011 /* WorktreeSidebarRowView.swift */; };
+		6510B0000000000000000012 /* WorktreeSidebarSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000012 /* WorktreeSidebarSectionView.swift */; };
+		6510B0000000000000000013 /* WorktreeSidebarStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000013 /* WorktreeSidebarStatus.swift */; };
+		6510B0000000000000000014 /* WorktreeSidebarWorkspaceClosePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000014 /* WorktreeSidebarWorkspaceClosePlan.swift */; };
+		6510B0000000000000000015 /* WorktreeSidebarWorkspaceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000015 /* WorktreeSidebarWorkspaceController.swift */; };
+		6510B0000000000000000016 /* WorktreeSidebarWorkspaceRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000016 /* WorktreeSidebarWorkspaceRequest.swift */; };
+		6510B0000000000000000017 /* WorktreeSidebarWorktree.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6510F0000000000000000017 /* WorktreeSidebarWorktree.swift */; };
 		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
 /* End PBXBuildFile section */
 
@@ -2481,8 +2503,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+MinimalModeInvalidationProbe.swift"; sourceTree = "<group>"; };
 		5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+SidebarLazyContractProbe.swift"; sourceTree = "<group>"; };
 		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
-		E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreePrototype.swift; sourceTree = "<group>"; };
-		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000008 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
 		FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedButtonStyleDebugWindowController.swift; sourceTree = "<group>"; };
@@ -3472,6 +3492,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceNavigation.swift"; sourceTree = "<group>"; };
 		D21553D9A12B4EE4974E1943 /* Workspace+TitleOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TitleOwnership.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceSurfaceTreeReading.swift"; sourceTree = "<group>"; };
+		6510F0000000000000000001 /* Workspace+WorktreeSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorktreeSidebar.swift"; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		C5CC15CEAA80B779ADEE78AA /* WorkspaceActionDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionDispatcher.swift; sourceTree = "<group>"; };
 		EF7347934AB1BD387686EE43 /* WorkspaceActionDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceActionDispatcherTests.swift; sourceTree = "<group>"; };
@@ -3543,6 +3564,29 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		5732B0075732B0075732B007 /* WorkspaceTitlebarModeLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTitlebarModeLayer.swift; sourceTree = "<group>"; };
 		E241BE1D74A7459C8D9C16BC /* WorkspaceTitleProvenanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTitleProvenanceTests.swift; sourceTree = "<group>"; };
 		71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceUnitTests.swift; sourceTree = "<group>"; };
+		6510F0000000000000000002 /* WorktreeSidebarBranchName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarBranchName.swift; sourceTree = "<group>"; };
+		6510F0000000000000000003 /* WorktreeSidebarCreationResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarCreationResult.swift; sourceTree = "<group>"; };
+		6510F0000000000000000004 /* WorktreeSidebarDeletionInspection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarDeletionInspection.swift; sourceTree = "<group>"; };
+		6510F0000000000000000005 /* WorktreeSidebarDeletionResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarDeletionResult.swift; sourceTree = "<group>"; };
+		6510F0000000000000000006 /* WorktreeSidebarDialogPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarDialogPresenter.swift; sourceTree = "<group>"; };
+		6510F0000000000000000007 /* WorktreeSidebarGitError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarGitError.swift; sourceTree = "<group>"; };
+		6510F0000000000000000008 /* WorktreeSidebarGitOperating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarGitOperating.swift; sourceTree = "<group>"; };
+		6510F0000000000000000009 /* WorktreeSidebarGitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarGitService.swift; sourceTree = "<group>"; };
+		6510F0000000000000000018 /* WorktreeSidebarGitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarGitTests.swift; sourceTree = "<group>"; };
+		6510F000000000000000000A /* WorktreeSidebarListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarListView.swift; sourceTree = "<group>"; };
+		6510F000000000000000000B /* WorktreeSidebarLocalBranch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarLocalBranch.swift; sourceTree = "<group>"; };
+		6510F000000000000000000C /* WorktreeSidebarModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarModel.swift; sourceTree = "<group>"; };
+		6510F000000000000000000D /* WorktreeSidebarPorcelainParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarPorcelainParser.swift; sourceTree = "<group>"; };
+		6510F000000000000000000E /* WorktreeSidebarProjectRootResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarProjectRootResolver.swift; sourceTree = "<group>"; };
+		6510F000000000000000000F /* WorktreeSidebarRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarRow.swift; sourceTree = "<group>"; };
+		6510F0000000000000000010 /* WorktreeSidebarRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarRowActions.swift; sourceTree = "<group>"; };
+		6510F0000000000000000011 /* WorktreeSidebarRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarRowView.swift; sourceTree = "<group>"; };
+		6510F0000000000000000012 /* WorktreeSidebarSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarSectionView.swift; sourceTree = "<group>"; };
+		6510F0000000000000000013 /* WorktreeSidebarStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarStatus.swift; sourceTree = "<group>"; };
+		6510F0000000000000000014 /* WorktreeSidebarWorkspaceClosePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarWorkspaceClosePlan.swift; sourceTree = "<group>"; };
+		6510F0000000000000000015 /* WorktreeSidebarWorkspaceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarWorkspaceController.swift; sourceTree = "<group>"; };
+		6510F0000000000000000016 /* WorktreeSidebarWorkspaceRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarWorkspaceRequest.swift; sourceTree = "<group>"; };
+		6510F0000000000000000017 /* WorktreeSidebarWorktree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSidebarWorktree.swift; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -3893,7 +3937,29 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */,
 				C0DE46030000000000000002 /* CMUXSidebarExtensionBrowserPanel.swift */,
 				E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */,
-				E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */,
+				6510F0000000000000000001 /* Workspace+WorktreeSidebar.swift */,
+				6510F0000000000000000002 /* WorktreeSidebarBranchName.swift */,
+				6510F0000000000000000003 /* WorktreeSidebarCreationResult.swift */,
+				6510F0000000000000000004 /* WorktreeSidebarDeletionInspection.swift */,
+				6510F0000000000000000005 /* WorktreeSidebarDeletionResult.swift */,
+				6510F0000000000000000006 /* WorktreeSidebarDialogPresenter.swift */,
+				6510F0000000000000000007 /* WorktreeSidebarGitError.swift */,
+				6510F0000000000000000008 /* WorktreeSidebarGitOperating.swift */,
+				6510F0000000000000000009 /* WorktreeSidebarGitService.swift */,
+				6510F000000000000000000A /* WorktreeSidebarListView.swift */,
+				6510F000000000000000000B /* WorktreeSidebarLocalBranch.swift */,
+				6510F000000000000000000C /* WorktreeSidebarModel.swift */,
+				6510F000000000000000000D /* WorktreeSidebarPorcelainParser.swift */,
+				6510F000000000000000000E /* WorktreeSidebarProjectRootResolver.swift */,
+				6510F000000000000000000F /* WorktreeSidebarRow.swift */,
+				6510F0000000000000000010 /* WorktreeSidebarRowActions.swift */,
+				6510F0000000000000000011 /* WorktreeSidebarRowView.swift */,
+				6510F0000000000000000012 /* WorktreeSidebarSectionView.swift */,
+				6510F0000000000000000013 /* WorktreeSidebarStatus.swift */,
+				6510F0000000000000000014 /* WorktreeSidebarWorkspaceClosePlan.swift */,
+				6510F0000000000000000015 /* WorktreeSidebarWorkspaceController.swift */,
+				6510F0000000000000000016 /* WorktreeSidebarWorkspaceRequest.swift */,
+				6510F0000000000000000017 /* WorktreeSidebarWorktree.swift */,
 				C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */,
 				A5001F000000000000000002 /* DetachedFolderDragIcon.swift */,
 				B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */,
@@ -5239,7 +5305,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */,
 				C6711B030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift */,
 				7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */,
-				E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */,
+				6510F0000000000000000018 /* WorktreeSidebarGitTests.swift */,
 		C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */,
 				120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */,
 				4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */,
@@ -6233,7 +6299,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */,
 					5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */,
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
-				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
 				C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
 				FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */,
@@ -6925,6 +6990,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */,
 				4DF302A0C8164672B8547449 /* Workspace+TitleOwnership.swift in Sources */,
 				E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */,
+				6510B0000000000000000001 /* Workspace+WorktreeSidebar.swift in Sources */,
 				A5001406 /* Workspace.swift in Sources */,
 				7D77A0EBBE3D8E05CDC16229 /* WorkspaceActionDispatcher.swift in Sources */,
 				A5FB1313 /* WorkspaceActionSaveDialogAccessory.swift in Sources */,
@@ -6965,6 +7031,28 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E30750000000000000000002 /* WorkspaceTabColorResolution.swift in Sources */,
 				E3B7A4000000000000000001 /* WorkspaceTabColorSettings.swift in Sources */,
 					5732A0075732A0075732A007 /* WorkspaceTitlebarModeLayer.swift in Sources */,
+				6510B0000000000000000002 /* WorktreeSidebarBranchName.swift in Sources */,
+				6510B0000000000000000003 /* WorktreeSidebarCreationResult.swift in Sources */,
+				6510B0000000000000000004 /* WorktreeSidebarDeletionInspection.swift in Sources */,
+				6510B0000000000000000005 /* WorktreeSidebarDeletionResult.swift in Sources */,
+				6510B0000000000000000006 /* WorktreeSidebarDialogPresenter.swift in Sources */,
+				6510B0000000000000000007 /* WorktreeSidebarGitError.swift in Sources */,
+				6510B0000000000000000008 /* WorktreeSidebarGitOperating.swift in Sources */,
+				6510B0000000000000000009 /* WorktreeSidebarGitService.swift in Sources */,
+				6510B000000000000000000A /* WorktreeSidebarListView.swift in Sources */,
+				6510B000000000000000000B /* WorktreeSidebarLocalBranch.swift in Sources */,
+				6510B000000000000000000C /* WorktreeSidebarModel.swift in Sources */,
+				6510B000000000000000000D /* WorktreeSidebarPorcelainParser.swift in Sources */,
+				6510B000000000000000000E /* WorktreeSidebarProjectRootResolver.swift in Sources */,
+				6510B000000000000000000F /* WorktreeSidebarRow.swift in Sources */,
+				6510B0000000000000000010 /* WorktreeSidebarRowActions.swift in Sources */,
+				6510B0000000000000000011 /* WorktreeSidebarRowView.swift in Sources */,
+				6510B0000000000000000012 /* WorktreeSidebarSectionView.swift in Sources */,
+				6510B0000000000000000013 /* WorktreeSidebarStatus.swift in Sources */,
+				6510B0000000000000000014 /* WorktreeSidebarWorkspaceClosePlan.swift in Sources */,
+				6510B0000000000000000015 /* WorktreeSidebarWorkspaceController.swift in Sources */,
+				6510B0000000000000000016 /* WorktreeSidebarWorkspaceRequest.swift in Sources */,
+				6510B0000000000000000017 /* WorktreeSidebarWorktree.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -7299,7 +7387,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D6212D0C0000000000000001 /* DockSocketLifecycleTests.swift in Sources */,
 				D7054D0C0000000000000001 /* DockTerminalReattachTests.swift in Sources */,
 				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,
-				E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */,
 				FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */,
 				FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */,
 				FEEDC1A50000000000000003 /* FeedEventClassifier.swift in Sources */,
@@ -7585,6 +7672,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				634AA6233A5BBF781FE83E89 /* WorkspaceTerminalWorkingDirectoryFallbackTests.swift in Sources */,
 				440AC5D24915463C9670F510 /* WorkspaceTitleProvenanceTests.swift in Sources */,
 				6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */,
+				6510B0000000000000000018 /* WorktreeSidebarGitTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
