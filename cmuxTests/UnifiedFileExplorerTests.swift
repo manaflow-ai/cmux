@@ -394,6 +394,46 @@ struct UnifiedFileExplorerTests {
 #endif
     }
 
+    @Test("Switching to Find cancels hidden filename filter work")
+    func switchingToFindCancelsFilenameFilter() throws {
+        let state = FileExplorerState.unifiedTestState(mode: .files)
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        store.rootNodes = (0...2_048).map { index in
+            FileExplorerNode(
+                name: index == 0 ? "Needle.swift" : "File\(index).swift",
+                path: "/repo/File\(index).swift",
+                isDirectory: false
+            )
+        }
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: SearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+        let window = NSWindow(contentRect: container.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil }
+        let outline = try #require(Self.outlineView(in: container))
+        var actionRan = false
+
+        coordinator.setFileFilterQuery("needle", in: outline, afterApplying: { actionRan = true })
+        #expect(coordinator.fileFilterTask != nil)
+        #expect(container.focusSearchField())
+
+        #expect(coordinator.fileFilterTask == nil)
+        #expect(!actionRan)
+    }
+
     private static func searchField(in root: NSView) -> NSSearchField? {
         if let field = root as? NSSearchField,
            field.accessibilityIdentifier() == "FileExplorerSearchField" {
