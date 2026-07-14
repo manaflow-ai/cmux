@@ -9,6 +9,23 @@ extension RemoteTmuxControlConnection {
         // misalign the positional correlation.
         guard !pendingCommands.isEmpty else { return }
         let kind = pendingCommands.removeFirst()
+        #if DEBUG
+        switch kind {
+        case .paneRects, .listWindows, .perWindowSize:
+            cmuxDebugLog(
+                "remote.fifo.dequeue \(kind) depth=\(pendingCommands.count)"
+                    + " err=\(isError ? 1 : 0) lines=\(lines.count)"
+                    + " bytes=\(lines.reduce(0) { $0 + $1.utf8.count })"
+            )
+        default:
+            break
+        }
+        #endif
+        defer {
+            if case .listWindows = kind {
+                completeWindowListRequest()
+            }
+        }
         guard !isError else {
             // An errored activity query must still complete (with nil) — a close
             // decision is waiting on it and falls back to the cached state.
@@ -27,7 +44,7 @@ extension RemoteTmuxControlConnection {
             // whole connection.
             if case let .perWindowSize(windowId) = kind {
                 if lines.joined(separator: " ").localizedCaseInsensitiveContains("find window") {
-                    lastWindowSizes[windowId] = nil
+                    removeWindowSizeClaim(windowId: windowId)
                 } else {
                     notePerWindowSizeRejected()
                 }
@@ -41,9 +58,13 @@ extension RemoteTmuxControlConnection {
             if case let .windowReorder(isLast) = kind {
                 completeWindowReorderCommand(isLast: isLast, failed: true)
             }
-            if case let .listWindows(requestGeneration) = kind,
-               windowReorderRecoveryGeneration == requestGeneration {
-                restartAfterWindowReorderRecoveryFailure()
+            if case let .listWindows(requestGeneration, retainedPaneIDs) = kind {
+                if windowReorderRecoveryGeneration == requestGeneration {
+                    restartAfterWindowReorderRecoveryFailure()
+                } else if !retainedPaneIDs.isEmpty {
+                    record("window-list-retention-reconnect")
+                    beginReconnecting()
+                }
             }
             if case .listWindowOrder = kind {
                 requestFullWindowOrderRecovery()
@@ -67,7 +88,7 @@ extension RemoteTmuxControlConnection {
             completion(windowId)
         case let .paneRects(windowId, generation):
             handlePaneRectsReply(windowId: windowId, generation: generation, lines: lines)
-        case let .listWindows(requestGeneration):
+        case let .listWindows(requestGeneration, retainedPaneIDs):
             // A pending order verification owns the window-order ledger: an
             // incidental topology refetch (e.g. a %window-add landing mid-batch)
             // shares the current generation tag, and letting it replace the
@@ -124,6 +145,7 @@ extension RemoteTmuxControlConnection {
                 // only by its rects reply. Verified entries for surviving
                 // windows stay as-is until then.
                 windowsByID = windowsByID.filter { liveIDs.contains($0.key) }
+                prunePublishedPaneOwnership(liveWindowIds: liveIDs)
                 pendingLayouts = pendingLayouts.filter { liveIDs.contains($0.key) }
                 // A population that starts from an empty table (first attach,
                 // reconnect reseed after every window closed) publishes
@@ -150,10 +172,14 @@ extension RemoteTmuxControlConnection {
                         zoomed: window.zoomed, name: window.name
                     )
                 }
+                // This complete snapshot decides only the close gaps already
+                // represented when its request was sent. A later overlapping
+                // close remains retained for its own snapshot.
+                paneIDsRetainedUntilWindowList.subtract(retainedPaneIDs)
                 // Per-window sizing state must not outlive the topology: a
                 // stale pin would be replayed by the reconnect reseed, and a
                 // pending debounce could fire at a dead @id.
-                lastWindowSizes = lastWindowSizes.filter { liveIDs.contains($0.key) }
+                retainWindowSizeClaims(for: liveIDs)
                 for (id, task) in windowSizeDebounceTasks where !liveIDs.contains(id) {
                     task.cancel()
                     windowSizeDebounceTasks[id] = nil
@@ -162,8 +188,14 @@ extension RemoteTmuxControlConnection {
                     lastSizeRequestWindowId = nil
                 }
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
-                windowTitleRowsVisible = windowTitleRowsVisible.filter { liveIDs.contains($0.key) }
+                windowTitleRowPlacements = windowTitleRowPlacements.filter { liveIDs.contains($0.key) }
                 prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
+                #if DEBUG
+                cmuxDebugLog(
+                    "remote.window.snapshot order=\(order)"
+                        + " prior=\(windowOrder)"
+                )
+                #endif
                 windowOrder = shouldApplyWindowOrder
                     ? order
                     : decoding.windowOrder(order, applyingReorder: optimisticLiveOrder)
@@ -209,6 +241,9 @@ extension RemoteTmuxControlConnection {
                 // publishes only when the rects replies land.
             } else if completesReorderRecovery {
                 restartAfterWindowReorderRecoveryFailure()
+            } else if !retainedPaneIDs.isEmpty {
+                record("window-list-retention-reconnect")
+                beginReconnecting()
             }
         case let .listWindowOrder(requestGeneration):
             let order = lines.compactMap { line in

@@ -470,8 +470,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         &socket_path,
         json!({"id": 9, "cmd": "browser-navigate", "surface": surface, "url": "bad.test"}),
     );
-    assert_eq!(navigate["ok"], false);
-    assert!(navigate["error"].as_str().unwrap().contains("ERR_NAME_NOT_RESOLVED"));
+    assert_eq!(navigate["ok"], true, "browser-navigate should ack accepted work: {navigate}");
     let navigate_request = recv_method(&seen_rx, "Page.navigate");
     assert_eq!(navigate_request["sessionId"], "session-1");
     assert_eq!(navigate_request["params"]["url"], "https://bad.test");
@@ -484,6 +483,382 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     )
     .expect("navigate errorText surfaced as browser failure");
     assert_eq!(failed, "net::ERR_NAME_NOT_RESOLVED");
+
+    mux.close_surface(surface);
+    mux.shutdown();
+    server::cleanup(&socket_path);
+    server.join().unwrap();
+}
+
+#[test]
+fn wedged_browser_navigate_does_not_block_same_socket_connection() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (seen_tx, seen_rx) = mpsc::channel();
+
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut ws = accept(stream).unwrap();
+        loop {
+            let request = read_json(&mut ws);
+            let id = request["id"].clone();
+            let method = request["method"].as_str().unwrap().to_string();
+            seen_tx.send(request.clone()).unwrap();
+            match method.as_str() {
+                "Target.setDiscoverTargets" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.createTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"targetId": "target-1"}}));
+                }
+                "Target.attachToTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
+                }
+                "Page.enable" | "Emulation.setDeviceMetricsOverride" | "Page.startScreencast" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Page.navigate" => {
+                    // Deliberately never respond. The browser worker may
+                    // sit in CdpClient::call until timeout, but this mux
+                    // socket connection must remain usable.
+                }
+                "Target.closeTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
+                    break;
+                }
+                method => panic!("unexpected CDP method {method}"),
+            }
+        }
+    });
+
+    let opts = SurfaceOptions {
+        cdp_url: Some(format!("ws://{addr}/devtools/browser/fake")),
+        browser_discover: false,
+        ..Default::default()
+    };
+    let mux = Mux::new("browser-wedged-navigate-test", opts);
+    let socket_path = std::env::temp_dir()
+        .join(format!(
+            "cmux-browser-wedged-navigate-test-{}-{}",
+            std::process::id(),
+            SOCKET_SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+        .join("session.sock");
+    server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
+    let created = rpc(
+        &socket_path,
+        json!({"id": 1, "cmd": "new-browser-tab", "url": "example.test", "cols": 10, "rows": 5}),
+    );
+    assert_eq!(created["ok"], true);
+    let surface = created["data"]["surface"].as_u64().unwrap();
+    wait_for(
+        || matches!(mux.surface(surface)?.browser_status()?, BrowserStatus::Live).then_some(()),
+        Duration::from_secs(10),
+    )
+    .expect("browser went live");
+
+    let mut stream = UnixStream::connect(&socket_path).unwrap();
+    stream.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+    let navigate =
+        json!({"id": 2, "cmd": "browser-navigate", "surface": surface, "url": "wedged.test"});
+    stream.write_all(navigate.to_string().as_bytes()).unwrap();
+    stream.write_all(b"\n").unwrap();
+
+    let navigate_request = recv_method(&seen_rx, "Page.navigate");
+    assert_eq!(navigate_request["sessionId"], "session-1");
+    assert_eq!(navigate_request["params"]["url"], "https://wedged.test");
+
+    let started = Instant::now();
+    let second_navigate =
+        json!({"id": 3, "cmd": "browser-navigate", "surface": surface, "url": "still-wedged.test"});
+    stream.write_all(second_navigate.to_string().as_bytes()).unwrap();
+    stream.write_all(b"\n").unwrap();
+    let resize =
+        json!({"id": 4, "cmd": "resize-surface", "surface": surface, "cols": 12, "rows": 6});
+    stream.write_all(resize.to_string().as_bytes()).unwrap();
+    stream.write_all(b"\n").unwrap();
+    let list = json!({"id": 5, "cmd": "list-workspaces"});
+    stream.write_all(list.to_string().as_bytes()).unwrap();
+    stream.write_all(b"\n").unwrap();
+
+    let mut reader = BufReader::new(stream);
+    let mut first = String::new();
+    reader.read_line(&mut first).expect("first navigate ack timed out");
+    let first: Value = serde_json::from_str(&first).unwrap();
+    assert_eq!(first["id"], 2);
+    assert_eq!(first["ok"], true);
+
+    let mut second = String::new();
+    reader.read_line(&mut second).expect("second navigate ack timed out");
+    let second: Value = serde_json::from_str(&second).unwrap();
+    assert_eq!(second["id"], 3);
+    assert_eq!(second["ok"], true);
+
+    let mut third = String::new();
+    reader.read_line(&mut third).expect("resize-surface ack timed out");
+    let third: Value = serde_json::from_str(&third).unwrap();
+    assert_eq!(third["id"], 4);
+    assert_eq!(third["ok"], true);
+
+    let mut fourth = String::new();
+    reader.read_line(&mut fourth).expect("list-workspaces response timed out");
+    let fourth: Value = serde_json::from_str(&fourth).unwrap();
+    assert_eq!(fourth["id"], 5);
+    assert_eq!(fourth["ok"], true);
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "same socket was blocked behind wedged navigate for {:?}",
+        started.elapsed()
+    );
+
+    let close_started = Instant::now();
+    mux.close_surface(surface);
+    assert!(
+        close_started.elapsed() < Duration::from_millis(500),
+        "wedged browser close blocked for {:?}",
+        close_started.elapsed()
+    );
+    mux.shutdown();
+    server::cleanup(&socket_path);
+    server.join().unwrap();
+}
+
+// Regression: discrete history/control commands must not collapse into a
+// single latest-wins slot. While the worker is blocked inside a slow
+// `Page.navigate`, a `browser-back` then a `browser-forward` are both accepted;
+// both must reach the worker in order (entry 10 then entry 12). With the old
+// shared `latest_nav` slot the forward silently overwrote the back and only one
+// `Page.navigateToHistoryEntry` was ever sent.
+#[test]
+fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (seen_tx, seen_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut ws = accept(stream).unwrap();
+        loop {
+            let request = read_json(&mut ws);
+            let id = request["id"].clone();
+            let method = request["method"].as_str().unwrap().to_string();
+            seen_tx.send(request.clone()).unwrap();
+            match method.as_str() {
+                "Target.setDiscoverTargets" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.createTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"targetId": "target-1"}}));
+                }
+                "Target.attachToTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
+                }
+                "Page.enable" | "Emulation.setDeviceMetricsOverride" | "Page.startScreencast" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Page.navigate" => {
+                    // Hold the worker inside the CDP call until the test has
+                    // queued back+forward behind it, then let it finish.
+                    let _ = release_rx.recv();
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Page.getNavigationHistory" => {
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "id": id,
+                            "result": {
+                                "currentIndex": 1,
+                                "entries": [
+                                    {"id": 10, "url": "https://back.test", "title": "back"},
+                                    {"id": 11, "url": "https://current.test", "title": "current"},
+                                    {"id": 12, "url": "https://forward.test", "title": "forward"}
+                                ]
+                            }
+                        }),
+                    );
+                }
+                "Page.navigateToHistoryEntry" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.closeTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
+                    break;
+                }
+                method => panic!("unexpected CDP method {method}"),
+            }
+        }
+    });
+
+    let opts = SurfaceOptions {
+        cdp_url: Some(format!("ws://{addr}/devtools/browser/fake")),
+        browser_discover: false,
+        ..Default::default()
+    };
+    let mux = Mux::new("browser-history-collapse-test", opts);
+    let socket_path = std::env::temp_dir()
+        .join(format!(
+            "cmux-hist-collapse-{}-{}",
+            std::process::id(),
+            SOCKET_SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+        .join("session.sock");
+    server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
+    let created = rpc(
+        &socket_path,
+        json!({"id": 1, "cmd": "new-browser-tab", "url": "example.test", "cols": 10, "rows": 5}),
+    );
+    assert_eq!(created["ok"], true);
+    let surface = created["data"]["surface"].as_u64().unwrap();
+    wait_for(
+        || matches!(mux.surface(surface)?.browser_status()?, BrowserStatus::Live).then_some(()),
+        Duration::from_secs(10),
+    )
+    .expect("browser went live");
+
+    // Block the worker inside Page.navigate.
+    let navigate = rpc(
+        &socket_path,
+        json!({"id": 2, "cmd": "browser-navigate", "surface": surface, "url": "wedged.test"}),
+    );
+    assert_eq!(navigate["ok"], true);
+    let navigate_request = recv_method(&seen_rx, "Page.navigate");
+    assert_eq!(navigate_request["params"]["url"], "https://wedged.test");
+
+    // Queue back then forward while the worker is stuck on the navigate. Both
+    // are accepted immediately; neither may drop the other.
+    let back = rpc(&socket_path, json!({"id": 3, "cmd": "browser-back", "surface": surface}));
+    assert_eq!(back["ok"], true);
+    let forward = rpc(&socket_path, json!({"id": 4, "cmd": "browser-forward", "surface": surface}));
+    assert_eq!(forward["ok"], true);
+
+    // Let the navigate finish; the worker now drains the queued history commands.
+    release_tx.send(()).unwrap();
+
+    let back_nav = recv_method(&seen_rx, "Page.navigateToHistoryEntry");
+    assert_eq!(back_nav["params"]["entryId"], 10, "back must navigate to entry 10");
+    let forward_nav = recv_method(&seen_rx, "Page.navigateToHistoryEntry");
+    assert_eq!(
+        forward_nav["params"]["entryId"], 12,
+        "forward must not be swallowed by back through a shared latest-wins slot"
+    );
+
+    mux.close_surface(surface);
+    mux.shutdown();
+    server::cleanup(&socket_path);
+    server.join().unwrap();
+}
+
+// Regression: discrete control commands (back/forward/reload/activate) must
+// not be silently dropped when the bounded command queue is full. Disposable
+// pointer/key input may drop under backpressure, but a control action the
+// caller explicitly asked for is user-visible; dropping it while returning a
+// false `ok:true` loses the action with no signal. While the worker is wedged
+// inside a never-completing `Page.navigate`, the queue cannot drain, so once it
+// saturates further control commands must be reported as `ok:false`.
+#[test]
+fn control_command_reports_backpressure_when_worker_queue_is_full() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (seen_tx, seen_rx) = mpsc::channel();
+
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut ws = accept(stream).unwrap();
+        loop {
+            let request = read_json(&mut ws);
+            let id = request["id"].clone();
+            let method = request["method"].as_str().unwrap().to_string();
+            seen_tx.send(request.clone()).unwrap();
+            match method.as_str() {
+                "Target.setDiscoverTargets" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.createTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"targetId": "target-1"}}));
+                }
+                "Target.attachToTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
+                }
+                "Page.enable" | "Emulation.setDeviceMetricsOverride" | "Page.startScreencast" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Page.navigate" => {
+                    // Never respond: the worker stays inside the CDP call so the
+                    // bounded command queue cannot drain.
+                }
+                "Page.reload" | "Page.navigateToHistoryEntry" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.closeTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
+                    break;
+                }
+                method => panic!("unexpected CDP method {method}"),
+            }
+        }
+    });
+
+    let opts = SurfaceOptions {
+        cdp_url: Some(format!("ws://{addr}/devtools/browser/fake")),
+        browser_discover: false,
+        ..Default::default()
+    };
+    let mux = Mux::new("browser-control-backpressure-test", opts);
+    let socket_path = std::env::temp_dir()
+        .join(format!(
+            "cmux-control-backpressure-{}-{}",
+            std::process::id(),
+            SOCKET_SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+        .join("session.sock");
+    server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
+    let created = rpc(
+        &socket_path,
+        json!({"id": 1, "cmd": "new-browser-tab", "url": "example.test", "cols": 10, "rows": 5}),
+    );
+    assert_eq!(created["ok"], true);
+    let surface = created["data"]["surface"].as_u64().unwrap();
+    wait_for(
+        || matches!(mux.surface(surface)?.browser_status()?, BrowserStatus::Live).then_some(()),
+        Duration::from_secs(10),
+    )
+    .expect("browser went live");
+
+    // Wedge the worker inside Page.navigate so the queue can never drain.
+    let navigate = rpc(
+        &socket_path,
+        json!({"id": 2, "cmd": "browser-navigate", "surface": surface, "url": "wedged.test"}),
+    );
+    assert_eq!(navigate["ok"], true);
+    let navigate_request = recv_method(&seen_rx, "Page.navigate");
+    assert_eq!(navigate_request["params"]["url"], "https://wedged.test");
+
+    // Flood control commands. Early ones fit in the 64-slot queue and are
+    // accepted; once it saturates the surface must report ok:false rather than a
+    // silent drop with a false ok:true. Bounded loop so a broken (never-full)
+    // queue fails the test instead of hanging.
+    let mut saw_accept = false;
+    let mut saw_rejection = false;
+    for i in 0..512u64 {
+        let reload =
+            rpc(&socket_path, json!({"id": 1000 + i, "cmd": "browser-reload", "surface": surface}));
+        if reload["ok"] == true {
+            saw_accept = true;
+        } else {
+            saw_rejection = true;
+            break;
+        }
+    }
+    assert!(saw_accept, "control commands must be accepted before the queue saturates");
+    assert!(
+        saw_rejection,
+        "a full command queue must be reported as ok:false, not silently dropped with ok:true"
+    );
 
     mux.close_surface(surface);
     mux.shutdown();

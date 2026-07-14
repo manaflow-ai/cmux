@@ -85,16 +85,30 @@ struct RemoteTmuxWindowMirrorSplitView: View {
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
         } action: { newSize in
+            #if DEBUG
+            // Tripwire for content-sized-container feedback: no real display
+            // is anywhere near this many points, so a container this large
+            // means some host is adopting layout-derived ideals again (the
+            // grep that caught a window inflating one point per layout pass).
+            if newSize.width > 4000 || newSize.height > 4000 {
+                cmuxDebugLog(
+                    "remote.container.suspect @\(mirror.windowId)"
+                        + " size=\(Int(newSize.width))x\(Int(newSize.height))"
+                        + " visibleInUI=\(isVisibleInUI ? 1 : 0)"
+                )
+                mirror.debugDumpAncestorWidths()
+            }
+            #endif
             containerSize = newSize
             pushClientSize(pointSize: newSize)
         }
         .onAppear {
             mirror.isVisibleForSizing = isVisibleInUI
-            if isVisibleInUI { pushClientSize(pointSize: containerSize) }
+            if isVisibleInUI { becameVisible() }
         }
         .onChange(of: isVisibleInUI) { _, visible in
             mirror.isVisibleForSizing = visible
-            if visible { pushClientSize(pointSize: containerSize) }
+            if visible { becameVisible() }
         }
         .onChange(of: mirror.layoutStructureVersion) { _, _ in
             pushClientSize(pointSize: containerSize)
@@ -105,6 +119,13 @@ struct RemoteTmuxWindowMirrorSplitView: View {
         mirror.isVisibleForSizing = isVisibleInUI
         guard pointSize.width > 0, pointSize.height > 0 else { return }
         mirror.noteContainerSize(pointSize: pointSize, scale: displayScale)
-        _ = mirror.updateClientSize()
+    }
+
+    /// A tab shown again may have had its views recreated while hidden, so
+    /// identical sizing inputs do not mean the fresh views hold the plan —
+    /// request the pass that ignores the settled check.
+    private func becameVisible() {
+        pushClientSize(pointSize: containerSize)
+        mirror.setNeedsSizingPassIgnoringInputs()
     }
 }

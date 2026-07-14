@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 import os
 
@@ -48,6 +49,10 @@ final class RemoteTmuxControlConnection {
     private(set) var sessionId: Int?
     var windowsByID: [Int: RemoteTmuxWindow] = [:]
     var windowOrder: [Int] = []
+    var publishedWindowIdByPane: [Int: Int] = [:]
+    /// Pane identities whose ownership is temporarily undecidable after their
+    /// source window closes, retained until `list-windows` supplies a complete snapshot.
+    var paneIDsRetainedUntilWindowList: Set<Int> = []
     var activePaneByWindow: [Int: Int] = [:]
     var paneOutputByteCounts: [Int: Int] = [:]
     var totalOutputBytes = 0
@@ -59,11 +64,8 @@ final class RemoteTmuxControlConnection {
     /// the moment tmux would redraw its own border. The mirror copies its
     /// windows' subset on reconcile; the view never reads this directly.
     var paneHeaderLabels: [Int: String] = [:]
-    /// Whether each window currently has `pane-border-status top` — i.e.
-    /// tmux itself is drawing header rows, which is the ONLY time the strips
-    /// show label text (a stock tmux displays no titles anywhere; cmux adds
-    /// only the active-pane dot on top of that).
-    var windowTitleRowsVisible: [Int: Bool] = [:]
+    /// Configured tmux pane-title placement per window; absence means off.
+    var windowTitleRowPlacements: [Int: RemoteTmuxPaneTitleRowPlacement] = [:]
     /// Layouts awaiting authoritative pane rectangles before publication.
     var pendingLayouts: [Int: RemoteTmuxPendingLayout] = [:]
     /// Window ids in the initial atomic topology publication batch.
@@ -86,7 +88,7 @@ final class RemoteTmuxControlConnection {
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
 
     private var process: Process?
-    private var stdinWriter: RemoteTmuxControlPipeWriter?
+    var stdinWriter: RemoteTmuxControlPipeWriter?
     private var stdoutReader: FileHandle?
     private var stdoutPipeReader: RemoteTmuxProcessOutputReader?
     private var stderrPipeReader: RemoteTmuxProcessOutputReader?
@@ -98,6 +100,8 @@ final class RemoteTmuxControlConnection {
     private var ingestTask: Task<Void, Never>?
     private var processGeneration: UInt64 = 0
     var pendingCommands: [CommandKind] = []
+    var windowListRequestInFlight = false
+    var windowListRequestDirty = false
     var windowReorderBatchFailed = false
     var windowReorderGeneration: UInt64 = 0
     var windowReorderRecoveryGeneration: UInt64?
@@ -118,7 +122,7 @@ final class RemoteTmuxControlConnection {
     /// window reorder, session-gone classification). Holds no state.
     let decoding = RemoteTmuxControlMessageDecoding()
     /// Bounded ring of recent event labels surfaced through `remote.tmux.state`.
-    private let diagnostics = RemoteTmuxConnectionDiagnostics()
+    let diagnostics = RemoteTmuxConnectionDiagnostics()
 
     // MARK: Reconnect state
 
@@ -141,6 +145,15 @@ final class RemoteTmuxControlConnection {
     /// The last size any writer requested per window — per-window dedup
     /// baseline and the reconnect re-pin table.
     var lastWindowSizes: [Int: (Int, Int)] = [:]
+    var maximumWindowClaimColumns = 0
+    var maximumWindowClaimRows = 0
+    /// What the SERVER has actually been sent, per window — the dedup
+    /// baseline. Distinct from ``lastWindowSizes`` (what callers requested):
+    /// a request made while the connection is attaching is recorded but not
+    /// sent, and deduping against the request table then suppressed every
+    /// retry of a size the server never saw — a claim wedged at attach
+    /// stayed wedged for the connection's lifetime.
+    var sentWindowSizes: [Int: (Int, Int)] = [:]
     /// The most recent window a size was requested for — the deterministic
     /// choice when the old-server fallback must replay one size session-wide.
     var lastSizeRequestWindowId: Int?
@@ -305,8 +318,12 @@ final class RemoteTmuxControlConnection {
     ///   outage fails the re-attach (→ `.ended`) instead of being silently recreated.
     private func spawnProcess(createIfMissing: Bool) throws {
         // A fresh control stream cannot retain the prior parser or command FIFO.
+        #if DEBUG
+        cmuxDebugLog("remote.stream.reset pendingCommands=\(pendingCommands.count) createIfMissing=\(createIfMissing)")
+        #endif
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
+        resetWindowListRequestCoalescing()
         windowReorderBatchFailed = false
         windowReorderRecoveryGeneration = nil
         pendingLayouts.removeAll()
@@ -449,6 +466,7 @@ final class RemoteTmuxControlConnection {
         failPendingWindowReorderVerifications()
         reconnectTask?.cancel()
         reconnectTask = nil
+        resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
     }
@@ -492,7 +510,15 @@ final class RemoteTmuxControlConnection {
 
     @discardableResult
     func sendInternal(_ command: String, kind: CommandKind) -> Bool {
-        sendBatchInternal([command], kinds: [kind])
+        #if DEBUG
+        // Sizing sends were invisible: every claimed-vs-layout wedge was
+        // debugged by inference about what tmux was told. Log the exact
+        // command so the send side is evidence, not conjecture.
+        if command.hasPrefix("refresh-client") {
+            cmuxDebugLog("remote.send state=\(connectionState) \(command)")
+        }
+        #endif
+        return sendBatchInternal([command], kinds: [kind])
     }
 
     /// Atomically records command-result correlation before enqueueing one payload.
@@ -608,6 +634,7 @@ final class RemoteTmuxControlConnection {
         failPendingActivityQueries()
         failPendingNewWindowRequests()
         failPendingWindowReorderVerifications()
+        resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
         teardownProcessHandles()
@@ -661,7 +688,7 @@ final class RemoteTmuxControlConnection {
     /// and re-capture current contents (with history) + cwd. Called from the first
     /// post-reconnect `list-windows` result, so `windowsByID` is freshly repopulated
     /// and the command-result FIFO is aligned (the attach block is already drained).
-    private func handle(_ message: RemoteTmuxControlMessage) {
+    func handle(_ message: RemoteTmuxControlMessage) {
         switch message {
         case .enter:
             enterReceived = true
@@ -717,10 +744,13 @@ final class RemoteTmuxControlConnection {
             record("window-add @\(id)")
             requestWindows()
         case let .windowClose(id):
+            let closingPaneIDs = Set(windowsByID[id]?.paneIDsInOrder ?? [])
+                .union(pendingLayouts[id]?.node.paneIDsInOrder ?? [])
+            paneIDsRetainedUntilWindowList.formUnion(closingPaneIDs)
             // Release the closed window's per-window sizing state: a stale
             // entry would be replayed by the reconnect reseed, and a pending
             // debounce could still fire at a dead @id target.
-            lastWindowSizes[id] = nil
+            removeWindowSizeClaim(windowId: id)
             windowSizeDebounceTasks[id]?.cancel()
             windowSizeDebounceTasks[id] = nil
             // Release the closed window's per-pane/per-window diagnostic state so
@@ -733,13 +763,25 @@ final class RemoteTmuxControlConnection {
                 }
             }
             activePaneByWindow[id] = nil
+            removePublishedPaneOwnership(windowId: id)
             windowsByID[id] = nil
-            windowTitleRowsVisible[id] = nil
+            windowTitleRowPlacements[id] = nil
             windowOrder.removeAll { $0 == id }
+            #if DEBUG
+            cmuxDebugLog("remote.window.close @\(id) order=\(windowOrder)")
+            #endif
             pendingLayouts[id] = nil
             initialBatchStaged[id] = nil
             finishInitialBatchMember(id)
             record("window-close @\(id)")
+            // A move of the window's final pane reports the source close before
+            // the destination layout. Re-list atomically so observers reconcile
+            // against the destination's pending tree instead of pruning the
+            // surviving pane during that event gap.
+            requestWindows()
+            // Remove the closed window's tab immediately. The retained-pane
+            // ledger above keeps any moved pane's control identity alive until
+            // the authoritative window snapshot publishes its destination.
             observers.notifyTopologyChanged()
         case let .windowRenamed(id, name):
             record("window-renamed @\(id)")
@@ -849,30 +891,5 @@ final class RemoteTmuxControlConnection {
         }
         return idBearingName ?? documentedName
     }
-
-    func record(_ event: String) {
-        diagnostics.record(event)
-    }
-
-    /// An immutable, `Sendable` snapshot for diagnostics (`remote.tmux.state`).
-    func snapshot() -> Snapshot {
-        Snapshot(
-            started: started,
-            enterReceived: enterReceived,
-            exited: exited,
-            sessionId: sessionId,
-            windowCount: windowsByID.count,
-            windowIDs: windowOrder,
-            paneOutputByteCounts: paneOutputByteCounts,
-            totalOutputBytes: totalOutputBytes,
-            recentEvents: diagnostics.events
-        )
-    }
-
-    #if DEBUG
-    func installStdinWriterForTesting(_ writer: RemoteTmuxControlPipeWriter) { stdinWriter = writer }
-    func handleMessageForTesting(_ message: RemoteTmuxControlMessage) { handle(message) }
-    var pendingCommandKindsForTesting: [RemoteTmuxControlCommandKind] { pendingCommands }
-    #endif
 
 }

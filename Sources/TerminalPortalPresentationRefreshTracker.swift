@@ -213,11 +213,10 @@ extension WindowTerminalPortal {
         )
     }
 
-    @discardableResult
     func synchronizeHostedViewForAnchor(
         _ anchorView: NSView,
         syncLayout: Bool = true
-    ) -> Task<Void, Never> {
+    ) {
         // A no-layout synchronization runs from representable/AppKit callbacks.
         // It may update geometry, but forcing display there would re-enter the
         // view update that requested it. Keep this callback scoped to its anchor;
@@ -225,14 +224,47 @@ extension WindowTerminalPortal {
         let allowPresentationRefresh = syncLayout
         let anchorId = ObjectIdentifier(anchorView)
         let primaryHostedId = hostedByAnchorId[anchorId]
+
+        let interactive = hostView.inLiveResize
+            || window?.inLiveResize == true
+            || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+        guard interactive else {
+            pruneDeadEntries()
+            if let primaryHostedId {
+                synchronizeHostedView(
+                    withId: primaryHostedId,
+                    syncLayout: false,
+                    allowPresentationRefresh: false
+                )
+            }
+            scheduleExternalGeometrySynchronize(forceImmediate: false)
+            return
+        }
+
+        guard ensureInstalled(syncLayout: false) else { return }
+        if syncLayout {
+            synchronizeLayoutHierarchy()
+        } else {
+            _ = synchronizeHostFrameToReference()
+        }
+        pruneDeadEntries()
         if let primaryHostedId {
             synchronizeHostedView(
                 withId: primaryHostedId,
-                syncLayout: syncLayout,
+                syncLayout: false,
                 allowPresentationRefresh: allowPresentationRefresh
             )
         }
-        return scheduleDeferredFullSynchronizeAll()
+        synchronizeAllHostedViews(
+            excluding: primaryHostedId,
+            syncLayout: false,
+            allowPresentationRefresh: allowPresentationRefresh
+        )
+        reconcileVisibleHostedViewsAfterGeometrySync(
+            reason: "portal.anchorGeometrySync",
+            allowPresentationRefresh: allowPresentationRefresh
+        )
+        scheduleDeferredFullSynchronizeAll()
     }
 
     func reconcileVisibleHostedViewsAfterGeometrySync(
