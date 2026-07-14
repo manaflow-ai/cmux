@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -49,5 +50,82 @@ struct UsageTipsTests {
     @Test func shortcutResolverGracefullySkipsUnboundActions() {
         let resolver = UsageTipShortcutResolver { _ in .unbound }
         #expect(resolver.displayString(for: .globalSearch) == nil)
+    }
+
+    @MainActor
+    @Test func reenablingBeforePresentationReschedulesTheTip() throws {
+        let suiteName = "UsageTipsTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        AccountCatalogSection().welcomeShown.set(true, in: defaults)
+        let resolver = UsageTipShortcutResolver { _ in
+            StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
+        }
+        var scheduledActions: [UsageTipScheduler.Action] = []
+        let scheduler = UsageTipScheduler { _, action in
+            let index = scheduledActions.count
+            scheduledActions.append(action)
+            return { scheduledActions[index] = {} }
+        }
+        let controller = UsageTipsController(
+            store: UsageTipsStore(defaults: defaults),
+            catalog: catalog,
+            shortcutResolver: resolver,
+            scheduler: scheduler
+        )
+        let windowID = UUID()
+
+        controller.register(windowID: windowID)
+        controller.windowDidBecomeKey(windowID: windowID)
+        controller.updateEnabled(false)
+        controller.updateEnabled(true)
+        #expect(scheduledActions.count == 2)
+        scheduledActions.last?()
+
+        #expect(controller.presentation?.tip.id == .globalSearch)
+        #expect(controller.presentation?.windowID == windowID)
+        controller.unregister(windowID: windowID)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    @MainActor
+    @Test func deadlineTargetsTheCurrentKeyWindowAndResumesWithoutOne() throws {
+        let suiteName = "UsageTipsTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        AccountCatalogSection().welcomeShown.set(true, in: defaults)
+        let resolver = UsageTipShortcutResolver { _ in
+            StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
+        }
+        var scheduledActions: [UsageTipScheduler.Action] = []
+        let scheduler = UsageTipScheduler { _, action in
+            let index = scheduledActions.count
+            scheduledActions.append(action)
+            return { scheduledActions[index] = {} }
+        }
+        let controller = UsageTipsController(
+            store: UsageTipsStore(defaults: defaults),
+            catalog: catalog,
+            shortcutResolver: resolver,
+            scheduler: scheduler
+        )
+        let currentWindowID = UUID()
+        let otherWindowID = UUID()
+
+        controller.register(windowID: otherWindowID)
+        controller.register(windowID: currentWindowID)
+        controller.windowDidBecomeKey(windowID: currentWindowID)
+        controller.windowDidResignKey(windowID: currentWindowID)
+        scheduledActions.last?()
+        #expect(controller.presentation == nil)
+
+        controller.windowDidBecomeKey(windowID: otherWindowID)
+        #expect(scheduledActions.count == 2)
+        scheduledActions.last?()
+        #expect(controller.presentation?.windowID == otherWindowID)
+
+        controller.unregister(windowID: currentWindowID)
+        controller.unregister(windowID: otherWindowID)
+        defaults.removePersistentDomain(forName: suiteName)
     }
 }
