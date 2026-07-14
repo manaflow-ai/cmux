@@ -45,6 +45,9 @@
   document.getElementById('space-button').addEventListener('keydown', (ev) => {
     logEvent(ev, '#space-button');
   });
+  document.getElementById('space-button').addEventListener('keyup', (ev) => {
+    logEvent(ev, '#space-button');
+  });
   document.getElementById('space-button').addEventListener('click', () => {
     spaceActivations += 1;
     check();
