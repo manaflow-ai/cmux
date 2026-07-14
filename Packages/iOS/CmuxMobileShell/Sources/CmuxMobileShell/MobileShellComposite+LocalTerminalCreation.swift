@@ -54,23 +54,20 @@ extension MobileShellComposite {
             case .appliedScopedResponse, .reconciledAuthoritativeList:
                 break
             }
-            if ownsForegroundCreateSelection(createSelectionRevision),
-               selectedWorkspaceID == rowWorkspaceID,
-               let createdTerminalID = resolvedRemoteTerminalCreationSelection(
-                   responseCreatedTerminalID: response.createdTerminalID,
-                   workspaceID: rowWorkspaceID,
-                   existingTerminalIDs: existingTerminalIDs,
-                   paneID: paneID
-               ) {
-                selectTerminal(createdTerminalID)
-                suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
-            }
+            selectResolvedRemoteTerminalCreation(
+                responseCreatedTerminalID: response.createdTerminalID,
+                workspaceID: rowWorkspaceID,
+                existingTerminalIDs: existingTerminalIDs,
+                paneID: paneID,
+                selectionRevision: createSelectionRevision
+            )
         } catch {
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
             markMacConnectionUnavailableIfNeeded(after: error)
-            switch workspaceMutationErrorDisposition(error) {
+            let disposition = workspaceMutationErrorDisposition(error)
+            switch disposition {
             case .immediateRejection:
                 break
             case .definiteDivergence, .ambiguous:
@@ -79,10 +76,40 @@ extension MobileShellComposite {
                       !Task.isCancelled else { return }
                 if !reconciled {
                     terminalReorderGate.requireRefresh(workspaceID: rowWorkspaceID)
+                } else if disposition == .ambiguous {
+                    selectResolvedRemoteTerminalCreation(
+                        responseCreatedTerminalID: nil,
+                        workspaceID: rowWorkspaceID,
+                        existingTerminalIDs: existingTerminalIDs,
+                        paneID: paneID,
+                        selectionRevision: createSelectionRevision
+                    )
                 }
             }
             applyOperationalError(error)
         }
+    }
+
+    /// Selects one uniquely identified create result while the request still
+    /// owns selection. Ambiguous transport failures pass no response ID and use
+    /// the authoritative post-mutation hierarchy to identify the new terminal.
+    private func selectResolvedRemoteTerminalCreation(
+        responseCreatedTerminalID: String?,
+        workspaceID: MobileWorkspacePreview.ID,
+        existingTerminalIDs: Set<MobileTerminalPreview.ID>,
+        paneID: MobilePanePreview.ID?,
+        selectionRevision: UInt64
+    ) {
+        guard ownsForegroundCreateSelection(selectionRevision),
+              selectedWorkspaceID == workspaceID,
+              let createdTerminalID = resolvedRemoteTerminalCreationSelection(
+                  responseCreatedTerminalID: responseCreatedTerminalID,
+                  workspaceID: workspaceID,
+                  existingTerminalIDs: existingTerminalIDs,
+                  paneID: paneID
+              ) else { return }
+        selectTerminal(createdTerminalID)
+        suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
     }
 
     /// Resolves the terminal identity the phone should select after a remote
