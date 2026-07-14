@@ -111,6 +111,14 @@ extension RemoteTmuxWindowMirror {
         let treeNode = bonsplitController.treeSnapshot()
         pruneDividerBaselines(to: treeNode)
         let splitTree = RemoteTmuxNativeSplitTree(layout: renderedLayout)
+        // Resolve an in-flight divider send against the layout this plan is
+        // built from. Only a layout that ASSIGNS the sent span ends the
+        // round-trip window (the reply landed) — an unrelated layout change
+        // replans from a tree that is still pre-drag for the held split, so
+        // the hold survives and the held split's divider is skipped below.
+        let heldSplitId = resolveDividerResizeHold(
+            tmuxTree: splitTree, treeNode: treeNode
+        )
         if let metrics = nativeLayoutMetrics() {
             let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
             // Plan against the exact-fit render size, not the whole region:
@@ -142,15 +150,71 @@ extension RemoteTmuxWindowMirror {
             #endif
             lastPlannedOuterSizes = plannedOuterSizes
             applyDividerPositions(
-                plan: plan, treeNode: treeNode, retryImposedExtents: retryImposedExtents
+                plan: plan, treeNode: treeNode, retryImposedExtents: retryImposedExtents,
+                skippingSubtree: heldSplitId
             )
         } else {
             // No metrics means no point plan exists: the fraction fallback
             // below is not the plan the parity check should judge views
             // against, so a stale exact plan must not linger here.
             lastPlannedOuterSizes = [:]
-            applyFallbackDividerPositions(tmuxTree: splitTree, treeNode: treeNode)
+            applyFallbackDividerPositions(
+                tmuxTree: splitTree, treeNode: treeNode, skippingSubtree: heldSplitId
+            )
         }
+    }
+
+    /// The in-flight divider send's verdict against the CURRENT tmux tree:
+    /// nil when no hold is active, the hold just resolved (the layout now
+    /// assigns the sent span — the reply landed), or the held split no
+    /// longer exists (the structure changed under the drag, so the hold is
+    /// meaningless); otherwise the held split's id, which the imposition
+    /// walk skips so an unrelated replan cannot bounce the user's divider.
+    /// The no-reply deadline (recordDividerResizeAwaitingReply) bounds how
+    /// long a never-answered send can keep returning non-nil here.
+    private func resolveDividerResizeHold(
+        tmuxTree: RemoteTmuxNativeSplitTree,
+        treeNode: ExternalTreeNode
+    ) -> UUID? {
+        guard let hold = dividerResizeInFlight else { return nil }
+        guard let assigned = assignedFirstSpan(
+            forSplit: hold.splitId, axis: hold.axis,
+            tmuxTree: tmuxTree, treeNode: treeNode
+        ) else {
+            dividerResizeInFlight = nil
+            return nil
+        }
+        if assigned == hold.targetCells {
+            dividerResizeInFlight = nil
+            return nil
+        }
+        return hold.splitId
+    }
+
+    /// The cell span tmux currently assigns to the first subtree of the
+    /// bonsplit split `splitId`, walking the bonsplit tree and the tmux tree
+    /// in the same pairing every other walk uses. nil when the split cannot
+    /// be found or the pairing drifted.
+    private func assignedFirstSpan(
+        forSplit splitId: UUID,
+        axis: RemoteTmuxSplitOrientation,
+        tmuxTree: RemoteTmuxNativeSplitTree,
+        treeNode: ExternalTreeNode
+    ) -> Int? {
+        guard case .split(let split) = treeNode,
+              case .split(_, let orientation, let firstTree, let secondTree) = tmuxTree,
+              split.orientation == orientation.treeName else { return nil }
+        if UUID(uuidString: split.id) == splitId {
+            guard orientation == axis else { return nil }
+            return orientation == .horizontal
+                ? firstTree.layout.width
+                : firstTree.layout.height
+        }
+        return assignedFirstSpan(
+            forSplit: splitId, axis: axis, tmuxTree: firstTree, treeNode: split.first
+        ) ?? assignedFirstSpan(
+            forSplit: splitId, axis: axis, tmuxTree: secondTree, treeNode: split.second
+        )
     }
 
     /// Applies a computed divider plan (``RemoteTmuxNativeSplitLayoutPlanner``) to
@@ -162,7 +226,8 @@ extension RemoteTmuxWindowMirror {
     func applyDividerPositions(
         plan: RemoteTmuxNativeSplitLayoutPlanner.Plan,
         treeNode: ExternalTreeNode,
-        retryImposedExtents: Bool
+        retryImposedExtents: Bool,
+        skippingSubtree: UUID? = nil
     ) {
         guard case .split(let split) = treeNode,
               case .split(
@@ -174,6 +239,13 @@ extension RemoteTmuxWindowMirror {
                 cmuxDebugLog("remote.divider.plan mismatch: plan leaf vs bonsplit split")
                 #endif
             }
+            return
+        }
+        // A held split has a resize-pane in flight: its divider is the
+        // user's committed drag and the tmux tree is pre-drag for it, so
+        // imposing here would bounce the divider. The whole subtree keeps
+        // its current geometry until the reply replans it.
+        if let skippingSubtree, UUID(uuidString: split.id) == skippingSubtree {
             return
         }
         guard split.orientation == orientation.treeName,
@@ -219,21 +291,25 @@ extension RemoteTmuxWindowMirror {
         // Exact impositions rebaseline from their post-layout outcome;
         // fraction fallback above is synchronous and already authoritative.
         applyDividerPositions(
-            plan: firstPlan, treeNode: split.first, retryImposedExtents: retryImposedExtents
+            plan: firstPlan, treeNode: split.first,
+            retryImposedExtents: retryImposedExtents, skippingSubtree: skippingSubtree
         )
         applyDividerPositions(
-            plan: secondPlan, treeNode: split.second, retryImposedExtents: retryImposedExtents
+            plan: secondPlan, treeNode: split.second,
+            retryImposedExtents: retryImposedExtents, skippingSubtree: skippingSubtree
         )
     }
 
     func applyFallbackDividerPositions(
         tmuxTree: RemoteTmuxNativeSplitTree,
-        treeNode: ExternalTreeNode
+        treeNode: ExternalTreeNode,
+        skippingSubtree: UUID? = nil
     ) {
         guard case .split(let split) = treeNode,
               case .split(_, let orientation, let firstTree, let secondTree) = tmuxTree,
               split.orientation == orientation.treeName,
               let splitId = UUID(uuidString: split.id) else { return }
+        if splitId == skippingSubtree { return }
         let fraction = Self.dividerFraction(
             first: firstTree.layout,
             rest: [secondTree.layout],
@@ -242,8 +318,12 @@ extension RemoteTmuxWindowMirror {
         _ = bonsplitController.setImposedFirstExtent(nil, forSplit: splitId, fromExternal: true)
         _ = bonsplitController.setDividerPosition(fraction, forSplit: splitId, fromExternal: true)
         lastDividerPositions[splitId] = fraction
-        applyFallbackDividerPositions(tmuxTree: firstTree, treeNode: split.first)
-        applyFallbackDividerPositions(tmuxTree: secondTree, treeNode: split.second)
+        applyFallbackDividerPositions(
+            tmuxTree: firstTree, treeNode: split.first, skippingSubtree: skippingSubtree
+        )
+        applyFallbackDividerPositions(
+            tmuxTree: secondTree, treeNode: split.second, skippingSubtree: skippingSubtree
+        )
     }
 
     func applyTargetedStructureChange(from oldLayout: RemoteTmuxLayoutNode, to newLayout: RemoteTmuxLayoutNode) -> Bool {
@@ -570,6 +650,14 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
             // truth and re-imposes when it lands. Imposing the pre-drag tree
             // now would snap the divider back for a beat. A pass held
             // mid-drag still runs — its inputs changed independently.
+            //
+            // The plan is also known-stale until that reply: the output-parity
+            // re-arm compares hosted frames (the user's dragged position)
+            // against lastPlannedOuterSizes (the pre-drag plan), read a miss,
+            // and re-imposed the stale plan — a visible bounce before the
+            // reply's jump. The send recorded a keyed hold
+            // (dividerResizeInFlight) that parks the re-arm and shields the
+            // dragged split until the reply assigns the sent span.
             setNeedsSizingPass()
         } else {
             // Nothing to ask tmux (the drag rounded to the same cells), but

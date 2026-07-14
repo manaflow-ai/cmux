@@ -152,6 +152,58 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// finds the baseline already advanced and sends nothing — this flag
     /// keeps that from reading as "the drag changed no cells".
     @ObservationIgnored var dividerResizeSentSinceDragBegan = false
+    /// The one divider resize-pane in flight, keyed by the split it was sent
+    /// for and the span it asked of tmux. The round trip is a known-stale-
+    /// plan window: the tree holds the user's dragged fraction while
+    /// lastPlannedOuterSizes holds the pre-drag plan, so the output-parity
+    /// re-arm would read the dragged views as an apply miss and re-impose
+    /// the stale plan — the divider visibly bounced back, then jumped when
+    /// tmux's reply landed. While a send is in flight the re-arm holds, and
+    /// impositions skip the held split (an UNRELATED layout change replans
+    /// from a tree that is equally pre-drag for that split). The hold ends
+    /// when a layout assigns the sent span (the reply landed), when the
+    /// split disappears (structure changed under it), or at a bounded
+    /// deadline for a send tmux never answers (a span its cascade minimums
+    /// clamp to a no-op) — the deadline path re-arms the pass so parity can
+    /// heal the divider back onto the plan instead of leaving it parked
+    /// off-grid with the guard disabled.
+    struct DividerResizeInFlight {
+        let generation: UInt64
+        let splitId: UUID
+        let axis: RemoteTmuxSplitOrientation
+        let targetCells: Int
+    }
+    @ObservationIgnored var dividerResizeInFlight: DividerResizeInFlight?
+    @ObservationIgnored private var dividerResizeInFlightGeneration: UInt64 = 0
+    /// How long a sent divider resize may hold the parity re-arm while no
+    /// reply arrives. Test-adjustable: the no-reply heal test shortens it,
+    /// the round-trip bounce test lengthens it past its own pumping.
+    @ObservationIgnored var dividerResizeReplyGrace: TimeInterval = 2.0
+
+    /// Arms the round-trip hold for a just-sent divider resize and starts
+    /// its no-reply deadline. Generation-checked: a newer send supersedes
+    /// the pending deadline of an older one.
+    func recordDividerResizeAwaitingReply(
+        splitId: UUID, axis: RemoteTmuxSplitOrientation, targetCells: Int
+    ) {
+        dividerResizeInFlightGeneration &+= 1
+        let generation = dividerResizeInFlightGeneration
+        dividerResizeInFlight = DividerResizeInFlight(
+            generation: generation,
+            splitId: splitId,
+            axis: axis,
+            targetCells: targetCells
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + dividerResizeReplyGrace) { [weak self] in
+            guard let self, !self.isTornDown,
+                  self.dividerResizeInFlight?.generation == generation else { return }
+            self.dividerResizeInFlight = nil
+            // Re-arm, not just clear: the swallowed send left the divider
+            // parked off the plan with the parity guard down. A recovery
+            // pass re-imposes the plan and parity resumes judging.
+            self.setNeedsSizingPassIgnoringInputs()
+        }
+    }
     /// The exact point size the split tree renders at (grid + chrome), set by
     /// the sizing pass; the view frames the tree to this, top-leading, so the
     /// region's sub-cell remainder stays outside the tree. nil until the

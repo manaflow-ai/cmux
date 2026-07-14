@@ -350,6 +350,13 @@ extension RemoteTmuxWindowMirror {
     private func rearmIfOutputMissedPlan() {
         guard !isTornDown, !sizingPassScheduled, isVisibleForSizing,
               !bonsplitController.isDividerDragActive,
+              // A sent divider resize makes the plan KNOWN stale until the
+              // reply assigns the sent span: the views hold the user's
+              // dragged position and re-imposing the pre-drag plan is the
+              // bounce this re-arm must not cause. The hold is keyed and
+              // bounded (see dividerResizeInFlight); its no-reply deadline
+              // re-arms this path itself.
+              dividerResizeInFlight == nil,
               let completed = lastCompletedSizingInputs,
               completed == currentSizingInputs()
         else { return }

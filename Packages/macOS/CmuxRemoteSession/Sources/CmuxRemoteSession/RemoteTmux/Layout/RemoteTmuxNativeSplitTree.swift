@@ -89,7 +89,12 @@ public indirect enum RemoteTmuxNativeSplitTree: Sendable {
     /// Tmux resizes the target pane's nearest split along the requested axis.
     /// Select a pane whose path reaches this subtree without crossing a nearer
     /// same-axis split; otherwise this ancestor cannot be addressed safely.
-    private func resizeCommandTargetPaneID(avoiding orientation: RemoteTmuxSplitOrientation) -> Int? {
+    /// Public because every resize-pane sender must apply this same rule:
+    /// the control path routes through paneResizeContext, and the
+    /// divider-drag path addresses a split's first subtree directly — naming
+    /// a pane behind an inner same-axis split there made tmux resize the
+    /// inner split instead of the dragged one.
+    public func resizeCommandTargetPaneID(avoiding orientation: RemoteTmuxSplitOrientation) -> Int? {
         switch self {
         case .atomic(let pane):
             guard case .pane(let paneID) = pane.content else { return nil }

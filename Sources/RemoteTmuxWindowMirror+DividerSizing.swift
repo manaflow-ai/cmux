@@ -80,6 +80,7 @@ extension RemoteTmuxWindowMirror {
             lastDividerPositions[splitID] = position
             sentResize = requestResizeForDividerPosition(
                 position,
+                splitID: splitID,
                 parentSize: parentSize,
                 orientation: orientation,
                 firstTree: firstTree,
@@ -98,6 +99,7 @@ extension RemoteTmuxWindowMirror {
             if sendWithoutBaseline {
                 sentResize = requestResizeForDividerPosition(
                     position,
+                    splitID: splitID,
                     parentSize: parentSize,
                     orientation: orientation,
                     firstTree: firstTree,
@@ -153,6 +155,7 @@ extension RemoteTmuxWindowMirror {
     /// immediate re-impose.
     private func requestResizeForDividerPosition(
         _ position: CGFloat,
+        splitID: UUID,
         parentSize: CGSize,
         orientation: RemoteTmuxSplitOrientation,
         firstTree: RemoteTmuxNativeMeasuredSplitTree,
@@ -176,7 +179,16 @@ extension RemoteTmuxWindowMirror {
             orientation: orientation
         )
         let assigned = orientation == .horizontal ? first.width : first.height
-        guard cells != assigned, let targetPaneID = first.paneIDsInOrder.first else {
+        // The routing rule every resize-pane sender shares: tmux resizes the
+        // TARGET PANE's nearest split along the axis, so the pane addressed
+        // for this split's first subtree must not sit behind an inner
+        // same-axis split — first.paneIDsInOrder.first did exactly that in
+        // nested same-axis shapes, and tmux resized the inner split (or
+        // no-oped) instead of the dragged one.
+        guard cells != assigned,
+              let targetPaneID = RemoteTmuxNativeSplitTree(layout: first)
+                  .resizeCommandTargetPaneID(avoiding: orientation)
+        else {
             return false
         }
         let sent = requestResizePane(
@@ -184,7 +196,12 @@ extension RemoteTmuxWindowMirror {
             absoluteAxis: orientation.treeName,
             targetCells: cells
         )
-        if sent { dividerResizeSentSinceDragBegan = true }
+        if sent {
+            dividerResizeSentSinceDragBegan = true
+            recordDividerResizeAwaitingReply(
+                splitId: splitID, axis: orientation, targetCells: cells
+            )
+        }
         return sent
     }
 }
