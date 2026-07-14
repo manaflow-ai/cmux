@@ -174,4 +174,51 @@ import Testing
         #expect(await executor.fetchCount == 2)
         service.resetWorkspacePullRequestRefreshState()
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func rejectedBatchPreservesSurvivingPanelsCacheBypassIntent() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelAId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let panelBId = UUID()
+        host.workspaces[0].state.panels[panelBId] = .init(directory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelAId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/a",
+            isDirty: false
+        )
+        host.workspaces[0].state.panels[panelBId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/b",
+            isDirty: false
+        )
+        let executor = GatedPullRequestRefreshExecutor()
+        let service = makeService(host: host, executor: executor)
+        let panelBKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelBId)
+
+        service.seedWorkspacePullRequestRefreshIfNeeded(
+            workspaceId: workspaceId,
+            panelId: panelAId,
+            directory: "/tmp/repo",
+            branch: "feature/a",
+            reason: "localGitProbe"
+        )
+        service.refreshTrackedWorkspacePullRequestsIfNeeded(reason: "timer")
+        await executor.waitForFetchCount(1)
+
+        host.workspaces[0].state.panels.removeValue(forKey: panelBId)
+        service.clearWorkspacePullRequestTracking(
+            workspaceId: workspaceId,
+            panelId: panelBId
+        )
+        await executor.releaseNextFetch()
+        await executor.waitForFetchCount(2)
+
+        #expect(await executor.allowCachedResultsRequests == [false, false])
+        #expect(service.workspacePullRequestProbeStateByKey[panelBKey] == nil)
+
+        await executor.releaseNextFetch()
+        while service.workspacePullRequestRefreshTask != nil {
+            await Task.yield()
+        }
+        service.resetWorkspacePullRequestRefreshState()
+    }
 }
