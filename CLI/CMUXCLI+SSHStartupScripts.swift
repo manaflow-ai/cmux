@@ -338,6 +338,7 @@ extension CMUXCLI {
             "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; esac",
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",
+            "if [ \"$cmux_ssh_reconnect_delay\" -lt 1 ]; then cmux_ssh_reconnect_delay=2; fi",
         ]
         scriptLines += [
             "rm -f -- \"$0\" 2>/dev/null || true",
