@@ -35,6 +35,47 @@ fileprivate func shellSingleQuoted(_ value: String) -> String {
     TerminalStartupShellQuoting.singleQuoted(value)
 }
 
+/// Which syntax family the user's interactive shell parses. Everything cmux
+/// generates is POSIX; nushell is the one supported login shell that cannot
+/// parse it (see ``NushellTypedShellCommand``).
+enum TerminalStartupShellDialect: Equatable {
+    case posix
+    case nushell
+
+    static func forShellPath(_ shell: String?) -> TerminalStartupShellDialect {
+        guard let shell = shell?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !shell.isEmpty else {
+            return .posix
+        }
+        return URL(fileURLWithPath: shell).lastPathComponent == "nu" ? .nushell : .posix
+    }
+
+    /// Dialect of the login shell cmux spawns terminal surfaces with — the
+    /// same `$SHELL` fallback chain the spawn path uses.
+    static var loginShell: TerminalStartupShellDialect {
+        forShellPath(ProcessInfo.processInfo.environment["SHELL"])
+    }
+}
+
+/// Final rendering step for cmux-generated POSIX one-liners that get typed
+/// into (or pasted into) the user's interactive shell. POSIX shells receive
+/// the command verbatim; nushell receives it delegated through `/bin/sh`.
+/// Launcher-script inputs (`/bin/zsh '<script>'`) parse in every supported
+/// shell and do not need this.
+enum TerminalStartupTypedShellCommand {
+    static func typedInput(
+        posixCommand: String,
+        dialect: TerminalStartupShellDialect = .loginShell
+    ) -> String {
+        switch dialect {
+        case .posix:
+            return posixCommand
+        case .nushell:
+            return NushellTypedShellCommand.wrapping(posixCommand: posixCommand)
+        }
+    }
+}
+
 enum TerminalStartupWorkingDirectoryPrefix {
     static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
@@ -809,7 +850,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         allowOversizedInlineInput: Bool = false
     ) -> String? {
         guard let command else { return nil }
-        let inlineInput = command + "\n"
+        let inlineInput = TerminalStartupTypedShellCommand.typedInput(posixCommand: command) + "\n"
         guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
             return inlineInput
         }

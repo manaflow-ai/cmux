@@ -378,8 +378,9 @@ extension TerminalSurface {
         return false
     }
 
-    /// Applies the shell-specific startup redirection (zsh/bash/fish) and
-    /// returns a replacement launch command when one is required (fish).
+    /// Applies the shell-specific startup redirection (zsh/bash/fish/nushell)
+    /// and returns a replacement launch command when one is required
+    /// (fish, nushell).
     public static func applyManagedShellSpecificStartupEnvironment(
         shell: String,
         integrationDir: String,
@@ -444,10 +445,66 @@ extension TerminalSurface {
             guard bundledBootstrapIsReadable("fish/config.fish") else { return nil }
             applyManagedFishStartupEnvironment(integrationDir: integrationDir, to: &environment, protectedKeys: &protectedKeys)
             return managedFishShellCommand(shell: shell)
+        case "nu":
+            guard bundledBootstrapIsReadable("nushell/cmux-nushell-bootstrap.nu") else { return nil }
+            let bootstrapPath = (integrationDir as NSString)
+                .appendingPathComponent("nushell/cmux-nushell-bootstrap.nu")
+            do {
+                let payload = nushellStartupPayload(
+                    bootstrapContents: try readFile(bootstrapPath),
+                    integrationDir: integrationDir
+                )
+                guard !payload.isEmpty else { return nil }
+                return managedNushellShellCommand(shell: shell, startupPayload: payload)
+            } catch {
+                Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
+                    .error("cmux nushell bootstrap unreadable at \(bootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); nushell shell integration will not load")
+                return nil
+            }
         default:
             break
         }
         return nil
+    }
+
+    /// Builds the nushell `-e` payload: the bootstrap squashed to one line
+    /// (comments and blank lines dropped, statements joined with `; `), plus a
+    /// `source` of the bundled integration file when it is present. The
+    /// integration path is baked in as a literal because nushell's `source`
+    /// requires a parse-time constant.
+    public static func nushellStartupPayload(
+        bootstrapContents: String,
+        integrationDir: String,
+        integrationFileIsReadable: (String) -> Bool = { FileManager.default.isReadableFile(atPath: $0) }
+    ) -> String {
+        var statements = bootstrapContents
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+        let integrationPath = (integrationDir as NSString)
+            .appendingPathComponent("nushell/cmux-nushell-integration.nu")
+        if integrationFileIsReadable(integrationPath) {
+            statements.append("source \(nushellDoubleQuoted(integrationPath))")
+        }
+        return statements.joined(separator: "; ")
+    }
+
+    /// The managed nushell launch command: a login shell that evaluates the
+    /// cmux payload after the user's env.nu/config.nu/login.nu, then enters
+    /// the interactive REPL (`--execute` semantics).
+    public static func managedNushellShellCommand(shell: String, startupPayload: String) -> String {
+        "\(shellSingleQuoted(shell)) -l -e \(shellSingleQuoted(startupPayload))"
+    }
+
+    /// Double-quotes a value for nushell (`\` and `"` escaped). Used for
+    /// literals embedded in generated nushell source; nushell single-quoted
+    /// strings cannot contain single quotes at all, so double quotes are the
+    /// safe general form.
+    public static func nushellDoubleQuoted(_ value: String) -> String {
+        "\"" + value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            + "\""
     }
 
     /// The managed fish launch command sourcing the cmux integration file.

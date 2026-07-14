@@ -25,6 +25,12 @@ extension SurfaceResumeBindingSnapshot {
             repairPortableAgentExecutable: repairPortableAgentExecutable
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        // Stays raw POSIX: this string is embedded verbatim into the zsh
+        // launcher scripts (SurfaceResumeBindingScriptStore) as well as typed
+        // into shells. Dialect wrapping for nushell happens only at the typed
+        // boundary (startupInputWithLauncherScript) — wrapping here made the
+        // launcher script's `nu) /bin/sh -c '<cmd>'` dispatch execute
+        // `^/bin/sh …` under /bin/sh, which cannot parse it.
         guard let environment, !environment.isEmpty else {
             return trimmed + "\n"
         }

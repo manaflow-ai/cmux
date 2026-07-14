@@ -10701,7 +10701,7 @@ final class Workspace: Identifiable, ObservableObject {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         guard let resumeCommand = entry.resumeCommand else { return false }
-        let inputWithReturn = resumeCommand + "\n"
+        let inputWithReturn = TerminalStartupTypedShellCommand.typedInput(posixCommand: resumeCommand) + "\n"
         switch destination {
         case .insert(let paneId, _):
             let panel = newTerminalSurface(
