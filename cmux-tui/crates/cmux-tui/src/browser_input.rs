@@ -1,4 +1,4 @@
-//! Off-loop browser input forwarding.
+//! Off-loop browser command forwarding.
 //!
 //! Forwarding input to a browser surface ultimately performs blocking
 //! I/O: a CDP request/response on the shared WebSocket for local
@@ -20,7 +20,8 @@
 //! Ordinary input errors are reported by the surface's own status. Resize
 //! failures are retained per surface and reported to the app because retrying a
 //! persistently failing CDP geometry update ahead of every input would stall the
-//! browser lane.
+//! browser lane. Discrete browser controls report failures separately so user
+//! actions cannot disappear silently under backpressure.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -79,6 +80,11 @@ pub enum BrowserInputKind {
         reassert: bool,
         _claim: Option<Box<dyn Send>>,
     },
+    Navigate(String),
+    Back,
+    Forward,
+    Reload,
+    Activate,
 }
 
 struct SequencedBrowserInputEvent {
@@ -140,6 +146,20 @@ impl BrowserInputKind {
             _ => None,
         }
     }
+
+    /// Discrete control actions the user explicitly invoked. Unlike disposable
+    /// pointer/key input, a control command that fails to reach the browser
+    /// must surface backpressure instead of vanishing.
+    fn is_control(&self) -> bool {
+        matches!(
+            self,
+            BrowserInputKind::Navigate(_)
+                | BrowserInputKind::Back
+                | BrowserInputKind::Forward
+                | BrowserInputKind::Reload
+                | BrowserInputKind::Activate
+        )
+    }
 }
 
 pub struct BrowserInputDispatcher {
@@ -158,6 +178,7 @@ pub(crate) struct BlockedBrowserInput {
 impl BrowserInputDispatcher {
     pub fn spawn(
         on_resize_failure: impl Fn(BrowserResizeFailure) + Send + Sync + 'static,
+        on_control_failure: impl Fn(String) + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
         let (tx, rx) = sync_channel(QUEUE_CAPACITY);
         let order = Arc::new(Mutex::new(BrowserEnqueueOrder::default()));
@@ -168,8 +189,16 @@ impl BrowserInputDispatcher {
         let worker_resizes = latest_resizes.clone();
         let worker_failures = failed_resizes.clone();
         let on_resize_failure = Arc::new(on_resize_failure);
+        let on_control_failure = Arc::new(on_control_failure);
         std::thread::Builder::new().name("mux-browser-input".into()).spawn(move || {
-            worker(rx, worker_order, worker_resizes, worker_failures, on_resize_failure);
+            worker(
+                rx,
+                worker_order,
+                worker_resizes,
+                worker_failures,
+                on_resize_failure,
+                on_control_failure,
+            );
         })?;
         Ok(BrowserInputDispatcher { tx, order, latest_resizes, failed_resizes, surface_lifetimes })
     }
@@ -191,12 +220,13 @@ impl BrowserInputDispatcher {
 
     /// Queue an event without blocking. A full queue retains the latest
     /// resize per surface and input-delimited run, and drops other input.
-    pub fn enqueue(&self, event: BrowserInputEvent) {
+    #[must_use = "control commands must surface backpressure instead of dropping silently"]
+    pub fn enqueue(&self, event: BrowserInputEvent) -> bool {
         let is_resize = event.kind.is_resize();
         if let Some(desired) = event.kind.resize_dimensions()
             && self.resize_failed(event.surface_id, desired)
         {
-            return;
+            return true;
         }
         let lifetime = self
             .surface_lifetimes
@@ -212,14 +242,17 @@ impl BrowserInputDispatcher {
         match self.tx.try_send(event) {
             Ok(()) if !is_resize => {
                 order.barrier_epoch = order.barrier_epoch.saturating_add(1);
+                true
             }
             Err(TrySendError::Full(event)) if is_resize => {
                 self.latest_resizes
                     .lock()
                     .unwrap()
                     .insert((event.event.surface_id, order.barrier_epoch), event);
+                true
             }
-            Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
         }
     }
 
@@ -285,6 +318,7 @@ fn worker(
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
     failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
     on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
+    on_control_failure: Arc<dyn Fn(String) + Send + Sync>,
 ) {
     while let Ok(event) = rx.recv() {
         let mut batch = vec![event];
@@ -306,7 +340,14 @@ fn worker(
                 continue;
             }
             let result = dispatch(&event.event);
-            let Some((cols, rows)) = desired else { continue };
+            let Some((cols, rows)) = desired else {
+                if event.event.kind.is_control()
+                    && let Err(error) = result
+                {
+                    on_control_failure(format!("browser command failed: {error}"));
+                }
+                continue;
+            };
             if event.lifetime.load(Ordering::Acquire) {
                 continue;
             }
@@ -429,6 +470,11 @@ fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<()> {
                 surface.resize(*cols, *rows)
             }
         }
+        BrowserInputKind::Navigate(url) => surface.browser_navigate(url),
+        BrowserInputKind::Back => surface.browser_back(),
+        BrowserInputKind::Forward => surface.browser_forward(),
+        BrowserInputKind::Reload => surface.browser_reload(),
+        BrowserInputKind::Activate => surface.browser_activate(),
     }
 }
 
@@ -500,6 +546,58 @@ mod tests {
 
     fn sequenced(sequence: u64, event: BrowserInputEvent) -> SequencedBrowserInputEvent {
         SequencedBrowserInputEvent { sequence, event, lifetime: Arc::new(AtomicBool::new(false)) }
+    }
+
+    fn reload_event(surface: SurfaceId) -> BrowserInputEvent {
+        BrowserInputEvent {
+            surface_id: surface,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::Reload,
+        }
+    }
+
+    // Regression: a full dispatcher queue (worker wedged inside a blocking
+    // browser call) must report the drop so control commands can surface
+    // backpressure to the user, instead of the old `let _ = try_send` that
+    // swallowed the failure and made a dropped reload/navigate look accepted.
+    #[test]
+    fn full_queue_reports_drop_instead_of_swallowing_it() {
+        let (dispatcher, _blocked) = BrowserInputDispatcher::blocked(QUEUE_CAPACITY);
+        for _ in 0..QUEUE_CAPACITY {
+            assert!(dispatcher.enqueue(reload_event(1)), "queue should accept until full");
+        }
+        assert!(
+            !dispatcher.enqueue(reload_event(1)),
+            "a full queue must report the drop, not swallow it as accepted"
+        );
+    }
+
+    // Regression: a discrete control command that fails inside the worker
+    // (here: RemoteBrowserUnsupported bails) must report a status event so the
+    // user learns it did not take effect, instead of the old `let _ = ...` that
+    // swallowed the inner result even after the outer queue accepted it.
+    // Disposable input must not report.
+    #[test]
+    fn failed_control_command_reports_status_but_input_does_not() {
+        let (tx, rx) = sync_channel(1);
+        let dispatcher = BrowserInputDispatcher::spawn(
+            |_| {},
+            move |message| {
+                let _ = tx.send(message);
+            },
+        )
+        .unwrap();
+
+        assert!(dispatcher.enqueue(reload_event(1)));
+        let message = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(message.contains("browser command failed"), "unexpected message: {message}");
+
+        // Disposable input never reports, so the worker stays quiet for it.
+        assert!(dispatcher.enqueue(move_event(1, 1.0)));
+        assert!(
+            rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "disposable input must not emit status feedback"
+        );
     }
 
     fn positions(batch: &[BrowserInputEvent]) -> Vec<(&'static str, SurfaceId)> {
@@ -576,8 +674,8 @@ mod tests {
             surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
         };
 
-        dispatcher.enqueue(click_event(1));
-        dispatcher.enqueue(resize_event(1, 132));
+        let _ = dispatcher.enqueue(click_event(1));
+        let _ = dispatcher.enqueue(resize_event(1, 132));
         assert!(matches!(rx.recv().unwrap().event.kind, BrowserInputKind::Mouse { .. }));
         assert!(matches!(
             latest_resizes.lock().unwrap().get(&(1, 1)).map(|event| &event.event.kind),
@@ -585,7 +683,7 @@ mod tests {
         ));
 
         latest_resizes.lock().unwrap().clear();
-        dispatcher.enqueue(resize_event(2, 144));
+        let _ = dispatcher.enqueue(resize_event(2, 144));
         assert!(latest_resizes.lock().unwrap().is_empty());
         assert!(matches!(
             rx.recv().unwrap().event.kind,
@@ -593,7 +691,7 @@ mod tests {
         ));
 
         drop(rx);
-        dispatcher.enqueue(resize_event(3, 156));
+        let _ = dispatcher.enqueue(resize_event(3, 156));
         assert!(latest_resizes.lock().unwrap().is_empty());
     }
 
@@ -609,16 +707,16 @@ mod tests {
             surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
         };
         let accepted = Arc::new(AtomicBool::new(false));
-        dispatcher.enqueue(resize_event_with_probe(1, 80, accepted.clone()));
+        let _ = dispatcher.enqueue(resize_event_with_probe(1, 80, accepted.clone()));
         assert!(!accepted.load(Ordering::Acquire));
         drop(rx.recv().unwrap());
         assert!(accepted.load(Ordering::Acquire));
 
-        dispatcher.enqueue(click_event(1));
+        let _ = dispatcher.enqueue(click_event(1));
         let replaced = Arc::new(AtomicBool::new(false));
         let retained = Arc::new(AtomicBool::new(false));
-        dispatcher.enqueue(resize_event_with_probe(1, 100, replaced.clone()));
-        dispatcher.enqueue(resize_event_with_probe(1, 120, retained.clone()));
+        let _ = dispatcher.enqueue(resize_event_with_probe(1, 100, replaced.clone()));
+        let _ = dispatcher.enqueue(resize_event_with_probe(1, 120, retained.clone()));
         assert!(replaced.load(Ordering::Acquire));
         assert!(!retained.load(Ordering::Acquire));
         latest_resizes.lock().unwrap().clear();
@@ -626,7 +724,7 @@ mod tests {
 
         drop(rx);
         let disconnected = Arc::new(AtomicBool::new(false));
-        dispatcher.enqueue(resize_event_with_probe(1, 140, disconnected.clone()));
+        let _ = dispatcher.enqueue(resize_event_with_probe(1, 140, disconnected.clone()));
         assert!(disconnected.load(Ordering::Acquire));
     }
 
@@ -643,18 +741,21 @@ mod tests {
     #[test]
     fn failed_resize_is_reported_and_same_geometry_is_suppressed() {
         let (failure_tx, failure_rx) = std::sync::mpsc::channel();
-        let dispatcher = BrowserInputDispatcher::spawn(move |failure| {
-            failure_tx.send(failure).unwrap();
-        })
+        let dispatcher = BrowserInputDispatcher::spawn(
+            move |failure| {
+                failure_tx.send(failure).unwrap();
+            },
+            |_| {},
+        )
         .unwrap();
 
-        dispatcher.enqueue(resize_event(7, 100));
+        let _ = dispatcher.enqueue(resize_event(7, 100));
         let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!((failure.surface_id, failure.cols, failure.rows), (7, 100, 24));
         assert!(dispatcher.resize_failed(7, (100, 24)));
 
         let dropped = Arc::new(AtomicBool::new(false));
-        dispatcher.enqueue(resize_event_with_probe(7, 100, dropped.clone()));
+        let _ = dispatcher.enqueue(resize_event_with_probe(7, 100, dropped.clone()));
         assert!(dropped.load(Ordering::Acquire));
         assert!(failure_rx.try_recv().is_err());
 
@@ -672,7 +773,7 @@ mod tests {
             },
         );
         assert!(dispatcher.visible_resize_retry_due(&HashSet::from([7])));
-        dispatcher.enqueue(resize_event(7, 100));
+        let _ = dispatcher.enqueue(resize_event(7, 100));
         failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(dispatcher.failed_resizes.lock().unwrap().get(&7).unwrap().attempts, 2);
 
@@ -693,9 +794,9 @@ mod tests {
         };
         let queued = Arc::new(AtomicBool::new(false));
         let fallback = Arc::new(AtomicBool::new(false));
-        dispatcher.enqueue(resize_event_with_probe(7, 80, queued.clone()));
-        dispatcher.enqueue(click_event(8));
-        dispatcher.enqueue(resize_event_with_probe(7, 100, fallback.clone()));
+        let _ = dispatcher.enqueue(resize_event_with_probe(7, 80, queued.clone()));
+        let _ = dispatcher.enqueue(click_event(8));
+        let _ = dispatcher.enqueue(resize_event_with_probe(7, 100, fallback.clone()));
         dispatcher.failed_resizes.lock().unwrap().insert(
             7,
             FailedBrowserResize {
@@ -755,11 +856,11 @@ mod tests {
             surface_lifetimes: Arc::new(Mutex::new(HashMap::new())),
         };
 
-        dispatcher.enqueue(click_event(1));
-        dispatcher.enqueue(resize_event(1, 132));
+        let _ = dispatcher.enqueue(click_event(1));
+        let _ = dispatcher.enqueue(resize_event(1, 132));
         let first = rx.recv().unwrap();
-        dispatcher.enqueue(click_event(1));
-        dispatcher.enqueue(resize_event(1, 144));
+        let _ = dispatcher.enqueue(click_event(1));
+        let _ = dispatcher.enqueue(resize_event(1, 144));
         let mut batch = vec![first];
         finish_ordered_batch(&rx, &dispatcher.order, &latest_resizes, &mut batch);
 

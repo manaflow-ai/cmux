@@ -21,6 +21,7 @@ use crate::browser::BrowserSurface;
 pub use crate::browser::{
     BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource, BrowserStatus,
 };
+use cmux_tui_cdp::BrowserMode;
 
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
@@ -46,6 +47,8 @@ pub struct SurfaceOptions {
     pub browser_discover_ports: Vec<u16>,
     /// Optional Chrome user data directory for launched browser runtime.
     pub browser_user_data_dir: Option<String>,
+    /// Whether launched Chrome should show a visible window or run headless.
+    pub browser_mode: BrowserMode,
     /// Session component for the default launched Chrome profile path.
     pub browser_session_name: String,
     /// Use a temporary launched Chrome profile and delete it on shutdown.
@@ -73,6 +76,7 @@ impl Default for SurfaceOptions {
             browser_discover: false,
             browser_discover_ports: vec![9222],
             browser_user_data_dir: None,
+            browser_mode: BrowserMode::Headful,
             browser_session_name: "default".to_string(),
             browser_ephemeral: false,
             browser_max_capture_megapixels: 2.0,
@@ -584,7 +588,7 @@ impl Surface {
             Surface::Pty(pty) => Ok(pty.resize(cols, rows)),
             Surface::Browser(browser) => {
                 let before = browser.size();
-                browser.try_resize(cols, rows)?;
+                browser.resize(cols, rows);
                 Ok(browser.size() != before)
             }
         }

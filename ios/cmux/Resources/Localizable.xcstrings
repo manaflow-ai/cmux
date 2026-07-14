@@ -3843,6 +3843,244 @@
         }
       }
     },
+    "mobile.macUpdateHint.bodyFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is on cmux %2$@. Updating to %3$@ or later adds: %4$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@はcmux %2$@を実行中です。%3$@以降に更新すると次の機能が使えます：%4$@"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.bodyFormatUnknownVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating %1$@ to cmux %2$@ or later adds: %3$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@をcmux %2$@以降に更新すると次の機能が使えます：%3$@。"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.button.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show what a Mac update adds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの更新で追加される機能を表示"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't Show Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再表示しない"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename and pin workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの名前変更とピン留め"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceClose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceCreateInGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create workspaces inside groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内にワークスペースを作成"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceGroupActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move and group workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの移動とグループ化"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceGroupCreate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create workspace groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループの作成"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループ"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceMove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reorder workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの並べ替え"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.feature.workspaceReadState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark workspaces read or unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの既読・未読の切り替え"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.genericMacName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お使いのMac"
+          }
+        }
+      }
+    },
+    "mobile.macUpdateHint.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac update adds features"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの更新で機能が追加されます"
+          }
+        }
+      }
+    },
     "mobile.recovery.accountMismatch": {
       "extractionState": "manual",
       "localizations": {
@@ -4404,6 +4642,23 @@
         }
       }
     },
+    "mobile.settings.privacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライバシー"
+          }
+        }
+      }
+    },
     "mobile.settings.privacyPolicy": {
       "extractionState": "manual",
       "localizations": {
@@ -4638,6 +4893,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアプリに表示する Stack チームのコンピュータとデバイスを切り替えます。"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Analytics and Crash Reports"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分析とクラッシュレポートを共有"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetryAnalyticsOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Anonymous Analytics"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名の分析情報を共有"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetryAnalyticsOnlyFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, cmux does not send iPhone or iPad product analytics."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフの場合、cmux は iPhone または iPad の製品分析を送信しません。"
+          }
+        }
+      }
+    },
+    "mobile.settings.telemetryFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, cmux does not send iPhone or iPad product analytics or crash reports."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフの場合、cmux は iPhone または iPad の製品分析やクラッシュレポートを送信しません。"
           }
         }
       }
@@ -5651,13 +5974,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A full-screen terminal app is running in this session. Full-screen apps mirror the Mac terminal's exact size, so the view may not fill this screen."
+            "value": "Full-screen mode mirrors the Mac terminal's exact size, so it may not fill this screen. Claude Code: `/tui default`. Codex: restart with `codex --no-alt-screen`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このセッションでは全画面ターミナルアプリが実行されています。全画面アプリは Mac 側ターミナルの正確なサイズをそのまま表示するため、この画面いっぱいに広がらない場合があります。"
+            "value": "全画面モードは Mac 側ターミナルのサイズをそのまま表示するため、この画面いっぱいに広がらない場合があります。Claude Code: `/tui default`。Codex: `codex --no-alt-screen` で再起動。"
           }
         }
       }
@@ -7702,6 +8025,91 @@
         }
       }
     },
+    "mobile.terminal.artifacts.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No files detected on screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面にファイルは検出されませんでした"
+          }
+        }
+      }
+    },
+    "mobile.terminal.artifacts.files.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル"
+          }
+        }
+      }
+    },
+    "mobile.terminal.artifacts.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "mobile.terminal.artifacts.unreachable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the connection to your Mac and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macへの接続を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.artifacts.unreachable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac unreachable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macに接続できません"
+          }
+        }
+      }
+    },
     "mobile.workspaces.title": {
       "extractionState": "manual",
       "localizations": {
@@ -7732,6 +8140,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "メッセージ作成"
+          }
+        }
+      }
+    },
+    "terminal.input_accessory.files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル"
           }
         }
       }
@@ -8280,6 +8705,23 @@
         }
       }
     },
+    "terminal.shortcut.name.ollama": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        }
+      }
+    },
     "terminal.shortcut.name.pageDown": {
       "extractionState": "manual",
       "localizations": {
@@ -8722,6 +9164,23 @@
         }
       }
     },
+    "mobile.workspaceGroup.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースグループ"
+          }
+        }
+      }
+    },
     "mobile.workspaceGroup.newWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -9065,183 +9524,494 @@
     "mobile.workspaceAction.failure.action.createWorkspace": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "create workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを作成" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "create workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを作成"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.createWorkspaceInGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "create workspace in group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループ内にワークスペースを作成" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "create workspace in group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内にワークスペースを作成"
+          }
+        }
+      }
+    },
+    "mobile.workspaceAction.failure.action.createWorkspaceGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "create workspace group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループを作成"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.moveWorkspace": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "move workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを移動" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "move workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを移動"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.renameWorkspace": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "rename workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース名を変更" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rename workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名を変更"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.pinWorkspace": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "pin workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースをピン留め" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pin workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをピン留め"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.unpinWorkspace": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "unpin workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースのピン留めを外す" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unpin workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのピン留めを外す"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.markWorkspaceRead": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "mark workspace as read" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを既読にする" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark workspace as read"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを既読にする"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.markWorkspaceUnread": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "mark workspace as unread" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを未読にする" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark workspace as unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを未読にする"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.closeWorkspace": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "close workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを閉じる" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.renameGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "rename group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループ名を変更" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rename group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ名を変更"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.pinGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "pin group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループをピン留め" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pin group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループをピン留め"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.unpinGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "unpin group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループのピン留めを外す" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unpin group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループのピン留めを外す"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.ungroupGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "ungroup" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループ解除" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ungroup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ解除"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.deleteGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "delete group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループを削除" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "delete group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを削除"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.notConnected.host": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "not connected to %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ に接続されていません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not connected to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続されていません"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.notConnected.generic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "not connected to your Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac に接続されていません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not connected to your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に接続されていません"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.timedOut.host": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "timed out talking to %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ との通信がタイムアウトしました" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "timed out talking to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ との通信がタイムアウトしました"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.timedOut.generic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "timed out talking to your Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac との通信がタイムアウトしました" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "timed out talking to your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac との通信がタイムアウトしました"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.authorization.host": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "was not authorized by %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ で認証されませんでした" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was not authorized by %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で認証されませんでした"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.authorization.generic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "was not authorized by your Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac で認証されませんでした" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was not authorized by your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac で認証されませんでした"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.busy.host": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ is finishing another workspace action" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ が別のワークスペース操作を完了しています" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is finishing another workspace action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が別のワークスペース操作を完了しています"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.busy.generic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "another workspace action is still finishing" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "別のワークスペース操作がまだ完了中です" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "another workspace action is still finishing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のワークスペース操作がまだ完了中です"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.rejected.host": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "was rejected by %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ に拒否されました" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was rejected by %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に拒否されました"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.rejected.generic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "was rejected by your Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac に拒否されました" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was rejected by your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に拒否されました"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.unsupported.host": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ doesn't support that action" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ はその操作に対応していません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ doesn't support that action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はその操作に対応していません"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.unsupported.generic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "your Mac doesn't support that action" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac はその操作に対応していません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your Mac doesn't support that action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac はその操作に対応していません"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude is asking: which database should I use, Postgres or SQLite?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude が質問しています: どのデータベースを使いますか、Postgres それとも SQLite?"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent needs your input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが入力を求めています"
+          }
+        }
       }
     }
   },

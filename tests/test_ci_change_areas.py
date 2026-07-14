@@ -140,6 +140,10 @@ def test_remote_daemon_asset_builder_runs_go_validation() -> None:
     assert_areas(["scripts/build_remote_daemon_release_assets.sh"], macos=True, web=False, go=True)
 
 
+def test_remote_daemon_manifest_generator_runs_go_validation() -> None:
+    assert_areas(["scripts/generate_remote_daemon_release_manifest.py"], macos=True, web=False, go=True)
+
+
 def test_app_source_runs_macos() -> None:
     assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False, go=False)
 
@@ -588,6 +592,7 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     package_block = workflow_job_block("swift-package-tests")
     release_block = workflow_job_block("release-build")
 
+    assert "vars.MACOS_RUNNER_DUAL_XCODE" in package_block
     assert "\n  ui-regressions:" not in workflow
     assert "\n  release-ghostty-cli-helper:" not in workflow
     assert "build-for-testing" in runtime_block
@@ -614,6 +619,16 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131" in release_block
     assert "Install universal Ghostty CLI helper" in release_block
     assert "./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty" not in release_block
+
+
+def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
+    block = workflow_job_block("app-host-unit-tests")
+    step = "Run remote tmux mirror layout identity regression"
+    selector = "-only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests"
+
+    assert step in block
+    assert selector in block
+    assert block.index(step) < block.index("- name: Run unit tests")
 
 
 def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:

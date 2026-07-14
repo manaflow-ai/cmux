@@ -246,6 +246,9 @@ html { scroll-behavior: smooth; }
 {{highlightJS}}
 </script>
 <script>
+{{viewerNavigationJS}}
+</script>
+<script>
 (function() {
   var contentEl = document.getElementById('content');
   var lightSheet = document.getElementById('hljs-light');
@@ -1769,6 +1772,13 @@ html { scroll-behavior: smooth; }
     darkMql.addListener(window.__cmuxApplyTheme);
   }
   window.__cmuxApplyTheme();
+  window.__cmuxPerformViewerNavigationAction = function(action) {
+    return CmuxViewerNavigation.performAction(action, markdownScroller());
+  };
+  CmuxViewerNavigation.installManualInputReset({
+    target: document,
+    getScroller: markdownScroller
+  });
 })();
 </script>
 </body>

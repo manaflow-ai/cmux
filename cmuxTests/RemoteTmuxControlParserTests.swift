@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 import Testing
 
@@ -411,6 +412,10 @@ import Testing
     @Test func rejectsSingleChildSplit() {
         // A split must have at least two children; one child is malformed.
         #expect(RemoteTmuxRawLayoutParser.parse("abcd,60x40,0,0{60x40,0,0,4}") == nil)
+    }
+
+    @Test func rejectsDuplicatePaneIDs() {
+        #expect(RemoteTmuxRawLayoutParser.parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,4}") == nil)
     }
 
     @Test func rejectsGarbageLayout() {

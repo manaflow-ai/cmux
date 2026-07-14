@@ -15,6 +15,7 @@ mod keys;
 mod plugin_manager;
 mod pty_input;
 mod session;
+mod sidebar_files;
 mod ui;
 
 use std::path::PathBuf;
@@ -62,26 +63,32 @@ OPTIONS:
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
   --headless         Run only the control socket, no TUI.
+  --ws <addr>        Also listen for WebSocket clients (default: off).
+  --ws-token <token> Require an auth preamble on WebSocket connections.
+  --ws-insecure-bind Allow a non-loopback WebSocket bind (no TLS; use a proxy).
   --term <value>     TERM for child shells (default: xterm-256color).
   -h, --help         Show this help.
   -V, --version      Print the cmux-tui version.
 
 KEYS (prefix: Ctrl-b)
-  c  new tab in pane   B    new browser tab    n/p  next/prev tab
-  1-9  select tab
-  %  split right       \"  split down          x    close tab
-  ,  rename pane       $    rename workspace
-  Tab  next screen     S    new screen
+  t  new tab in pane   B    new browser tab    Tab/BackTab  next/prev tab
+  1-9  select screen
+  %  split right       \"  split down          x/X  close pane/tab
+  ,  rename screen     $    rename workspace   c    new screen
+  n/p  next/prev screen
   h/j/k/l or arrows    move focus              d    quit (attach: detach)
   w  next workspace    W    new workspace       s    toggle sidebar
+  e  toggle sidebar view                       S    focus sidebar
   <  browser back      >    browser forward     r/u  browser reload/edit URL
   Ctrl-b  send a literal Ctrl-b
 
 MOUSE
   Mouse-aware PTYs receive clicks, motion, and wheel events. Hold Shift
-  to select text or open the cmux pane menu. Click tab-bar entries to
-  switch tabs (+ for a new tab), and status-bar screen entries to switch
-  screens (+ for a new screen).
+  to select text or open the cmux pane menu. Right-click a pane for
+  rename/new tab/split/close; right-click a
+  workspace-sidebar row or a status-bar screen for rename/close. Click
+  tab-bar entries to switch tabs (+ for a new tab), and status-bar
+  screen entries to switch screens (+ for a new screen).
 
 CLI VERBS
   identify, ping, reload-config, set-window-title, clear-window-title,
@@ -111,6 +118,9 @@ struct Args {
     session: String,
     socket: Option<PathBuf>,
     headless: bool,
+    ws: Option<String>,
+    ws_token: Option<String>,
+    ws_insecure_bind: bool,
     term: Option<String>,
 }
 
@@ -120,6 +130,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
         session: "main".to_string(),
         socket: None,
         headless: false,
+        ws: None,
+        ws_token: None,
+        ws_insecure_bind: false,
         term: None,
     };
     let mut args = args.into_iter().peekable();
@@ -138,6 +151,14 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
                 );
             }
             "--headless" => out.headless = true,
+            "--ws" => {
+                out.ws = Some(args.next().unwrap_or_else(|| usage_exit("--ws needs a value")));
+            }
+            "--ws-token" => {
+                out.ws_token =
+                    Some(args.next().unwrap_or_else(|| usage_exit("--ws-token needs a value")));
+            }
+            "--ws-insecure-bind" => out.ws_insecure_bind = true,
             "--term" => {
                 out.term = Some(args.next().unwrap_or_else(|| usage_exit("--term needs a value")));
             }
@@ -192,6 +213,8 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
 fn run_server(args: Args) -> anyhow::Result<()> {
     let mut surface_options = SurfaceOptions::default();
     let config = config::load();
+    let ws_addr = args.ws.or(config.server.ws.clone());
+    let ws_token = args.ws_token.or(config.server.ws_token.clone());
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     if let Some(term) = args.term {
         surface_options.term = term;
@@ -204,6 +227,23 @@ fn run_server(args: Args) -> anyhow::Result<()> {
 
     let mux = Mux::new(args.session.clone(), surface_options);
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+    let websocket_server = match ws_addr {
+        Some(addr) => {
+            let addr = addr
+                .parse()
+                .map_err(|error| anyhow::anyhow!("invalid WebSocket address {addr:?}: {error}"))?;
+            Some(cmux_tui_core::server::serve_websocket(
+                mux.clone(),
+                addr,
+                ws_token,
+                args.ws_insecure_bind,
+            )?)
+        }
+        None => None,
+    };
+    if let Some(server) = &websocket_server {
+        eprintln!("cmux-tui: WebSocket control at ws://{}", server.local_addr());
+    }
     cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
 
     let result = if args.headless {
@@ -211,6 +251,7 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     } else {
         run_tui(Session::Local(mux.clone()), args.session)
     };
+    drop(websocket_server);
     mux.shutdown();
     cmux_tui_core::server::cleanup(&socket_path);
     result

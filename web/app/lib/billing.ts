@@ -41,6 +41,20 @@ export function isAppStoreDistributionMode(params: {
   return firstSearchParam(params.cmux_ios_app_store) === "1";
 }
 
+export function appStorePricingUnavailableURL(requestUrl: URL): URL {
+  const redirectURL = new URL("/app-pricing", requestUrl);
+  redirectURL.searchParams.set("cmux_app", "1");
+  redirectURL.searchParams.set("cmux_distribution", "appstore");
+  redirectURL.searchParams.set("billing", "unavailable");
+
+  for (const key of ["appearance", "background"]) {
+    const value = requestUrl.searchParams.get(key);
+    if (value) redirectURL.searchParams.set(key, value);
+  }
+
+  return redirectURL;
+}
+
 function withSearchParam(href: string, name: string, value: string): string {
   const [withoutHash, hash] = href.split("#", 2);
   const separator = withoutHash.includes("?") ? "&" : "?";

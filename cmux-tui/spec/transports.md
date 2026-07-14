@@ -1,6 +1,6 @@
 # Transport Contract
 
-The command schema is transport-independent. Protocol v5 implements a Unix domain socket JSON-lines transport. Proposed protocol v8 adds HTTP, SSE, and WebSocket transports that preserve the same command and event payloads.
+The command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. HTTP and SSE remain proposals.
 
 ## Unix Socket
 
@@ -67,18 +67,57 @@ When binding, the server creates the runtime directory if needed, refuses to clo
 
 Access to the Unix socket is equivalent to access to the mux session. A client can type into PTYs, read screens, close surfaces, and change focus. Hosts must keep the runtime directory private.
 
-### Optional Socket Token
+The Unix socket does not use the WebSocket auth preamble. Its filesystem permissions remain the access boundary.
 
-Protocol v8 may add an optional token to the socket transport for parity with HTTP. Filesystem permissions remain the primary protection. The exact framing is deferred until that implementation.
+## WebSocket
 
-A compatible deferred design is an initial auth line before any command:
+| Field | Value |
+| --- | --- |
+| status | implemented |
+| since | protocol 6 |
+
+WebSocket is opt-in and can run alongside either the local TUI or `--headless`:
 
 ```text
-{"auth":"<token>"}
-{"ok":true}
+cmux-tui --ws 127.0.0.1:7681
+cmux-tui --headless --ws 127.0.0.1:7681
 ```
 
-If auth fails, the server responds with `{"ok":false,"error":"invalid token"}` and closes the connection. The Unix socket transport must not use the HTTP `Authorization` header because its framing is JSON-lines, not HTTP.
+The equivalent config is:
+
+```json
+{"server":{"ws":"127.0.0.1:7681"}}
+```
+
+`server.ws` and the `--ws` value are socket addresses (`IP:port`, with brackets around IPv6). The command-line flag takes precedence over config. WebSocket is disabled when neither is set.
+
+### Framing
+
+Each client request is one UTF-8 JSON object in one WebSocket text frame. Each response or event is one complete JSON object in one WebSocket text frame. Do not append a newline. Responses and events may be interleaved after `subscribe` or `attach-surface`, exactly as on the Unix socket. The request/response envelopes, command names, event payloads, protocol version, attach ordering, and base64 encoding are unchanged.
+
+Binary frames are not protocol messages and cause the connection to close. The server accepts a normal WebSocket upgrade on any request path and does not require a WebSocket subprotocol.
+
+This framing exactly matches the TypeScript SDK's `WebSocketTransport`: `send(json)` sends that string as one text frame, and every received text frame is delivered as one complete JSON message.
+
+### Authentication Preamble
+
+Authentication is optional. Set it with `--ws-token <token>` or `server.ws_token`; the command-line flag takes precedence over config:
+
+```json
+{"server":{"ws":"127.0.0.1:7681","ws_token":"replace-with-a-secret"}}
+```
+
+When a token is configured, the first WebSocket frame must be this transport-level preamble:
+
+```json
+{"auth":{"token":"replace-with-a-secret"}}
+```
+
+The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, or incorrect preamble closes the connection with WebSocket policy code `1008` before dispatch. When no token is configured, the first text frame is a normal protocol request.
+
+### Bind Security
+
+By default the listener accepts only an IP loopback address such as `127.0.0.1` or `[::1]`. cmux-tui refuses a non-loopback address unless `--ws-insecure-bind` is also present. This listener provides no TLS; for remote access, bind deliberately and place it behind a TLS-terminating, authenticated reverse proxy. A WebSocket client has the same authority as a Unix socket client: it can read terminal contents, type into PTYs, and mutate or close the session.
 
 ## HTTP
 

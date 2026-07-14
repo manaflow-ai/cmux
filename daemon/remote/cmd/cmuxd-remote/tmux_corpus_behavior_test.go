@@ -17,18 +17,42 @@ type tmuxCorpusRPCRequest struct {
 }
 
 type tmuxCorpusRPCRecorder struct {
-	socketPath string
-	mu         sync.Mutex
-	requests   []tmuxCorpusRPCRequest
-	workspaces []map[string]any
-	readText   string
+	socketPath            string
+	mu                    sync.Mutex
+	requests              []tmuxCorpusRPCRequest
+	workspaces            []map[string]any
+	readText              string
+	includePaneMetrics    bool
+	includePointMetrics   bool
+	includeContainerFrame bool
 }
 
 func startTmuxCorpusRPCRecorder(t *testing.T) *tmuxCorpusRPCRecorder {
+	return startTmuxCorpusRPCRecorderWithMetricAvailability(t, true, true, true)
+}
+
+func startTmuxCorpusRPCRecorderWithPaneMetrics(t *testing.T, includePaneMetrics bool) *tmuxCorpusRPCRecorder {
+	return startTmuxCorpusRPCRecorderWithMetricAvailability(
+		t,
+		includePaneMetrics,
+		includePaneMetrics,
+		includePaneMetrics,
+	)
+}
+
+func startTmuxCorpusRPCRecorderWithMetricAvailability(
+	t *testing.T,
+	includePaneMetrics bool,
+	includePointMetrics bool,
+	includeContainerFrame bool,
+) *tmuxCorpusRPCRecorder {
 	t.Helper()
 
 	recorder := &tmuxCorpusRPCRecorder{
-		socketPath: makeShortUnixSocketPath(t),
+		socketPath:            makeShortUnixSocketPath(t),
+		includePaneMetrics:    includePaneMetrics,
+		includePointMetrics:   includePointMetrics,
+		includeContainerFrame: includeContainerFrame,
 		workspaces: []map[string]any{{
 			"id":    "11111111-1111-4111-8111-111111111111",
 			"ref":   "workspace:1",
@@ -131,15 +155,28 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 	case "surface.send_text":
 		resp["result"] = map[string]any{"ok": true}
 	case "pane.list":
-		resp["result"] = map[string]any{"panes": []map[string]any{{
-			"id":            "33333333-3333-4333-8333-333333333333",
-			"ref":           "pane:1",
-			"index":         1,
-			"focused":       true,
-			"columns":       80,
-			"rows":          24,
-			"cell_width_px": 8,
-		}}}
+		pane := map[string]any{
+			"id":      "33333333-3333-4333-8333-333333333333",
+			"ref":     "pane:1",
+			"index":   1,
+			"focused": true,
+			"columns": 80,
+			"rows":    24,
+		}
+		result := map[string]any{"panes": []map[string]any{pane}}
+		if r.includePaneMetrics {
+			pane["cell_width_px"] = 8
+			pane["cell_height_px"] = 16
+			if r.includePointMetrics {
+				pane["cell_width_points"] = 4
+				pane["cell_height_points"] = 8
+			}
+			pane["pixel_frame"] = map[string]any{"x": 0, "y": 0, "width": 332, "height": 222}
+			if r.includeContainerFrame {
+				result["container_frame"] = map[string]any{"width": 640, "height": 384}
+			}
+		}
+		resp["result"] = result
 	case "pane.surfaces":
 		resp["result"] = map[string]any{"surfaces": []map[string]any{{
 			"id":       "44444444-4444-4444-8444-444444444444",
@@ -423,25 +460,175 @@ func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T
 	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "100"}); err != nil {
 		t.Fatalf("resize-pane absolute width: %v", err)
 	}
-	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-L", "-x", "7"}); err != nil {
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "50%"}); err != nil {
+		t.Fatalf("resize-pane percentage width: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-y", "20"}); err != nil {
+		t.Fatalf("resize-pane compatibility height no-op: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-L", "7"}); err != nil {
 		t.Fatalf("resize-pane directional: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-R"}); err != nil {
+		t.Fatalf("resize-pane default directional: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-L7"}); err != nil {
+		t.Fatalf("resize-pane attached directional: %v", err)
 	}
 
 	resizeRequests := recorder.requestsFor("pane.resize")
-	if len(resizeRequests) != 2 {
-		t.Fatalf("pane.resize requests = %d, want 2", len(resizeRequests))
+	if len(resizeRequests) != 5 {
+		t.Fatalf("pane.resize requests = %d, want 5", len(resizeRequests))
 	}
-	if got := resizeRequests[0].Params["direction"]; got != "right" {
-		t.Fatalf("absolute resize direction = %v, want right", got)
+	if got := resizeRequests[0].Params["absolute_axis"]; got != "horizontal" {
+		t.Fatalf("absolute resize axis = %v, want horizontal", got)
 	}
-	if got := asInt(t, resizeRequests[0].Params["amount"], "absolute resize amount"); got != 160 {
-		t.Fatalf("absolute resize amount = %v, want 160", got)
+	if got := asInt(t, resizeRequests[0].Params["target_pixels"], "absolute resize pixels"); got != 412 {
+		t.Fatalf("absolute resize pixels = %v, want 412", got)
 	}
-	if got := resizeRequests[1].Params["direction"]; got != "left" {
+	if got := asInt(t, resizeRequests[0].Params["target_cells"], "absolute resize cells"); got != 100 {
+		t.Fatalf("absolute resize cells = %v, want 100", got)
+	}
+	if got := resizeRequests[0].Params["tmux_compat"]; got != true {
+		t.Fatalf("absolute resize tmux_compat = %v, want true", got)
+	}
+	if got := resizeRequests[1].Params["absolute_axis"]; got != "horizontal" {
+		t.Fatalf("percentage resize axis = %v, want horizontal", got)
+	}
+	if got := asInt(t, resizeRequests[1].Params["target_percentage"], "percentage resize target"); got != 50 {
+		t.Fatalf("percentage resize target = %v, want 50", got)
+	}
+	if got := asInt(t, resizeRequests[1].Params["target_pixels"], "percentage resize pixels"); got != 320 {
+		t.Fatalf("percentage resize pixels = %v, want 320", got)
+	}
+	if _, ok := resizeRequests[1].Params["target_cells"]; ok {
+		t.Fatalf("percentage resize unexpectedly sent target_cells")
+	}
+	if got := resizeRequests[2].Params["direction"]; got != "left" {
 		t.Fatalf("directional resize direction = %v, want left", got)
 	}
-	if got := asInt(t, resizeRequests[1].Params["amount"], "directional resize amount"); got != 7 {
-		t.Fatalf("directional resize amount = %v, want 7", got)
+	if got := asInt(t, resizeRequests[2].Params["amount"], "directional resize amount"); got != 28 {
+		t.Fatalf("directional resize amount = %v, want 28", got)
+	}
+	if got := asInt(t, resizeRequests[2].Params["amount_cells"], "directional resize cells"); got != 7 {
+		t.Fatalf("directional resize cells = %v, want 7", got)
+	}
+	if got := resizeRequests[2].Params["tmux_compat"]; got != true {
+		t.Fatalf("directional resize tmux_compat = %v, want true", got)
+	}
+	if got := resizeRequests[3].Params["direction"]; got != "right" {
+		t.Fatalf("default directional resize direction = %v, want right", got)
+	}
+	if got := asInt(t, resizeRequests[3].Params["amount_cells"], "default directional resize cells"); got != 1 {
+		t.Fatalf("default directional resize cells = %v, want 1", got)
+	}
+	if got := asInt(t, resizeRequests[3].Params["amount"], "default directional resize amount"); got != 4 {
+		t.Fatalf("default directional resize amount = %v, want 4", got)
+	}
+	if got := resizeRequests[4].Params["direction"]; got != "left" {
+		t.Fatalf("attached directional resize direction = %v, want left", got)
+	}
+	if got := asInt(t, resizeRequests[4].Params["amount_cells"], "attached directional resize cells"); got != 7 {
+		t.Fatalf("attached directional resize cells = %v, want 7", got)
+	}
+	if got := asInt(t, resizeRequests[4].Params["amount"], "attached directional resize amount"); got != 28 {
+		t.Fatalf("attached directional resize amount = %v, want 28", got)
+	}
+}
+
+func TestTmuxCorpusExactAbsoluteResizeDoesNotRequirePaneMetrics(t *testing.T) {
+	recorder := startTmuxCorpusRPCRecorderWithPaneMetrics(t, false)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "3"}); err != nil {
+		t.Fatalf("resize-pane cells without metrics: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "50%"}); err != nil {
+		t.Fatalf("resize-pane percentage without metrics: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-L7"}); err != nil {
+		t.Fatalf("resize-pane relative without metrics: %v", err)
+	}
+
+	requests := recorder.requestsFor("pane.resize")
+	if len(requests) != 3 {
+		t.Fatalf("pane.resize requests = %d, want 3", len(requests))
+	}
+	if got := asInt(t, requests[0].Params["target_cells"], "cell target"); got != 3 {
+		t.Fatalf("target_cells = %v, want 3", got)
+	}
+	if _, ok := requests[0].Params["target_pixels"]; ok {
+		t.Fatalf("cell resize unexpectedly sent target_pixels")
+	}
+	if got := asInt(t, requests[1].Params["target_percentage"], "percentage target"); got != 50 {
+		t.Fatalf("target_percentage = %v, want 50", got)
+	}
+	if _, ok := requests[1].Params["target_pixels"]; ok {
+		t.Fatalf("percentage resize unexpectedly sent target_pixels")
+	}
+	if got := asInt(t, requests[2].Params["amount_cells"], "relative cells"); got != 7 {
+		t.Fatalf("amount_cells = %v, want 7", got)
+	}
+	if _, ok := requests[2].Params["amount"]; ok {
+		t.Fatalf("relative resize unexpectedly sent amount")
+	}
+}
+
+func TestTmuxCorpusPixelMetricsDoNotBecomePointFallbacks(t *testing.T) {
+	recorder := startTmuxCorpusRPCRecorderWithMetricAvailability(t, true, false, true)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "3"}); err != nil {
+		t.Fatalf("resize-pane cells with pixel-only metrics: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "50%"}); err != nil {
+		t.Fatalf("resize-pane percentage with pixel-only metrics: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-L7"}); err != nil {
+		t.Fatalf("resize-pane relative with pixel-only metrics: %v", err)
+	}
+
+	requests := recorder.requestsFor("pane.resize")
+	if len(requests) != 3 {
+		t.Fatalf("pane.resize requests = %d, want 3", len(requests))
+	}
+	if got := asInt(t, requests[0].Params["target_cells"], "cell target"); got != 3 {
+		t.Fatalf("target_cells = %v, want 3", got)
+	}
+	if _, ok := requests[0].Params["target_pixels"]; ok {
+		t.Fatalf("cell resize used pixel metrics as point fallback")
+	}
+	if got := asInt(t, requests[1].Params["target_percentage"], "percentage target"); got != 50 {
+		t.Fatalf("target_percentage = %v, want 50", got)
+	}
+	if got := asInt(t, requests[1].Params["target_pixels"], "percentage points"); got != 320 {
+		t.Fatalf("target_pixels = %v, want 320", got)
+	}
+	if got := asInt(t, requests[2].Params["amount_cells"], "relative cells"); got != 7 {
+		t.Fatalf("amount_cells = %v, want 7", got)
+	}
+	if _, ok := requests[2].Params["amount"]; ok {
+		t.Fatalf("relative resize used pixel metrics as point fallback")
+	}
+}
+
+func TestTmuxCorpusPercentageWithoutContainerFrameOmitsPointFallback(t *testing.T) {
+	recorder := startTmuxCorpusRPCRecorderWithMetricAvailability(t, true, true, false)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "50%"}); err != nil {
+		t.Fatalf("resize-pane percentage without container frame: %v", err)
+	}
+
+	requests := recorder.requestsFor("pane.resize")
+	if len(requests) != 1 {
+		t.Fatalf("pane.resize requests = %d, want 1", len(requests))
+	}
+	if got := asInt(t, requests[0].Params["target_percentage"], "percentage target"); got != 50 {
+		t.Fatalf("target_percentage = %v, want 50", got)
+	}
+	if _, ok := requests[0].Params["target_pixels"]; ok {
+		t.Fatalf("percentage resize without container frame sent target_pixels")
 	}
 }
 

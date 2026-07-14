@@ -1,9 +1,9 @@
-//! Control socket: a JSON-lines protocol over the platform transport.
+//! Control protocol server over Unix JSON-lines and WebSocket text frames.
 //!
 //! This is the attach surface for external frontends (the cmux app, the
-//! bundled `cmux-tui attach` client, scripts). One JSON request per line;
-//! every request gets one JSON response line. Two commands additionally
-//! turn the connection full-duplex:
+//! bundled `cmux-tui attach` client, scripts). Unix uses one JSON message
+//! per line and WebSocket uses one JSON message per text frame. Two commands
+//! additionally turn the connection full-duplex:
 //!
 //! - `subscribe` — the server pushes `{"event":...}` lines (tree-changed,
 //!   surface-output, surface-exited, title-changed, bell) interleaved
@@ -20,8 +20,12 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -29,6 +33,9 @@ use ghostty_vt::{KeyEncoder, key_input_from_chord};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tungstenite::protocol::CloseFrame;
+use tungstenite::protocol::frame::coding::CloseCode;
+use tungstenite::{Error as WebSocketError, Message, accept};
 
 use crate::model::{Screen, State};
 use crate::platform::{self, transport};
@@ -409,18 +416,67 @@ struct Response {
     error: Option<String>,
 }
 
-/// Line-oriented shared writer: responses and event streams interleave
-/// whole lines.
-#[derive(Clone)]
-struct LineWriter(Arc<Mutex<Box<dyn transport::Stream>>>);
+const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
 
-impl LineWriter {
+trait MessageSink: Send + Sync {
+    fn send(&self, value: &Value) -> std::io::Result<()>;
+    fn close(&self);
+}
+
+/// Transport-independent writer shared by command responses and event streams.
+#[derive(Clone)]
+struct MessageWriter {
+    sink: Arc<dyn MessageSink>,
+    open: Arc<AtomicBool>,
+}
+
+impl MessageWriter {
+    fn new(sink: impl MessageSink + 'static) -> Self {
+        Self { sink: Arc::new(sink), open: Arc::new(AtomicBool::new(true)) }
+    }
+
+    fn send(&self, value: &Value) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        self.sink.send(value)
+    }
+
+    fn is_open(&self) -> bool {
+        self.open.load(Ordering::Acquire)
+    }
+
+    fn close(&self) {
+        if self.open.swap(false, Ordering::AcqRel) {
+            self.sink.close();
+        }
+    }
+}
+
+struct LineSink(Arc<Mutex<Box<dyn transport::Stream>>>);
+
+impl MessageSink for LineSink {
     fn send(&self, value: &Value) -> std::io::Result<()> {
         let mut bytes = serde_json::to_vec(value)?;
         bytes.push(b'\n');
         let mut stream = self.0.lock().unwrap();
         stream.write_all(&bytes)
     }
+
+    fn close(&self) {}
+}
+
+struct WebSocketSink(Sender<String>);
+
+impl MessageSink for WebSocketSink {
+    fn send(&self, value: &Value) -> std::io::Result<()> {
+        let text = serde_json::to_string(value)?;
+        self.0.send(text).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::BrokenPipe, "WebSocket connection closed")
+        })
+    }
+
+    fn close(&self) {}
 }
 
 /// Bind the socket and serve connections on background threads.
@@ -455,6 +511,85 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     Ok(path)
 }
 
+/// A running opt-in WebSocket listener. Dropping it stops accepts and closes clients.
+pub struct WebSocketServer {
+    local_addr: SocketAddr,
+    shutdown: Arc<AtomicBool>,
+    connections: Arc<Mutex<HashMap<u64, TcpStream>>>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl WebSocketServer {
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
+    }
+}
+
+impl Drop for WebSocketServer {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Release);
+        for stream in self.connections.lock().unwrap().values() {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+        let _ = TcpStream::connect(self.local_addr);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Bind an opt-in WebSocket listener using one JSON message per text frame.
+pub fn serve_websocket(
+    mux: Arc<Mux>,
+    addr: SocketAddr,
+    token: Option<String>,
+    allow_insecure_bind: bool,
+) -> anyhow::Result<WebSocketServer> {
+    // WebSocket has no TLS here. Remote deployments must explicitly opt in and
+    // should put cmux-tui behind a TLS-terminating reverse proxy.
+    if !addr.ip().is_loopback() && !allow_insecure_bind {
+        anyhow::bail!("refusing non-loopback WebSocket bind {addr} without --ws-insecure-bind");
+    }
+    let listener = TcpListener::bind(addr)?;
+    let local_addr = listener.local_addr()?;
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let connections = Arc::new(Mutex::new(HashMap::new()));
+    let next_connection = Arc::new(AtomicU64::new(1));
+    let thread_shutdown = shutdown.clone();
+    let thread_connections = connections.clone();
+    let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
+        while !thread_shutdown.load(Ordering::Acquire) {
+            let stream = match listener.accept() {
+                Ok((stream, _)) => stream,
+                Err(_) => {
+                    if thread_shutdown.load(Ordering::Acquire) {
+                        break;
+                    }
+                    // Accept errors can persist (for example, after resource exhaustion).
+                    // A short backoff prevents a hot retry loop while still recovering promptly.
+                    std::thread::sleep(STREAM_DISCONNECT_POLL);
+                    continue;
+                }
+            };
+            if thread_shutdown.load(Ordering::Acquire) {
+                break;
+            }
+            let id = next_connection.fetch_add(1, Ordering::Relaxed);
+            if let Ok(tracked) = stream.try_clone() {
+                thread_connections.lock().unwrap().insert(id, tracked);
+            }
+            let mux = mux.clone();
+            let token = token.clone();
+            let connections = thread_connections.clone();
+            let _ = std::thread::Builder::new().name("mux-ws-conn".into()).spawn(move || {
+                handle_websocket_connection(mux, stream, token.as_deref());
+                connections.lock().unwrap().remove(&id);
+            });
+        }
+    })?;
+    Ok(WebSocketServer { local_addr, shutdown, connections, thread: Some(thread) })
+}
+
 pub fn window_title_osc(title: &str) -> Vec<u8> {
     let title = sanitize_window_title(title);
     format!("\x1b]0;{title}\x07\x1b]2;{title}\x07").into_bytes()
@@ -472,33 +607,113 @@ fn sanitize_window_title(title: &str) -> String {
 
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     let Ok(write_half) = stream.try_clone_box() else { return };
-    let writer = LineWriter(Arc::new(Mutex::new(write_half)));
+    let writer = MessageWriter::new(LineSink(Arc::new(Mutex::new(write_half))));
     let reader = BufReader::new(stream);
     for line in reader.lines() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
             continue;
         }
-        let response = match serde_json::from_str::<Request>(&line) {
-            Ok(req) => {
-                let id = req.id.clone();
-                match handle_command(&mux, req.cmd, &writer) {
-                    Ok(data) => Response { id, ok: true, data: Some(data), error: None },
-                    Err(e) => Response { id, ok: false, data: None, error: Some(e.to_string()) },
-                }
-            }
-            Err(e) => Response {
-                id: None,
-                ok: false,
-                data: None,
-                error: Some(format!("bad request: {e}")),
-            },
-        };
-        let Ok(value) = serde_json::to_value(&response) else { break };
-        if writer.send(&value).is_err() {
+        if !handle_message(&mux, &line, &writer) {
             break;
         }
     }
+    writer.close();
+}
+
+fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&str>) {
+    let Ok(mut websocket) = accept(stream) else { return };
+
+    if let Some(expected) = token {
+        let authenticated = match websocket.read() {
+            Ok(Message::Text(text)) => auth_token(&text)
+                .is_some_and(|provided| constant_time_eq(provided.as_bytes(), expected.as_bytes())),
+            _ => false,
+        };
+        if !authenticated {
+            let frame =
+                CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
+            let _ = websocket.close(Some(frame));
+            return;
+        }
+    }
+    let _ = websocket.get_mut().set_read_timeout(Some(STREAM_DISCONNECT_POLL));
+    let (outbound_tx, outbound_rx) = channel();
+    let writer = MessageWriter::new(WebSocketSink(outbound_tx));
+
+    'connection: while writer.is_open() {
+        loop {
+            match outbound_rx.try_recv() {
+                Ok(text) => {
+                    if websocket.send(Message::Text(text.into())).is_err() {
+                        break 'connection;
+                    }
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => break 'connection,
+            }
+        }
+
+        match websocket.read() {
+            Ok(Message::Text(text)) => {
+                if !handle_message(&mux, &text, &writer) {
+                    break;
+                }
+            }
+            Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
+                let _ = websocket.flush();
+            }
+            Ok(Message::Close(_)) => break,
+            Ok(_) => break,
+            Err(WebSocketError::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => break,
+        }
+    }
+    writer.close();
+    let _ = websocket.close(None);
+}
+
+fn handle_message(mux: &Arc<Mux>, message: &str, writer: &MessageWriter) -> bool {
+    let response = match serde_json::from_str::<Request>(message) {
+        Ok(req) => {
+            let id = req.id.clone();
+            match handle_command(mux, req.cmd, writer) {
+                Ok(data) => Response { id, ok: true, data: Some(data), error: None },
+                Err(e) => Response { id, ok: false, data: None, error: Some(e.to_string()) },
+            }
+        }
+        Err(e) => {
+            Response { id: None, ok: false, data: None, error: Some(format!("bad request: {e}")) }
+        }
+    };
+    serde_json::to_value(&response).is_ok_and(|value| writer.send(&value).is_ok())
+}
+
+fn auth_token(message: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(message).ok()?;
+    let object = value.as_object()?;
+    if object.len() != 1 {
+        return None;
+    }
+    let auth = object.get("auth")?.as_object()?;
+    if auth.len() != 1 {
+        return None;
+    }
+    auth.get("token")?.as_str().map(str::to_string)
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    let mut difference = a.len() ^ b.len();
+    let length = a.len().max(b.len());
+    for index in 0..length {
+        difference |=
+            usize::from(a.get(index).copied().unwrap_or(0) ^ b.get(index).copied().unwrap_or(0));
+    }
+    difference == 0
 }
 
 fn node_json(node: &Node) -> Value {
@@ -833,15 +1048,15 @@ fn browser_state_json(
 fn spawn_attach_notification_stream(
     mux: Arc<Mux>,
     surface_id: SurfaceId,
-    writer: LineWriter,
+    writer: MessageWriter,
     lifecycle: AttachLifecycle,
 ) -> std::io::Result<()> {
     let events = mux.subscribe();
     std::thread::Builder::new()
         .name("mux-attach-notifications".into())
         .spawn(move || {
-            while !lifecycle.is_canceled() {
-                let event = match events.recv_timeout(Duration::from_millis(100)) {
+            while writer.is_open() && !lifecycle.is_canceled() {
+                let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
                     Ok(event) => event,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
@@ -884,7 +1099,11 @@ fn spawn_attach_notification_stream(
         .map(|_| ())
 }
 
-fn report_attach_overflow(writer: &LineWriter, surface_id: SurfaceId, lifecycle: &AttachLifecycle) {
+fn report_attach_overflow(
+    writer: &MessageWriter,
+    surface_id: SurfaceId,
+    lifecycle: &AttachLifecycle,
+) {
     if lifecycle.claim_overflow_report() {
         let _ = writer.send(&json!({
             "event": "overflow",
@@ -895,7 +1114,7 @@ fn report_attach_overflow(writer: &LineWriter, surface_id: SurfaceId, lifecycle:
     }
 }
 
-fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::Result<Value> {
+fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => Ok(json!({
             "app": "cmux-tui",
@@ -1390,7 +1609,12 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             let events = mux.subscribe();
             let writer = writer.clone();
             std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
-                while let Ok(event) = events.recv() {
+                while writer.is_open() {
+                    let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
+                        Ok(event) => event,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    };
                     let value = subscribed_event_json(&event);
                     if writer.send(&value).is_err() {
                         break;
@@ -1425,14 +1649,16 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                 }
                 let writer = writer.clone();
                 std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                    while !lifecycle.is_canceled() {
-                        match frames.notify.recv_timeout(Duration::from_millis(100)) {
+                    while writer.is_open() && !lifecycle.is_canceled() {
+                        match frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
                             Ok(()) => {}
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                                 lifecycle.cancel();
-                                let _ = writer
-                                    .send(&json!({"event": "detached", "surface": surface_id}));
+                                if writer.is_open() {
+                                    let _ = writer
+                                        .send(&json!({"event": "detached", "surface": surface_id}));
+                                }
                                 return;
                             }
                         }
@@ -1481,14 +1707,16 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             }
             let writer = writer.clone();
             std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                while !attach.lifecycle.is_canceled() {
-                    let frame = match attach.stream.recv_timeout(Duration::from_millis(100)) {
+                while writer.is_open() && !attach.lifecycle.is_canceled() {
+                    let frame = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
                         Ok(frame) => frame,
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                             attach.lifecycle.cancel();
-                            let _ =
-                                writer.send(&json!({"event": "detached", "surface": surface_id}));
+                            if writer.is_open() {
+                                let _ = writer
+                                    .send(&json!({"event": "detached", "surface": surface_id}));
+                            }
                             return;
                         }
                     };
@@ -1609,8 +1837,10 @@ mod tests {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
-    fn test_writer() -> LineWriter {
-        LineWriter(Arc::new(Mutex::new(Box::new(NullStream) as Box<dyn transport::Stream>)))
+    fn test_writer() -> MessageWriter {
+        MessageWriter::new(LineSink(Arc::new(Mutex::new(
+            Box::new(NullStream) as Box<dyn transport::Stream>
+        ))))
     }
 
     #[test]

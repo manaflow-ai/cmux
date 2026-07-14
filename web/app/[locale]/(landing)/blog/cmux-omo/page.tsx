@@ -1,31 +1,34 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { blogPostSeoCopy } from "@/i18n/audited-seo";
+import { englishFallbackContentLocales } from "@/i18n/locale-availability";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.cmuxOmo" });
+  const post = await getTranslations({ locale, namespace: "blog.posts.cmuxOmo" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
+  const alternates = buildAlternates(
+    locale,
+    "/blog/cmux-omo",
+    englishFallbackContentLocales,
+  );
+  const { title, description } = blogPostSeoCopy(locale, "cmuxOmo", t, post, siteMeta);
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    keywords: [
-      "cmux", "OpenCode", "oh-my-opencode", "oh-my-openagent", "tmux",
-      "terminal", "macOS", "AI coding agents", "multi-model",
-    ],
+    title: { absolute: title },
+    description,
     openGraph: {
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-      type: "article",
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
       publishedTime: "2026-03-30T00:00:00Z",
     },
-    twitter: {
-      card: "summary_large_image",
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-    },
-    alternates: buildAlternates(locale, "/blog/cmux-omo"),
+    twitter: twitterSummary(locale, title, description),
+    alternates,
   };
 }
 
@@ -35,7 +38,7 @@ export default function CmuxOmoPage() {
 
   return (
     <>
-      <BlogSchema postKey="cmuxOmo" path="/blog/cmux-omo" datePublished="2026-03-30T00:00:00Z" />
+      <BlogSchema postKey="cmuxOmo" seoKey="cmuxOmo" path="/blog/cmux-omo" datePublished="2026-03-30T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"

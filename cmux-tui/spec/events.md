@@ -10,11 +10,11 @@ Implemented event lines can appear on two stream types:
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `scroll-changed`, `detached`, `overflow` |
 
-Events and command responses share one JSON-lines connection. Clients must route lines by checking for `event`. If `event` is absent, the line is a command response and should be matched by `id`.
+Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
 ## Ordering Guarantees
 
-The socket writes each response or event as one complete JSON line. Lines are not interleaved at the byte level.
+The server writes each response or event as one complete transport message. JSON lines and WebSocket text frames are not interleaved at the byte level.
 
 For a single subscription, ordinary events are delivered in the order the mux broadcasts them. The server does not create a total order across unrelated producer threads beyond the order in which events enter the mux broadcaster.
 

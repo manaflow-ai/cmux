@@ -311,6 +311,39 @@ impl Session {
         }
     }
 
+    pub fn run_command(
+        &self,
+        argv: Vec<String>,
+        pane: Option<PaneId>,
+        cwd: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                mux.run_command_surface(argv, pane, false, cwd, None, size).map(|_| ())
+            }
+            Session::Remote(remote) => remote
+                .request(with_size(
+                    json!({"cmd": "run", "argv": argv, "pane": pane, "cwd": cwd}),
+                    size,
+                ))
+                .map(|_| ()),
+        }
+    }
+
+    pub fn surface_cwd(&self, surface: SurfaceId) -> Option<String> {
+        match self {
+            Session::Local(mux) => mux
+                .surface(surface)
+                .and_then(|surface| surface.pwd().or_else(|| surface.spawn_cwd())),
+            Session::Remote(remote) => {
+                remote.request(json!({"cmd": "process-info", "surface": surface})).ok().and_then(
+                    |data| data.get("cwd").and_then(serde_json::Value::as_str).map(str::to_owned),
+                )
+            }
+        }
+    }
+
     pub fn new_browser_tab(
         &self,
         url: String,
