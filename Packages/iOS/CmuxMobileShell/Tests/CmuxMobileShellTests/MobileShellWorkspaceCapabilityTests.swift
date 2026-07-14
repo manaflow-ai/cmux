@@ -18,6 +18,7 @@ import Testing
         #expect(!oldMac.store.supportsWorkspaceMoveActions && !oldMac.store.supportsWorkspaceGroupActions)
         #expect(!oldMac.store.supportsWorkspaceCreateInGroup)
         #expect(!oldMac.store.supportsWorkspaceGroupCreate)
+        #expect(!oldMac.store.supportsWorkspaceChanges)
 
         let currentCapabilities = [
             "events.v1",
@@ -30,12 +31,14 @@ import Testing
             "workspace.group_actions.v1",
             "workspace.create_in_group.v1",
             "workspace.group_create.v1",
+            "workspace.changes.v1",
         ]
         let scoped = try await connectedStore(capabilities: currentCapabilities)
         #expect(scoped.store.supportsWorkspaceReadStateActions && scoped.store.supportsWorkspaceCloseActions)
         #expect(!scoped.store.supportsWorkspaceMoveActions && !scoped.store.supportsWorkspaceGroupActions)
         #expect(!scoped.store.supportsWorkspaceCreateInGroup)
         #expect(!scoped.store.supportsWorkspaceGroupCreate)
+        #expect(scoped.store.supportsWorkspaceChanges)
 
         let macWide = try await connectedStore(
             capabilities: currentCapabilities,
