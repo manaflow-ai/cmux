@@ -249,6 +249,20 @@ struct CmuxRunURLRequestTests {
         ) == .busy)
     }
 
+    @Test @MainActor func nonRunURLBatchesKeepTheirExistingRouteSpecificAdmission() {
+        let sshCounts = AppDelegate.CmuxExternalURLIntentCounts(
+            run: 0,
+            ssh: 2,
+            navigation: 0,
+            text: 0
+        )
+
+        #expect(AppDelegate.cmuxExternalURLAdmission(
+            intentCounts: sshCounts,
+            isRunBusy: false
+        ) == .route)
+    }
+
     @Test func resolvesAndCanonicalizesExistingDirectories() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let real = root.appendingPathComponent("real", isDirectory: true)
