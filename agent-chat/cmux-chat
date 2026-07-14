@@ -17,6 +17,11 @@ PORT="${CMUX_AGENT_UI_PORT:-7739}"
 BASE="http://127.0.0.1:${PORT}"
 BUN="${BUN_BIN:-$HOME/.bun/bin/bun}"
 
+if [ -n "${CMUX_AGENT_CHAT_STATE_FILE:-}" ]; then
+  cd "$HERE"
+  exec "$BUN" server.ts
+fi
+
 provider="claude" cwd="" open_mode="tab" auto_approve=true no_open=false
 prompt=()
 while [ $# -gt 0 ]; do

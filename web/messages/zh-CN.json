@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "你的个人方案",
+        "free": "免费",
+        "pro": "Pro",
+        "loading": "加载中…"
+      }
     }
   },
   "community": {
@@ -931,6 +939,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },
         "fileExplorer": {
@@ -1061,6 +1070,7 @@
       "title": "快捷键",
       "description": "cmux 中所有可用的快捷键，按类别分组。",
       "metaDescription": "cmux 的所有 macOS 快捷键，涵盖工作区、surface、分屏面板、浏览器、通知、查找和窗口管理。",
+      "metaDescriptionShort": "cmux 的所有 macOS 快捷键，涵盖工作区、surface、分屏面板、浏览器、通知、查找、可配置的键盘操作、搜索流程与窗口导航。",
       "searchPlaceholder": "搜索快捷键...",
       "searchLabel": "搜索键盘快捷键",
       "noResults": "未找到快捷键",
@@ -1514,6 +1524,7 @@
       "title": "TextBox（测试版）",
       "metaTitle": "TextBox（测试版）",
       "metaDescription": "为新的终端标签页、分屏和工作区配置 cmux 的测试版 TextBox 输入。",
+      "metaDescriptionShort": "TextBox 是 cmux 的富文本终端输入界面，可在发送到终端前编写和编辑提示，并支持多行输入、历史记录、键盘快捷键与可配置的终端集成。",
       "intro": "TextBox 是 cmux 的富文本终端输入界面，可在发送到终端前编写提示。",
       "betaCallout": "TextBox 是测试版功能。在测试期间，默认值和行为可能会变化。",
       "defaultsTitle": "默认值",
@@ -1527,7 +1538,8 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode：在 cmux 中运行 OpenCode 多 agent",
-      "metaDescription": "oh-my-opencode（cmux omo）在 cmux 中运行带 oh-my-openagent 插件的 OpenCode CLI。将 Claude、GPT、Gemini 和 Grok 作为并行 agent 编排，每个都在独立的原生 cmux 分屏中。"
+      "metaDescription": "oh-my-opencode（cmux omo）在 cmux 中运行带 oh-my-openagent 插件的 OpenCode CLI。将 Claude、GPT、Gemini 和 Grok 作为并行 agent 编排，每个都在独立的原生 cmux 分屏中。",
+      "metaDescriptionShort": "oh-my-opencode（cmux omo）在 cmux 中运行带 oh-my-openagent 插件的 OpenCode CLI。将 Claude、GPT、Gemini 和 Grok 作为并行 agent 编排，每个都在独立的原生 cmux 分屏中。"
     },
     "ios": {
       "metaTitle": "iOS 应用",

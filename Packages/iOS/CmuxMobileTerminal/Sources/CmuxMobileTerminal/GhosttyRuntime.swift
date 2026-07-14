@@ -155,14 +155,14 @@ public final class GhosttyRuntime {
             return try sharedResult.get()
         }
 
-        let result: Result<GhosttyRuntime, Error>
         do {
-            result = .success(try GhosttyRuntime())
+            let runtime = try GhosttyRuntime()
+            sharedResult = .success(runtime)
+            return runtime
         } catch {
-            result = .failure(error)
+            sharedResult = nil
+            throw error
         }
-        sharedResult = result
-        return try result.get()
     }
 
     init() throws {

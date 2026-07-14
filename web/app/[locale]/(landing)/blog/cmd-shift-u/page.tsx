@@ -1,31 +1,29 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.cmdShiftU" });
+  const post = await getTranslations({ locale, namespace: "blog.posts.cmdShiftU" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
+  const alternates = buildAlternates(locale, "/blog/cmd-shift-u");
+  const { title, description } = blogPostSeoCopy(locale, "cmdShiftU", t, post, siteMeta);
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    keywords: [
-      "cmux", "terminal", "macOS", "notifications", "AI coding agents",
-      "keyboard shortcuts", "developer tools", "workflow",
-    ],
+    title: { absolute: title },
+    description,
     openGraph: {
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-      type: "article",
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
       publishedTime: "2026-03-04T00:00:00Z",
     },
-    twitter: {
-      card: "summary_large_image",
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-    },
-    alternates: buildAlternates(locale, "/blog/cmd-shift-u"),
+    twitter: twitterSummary(locale, title, description),
+    alternates,
   };
 }
 
@@ -35,7 +33,7 @@ export default function CmdShiftUPage() {
 
   return (
     <>
-      <BlogSchema postKey="cmdShiftU" path="/blog/cmd-shift-u" datePublished="2026-03-04T00:00:00Z" />
+      <BlogSchema postKey="cmdShiftU" seoKey="cmdShiftU" path="/blog/cmd-shift-u" datePublished="2026-03-04T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"

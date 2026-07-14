@@ -31,6 +31,8 @@ export type PushPayload = {
   readonly body: string;
   readonly workspaceId: string | null;
   readonly surfaceId: string | null;
+  /** Whether iOS may resolve the surface outside the explicit workspace. */
+  readonly retargetsToLiveSurfaceOwner: boolean;
   /**
    * The Mac device UUID that owns the workspace/surface ids. Needed because
    * workspace ids are Mac-local and can collide across paired Macs.
@@ -63,13 +65,7 @@ export type JsonObjectResult =
   | { readonly ok: false; readonly error: "invalid_json" | "request_too_large" };
 
 const DEV_TAGGED_BUNDLE_ID = /^dev\.cmux\.ios\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-const PROD_BUNDLE_IDS = new Set([
-  "com.cmuxterm.app",
-  "dev.cmux.app.beta",
-  // Public App Store iOS build (production APNs host). Keep in sync with the
-  // upload-testflight.sh `appstore` lane bundle id and cmux-release.entitlements.
-  "com.cmux.app",
-]);
+const PROD_BUNDLE_IDS = new Set(["com.cmux.app", "com.cmuxterm.app", "dev.cmux.app.beta"]);
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -131,6 +127,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       notificationId: notificationId || null,
       dismissedIds: kind === "dismiss" ? dismissedIds.value : [],
       badgeCount: parseBadgeCount(body.badgeCount),
+      retargetsToLiveSurfaceOwner: kind === "notify" ? body.retargetsToLiveSurfaceOwner !== false : false,
       hideContent: body.hideContent === true,
     },
   };

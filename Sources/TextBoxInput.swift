@@ -26,8 +26,8 @@ enum TextBoxLayout {
     static let iconSymbolSize: CGFloat = 13
     static let sendSymbolSize: CGFloat = 14
     static let buttonBottomPadding: CGFloat = 3
-    static let leadingButtonHorizontalOffset: CGFloat = -1
-    static let trailingButtonHorizontalOffset: CGFloat = 1
+    static let leadingButtonHorizontalOffset: CGFloat = -2
+    static let trailingButtonHorizontalOffset: CGFloat = 2
     static let attachmentControlSpacing: CGFloat = 2
     static var attachmentImageSize: CGFloat {
         GlobalFontMagnification.scaledSize(16)
@@ -2422,9 +2422,9 @@ struct TextBoxInputContainer: View {
     @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
     var configuredSubmitActionsJSON = ""
     @State var submitActionImageCache: [String: NSImage] = [:]
+    @State var submitActionAssetAvailabilityCache: [String: Bool] = [:]
     @State var cachedSubmitActionsJSON: String?
     @State var cachedSubmitActions = TerminalTextBoxInputSettings.submitActions(configuredJSON: "")
-
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
     @Binding var selectedSubmitActionID: String?
@@ -2440,13 +2440,13 @@ struct TextBoxInputContainer: View {
     let allowsCommandTemplateSubmit: Bool
     let onFocusTextBox: () -> Void
     let onToggleFocus: () -> Void
+    let onSelectSubmitAction: (String) -> Void
     let onRecordLaunchCommand: (String) -> Void
     let onClearLaunchCommand: () -> Void
     let onEscape: () -> Void
     let onTextViewCreated: (TextBoxInputTextView) -> Void
     let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
     let onTextViewDismantled: (TextBoxInputTextView) -> Void
-
     @State private var textViewHeight: CGFloat = 0
     @State private var hasPendingAttachmentUpload = false
     @State private var hasMarkedText = false

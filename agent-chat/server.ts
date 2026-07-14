@@ -15,23 +15,40 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
-import { resolveGhosttyTheme, type GhosttyTheme } from "./theme";
-import { existsSync, readFileSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
+import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
+import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
+import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename as pathBasename, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename as pathBasename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 
-const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
+function argValue(name: string): string | undefined {
+  const eq = Bun.argv.find((arg) => arg.startsWith(`${name}=`));
+  if (eq) return eq.slice(name.length + 1);
+  const i = Bun.argv.indexOf(name);
+  return i >= 0 ? Bun.argv[i + 1] : undefined;
+}
+
+const PORT = Number(argValue("--port") ?? process.env.CMUX_AGENT_CHAT_PORT ?? process.env.CMUX_AGENT_UI_PORT ?? 7739);
+const AUTH_TOKEN = argValue("--token") ?? process.env.CMUX_AGENT_CHAT_TOKEN ?? "";
+if (AUTH_TOKEN.includes("/")) throw new Error("CMUX_AGENT_CHAT_TOKEN must be a single path segment");
+const AUTH_PREFIX = AUTH_TOKEN ? `/${encodeURIComponent(AUTH_TOKEN)}` : "";
+const STATE_FILE = process.env.CMUX_AGENT_CHAT_STATE_FILE ?? "";
 
 // The sidecar binds loopback only, but browsers can still reach loopback from
 // arbitrary web origins (CSRF against the WS control plane) and DNS rebinding
-// can defeat a bind-address check alone. Require a loopback Host header and,
+// can defeat a bind-address check alone. Require a loopback Host header and
 // for browser-originated requests, a same-origin Origin header. Requests
 // without an Origin header (CLI curl, Bun's WebSocket client) are trusted.
-const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
 function hasTrustedHost(req: Request): boolean {
-  return ALLOWED_HOSTS.has(req.headers.get("host") ?? "");
+  const host = req.headers.get("host") ?? "";
+  try {
+    return LOOPBACK_HOSTS.has(new URL(`http://${host}`).hostname);
+  } catch {
+    return false;
+  }
 }
 
 function hasTrustedOrigin(req: Request): boolean {
@@ -39,10 +56,54 @@ function hasTrustedOrigin(req: Request): boolean {
   if (origin === null) return true;
   try {
     const u = new URL(origin);
-    return u.protocol === "http:" && ALLOWED_HOSTS.has(u.host);
+    return u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname) && u.host === (req.headers.get("host") ?? "");
   } catch {
     return false;
   }
+}
+
+function stripAuthPrefixWithToken(url: URL, token: string): URL | null {
+  const prefix = token ? `/${encodeURIComponent(token)}` : "";
+  if (!prefix) return url;
+  if (url.pathname === "/healthz") return url;
+  if (url.pathname !== prefix && !url.pathname.startsWith(`${prefix}/`)) return null;
+  const next = new URL(url);
+  next.pathname = url.pathname.slice(prefix.length) || "/";
+  return next;
+}
+
+function stripAuthPrefix(url: URL): URL | null {
+  return stripAuthPrefixWithToken(url, AUTH_TOKEN);
+}
+
+export function stripAuthPrefixForTest(path: string, token: string): string | null {
+  const stripped = stripAuthPrefixWithToken(new URL(`http://127.0.0.1${path}`), token);
+  return stripped?.pathname ?? null;
+}
+
+function prefixedPath(path: string): string {
+  return `${AUTH_PREFIX}${path}`;
+}
+
+async function writeStateFilePath(path: string, port: number) {
+  if (!path) return;
+  const dir = dirname(path);
+  await mkdir(dir, { recursive: true });
+  const tmp = join(dir, `${pathBasename(path)}.${process.pid}.tmp`);
+  // launchId lets the app match the file to ITS launch: with a stable state
+  // path, a stale file from a previous sidecar (different token) must never
+  // satisfy a new launch's discovery.
+  const launchId = process.env.CMUX_AGENT_CHAT_LAUNCH_ID ?? null;
+  await writeFile(tmp, JSON.stringify({ port, pid: process.pid, protocolVersion: 1, launchId }) + "\n", "utf8");
+  await rename(tmp, path);
+}
+
+async function writeStateFile(port: number) {
+  await writeStateFilePath(STATE_FILE, port);
+}
+
+export async function writeStateFileForTest(path: string, port: number) {
+  await writeStateFilePath(path, port);
 }
 
 // Under launchd the PATH is minimal; make sure the agent CLIs resolve.
@@ -73,6 +134,16 @@ const GEMINI_MODELS = [
   { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
 ];
 
+function geminiCatalogModels(): { value: string; label: string; description?: string }[] {
+  const remote = agentModelCatalog.provider("gemini");
+  if (remote) return remote.models.map((model) => ({ value: model.id, label: model.label, description: model.description }));
+  return agentModelCatalog.hasPayload ? [] : GEMINI_MODELS;
+}
+
+function geminiDefaultModel(): string | undefined {
+  return agentModelCatalog.provider("gemini")?.defaultModel ?? (agentModelCatalog.hasPayload ? undefined : "gemini-3.1-pro-preview");
+}
+
 const PROVIDERS: ProviderDef[] = [
   { id: "claude", label: "Claude Code", adapter: "claude", cmd: ["claude"], installCommand: "npm i -g @anthropic-ai/claude-code" },
   { id: "codex", label: "Codex", adapter: "codex", cmd: ["codex"], installCommand: "npm i -g @openai/codex" },
@@ -85,8 +156,8 @@ const PROVIDERS: ProviderDef[] = [
     cmd: ["gemini", "--acp"],
     autoApproveArgs: ["--yolo"],
     installCommand: "npm i -g @google/gemini-cli",
-    models: GEMINI_MODELS,
-    defaultModel: "gemini-3.1-pro-preview",
+    models: geminiCatalogModels(),
+    defaultModel: geminiDefaultModel(),
   },
 ];
 
@@ -109,6 +180,9 @@ interface WsData {
 
 const sessions = new Map<string, Session>();
 const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
+let fileTheme = resolveGhosttyTheme();
+let cmuxThemeOverride: GhosttyTheme | null = null;
+let currentTheme = fileTheme;
 const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
 type AttributionMode = "new-turn" | "current-turn";
 type InternalDoneEvent = Extract<AgentEvent, { kind: "done" }> & { generation?: number };
@@ -192,6 +266,37 @@ function broadcastSessions() {
     sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary),
   });
   for (const ws of allSockets) ws.send(payload);
+}
+
+function syncCatalogProviderDefs() {
+  const gemini = PROVIDERS.find((provider) => provider.id === "gemini");
+  if (!gemini) return;
+  gemini.models = geminiCatalogModels();
+  gemini.defaultModel = geminiDefaultModel();
+}
+
+async function applyAgentModelCatalog() {
+  syncCatalogProviderDefs();
+  const cwd = process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD;
+  const providers = ["claude", "codex", "gemini"];
+  const options = new Map<string, SessionOption[]>();
+  await Promise.all(providers.map(async (provider) => {
+    optionCatalog.delete(provider);
+    try {
+      options.set(provider, await refreshCatalog(provider, cwd));
+    } catch {
+      options.set(provider, mergeRemoteModelOptions(provider, fallbackOptions(provider)));
+    }
+  }));
+  for (const [provider, providerOptions] of options) {
+    const payload = JSON.stringify({ kind: "options-list", provider, options: providerOptions });
+    for (const ws of allSockets) ws.send(payload);
+  }
+  for (const sess of sessions.values()) {
+    if (!providers.includes(sess.provider)) continue;
+    sess.seedOptions = options.get(sess.provider);
+    sess.adapter.refreshOptions?.(sess).catch(() => {});
+  }
 }
 
 function createSession(
@@ -524,6 +629,32 @@ function fallbackOptions(provider: string): SessionOption[] {
   return adapters.get(provider)?.capabilities?.options ?? [];
 }
 
+function mergeRemoteModelOptions(provider: string, options: SessionOption[], remote = agentModelCatalog.provider(provider)): SessionOption[] {
+  if (!remote) return options;
+  const model = options.find((option) => option.id === "model" && option.kind === "select");
+  const binary = new Map((model?.choices ?? []).map((choice) => [choice.value, choice]));
+  const choices: import("./types").OptionChoice[] = remote.models.map((entry) => {
+    const reported = binary.get(entry.id);
+    binary.delete(entry.id);
+    return { ...reported, value: entry.id, label: entry.label, description: entry.description ?? reported?.description };
+  });
+  choices.push(...binary.values());
+  const current = typeof model?.value === "string" ? choices.find((choice) => choice.value === model.value && !choice.disabled) : undefined;
+  const preferred = choices.find((choice) => choice.value === remote.defaultModel && !choice.disabled);
+  const value = current?.value ?? preferred?.value ?? choices.find((choice) => !choice.disabled)?.value ?? "";
+  const nextModel: SessionOption = {
+    ...(model ?? { id: "model", label: "Model", kind: "select" as const, value }),
+    value,
+    choices,
+    disabled: !choices.some((choice) => !choice.disabled),
+  };
+  return model ? options.map((option) => option === model ? nextModel : option) : [nextModel, ...options];
+}
+
+export function mergeRemoteModelOptionsForTest(provider: string, options: SessionOption[], remote: AgentModelProviderCatalog): SessionOption[] {
+  return mergeRemoteModelOptions(provider, options, remote);
+}
+
 function shouldRefreshCatalog(provider: string): boolean {
   const entry = optionCatalog.get(provider);
   return !entry || Date.now() - entry.fetchedAt > CATALOG_TTL_MS;
@@ -536,6 +667,7 @@ function refreshCatalog(provider: string, cwd: string): Promise<SessionOption[]>
   if (current?.refreshing) return current.refreshing;
   const refreshing = Promise.resolve(adapter.listOptions?.(cwd) ?? adapter.capabilities?.options ?? [])
     .then((options) => {
+      options = mergeRemoteModelOptions(provider, options);
       optionCatalog.set(provider, { options, fetchedAt: Date.now() });
       return options;
     })
@@ -823,9 +955,9 @@ async function changedFiles(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<Ch
   const deadline = makeDeadline(timeoutMs);
   if (!(await isGitRepo(cwd, remainingTimeout(deadline)))) return [];
   checkDeadline(deadline);
-  const status = await gitOutput(cwd, ["status", "--porcelain=v1"], 80_000, remainingTimeout(deadline)).catch(() => "");
+  const status = await gitOutput(cwd, ["status", "--porcelain=v1", "--", "."], 80_000, remainingTimeout(deadline)).catch(() => "");
   checkDeadline(deadline);
-  const numstat = await gitOutput(cwd, ["diff", "--numstat", "HEAD", "--"], 120_000, remainingTimeout(deadline)).catch(() => "");
+  const numstat = await gitOutput(cwd, ["diff", "--numstat", "HEAD", "--", "."], 120_000, remainingTimeout(deadline)).catch(() => "");
   const stats = new Map<string, { adds: number; dels: number }>();
   for (const line of numstat.split(/\r?\n/)) {
     const [adds, dels, ...rest] = line.split("\t");
@@ -1167,8 +1299,8 @@ function iconResponse(url: URL): Response {
 }
 
 const providerIconInfo = new Map(PROVIDERS.map((p) => {
-  const iconUrl = iconFile(p.id, false) ? `/icons/${p.id}` : undefined;
-  const iconDarkUrl = p.id === "codex" && iconFile(p.id, true) ? `/icons/${p.id}?dark=1` : undefined;
+  const iconUrl = iconFile(p.id, false) ? prefixedPath(`/icons/${p.id}`) : undefined;
+  const iconDarkUrl = p.id === "codex" && iconFile(p.id, true) ? `${prefixedPath(`/icons/${p.id}`)}?dark=1` : undefined;
   return [p.id, { ...(iconUrl ? { iconUrl } : {}), ...(iconDarkUrl ? { iconDarkUrl } : {}) }];
 }));
 
@@ -1196,22 +1328,238 @@ export function cssFontFamily(value: string | undefined | null, fallback: string
   return families.length ? `${families.join(", ")}, ${fallback}` : fallback;
 }
 
-function fontVars(theme: GhosttyTheme): string {
+function resolvedFontValues(theme: GhosttyTheme): Record<string, string> {
   const fonts = resolveUiConfig().fonts;
   const baseSize = fonts.baseSize ?? 14;
   const codeSize = fonts.codeSize ?? theme.fontSize ?? 12.5;
   const codeLineHeight = fonts.codeLineHeight ?? 1.5;
   const sans = cssFontFamily(fonts.sansFamily, DEFAULT_SANS);
   const mono = cssFontFamily(fonts.monoFamily ?? theme.fontFamily, DEFAULT_MONO);
-  return `--font-sans: ${sans}; --font-mono: ${mono}; --font-size-base: ${baseSize}px; ` +
-    `--font-size-code: ${codeSize}px; --font-line-code: ${codeLineHeight}; `;
+  return {
+    "--font-sans": sans,
+    "--font-mono": mono,
+    "--font-size-base": `${baseSize}px`,
+    "--font-size-code": `${codeSize}px`,
+    "--font-line-code": String(codeLineHeight),
+  };
 }
 
-function paletteVars(theme: GhosttyTheme): string {
-  return theme.palette
-    .map((color, i) => `--ansi-${i}: ${color}; --ansi-${ANSI_NAMES[i]}: ${color};`)
-    .join(" ") +
-    ` --selection-background: ${theme.selectionBackground ?? theme.palette[4]}; --cursor-color: ${theme.cursorColor ?? theme.foreground}; `;
+export function themeVarMap(theme: GhosttyTheme, opts: { transparent?: boolean; opacity?: number } = {}): Record<string, string> {
+  const transparent = opts.transparent === true;
+  const opacity = transparent ? (typeof opts.opacity === "number" && Number.isFinite(opts.opacity) ? opts.opacity : theme.opacity) : 1;
+  const n = parseInt(theme.background.slice(1), 16);
+  const rgb = `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+  const vars: Record<string, string> = {
+    "--bg": theme.background,
+    "--fg": theme.foreground,
+    "--bg-body": `rgba(${rgb}, ${opacity})`,
+    "--bg-html": transparent ? "transparent" : theme.background,
+    "--accent": pickAccentColor(theme),
+    "--green": theme.palette[2],
+    "--red": theme.palette[1],
+    "--amber": theme.palette[3],
+    "--selection-background": theme.selectionBackground ?? theme.palette[4],
+    "--cursor-color": theme.cursorColor ?? theme.foreground,
+    ...resolvedFontValues(theme),
+  };
+  for (const [i, color] of theme.palette.entries()) {
+    vars[`--ansi-${i}`] = color;
+    vars[`--ansi-${ANSI_NAMES[i]}`] = color;
+  }
+  return vars;
+}
+
+function varsToCss(vars: Record<string, string>): string {
+  return Object.entries(vars).map(([key, value]) => `${key}: ${value};`).join(" ");
+}
+
+export function themeCssVars(theme: GhosttyTheme, opts: { transparent?: boolean; opacity?: number } = {}): string {
+  return varsToCss(themeVarMap(theme, opts));
+}
+
+function themeForClient(theme: GhosttyTheme): GhosttyTheme {
+  return theme;
+}
+
+const THEME_POST_KEYS = [
+  "background",
+  "foreground",
+  "palette",
+  "selectionBackground",
+  "cursorColor",
+  "fontFamily",
+  "fontSize",
+  "opacity",
+  "blur",
+  "isLight",
+  "source",
+] as const;
+const THEME_POST_OPTIONAL_KEYS = ["accent"] as const;
+
+function isColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+function nullableColor(value: unknown): string | null {
+  if (value === null) return null;
+  if (isColor(value)) return value.toLowerCase();
+  throw new Error("invalid theme color");
+}
+
+function requiredColor(value: unknown): string {
+  if (isColor(value)) return value.toLowerCase();
+  throw new Error("invalid theme color");
+}
+
+export function validateCmuxThemePayload(body: unknown): GhosttyTheme {
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("theme payload must be an object");
+  const obj = body as Record<string, unknown>;
+  // JSON encoders commonly omit null fields entirely (Swift's synthesized
+  // Codable does), so absent nullable keys are treated as null; unexpected
+  // keys are still rejected.
+  for (const key of ["selectionBackground", "cursorColor", "fontFamily", "fontSize"]) {
+    if (!(key in obj)) obj[key] = null;
+  }
+  const keys = Object.keys(obj).sort();
+  const expected = [...THEME_POST_KEYS].sort();
+  const allowed = new Set<string>([...THEME_POST_KEYS, ...THEME_POST_OPTIONAL_KEYS]);
+  if (keys.some((key) => !allowed.has(key))) throw new Error("theme payload has unexpected keys");
+  if (expected.some((key) => !(key in obj))) throw new Error("theme payload is missing required keys");
+  if (obj.source !== "cmux") throw new Error("theme source must be cmux");
+  if (!Array.isArray(obj.palette) || obj.palette.length !== 16 || !obj.palette.every(isColor)) throw new Error("theme palette must contain 16 colors");
+  const fontSize = obj.fontSize;
+  if (fontSize !== null && (typeof fontSize !== "number" || !Number.isFinite(fontSize) || fontSize <= 0)) throw new Error("theme fontSize must be positive or null");
+  const opacity = obj.opacity;
+  const blur = obj.blur;
+  if (typeof opacity !== "number" || !Number.isFinite(opacity) || opacity < 0 || opacity > 1) throw new Error("theme opacity must be 0-1");
+  if (typeof blur !== "number" || !Number.isFinite(blur) || blur < 0) throw new Error("theme blur must be non-negative");
+  if (typeof obj.isLight !== "boolean") throw new Error("theme isLight must be boolean");
+  if (obj.fontFamily !== null && typeof obj.fontFamily !== "string") throw new Error("theme fontFamily must be string or null");
+  return {
+    background: requiredColor(obj.background),
+    foreground: requiredColor(obj.foreground),
+    palette: obj.palette.map((color) => String(color).toLowerCase()),
+    selectionBackground: nullableColor(obj.selectionBackground),
+    cursorColor: nullableColor(obj.cursorColor),
+    fontFamily: obj.fontFamily ? String(obj.fontFamily) : null,
+    fontSize: fontSize === null ? null : Number(fontSize),
+    opacity,
+    blur,
+    isLight: Boolean(obj.isLight),
+    accent: "accent" in obj ? nullableColor(obj.accent) : null,
+    source: "cmux",
+    sources: [],
+  };
+}
+
+function sameTheme(a: GhosttyTheme, b: GhosttyTheme): boolean {
+  return JSON.stringify(themeForClient(a)) === JSON.stringify(themeForClient(b));
+}
+
+function broadcastTheme(theme: GhosttyTheme) {
+  const payload = JSON.stringify({ kind: "theme", theme: themeForClient(theme), vars: themeVarMap(theme) });
+  for (const ws of allSockets) ws.send(payload);
+}
+
+function setCurrentTheme(theme: GhosttyTheme, source: "cmux" | "ghostty") {
+  if (source === "cmux") cmuxThemeOverride = theme;
+  else cmuxThemeOverride = null;
+  currentTheme = theme;
+}
+
+export function themeOverrideStateForTest(action: "cmux" | "ghostty", theme: GhosttyTheme): { current: GhosttyTheme; hasOverride: boolean } {
+  if (action === "ghostty") fileTheme = theme;
+  setCurrentTheme(theme, action);
+  return { current: currentTheme, hasOverride: cmuxThemeOverride !== null };
+}
+
+let themeWatchers: FSWatcher[] = [];
+let themeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let themePollTimer: ReturnType<typeof setInterval> | null = null;
+let watchedThemeSources: string[] = [];
+let watchedThemeMtimes = new Map<string, number>();
+
+function closeThemeWatchers() {
+  for (const watcher of themeWatchers) watcher.close();
+  themeWatchers = [];
+}
+
+function sameSources(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((value, i) => value === b[i]);
+}
+
+export function themeSourceMtimes(paths: string[]): Map<string, number> {
+  const mtimes = new Map<string, number>();
+  for (const path of paths) {
+    try {
+      mtimes.set(path, statSync(path).mtimeMs);
+    } catch {
+      mtimes.set(path, 0);
+    }
+  }
+  return mtimes;
+}
+
+export function themeMtimesChangedForTest(prev: Map<string, number>, next: Map<string, number>): boolean {
+  if (prev.size !== next.size) return true;
+  for (const [path, mtime] of next) {
+    if (prev.get(path) !== mtime) return true;
+  }
+  return false;
+}
+
+function armThemeWatchers(theme: GhosttyTheme) {
+  const sources = [...new Set(theme.sources)].sort();
+  watchedThemeMtimes = themeSourceMtimes(sources);
+  if (sameSources(watchedThemeSources, sources)) return;
+  closeThemeWatchers();
+  watchedThemeSources = sources;
+  for (const file of sources) {
+    try {
+      themeWatchers.push(watch(file, { persistent: false }, () => scheduleThemeRefresh()));
+    } catch {
+      // Missing files are still covered by the poll fallback and re-armed
+      // after the next successful resolve.
+    }
+  }
+}
+
+function scheduleThemeRefresh() {
+  if (themeRefreshTimer) clearTimeout(themeRefreshTimer);
+  themeRefreshTimer = setTimeout(() => {
+    themeRefreshTimer = null;
+    refreshThemeNow().catch((err) => console.warn(`theme refresh failed: ${String(err)}`));
+  }, 120);
+}
+
+export async function refreshThemeNow(): Promise<boolean> {
+  const nextFileTheme = await resolveGhosttyThemeAsync(true);
+  const changed = !sameTheme(fileTheme, nextFileTheme);
+  fileTheme = nextFileTheme;
+  armThemeWatchers(nextFileTheme);
+  if (changed) {
+    setCurrentTheme(nextFileTheme, "ghostty");
+    broadcastTheme(nextFileTheme);
+  }
+  return changed;
+}
+
+function startThemeWatcher() {
+  armThemeWatchers(fileTheme);
+  if (themePollTimer) clearInterval(themePollTimer);
+  // The poll exists only for atomic replaces or missing files that fs.watch
+  // cannot stay attached to. It stats watched files cheaply and resolves
+  // Ghostty only when an mtime/source-set change is observed.
+  themePollTimer = setInterval(() => {
+    const next = themeSourceMtimes(watchedThemeSources);
+    if (!themeMtimesChangedForTest(watchedThemeMtimes, next)) return;
+    watchedThemeMtimes = next;
+    refreshThemeNow().catch((err) => console.warn(`theme poll refresh failed: ${String(err)}`));
+  }, 5000);
+}
+
+export function themeMessageForTest(theme: GhosttyTheme): string {
+  return JSON.stringify({ kind: "theme", theme: themeForClient(theme), vars: themeVarMap(theme) });
 }
 
 // Inject the resolved Ghostty theme as CSS variables at serve time so the
@@ -1219,39 +1567,39 @@ function paletteVars(theme: GhosttyTheme): string {
 // appended by openers that created the browser surface with
 // transparent_background, so only genuinely transparent surfaces get an alpha
 // body; `?opacity=` is a dogfood override.
-function renderPage(url: URL): string {
-  const theme = resolveGhosttyTheme();
+function renderPage(url: URL, prefix = AUTH_PREFIX): string {
+  if (!cmuxThemeOverride) {
+    fileTheme = resolveGhosttyTheme();
+    currentTheme = fileTheme;
+  }
   const transparent = url.searchParams.get("transparent") === "1";
   const override = parseFloat(url.searchParams.get("opacity") ?? "");
-  const opacity = transparent ? (Number.isNaN(override) ? theme.opacity : override) : 1;
-  const n = parseInt(theme.background.slice(1), 16);
-  const rgb = `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
-  const accent = theme.palette[12];
-  const green = theme.palette[2];
-  const red = theme.palette[1];
-  const amber = theme.palette[3];
   // In opaque mode html paints the same solid bg as body, so nothing behind
   // the webview (a terminal surface) can composite through the transparent
   // document root. In transparent mode html stays clear on purpose so
   // background-opacity/blur show through.
-  const bgHtml = transparent ? "transparent" : theme.background;
-  const css = `:root { --bg: ${theme.background}; --fg: ${theme.foreground}; ` +
-    `--bg-body: rgba(${rgb}, ${opacity}); --bg-html: ${bgHtml}; --accent: ${accent}; ` +
-    `--green: ${green}; --red: ${red}; --amber: ${amber}; ${paletteVars(theme)} ${fontVars(theme)} }`;
+  const css = `:root { ${themeCssVars(currentTheme, { transparent, opacity: Number.isNaN(override) ? undefined : override })} }`;
   // Shell: theme vars first (so the first paint is the terminal bg), the
   // static stylesheet, a mount point, and the bundled React app (Base UI).
-  const script = url.pathname === "/gallery" ? "/gallery.js" : "/app.js";
+  const script = url.pathname === "/gallery" ? "gallery.js" : "app.js";
+  const base = prefix ? `${prefix}/` : "/";
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>cmux agent</title>
-<link rel="stylesheet" href="/app.css">
+<base href="${base}">
+<script>window.__AGENT_CHAT_BASE__=${JSON.stringify(prefix)};</script>
+<link rel="stylesheet" href="app.css">
 <style>${css}</style>
 </head><body>
 <div id="root"></div>
 <script type="module" src="${script}"></script>
 </body></html>`;
+}
+
+export function renderPageForTest(pathname: string, prefix = ""): string {
+  return renderPage(new URL(`http://127.0.0.1${pathname}`), prefix);
 }
 
 interface StaticAsset {
@@ -1386,15 +1734,17 @@ function startServer() {
     port: PORT,
     hostname: "127.0.0.1",
     async fetch(req, srv) {
-    const url = new URL(req.url);
+    const originalUrl = new URL(req.url);
     if (!hasTrustedHost(req)) return new Response("forbidden", { status: 403 });
+    if (originalUrl.pathname === "/healthz") return new Response("ok");
+    const url = stripAuthPrefix(originalUrl);
+    if (!url) return new Response("not found", { status: 404 });
     if (url.pathname === "/ws") {
       if (!hasTrustedOrigin(req)) return new Response("forbidden", { status: 403 });
       return srv.upgrade(req, { data: { subscribed: null } })
         ? undefined
         : new Response("upgrade failed", { status: 400 });
     }
-    if (url.pathname === "/healthz") return new Response("ok");
     if (url.pathname.startsWith("/icons/")) return iconResponse(url);
     if (url.pathname === "/app.js" || url.pathname === "/gallery.js" || /^\/chunk-[\w-]+\.js$/.test(url.pathname)) {
       try {
@@ -1411,7 +1761,28 @@ function startServer() {
     if (url.pathname === "/app.css") {
       return assetResponse(req, await cssAsset());
     }
-    if (url.pathname === "/api/theme") return Response.json(resolveGhosttyTheme());
+    if (url.pathname === "/api/theme" && req.method === "POST") {
+      if (!hasTrustedOrigin(req)) return Response.json({ error: "forbidden" }, { status: 403 });
+      try {
+        const theme = validateCmuxThemePayload(await req.json());
+        // cmux's payload has no accent field, so a push must not clobber the
+        // file-configured agent-chat-accent override.
+        if (!theme.accent) theme.accent = fileTheme.accent ?? null;
+        setCurrentTheme(theme, "cmux");
+        broadcastTheme(theme);
+        return Response.json(themeForClient(theme));
+      } catch (err) {
+        return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+      }
+    }
+    if (url.pathname === "/api/theme") {
+      if (!cmuxThemeOverride) {
+        fileTheme = resolveGhosttyTheme();
+        currentTheme = fileTheme;
+        armThemeWatchers(fileTheme);
+      }
+      return Response.json(themeForClient(currentTheme));
+    }
     // REST for the CLI: create a session (optionally with a first prompt) and
     // get back its id/url; list sessions.
     if (url.pathname === "/api/sessions" && req.method === "POST") {
@@ -1432,7 +1803,7 @@ function startServer() {
       }
       refreshSession(sess);
       if (prompt) sendPrompt(sess, prompt);
-      return Response.json({ id: sess.id, url: `http://127.0.0.1:${PORT}/s/${sess.id}` });
+      return Response.json({ id: sess.id, url: `http://127.0.0.1:${server.port}${prefixedPath(`/s/${sess.id}`)}` });
     }
     if (url.pathname === "/api/sessions" && req.method === "GET") {
       return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary));
@@ -1487,6 +1858,15 @@ function startServer() {
       console.warn(`catalog warm failed for ${p.id}: ${String(err)}`);
     });
   }
+  agentModelCatalog.subscribe(() => {
+    applyAgentModelCatalog().catch((err) => console.warn(`model catalog apply failed: ${String(err)}`));
+  });
+  agentModelCatalog.refreshIfStale().catch((err) => console.warn(`model catalog refresh failed: ${String(err)}`));
+  setInterval(() => {
+    agentModelCatalog.refreshIfStale().catch((err) => console.warn(`model catalog refresh failed: ${String(err)}`));
+  }, 60_000);
+  startThemeWatcher();
+  writeStateFile(server.port).catch((err) => console.error(`failed to write agent-chat state file: ${String(err)}`));
 
   console.log(`cmux-agent-ui listening on http://127.0.0.1:${server.port}`);
 }

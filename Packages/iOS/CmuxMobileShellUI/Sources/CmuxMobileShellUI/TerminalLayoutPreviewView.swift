@@ -16,6 +16,8 @@ import UIKit
 ///   exactly n columns wide on any device, so a single recorded fixture fills
 ///   the width edge-to-edge on both iPhone and iPad.
 struct TerminalLayoutPreviewView: View {
+    @Environment(MobileDisplaySettings.self) private var displaySettings
+
     /// Workspace/session name shown in the nav bar, mirroring the real terminal
     /// screen (`WorkspaceDetailView.navigationTitle(workspace.name)`).
     private let title = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TITLE"] ?? "cmux"
@@ -91,6 +93,14 @@ struct TerminalLayoutPreviewView: View {
                         Image(systemName: "bubble.left.and.bubble.right")
                         Image(systemName: "terminal")
                     }
+                    if ProcessInfo.processInfo.environment["CMUX_UITEST_ALT_SCREEN_NOTICE_PREVIEW"] == "1",
+                       displaySettings.showAltScreenNotice {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            AltScreenNoticeButton {
+                                displaySettings.showAltScreenNotice = false
+                            }
+                        }
+                    }
                 }
                 .tint(TerminalPalette.foreground)
                 .mobileTerminalNavigationChrome()
@@ -127,6 +137,9 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
             .flatMap(Double.init)
             .map { CGFloat($0) } ?? 0
         view.debugSetKeyboardHeightForLayoutPreview(max(0, fakeKeyboardHeight))
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_SHOW_ZOOM"] == "1" {
+            view.debugShowZoomControlOverlayForPreview()
+        }
         return view
     }
 

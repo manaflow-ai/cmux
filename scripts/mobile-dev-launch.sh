@@ -18,8 +18,7 @@
 #   scripts/mobile-dev-launch.sh --tag grid --device [--device-id <id>] [--attach]
 #   scripts/mobile-dev-launch.sh --tag grid --agent  [--attach]
 #
-#   --attach   also pair to the running Mac. Uses CMUX_DOGFOOD_ATTACH_URL when it
-#              is already set (as dev-setup.sh passes it), else mints a fresh
+#   --attach   also pair to the running Mac. Mints a fresh target-specific,
 #              tag-scoped ticket directly against THIS tag's Mac debug socket
 #              (never an untagged QR-server ticket, which could pair the wrong
 #              Mac). Needs the tagged Mac app running with the pairing host
@@ -83,10 +82,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
-# Fail closed on tags that have no alphanumerics: their slug would collapse onto
-# the shared fallback identity and target an unrelated app/socket.
-if ! cmux_attach_tag_has_alnum "$TAG"; then
-  echo "error: --tag '$TAG' has no letters or digits; pick a tag with at least one alphanumeric character" >&2
+# Fail before loading credentials or touching a simulator/device if the tag
+# would collide with a fallback/reserved identity or exceed the cloud limit.
+if ! cmux_attach_validate_dev_tag "$TAG"; then
   exit 2
 fi
 if [[ "$AGENT" -eq 1 ]]; then
@@ -98,6 +96,11 @@ fi
 # --- bundle id (matches ios/scripts/reload.sh sanitize_tag) ------------------
 slug="$(cmux_attach__slug "$TAG")"
 BUNDLE_ID="dev.cmux.ios.$slug"
+if [[ "$TARGET" == "device" ]]; then
+  ATTACH_TARGET="physical_device"
+else
+  ATTACH_TARGET="simulator_injection"
+fi
 
 # --- attach ticket ----------------------------------------------------------
 # ATTACH_URL stays empty unless attach was explicitly requested, so a stale
@@ -107,23 +110,14 @@ BUNDLE_ID="dev.cmux.ios.$slug"
 # backend (CMUX_UITEST_MOCK_DATA=0).
 ATTACH_URL=""
 if [[ "$ATTACH" -eq 1 ]]; then
-  # An attach URL the caller deliberately pre-minted (dev-setup.sh sets it +
-  # --attach) wins. Ignore it under --ensure-mac, which is an explicit "(re)pair
-  # to THIS tag's Mac" intent that must always mint fresh for this tag.
-  if [[ "$ENSURE_MAC" -eq 0 ]]; then
-    ATTACH_URL="${CMUX_DOGFOOD_ATTACH_URL:-}"
+  if [[ "$ENSURE_MAC" -eq 1 ]]; then
+    cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" "$ATTACH_TARGET" || true
   fi
-  if [[ -z "$ATTACH_URL" ]]; then
-    if [[ "$ENSURE_MAC" -eq 1 ]]; then
-      cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" || true
-    fi
-    # Always mint tag-scoped from THIS tag's socket. Never consult the
-    # tag-agnostic QR server: its /ticket.json has no tag parameter and is served
-    # from whatever tag the QR server last set, so it could hand back a different
-    # Mac's ticket and silently pair the phone to the wrong app.
-    if cmux_attach_mac_socket_ready "$TAG"; then
-      ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" || true)"
-    fi
+  # Always mint from THIS tag's socket for the selected launch target. Never
+  # trust an ambient URL or the tag-agnostic QR server, either of which could
+  # pair this app with another tagged Mac instance.
+  if cmux_attach_mac_socket_ready "$TAG"; then
+    ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" "$ATTACH_TARGET" || true)"
   fi
   if [[ -z "$ATTACH_URL" ]]; then
     if [[ "$ENSURE_MAC" -eq 1 ]]; then

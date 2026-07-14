@@ -15,6 +15,7 @@ const retrieveSession = mock(async () => ({
 
 mock.module("next/navigation", () => ({
   redirect,
+  usePathname: () => "/",
   notFound: () => {
     throw new Error("notFound");
   },

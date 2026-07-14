@@ -98,11 +98,12 @@ no review. An `--external` build is different: the FIRST external build of a new
 `MARKETING_VERSION` must pass a one-time Apple Beta App Review (~24h) before any
 external tester can install it. Subsequent external builds of the same version
 ship without re-review. The scheduled `main` sync lane now uploads
-external-eligible builds too, so founders track `main` once the current version
-has cleared that review gate. That lane reuses the checked-in
-`ios/Config/Shared.xcconfig` `MARKETING_VERSION`; bump it only when you want a
-fresh Beta App Review cycle. The upload path assigns the processed build to the
-app's external beta group automatically, auto-selecting the single external
+external-eligible builds too, so founders track `main` once the current beta
+version has cleared that review gate. That lane reuses
+`CMUX_IOS_BETA_MARKETING_VERSION` from `ios/Config/Shared.xcconfig`; bump it
+only when you want a fresh Beta App Review cycle. The upload path assigns the
+processed build to the app's external beta group automatically, auto-selecting
+the single external
 group or using `IOS_TESTFLIGHT_EXTERNAL_GROUP_ID` / `IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME`
 repo variables when the app has multiple external groups. When Apple reports the
 build as `READY_FOR_BETA_SUBMISSION`, the same lane also creates the beta app
@@ -124,7 +125,7 @@ TestFlight push would silently fail. The workflow tracks `main` on a schedule an
 uploads beta builds as external-eligible. Internal testers get the build
 immediately, and the post-upload external distribution step both assigns the
 build to the founders group and keeps using the checked-in approved
-`MARKETING_VERSION`. When that version is intentionally bumped, the same
+`CMUX_IOS_BETA_MARKETING_VERSION`. When that version is intentionally bumped, the same
 distribution step auto-submits the first build of the new version for Beta App
 Review.
 
@@ -152,12 +153,13 @@ ios/scripts/upload-app-store.sh
 ios/scripts/upload-app-store.sh --export-only
 
 # Run the read-only ASC readiness package after upload
-ios/scripts/validate-app-store-release.sh --app "$ASC_APP_ID" --version "$VERSION" --build-number "$CF_BUNDLE_VERSION" --wait-build --strict
+ios/scripts/validate-app-store-release.sh --app "$ASC_APP_ID" --build-number "$CF_BUNDLE_VERSION" --wait-build --strict
 ```
 
 Defaults:
 
-- Bundle ID: `com.cmuxterm.app`
+- Bundle ID: `com.cmux.app`
+- Marketing version: `CMUX_IOS_APPSTORE_MARKETING_VERSION` in `ios/Config/Shared.xcconfig`
 - Display name: `cmux`
 - Provisioning profile: `cmux App Store Distribution`
 - Entitlements: `Config/cmux-release.entitlements`
@@ -174,4 +176,4 @@ and submits for review only when `submit_for_review` is set.
 Additional production workflow requirements:
 
 - Repository variable `IOS_APPSTORE_APP_ID`
-- Secret `IOS_APPSTORE_PROVISIONING_PROFILE_BASE64` (base64-encoded App Store profile for `com.cmuxterm.app`, with `aps-environment=production`)
+- Secret `IOS_APPSTORE_PROVISIONING_PROFILE_BASE64` (base64-encoded App Store profile for `com.cmux.app`, with `aps-environment=production`)

@@ -21,7 +21,10 @@ public protocol DeviceRegistryRefreshing: Sendable {
     ///   is unreachable, the call is unauthorized, or the Mac is not registered.
     ///   `nil` and `[]` are both treated as "no fresher routes" by
     ///   ``DeviceRegistryService/selectReconnectRoutes(local:registry:)``.
-    func freshRoutes(forMacDeviceID macDeviceID: String) async -> [CmxAttachRoute]?
+    func freshRoutes(
+        forMacDeviceID macDeviceID: String,
+        instanceTag: String?
+    ) async -> [CmxAttachRoute]?
 
     /// List the team's registered devices and their running cmux app instances,
     /// for the device tree (device → tags → workspaces).
