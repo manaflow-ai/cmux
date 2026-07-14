@@ -103,7 +103,9 @@ public struct HiveComposition {
             linkDecoder: HivePairingLinkDecoder(
                 allowsLoopbackRoutes: configuration.allowsLoopbackRoutes
             ),
-            presenceRetryDelay: HiveReconnectBackoff(maximumSeconds: 60).delay(attempt:)
+            presenceRetryDelay: { @Sendable attempt in
+                await HiveReconnectBackoff(maximumSeconds: 60).delay(attempt: attempt)
+            }
         )
     }
 
