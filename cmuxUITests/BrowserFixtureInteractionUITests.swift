@@ -678,6 +678,17 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
 
         try socketResult(method: "browser.keydown", params: ["surface_id": sid, "key": " "])
         try socketResult(method: "browser.keyup", params: ["surface_id": sid, "key": " "])
+        let canonicalRawSpacePair = try evalBool(
+            """
+            window.__cmuxLog
+              .filter(e => e.target === '#space-button' && e.key === ' ' && e.code === 'Space')
+              .slice(-2)
+              .map(e => e.type)
+              .join(',') === 'keydown,keyup'
+            """,
+            surfaceID: sid
+        )
+        XCTAssertTrue(canonicalRawSpacePair, "Raw Space should add one canonical keydown/keyup pair")
         XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
     }
 
