@@ -21,7 +21,7 @@ import {
 } from "./model";
 import {
   MANAGED_IROH_RELAY_CATALOG,
-} from "../../../workers/presence/src/generated/managedRelayCatalog";
+} from "./generated/managedRelayCatalog";
 
 export const RELAY_POLICY_TTL_SECONDS = 300;
 export const RELAY_ROTATION_MIN_OVERLAP_SECONDS = RELAY_POLICY_TTL_SECONDS;

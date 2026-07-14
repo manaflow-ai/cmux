@@ -7,7 +7,6 @@ import { poweredByHeader, securityHeaderRules } from "./security-headers";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = path.resolve(webRoot, "..");
 
 // Agent landing pages moved under /agents/<agent>. Keep the old top-level
 // slugs working with permanent redirects, for the bare English path and every
@@ -50,10 +49,7 @@ const nextConfig: NextConfig = {
     return securityHeaderRules;
   },
   turbopack: {
-    // Iroh relay policy is generated once for both the Next server and the
-    // presence worker. Keep Turbopack's boundary at the monorepo lockfile root
-    // so either runtime can import that shared catalog directly.
-    root: repositoryRoot,
+    root: webRoot,
   },
   images: {
     // AVIF first: for the detailed hero screenshot (crisp terminal text +

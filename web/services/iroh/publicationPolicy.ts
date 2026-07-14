@@ -10,7 +10,7 @@
 import {
   MANAGED_IROH_RELAY_CATALOG,
   MANAGED_IROH_RELAY_URLS,
-} from "../../../workers/presence/src/generated/managedRelayCatalog";
+} from "../relay/generated/managedRelayCatalog";
 
 export const MANAGED_RELAY_CATALOG_SEQUENCE = MANAGED_IROH_RELAY_CATALOG.sequence;
 export const MANAGED_RELAY_URLS = MANAGED_IROH_RELAY_URLS;
