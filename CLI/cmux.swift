@@ -27344,60 +27344,6 @@ struct CMUXCLI {
         return pid
     }
 
-    func shouldSuppressNestedAgentVisibleMutations(
-        currentAgentPID: Int?,
-        nestedPromptEvent: Bool = false,
-        transcriptSubagentSession: Bool = false,
-        env: [String: String]
-    ) -> Bool {
-        if let override = normalizedHookValue(env["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"])?.lowercased(),
-           Self.parseHookBoolean(override) == true {
-            return true
-        }
-
-        if nestedPromptEvent {
-            return true
-        }
-
-        if managedSubagentVisibleMutationSuppressionRequested(env: env) {
-            return true
-        }
-
-        if transcriptSubagentSession {
-            return true
-        }
-
-        guard let currentAgentPID, currentAgentPID > 1 else {
-            return false
-        }
-        let kind = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]) ?? "agent"
-        return !AgentHookSessionLineageResolver().resolve(
-            agentName: kind,
-            sessionId: "unknown",
-            pid: currentAgentPID,
-            environment: env
-        ).restoreAuthority
-    }
-
-    private func managedSubagentVisibleMutationSuppressionRequested(env: [String: String]) -> Bool {
-        guard let raw = normalizedHookValue(env[managedSubagentEnvironmentKey]),
-              let parsed = Self.parseHookBoolean(raw) else {
-            return false
-        }
-        return parsed
-    }
-
-    static func parseHookBoolean(_ rawValue: String) -> Bool? {
-        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "1", "true", "yes", "on", "enabled":
-            return true
-        case "0", "false", "no", "off", "disabled":
-            return false
-        default:
-            return nil
-        }
-    }
-
     private func nativeProcessDescribesKnownAgent(for pid: pid_t) -> Bool {
         AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
             processName: processName(for: pid),
