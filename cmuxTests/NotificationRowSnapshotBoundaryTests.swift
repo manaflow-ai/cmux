@@ -1,3 +1,5 @@
+import CmuxTerminal
+import CmuxTerminalCore
 import Foundation
 import SwiftUI
 import Testing
@@ -8,24 +10,9 @@ import Testing
 @testable import cmux
 #endif
 
-/// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5794.
-///
-/// The notification surfaces (`NotificationsPage` and the titlebar
-/// `NotificationPopoverRow` list) render
-/// `ScrollView { LazyVStack { ForEach { ... } } }` over the notification
-/// store. Before this fix the row views were not `Equatable` and the call
-/// sites did not apply `.equatable()`, so every `TerminalNotificationStore`
-/// publish (a new notification, a read/unread toggle, a clear) re-evaluated
-/// the body of *every* row and re-laid out the whole lazy stack. With many
-/// notifications accumulated and agents publishing continuously, that is the
-/// same `AttributeGraph` relayout thrash documented for the sidebar/sessions
-/// lists in `repo/CLAUDE.md` (issues #2586 / #5752).
-///
-/// The invariant that keeps the lazy layout cache stable: each row view must
-/// be `Equatable`, and `==` must depend only on the value snapshot the row
-/// renders — never on the closures/bindings the parent rebuilds every render.
-/// If `==` returned false for two rows carrying the same payload, `.equatable()`
-/// could not suppress body re-evaluation and the thrash returns.
+/// Regression coverage for notification list snapshots and activation.
+/// Notification rows must compare immutable rendered values, never rebuilt
+/// closure or binding identity, so lazy layout caches remain stable (#5794).
 @MainActor
 @Suite("Notification row snapshot boundary", .serialized)
 struct NotificationRowSnapshotBoundaryTests {
@@ -36,7 +23,7 @@ struct NotificationRowSnapshotBoundaryTests {
         let notification = Self.makeNotification()
         let left = NotificationPopoverRow(
             notification: notification,
-            tabTitle: "main",
+            workspaceTitle: "main",
             onOpen: {},
             onClear: {},
             onToggleRead: {}
@@ -45,7 +32,7 @@ struct NotificationRowSnapshotBoundaryTests {
         // every store publish. Closure identity must be excluded from `==`.
         let right = NotificationPopoverRow(
             notification: notification,
-            tabTitle: "main",
+            workspaceTitle: "main",
             onOpen: { _ = 1 },
             onClear: { _ = 2 },
             onToggleRead: { _ = 3 }
@@ -62,9 +49,9 @@ struct NotificationRowSnapshotBoundaryTests {
         let read = Self.makeNotification(id: unread.id, isRead: true)
 
         let left = NotificationPopoverRow(
-            notification: unread, tabTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: unread, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
         let right = NotificationPopoverRow(
-            notification: read, tabTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: read, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
 
         #expect(
             left != right,
@@ -72,17 +59,38 @@ struct NotificationRowSnapshotBoundaryTests {
         )
     }
 
-    @Test func popoverRowEqualityDetectsTabTitleChange() {
+    @Test func popoverRowEqualityDetectsWorkspaceTitleChange() {
         let notification = Self.makeNotification()
         let left = NotificationPopoverRow(
-            notification: notification, tabTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: notification, workspaceTitle: "main", onOpen: {}, onClear: {}, onToggleRead: {})
         let right = NotificationPopoverRow(
-            notification: notification, tabTitle: "feature", onOpen: {}, onClear: {}, onToggleRead: {})
+            notification: notification, workspaceTitle: "feature", onOpen: {}, onClear: {}, onToggleRead: {})
 
         #expect(
             left != right,
-            "A changed tab title must change equality so the row repaints its subtitle."
+            "A changed workspace title must change equality so the row repaints its headline."
         )
+    }
+
+    @Test func workspaceTitleIndexUsesRenamedGroupName() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let childId = try #require(manager.tabs.first?.id)
+        let groupId = try #require(
+            manager.createWorkspaceGroup(name: "Original Group", childWorkspaceIds: [childId])
+        )
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
+        let staleAnchorTitle = anchor.title
+
+        let appDelegate = AppDelegate()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        manager.renameWorkspaceGroup(groupId: groupId, name: "Renamed Group")
+
+        #expect(anchor.title == staleAnchorTitle)
+        #expect(appDelegate.tabTitlesByTabId()[anchor.id] == "Renamed Group")
     }
 
     // MARK: - Notifications page row
@@ -246,7 +254,11 @@ struct NotificationRowSnapshotBoundaryTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             isRead: false,
             paneFlash: true,
-            scrollPosition: TerminalNotificationScrollPosition(row: 42, totalRows: 100)
+            scrollPosition: TerminalNotificationScrollPosition(
+                row: 42,
+                totalRows: 100,
+                rowSpaceRevision: 99
+            )
         )
         store.replaceNotificationsForTesting([notification])
 
@@ -254,6 +266,7 @@ struct NotificationRowSnapshotBoundaryTests {
         let panelSnapshot = try #require(snapshot.panels.first { $0.id == panelId })
         #expect(panelSnapshot.notifications?.first?.scrollPosition?.row == 42)
         #expect(panelSnapshot.notifications?.first?.scrollPosition?.totalRows == 100)
+        #expect(panelSnapshot.notifications?.first?.scrollPosition?.rowSpaceRevision == nil)
 
         store.replaceNotificationsForTesting([])
         let restored = Workspace()
@@ -262,9 +275,195 @@ struct NotificationRowSnapshotBoundaryTests {
         let restoredNotification = try #require(store.latestNotification(forTabId: restored.id))
         #expect(restoredNotification.scrollPosition?.row == 42)
         #expect(restoredNotification.scrollPosition?.totalRows == 100)
+        #expect(restoredNotification.scrollPosition?.rowSpaceRevision == nil)
+    }
+
+    @Test func openingNotificationCapturedAtBottomRestoresLiveViewport() {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let didRestore = hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 0, totalRows: 400)
+        )
+        #expect(didRestore)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
+    }
+
+    @Test func openingNotificationWithoutScrollbackKeepsLiveViewportActive() {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = notificationScrollbar(total: 44, offset: 0, len: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let didRestore = hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 0, totalRows: 44)
+        )
+        #expect(didRestore)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:0"])
+    }
+
+    @Test func openingNotificationBeforeViewportLayoutRestoresOnScrollbarUpdate() {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = notificationScrollbar(total: 0, offset: 0, len: 0)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let didRestoreImmediately = hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 0, totalRows: 400)
+        )
+        #expect(!didRestoreImmediately)
+        #expect(surfaceView.performedBindingActions.isEmpty)
+        let readyScrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
+        postScrollbar(readyScrollbar, to: surfaceView)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
+        postScrollbar(readyScrollbar, to: surfaceView)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
+    }
+
+    @Test func openingNotificationRetriesAfterBindingActionIsRejected() {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
+        surfaceView.bindingActionResults = [false, true]
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let didRestoreImmediately = hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 0, totalRows: 400)
+        )
+        #expect(!didRestoreImmediately)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
+        let readyScrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
+        postScrollbar(readyScrollbar, to: surfaceView)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356", "scroll_to_row:356"])
+        postScrollbar(readyScrollbar, to: surfaceView)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356", "scroll_to_row:356"])
+    }
+
+    @Test func openingNotificationBoundsRejectedBindingActionRetries() {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
+        surfaceView.bindingActionResults = [false, false, false]
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let position = TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        #expect(!hostedView.restoreNotificationScrollPosition(position))
+        #expect(!hostedView.userScrolledAwayFromBottom)
+        #expect(!hostedView.allowExplicitScrollbarSync)
+
+        let readyScrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
+        for _ in 0 ..< 3 {
+            postScrollbar(readyScrollbar, to: surfaceView)
+        }
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256", "scroll_to_row:256"])
+        #expect(!hostedView.userScrolledAwayFromBottom)
+        #expect(!hostedView.allowExplicitScrollbarSync)
+    }
+
+    @Test(arguments: [Notification.Name.ghosttyDidReceiveWheelScroll, NSScrollView.didLiveScrollNotification])
+    func userScrollCancelsRejectedNotificationRestore(inputName: Notification.Name) throws {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
+        surfaceView.bindingActionResults = [false, true]
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let position = TerminalNotificationScrollPosition(row: 0, totalRows: 400)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(position))
+        let scrollView = try #require(
+            hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView
+        )
+        let inputObject: Any = inputName == .ghosttyDidReceiveWheelScroll ? surfaceView : scrollView
+        NotificationCenter.default.post(name: inputName, object: inputObject)
+        postScrollbar(notificationScrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
+    }
+
+    @Test func keyboardInputCancelsPendingNotificationRestore() throws {
+        let terminal = TerminalSurface(
+            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil, workingDirectory: nil
+        )
+        defer { terminal.releaseSurfaceForTesting() }
+        let hostedView = terminal.hostedView
+        hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
+            replay: .replaying(expectedEndBoundary: "test-replay-boundary"),
+            request: .waitingForReplay(
+                position: .init(row: 0, totalRows: 400),
+                attemptsRemaining: 2
+            )
+        )
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .shift,
+            timestamp: 1, windowNumber: 0, context: nil,
+            characters: "", charactersIgnoringModifiers: "",
+            isARepeat: false, keyCode: 116
+        ))
+        hostedView.surfaceView.keyDown(with: event)
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
+    @Test func menuPasteCancelsPendingNotificationRestore() {
+        let terminal = TerminalSurface(
+            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil, workingDirectory: nil
+        )
+        defer { terminal.releaseSurfaceForTesting() }
+        let hostedView = terminal.hostedView
+        hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
+            replay: .replaying(expectedEndBoundary: "test-replay-boundary"),
+            request: .waitingForReplay(
+                position: .init(row: 0, totalRows: 400),
+                attemptsRemaining: 2
+            )
+        )
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+
+        hostedView.surfaceView.paste(nil)
+
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
+    @Test func newerAnchorlessActivationCancelsPendingRestore() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        panel.hostedView.notificationScrollRestoreState = NotificationScrollRestoreState(
+            replay: .replaying(expectedEndBoundary: "test-replay-boundary"),
+            request: .waitingForReplay(
+                position: .init(row: 12, totalRows: 400),
+                attemptsRemaining: 2
+            )
+        )
+        #expect(panel.hostedView.hasPendingNotificationScrollRestore)
+
+        (AppDelegate.shared ?? AppDelegate()).restoreNotificationScrollPosition(
+            nil, tabId: workspace.id, surfaceId: nil,
+            panelId: panelId, workspace: workspace
+        )
+
+        #expect(!panel.hostedView.hasPendingNotificationScrollRestore)
+    }
+
+    @Test func openingLegacyNotificationPreservesBottomRelativeViewport() {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        let didRestore = hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 12, totalRows: nil)
+        )
+
+        #expect(didRestore)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:344"])
     }
 
     // MARK: - Fixtures
+
+    private func notificationScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
+        GhosttyScrollbar(c: ghostty_action_scrollbar_s(total: total, offset: offset, len: len))
+    }
+
+    private func postScrollbar(_ scrollbar: GhosttyScrollbar, to surfaceView: GhosttyNSView) {
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar, object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: scrollbar]
+        )
+    }
 
     private static func makeNotification(
         id: UUID = UUID(),

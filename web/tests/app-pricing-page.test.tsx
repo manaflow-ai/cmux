@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { stripeSubscriptions } from "../db/schema";
+import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -11,15 +12,9 @@ const redirect = mock((href: unknown) => {
   throw Object.assign(new Error("redirect"), { href });
 });
 
-// bun's mock.module replaces these modules process-wide, so each mock must
-// carry every export another test in the suite might import.
-mock.module("next/navigation", () => ({
-  redirect,
-  notFound: () => {
-    throw new Error("notFound");
-  },
-  permanentRedirect: redirect,
-}));
+// bun's mock.module replaces these modules process-wide. Keep the shared
+// export set complete so this file cannot break an unrelated suite.
+mock.module("next/navigation", () => createNextNavigationMock(redirect));
 
 mock.module("next/headers", () => ({
   headers: async () =>
@@ -43,21 +38,6 @@ const proUser = {
   isAnonymous: false,
   primaryEmail: "pro@example.com",
   clientReadOnlyMetadata: { cmuxPlan: "pro" },
-  listProducts: mock(async () =>
-    Object.assign(
-      [
-        {
-          id: "pro",
-          quantity: 1,
-          subscription: {
-            cancelAtPeriodEnd: false,
-            currentPeriodEnd: null,
-          },
-        },
-      ],
-      { nextCursor: null },
-    ),
-  ),
   update: mock(async () => undefined),
 };
 
@@ -90,7 +70,6 @@ describe("app pricing page", () => {
     stackConfigured = false;
     currentUser = null;
     stripeSubscriptionRows = [];
-    proUser.listProducts.mockClear();
     proUser.update.mockClear();
   });
 
@@ -118,7 +97,23 @@ describe("app pricing page", () => {
     expect(html).not.toContain("/api/billing/portal");
   });
 
-  test("renders the external billing note without a portal link for Stack Pro users", async () => {
+  test("removes external purchase links in App Store distribution mode", async () => {
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_distribution: "appstore",
+        cmux_scheme: "cmux-dev-test",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).not.toContain("/api/billing/checkout");
+    expect(html).not.toContain("checkout.stripe.com");
+    expect(html).not.toContain("/api/billing/portal");
+    expect(html).toContain("Billing is not available right now. Please try again later.");
+  });
+
+  test("renders Stack metadata-only Pro users as Free", async () => {
     stackConfigured = true;
     currentUser = proUser;
 
@@ -132,8 +127,26 @@ describe("app pricing page", () => {
 
     expect(html).not.toContain('href="/api/billing/portal"');
     expect(html).toContain(
-      "Your subscription is managed by our previous billing system. Contact support to make changes.",
+      "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
     );
+  });
+
+  test("hides the billing portal link for Pro users in App Store distribution mode", async () => {
+    stackConfigured = true;
+    currentUser = proUser;
+    stripeSubscriptionRows = [{ id: "sub_123" }];
+
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_distribution: "appstore",
+        cmux_scheme: "cmux-dev-test",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    // Apple 3.1.1: no external billing/purchase links inside App Store builds.
+    expect(html).not.toContain("/api/billing/portal");
     expect(html).toContain("Current plan");
   });
 

@@ -30,6 +30,8 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "feed.push", "browser.download.wait", "system.top", "system.memory",
+            "performance.metrics.exercise_process",
+            "performance.metrics.exercise_git_pr",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",
@@ -64,6 +66,17 @@ struct ControlCommandExecutionPolicyTests {
             let policy = ControlCommandExecutionPolicy(forMethod: method)
             #expect(policy == .mainActor, "\(method)")
             #expect(!policy.runsOnSocketWorker, "\(method)")
+        }
+    }
+
+    @Test func remoteTmuxTestMethodsOnlyRunOnWorkerInDebugBuilds() {
+        for method in ["remote.tmux.test_exec", "remote.tmux.test_set_frame"] {
+            let policy = ControlCommandExecutionPolicy(forMethod: method)
+#if DEBUG
+            #expect(policy == .socketWorker(mainThreadCallable: false), "\(method)")
+#else
+            #expect(policy == .mainActor, "\(method)")
+#endif
         }
     }
 

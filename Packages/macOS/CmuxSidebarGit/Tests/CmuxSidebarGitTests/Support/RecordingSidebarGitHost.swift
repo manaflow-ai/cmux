@@ -12,6 +12,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         case clearGitBranch(UUID, UUID)
         case pullRequestBadge(UUID, UUID, SidebarPullRequestBadge)
         case clearPullRequestBadge(UUID, UUID)
+        case scheduleGitMetadataProbe(UUID, UUID, String)
         case clearAllGitMetadata
         case clearAllPullRequestMetadata
     }
@@ -37,12 +38,25 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     var mobileHostActive = false
     var selectedWorkspaceId: UUID?
     private(set) var events: [ProjectionEvent] = []
+    private(set) var orderedWorkspaceIdsReadCount = 0
+    private(set) var panelGitBranchPanelIdsReadCount = 0
+    private(set) var panelPullRequestPanelIdsReadCount = 0
     private var eventContinuations: [AsyncStream<ProjectionEvent>.Continuation] = []
+    private var orderedWorkspaceReadWaiters: [
+        (minimumCount: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
 
     /// A stream of projection events, registered before the awaited action.
     func projectionEvents() -> AsyncStream<ProjectionEvent> {
         AsyncStream { continuation in
             eventContinuations.append(continuation)
+        }
+    }
+
+    func waitForOrderedWorkspaceIdsReadCount(_ minimumCount: Int) async {
+        guard orderedWorkspaceIdsReadCount < minimumCount else { return }
+        await withCheckedContinuation { continuation in
+            orderedWorkspaceReadWaiters.append((minimumCount, continuation))
         }
     }
 
@@ -75,7 +89,19 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
 
     // MARK: Reads
 
-    func orderedWorkspaceIds() -> [UUID] { workspaces.map(\.id) }
+    func orderedWorkspaceIds() -> [UUID] {
+        orderedWorkspaceIdsReadCount += 1
+        let readyWaiters = orderedWorkspaceReadWaiters.filter {
+            orderedWorkspaceIdsReadCount >= $0.minimumCount
+        }
+        orderedWorkspaceReadWaiters.removeAll {
+            orderedWorkspaceIdsReadCount >= $0.minimumCount
+        }
+        for waiter in readyWaiters {
+            waiter.continuation.resume()
+        }
+        return workspaces.map(\.id)
+    }
     func workspaceExists(_ workspaceId: UUID) -> Bool { state(workspaceId) != nil }
     func isRemoteWorkspace(_ workspaceId: UUID) -> Bool? { state(workspaceId)?.isRemote }
     func panelIds(in workspaceId: UUID) -> [UUID] {
@@ -100,6 +126,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         state(workspaceId)?.panels[panelId]?.branch
     }
     func panelGitBranchPanelIds(in workspaceId: UUID) -> Set<UUID> {
+        panelGitBranchPanelIdsReadCount += 1
         guard let state = state(workspaceId) else { return [] }
         return Set(state.panels.filter { $0.value.branch != nil }.keys)
     }
@@ -107,6 +134,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         state(workspaceId)?.panels[panelId]?.badge
     }
     func panelPullRequestPanelIds(in workspaceId: UUID) -> Set<UUID> {
+        panelPullRequestPanelIdsReadCount += 1
         guard let state = state(workspaceId) else { return [] }
         return Set(state.panels.filter { $0.value.badge != nil }.keys)
     }
@@ -168,6 +196,10 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     func clearPanelPullRequest(workspaceId: UUID, panelId: UUID) {
         mutate(workspaceId) { $0.panels[panelId]?.badge = nil }
         record(.clearPullRequestBadge(workspaceId, panelId))
+    }
+
+    func schedulePanelGitMetadataProbe(workspaceId: UUID, panelId: UUID, reason: String) {
+        record(.scheduleGitMetadataProbe(workspaceId, panelId, reason))
     }
 
     func clearAllSidebarGitMetadata() {

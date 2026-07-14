@@ -79,6 +79,42 @@ export const cloudVms = pgTable(
   ],
 );
 
+export const accountDeletionTombstones = pgTable(
+  "account_deletion_tombstones",
+  {
+    userIdHash: text("user_id_hash").primaryKey(),
+    userId: text("user_id"),
+    status: text("status").$type<"pending" | "in_progress" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "cleanup_incomplete" | "failed">().notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    analyticsDeletedAt: timestamp("analytics_deleted_at", { withTimezone: true }),
+    errorMessage: text("error_message"),
+  },
+  (table) => [
+    index("account_deletion_tombstones_status_updated_idx").on(table.status, table.updatedAt),
+    index("account_deletion_tombstones_user_idx").on(table.userId),
+  ],
+);
+
+export const accountAnalyticsForwardLeases = pgTable(
+  "account_analytics_forward_leases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    operationId: uuid("operation_id").notNull(),
+    userIdHash: text("user_id_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("account_analytics_forward_leases_expiry_idx").on(table.expiresAt),
+    index("account_analytics_forward_leases_user_expiry_idx").on(table.userIdHash, table.expiresAt),
+    index("account_analytics_forward_leases_operation_idx").on(table.operationId),
+  ],
+);
+
 export const cloudVmLeases = pgTable(
   "cloud_vm_leases",
   {
@@ -254,7 +290,7 @@ export const deviceTokens = pgTable(
     deviceToken: text("device_token").notNull(),
     platform: text("platform").notNull().default("ios"),
     // The APNs topic the token belongs to (the iOS bundle id, which varies by
-    // build: dev.cmux.ios.<tag>, dev.cmux.app.beta, com.cmuxterm.app).
+    // build: dev.cmux.ios.<tag>, dev.cmux.app.beta, com.cmux.app).
     bundleId: text("bundle_id").notNull(),
     // "sandbox" for development builds, "production" for TestFlight/App Store —
     // selects which APNs host the sender uses.

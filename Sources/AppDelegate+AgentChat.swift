@@ -1,10 +1,14 @@
 import AppKit
+import CMUXAgentLaunch
 import Foundation
 import os
+import Security
 
 nonisolated struct AgentChatActionInFlightGate {
     private struct State {
         var isRunning = false
+        var ownedServerSession: AgentChatOwnedServerSession?
+        var sidecarStateFileStore = AgentChatSidecarStateFileStore.live()
     }
 
     private nonisolated static let lock = OSAllocatedUnfairLock(initialState: State())
@@ -22,9 +26,53 @@ nonisolated struct AgentChatActionInFlightGate {
             state.isRunning = false
         }
     }
+
+    static func ownedServerSession() -> AgentChatOwnedServerSession? {
+        lock.withLock { state in
+            state.ownedServerSession
+        }
+    }
+
+    static func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) {
+        lock.withLock { state in
+            state.ownedServerSession = session
+        }
+    }
+
+    static func clearOwnedServerSession(matching candidate: AgentChatOwnedServerSession? = nil) {
+        lock.withLock { state in
+            if let candidate, state.ownedServerSession != candidate { return }
+            state.ownedServerSession = nil
+        }
+    }
+
+    static func sidecarStateFileStore() -> AgentChatSidecarStateFileStore? {
+        lock.withLock { state in
+            state.sidecarStateFileStore
+        }
+    }
+}
+
+struct AgentChatServerAvailability: Sendable {
+    var isReachable: Bool
+    /// nil means the owned launch failed and nothing safe exists to open;
+    /// the action must fail instead of falling back to the legacy URL.
+    var browserURL: URL?
 }
 
 extension AppDelegate {
+    /// Workstream feed title mapping extracted because `AppDelegate.swift`
+    /// sits at its file-length budget.
+    nonisolated static func feedWorkstreamTitle(for event: WorkstreamEvent) -> String? {
+        switch event.hookEventName {
+        case .preCompact, .postCompact:
+            return String(localized: "feed.lifecycle.compaction.title", defaultValue: "Compaction")
+        case .subagentStart, .subagentStop:
+            return String(localized: "feed.lifecycle.subagent.title", defaultValue: "Subagent")
+        default:
+            return nil
+        }
+    }
 
     @discardableResult
     func performConfiguredNewAgentChatAction(
@@ -67,10 +115,15 @@ extension AppDelegate {
         preferredWindow: NSWindow?,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
+        guard CmuxFeatureFlags.shared.isAgentChatUIEnabled else {
+            NSSound.beep()
+            return false
+        }
         guard BrowserAvailabilitySettings.isEnabled() else {
             NSSound.beep()
             return false
         }
+        AgentChatThemeSync.start()
         guard AgentChatActionInFlightGate.begin() else {
             NSSound.beep()
             return false
@@ -78,20 +131,29 @@ extension AppDelegate {
         Task { @MainActor [weak self, weak tabManager] in
             defer { AgentChatActionInFlightGate.end() }
             guard let self else { return }
-            let isReachable = await self.ensureAgentChatServerAvailable(
+            let availability = await self.ensureAgentChatServerAvailable(
                 agentChat,
                 globalConfigPath: globalConfigPath,
                 preferredWindow: preferredWindow
             )
+            AgentChatThemeSync.syncNow(agentChat: agentChat)
             guard let tabManager else { return }
+            guard let browserURL = availability.browserURL else {
+                NSSound.beep()
+                self.postAgentChatServerUnavailableNotification(
+                    workspace: nil,
+                    agentChat: agentChat
+                )
+                return
+            }
             guard let workspace = self.openAgentChatWorkspace(
                 tabManager: tabManager,
-                agentChat: agentChat
+                url: browserURL
             ) else {
                 NSSound.beep()
                 return
             }
-            if !isReachable {
+            if !availability.isReachable {
                 self.postAgentChatServerUnavailableNotification(
                     workspace: workspace,
                     agentChat: agentChat
@@ -105,7 +167,7 @@ extension AppDelegate {
     @discardableResult
     private func openAgentChatWorkspace(
         tabManager: TabManager,
-        agentChat: CmuxAgentChatConfiguration
+        url: URL
     ) -> Workspace? {
         let beforeIds = Set(tabManager.tabs.map(\.id))
         let workspaceName = String(
@@ -121,7 +183,7 @@ extension AppDelegate {
                     command: nil,
                     cwd: nil,
                     env: nil,
-                    url: agentChat.url.absoluteString,
+                    url: url.absoluteString,
                     focus: true
                 ),
             ]))
@@ -143,80 +205,136 @@ extension AppDelegate {
         return tabManager.tabs.first { !beforeIds.contains($0.id) } ?? tabManager.selectedWorkspace
     }
 
-    private func postAgentChatServerUnavailableNotification(
-        workspace: Workspace,
-        agentChat: CmuxAgentChatConfiguration
-    ) {
-        let body: String
-        if let startCommand = agentChat.startCommand {
-            let format = String(
-                localized: "notification.agentChat.serverUnavailable.bodyWithCommand",
-                defaultValue: "cmux couldn't reach %@. Start it with: %@"
-            )
-            body = String(format: format, agentChat.url.absoluteString, startCommand)
-        } else {
-            let format = String(
-                localized: "notification.agentChat.serverUnavailable.bodyDefault",
-                defaultValue: "cmux couldn't reach %@. Start the server with cmux-chat or configure agentChat.startCommand in cmux.json."
-            )
-            body = String(format: format, agentChat.url.absoluteString)
-        }
-        TerminalNotificationStore.shared.addNotification(
-            tabId: workspace.id,
-            surfaceId: workspace.focusedPanelId,
-            title: String(
-                localized: "notification.agentChat.serverUnavailable.title",
-                defaultValue: "Agent chat server isn't running"
-            ),
-            subtitle: String(
-                localized: "notification.agentChat.serverUnavailable.subtitle",
-                defaultValue: "Opened Agent Chat"
-            ),
-            body: body,
-            cooldownKey: "agent-chat-server-unavailable.\(agentChat.url.absoluteString)",
-            cooldownInterval: 30
-        )
-    }
 
     private func ensureAgentChatServerAvailable(
         _ agentChat: CmuxAgentChatConfiguration,
         globalConfigPath: String?,
         preferredWindow: NSWindow?
-    ) async -> Bool {
+    ) async -> AgentChatServerAvailability {
+        switch agentChat.serverMode {
+        case .explicitURL:
+            return await ensureExplicitAgentChatServerAvailable(
+                agentChat,
+                startCommand: agentChat.startCommand,
+                globalConfigPath: globalConfigPath,
+                preferredWindow: preferredWindow
+            )
+        case .appOwned:
+            guard let startCommand = agentChat.startCommand else {
+                return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+            }
+            return await ensureOwnedAgentChatServerAvailable(
+                agentChat,
+                startCommand: startCommand,
+                globalConfigPath: globalConfigPath,
+                preferredWindow: preferredWindow
+            )
+        case .legacyDefaultURL:
+            let isHealthy = await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5)
+            return AgentChatServerAvailability(isReachable: isHealthy, browserURL: agentChat.url)
+        }
+    }
+
+    private func ensureExplicitAgentChatServerAvailable(
+        _ agentChat: CmuxAgentChatConfiguration,
+        startCommand: String?,
+        globalConfigPath: String?,
+        preferredWindow: NSWindow?
+    ) async -> AgentChatServerAvailability {
         if await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5) {
-            return true
+            return AgentChatServerAvailability(isReachable: true, browserURL: agentChat.url)
         }
-        guard let startCommand = agentChat.startCommand else {
-            return false
-        }
+        let unavailable = AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+        guard let startCommand else { return unavailable }
         guard await authorizeAgentChatStartCommandIfNeeded(
             agentChat,
             command: startCommand,
             globalConfigPath: globalConfigPath,
             preferredWindow: preferredWindow
         ) else {
-            return false
+            return unavailable
         }
         guard Self.launchDetachedAgentChatStartCommand(
             startCommand,
-            currentDirectoryURL: Self.agentChatStartCommandDirectoryURL(for: agentChat)
+            currentDirectoryURL: Self.agentChatStartCommandDirectoryURL(for: agentChat),
+            environmentOverrides: [:]
         ) else {
-            return false
+            return unavailable
         }
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(10))
         while !Task.isCancelled, clock.now < deadline {
             if await Self.agentChatServerIsHealthy(healthURL: agentChat.healthURL, timeout: 1.5) {
-                return true
+                return AgentChatServerAvailability(isReachable: true, browserURL: agentChat.url)
             }
             do {
                 // Bounded, cancellable health polling after a configured server start.
                 try await clock.sleep(for: .milliseconds(250))
             } catch {
-                return false
+                return unavailable
             }
         }
-        return false
+        return unavailable
+    }
+
+    private func ensureOwnedAgentChatServerAvailable(
+        _ agentChat: CmuxAgentChatConfiguration,
+        startCommand: String,
+        globalConfigPath: String?,
+        preferredWindow: NSWindow?
+    ) async -> AgentChatServerAvailability {
+        if let session = AgentChatActionInFlightGate.ownedServerSession() {
+            if await Self.agentChatServerIsHealthy(healthURL: session.healthURL, timeout: 1.5) {
+                return AgentChatServerAvailability(isReachable: true, browserURL: session.browserURL)
+            }
+            AgentChatActionInFlightGate.clearOwnedServerSession(matching: session)
+            await AgentChatActionInFlightGate.sidecarStateFileStore()?.removeStateFile()
+        }
+
+        let launchId = UUID().uuidString
+        guard let token = Self.generateAgentChatToken(),
+              let stateFileStore = AgentChatActionInFlightGate.sidecarStateFileStore() else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+        }
+        let launchDate = Date()
+        guard let stateFileURL = await stateFileStore.prepareStateFileURL(
+            launchId: launchId,
+            launchDate: launchDate
+        ) else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+        }
+
+        guard await authorizeAgentChatStartCommandIfNeeded(
+            agentChat,
+            command: startCommand,
+            globalConfigPath: globalConfigPath,
+            preferredWindow: preferredWindow
+        ) else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+        }
+        guard Self.launchDetachedAgentChatStartCommand(
+            startCommand,
+            currentDirectoryURL: Self.agentChatStartCommandDirectoryURL(for: agentChat),
+            environmentOverrides: [
+                "CMUX_AGENT_CHAT_TOKEN": token,
+                "CMUX_AGENT_CHAT_PORT": "0",
+                "CMUX_AGENT_CHAT_STATE_FILE": stateFileURL.path,
+                "CMUX_AGENT_CHAT_LAUNCH_ID": launchId,
+            ]
+        ) else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+        }
+
+        guard let session = await stateFileStore.waitForSession(
+            token: token,
+            launchId: launchId,
+            launchDate: launchDate
+        ) else {
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+        }
+        AgentChatActionInFlightGate.updateOwnedServerSession(session)
+        let isHealthy = await Self.agentChatServerIsHealthy(healthURL: session.healthURL, timeout: 1.5)
+        return AgentChatServerAvailability(isReachable: isHealthy, browserURL: session.browserURL)
     }
 
     private func authorizeAgentChatStartCommandIfNeeded(
@@ -302,7 +420,8 @@ extension AppDelegate {
 
     nonisolated private static func launchDetachedAgentChatStartCommand(
         _ command: String,
-        currentDirectoryURL: URL
+        currentDirectoryURL: URL,
+        environmentOverrides: [String: String]
     ) -> Bool {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return false }
@@ -316,6 +435,7 @@ extension AppDelegate {
         process.executableURL = URL(fileURLWithPath: shellPath)
         process.arguments = ["-lc", trimmedCommand]
         process.currentDirectoryURL = currentDirectoryURL
+        process.environment = environment.merging(environmentOverrides) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -331,4 +451,17 @@ extension AppDelegate {
     nonisolated private static func canonicalAgentChatPath(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.path
     }
+
+    nonisolated private static func generateAgentChatToken(byteCount: Int = 32) -> String? {
+        var bytes = [UInt8](repeating: 0, count: byteCount)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+            return nil
+        }
+        return Data(bytes)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
 }

@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "내 개인 플랜",
+        "free": "무료",
+        "pro": "Pro",
+        "loading": "불러오는 중…"
+      }
     }
   },
   "community": {
@@ -931,6 +939,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
         },
         "fileExplorer": {
@@ -3461,6 +3470,9 @@
       "faqQ4": "Cursor CLI와 함께 쓰는 cmux는 무료인가요?",
       "faqA4": "네. cmux는 macOS용 무료 오픈 소스입니다."
     }
+  },
+  "pricing": {
+    "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요."
   },
   "platforms": {
     "macos": "macOS",

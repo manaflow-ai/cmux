@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Din personlige plan",
+        "free": "Gratis",
+        "pro": "Pro",
+        "loading": "Indlæser…"
+      }
     }
   },
   "community": {
@@ -931,6 +939,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
         },
         "fileExplorer": {
@@ -3461,6 +3470,9 @@
       "faqQ4": "Er cmux gratis at bruge med Cursor CLI?",
       "faqA4": "Ja. cmux er gratis og open source til macOS."
     }
+  },
+  "pricing": {
+    "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere."
   },
   "platforms": {
     "macos": "macOS",

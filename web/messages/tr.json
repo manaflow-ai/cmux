@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Kişisel planınız",
+        "free": "Ücretsiz",
+        "pro": "Pro",
+        "loading": "Yükleniyor…"
+      }
     }
   },
   "community": {
@@ -556,7 +564,7 @@
         "summary": "Kod tabanınızın gerçekten ihtiyaç duyduğu worktree iş akışını oluşturmak için Claude Code, Codex, komut dosyalarını ve cmux temel öğelerini kullanın.",
         "date": "3 Temmuz 2026",
         "p1": "Yerleşik worktree yöneticilerinin sınırlı olması garanti edilir. Genellikle bir repo, Git, bereketli bir dal akışı ve bir ürün ekibinin kurulumun ne anlama gelmesi gerektiğine dair fikrini varsayarlar. Gerçek kod tabanları bu satırların içinde kalmaz.",
-      "p2": "cmux'in <zen>Zen'i</zen>, geliştiricilerin kendi araçlarını oluşturmaları ve kodla çalışma yollarının arama alanını keşfetmeleri gerektiğidir. Çalışma ağaçları kullanışlı bir ilkeldir, ancak aynı şekilde çoklu ödemeler, farklı klasörlerdeki backend/frontend depoları, uzak makineler, no-git projeler, yerel komut dosyaları ve bazen de sadece ana kodlama çünkü bu görev için en hızlı şeydir.",
+        "p2": "cmux'in <zen>Zen'i</zen>, geliştiricilerin kendi araçlarını oluşturmaları ve kodla çalışma yollarının arama alanını keşfetmeleri gerektiğidir. Çalışma ağaçları kullanışlı bir ilkeldir, ancak aynı şekilde çoklu ödemeler, farklı klasörlerdeki backend/frontend depoları, uzak makineler, no-git projeler, yerel komut dosyaları ve bazen de sadece ana kodlama çünkü bu görev için en hızlı şeydir.",
         "superRepoTitle": "Süper repo modeli",
         "superRepoP1": "Süper depo, tüm gerçek depoların nerede yaşadığını, worktrees'nin nasıl oluşturulduğunu, ilgili depoların nasıl eşleştirildiğini, her çalışma alanını hangi komut dosyalarının hazırladığını ve PRs'nın nasıl incelenip birleştirildiğini bilen bir kontrol ödemesidir. cmuxterm-hq bir süper depodur: birincil cmux ödemesini, görev başına cmux worktrees, Zed kontrollerini, hq komut dosyalarını, yeniden kullanılabilir becerileri ve aracıların birbirlerine basmamak için takip ettiği kuralları içerir.",
         "superRepoP2": "Mesele herkesin bu dizin ağacını tam olarak kopyalaması değil. Mesele şu ki, bir yerel kontrol deposu tüm mühendislik işletim sisteminizi tanımlayabilir. Arka uç repo ve ön uç repo birlikte açılabilir. Bir mobil uygulama ve web API birlikte yeniden yüklenebilir. Bir repoda bir şube, diğerinde eşleşen bir şube oluşturulabilir. Bu şekil ekibinize aittir, genel bir worktree düğmesine değil.",
@@ -620,7 +628,7 @@
       ]
     },
     "sessionRestore": {
-      "metaDescription": "cmux ile yeniden başlatma veya terminal çökmesinden sonra Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI ve diğer kodlama agent oturumlarını geri yükleme.",
+      "metaDescription": "cmux, yeniden başlatma veya terminal çökmesinden sonra Claude Code, Codex, OpenCode ve diğer kodlama ajanlarının düzenlerini ve oturumlarını geri yükler.",
       "metaKeywords": [
         "cmux",
         "oturum geri yükleme",
@@ -931,6 +939,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },
         "fileExplorer": {
@@ -1527,11 +1536,12 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: cmux içinde OpenCode çoklu ajan",
-      "metaDescription": "oh-my-opencode (cmux omo), OpenCode CLI'yi oh-my-openagent eklentisiyle cmux içinde çalıştırır. Claude, GPT, Gemini ve Grok'u paralel ajanlar olarak, her biri yerel bir cmux bölmesinde olacak şekilde orkestre edin."
+      "metaDescription": "cmux omo, OpenCode’u oh-my-openagent ile cmux içinde çalıştırır. Claude, GPT, Gemini ve Grok’u yerel cmux bölmelerinde paralel ajanlar olarak orkestre eder."
     },
     "ios": {
       "metaTitle": "iOS Uygulaması",
       "metaDescription": "cmux iOS yardımcı uygulamasını kurun: TestFlight erişimi, Tailscale veya WireGuard ile kendi ağınızı kullanma, eşleştirme, bildirimler ve cmux'un hangi verileri sakladığı.",
+      "metaDescriptionShort": "cmux iOS uygulamasını TestFlight, Tailscale veya WireGuard ağı, Mac eşleştirmesi, bildirimler ve veri denetimiyle kurun.",
       "title": "iOS Uygulaması",
       "intro": "cmux iOS uygulaması, Mac'iniz için bir yardımcıdır. iPhone veya iPad'inizi cmux çalıştıran bir Mac ile eşleştirin ve terminallerinize telefonunuzdan bağlanın; isteğe bağlı olarak terminal bildirimlerini iletebilirsiniz.",
       "betaNote": "iOS uygulaması beta aşamasındadır. TestFlight'ta cmux BETA olarak yayınlanır.",
@@ -3461,6 +3471,9 @@
       "faqQ4": "cmux'u Cursor CLI ile kullanmak ücretsiz mi?",
       "faqA4": "Evet. cmux, macOS için ücretsiz ve açık kaynaktır."
     }
+  },
+  "pricing": {
+    "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin."
   },
   "platforms": {
     "macos": "macOS",

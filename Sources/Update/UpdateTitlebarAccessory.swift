@@ -15,7 +15,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case softButtons
 
     static let storageKey = "titlebarControlsStyle"
-    static let defaultStyle = TitlebarControlsStyle.compact
+    static let defaultStyle = TitlebarControlsStyle.classic
     static var defaultRawValue: Int { defaultStyle.rawValue }
 
     var id: Int { rawValue }
@@ -2130,15 +2130,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 }
 
-private enum NotificationsPopoverMetrics {
-    static let defaultWidth: CGFloat = 560
-    static let defaultHeight: CGFloat = 760
-    static let minWidth: CGFloat = 420
-    static let minHeight: CGFloat = 320
-    static let maxWidth: CGFloat = 1000
-    static let maxHeight: CGFloat = 1200
-}
-
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
@@ -2154,6 +2145,7 @@ private struct NotificationsPopoverView: View {
     // UserDefaults.didChangeNotification, which wakes up every observer in the app.
     @State private var liveWidth: CGFloat?
     @State private var liveHeight: CGFloat?
+    @State private var loadedWorkspaceTitles: [UUID: String]?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2167,6 +2159,19 @@ private struct NotificationsPopoverView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottomTrailing) {
             resizeHandle
+        }
+        .onAppear { refreshWorkspaceTitles() }
+        .onChange(of: notificationStore.notifications.map(\.tabId)) { _, _ in
+            refreshWorkspaceTitles()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceTitleDidChange)) { notification in
+            refreshWorkspaceTitles(ifRelevantTo: notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceGroupNameDidChange)) { notification in
+            refreshWorkspaceTitles(ifRelevantTo: notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
+            refreshWorkspaceTitles(ifRelevantTo: notification)
         }
     }
 
@@ -2333,13 +2338,13 @@ private struct NotificationsPopoverView: View {
             let snapshot = notificationStore.notifications
             let lastIndex = snapshot.count - 1
             // One tabId -> title index per render, not an O(tabs) scan per row (#5794).
-            let tabTitles = AppDelegate.shared?.tabTitlesByTabId() ?? [:]
+            let titleSnapshot = loadedWorkspaceTitles ?? currentWorkspaceTitles()
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
                         NotificationPopoverRow(
                             notification: notification,
-                            tabTitle: tabTitles[notification.tabId],
+                            workspaceTitle: titleSnapshot[notification.tabId],
                             onOpen: { open(notification) },
                             onClear: {
                                 withAnimation(.easeOut(duration: 0.18)) {
@@ -2377,6 +2382,55 @@ private struct NotificationsPopoverView: View {
                 }
             }
         }
+    }
+
+    private func currentWorkspaceTitles() -> [UUID: String] {
+        let notificationWorkspaceIds = Set(notificationStore.notifications.map(\.tabId))
+        return AppDelegate.shared?.tabTitlesByTabId(for: notificationWorkspaceIds) ?? [:]
+    }
+
+    private func refreshWorkspaceTitles(ifRelevantTo notification: Notification? = nil) {
+        let notificationWorkspaceIds = Set(notificationStore.notifications.map(\.tabId))
+        guard let notification else {
+            let nextTitles = currentWorkspaceTitles()
+            guard loadedWorkspaceTitles != nextTitles else { return }
+            loadedWorkspaceTitles = nextTitles
+            return
+        }
+
+        guard let manager = notification.object as? TabManager else { return }
+        let changedWorkspaceIds: Set<UUID>
+        let changedTitles: [UUID: String]
+        switch notification.name {
+        case .workspaceTitleDidChange:
+            guard let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
+            changedWorkspaceIds = [workspaceId]
+            changedTitles = manager.resolvedWorkspaceDisplayTitle(forWorkspaceId: workspaceId)
+                .map { [workspaceId: $0] } ?? [:]
+        case .workspaceGroupNameDidChange:
+            changedTitles = manager.resolvedWorkspaceDisplayTitles(for: notificationWorkspaceIds)
+            changedWorkspaceIds = Set(changedTitles.keys)
+        case .workspaceOrderDidChange:
+            changedWorkspaceIds = Set(
+                notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+            )
+            changedTitles = manager.resolvedWorkspaceDisplayTitles(for: changedWorkspaceIds)
+        default:
+            return
+        }
+
+        let relevantIds = changedWorkspaceIds.intersection(notificationWorkspaceIds)
+        guard !relevantIds.isEmpty else { return }
+        var nextTitles = loadedWorkspaceTitles ?? currentWorkspaceTitles()
+        for workspaceId in relevantIds {
+            if let title = changedTitles[workspaceId] {
+                nextTitles[workspaceId] = title
+            } else {
+                nextTitles.removeValue(forKey: workspaceId)
+            }
+        }
+        guard loadedWorkspaceTitles != nextTitles else { return }
+        loadedWorkspaceTitles = nextTitles
     }
 
     private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
@@ -2424,302 +2478,6 @@ private struct NotificationsPopoverView: View {
         DispatchQueue.main.async {
             _ = AppDelegate.shared?.openTerminalNotification(notification)
             onDismiss()
-        }
-    }
-}
-
-struct NotificationPopoverRow: View, Equatable {
-    // Closures excluded from ==; equality is the rendered snapshot only (#2586).
-    nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
-        lhs.notification == rhs.notification && lhs.tabTitle == rhs.tabTitle
-    }
-
-    let notification: TerminalNotification
-    let tabTitle: String?
-    let onOpen: () -> Void
-    let onClear: () -> Void
-    let onToggleRead: () -> Void
-
-    @State private var isHovering: Bool = false
-
-    private static let rowHeight: CGFloat = 56
-
-    var body: some View {
-        // Row uses a ZStack so the hover-only clear button is a *sibling* of the row's
-        // primary-action Button, not nested in its label. Nested SwiftUI buttons don't
-        // produce reliable independent hit targets on macOS — clicks on a nested button
-        // can be consumed by the outer button's tap area.
-        ZStack(alignment: .trailing) {
-            // Primary row action wrapped as a Button so the row participates in the
-            // key-view loop: keyboard users can tab to a row and activate it with
-            // space/return. Visual styling is owned by rowContent; the button background
-            // lets the NSTrackingArea-driven hover tint shine through.
-            Button(action: onOpen) {
-                rowContent
-                    .background(
-                        Color.primary.opacity(isHovering ? 0.11 : 0)
-                    )
-            }
-            .buttonStyle(.plain)
-            // Identifier/action live on the Button itself so XCUITest's
-            // `app.buttons["NotificationPopoverRow.<id>"]` query keeps matching. A previous
-            // pass put them on the combined outer ZStack, which exposed the row as a
-            // container rather than a button to accessibility clients.
-            .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
-            // XCUITest's `.click()` isn't always reliable for SwiftUI buttons hosted in an
-            // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
-            .accessibilityAction { onOpen() }
-            // The clear button is hover-only for pointer users; expose dismiss as a row-level
-            // accessibility action so VoiceOver / keyboard / assistive tech can dismiss too.
-            .accessibilityAction(
-                named: Text(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
-            ) {
-                onClear()
-            }
-
-            clearButton
-                .padding(.trailing, 10)
-                .opacity(isHovering ? 1 : 0)
-                .allowsHitTesting(isHovering)
-                // Dismissal is exposed through the row Button's accessibility action and the
-                // context menu, so hide this hover-only affordance from keyboard focus /
-                // VoiceOver when not visible — otherwise Full Keyboard Access can tab to an
-                // invisible button.
-                .accessibilityHidden(!isHovering)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
-        // because SwiftUI's `.onHover` / `.onContinuousHover` arbitrate with the row's
-        // primary action and miss enter/exit events right after the popover opens and when
-        // the pointer crosses between LazyVStack rows.
-        .background(
-            HoverTrackingRepresentable { hovering in
-                if isHovering != hovering { isHovering = hovering }
-            }
-        )
-        .contextMenu {
-                Button(String(localized: "notifications.open", defaultValue: "Open")) {
-                    onOpen()
-                }
-                if notification.isRead {
-                    Button(String(localized: "notifications.markAsUnread", defaultValue: "Mark as Unread")) {
-                        onToggleRead()
-                    }
-                } else {
-                    Button(String(localized: "notifications.markAsRead", defaultValue: "Mark as Read")) {
-                        onToggleRead()
-                    }
-                }
-                Divider()
-                Button(String(localized: "notifications.dismiss", defaultValue: "Dismiss"), role: .destructive) {
-                    onClear()
-                }
-            }
-    }
-
-    private var rowContent: some View {
-        HStack(spacing: 0) {
-            Rectangle()
-                .fill(notification.isRead ? Color.clear : cmuxAccentColor())
-                .frame(width: 2.5)
-                .padding(.vertical, 6)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(notification.title)
-                        .cmuxFont(size: 12.5, weight: .semibold)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                        .cmuxFont(size: 10.5)
-                        .foregroundColor(.secondary)
-                        .padding(.trailing, 34)
-                }
-
-                if !notification.body.isEmpty {
-                    Text(notification.body)
-                        .cmuxFont(size: 11.5)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if let tabTitle, !tabTitle.isEmpty {
-                    Text(tabTitle)
-                        .cmuxFont(size: 10)
-                        .foregroundColor(.secondary.opacity(0.85))
-                        .lineLimit(1)
-                }
-            }
-            .padding(.leading, 10)
-            .padding(.vertical, 8)
-
-            Spacer(minLength: 0)
-        }
-        .frame(minHeight: Self.rowHeight)
-        .padding(.leading, 4)
-    }
-
-    private var clearButton: some View {
-        Button(action: onClear) {
-            ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.1))
-                CmuxSystemSymbolImage(systemName: "xmark", pointSize: 9, weight: .bold)
-                    .foregroundColor(.primary.opacity(0.7))
-            }
-            .frame(width: 20, height: 20)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct ResizeGripperRepresentable: NSViewRepresentable {
-    let onBegin: () -> (CGFloat, CGFloat)
-    let onDrag: (CGFloat, CGFloat, CGFloat, CGFloat) -> Void
-    let onEnd: () -> Void
-
-    func makeNSView(context: Context) -> ResizeGripperNSView {
-        ResizeGripperNSView()
-    }
-
-    func updateNSView(_ nsView: ResizeGripperNSView, context: Context) {
-        nsView.onBegin = onBegin
-        nsView.onDrag = onDrag
-        nsView.onEnd = onEnd
-    }
-}
-
-private final class ResizeGripperNSView: NSView {
-    var onBegin: () -> (CGFloat, CGFloat) = { (0, 0) }
-    var onDrag: (CGFloat, CGFloat, CGFloat, CGFloat) -> Void = { _, _, _, _ in }
-    var onEnd: () -> Void = {}
-
-    private var pressLocation: NSPoint?
-    private var pressStartWidth: CGFloat = 0
-    private var pressStartHeight: CGFloat = 0
-
-    private static let diagonalResizeCursor: NSCursor = {
-        // AppKit ships a NW–SE diagonal resize cursor for window corners but doesn't expose
-        // it publicly. It has lived under this selector for years and is widely used by Mac
-        // apps that need a diagonal resize affordance.
-        let selector = NSSelectorFromString("_windowResizeNorthWestSouthEastCursor")
-        if let method = NSCursor.responds(to: selector) ? NSCursor.perform(selector) : nil,
-           let cursor = method.takeUnretainedValue() as? NSCursor {
-            return cursor
-        }
-        return NSCursor.crosshair
-    }()
-
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        addCursorRect(bounds, cursor: Self.diagonalResizeCursor)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        // NSEvent.mouseLocation is screen-coordinate and stable while the popover resizes.
-        pressLocation = NSEvent.mouseLocation
-        let (w, h) = onBegin()
-        pressStartWidth = w
-        pressStartHeight = h
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let start = pressLocation else { return }
-        let current = NSEvent.mouseLocation
-        let dx = current.x - start.x
-        // Screen-y grows upward; popover should grow as the pointer moves down (toward
-        // smaller screen-y), so invert.
-        let dy = start.y - current.y
-        onDrag(pressStartWidth, pressStartHeight, dx, dy)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        pressLocation = nil
-        onEnd()
-    }
-}
-
-private struct HoverTrackingRepresentable: NSViewRepresentable {
-    let onChange: (Bool) -> Void
-
-    func makeNSView(context: Context) -> HoverTrackingNSView {
-        HoverTrackingNSView(onChange: onChange)
-    }
-
-    func updateNSView(_ nsView: HoverTrackingNSView, context: Context) {
-        nsView.onChange = onChange
-    }
-}
-
-private final class HoverTrackingNSView: NSView {
-    var onChange: (Bool) -> Void
-    private var trackingArea: NSTrackingArea?
-    private var isInside: Bool = false
-
-    init(onChange: @escaping (Bool) -> Void) {
-        self.onChange = onChange
-        super.init(frame: .zero)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    // Pass clicks through to the SwiftUI parent (which owns the tap gesture and accessibility
-    // action). Tracking areas keep working because they're driven by window mouse-tracking,
-    // not by hitTest.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
-
-        // Sync current pointer state in case the pointer is already inside when the tracking
-        // area is (re)installed — happens on first popover open or after layout changes.
-        // updateTrackingAreas runs on the main thread, so dispatch synchronously; deferring
-        // creates a race where mouseExited can fire before the queued sync-onChange(true) runs,
-        // leaving the row stuck in the hovered state.
-        if let window, window.isVisible {
-            let mouseInWindow = window.mouseLocationOutsideOfEventStream
-            let mouseInView = convert(mouseInWindow, from: nil)
-            let nowInside = bounds.contains(mouseInView)
-            if nowInside != isInside {
-                isInside = nowInside
-                onChange(nowInside)
-            }
-        }
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        if !isInside {
-            isInside = true
-            onChange(true)
-        }
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        if isInside {
-            isInside = false
-            onChange(false)
-        }
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window == nil, isInside {
-            isInside = false
-            onChange(false)
         }
     }
 }

@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Il tuo piano personale",
+        "free": "Gratis",
+        "pro": "Pro",
+        "loading": "Caricamento…"
+      }
     }
   },
   "community": {
@@ -931,6 +939,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
           "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
         },
         "fileExplorer": {
@@ -1458,6 +1467,7 @@
       "title": "SSH",
       "metaTitle": "SSH",
       "metaDescription": "Connettiti a macchine remote con cmux ssh. I riquadri del browser vengono instradati attraverso la rete remota, le immagini vengono trascinate e rilasciate tramite scp e le notifiche degli agenti arrivano a casa.",
+      "metaDescriptionShort": "Connettiti con cmux ssh a macchine remote. Instrada il browser sulla rete remota, trasferisci file via scp e ricevi notifiche degli agenti.",
       "intro": "cmux ssh crea uno spazio di lavoro per un computer remoto. I riquadri del browser vengono instradati attraverso la rete remota, i file vengono trascinati e rilasciati tramite scp, gli agenti di codifica inviano notifiche alla barra laterale locale e le sessioni si riconnettono in caso di rilascio.",
       "usage": "Utilizzo",
       "usageDesc": "cmux ssh legge il tuo ~/.ssh/config per alias host, file di identità e impostazioni proxy. Tutti i flag rispecchiano i loro equivalenti ssh.",
@@ -1527,11 +1537,13 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multi-agente in cmux",
-      "metaDescription": "oh-my-opencode (cmux omo) esegue la CLI di OpenCode con il plugin oh-my-openagent dentro cmux. Orchestra Claude, GPT, Gemini e Grok come agenti paralleli, ciascuno in una divisione nativa di cmux."
+      "metaDescription": "cmux omo avvia OpenCode con il plugin oh-my-openagent. Claude, GPT, Gemini e Grok lavorano in parallelo come agenti, ciascuno in una divisione cmux nativa.",
+      "metaDescriptionShort": "cmux omo avvia OpenCode con il plugin oh-my-openagent. Claude, GPT, Gemini e Grok lavorano in parallelo come agenti, ciascuno in una divisione cmux nativa."
     },
     "ios": {
       "metaTitle": "App per iOS",
       "metaDescription": "Configura l'app companion di cmux per iOS: accesso tramite TestFlight, rete personale con Tailscale o WireGuard, abbinamento, notifiche e quali dati memorizza cmux.",
+      "metaDescriptionShort": "Configura l'app cmux per iOS con TestFlight, rete Tailscale o WireGuard, abbinamento al Mac, notifiche e controllo dei dati memorizzati.",
       "title": "App per iOS",
       "intro": "L'app cmux per iOS è un companion per il tuo Mac. Abbina il tuo iPhone o iPad a un Mac che esegue cmux e collegati ai tuoi terminali dal telefono, con inoltro opzionale delle notifiche del terminale.",
       "betaNote": "L'app per iOS è in beta. Viene distribuita su TestFlight come cmux BETA.",
@@ -3461,6 +3473,9 @@
       "faqQ4": "cmux è gratuito da usare con Cursor CLI?",
       "faqA4": "Sì. cmux è gratuito e open source per macOS."
     }
+  },
+  "pricing": {
+    "billingUnavailable": "La fatturazione non è disponibile al momento. Riprova più tardi."
   },
   "platforms": {
     "macos": "macOS",

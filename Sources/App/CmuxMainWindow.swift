@@ -27,8 +27,27 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
         return isMinimalModeTitlebarControlHit(window: window, locationInWindow: event.locationInWindow)
     }
 
+    /// The window must never be resized to fit this view's SwiftUI content.
+    /// NSHostingView watches window layout and calls NSWindow.setFrame itself
+    /// (`windowDidLayout` → `updateAnimatedWindowSize`) when the content's
+    /// measured size disagrees with the window's — and it does so even with
+    /// empty `sizingOptions`, which only governs the constraint-based paths.
+    /// If content ever measures wider than the window (a workspace pushed
+    /// below its minimum width by a programmatic resize), that hook re-grows
+    /// the window a step per layout pass, without bound. Shadowing the
+    /// hook's Objective-C selector severs the path; should a future macOS
+    /// rename it, this no-op stops shadowing anything and
+    /// `MainWindowSelfSizingTests` flags the behavior's return.
+    @objc private func windowDidLayout() {
+        // Deliberately empty: the main window's size belongs to the user and
+        // to explicit window management, never to content measurement.
+    }
+
     required init(rootView: Content) {
         super.init(rootView: rootView)
+        // Belt with the suspenders above: keep the hosting view from creating
+        // any content-derived sizing constraints either.
+        sizingOptions = []
         addLayoutGuide(zeroSafeAreaLayoutGuide)
         NSLayoutConstraint.activate([
             zeroSafeAreaLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -54,6 +73,69 @@ func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
 
 @MainActor
 final class CmuxMainWindow: NSWindow {
+
+    /// No content may resize this window past the attached display union. The content view
+    /// hosts AppKit subtrees whose subviews carry REQUIRED autoresizing-mask
+    /// constraints, and if any of them is ever laid out oversized, AppKit
+    /// satisfies those constraints by growing the WINDOW — and since this
+    /// window is non-movable, nothing ever constrains it back. A layout bug
+    /// then compounds through everything derived from window geometry
+    /// (observed live: the window at 29,000 points wide, growing every
+    /// pass). The user sizes this window; layout does not.
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        let frame = styleMask.contains(.fullScreen)
+            ? frameRect
+            : Self.frameByCappingOversizedDimensions(
+                frameRect,
+                displayFrames: NSScreen.screens.map {
+                    (frame: $0.frame, visibleFrame: $0.visibleFrame)
+                }
+            )
+        super.setFrame(frame, display: flag)
+    }
+
+    /// Caps runaway content-derived dimensions to the display union while
+    /// keeping a previously intersecting window's titlebar reachable. Frames
+    /// that already fit are returned byte-for-byte so ordinary partial
+    /// off-screen and multi-display placement remains user-owned.
+    nonisolated static func frameByCappingOversizedDimensions(
+        _ proposedFrame: NSRect,
+        displayFrames: [(frame: NSRect, visibleFrame: NSRect)]
+    ) -> NSRect {
+        let displays = displayFrames.filter { $0.frame.width > 1 && $0.frame.height > 1 }
+        let displayUnion = displays.reduce(NSRect.null) { $0.union($1.frame) }
+        guard !displayUnion.isNull else { return proposedFrame }
+
+        var capped = proposedFrame
+        capped.size.width = min(capped.width, displayUnion.width)
+        capped.size.height = min(capped.height, displayUnion.height)
+        guard capped.size != proposedFrame.size else { return proposedFrame }
+
+        let target = displays.max { lhs, rhs in
+            let left = proposedFrame.intersection(lhs.frame)
+            let right = proposedFrame.intersection(rhs.frame)
+            return left.width * left.height < right.width * right.height
+        }
+        guard let target,
+              !proposedFrame.intersection(target.frame).isNull,
+              !isTitlebarReachable(frame: capped, visibleFrame: target.visibleFrame)
+        else { return capped }
+
+        let visibleWidth = min(60, capped.width)
+        capped.origin.x = min(
+            max(capped.minX, target.visibleFrame.minX - capped.width + visibleWidth),
+            target.visibleFrame.maxX - visibleWidth
+        )
+        let stripHeight = min(64, capped.height)
+        let visibleHeight = min(16, stripHeight)
+        let clampedMaxY = min(
+            max(capped.maxY, target.visibleFrame.minY + visibleHeight),
+            target.visibleFrame.maxY + stripHeight - visibleHeight
+        )
+        capped.origin.y = clampedMaxY - capped.height
+        return capped
+    }
+
     static var minimumContentSize: NSSize {
         NSSize(
             width: CGFloat(SessionPersistencePolicy.minimumWindowWidth),

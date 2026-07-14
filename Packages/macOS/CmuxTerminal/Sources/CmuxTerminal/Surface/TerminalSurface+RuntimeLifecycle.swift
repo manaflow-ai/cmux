@@ -130,6 +130,8 @@ extension TerminalSurface {
               GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface) else {
             let callbackContext = surfaceCallbackContext
             surfaceCallbackContext = nil
+            let manualIOContext = manualIOContext
+            self.manualIOContext = nil
             let teeLease = mobileByteTeeLease
             mobileByteTeeLease = nil
             registry.unregisterRuntimeSurface(surface, ownerId: id)
@@ -146,6 +148,7 @@ extension TerminalSurface {
             )
 #endif
             callbackContext?.release()
+            manualIOContext?.release()
             teeLease?.release()
             return nil
         }
@@ -269,12 +272,11 @@ extension TerminalSurface {
                 reason: "teardown",
                 surface: surfaceToFree,
                 callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The teardown coordinator releases callbackContext; manualIOContext
-            // and teeLease are not transported through the request, so release them here.
-            manualIOContext?.release()
-            teeLease?.release()
+            // The coordinator releases every callback owner after free returns.
             return
         }
 #endif
@@ -315,6 +317,7 @@ extension TerminalSurface {
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
         desiredFocusState = false
+        noteRuntimeSurfaceRecreatedForOcclusion()
 
         guard let surfaceToFree else {
             callbackContext?.release()
@@ -338,12 +341,11 @@ extension TerminalSurface {
                 reason: reason,
                 surface: surfaceToFree,
                 callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The teardown coordinator releases callbackContext; manualIOContext
-            // and teeLease are not transported through the request, so release them here.
-            manualIOContext?.release()
-            teeLease?.release()
+            // The coordinator releases every callback owner after free returns.
             return
         }
 #endif
@@ -384,13 +386,12 @@ extension TerminalSurface {
         // If already attached to this view, nothing to do.
         // Still re-assert the display id: during split close tree restructuring, the view can be
         // removed/re-added (or briefly have window/screen nil) without recreating the surface.
-        // Ghostty's vsync-driven renderer depends on having a valid display id; if it is missing
-        // or stale, the surface can appear visually frozen until a focus/visibility change.
-        // SwiftUI also re-enters this path for ordinary state propagation (drag hover, active
-        // markers, visibility flags), so avoid forcing a geometry refresh when the attachment
+        // Ghostty's renderer depends on a valid display id; if it is missing or stale,
+        // the surface can freeze visually until focus/visibility changes. Avoid forcing refresh when the attachment
         // itself is unchanged.
         if attachedView === view && surface != nil {
             releaseHeadlessStartupWindowIfNeeded(for: view)
+            flushPendingManualSizeReportIfAttached()
 #if DEBUG
             logDebugEvent("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view as NSView).toOpaque())")
 #endif
@@ -554,14 +555,14 @@ extension TerminalSurface {
         // realizeRenderer() double-realize and trip Ghostty's defunct assert.
         rendererRealized = true
         recordRuntimeSurfaceCreation()
-        // Install the PTY tee so MobileTerminalByteTee receives every byte
+        // Install the shared PTY tee so output consumers receive every byte
         // the read thread produces, in order, before the VT parser runs.
         // Paired iPhones consume these bytes via `terminal.bytes` events
         // and feed them into their own libghostty surface, guaranteeing
         // grid parity by construction. The lease is released alongside
         // `surfaceCallbackContext` when the surface tears down.
         mobileByteTeeLease?.release()
-        mobileByteTeeLease = byteTee.installTee(on: createdSurface, surfaceID: id)
+        mobileByteTeeLease = byteTee.installTee(on: createdSurface, workspaceID: tabId, surfaceID: id)
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }
@@ -615,7 +616,7 @@ extension TerminalSurface {
             }()
             if shouldReapply {
                 let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
-                _ = performBindingAction(action)
+                _ = performInternalBindingAction(action)
             }
         }
 
@@ -623,6 +624,7 @@ extension TerminalSurface {
         // surface converges with any focus changes that happened while the
         // surface was being initialized.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
+        applyRetainedOcclusionAfterRuntimeInstallation()
 
         flushPendingSocketInputIfNeeded()
 
@@ -640,7 +642,7 @@ extension TerminalSurface {
                 "workspaceId": tabId
             ]
         )
-
+        onRuntimeReady?()
 #if DEBUG
         let runtimeFontText = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface).map {
             String(format: "%.2f", $0)

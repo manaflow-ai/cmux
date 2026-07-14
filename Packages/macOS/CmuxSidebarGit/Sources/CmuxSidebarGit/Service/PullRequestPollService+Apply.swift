@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxGit
+import CmuxGit
 
 // MARK: - Applying refresh results, poll-deadline math, and tracking bookkeeping.
 
@@ -10,9 +10,11 @@ extension PullRequestPollService {
         _ results: [WorkspacePullRequestRefreshResult],
         repoResults: [String: WorkspacePullRequestRepoFetchResult],
         requestedKeys: [WorkspaceGitProbeKey],
+        requestedSourceByKey: [WorkspaceGitProbeKey: SourceIdentity] = [:],
         now: Date,
         reason: String
     ) {
+        runtimeMetricsRecorder.recordPullRequestMainActorApplyEntered()
         guard let host else { return }
         guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
             workspacePullRequestRefreshTask = nil
@@ -46,12 +48,15 @@ extension PullRequestPollService {
         var needsFollowUpPass = false
 
         defer {
-            if needsFollowUpPass {
-                let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache
-                workspacePullRequestFollowUpShouldBypassRepoCache = false
-                refreshTrackedWorkspacePullRequestsIfNeeded(
-                    reason: "\(reason).followUp",
-                    allowCachedResultsOverride: shouldBypassRepoCache ? false : nil
+            let pendingSeedRefresh = takePendingSeedRefresh()
+            let pendingRefreshRequest = takePendingRefreshRequest()
+            if needsFollowUpPass || pendingSeedRefresh != nil || pendingRefreshRequest != nil {
+                let shouldBypassRepoCache =
+                    pendingSeedRefresh?.shouldBypassRepoCache == true
+                    || pendingRefreshRequest?.shouldBypassRepoCache == true
+                startWorkspacePullRequestFollowUp(
+                    reason: "\(pendingRefreshRequest?.reason ?? reason).followUp",
+                    shouldBypassRepoCache: shouldBypassRepoCache
                 )
             }
         }
@@ -69,13 +74,30 @@ extension PullRequestPollService {
                 needsFollowUpPass = true
             }
 
+            if let requestedSource = requestedSourceByKey[key],
+               workspacePullRequestSourceByKey[key] != requestedSource {
+                SidebarGitMetadataService.recordStaleApply()
+                if let currentSource = workspacePullRequestSourceByKey[key] {
+                    if PullRequestProbeService.shouldSkipLookup(branch: currentSource.branch) {
+                        clearWorkspacePullRequestTracking(for: key, preservingSource: true)
+                    } else {
+                        workspacePullRequestNextPollAtByKey[key] = .distantPast
+                        needsFollowUpPass = true
+                    }
+                } else {
+                    clearWorkspacePullRequestTracking(for: key)
+                }
+                continue
+            }
+
             guard requestedKeySet.contains(key),
                   let result = resultsByKey[key] else {
                 continue
             }
 
             if rerunPending,
-               workspacePullRequestFollowUpShouldBypassRepoCache,
+               (workspacePullRequestPendingSeedRefresh?.shouldBypassRepoCache == true ||
+                   workspacePullRequestPendingRefreshRequest?.shouldBypassRepoCache == true),
                result.usedCachedRepoData {
                 continue
             }
@@ -110,6 +132,30 @@ extension PullRequestPollService {
                         isStale: false
                     )
                 )
+                let resolvedBranch = GitMetadataService.normalizedBranchName(resolvedPullRequest.branch)
+                let projectedBranch = GitMetadataService.normalizedBranchName(
+                    host.panelGitBranch(workspaceId: result.workspaceId, panelId: result.panelId)?.branch
+                )
+                // Nudge only while git metadata watching is on: with watching
+                // disabled the probe scheduler clears the panel's branch AND
+                // the badge this pass just applied (there is also no branch
+                // projection to heal).
+                if resolvedBranch != projectedBranch, host.isGitMetadataWatchEnabled {
+                    host.schedulePanelGitMetadataProbe(
+                        workspaceId: result.workspaceId,
+                        panelId: result.panelId,
+                        reason: "pullRequestBranchMismatch"
+                    )
+#if DEBUG
+                    debugLog(
+                        "workspace.prRefresh.branchProjectionMismatch " +
+                        "workspace=\(result.workspaceId.uuidString.prefix(5)) " +
+                        "panel=\(result.panelId.uuidString.prefix(5)) " +
+                        "resolved=\(resolvedPullRequest.branch) " +
+                        "projected=\(projectedBranch ?? "nil")"
+                    )
+#endif
+                }
             case .notFound:
                 workspacePullRequestTransientFailureCountByKey[key] = 0
                 workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
@@ -222,6 +268,14 @@ extension PullRequestPollService {
     // MARK: Tracking bookkeeping
 
     func pruneWorkspacePullRequestTracking(validKeys: Set<WorkspaceGitProbeKey>) {
+        if workspacePullRequestProbeStateByKey.contains(where: { key, state in
+            guard !validKeys.contains(key) else { return false }
+            if case .inFlight = state { return true }
+            return false
+        }) {
+            workspacePullRequestRefreshAuthority?.invalidate()
+        }
+        workspacePullRequestSourceByKey = workspacePullRequestSourceByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestNextPollAtByKey = workspacePullRequestNextPollAtByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { validKeys.contains($0.key) }
@@ -233,7 +287,16 @@ extension PullRequestPollService {
         updateWorkspacePullRequestPollTimer()
     }
 
-    func clearWorkspacePullRequestTracking(for key: WorkspaceGitProbeKey) {
+    func clearWorkspacePullRequestTracking(
+        for key: WorkspaceGitProbeKey,
+        preservingSource: Bool = false
+    ) {
+        if case .inFlight = workspacePullRequestProbeStateByKey[key] {
+            workspacePullRequestRefreshAuthority?.invalidate()
+        }
+        if !preservingSource {
+            workspacePullRequestSourceByKey.removeValue(forKey: key)
+        }
         workspacePullRequestNextPollAtByKey.removeValue(forKey: key)
         workspacePullRequestProbeStateByKey.removeValue(forKey: key)
         workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
@@ -248,6 +311,14 @@ extension PullRequestPollService {
     }
 
     public func clearWorkspacePullRequestTracking(workspaceId: UUID) {
+        if workspacePullRequestProbeStateByKey.contains(where: { key, state in
+            guard key.workspaceId == workspaceId else { return false }
+            if case .inFlight = state { return true }
+            return false
+        }) {
+            workspacePullRequestRefreshAuthority?.invalidate()
+        }
+        workspacePullRequestSourceByKey = workspacePullRequestSourceByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestNextPollAtByKey = workspacePullRequestNextPollAtByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { $0.key.workspaceId != workspaceId }
@@ -270,6 +341,9 @@ extension PullRequestPollService {
     }
 
     public func resetWorkspacePullRequestRefreshState() {
+        takePendingSeedRefresh()
+        workspacePullRequestRefreshAuthority?.invalidate()
+        workspacePullRequestRefreshAuthority = nil
         workspacePullRequestRefreshTask?.cancel()
         workspacePullRequestRefreshTask = nil
         workspacePullRequestProbeStateByKey.removeAll()
@@ -277,26 +351,49 @@ extension PullRequestPollService {
         workspacePullRequestLastTerminalStateRefreshAtByKey.removeAll()
         workspacePullRequestTransientFailureCountByKey.removeAll()
         workspacePullRequestRepoCacheBySlug.removeAll()
-        workspacePullRequestFollowUpShouldBypassRepoCache = false
+        workspacePullRequestSourceByKey.removeAll()
+        workspacePullRequestPendingRefreshRequest = nil
         updateWorkspacePullRequestPollTimer()
+    }
+
+    func startWorkspacePullRequestFollowUp(
+        reason: String,
+        shouldBypassRepoCache: Bool
+    ) {
+        runtimeMetricsRecorder.recordPullRequestFollowUpStarted()
+        refreshTrackedWorkspacePullRequestsIfNeeded(
+            reason: reason,
+            allowCachedResultsOverride: shouldBypassRepoCache ? false : nil
+        )
     }
 
     // MARK: Rerun flags
 
     func markWorkspacePullRequestProbeRerunPending(
         for key: WorkspaceGitProbeKey,
+        reason: String,
         bypassRepoCache: Bool
     ) {
+        // A rerun means the active result no longer has mutation authority.
+        // Invalidate synchronously so detached completion can reject it before
+        // hopping to the main actor.
+        workspacePullRequestRefreshAuthority?.invalidate()
         guard case .inFlight(let rerunPending) = workspacePullRequestProbeStateByKey[key],
               !rerunPending else {
             if bypassRepoCache {
-                workspacePullRequestFollowUpShouldBypassRepoCache = true
+                queueWorkspacePullRequestRefreshFollowUp(
+                    reason: reason,
+                    shouldBypassRepoCache: true
+                )
             }
             return
         }
         workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: true)
         if bypassRepoCache {
-            workspacePullRequestFollowUpShouldBypassRepoCache = true
+            queueWorkspacePullRequestRefreshFollowUp(
+                reason: reason,
+                shouldBypassRepoCache: true
+            )
         }
     }
 

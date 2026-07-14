@@ -15,14 +15,11 @@ const teamCustomer = {
   id: "team-signed-in",
   displayName: "Signed Team",
   listUsers: mock(async () => [{ id: "member-1" }, { id: "member-2" }]),
-  createCheckoutUrl: mock(async () => "https://checkout.test/team"),
 };
 const signedInUser = {
   id: "user-signed-in",
   isAnonymous: false,
   primaryEmail: "signed@example.com",
-  createCheckoutUrl: mock(async () => "https://checkout.test/signed-in"),
-  listProducts: mock(async () => emptyProductsPage()),
   update: mock(async () => undefined),
   selectedTeam: null as null | typeof teamCustomer,
 };
@@ -30,8 +27,6 @@ const anonymousUser = {
   id: "user-anonymous",
   isAnonymous: true,
   primaryEmail: null,
-  createCheckoutUrl: mock(async () => "https://checkout.test/anonymous"),
-  listProducts: mock(async () => emptyProductsPage()),
   update: mock(async () => undefined),
 };
 
@@ -121,21 +116,11 @@ afterAll(() => {
 describe("billing checkout route", () => {
   beforeEach(() => {
     getUser.mockClear();
-    signedInUser.createCheckoutUrl.mockClear();
-    signedInUser.listProducts.mockClear();
     signedInUser.update.mockClear();
-    teamCustomer.createCheckoutUrl.mockClear();
     teamCustomer.listUsers.mockClear();
-    anonymousUser.createCheckoutUrl.mockClear();
-    anonymousUser.listProducts.mockClear();
     anonymousUser.update.mockClear();
-    signedInUser.createCheckoutUrl.mockResolvedValue("https://checkout.test/signed-in");
-    signedInUser.listProducts.mockResolvedValue(emptyProductsPage());
     signedInUser.update.mockResolvedValue(undefined);
-    teamCustomer.createCheckoutUrl.mockResolvedValue("https://checkout.test/team");
     teamCustomer.listUsers.mockResolvedValue([{ id: "member-1" }, { id: "member-2" }]);
-    anonymousUser.createCheckoutUrl.mockResolvedValue("https://checkout.test/anonymous");
-    anonymousUser.listProducts.mockResolvedValue(emptyProductsPage());
     anonymousUser.update.mockResolvedValue(undefined);
     signedInUser.selectedTeam = null;
     userResponses = [];
@@ -152,7 +137,7 @@ describe("billing checkout route", () => {
     stripeLimit.mockResolvedValue([]);
   });
 
-  test("sends signed-out visitors straight to anonymous Stack checkout", async () => {
+  test("redirects to billing unavailable when Stripe is not configured", async () => {
     userResponses = [null, anonymousUser];
 
     const response = await GET(
@@ -160,79 +145,14 @@ describe("billing checkout route", () => {
     );
 
     expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe("https://checkout.test/anonymous");
-    expect(getUser).toHaveBeenNthCalledWith(1, { or: "return-null" });
-    expect(getUser).toHaveBeenNthCalledWith(2, { or: "anonymous" });
-    expect(anonymousUser.createCheckoutUrl).toHaveBeenCalledWith({
-      productId: "pro",
-      returnUrl: "https://cmux.test/api/billing/confirm",
-    });
-  });
-
-  test("keeps signed-in checkout on the existing Stack user", async () => {
-    userResponses = [signedInUser];
-
-    const response = await GET(
-      new NextRequest("https://cmux.test/api/billing/checkout"),
-    );
-
-    expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe("https://checkout.test/signed-in");
-    expect(getUser).toHaveBeenCalledTimes(1);
-    expect(signedInUser.createCheckoutUrl).toHaveBeenCalledWith({
-      productId: "pro",
-      returnUrl: "https://cmux.test/api/billing/confirm",
-    });
-  });
-
-  test("syncs metadata when Stack says Pro checkout is already granted and products confirm it", async () => {
-    userResponses = [signedInUser];
-    mockImplementation(signedInUser.createCheckoutUrl, async () => {
-      throw new Error("Product already granted to customer");
-    });
-    // First read (the route's top pre-check) sees no Pro so the route reaches
-    // createCheckoutUrl; the catch-path re-verify then sees an active Pro.
-    let listProductsCalls = 0;
-    mockImplementation(signedInUser.listProducts, async () =>
-      listProductsCalls++ === 0 ? emptyProductsPage() : activeProProductsPage(),
-    );
-
-    const response = await GET(
-      new NextRequest("https://cmux.test/api/billing/checkout"),
-    );
-
-    expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
-      "https://cmux.test/pricing?welcome=active",
+      "https://cmux.test/pricing?billing=unavailable",
     );
-    expect(signedInUser.createCheckoutUrl).toHaveBeenCalledTimes(1);
-    expect(signedInUser.listProducts).toHaveBeenCalled();
-    expect(signedInUser.update).toHaveBeenCalledWith({
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
-    });
+    expect(getUser).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
   });
 
-  test("does not mint Pro metadata when Stack says already granted but products do not confirm it", async () => {
-    userResponses = [signedInUser];
-    mockImplementation(signedInUser.createCheckoutUrl, async () => {
-      throw new Error("Product already granted to customer");
-    });
-    signedInUser.listProducts.mockResolvedValue(emptyProductsPage());
-
-    const response = await GET(
-      new NextRequest("https://cmux.test/api/billing/checkout"),
-    );
-
-    expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe(
-      "https://cmux.test/api/billing/confirm",
-    );
-    expect(signedInUser.listProducts).toHaveBeenCalled();
-    expect(signedInUser.update).not.toHaveBeenCalled();
-  });
-
-  test("routes team checkout through the team Stack product", async () => {
-    signedInUser.selectedTeam = teamCustomer;
+  test("redirects team checkout to billing unavailable when Stripe is not configured", async () => {
     userResponses = [signedInUser];
 
     const response = await GET(
@@ -240,13 +160,29 @@ describe("billing checkout route", () => {
     );
 
     expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe("https://checkout.test/team");
-    expect(signedInUser.listProducts).not.toHaveBeenCalled();
-    expect(signedInUser.createCheckoutUrl).not.toHaveBeenCalled();
-    expect(teamCustomer.createCheckoutUrl).toHaveBeenCalledWith({
-      productId: "team",
-      returnUrl: "https://cmux.test/pricing?welcome=team",
-    });
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=unavailable",
+    );
+    expect(getUser).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("blocks direct checkout requests from the iOS App Store distribution", async () => {
+    stripeConfigured = true;
+    userResponses = [null, anonymousUser];
+
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/checkout?plan=pro&cmux_distribution=appstore&cmux_scheme=cmux",
+      ),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable",
+    );
+    expect(getUser).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
   });
 
   test("creates Stripe checkout for anonymous Pro visitors when configured", async () => {
@@ -277,6 +213,35 @@ describe("billing checkout route", () => {
         "https://cmux.test/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux",
       cancel_url: "https://cmux.test/pricing?billing=cancelled",
     });
+  });
+
+  test("format=json returns the Stripe URL as JSON instead of a 302", async () => {
+    stripeConfigured = true;
+    userResponses = [null, anonymousUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?format=json"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      url: "https://checkout.stripe.com/c/session",
+    });
+    expect(createdStripeSessions).toHaveLength(1);
+  });
+
+  test("format=json returns the redirect destination as JSON when Stripe is unconfigured", async () => {
+    stripeConfigured = false;
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?format=json"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      url: "https://cmux.test/pricing?billing=unavailable",
+    });
+    expect(createStripeSession).not.toHaveBeenCalled();
   });
 
   test("uses yearly Stripe price when interval is year", async () => {
@@ -319,7 +284,6 @@ describe("billing checkout route", () => {
     );
 
     expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
-    expect(teamCustomer.createCheckoutUrl).not.toHaveBeenCalled();
     expect(resolveTeamPrice).toHaveBeenCalled();
     expect(createStripeCustomer).toHaveBeenCalledWith({
       name: "Signed Team",
@@ -353,6 +317,44 @@ describe("billing checkout route", () => {
     });
   });
 
+  test("blocks Stripe Pro checkout while account deletion is in progress", async () => {
+    stripeConfigured = true;
+    userResponses = [{
+      ...signedInUser,
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=account_deletion_in_progress",
+    );
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("blocks Stripe team checkout while account deletion is in progress", async () => {
+    stripeConfigured = true;
+    userResponses = [{
+      ...signedInUser,
+      selectedTeam: teamCustomer,
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=team"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=account_deletion_in_progress",
+    );
+    expect(createStripeCustomer).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
   test("rejects unknown checkout plans", async () => {
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/checkout?plan=enterprise"),
@@ -365,32 +367,3 @@ describe("billing checkout route", () => {
     expect(getUser).not.toHaveBeenCalled();
   });
 });
-
-function emptyProductsPage() {
-  return Object.assign([], { nextCursor: null });
-}
-
-function activeProProductsPage() {
-  return Object.assign(
-    [
-      {
-        id: "pro",
-        quantity: 1,
-        subscription: {
-          cancelAtPeriodEnd: false,
-          currentPeriodEnd: null,
-        },
-      },
-    ],
-    { nextCursor: null },
-  );
-}
-
-function mockImplementation(
-  fn: unknown,
-  implementation: (...args: never[]) => unknown,
-) {
-  (fn as { mockImplementation(next: typeof implementation): void }).mockImplementation(
-    implementation,
-  );
-}

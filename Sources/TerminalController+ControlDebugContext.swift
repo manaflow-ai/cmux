@@ -66,6 +66,17 @@ extension TerminalController: ControlDebugContext {
         return JSONValue(foundationObject: payload)
     }
 
+    func controlDebugReadProcessPerformanceMetrics() -> JSONValue? {
+        JSONValue(
+            foundationObject: ProcessPerformanceMetrics.shared.snapshot().foundationObject
+        )
+    }
+
+    func controlDebugResetProcessPerformanceMetrics() -> JSONValue? {
+        ProcessPerformanceMetrics.shared.reset()
+        return controlDebugReadProcessPerformanceMetrics()
+    }
+
     // MARK: - v1-shared forwards (bodies stay in TerminalController.swift)
 
     func controlDebugSetShortcut(arguments: String) -> String { setShortcut(arguments) }
@@ -73,6 +84,16 @@ extension TerminalController: ControlDebugContext {
     func controlDebugSimulateShortcut(combo: String) -> String { simulateShortcut(combo) }
 
     func controlDebugActivateApp() -> String { activateApp() }
+
+    func controlDebugRequestWorkspaceTodoChecklistAddField() -> UUID? {
+        guard let workspace = tabManager?.selectedWorkspace else { return nil }
+        WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspace.id)
+        return workspace.id
+    }
+
+    func controlDebugShowProWelcomeChecklist() {
+        ProWelcomeChecklistPresenter.present()
+    }
 
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
@@ -426,6 +447,10 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugPortalStats() -> JSONValue? {
         JSONValue(foundationObject: TerminalWindowPortalRegistry.debugPortalStats())
+    }
+
+    func controlDebugRemoteTmuxSizingSettled() -> JSONValue? {
+        JSONValue(foundationObject: remoteTmuxSizingSettlementPayload())
     }
 #endif
 }

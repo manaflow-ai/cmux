@@ -16,6 +16,9 @@ struct WorkspaceListView: View {
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let host: String
     let connectionStatus: MobileMacConnectionStatus
+    var macUpdateHint: MobileMacUpdateHint? = nil
+    var macUpdateHintMacName: String? = nil
+    var dismissMacUpdateHint: (() -> Void)? = nil
     let navigationStyle: WorkspaceNavigationStyle
     var showsNavigationToolbar = true
     /// Whether workspace-row titles wrap (multi-line) instead of truncating to a
@@ -31,6 +34,7 @@ struct WorkspaceListView: View {
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
+    var createWorkspaceGroup: (() -> Void)? = nil
     var canCreateWorkspace = true
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
@@ -79,7 +83,7 @@ struct WorkspaceListView: View {
         _ id: MobileWorkspacePreview.ID,
         _ groupID: MobileWorkspaceGroupPreview.ID?, _ beforeWorkspaceID: MobileWorkspacePreview.ID?,
         _ movesGroup: Bool
-    ) async -> Void)? = nil
+    ) async -> Bool)? = nil
     /// Optional: rename a workspace group on the Mac.
     var renameWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)? = nil
     /// Optional: pin or unpin a workspace group on the Mac.
@@ -118,10 +122,18 @@ struct WorkspaceListView: View {
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
     @State var workspacePendingCloseID: MobileWorkspacePreview.ID?
-    @State var optimisticFlatWorkspaces: [MobileWorkspacePreview]?
-    @State var optimisticGroupedItems: [MobileWorkspaceListItem]?
-    @State var optimisticGroupedWorkspaces: [MobileWorkspacePreview]?
-    @State var isWorkspaceMovePending = false
+    @State var optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler()
+    @State var optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler()
+    /// In-flight move RPC count plus the tail of the send chain. Moves stay
+    /// enabled while pending (disabling mid-gesture cancels the reorder
+    /// interaction), so rapid drags can pipeline; sends are chained so the Mac
+    /// applies them in UI order and the authoritative snapshot converges on
+    /// the predicted optimistic order instead of racing it.
+    @State var pendingWorkspaceMoveCount = 0
+    @State var pendingWorkspaceMoveTask: Task<Bool, Never>?
+    /// Bumped when a supersede or failure invalidates the pending chain, so
+    /// queued moves computed against overruled predictions abort unsent.
+    @State var workspaceMoveEpoch: UInt64 = 0
 
     var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -146,19 +158,9 @@ struct WorkspaceListView: View {
         macTitlePickerPendingSelection != nil
     }
 
-    /// Whether the list renders grouped sections. Groups are honored whenever the
-    /// Mac actually emitted group sections and the user is not searching. The
-    /// gate is the payload itself, not `toggleGroupCollapsed`: a Mac that emits
-    /// groups also handles collapse/expand, but the capability flag arrives via a
-    /// separate `mobile.host.status` call, and a slow or failed status fetch must
-    /// not flatten sections the list already has (it would only lose the chevron
-    /// action). A search flattens to a single matched, pinned-first list so
-    /// members can be found across groups; floating pinned members out of their
-    /// group is acceptable while filtering. An active filter-menu dimension
-    /// flattens the same way, for the same reason. A single-Mac picker scope
-    /// still renders groups only for the foreground Mac whose group metadata is
-    /// available here; "All Computers" and secondary computer selections flatten because
-    /// group ids are Mac-local. Non-iOS builds keep the pre-picker behavior.
+    /// Groups render from the payload while unfiltered and scoped to the
+    /// foreground Mac. Search, filters, and multi-Mac scopes flatten the list;
+    /// the independently fetched collapse capability does not gate rendering.
     var rendersGroupedSections: Bool {
         !groups.isEmpty
             && trimmedQuery.isEmpty
@@ -173,10 +175,7 @@ struct WorkspaceListView: View {
             || workspace.terminals.contains { $0.name.localizedCaseInsensitiveContains(query) }
     }
 
-    /// Workspaces after the row filter (Unread) and search filtering, pinned
-    /// ones first (stable within each group so the Mac's order is otherwise
-    /// preserved). Used for the flat (ungrouped, filtering, or searching)
-    /// presentation.
+    /// Filtered workspaces for flat presentation, pinned first and otherwise stable.
     var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = trimmedQuery
         let currentFilter = activeFilter
@@ -194,9 +193,7 @@ struct WorkspaceListView: View {
             .map(\.element)
     }
 
-    /// Ordered drawable items for the grouped presentation. Preserves the Mac's
-    /// member order and contiguity (no pinned-first flattening, which would
-    /// scatter group members).
+    /// Grouped drawable items preserving the Mac's member order and contiguity.
     var groupedListItems: [MobileWorkspaceListItem] {
         MobileWorkspaceListItem.items(workspaces: groupedWorkspaces, groups: groups)
     }
@@ -205,11 +202,17 @@ struct WorkspaceListView: View {
     }
 
     var displayedFlatWorkspaces: [MobileWorkspacePreview] {
-        optimisticFlatWorkspaces ?? filteredWorkspaces
+        optimisticFlatState.optimisticOrder?
+            .materializedWorkspaces(from: filteredWorkspaces) ?? filteredWorkspaces
+    }
+
+    var displayedGroupedWorkspaces: [MobileWorkspacePreview] {
+        optimisticGroupedState.optimisticOrder?
+            .materializedWorkspaces(from: groupedWorkspaces) ?? groupedWorkspaces
     }
 
     var displayedGroupedListItems: [MobileWorkspaceListItem] {
-        optimisticGroupedItems ?? groupedListItems
+        MobileWorkspaceListItem.items(workspaces: displayedGroupedWorkspaces, groups: groups)
     }
 
     var groupedWorkspaces: [MobileWorkspacePreview] {
@@ -227,22 +230,24 @@ struct WorkspaceListView: View {
             visibleSelection: currentVisibleMacSelection
         )
         let list = List {
-            if let store, showsConnectionRecoveryRow {
-                Section {
-                    MobileConnectionRecoveryBanner(
-                        connectionRequiresReauth: store.connectionRequiresReauth,
-                        connectionRecoveryFailed: store.connectionRecoveryFailed,
-                        isRecoveringConnection: store.isRecoveringConnection,
-                        connectionError: store.connectionError,
-                        retry: { store.retryMobileConnection() },
-                        signOut: signOut,
-                        rendersInline: true
-                    )
-                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-                    .listRowSeparator(.hidden)
+            switch connectionChrome {
+            case .recoveryBanner:
+                if let store {
+                    Section {
+                        MobileConnectionRecoveryBanner(
+                            connectionRequiresReauth: store.connectionRequiresReauth,
+                            connectionRecoveryFailed: store.connectionRecoveryFailed,
+                            isRecoveringConnection: store.isRecoveringConnection,
+                            connectionError: store.connectionError,
+                            retry: { store.retryMobileConnection() },
+                            signOut: signOut,
+                            rendersInline: true
+                        )
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .listRowSeparator(.hidden)
+                    }
                 }
-            }
-            if connectionStatus != .connected {
+            case .macStatusRow:
                 Section {
                     MobileMacConnectionStatusRow(
                         host: host,
@@ -264,6 +269,8 @@ struct WorkspaceListView: View {
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
                 }
+            case .none:
+                EmptyView()
             }
             Section {
                 if rendersGroupedSections {
@@ -284,6 +291,8 @@ struct WorkspaceListView: View {
             }
         }
         .listStyle(.plain)
+        // Let the invisible footer use its 16pt boundary height. Real rows are taller.
+        .environment(\.defaultMinListRowHeight, 16)
         .workspaceListRefreshable(refresh)
         .onChange(of: currentFilterMenuPresentMachineIDs) { _, present in
             // Drop machine filters whose Mac left the aggregated list (a secondary
@@ -313,7 +322,7 @@ struct WorkspaceListView: View {
             filter.pruneMachinesForFilterMenu(visibleMacSelection: currentVisibleMacSelection)
         }
         .onChange(of: filteredWorkspaceOrderKey) { _, _ in
-            if optimisticFlatWorkspaces != nil { optimisticFlatWorkspaces = nil }
+            syncOptimisticWorkspaceOrder()
         }
         .onChange(of: groupedWorkspaceOrderKey) { _, _ in
             syncOptimisticWorkspaceOrder()
@@ -474,11 +483,14 @@ struct WorkspaceListView: View {
     }
     #endif
 
-    private var showsConnectionRecoveryRow: Bool {
-        guard let store else { return false }
-        return store.connectionRequiresReauth
-            || store.connectionRecoveryFailed
-            || store.isRecoveringConnection
+    var connectionChrome: WorkspaceListConnectionChrome {
+        WorkspaceListConnectionChrome(
+            hasStore: store != nil,
+            connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
+            connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
+            isRecoveringConnection: store?.isRecoveringConnection ?? false,
+            connectionStatus: connectionStatus
+        )
     }
 
     private func updateMachineSnapshots(_ snapshots: WorkspaceMachineSnapshots) {
@@ -532,6 +544,10 @@ struct WorkspaceListView: View {
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
+                // The list-wide minimum row height is lowered for the
+                // invisible end-of-group spacer; interactive rows keep the
+                // 44pt tap target (32 content + 6/6 insets) explicitly.
+                .frame(minHeight: 32)
                 .moveDisabled(!(enablesReorder && anchorCapabilities.supportsMoveActions))
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
@@ -579,14 +595,6 @@ struct WorkspaceListView: View {
                 )
                 : ""
         )
-        .overlay(alignment: .leading) {
-            if indented {
-                Rectangle()
-                    .fill(Color.secondary.opacity(0.22))
-                    .frame(width: 1)
-                    .padding(.leading, 7)
-            }
-        }
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
     }
@@ -598,7 +606,7 @@ struct WorkspaceListView: View {
         Button {
             showingSettings = true
         } label: {
-            Image(systemName: "ellipsis.circle")
+            MobileWorkspaceSettingsIcon()
         }
         .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
         .accessibilityIdentifier("MobileWorkspaceSettingsMenu")

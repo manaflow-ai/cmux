@@ -11,17 +11,7 @@ private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
 final class WindowTerminalHostView: NSView {
     private typealias DividerRegion = PortalSplitDividerRegion
-    private enum DividerCursorKind: Equatable {
-        case vertical
-        case horizontal
-
-        var cursor: NSCursor {
-            switch self {
-            case .vertical: return .resizeLeftRight
-            case .horizontal: return .resizeUpDown
-            }
-        }
-    }
+    private typealias DividerCursorKind = PortalDividerCursorKind
 
     override var isOpaque: Bool { false }
     private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
@@ -34,6 +24,7 @@ final class WindowTerminalHostView: NSView {
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
+    private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     let paneDropRoutingSession = PaneDropRoutingSession()
 #if DEBUG
     private var lastDragRouteSignature: String?
@@ -85,7 +76,7 @@ final class WindowTerminalHostView: NSView {
         super.resetCursorRects()
         invalidateSplitDividerRegionCache()
         let regions = splitDividerRegions()
-        let expansion: CGFloat = 4
+        let expansion = PortalSplitDividerRegion.dividerHitExpansion
         for region in regions {
             var rectInHost = convert(region.rectInWindow, from: nil)
             rectInHost = rectInHost.insetBy(
@@ -118,13 +109,11 @@ final class WindowTerminalHostView: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        updateDividerCursor(at: point)
+        updateDividerCursor(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseMoved(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        updateDividerCursor(at: point)
+        updateDividerCursor(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -162,12 +151,8 @@ final class WindowTerminalHostView: NSView {
             }
 
             if let kind = splitDividerCursorKind(at: point) {
-                activeDividerCursorKind = kind
-                kind.cursor.set()
-                TerminalWindowPortalRegistry.noteSplitDividerInteraction(
-                    in: window,
-                    event: currentEvent
-                )
+                assertDividerCursor(kind)
+                TerminalWindowPortalRegistry.noteSplitDividerInteraction(in: window, event: currentEvent)
                 return nil
             }
 
@@ -350,8 +335,18 @@ final class WindowTerminalHostView: NSView {
             clearActiveDividerCursor(restoreArrow: true)
             return
         }
-        activeDividerCursorKind = nextKind
-        nextKind.cursor.set()
+        assertDividerCursor(nextKind)
+    }
+
+    // A registry-latched divider drag owned by this window bypasses occlusion; a pressed button alone is not ownership.
+    private func assertDividerCursor(_ kind: DividerCursorKind) {
+        guard TerminalWindowPortalRegistry.isSplitDividerDragActive(in: window)
+            || dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
+        activeDividerCursorKind = kind
+        kind.cursor.set()
     }
 
     private func clearActiveDividerCursor(restoreArrow: Bool) {
@@ -365,8 +360,7 @@ final class WindowTerminalHostView: NSView {
 
     private func splitDividerCursorKind(at point: NSPoint) -> DividerCursorKind? {
         guard window != nil else { return nil }
-        let windowPoint = convert(point, to: nil)
-        return Self.dividerCursorKind(at: windowPoint, in: splitDividerRegions(), checkLiveness: false)
+        return Self.dividerCursorKind(at: convert(point, to: nil), in: splitDividerRegions(), checkLiveness: false)
     }
 
     static func hasSplitDivider(atScreenPoint screenPoint: NSPoint, in window: NSWindow) -> Bool {
@@ -626,7 +620,7 @@ final class WindowTerminalPortal: NSObject {
 #if DEBUG
     static var isPointerDragActiveForTesting = false
 #endif
-    private static let tinyHideThreshold: CGFloat = 1
+    static let tinyHideThreshold: CGFloat = 1
     private static let minimumRevealWidth: CGFloat = 24
     private static let minimumRevealHeight: CGFloat = 18
     private static let transientRecoveryRetryBudget: Int = 12
@@ -636,12 +630,12 @@ final class WindowTerminalPortal: NSObject {
     private static let transientRecoveryEnabled = false
 #endif
 
-    private weak var window: NSWindow?
-    private let hostView = WindowTerminalHostView(frame: .zero)
+    weak var window: NSWindow?
+    let hostView = WindowTerminalHostView(frame: .zero)
     private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
     private weak var installedContainerView: NSView?
-    private weak var installedReferenceView: NSView?
+    weak var installedReferenceView: NSView?
     private var installConstraints: [NSLayoutConstraint] = []
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
@@ -652,7 +646,7 @@ final class WindowTerminalPortal: NSObject {
     private var lastLoggedBonsplitContainerSignature: String?
 #endif
 
-    private struct Entry {
+    struct Entry {
         weak var hostedView: GhosttySurfaceScrollView?
         weak var anchorView: NSView?
         var visibleInUI: Bool
@@ -660,7 +654,7 @@ final class WindowTerminalPortal: NSObject {
         var transientRecoveryRetriesRemaining: Int
     }
 
-    private var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
+    var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
 
     init(window: NSWindow, syncLayout: Bool = true) {
@@ -743,7 +737,25 @@ final class WindowTerminalPortal: NSObject {
         scheduleExternalGeometrySynchronize(forceImmediate: true)
     }
 
+    /// The portal whose sync pass is currently on the stack, if any. A
+    /// request arriving for THAT portal during its own pass is not dropped
+    /// — a pass's layout can produce genuinely new geometry (an imposed
+    /// divider correction rides the pass's layoutSubtreeIfNeeded, and its
+    /// notification arrives mid-pass) — it marks a follow-up that the pass
+    /// schedules on exit. Requests for OTHER portals proceed normally.
+    /// Dropping mid-pass requests outright left the final correction
+    /// unapplied forever: the last write predated the settle window and
+    /// nothing ever scheduled again. Termination is unchanged: a follow-up
+    /// whose geometry matches the fingerprint does no layout and emits no
+    /// notifications, so the chain stops one pass after geometry stops.
+    private static var currentlySynchronizingPortalId: ObjectIdentifier?
+    private var resyncRequestedDuringPass = false
+
     fileprivate func scheduleExternalGeometrySynchronize(forceImmediate: Bool) {
+        if Self.currentlySynchronizingPortalId == ObjectIdentifier(self) {
+            resyncRequestedDuringPass = true
+            return
+        }
         // Coalesce to the latest request so ancestor/frame churn (for example
         // sidebar toggles) doesn't resize the PTY at stale intermediate widths.
         externalGeometrySyncGeneration &+= 1
@@ -806,12 +818,26 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func synchronizeLayoutHierarchy() {
+        // Idempotence at the choke point. Several paths funnel here (window
+        // notifications, anchor geometry callbacks, deferred full syncs,
+        // transient recovery), each forcing subtree layout — and each layout
+        // pass emits the notifications and callbacks that re-enter those
+        // same paths, possibly delivered after any in-pass flag is down.
+        // When everything this pass reads and writes is unchanged since the
+        // last completed pass, the pass is a no-op: skip the layout storm
+        // and the echo dies here, whichever path carried it. AppKit still
+        // runs pending inner layout before display on its own.
+        let signature = externalGeometrySignature()
+        if let last = lastHierarchySyncSignature, last == signature { return }
         installedContainerView?.layoutSubtreeIfNeeded()
         installedReferenceView?.layoutSubtreeIfNeeded()
         hostView.superview?.layoutSubtreeIfNeeded()
         hostView.layoutSubtreeIfNeeded()
         _ = synchronizeHostFrameToReference()
+        lastHierarchySyncSignature = externalGeometrySignature()
     }
+
+    private var lastHierarchySyncSignature: ExternalGeometrySignature?
 
     @discardableResult
     private func synchronizeHostFrameToReference() -> Bool {
@@ -843,10 +869,71 @@ final class WindowTerminalPortal: NSObject {
     }
 
     fileprivate func synchronizeAllEntriesFromExternalGeometryChange() {
+        if let activePortalId = Self.currentlySynchronizingPortalId {
+            if activePortalId == ObjectIdentifier(self) {
+                resyncRequestedDuringPass = true
+            } else {
+                scheduleExternalGeometrySynchronize(forceImmediate: false)
+            }
+            return
+        }
+        Self.currentlySynchronizingPortalId = ObjectIdentifier(self)
+        defer {
+            Self.currentlySynchronizingPortalId = nil
+            if resyncRequestedDuringPass {
+                resyncRequestedDuringPass = false
+                DispatchQueue.main.async { [weak self] in
+                    self?.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                }
+            }
+        }
+        // Content-based echo cut. A sync pass lays out hosted split views
+        // and writes hostView.frame, and the notifications those emit can
+        // be DELIVERED AFTER the pass ends (block observers on .main), so
+        // no in-pass flag can catch them all — the sync then re-runs
+        // forever on identical geometry, pinning the main thread. An echo
+        // carries the exact geometry the last pass left behind, so it dies
+        // here in one cheap comparison; any real change differs somewhere
+        // and syncs fully.
         guard ensureInstalled() else { return }
         synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
+    }
+
+    private struct HostedGeometrySignature: Equatable {
+        let hostedFrame: NSRect?
+        let expectedFrame: NSRect?
+    }
+
+    private struct ExternalGeometrySignature: Equatable {
+        let windowFrame: NSRect?
+        let hostFrame: NSRect
+        let containerFrame: NSRect?
+        let referenceFrame: NSRect?
+        let entries: [ObjectIdentifier: HostedGeometrySignature]
+    }
+
+    /// Raw-rect snapshot of everything a sync pass reads or writes.
+    private func externalGeometrySignature() -> ExternalGeometrySignature {
+        var entries: [ObjectIdentifier: HostedGeometrySignature] = [:]
+        entries.reserveCapacity(entriesByHostedId.count)
+        for (id, entry) in entriesByHostedId {
+            let expected = entry.anchorView.flatMap { anchor in
+                anchor.window == nil ? nil : expectedHostedFrameInHost(for: anchor)
+            }
+            entries[id] = HostedGeometrySignature(
+                hostedFrame: entry.hostedView?.frame,
+                expectedFrame: expected
+            )
+        }
+        return ExternalGeometrySignature(
+            windowFrame: window?.frame,
+            hostFrame: hostView.frame,
+            containerFrame: installedContainerView?.frame,
+            referenceFrame: installedReferenceView?.frame,
+            entries: entries
+        )
     }
 
     private func ensureDividerOverlayOnTop() {
@@ -1040,6 +1127,23 @@ final class WindowTerminalPortal: NSObject {
         return frameInWindow
     }
 
+    /// THE geometry truth for a hosted view: its anchor's effective
+    /// (ancestor-clipped) rect, converted into host coordinates and snapped
+    /// to device pixels. The frame writer, the sync fingerprint, and the
+    /// misplacement judge must all use this one computation — they briefly
+    /// used three, and a clipped anchor then judged its own correct write
+    /// as misplaced while keeping the fingerprint permanently unsettled.
+    func expectedHostedFrameInHost(for anchorView: NSView) -> NSRect {
+        let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
+        let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
+        let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+        let intersection = frameInHost.intersection(hostView.bounds)
+        guard !intersection.isNull, intersection.width > 1, intersection.height > 1 else {
+            return frameInHost
+        }
+        return intersection
+    }
+
     private func seededFrameInHost(for anchorView: NSView) -> NSRect? {
         _ = synchronizeHostFrameToReference()
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
@@ -1104,9 +1208,18 @@ final class WindowTerminalPortal: NSObject {
     func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) -> Bool {
         let needsReattach = visibleInUI && hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
         guard var entry = entriesByHostedId[hostedId] else { return needsReattach }
+        let becameVisible = visibleInUI && !entry.visibleInUI
         entry.visibleInUI = visibleInUI
         if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
         entriesByHostedId[hostedId] = entry
+        // A view that just became visible may still hold the frame it was
+        // born with (bind can seed from a pre-settle anchor reading, and a
+        // hidden entry's frame is deliberately left alone). Visibility is a
+        // sizing input like any other: it schedules a pass rather than
+        // trusting that some earlier one already ran.
+        if becameVisible {
+            scheduleExternalGeometrySynchronize(forceImmediate: false)
+        }
         return needsReattach
     }
 
@@ -1243,6 +1356,25 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func synchronizeHostedViewForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
+        // Anchor geometry callbacks fire for every layout pass — including
+        // the passes our own syncs run — and treating each one as a
+        // synchronous full-portal sync (hierarchy layout + every hosted
+        // view + a deferred follow-up) kept the display cycle busy
+        // indefinitely under churn. Outside a live drag they coalesce into
+        // the scheduled pass like every other trigger; during a drag the
+        // immediate path below keeps the dragged split visually glued.
+        let interactive = hostView.inLiveResize
+            || window?.inLiveResize == true
+            || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+        guard interactive else {
+            pruneDeadEntries()
+            let anchorId = ObjectIdentifier(anchorView)
+            if let hostedId = hostedByAnchorId[anchorId] {
+                synchronizeHostedView(withId: hostedId, syncLayout: false)
+            }
+            scheduleExternalGeometrySynchronize(forceImmediate: false)
+            return
+        }
         guard ensureInstalled(syncLayout: syncLayout) else { return }
         if syncLayout {
             synchronizeLayoutHierarchy()
@@ -1265,11 +1397,8 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String) {
-        // During live resize, AppKit can deliver frame churn where outer portal geometry
-        // settles a tick before the terminal's own scroll/surface hierarchy. Only force an
-        // in-place surface refresh when reconciliation actually changed terminal geometry.
         for entry in entriesByHostedId.values {
-            guard let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
+            guard entry.visibleInUI, let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
             if hostedView.reconcileGeometryNow() {
                 hostedView.refreshSurfaceNow(reason: reason)
             }
@@ -1314,12 +1443,22 @@ final class WindowTerminalPortal: NSObject {
         reason: String
     ) -> Bool {
         guard Self.transientRecoveryEnabled else { return false }
+        // 0 = idle (a fresh episode may begin), -1 = EXHAUSTED. Without the
+        // sentinel, an exhausted budget decayed back to 0, looked idle, and
+        // refilled — so an entry that stays not-ready (a hosted view
+        // mid-teardown during workspace churn) drove one full sync and
+        // relayout per runloop turn indefinitely, pinning the main thread.
+        // Only a successful sync (resetTransientRecoveryRetryIfNeeded)
+        // returns an exhausted entry to idle.
         if entry.transientRecoveryRetriesRemaining == 0 {
             entry.transientRecoveryRetriesRemaining = Self.transientRecoveryRetryBudget
         }
         guard entry.transientRecoveryRetriesRemaining > 0 else { return false }
 
         entry.transientRecoveryRetriesRemaining -= 1
+        if entry.transientRecoveryRetriesRemaining == 0 {
+            entry.transientRecoveryRetriesRemaining = -1
+        }
         entriesByHostedId[hostedId] = entry
 #if DEBUG
         cmuxDebugLog(
@@ -1591,8 +1730,11 @@ final class WindowTerminalPortal: NSObject {
             }
             CATransaction.commit()
             if geometryChanged {
-                hostedView.reconcileGeometryNow()
-                hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                _ = hostedView.reconcileGeometryNow()
+                // Hidden surfaces keep geometry bookkeeping and redraw on reveal.
+                if entry.visibleInUI, !shouldHide, !hostedView.isHidden {
+                    hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                }
             }
         }
 
@@ -1691,82 +1833,6 @@ final class WindowTerminalPortal: NSObject {
         installedReferenceView = nil
     }
 
-#if DEBUG
-    struct DebugStats {
-        let windowNumber: Int
-        let entryCount: Int
-        let hostSubviewCount: Int
-        let terminalSubviewCount: Int
-        let mappedTerminalSubviewCount: Int
-        let orphanTerminalSubviewCount: Int
-        let visibleOrphanTerminalSubviewCount: Int
-        let staleEntryCount: Int
-        let visibleInvalidAnchorEntryCount: Int
-    }
-
-    func debugStats() -> DebugStats {
-        let terminalSubviews = hostView.subviews.compactMap { $0 as? GhosttySurfaceScrollView }
-        var mappedTerminalSubviewCount = 0
-        var orphanTerminalSubviewCount = 0
-        var visibleOrphanTerminalSubviewCount = 0
-        var visibleInvalidAnchorEntryCount = 0
-
-        for hostedView in terminalSubviews {
-            let hostedId = ObjectIdentifier(hostedView)
-            if entriesByHostedId[hostedId] != nil {
-                mappedTerminalSubviewCount += 1
-            } else {
-                orphanTerminalSubviewCount += 1
-                if hostedView.window != nil,
-                   !hostedView.isHidden,
-                   hostedView.frame.width > Self.tinyHideThreshold,
-                   hostedView.frame.height > Self.tinyHideThreshold {
-                    visibleOrphanTerminalSubviewCount += 1
-                }
-            }
-        }
-
-        for entry in entriesByHostedId.values where entry.visibleInUI {
-            guard let anchor = entry.anchorView else {
-                visibleInvalidAnchorEntryCount += 1
-                continue
-            }
-            let anchorInvalidForCurrentHost =
-                anchor.window !== window ||
-                anchor.superview == nil ||
-                (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false)
-            if anchorInvalidForCurrentHost {
-                visibleInvalidAnchorEntryCount += 1
-            }
-        }
-
-        let staleEntryCount = entriesByHostedId.values.reduce(0) { partialResult, entry in
-            guard let hostedView = entry.hostedView else { return partialResult + 1 }
-            return hostedView.superview === hostView ? partialResult : partialResult + 1
-        }
-
-        return DebugStats(
-            windowNumber: window?.windowNumber ?? -1,
-            entryCount: entriesByHostedId.count,
-            hostSubviewCount: hostView.subviews.count,
-            terminalSubviewCount: terminalSubviews.count,
-            mappedTerminalSubviewCount: mappedTerminalSubviewCount,
-            orphanTerminalSubviewCount: orphanTerminalSubviewCount,
-            visibleOrphanTerminalSubviewCount: visibleOrphanTerminalSubviewCount,
-            staleEntryCount: staleEntryCount,
-            visibleInvalidAnchorEntryCount: visibleInvalidAnchorEntryCount
-        )
-    }
-
-    func debugEntryCount() -> Int {
-        entriesByHostedId.count
-    }
-
-    func debugHostedSubviewCount() -> Int {
-        hostView.subviews.count
-    }
-#endif
-
     private func hostedScrollViewAtWindowPoint(_ windowPoint: NSPoint) -> (view: GhosttySurfaceScrollView, point: NSPoint)? {
         guard ensureInstalled() else { return nil }
         let point = hostView.convert(windowPoint, from: nil)
@@ -1803,16 +1869,16 @@ enum TerminalWindowPortalRegistry {
 #if DEBUG
     static var isPointerDragActiveForTesting = false
 #endif
-    private static var portalsByWindowId: [ObjectIdentifier: WindowTerminalPortal] = [:]
-    private static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
+    static var portalsByWindowId: [ObjectIdentifier: WindowTerminalPortal] = [:]
+    static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
     private static var hasPendingExternalGeometrySyncForAllWindows = false
     private static var externalGeometrySyncForAllWindowsGeneration: UInt64 = 0
     private static var interactiveGeometryResizeCount = 0
     private static var activeSplitDividerDragWindowId: ObjectIdentifier?
     private static var activeSplitDividerDragEventNumber: Int?
 #if DEBUG
-    private static var blockedBindCount: Int = 0
-    private static var blockedBindReasons: [String: Int] = [:]
+    static var blockedBindCount: Int = 0
+    static var blockedBindReasons: [String: Int] = [:]
 #endif
 
     static var isInteractiveGeometryResizeActive: Bool {
@@ -1865,14 +1931,20 @@ enum TerminalWindowPortalRegistry {
         return false
     }
 
+    fileprivate static func isSplitDividerDragActive(in window: NSWindow?) -> Bool {
+        guard let window, isCurrentEventSplitDividerDrag() else { return false }
+        return activeSplitDividerDragWindowId == ObjectIdentifier(window)
+    }
+
     private static func clearActiveSplitDividerDrag() {
         activeSplitDividerDragWindowId = nil
         activeSplitDividerDragEventNumber = nil
     }
 
+    // Only the event's own window may latch drag ownership: a foreign drag routed through an occluded host must not self-authorize its cursor.
     fileprivate static func noteSplitDividerInteraction(in window: NSWindow?, event: NSEvent?) {
-        guard let window, let event else { return }
-        guard (NSEvent.pressedMouseButtons & 1) != 0 else { return }
+        guard let window, let event, event.window === window,
+              (NSEvent.pressedMouseButtons & 1) != 0 else { return }
 
         switch event.type {
         case .leftMouseDown, .leftMouseDragged:
@@ -2154,76 +2226,4 @@ enum TerminalWindowPortalRegistry {
         return portal.terminalPaneDropTargetAtWindowPoint(windowPoint)
     }
 
-#if DEBUG
-    static func debugPortalCount() -> Int {
-        portalsByWindowId.count
-    }
-
-    static func debugPortalStats() -> [String: Any] {
-        var portals: [[String: Any]] = []
-        var totals: [String: Int] = [
-            "entry_count": 0,
-            "host_subview_count": 0,
-            "terminal_subview_count": 0,
-            "mapped_terminal_subview_count": 0,
-            "orphan_terminal_subview_count": 0,
-            "visible_orphan_terminal_subview_count": 0,
-            "stale_entry_count": 0,
-            "visible_invalid_anchor_entry_count": 0,
-            "mapped_hosted_count": 0,
-        ]
-
-        for (windowId, portal) in portalsByWindowId {
-            let stats = portal.debugStats()
-            let mappedHostedCount = hostedToWindowId.values.reduce(0) { partialResult, mappedWindowId in
-                partialResult + (mappedWindowId == windowId ? 1 : 0)
-            }
-            let integrityOK =
-                stats.orphanTerminalSubviewCount == 0 &&
-                stats.visibleOrphanTerminalSubviewCount == 0 &&
-                stats.staleEntryCount == 0 &&
-                stats.visibleInvalidAnchorEntryCount == 0 &&
-                mappedHostedCount == stats.entryCount
-
-            portals.append([
-                "window_number": stats.windowNumber,
-                "entry_count": stats.entryCount,
-                "mapped_hosted_count": mappedHostedCount,
-                "host_subview_count": stats.hostSubviewCount,
-                "terminal_subview_count": stats.terminalSubviewCount,
-                "mapped_terminal_subview_count": stats.mappedTerminalSubviewCount,
-                "orphan_terminal_subview_count": stats.orphanTerminalSubviewCount,
-                "visible_orphan_terminal_subview_count": stats.visibleOrphanTerminalSubviewCount,
-                "stale_entry_count": stats.staleEntryCount,
-                "visible_invalid_anchor_entry_count": stats.visibleInvalidAnchorEntryCount,
-                "integrity_ok": integrityOK,
-            ])
-
-            totals["entry_count", default: 0] += stats.entryCount
-            totals["host_subview_count", default: 0] += stats.hostSubviewCount
-            totals["terminal_subview_count", default: 0] += stats.terminalSubviewCount
-            totals["mapped_terminal_subview_count", default: 0] += stats.mappedTerminalSubviewCount
-            totals["orphan_terminal_subview_count", default: 0] += stats.orphanTerminalSubviewCount
-            totals["visible_orphan_terminal_subview_count", default: 0] += stats.visibleOrphanTerminalSubviewCount
-            totals["stale_entry_count", default: 0] += stats.staleEntryCount
-            totals["visible_invalid_anchor_entry_count", default: 0] += stats.visibleInvalidAnchorEntryCount
-            totals["mapped_hosted_count", default: 0] += mappedHostedCount
-        }
-
-        portals.sort {
-            let lhs = ($0["window_number"] as? Int) ?? Int.min
-            let rhs = ($1["window_number"] as? Int) ?? Int.min
-            return lhs < rhs
-        }
-
-        return [
-            "portal_count": portals.count,
-            "hosted_mapping_count": hostedToWindowId.count,
-            "guarded_bind_blocked_count": blockedBindCount,
-            "guarded_bind_blocked_reasons": blockedBindReasons,
-            "portals": portals,
-            "totals": totals,
-        ]
-    }
-#endif
 }

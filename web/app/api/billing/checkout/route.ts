@@ -1,14 +1,15 @@
+import type { StackServerApp } from "@stackframe/stack";
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 
-import { stackServerApp } from "../../../lib/stack";
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
+import {
+  appStorePricingUnavailableURL,
+  isAppStoreDistributionMode,
+} from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
 import {
-  PRO_PRODUCT_ID,
-  TEAM_PRODUCT_ID,
-  hasActiveProSubscription,
   resolveProPlanStatus,
   syncProPlanMetadata,
 } from "../../../../services/billing/pro";
@@ -23,11 +24,37 @@ import {
 
 export const dynamic = "force-dynamic";
 
+type CheckoutStackServerApp = StackServerApp<true>;
+
 // One-click upgrade entrypoint. Signed-out visitors become anonymous Stack
-// users first, then go straight to the hosted purchase page. Stack keeps the
-// product grant attached to that anonymous user until the buyer completes
-// account setup with an email.
-export async function GET(request: NextRequest) {
+// users first, then go straight to Stripe Checkout.
+//
+// Default: a browser navigation that 302s to Stripe (works with no JS).
+// With `?format=json`: run the same logic, then hand the client the resolved
+// destination as `{ url }` so a button can show a spinner and redirect itself
+// instead of flashing this route's blank page. The url is whatever we would
+// have redirected to — the Stripe Checkout URL on success, or a /pricing state
+// URL otherwise — so the client just navigates to it either way.
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const response = await resolveCheckout(request);
+  if (request.nextUrl.searchParams.get("format") !== "json") return response;
+  const location = response.headers.get("location");
+  return NextResponse.json({
+    url: location ?? new URL("/pricing?billing=error", request.url).toString(),
+  });
+}
+
+async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
+  if (
+    isAppStoreDistributionMode({
+      cmux_distribution: request.nextUrl.searchParams.get("cmux_distribution"),
+      cmux_ios_app_store: request.nextUrl.searchParams.get("cmux_ios_app_store"),
+    })
+  ) {
+    return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl));
+  }
+
+  const stackServerApp = await checkoutStackServerApp();
   if (!stackServerApp) {
     return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
   }
@@ -37,20 +64,31 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
   }
 
-  if (plan === "pro" && isStripeBillingConfigured()) {
-    return stripeProCheckout(request);
-  }
-  if (plan === "team" && isStripeBillingConfigured()) {
-    return stripeTeamCheckout(request);
+  if (!isStripeBillingConfigured()) {
+    return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
   }
 
-  return legacyStackCheckout(request, plan);
+  if (plan === "pro") {
+    return stripeProCheckout(request, stackServerApp);
+  }
+  if (plan === "team") {
+    return stripeTeamCheckout(request, stackServerApp);
+  }
+  // checkoutPlan only yields "pro" | "team" | null (null handled above); this is
+  // unreachable but keeps GET returning a NextResponse instead of possibly-undefined.
+  return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
 }
 
-async function stripeProCheckout(request: NextRequest) {
+async function stripeProCheckout(
+  request: NextRequest,
+  stackServerApp: CheckoutStackServerApp,
+) {
   const user =
-    (await stackServerApp!.getUser({ or: "return-null" })) ??
-    (await stackServerApp!.getUser({ or: "anonymous" }));
+    (await stackServerApp.getUser({ or: "return-null" })) ??
+    (await stackServerApp.getUser({ or: "anonymous" }));
+  if (isAccountDeletionInProgress(user)) {
+    return accountDeletionCheckoutRedirect(request);
+  }
 
   const status = await resolveProPlanStatus(user);
   if (status.isPro) {
@@ -102,10 +140,16 @@ async function stripeProCheckout(request: NextRequest) {
   }
 }
 
-async function stripeTeamCheckout(request: NextRequest) {
+async function stripeTeamCheckout(
+  request: NextRequest,
+  stackServerApp: CheckoutStackServerApp,
+) {
   const user =
-    (await stackServerApp!.getUser({ or: "return-null" })) ??
-    (await stackServerApp!.getUser({ or: "anonymous" }));
+    (await stackServerApp.getUser({ or: "return-null" })) ??
+    (await stackServerApp.getUser({ or: "anonymous" }));
+  if (isAccountDeletionInProgress(user)) {
+    return accountDeletionCheckoutRedirect(request);
+  }
   const team = await checkoutTeamCustomer(user);
   const teamId = team.id;
   if (!teamId) {
@@ -160,67 +204,26 @@ async function stripeTeamCheckout(request: NextRequest) {
   }
 }
 
-async function legacyStackCheckout(
-  request: NextRequest,
-  plan: "pro" | "team",
-) {
-  const user =
-    (await stackServerApp!.getUser({ or: "return-null" })) ??
-    (await stackServerApp!.getUser({ or: "anonymous" }));
+function accountDeletionCheckoutRedirect(request: NextRequest) {
+  return NextResponse.redirect(
+    new URL("/pricing?billing=account_deletion_in_progress", request.url),
+  );
+}
 
-  if (plan === "pro" && (await hasActiveProSubscription(user))) {
-    await syncProPlanMetadata(user, true);
-    return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
-  }
-
-  const returnUrl = new URL(
-    plan === "pro" ? "/api/billing/confirm" : "/pricing?welcome=team",
-    request.url,
-  ).toString();
-  let checkoutUrl: string;
-  const productId = plan === "pro" ? PRO_PRODUCT_ID : TEAM_PRODUCT_ID;
-  const customer = plan === "pro" ? user : await checkoutTeamCustomer(user);
-  try {
-    checkoutUrl = await customer.createCheckoutUrl({
-      productId,
-      returnUrl,
-    });
-  } catch (error) {
-    // "Already granted" error text is only a hint — re-read the authoritative
-    // subscription state before treating the buyer as Pro, so a lookalike
-    // error message can never mint an entitlement.
-    if (plan === "pro" && isAlreadyGrantedError(error)) {
-      if (await hasActiveProSubscription(user)) {
-        await syncProPlanMetadata(user, true);
-        return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
-      }
-      // Stack refused the checkout as already-granted but the products read
-      // does not show Pro yet (replication lag). The confirm route's bounded
-      // poll settles it and syncs metadata from the verified state.
-      return NextResponse.redirect(new URL("/api/billing/confirm", request.url));
-    }
-    // return_url must be on a domain the Stack project trusts; previews and
-    // local dev ports may not be. The purchase still works without it — the
-    // buyer stays on the hosted receipt, and Pro state is picked up by the
-    // read-time reconcile on VM create or the next visit to this route.
-    try {
-      checkoutUrl = await customer.createCheckoutUrl({ productId });
-    } catch (retryError) {
-      console.error("[Billing] createCheckoutUrl failed", error, retryError);
-      return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
-    }
-  }
-  return NextResponse.redirect(checkoutUrl);
+function isAccountDeletionInProgress(user: { readonly clientReadOnlyMetadata?: unknown }): boolean {
+  const metadata = user.clientReadOnlyMetadata;
+  return Boolean(
+    metadata &&
+      typeof metadata === "object" &&
+      !Array.isArray(metadata) &&
+      (metadata as Record<string, unknown>).cmuxAccountDeleting === true
+  );
 }
 
 type CheckoutTeamCustomer = {
   readonly id?: string;
   readonly displayName?: string | null;
   listUsers?(): Promise<readonly unknown[]>;
-  createCheckoutUrl(options: {
-    productId: string;
-    returnUrl?: string;
-  }): Promise<string>;
 };
 
 type CheckoutTeamUser = {
@@ -304,10 +307,10 @@ function checkoutInterval(raw: string | null): ProBillingInterval {
   return raw === "year" ? "year" : "month";
 }
 
-function isAlreadyGrantedError(error: unknown): boolean {
-  const text =
-    error instanceof Error ? `${error.name} ${error.message}` : String(error);
-  return /already.{0,20}granted/i.test(text);
+async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> {
+  const { getStackServerApp, isStackConfigured } = await import("../../../lib/stack");
+  if (!isStackConfigured()) return null;
+  return getStackServerApp();
 }
 
 function isStackTeamUniqueConflict(error: unknown): boolean {
