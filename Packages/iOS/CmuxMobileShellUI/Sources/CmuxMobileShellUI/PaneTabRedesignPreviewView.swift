@@ -223,8 +223,8 @@ private struct PaneTabRedesignDetailFixture: View {
             PaneTabStripCardSnapshot(id: "chat:chat-editor", sourceID: "chat-editor", title: "Agent chat", kind: .agentChat, boundTerminalID: "terminal-editor", isReady: true, agentStatus: .needsInput, hasUnread: false),
         ]
         guard attentionShelfEnabled else { return cards }
-        return cards.filter(PaneTabAttentionPredicate.needsAttention)
-            + cards.filter { !PaneTabAttentionPredicate.needsAttention($0) }
+        return cards.filter(\.needsAttention)
+            + cards.filter { !$0.needsAttention }
     }
 }
 #endif

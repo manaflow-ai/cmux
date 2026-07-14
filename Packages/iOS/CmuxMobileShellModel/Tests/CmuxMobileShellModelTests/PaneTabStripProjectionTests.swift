@@ -4,13 +4,13 @@ import Testing
 
 @Suite struct PaneTabStripProjectionTests {
     @Test func attentionPredicateMatchesWaitingOrUnreadOnly() {
-        #expect(PaneTabAttentionPredicate.needsAttention(card("waiting", agent: .needsInput)))
-        #expect(PaneTabAttentionPredicate.needsAttention(card("bell", unread: true)))
-        #expect(PaneTabAttentionPredicate.needsAttention(card("both", agent: .needsInput, unread: true)))
-        #expect(!PaneTabAttentionPredicate.needsAttention(card("running", agent: .running)))
-        #expect(!PaneTabAttentionPredicate.needsAttention(card("idle", agent: .idle)))
-        #expect(!PaneTabAttentionPredicate.needsAttention(card("unknown", agent: .unknown)))
-        #expect(!PaneTabAttentionPredicate.needsAttention(card("plain")))
+        #expect(card("waiting", agent: .needsInput).needsAttention)
+        #expect(card("bell", unread: true).needsAttention)
+        #expect(card("both", agent: .needsInput, unread: true).needsAttention)
+        #expect(!card("running", agent: .running).needsAttention)
+        #expect(!card("idle", agent: .idle).needsAttention)
+        #expect(!card("unknown", agent: .unknown).needsAttention)
+        #expect(!card("plain").needsAttention)
     }
 
     @Test func attentionPartitionIsStableAndToggleOffRestoresExactMacOrder() {
@@ -100,7 +100,7 @@ import Testing
 
         #expect(projection.cards.map(\.id) == ["terminal", "chat:chat-b", "chat:chat-a", "other"])
         #expect(projection.cards[1].kind == .agentChat)
-        #expect(PaneTabAttentionPredicate.needsAttention(projection.cards[1]))
+        #expect(projection.cards[1].needsAttention)
     }
 
     @Test func manyChatsRemainAdjacentToTheirBoundTerminal() {

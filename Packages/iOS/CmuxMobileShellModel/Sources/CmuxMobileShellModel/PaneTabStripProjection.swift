@@ -44,8 +44,8 @@ public struct PaneTabStripProjection: Equatable, Sendable {
             cards = macOrderedCards
             return
         }
-        cards = macOrderedCards.filter(PaneTabAttentionPredicate.needsAttention)
-            + macOrderedCards.filter { !PaneTabAttentionPredicate.needsAttention($0) }
+        cards = macOrderedCards.filter(\.needsAttention)
+            + macOrderedCards.filter { !$0.needsAttention }
     }
 
     private static func pane(
