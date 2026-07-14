@@ -32,7 +32,28 @@ struct VerifiedReplayPresentationTests {
         #expect(!fence.isSatisfied(modelIdentity: stale, presentationIdentity: stale))
         #expect(fence.acknowledge(token: 42, modelIdentity: replay))
         #expect(!fence.isSatisfied(modelIdentity: replay, presentationIdentity: stale))
+        #expect(!fence.isSatisfied(modelIdentity: replay, presentationIdentity: replay))
+        fence.markObservedFrameReady()
         #expect(fence.isSatisfied(modelIdentity: replay, presentationIdentity: replay))
+    }
+
+    @Test("grid export and token submission are one synchronous queue operation")
+    func exportAndTokenSubmissionStayAdjacent() {
+        var events: [String] = []
+
+        let exported = VerifiedReplayAtomicSubmission.exportThenSubmit(
+            export: {
+                events.append("export")
+                return 42
+            },
+            submit: {
+                events.append("submit")
+            }
+        )
+        events.append("publish")
+
+        #expect(exported == 42)
+        #expect(events == ["export", "submit", "publish"])
     }
 
     private func makeSurface(fill byte: UInt8) throws -> IOSurface {
