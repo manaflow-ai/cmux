@@ -70,8 +70,9 @@ export default async function RemoteTmuxPage({
 
       <DocsHeading level={2} id="attach">{t("attachTitle")}</DocsHeading>
       <p>{t("attachIntro")}</p>
+      <p>{t("attachNewWindow")}</p>
       <p>{t("attachCli")}</p>
-      <CodeBlock lang="bash">{`cmux ssh-tmux dev@example.com\ncmux ssh-tmux my-ssh-alias --port 2222 --identity ~/.ssh/id_ed25519`}</CodeBlock>
+      <CodeBlock lang="bash">{`cmux ssh-tmux dev@example.com\ncmux ssh-tmux my-ssh-alias --port 2222 --identity ~/.ssh/id_ed25519\ncmux ssh-tmux dev@example.com --new-window`}</CodeBlock>
       <p>{t("attachSockets")}</p>
 
       <DocsHeading level={3} id="permission-denied">{t("troubleshootTitle")}</DocsHeading>

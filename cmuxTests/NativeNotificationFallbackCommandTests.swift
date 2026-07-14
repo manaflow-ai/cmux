@@ -44,6 +44,18 @@ struct NativeNotificationFallbackCommandTests {
         }
     }
 
+    private final class BoolValuesRecorder: Sendable {
+        private let valuesLock = OSAllocatedUnfairLock(initialState: [Bool]())
+
+        var values: [Bool] {
+            valuesLock.withLock { $0 }
+        }
+
+        func append(_ value: Bool) {
+            valuesLock.withLock { $0.append(value) }
+        }
+    }
+
     @Test
     func deniedNativeNotificationAuthorizationDoesNotRunCustomCommandFallback() {
         let store = TerminalNotificationStore.shared
@@ -104,6 +116,37 @@ struct NativeNotificationFallbackCommandTests {
         await Task.yield()
 
         #expect(commands.invocations.isEmpty)
+    }
+
+    @Test
+    func sourceConfinedNativeNotificationSerializesRetargetingProvenance() {
+        let store = TerminalNotificationStore.shared
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        resetState(originalAppFocusOverride: false)
+        defer { resetState(originalAppFocusOverride: originalAppFocusOverride) }
+
+        let retargetingValues = BoolValuesRecorder()
+        store.configureNotificationAuthorizationHandlerForTesting { completion in
+            completion(true, .authorized)
+        }
+        store.configureUserNotificationSchedulerForTesting { request, completion in
+            if let value = request.content.userInfo["retargetsToLiveSurfaceOwner"] as? Bool {
+                retargetingValues.append(value)
+            }
+            completion(nil)
+        }
+        store.configureNotificationCommandRunnerForTesting { _, _, _ in }
+
+        store.addNotification(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Relay",
+            subtitle: "Completed",
+            body: "Must stay confined",
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        #expect(retargetingValues.values == [false])
     }
 
     @Test
