@@ -9,6 +9,10 @@ struct ChatArtifactTextView: UIViewRepresentable {
     let reachedEOF: Bool
     let highlightDecision: ChatArtifactHighlightDecision
     let highlightTheme: ChatArtifactHighlightTheme
+    let searchQuery: String
+    let previousSearchRequestID: Int
+    let nextSearchRequestID: Int
+    let onSearchSummaryChanged: (ChatArtifactSearchSummary) -> Void
     let topRequestID: Int
     let bottomRequestID: Int
 
@@ -41,6 +45,7 @@ struct ChatArtifactTextView: UIViewRepresentable {
         let isNewDocument = context.coordinator.documentID != documentID
         if isNewDocument {
             context.coordinator.resetHighlighting()
+            context.coordinator.resetSearch()
             textView.textStorage.setAttributedString(NSAttributedString())
             textView.selectedRange = NSRange(location: 0, length: 0)
             context.coordinator.documentID = documentID
@@ -51,6 +56,8 @@ struct ChatArtifactTextView: UIViewRepresentable {
 
         if context.coordinator.appliedChunkCount > chunks.count {
             context.coordinator.appliedChunkCount = 0
+            context.coordinator.resetHighlighting()
+            context.coordinator.resetSearch()
             textView.textStorage.setAttributedString(NSAttributedString())
         }
 
@@ -82,6 +89,16 @@ struct ChatArtifactTextView: UIViewRepresentable {
             reachedEOF: reachedEOF,
             decision: highlightDecision,
             theme: highlightTheme
+        )
+        context.coordinator.updateSearch(
+            in: textView,
+            documentID: documentID,
+            text: textView.textStorage.string,
+            query: searchQuery,
+            reachedEOF: reachedEOF,
+            previousRequestID: previousSearchRequestID,
+            nextRequestID: nextSearchRequestID,
+            onSummaryChanged: onSearchSummaryChanged
         )
 
         if isNewDocument {

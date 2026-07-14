@@ -22,6 +22,11 @@ struct ChatArtifactViewerRouteView: View {
     @State private var retryGeneration = 0
     @State private var topRequestID = 0
     @State private var bottomRequestID = 0
+    @State private var isSearchPresented = false
+    @State private var searchQuery = ""
+    @State private var searchSummary = ChatArtifactSearchSummary.empty
+    @State private var previousSearchRequestID = 0
+    @State private var nextSearchRequestID = 0
 
     var body: some View {
         content
@@ -38,6 +43,24 @@ struct ChatArtifactViewerRouteView: View {
                 #if os(iOS)
                 if shouldShowTextJumpControls {
                     ToolbarItemGroup(placement: .primaryAction) {
+                        Button {
+                            withAnimation(.snappy) {
+                                if isSearchPresented {
+                                    dismissSearch()
+                                } else {
+                                    isSearchPresented = true
+                                }
+                            }
+                        } label: {
+                            Label(
+                                String(
+                                    localized: "chat.artifact.search.title",
+                                    defaultValue: "Search",
+                                    bundle: .module
+                                ),
+                                systemImage: "magnifyingglass"
+                            )
+                        }
                         Button {
                             topRequestID += 1
                         } label: {
@@ -173,6 +196,7 @@ struct ChatArtifactViewerRouteView: View {
                 if !model.textReachedEOF {
                     streamingProgressHeader
                 }
+                searchBar
                 highlightingStatusPill
                 rawTextView
             }
@@ -184,6 +208,7 @@ struct ChatArtifactViewerRouteView: View {
                 if model.markdownPresentation.mode == .rendered {
                     ChatArtifactMarkdownView(markdown: model.renderedText)
                 } else {
+                    searchBar
                     highlightingStatusPill
                     rawTextView
                 }
@@ -254,6 +279,12 @@ struct ChatArtifactViewerRouteView: View {
             reachedEOF: model.textReachedEOF,
             highlightDecision: model.textHighlightDecision,
             highlightTheme: colorScheme == .dark ? .dark : .light,
+            searchQuery: searchQuery,
+            previousSearchRequestID: previousSearchRequestID,
+            nextSearchRequestID: nextSearchRequestID,
+            onSearchSummaryChanged: { summary in
+                searchSummary = summary
+            },
             topRequestID: topRequestID,
             bottomRequestID: bottomRequestID
         )
@@ -266,6 +297,25 @@ struct ChatArtifactViewerRouteView: View {
                 .padding()
         }
         #endif
+    }
+
+    @ViewBuilder
+    private var searchBar: some View {
+        if isSearchPresented {
+            ChatArtifactSearchBar(
+                query: $searchQuery,
+                summary: searchSummary,
+                isStillLoading: !model.textReachedEOF,
+                onPrevious: { previousSearchRequestID += 1 },
+                onNext: { nextSearchRequestID += 1 },
+                onClose: {
+                    withAnimation(.snappy) {
+                        dismissSearch()
+                    }
+                }
+            )
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 
     @ViewBuilder
@@ -347,8 +397,19 @@ struct ChatArtifactViewerRouteView: View {
     private var markdownModeBinding: Binding<ChatArtifactMarkdownMode> {
         Binding(
             get: { model.markdownPresentation.mode },
-            set: { model.selectMarkdownMode($0) }
+            set: { mode in
+                if mode == .rendered {
+                    dismissSearch()
+                }
+                model.selectMarkdownMode(mode)
+            }
         )
+    }
+
+    private func dismissSearch() {
+        isSearchPresented = false
+        searchQuery = ""
+        searchSummary = .empty
     }
 
     private var shouldShowTextJumpControls: Bool {
