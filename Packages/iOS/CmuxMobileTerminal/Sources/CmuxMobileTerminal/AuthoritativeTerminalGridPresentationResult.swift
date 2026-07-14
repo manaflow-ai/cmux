@@ -6,4 +6,9 @@ public enum AuthoritativeGridPresentationResult: Equatable, Sendable {
     case ignoredStale
     /// The frame was partial or belonged to a different surface, so a full replay is required.
     case needsFullSnapshot
+
+    /// Only an admitted full frame may change terminal geometry before commit.
+    public var allowsViewportMutation: Bool {
+        self == .presented
+    }
 }

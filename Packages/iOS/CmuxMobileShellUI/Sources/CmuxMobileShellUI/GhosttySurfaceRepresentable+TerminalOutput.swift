@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileTerminal
@@ -17,14 +18,8 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 guard !Task.isCancelled, let self, let surfaceView else { return }
                 if authoritativeStreamToken != chunk.streamToken {
                     authoritativeStreamToken = chunk.streamToken
-                    surfaceView.resetAuthoritativeRenderGrid(surfaceID: surfaceID)
+                    surfaceView.beginAuthoritativeRenderGridReplay(surfaceID: surfaceID)
                 }
-                guard await applyViewportPolicy(
-                    chunk,
-                    to: surfaceView,
-                    store: store,
-                    surfaceID: surfaceID
-                ) else { continue }
                 guard await presentOutput(
                     chunk,
                     on: surfaceView,
@@ -85,17 +80,73 @@ extension GhosttySurfaceRepresentable.Coordinator {
         surfaceID: String
     ) async -> Bool {
         if let renderGrid = chunk.renderGrid {
-            guard surfaceView.presentAuthoritativeRenderGrid(renderGrid) != .needsFullSnapshot else {
-                store.terminalOutputDidReset(
-                    surfaceID: surfaceID,
-                    streamToken: chunk.streamToken
-                )
-                return false
-            }
-            return true
+            return await presentAuthoritativeGrid(
+                renderGrid,
+                chunk: chunk,
+                on: surfaceView,
+                store: store,
+                surfaceID: surfaceID
+            )
         }
-        guard !chunk.data.isEmpty else { return true }
+        return await presentRawOutput(
+            chunk,
+            on: surfaceView,
+            store: store,
+            surfaceID: surfaceID
+        )
+    }
+
+    @MainActor
+    private func presentAuthoritativeGrid(
+        _ renderGrid: MobileTerminalRenderGridFrame,
+        chunk: MobileTerminalOutputChunk,
+        on surfaceView: GhosttySurfaceView,
+        store: CMUXMobileShellStore,
+        surfaceID: String
+    ) async -> Bool {
+        let admission = surfaceView.classifyAuthoritativeRenderGrid(renderGrid)
+        if admission == .ignoredStale { return true }
+        guard admission.allowsViewportMutation else {
+            return reject(chunk, store: store, surfaceID: surfaceID)
+        }
+        surfaceView.prepareForAuthoritativeRenderGridPresentation()
+        guard await applyViewportPolicy(
+            chunk,
+            to: surfaceView,
+            store: store,
+            surfaceID: surfaceID
+        ) else { return false }
+        guard surfaceView.presentAuthoritativeRenderGrid(renderGrid) == .presented else {
+            return reject(chunk, store: store, surfaceID: surfaceID)
+        }
+        guard await surfaceView.processAuthoritativeSemanticOutputAndWait(chunk.data) else {
+            return reject(chunk, store: store, surfaceID: surfaceID)
+        }
+        return true
+    }
+
+    @MainActor
+    private func presentRawOutput(
+        _ chunk: MobileTerminalOutputChunk,
+        on surfaceView: GhosttySurfaceView,
+        store: CMUXMobileShellStore,
+        surfaceID: String
+    ) async -> Bool {
+        if chunk.data.isEmpty {
+            return await applyViewportPolicy(
+                chunk,
+                to: surfaceView,
+                store: store,
+                surfaceID: surfaceID
+            )
+        }
         surfaceView.useRawTerminalRenderer()
+        guard await applyViewportPolicy(
+            chunk,
+            to: surfaceView,
+            store: store,
+            surfaceID: surfaceID
+        ) else { return false }
         let applied = await surfaceView.processOutputAndWait(chunk.data)
         if !applied {
             store.terminalOutputDidReset(
@@ -104,6 +155,19 @@ extension GhosttySurfaceRepresentable.Coordinator {
             )
         }
         return applied
+    }
+
+    @MainActor
+    private func reject(
+        _ chunk: MobileTerminalOutputChunk,
+        store: CMUXMobileShellStore,
+        surfaceID: String
+    ) -> Bool {
+        store.terminalOutputDidReset(
+            surfaceID: surfaceID,
+            streamToken: chunk.streamToken
+        )
+        return false
     }
 }
 #endif

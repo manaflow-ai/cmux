@@ -390,7 +390,9 @@ extension MobileShellComposite {
             ? delivery.renderGrid
             : nil
         return MobileTerminalOutputChunk(
-            data: renderGrid == nil ? delivery.bytes : Data(),
+            // A typed grid owns visible pixels, while its synthesized VT replay
+            // keeps the mounted Ghostty surface current for semantic consumers.
+            data: delivery.bytes,
             streamToken: streamToken,
             viewportPolicy: delivery.viewportPolicy,
             renderGrid: renderGrid

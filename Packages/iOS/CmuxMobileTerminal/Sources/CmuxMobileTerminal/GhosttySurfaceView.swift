@@ -2227,6 +2227,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
     public func prepareForDismantle() {
         isDismantled = true
+        clearAuthoritativeRenderGrid(surfaceID: hostSurfaceID ?? "")
         prepareForReuseAfterDetach()
     }
 

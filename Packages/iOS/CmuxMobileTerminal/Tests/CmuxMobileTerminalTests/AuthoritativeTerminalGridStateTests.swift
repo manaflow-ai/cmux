@@ -61,7 +61,7 @@ struct AuthoritativeTerminalGridStateTests {
             full: false,
             clearedRows: [0],
             rowSpans: [
-                .init(row: 0, column: 0, text: "partial"),
+                .init(row: 0, column: 0, text: "partial")
             ]
         )
 

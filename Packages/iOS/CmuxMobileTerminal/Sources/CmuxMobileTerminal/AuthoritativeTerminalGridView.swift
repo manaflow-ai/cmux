@@ -3,6 +3,13 @@ import CMUXMobileCore
 import UIKit
 
 /// Draws one immutable producer-authored grid using absolute terminal cells.
+///
+/// Render-grid v1 carries one font size and boolean style flags, so this UIKit
+/// renderer approximates Ghostty font faces, blinking text, and underline
+/// variants. The wire format does not carry hyperlink identities or terminal
+/// image payloads. A hidden Ghostty mirror retains VT text/semantic state for
+/// copy, artifacts, diagnostics, and accessibility, but those unsupported
+/// visual details are not painted by this direct-pixel view.
 @MainActor
 final class AuthoritativeTerminalGridView: UIView {
     private var state: AuthoritativeTerminalGridState
@@ -39,15 +46,25 @@ final class AuthoritativeTerminalGridView: UIView {
     func present(
         _ frame: MobileTerminalRenderGridFrame
     ) -> AuthoritativeGridPresentationResult {
-        let result = state.apply(frame)
+        let result = state.commit(frame)
         guard result == .presented else { return result }
         setNeedsDisplay()
         setNeedsLayout()
         return result
     }
 
-    func reset(surfaceID: String) {
-        state.reset(surfaceID: surfaceID)
+    func classify(
+        _ frame: MobileTerminalRenderGridFrame
+    ) -> AuthoritativeGridPresentationResult {
+        state.classify(frame)
+    }
+
+    func beginReplay(surfaceID: String) {
+        state.beginReplay(surfaceID: surfaceID)
+    }
+
+    func clear(surfaceID: String) {
+        state.replaceSurface(surfaceID: surfaceID)
         cursorLayer.isHidden = true
         setNeedsDisplay()
     }
