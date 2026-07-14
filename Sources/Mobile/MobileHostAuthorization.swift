@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CryptoKit
 import Foundation
 import StackAuth
 
