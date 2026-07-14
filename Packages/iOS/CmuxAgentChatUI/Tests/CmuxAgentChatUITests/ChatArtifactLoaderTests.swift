@@ -15,8 +15,8 @@ struct ChatArtifactLoaderTests {
             mimeType: nil
         )
 
-        #expect(ChatArtifactViewerRouting.showsFolder(stat: directory, supportsDirectoryBrowsing: true))
-        #expect(!ChatArtifactViewerRouting.showsFolder(stat: directory, supportsDirectoryBrowsing: false))
+        #expect(directory.showsFolder(supportsDirectoryBrowsing: true))
+        #expect(!directory.showsFolder(supportsDirectoryBrowsing: false))
     }
 
     @Test func thumbnailCacheReusesSamePathAndDimension() async throws {

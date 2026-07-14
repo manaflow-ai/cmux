@@ -118,8 +118,7 @@ struct ChatArtifactViewerRouteView: View {
             let stat = try await loader.stat(path: path)
             guard !stat.isDirectory else {
                 await MainActor.run {
-                    state = ChatArtifactViewerRouting.showsFolder(
-                        stat: stat,
+                    state = stat.showsFolder(
                         supportsDirectoryBrowsing: loader.supportsDirectoryBrowsing
                     ) ? .folder : .binary(stat: stat)
                 }
@@ -291,11 +290,9 @@ struct ChatArtifactViewerRouteView: View {
     }
 }
 
-enum ChatArtifactViewerRouting {
-    static func showsFolder(
-        stat: ChatArtifactStat,
-        supportsDirectoryBrowsing: Bool
-    ) -> Bool {
-        stat.isDirectory && supportsDirectoryBrowsing
+extension ChatArtifactStat {
+    /// Whether this artifact routes to the recursive folder browser.
+    func showsFolder(supportsDirectoryBrowsing: Bool) -> Bool {
+        isDirectory && supportsDirectoryBrowsing
     }
 }
