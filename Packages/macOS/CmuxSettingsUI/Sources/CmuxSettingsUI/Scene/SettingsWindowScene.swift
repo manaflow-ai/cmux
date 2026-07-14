@@ -448,6 +448,9 @@ public struct SettingsWindowRoot: View {
         MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .mobile))
 
+        ComputersSection(hostActions: hostActions)
+            .id(anchorID(for: .computers))
+
         SidebarSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .sidebarAppearance))
 
