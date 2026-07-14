@@ -30,6 +30,7 @@
   const maxSelectorValueCharacters = 160;
   const maxStyleValueCharacters = 512;
   const maxSnippetCharacters = 2400;
+  const maxSnippetNodes = 512;
   const maxSelectionRecoveryAttempts = 8;
   const redactedValue = "<redacted>";
   const sensitiveNamePattern = /(?:^|[-_:])(api[-_]?key|auth|authorization|credential|csrf|password|passwd|secret|session|token)(?:$|[-_:])/i;
@@ -52,6 +53,7 @@
   let editStateNeedsEmit = false;
   let overlayFrame = 0;
   let captureHidden = false;
+  let captureSelectionValid = true;
   const edits = new Map();
   const styleOriginals = new Map();
   const textOriginals = new Map();
@@ -165,14 +167,15 @@
   const isSensitiveElement = (element) => {
     if (!element || element.nodeType !== 1) return false;
     if (["script", "style"].includes(element.localName)) return true;
-    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) return true;
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+        || ["select", "option", "optgroup"].includes(element.localName)) return true;
     let editableAncestor = element;
     while (editableAncestor) {
       const contentEditable = String(editableAncestor.getAttribute?.("contenteditable") || "").toLowerCase();
       const role = String(editableAncestor.getAttribute?.("role") || "").toLowerCase();
       if (editableAncestor.isContentEditable
           || (editableAncestor.hasAttribute?.("contenteditable") && contentEditable !== "false")
-          || role === "textbox") return true;
+          || ["textbox", "combobox", "listbox"].includes(role)) return true;
       editableAncestor = editableAncestor.parentElement;
     }
     const autocomplete = String(element.getAttribute?.("autocomplete") || "");
@@ -269,6 +272,8 @@
   const boundedSnippet = (element) => {
     const parts = [];
     let remaining = maxSnippetCharacters;
+    let visited = 0;
+    let traversalExhausted = false;
     const append = (value) => {
       if (remaining <= 0) return;
       const string = String(value);
@@ -281,7 +286,13 @@
       }
     };
     const visit = (node, depth) => {
-      if (remaining <= 0) return;
+      if (remaining <= 0 || traversalExhausted) return;
+      if (visited >= maxSnippetNodes) {
+        traversalExhausted = true;
+        append("…");
+        return;
+      }
+      visited += 1;
       if (node.nodeType === 3) {
         append(escapedMarkup(bounded(node.nodeValue, Math.min(remaining, maxTextCharacters))));
         return;
@@ -299,7 +310,10 @@
       if (isSensitiveElement(node)) {
         append(redactedValue);
       } else if (depth < 5) {
-        for (const child of node.childNodes || []) visit(child, depth + 1);
+        for (const child of node.childNodes || []) {
+          visit(child, depth + 1);
+          if (traversalExhausted) break;
+        }
       } else if (node.childNodes?.length) {
         append("…");
       }
@@ -346,9 +360,23 @@
     };
   };
 
+  const refreshSelectionForCapture = (element) => {
+    const selectors = selectorsFor(element);
+    captureSelectionValid = selectors.length > 0;
+    if (!captureSelectionValid) return false;
+    const identityChanged = selectors[0] !== selectedBaseline.selector
+      || selectors.length !== selectedBaseline.selectors.length
+      || selectors.some((selector, index) => selector !== selectedBaseline.selectors[index]);
+    selectedBaseline = { ...selectedBaseline, selector: selectors[0], selectors };
+    selectedIdentity = identityFor(element);
+    if (identityChanged) revision += 1;
+    return true;
+  };
+
   const selectionSnapshot = () => {
     const element = resolveSelectedElement();
     if (!element || !selectedBaseline) return null;
+    if (captureHidden && !refreshSelectionForCapture(element)) return null;
     return {
       ...selectedBaseline,
       bounds: rectFor(element),
@@ -370,10 +398,11 @@
   };
 
   const snapshot = () => {
+    const selection = selectionSnapshot();
     const value = {
       revision,
       enabled,
-      selection: selectionSnapshot(),
+      selection,
       edits: Array.from(edits.values()),
       css_diff: cssDiff(),
     };
@@ -446,19 +475,38 @@
     }
   };
 
+  const directTextNodes = (element) => {
+    const result = [];
+    for (const node of element.childNodes || []) {
+      if (node.nodeType === 3) result.push(node);
+    }
+    return result;
+  };
+
   const rememberTextOriginal = (element) => {
     if (textOriginals.has(element)) return true;
     if (!textIsEditable(element)) return false;
-    const value = textValue(element);
-    if (value.length > maxTextCharacters) return false;
-    textOriginals.set(element, { value });
+    const originals = new Map();
+    for (const node of directTextNodes(element)) originals.set(node, node.nodeValue || "");
+    textOriginals.set(element, {
+      originals,
+      injected: new Set(),
+      target: originals.keys().next().value || null,
+    });
     return true;
   };
 
-  const restoreText = () => {
-    for (const [element, original] of textOriginals) {
-      element.textContent = original.value;
+  const restoreTextState = (element, state) => {
+    for (const [node, value] of state.originals) {
+      if (node.parentNode === element && node.nodeValue !== value) node.nodeValue = value;
     }
+    for (const node of state.injected) {
+      if (node.parentNode === element) node.remove();
+    }
+  };
+
+  const restoreText = () => {
+    for (const [element, state] of textOriginals) restoreTextState(element, state);
     textOriginals.clear();
   };
 
@@ -471,28 +519,73 @@
       }
       styleOriginals.delete(element);
     }
-    const textValue = textOriginals.get(element);
-    if (!textValue) return;
-    element.textContent = textValue.value;
+    const textState = textOriginals.get(element);
+    if (!textState) return;
+    restoreTextState(element, textState);
     textOriginals.delete(element);
   };
 
   const applyText = (element, value) => {
+    if (!textIsEditable(element)) {
+      capturePageTextMutation(element);
+      return false;
+    }
     if (!rememberTextOriginal(element)) return false;
-    if (element.textContent !== value) element.textContent = value;
+    const state = textOriginals.get(element);
+    const nodes = directTextNodes(element);
+    for (const node of nodes) {
+      if (!state.originals.has(node) && !state.injected.has(node)) {
+        state.originals.set(node, node.nodeValue || "");
+      }
+    }
+    if (state.target?.parentNode !== element) state.target = nodes[0] || null;
+    if (!state.target) {
+      state.target = document.createTextNode("");
+      state.injected.add(state.target);
+      element.appendChild(state.target);
+      nodes.push(state.target);
+    }
+    for (const node of nodes) {
+      const nextValue = node === state.target ? value : "";
+      if (node.nodeValue !== nextValue) node.nodeValue = nextValue;
+    }
     return true;
   };
 
   const capturePageTextMutation = (element) => {
     const edit = edits.get("text:text-content");
     if (!edit || edit.kind !== "text") return false;
+    const state = textOriginals.get(element);
+    if (!state) return false;
+    const expectedValue = (node) => node === state.target ? edit.value : "";
+    for (const [node] of state.originals) {
+      if (node.parentNode !== element) {
+        state.originals.delete(node);
+      } else if (node.nodeValue !== expectedValue(node)) {
+        state.originals.set(node, node.nodeValue || "");
+      }
+    }
+    for (const node of state.injected) {
+      if (node.parentNode !== element) {
+        state.injected.delete(node);
+      } else if (node.nodeValue !== expectedValue(node)) {
+        state.injected.delete(node);
+        state.originals.set(node, node.nodeValue || "");
+      }
+    }
     if (!textIsEditable(element)) {
       edits.delete(edit.id);
+      restoreTextState(element, state);
       textOriginals.delete(element);
       return true;
     }
-    const value = textValue(element);
-    if (value !== edit.value) textOriginals.set(element, { value });
+    const nodes = directTextNodes(element);
+    for (const node of nodes) {
+      if (!state.originals.has(node) && !state.injected.has(node)) {
+        state.originals.set(node, node.nodeValue || "");
+      }
+    }
+    if (state.target?.parentNode !== element) state.target = nodes[0] || null;
     return false;
   };
 
@@ -817,12 +910,12 @@
     const validatedBaseline = baselineFor(element);
     if (!validatedBaseline) return snapshot();
     if (selectedElement !== element && edits.size) restoreAll();
-    const baseline = element.isConnected ? baselineFor(element) || validatedBaseline : validatedBaseline;
     selectedElement = element;
-    selectedBaseline = baseline;
+    selectedBaseline = validatedBaseline;
     selectedIdentity = identityFor(element);
     selectionIdentityNeedsRefresh = false;
     selectionRecoveryAttemptsRemaining = 0;
+    captureSelectionValid = true;
     hoveredElement = null;
     revision += 1;
     scheduleOverlayRefresh();
@@ -878,6 +971,7 @@
     selectedIdentity = null;
     selectionIdentityNeedsRefresh = false;
     selectionRecoveryAttemptsRemaining = 0;
+    captureSelectionValid = true;
     cancelSelectionRecovery();
     revision += 1;
     scheduleOverlayRefresh();
@@ -947,6 +1041,7 @@
       overlayHost = null;
       overlay = null;
       captureHidden = false;
+      captureSelectionValid = true;
       const finalSnapshot = snapshot();
       try { delete globalThis.__cmuxDesignMode; } catch (_) { globalThis.__cmuxDesignMode = undefined; }
       return finalSnapshot;
@@ -1027,6 +1122,7 @@
 
     finishCapture() {
       captureHidden = false;
+      captureSelectionValid = true;
       scheduleOverlayRefresh();
       return snapshot();
     },

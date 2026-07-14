@@ -21,10 +21,10 @@ extension TerminalController {
             waitUpTo: .milliseconds(750)
         )
         guard operationIsCurrent() else { throw CancellationError() }
-        guard let currentOwner = AppDelegate.shared?.workspaceContainingPanel(
+        guard let currentOwner = AppDelegate.shared?.workspaceForBrowserDesignModePanel(
             panelId: browserPanelID,
             preferredWorkspaceId: workspace.id
-        ), currentOwner.workspace === workspace else {
+        ), currentOwner === workspace else {
             throw BrowserDesignModeSendError.terminalUnavailable
         }
         let targets = service.sessionRecords(workspaceID: nil).compactMap { record -> (
