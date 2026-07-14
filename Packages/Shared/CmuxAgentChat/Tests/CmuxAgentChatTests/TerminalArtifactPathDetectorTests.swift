@@ -9,6 +9,7 @@ struct TerminalArtifactPathDetectorTests {
         let text = """
         opened "/tmp/project/image.png", see ./notes/todo.md and ../logs/out.txt.
         ignored https://example.com/a/b plus word and duplicate /tmp/project/image.png
+        wrote ./single.md too
         OSC8-ish file:///tmp/project/report.txt
         """
         let paths = TerminalArtifactPathDetector().paths(in: text)
@@ -16,6 +17,7 @@ struct TerminalArtifactPathDetectorTests {
             "/tmp/project/image.png",
             "./notes/todo.md",
             "../logs/out.txt",
+            "./single.md",
             "/tmp/project/report.txt",
         ])
     }

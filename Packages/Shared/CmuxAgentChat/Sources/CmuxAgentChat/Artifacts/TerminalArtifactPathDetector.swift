@@ -104,6 +104,11 @@ public struct TerminalArtifactPathDetector: Sendable {
     private static let forbiddenTokenCharacters = CharacterSet(charactersIn: "<>\"'\\`")
 
     private static func hasEnoughPathComponents(_ candidate: String) -> Bool {
+        // The component floor exists to reject the bare-root tokens ("/",
+        // "/.") that shell output produces constantly; a relative token like
+        // "./notes.md" is already a deliberate path shape, so only absolute
+        // candidates are held to it.
+        guard candidate.hasPrefix("/") else { return true }
         let standardized = (candidate as NSString).standardizingPath
         return (standardized as NSString).pathComponents.count >= 2
     }
