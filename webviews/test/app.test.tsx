@@ -247,6 +247,40 @@ test("typed Rust empty diffs keep the localized source-specific message", async 
   expect(fetched).toBe(false);
 });
 
+test("pagehide cancels a typed session while its initial open is pending", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/unstaged.html");
+  const requests: any[] = [];
+  installDomGlobals(dom, () => new Response("", { status: 200 }));
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          requests.push(request);
+          if (request.method === "sessionClose") {
+            return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
+          }
+          await new Promise<void>(() => {});
+        },
+      },
+    },
+  };
+  renderApp(
+    <App
+      config={{ payload: {
+        capabilityToken: "0123456789abcdef",
+        sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
+        transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+      } }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
+    />,
+  );
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
+  dom.window.dispatchEvent(new dom.window.Event("pagehide"));
+  await waitFor(() => requests.filter((request) => request.method === "sessionClose").length === 1);
+  expect(requests.find((request) => request.method === "sessionClose").params.sessionId)
+    .toBe("00000000-0000-0000-0000-000000000000");
+});
+
 test("Last Turn reveals repo selection after switching to a typed git source", async () => {
   dom = createDom("cmux-diff-viewer://0123456789abcdef/last-turn.html");
   const requests: any[] = [];

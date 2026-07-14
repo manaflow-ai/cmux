@@ -1551,14 +1551,20 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&root).expect("create root");
-        let orphan = root.join(format!(".diff-session-{}.patch.tmp", uuid::Uuid::new_v4()));
+        let orphans: Vec<_> = (0..4)
+            .map(|_| root.join(format!(".diff-session-{}.patch.tmp", uuid::Uuid::new_v4())))
+            .collect();
         let unrelated = root.join(".diff-session-invalid.patch.tmp");
-        std::fs::write(&orphan, b"private diff").expect("write orphan");
+        for orphan in &orphans {
+            std::fs::write(orphan, b"private diff").expect("write orphan");
+        }
         std::fs::write(&unrelated, b"keep").expect("write unrelated file");
 
-        prune_orphaned_session_temp_files(&root, Duration::ZERO).await;
+        for _ in 0..6 {
+            prune_orphaned_session_temp_files(&root, Duration::ZERO, 2).await;
+        }
 
-        assert!(!orphan.exists());
+        assert!(orphans.iter().all(|orphan| !orphan.exists()));
         assert!(unrelated.exists());
         let _ = std::fs::remove_dir_all(root);
     }
