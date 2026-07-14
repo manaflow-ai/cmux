@@ -78,7 +78,7 @@ struct GitProcessRunner: Sendable {
             if result.capped {
                 return GitProcessResult(
                     rawOutput: accumulatedOutput,
-                    output: decodeUTF8Lossy(
+                    output: Self.decodeUTF8Lossy(
                         accumulatedOutput,
                         maxOutputBytes: maxOutputBytes
                     ),
@@ -89,7 +89,7 @@ struct GitProcessRunner: Sendable {
         }
         return GitProcessResult(
             rawOutput: accumulatedOutput,
-            output: decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: nil),
+            output: Self.decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: nil),
             terminationStatus: 0
         )
     }
@@ -188,7 +188,10 @@ struct GitProcessRunner: Sendable {
             if result.capped {
                 return GitProcessResult(
                     rawOutput: accumulatedOutput,
-                    output: decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: maxOutputBytes),
+                    output: Self.decodeUTF8Lossy(
+                        accumulatedOutput,
+                        maxOutputBytes: maxOutputBytes
+                    ),
                     capped: true,
                     terminationStatus: result.terminationStatus
                 )
@@ -196,7 +199,7 @@ struct GitProcessRunner: Sendable {
         }
         return GitProcessResult(
             rawOutput: accumulatedOutput,
-            output: decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: nil),
+            output: Self.decodeUTF8Lossy(accumulatedOutput, maxOutputBytes: nil),
             terminationStatus: 0
         )
     }
@@ -239,6 +242,18 @@ struct GitProcessRunner: Sendable {
             deadlineSeconds: effectiveDeadlineSeconds(deadlineSeconds),
             maxOutputBytes: maxOutputBytes
         ).run()
+        return Self.translateSupervisedResult(
+            supervised,
+            acceptedTerminationStatuses: acceptedTerminationStatuses,
+            maxOutputBytes: maxOutputBytes
+        )
+    }
+
+    static func translateSupervisedResult(
+        _ supervised: GitProcessResult,
+        acceptedTerminationStatuses: Set<Int32>,
+        maxOutputBytes: Int?
+    ) -> GitProcessResult {
         if supervised.capped, let output = supervised.rawOutput {
             return GitProcessResult(
                 rawOutput: output,
@@ -277,7 +292,7 @@ struct GitProcessRunner: Sendable {
     /// Git emits raw bytes. Replace invalid UTF-8 instead of turning a valid
     /// command into an apparent Git failure, then preserve the caller's byte
     /// bound after replacement scalars expand in UTF-8.
-    private func decodeUTF8Lossy(_ data: Data, maxOutputBytes: Int?) -> String {
+    private static func decodeUTF8Lossy(_ data: Data, maxOutputBytes: Int?) -> String {
         let text = String(decoding: data, as: UTF8.self)
         guard let maxOutputBytes, text.utf8.count > maxOutputBytes else { return text }
         let utf8 = text.utf8
