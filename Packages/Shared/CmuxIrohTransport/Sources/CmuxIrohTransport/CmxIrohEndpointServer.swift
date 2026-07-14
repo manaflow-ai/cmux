@@ -235,19 +235,40 @@ public actor CmxIrohEndpointServer {
         )
     }
 
-    private func markAdmitted(_ id: UUID, generation: UInt64) -> Bool {
+    private func markAdmitted(_ id: UUID, generation: UInt64) async -> Bool {
         guard currentGeneration == generation,
               let admission = pendingAdmissions.removeValue(forKey: id),
               admission.generation == generation else {
             return false
         }
         admission.deadlineTask.cancel()
+
+        // One endpoint identity represents one installed client identity. A
+        // newly authenticated connection from that identity is therefore the
+        // authoritative replacement for older connections that may still look
+        // alive after the client was force-quit, crashed, or changed networks.
+        // Wait until admission succeeds before evicting them so an unauthenticated
+        // or failed reconnect cannot disrupt a healthy session.
+        let superseded = activeConnections.filter { _, connection in
+            connection.generation == generation
+                && connection.remoteIdentity == admission.remoteIdentity
+        }
+        for supersededID in superseded.keys {
+            activeConnections[supersededID] = nil
+        }
         activeConnections[id] = ActiveConnection(
             generation: generation,
             remoteIdentity: admission.remoteIdentity,
             connection: admission.connection,
             handlerTask: admission.handlerTask
         )
+        for connection in superseded.values {
+            connection.handlerTask.cancel()
+            await connection.connection.close(
+                errorCode: 0,
+                reason: "superseded_connection"
+            )
+        }
         return true
     }
 
