@@ -234,14 +234,6 @@ final class AgentChatTranscriptService {
         registry.record(sessionID: sessionID)
     }
 
-    /// Resolves the live or most recently active session bound to a terminal surface.
-    ///
-    /// - Parameter surfaceID: Terminal surface UUID string.
-    /// - Returns: The session record used for a terminal's session-wide artifact gallery.
-    func currentOrMostRecentSessionRecord(surfaceID: String) -> AgentChatSessionRecord? {
-        registry.currentOrMostRecentSession(surfaceID: surfaceID)
-    }
-
     /// Whether an ended session can still serve history without expensive
     /// fallback scans. Live sessions stay visible before their JSONL exists;
     /// ended sessions with missing JSONL only open to an unrecoverable error.

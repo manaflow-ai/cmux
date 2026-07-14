@@ -14957,11 +14957,6 @@ class TerminalController {
         orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }
     }
 
-    func mobileNonEmpty(_ raw: String?) -> String? {
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
     deinit {
         if let browserDownloadObserver {
             NotificationCenter.default.removeObserver(browserDownloadObserver)

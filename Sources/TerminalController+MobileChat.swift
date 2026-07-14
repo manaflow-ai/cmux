@@ -487,18 +487,4 @@ extension TerminalController {
         return resolved.workspace.terminalPanel(for: surfaceId)
     }
 
-    private func mobileChatInputError(_ keyResult: TerminalSurface.NamedKeySendResult) -> V2CallResult {
-        switch keyResult {
-        case .inputQueueFull:
-            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: nil)
-        case .surfaceUnavailable:
-            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
-        case .processExited:
-            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: nil)
-        case .unknownKey:
-            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
-        case .sent, .queued:
-            return .ok(["accepted": true])
-        }
-    }
 }

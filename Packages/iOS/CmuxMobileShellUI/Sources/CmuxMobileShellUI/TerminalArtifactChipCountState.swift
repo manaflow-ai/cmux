@@ -19,11 +19,17 @@ struct TerminalArtifactChipCountState: Sendable {
         case request(Request)
     }
 
+    enum CompletionOutcome: Sendable, Equatable {
+        case reported(Report)
+        case droppedForSurfaceGenerationMismatch
+        case stale
+    }
+
     struct Completion: Sendable, Equatable {
-        let report: Report?
+        let outcome: CompletionOutcome
         let nextRequest: Request?
 
-        static let stale = Completion(report: nil, nextRequest: nil)
+        static let stale = Completion(outcome: .stale, nextRequest: nil)
     }
 
     private struct Pending: Sendable, Equatable {
@@ -34,11 +40,15 @@ struct TerminalArtifactChipCountState: Sendable {
     private var stateGeneration: UInt64 = 0
     private var inFlight: Request?
     private var trailing: Pending?
+    private var consecutiveRearmCount = 0
+
+    static let maxConsecutiveRearms = 3
 
     mutating func reset() {
         stateGeneration &+= 1
         inFlight = nil
         trailing = nil
+        consecutiveRearmCount = 0
     }
 
     mutating func trigger(
@@ -46,6 +56,7 @@ struct TerminalArtifactChipCountState: Sendable {
         surfaceGeneration: UInt64,
         supportsSessionCount: Bool
     ) -> TriggerAction {
+        consecutiveRearmCount = 0
         guard supportsSessionCount else {
             return .report(Report(count: localCount, surfaceGeneration: surfaceGeneration))
         }
@@ -70,23 +81,39 @@ struct TerminalArtifactChipCountState: Sendable {
         }
         inFlight = nil
 
-        let report = request.surfaceGeneration == currentSurfaceGeneration
-            ? Report(
-                count: sessionTotal ?? request.localCount,
+        let outcome: CompletionOutcome
+        if request.surfaceGeneration == currentSurfaceGeneration {
+            let count = sessionTotal.map { $0 > 0 ? $0 : request.localCount }
+                ?? request.localCount
+            outcome = .reported(Report(
+                count: count,
                 surfaceGeneration: request.surfaceGeneration
-            )
-            : nil
+            ))
+            consecutiveRearmCount = 0
+        } else {
+            outcome = .droppedForSurfaceGenerationMismatch
+        }
 
-        guard let trailing else {
-            return Completion(report: report, nextRequest: nil)
+        if let trailing {
+            self.trailing = nil
+            if trailing.surfaceGeneration == currentSurfaceGeneration {
+                let nextRequest = makeRequest(trailing)
+                inFlight = nextRequest
+                return Completion(outcome: outcome, nextRequest: nextRequest)
+            }
         }
-        self.trailing = nil
-        guard trailing.surfaceGeneration == currentSurfaceGeneration else {
-            return Completion(report: report, nextRequest: nil)
+
+        guard outcome == .droppedForSurfaceGenerationMismatch,
+              consecutiveRearmCount < Self.maxConsecutiveRearms else {
+            return Completion(outcome: outcome, nextRequest: nil)
         }
-        let nextRequest = makeRequest(trailing)
+        consecutiveRearmCount += 1
+        let nextRequest = makeRequest(Pending(
+            surfaceGeneration: currentSurfaceGeneration,
+            localCount: request.localCount
+        ))
         inFlight = nextRequest
-        return Completion(report: report, nextRequest: nextRequest)
+        return Completion(outcome: outcome, nextRequest: nextRequest)
     }
 
     private func makeRequest(_ pending: Pending) -> Request {
