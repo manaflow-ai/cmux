@@ -887,7 +887,9 @@ function SourceControls({
         id="source-select"
         options={payload.sourceOptions}
         onNavigate={onNavigate}
-        onSelectSessionSource={onSelectSessionSource}
+        onSelectSessionSource={(source) => onSelectSessionSource(
+          sourceSelectionWithActiveRepo(source, activeSessionSource),
+        )}
         selectedValue={diffSourceKind(activeSessionSource)}
       />
       {/* The repo select is ALWAYS rendered (a native <select> has no "..." menu
@@ -899,7 +901,9 @@ function SourceControls({
         id="repo-select"
         options={payload.repoOptions}
         onNavigate={onNavigate}
-        onSelectSessionSource={onSelectSessionSource}
+        onSelectSessionSource={(source) => onSelectSessionSource(
+          repoSelectionWithActiveSource(source, activeSessionSource),
+        )}
         selectedValue={diffSourceRepoRoot(activeSessionSource)}
       />
       <BaseControl
@@ -1748,6 +1752,35 @@ function diffSourceKind(source: DiffSource | null): string | null {
 
 function diffSourceRepoRoot(source: DiffSource | null): string | null {
   return source && "repoRoot" in source ? source.repoRoot : null;
+}
+
+function sourceSelectionWithActiveRepo(source: DiffSource, active: DiffSource | null): DiffSource {
+  if (source.kind === "patch") {
+    return source;
+  }
+  const activeRepo = diffSourceRepoRoot(active);
+  if (!activeRepo) {
+    return source;
+  }
+  if (source.kind === "branch") {
+    return source.repoRoot === activeRepo
+      ? { ...source, repoRoot: activeRepo }
+      : { kind: "branch", repoRoot: activeRepo };
+  }
+  return { ...source, repoRoot: activeRepo };
+}
+
+function repoSelectionWithActiveSource(source: DiffSource, active: DiffSource | null): DiffSource {
+  const repoRoot = diffSourceRepoRoot(source);
+  if (!repoRoot || !active || active.kind === "patch") {
+    return source;
+  }
+  if (active.kind === "branch") {
+    return active.repoRoot === repoRoot
+      ? { ...active, repoRoot }
+      : { kind: "branch", repoRoot };
+  }
+  return { ...active, repoRoot };
 }
 
 function resolveDiffItemLanguage(item: DiffItem): void {

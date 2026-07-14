@@ -182,6 +182,8 @@ extension CMUXCLI {
                     sourceOptions: sourceOptions,
                     repoOptions: repoOptions,
                     repoRoot: repoRoot,
+                    sessionSource: sessionSource(.lastTurn, repo: repoRoot),
+                    capabilityToken: target.mapper.token,
                     assets: assets,
                     sharedPayload: sharedPayload,
                     runtime: target.runtime
@@ -207,6 +209,8 @@ extension CMUXCLI {
                     sourceOptions: sourceOptions,
                     repoOptions: repoOptions,
                     repoRoot: repoRoot,
+                    sessionSource: sessionSource(.lastTurn, repo: repoRoot),
+                    capabilityToken: target.mapper.token,
                     assets: assets,
                     sharedPayload: sharedPayload,
                     runtime: target.runtime
