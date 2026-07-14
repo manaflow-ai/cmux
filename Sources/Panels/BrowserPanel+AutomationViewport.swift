@@ -1,3 +1,4 @@
+import AppKit
 import CmuxBrowser
 
 extension BrowserPanel {
