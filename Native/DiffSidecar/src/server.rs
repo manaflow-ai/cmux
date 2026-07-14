@@ -81,6 +81,7 @@ const UNTRUSTED_RPC_REQUEST_ID: &str = "__cmux_untrusted_request__";
 const MAX_CONCURRENT_CHILD_PROCESSES: usize = 4;
 const BRANCH_LIST_CHILD_TIMEOUT: Duration = Duration::from_secs(30);
 const SESSION_GIT_TIMEOUT: Duration = Duration::from_secs(60);
+const SESSION_OPEN_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
 const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_secs(2 * 60);
 const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60);
@@ -398,17 +399,19 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
             let Some(state) = state else {
                 return DiffResponse::failure(request.id, "hostUnavailable", "Host unavailable");
             };
-            match open_session(state, params).await {
-                Ok(value) => DiffResponse::success(request.id, DiffResult::SessionOpened(value)),
-                Err(SessionOpenError::Unauthorized) => DiffResponse::failure(
+            match tokio::time::timeout(SESSION_OPEN_TIMEOUT, open_session(state, params)).await {
+                Ok(Ok(value)) => {
+                    DiffResponse::success(request.id, DiffResult::SessionOpened(value))
+                }
+                Ok(Err(SessionOpenError::Unauthorized)) => DiffResponse::failure(
                     request.id,
                     "notAllowed",
                     "Diff session is not authorized",
                 ),
-                Err(SessionOpenError::Empty) => {
+                Ok(Err(SessionOpenError::Empty)) => {
                     DiffResponse::failure(request.id, "emptyDiff", "No changes to diff")
                 }
-                Err(SessionOpenError::Failed) => DiffResponse::failure(
+                Err(_) | Ok(Err(SessionOpenError::Failed)) => DiffResponse::failure(
                     request.id,
                     "sessionOpenFailed",
                     "Could not generate the diff",
@@ -858,9 +861,16 @@ async fn prune_orphaned_session_temp_files(
                     .and_then(|modified| SystemTime::now().duration_since(modified).ok())
                     .is_some_and(|age| age >= minimum_age);
                 if old_enough {
-                    match std::fs::remove_file(path) {
-                        Ok(()) => false,
-                        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+                    if name.starts_with('.') {
+                        match std::fs::remove_file(path) {
+                            Ok(()) => false,
+                            Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+                        }
+                    } else {
+                        // Final patches remain manifest-owned. Drop only this
+                        // bounded recovery-index entry; the CLI's existing 24h
+                        // sweep removes the patch and stale manifest together.
+                        false
                     }
                 } else {
                     true
@@ -976,7 +986,7 @@ async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
     let file_path = state.config.root.join(request_path.trim_start_matches('/'));
     let root = state.config.root.clone();
     let token = params.capability_token.clone();
-    let removed = tokio::task::spawn_blocking(move || {
+    let transaction = tokio::task::spawn_blocking(move || {
         mutate_manifest(&root, &token, |manifest| {
             let original = manifest.files.len();
             manifest
@@ -985,10 +995,10 @@ async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
             Ok(original != manifest.files.len())
         })
     })
-    .await
-    .ok()
-    .and_then(Result::ok)
-    .unwrap_or(false);
+    .await;
+    let Ok(Ok(removed)) = transaction else {
+        return false;
+    };
     if removed {
         remove_owned_patch_sync(&state.config.root, &file_path);
     }
