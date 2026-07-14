@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 
 /// Builds sidebar drop geometry only while an AppKit drag requests it.
 @MainActor
