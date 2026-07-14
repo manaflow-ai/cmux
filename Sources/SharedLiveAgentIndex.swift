@@ -402,6 +402,10 @@ final class SharedLiveAgentIndex {
             drainPendingHookStoreChangeIfPossible()
             return
         }
+        scheduleHookStoreRefresh()
+    }
+
+    func scheduleHookStoreRefresh() {
         let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
         if elapsed >= Self.minEventReloadInterval {
             startBackgroundRefresh()
@@ -414,7 +418,7 @@ final class SharedLiveAgentIndex {
                     guard let self else { return }
                     self.deferredReloadTimer?.cancel()
                     self.deferredReloadTimer = nil
-                    self.handleHookStoreChange()
+                    self.scheduleHookStoreRefresh()
                 }
             }
             deferredReloadTimer = timer
