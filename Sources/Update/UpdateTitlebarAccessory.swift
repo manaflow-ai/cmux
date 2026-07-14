@@ -1030,6 +1030,26 @@ struct TitlebarControlsView: View {
             TitlebarControlButton(
                 config: config,
                 foregroundColor: foregroundColor,
+                accessibilityIdentifier: "titlebarControl.toggleBoard",
+                accessibilityLabel: String(localized: "titlebar.board.accessibilityLabel", defaultValue: "Toggle Board"),
+                action: {
+                #if DEBUG
+                cmuxDebugLog("titlebar.toggleBoard")
+                #endif
+                // Same shared toggle the ⌘⇧B shortcut uses (per shared-behavior).
+                _ = AppDelegate.shared?.toggleBoardViewInActiveMainWindow()
+            }) {
+                iconLabel(
+                    systemName: "rectangle.split.3x1",
+                    config: config,
+                    iconGeometryKeyPrefix: "titlebarControl_toggleBoardIcon"
+                )
+            }
+            .safeHelp(KeyboardShortcutSettings.Action.toggleBoardView.tooltip(String(localized: "titlebar.board.tooltip", defaultValue: "Show or hide the board")))
+
+            TitlebarControlButton(
+                config: config,
+                foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.showNotifications",
                 accessibilityLabel: String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications"),
                 action: {
