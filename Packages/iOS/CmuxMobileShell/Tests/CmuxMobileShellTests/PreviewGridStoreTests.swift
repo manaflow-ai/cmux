@@ -96,16 +96,16 @@ struct PreviewGridStoreTests {
         shell.supportedHostCapabilities = [MobileShellComposite.renderGridDemandCapability]
         let stream = shell.previewGridUpdates(surfaceID: "surface")
         let consumer = Task { @MainActor in
-            for await _ in stream {
-                if Task.isCancelled { return }
-            }
+            for await _ in stream {}
         }
         await Task.yield()
         #expect(shell.previewGridSessionState.store.registeredSurfaceIDs == ["surface"])
 
         consumer.cancel()
         await consumer.value
-        await Task.yield()
+        await expectEventually("PreviewGridStore termination cleanup did not complete") {
+            shell.previewGridSessionState.store.registeredSurfaceIDs.isEmpty
+        }
         #expect(shell.previewGridSessionState.store.registeredSurfaceIDs.isEmpty)
         #expect(demandObject(from: shell.terminalEventSubscriptionParameters(
             topics: ["terminal.render_grid"]
@@ -134,6 +134,20 @@ struct PreviewGridStoreTests {
         #expect(demand?.isActive == false)
         #expect(demand?.surfaceIDs.isEmpty == true)
         withExtendedLifetime((mountedStream, focusedPreviewStream, previewStream)) {}
+    }
+
+    @MainActor
+    private func expectEventually(
+        _ failureMessage: String,
+        maximumYields: Int = 10_000,
+        condition: () -> Bool
+    ) async {
+        for _ in 0..<maximumYields {
+            if condition() { return }
+            await Task.yield()
+        }
+        guard !condition() else { return }
+        Issue.record("\(failureMessage) after \(maximumYields) task yields")
     }
 
     private func demandObject(from params: [String: Any]) -> MobileRenderGridDemand? {
