@@ -1372,8 +1372,7 @@ struct BrowserPanelView: View {
         .accessibilityIdentifier("BrowserProfileButton")
     }
 
-    /// Overflow menu shown in compact chrome: the plain-action accessory
-    /// buttons (focus mode, screenshot, React Grab, dev tools) as menu items.
+    /// Compact-chrome actions that do not need dedicated toolbar space.
     /// Profile and theme stay as visible buttons since they anchor popovers.
     private var browserOverflowMenu: some View {
         Menu {
@@ -1417,6 +1416,7 @@ struct BrowserPanelView: View {
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(String(localized: "browser.moreActions", defaultValue: "More Actions"))
         .accessibilityIdentifier("BrowserOverflowMenu")
+        .browserDesignModeEditorPopover(controller: panel.designModeController)
     }
 
     private var browserThemeModeButton: some View {

@@ -14583,12 +14583,11 @@ class TerminalController {
         // `return`; upgrade that intent here when the surface is Claude and the
         // composed text spans multiple lines. Explicit `ctrl+enter`/`none` from
         // the client are honored as-is.
-        if submitKeyWasReturnIntent,
-           text.contains("\n") || text.contains("\r"),
-           TextBoxAgentDetection.isClaudeCode(
-               context: WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
-           ) {
-            submitKeyName = "ctrl+enter"
+        if submitKeyWasReturnIntent {
+            submitKeyName = TextBoxAgentDetection.composedPromptSubmitKey(
+                containsNewline: text.contains("\n") || text.contains("\r"),
+                context: WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
+            )
         }
 
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)

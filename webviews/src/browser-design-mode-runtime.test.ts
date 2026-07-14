@@ -24,7 +24,7 @@ function fixture(html: string) {
 
 type Snapshot = {
   enabled: boolean;
-  selection: null | { selector: string; selectors: string[] };
+  selection: null | { selector: string; selectors: string[]; text_content?: string; dom_snippet?: string };
   edits: Array<{ id: string; property: string; original_value: string; value: string }>;
   css_diff: string;
 };
@@ -94,6 +94,45 @@ describe("browser design-mode runtime", () => {
     expect(runtime.snapshot().selection?.selector).toBe("#hero");
     expect(original.style.getPropertyValue("font-size")).toBe("");
     expect(original.textContent).toBe("Original");
+  });
+
+  test("fails closed when selection or SPA rebinding is ambiguous", async () => {
+    const nested = (label: string) => `<section><div><div><div><div><div><div><div><span class="target">${label}</span></div></div></div></div></div></div></div></section>`;
+    const ambiguous = fixture(`<main>${nested("First")}${nested("Second")}</main>`);
+    expect(ambiguous.runtime.select(".target").selection).toBeNull();
+
+    const { dom, runtime } = fixture(`<main><h1 id="hero">Original</h1></main>`);
+    runtime.select("#hero");
+    runtime.applyStyle("font-size", "44px");
+    const original = dom.window.document.querySelector("#hero") as HTMLElement;
+    const replacements = Array.from({ length: 2 }, (_, index) => {
+      const element = dom.window.document.createElement("h1");
+      element.id = "hero";
+      element.textContent = `Replacement ${index}`;
+      return element;
+    });
+    original.replaceWith(...replacements);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(runtime.snapshot().selection).toBeNull();
+    expect(replacements.every((element) => element.style.getPropertyValue("font-size") === "")).toBe(true);
+  });
+
+  test("bounds page-controlled snapshot fields before crossing the bridge", () => {
+    const { dom, runtime } = fixture(`<textarea id="notes"></textarea>`);
+    const huge = "x".repeat(1_000_000);
+    const textarea = dom.window.document.querySelector("#notes") as HTMLTextAreaElement;
+    textarea.value = huge;
+
+    const selected = runtime.select("#notes");
+    runtime.applyText(huge);
+    const edited = runtime.snapshot();
+
+    expect(selected.selection?.text_content?.length).toBeLessThanOrEqual(16 * 1024);
+    expect(selected.selection?.dom_snippet?.length).toBeLessThanOrEqual(2400);
+    expect(edited.edits[0]?.value.length).toBeLessThanOrEqual(16 * 1024);
+    expect(JSON.stringify(edited).length).toBeLessThanOrEqual(128 * 1024);
   });
 
   test("does not synthesize unique selectors while hovering", async () => {

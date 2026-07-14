@@ -19,6 +19,11 @@
     "color", "background-color", "border-color", "border-width", "border-radius",
   ];
   const preferredAttributes = ["data-testid", "data-test", "data-qa", "aria-label", "name"];
+  const maxSnapshotCharacters = 128 * 1024;
+  const maxTextCharacters = 16 * 1024;
+  const maxStyleValueCharacters = 512;
+  const maxSnippetCharacters = 2400;
+  const voidElements = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
 
   let enabled = false;
   let revision = 0;
@@ -38,6 +43,12 @@
   const number = (value) => {
     const parsed = Number.parseFloat(String(value || "0"));
     return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const bounded = (value, limit) => {
+    const string = String(value ?? "");
+    if (string.length <= limit) return string;
+    return `${string.slice(0, Math.max(0, limit - 1))}…`;
   };
 
   const cssEscape = (value) => {
@@ -64,10 +75,14 @@
   };
 
   const classSelector = (element) => {
-    const classes = Array.from(element.classList || [])
-      .filter((value) => value.length > 0 && value.length <= 48)
-      .filter((value) => !/^(active|selected|hover|focus|open|closed|disabled)$/i.test(value))
-      .slice(0, 3);
+    const classes = [];
+    for (const value of element.classList || []) {
+      if (value.length > 0 && value.length <= 48
+          && !/^(active|selected|hover|focus|open|closed|disabled)$/i.test(value)) {
+        classes.push(value);
+        if (classes.length === 3) break;
+      }
+    }
     if (!classes.length) return "";
     return `${element.localName}${classes.map((value) => `.${cssEscape(value)}`).join("")}`;
   };
@@ -86,8 +101,14 @@
       if (stableClass) part = stableClass;
       const parent = current.parentElement;
       if (parent) {
-        const siblings = Array.from(parent.children).filter((candidate) => candidate.localName === current.localName);
-        if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(current) + 1})`;
+        let matchingSiblingCount = 0;
+        let matchingIndex = 0;
+        for (const sibling of parent.children) {
+          if (sibling.localName !== current.localName) continue;
+          matchingSiblingCount += 1;
+          if (sibling === current) matchingIndex = matchingSiblingCount;
+        }
+        if (matchingSiblingCount > 1) part += `:nth-of-type(${matchingIndex})`;
       }
       parts.unshift(part);
       const candidate = parts.join(" > ");
@@ -115,10 +136,6 @@
       if (!candidate || unique.includes(candidate)) continue;
       if (isUniqueFor(candidate, element)) unique.push(candidate);
     }
-    if (!unique.length) {
-      const fallback = structuralSelector(element);
-      if (fallback) unique.push(fallback);
-    }
     return unique;
   };
 
@@ -129,21 +146,80 @@
     return String(element.textContent || "");
   };
 
+  const boundedTextValue = (element) => {
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+      return bounded(element.value, maxTextCharacters);
+    }
+    const parts = [];
+    let remaining = maxTextCharacters;
+    const walker = document.createTreeWalker(element, 4);
+    while (remaining > 0) {
+      const node = walker.nextNode();
+      if (!node) break;
+      const value = bounded(node.nodeValue, remaining);
+      parts.push(value);
+      remaining -= value.length;
+    }
+    return parts.join("");
+  };
+
   const textIsEditable = (element) => {
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) return true;
     return element.childElementCount === 0 && !["html", "body", "script", "style"].includes(element.localName);
   };
 
+  const escapedMarkup = (value) => String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
   const boundedSnippet = (element) => {
-    const html = String(element.outerHTML || "").replace(/\s+/g, " ").trim();
-    return html.length <= 2400 ? html : `${html.slice(0, 2399)}…`;
+    const parts = [];
+    let remaining = maxSnippetCharacters;
+    const append = (value) => {
+      if (remaining <= 0) return;
+      const string = String(value);
+      if (string.length <= remaining) {
+        parts.push(string);
+        remaining -= string.length;
+      } else {
+        parts.push(remaining === 1 ? "…" : `${string.slice(0, remaining - 1)}…`);
+        remaining = 0;
+      }
+    };
+    const visit = (node, depth) => {
+      if (remaining <= 0) return;
+      if (node.nodeType === 3) {
+        append(escapedMarkup(bounded(node.nodeValue, Math.min(remaining, maxTextCharacters))));
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      const tag = node.localName || "element";
+      append(`<${tag}`);
+      for (const attribute of node.attributes || []) {
+        if (remaining <= 0) break;
+        const value = escapedMarkup(bounded(attribute.value, Math.min(remaining, 512)));
+        append(` ${attribute.name}="${value}"`);
+      }
+      append(">");
+      if (voidElements.has(tag)) return;
+      if (depth < 5) {
+        for (const child of node.childNodes || []) visit(child, depth + 1);
+      } else if (node.childNodes?.length) {
+        append("…");
+      }
+      append(`</${tag}>`);
+    };
+    visit(element, 0);
+    return parts.join("");
   };
 
   const computedStylesFor = (element) => {
     const computed = getComputedStyle(element);
     const result = {};
     for (const property of capturedStyleProperties) {
-      result[property] = computed.getPropertyValue(property).trim();
+      result[property] = bounded(computed.getPropertyValue(property).trim(), maxStyleValueCharacters);
     }
     return result;
   };
@@ -161,7 +237,7 @@
       selectors,
       tag_name: element.localName || "element",
       dom_snippet: boundedSnippet(element),
-      text_content: textValue(element),
+      text_content: boundedTextValue(element),
       text_editable: textIsEditable(element),
       computed_styles: computedStylesFor(element),
     };
@@ -190,13 +266,19 @@
     return lines.join("\n");
   };
 
-  const snapshot = () => ({
-    revision,
-    enabled,
-    selection: selectionSnapshot(),
-    edits: Array.from(edits.values()),
-    css_diff: cssDiff(),
-  });
+  const snapshot = () => {
+    const value = {
+      revision,
+      enabled,
+      selection: selectionSnapshot(),
+      edits: Array.from(edits.values()),
+      css_diff: cssDiff(),
+    };
+    try {
+      if (JSON.stringify(value).length <= maxSnapshotCharacters) return value;
+    } catch (_) {}
+    return { revision, enabled, selection: null, edits: [], css_diff: "" };
+  };
 
   const emit = () => {
     const value = snapshot();
@@ -211,10 +293,10 @@
     if (selectedElement?.isConnected) return selectedElement;
     for (const selector of selectedBaseline.selectors) {
       try {
-        const candidate = document.querySelector(selector);
-        if (candidate) {
-          selectedElement = candidate;
-          return candidate;
+        const candidates = document.querySelectorAll(selector);
+        if (candidates.length === 1) {
+          selectedElement = candidates[0];
+          return candidates[0];
         }
       } catch (_) {}
     }
@@ -568,7 +650,7 @@
 
     applyStyle(property, value) {
       property = String(property || "").trim().toLowerCase();
-      value = String(value ?? "").trim();
+      value = bounded(String(value ?? "").trim(), maxStyleValueCharacters);
       const element = resolveSelectedElement();
       if (!element || !styleProperties.has(property)) return snapshot();
       if (!value) return api.revert(`style:${property}`);
@@ -591,7 +673,7 @@
       edits.set(id, {
         id, kind: "text", property: "text-content",
         original_value: selectedBaseline.text_content,
-        value: String(value ?? ""),
+        value: bounded(String(value ?? ""), maxTextCharacters),
       });
       applyEditsTo(element);
       revision += 1;

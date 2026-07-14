@@ -7,7 +7,7 @@ struct BrowserDesignModeOverflowMenuButton: View {
     var body: some View {
         Button {
             Task { @MainActor in
-                _ = await controller.toggle(reason: "overflowMenu")
+                await controller.presentEditor(reason: "overflowMenu")
             }
         } label: {
             Label(

@@ -10,10 +10,17 @@ final class BrowserDesignModeController {
     static let contentWorld = WKContentWorld.world(name: "cmuxDesignMode")
     static let messageHandlerName = BrowserDesignModeMessageHandler.name
 
-    private(set) var phase: BrowserDesignModePhase = .inactive
+    private(set) var phase: BrowserDesignModePhase = .inactive {
+        didSet {
+            guard oldValue != phase else { return }
+            if phase == .inactive { editorPresented = false }
+            onActivityChanged()
+        }
+    }
     private(set) var snapshot: BrowserDesignModeSnapshot?
     private(set) var handoffState: BrowserDesignModeHandoffState = .idle
     private(set) var errorMessage: String?
+    var editorPresented = false
 
     @ObservationIgnored private let surfaceID: UUID
     @ObservationIgnored private let script: BrowserDesignModeScript
@@ -21,6 +28,7 @@ final class BrowserDesignModeController {
     @ObservationIgnored private let screenshotStore: BrowserDesignModeScreenshotStore
     @ObservationIgnored private let canEnable: @MainActor @Sendable () -> Bool
     @ObservationIgnored private let promptSender: @MainActor @Sendable (String) throws -> Void
+    @ObservationIgnored private let onActivityChanged: @MainActor @Sendable () -> Void
     @ObservationIgnored private weak var webView: WKWebView?
     @ObservationIgnored private var messageHandler: BrowserDesignModeMessageHandler?
     @ObservationIgnored private var operationRevision: UInt = 0
@@ -33,13 +41,18 @@ final class BrowserDesignModeController {
         phase == .active && snapshot?.selection != nil && snapshot?.edits.isEmpty == false
     }
 
+    var protectsFromDiscard: Bool {
+        phase != .inactive
+    }
+
     init(
         surfaceID: UUID,
         script: BrowserDesignModeScript,
         promptFormatter: BrowserDesignModePromptFormatter,
         screenshotStore: BrowserDesignModeScreenshotStore,
         canEnable: @escaping @MainActor @Sendable () -> Bool,
-        promptSender: @escaping @MainActor @Sendable (String) throws -> Void
+        promptSender: @escaping @MainActor @Sendable (String) throws -> Void,
+        onActivityChanged: @escaping @MainActor @Sendable () -> Void
     ) {
         self.surfaceID = surfaceID
         self.script = script
@@ -47,6 +60,7 @@ final class BrowserDesignModeController {
         self.screenshotStore = screenshotStore
         self.canEnable = canEnable
         self.promptSender = promptSender
+        self.onActivityChanged = onActivityChanged
     }
 
     func install(on webView: WKWebView) {
@@ -66,7 +80,7 @@ final class BrowserDesignModeController {
             forName: Self.messageHandlerName,
             contentWorld: Self.contentWorld
         )
-        controller.addScriptMessageHandler(
+        controller.add(
             handler,
             contentWorld: Self.contentWorld,
             name: Self.messageHandlerName
@@ -91,6 +105,13 @@ final class BrowserDesignModeController {
     @discardableResult
     func toggle(reason: String) async -> Bool {
         await setEnabled(!isActive, reason: reason)
+    }
+
+    func presentEditor(reason: String) async {
+        if !isActive {
+            _ = await setEnabled(true, reason: reason)
+        }
+        editorPresented = isActive
     }
 
     @discardableResult
@@ -280,19 +301,12 @@ final class BrowserDesignModeController {
         arguments: [String: Any] = [:],
         in webView: WKWebView
     ) async throws -> Any? {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any?, any Error>) in
-            webView.callAsyncJavaScript(
-                body,
-                arguments: arguments,
-                in: nil,
-                contentWorld: Self.contentWorld
-            ) { result in
-                switch result {
-                case .success(let value): continuation.resume(returning: value)
-                case .failure(let error): continuation.resume(throwing: error)
-                }
-            }
-        }
+        try await webView.callAsyncJavaScript(
+            body,
+            arguments: arguments,
+            in: nil,
+            contentWorld: Self.contentWorld
+        )
     }
 
     private func decodeSnapshot(_ value: Any?) throws -> BrowserDesignModeSnapshot {
@@ -324,12 +338,14 @@ final class BrowserDesignModeController {
     }
 
     private func bestEffortDestroyRuntime(in webView: WKWebView) {
-        webView.callAsyncJavaScript(
-            "return globalThis.__cmuxDesignMode?.destroy();",
-            arguments: [:],
-            in: nil,
-            contentWorld: Self.contentWorld
-        ) { _ in }
+        Task { @MainActor [weak webView] in
+            _ = try? await webView?.callAsyncJavaScript(
+                "return globalThis.__cmuxDesignMode?.destroy();",
+                arguments: [:],
+                in: nil,
+                contentWorld: Self.contentWorld
+            )
+        }
     }
 
     private func resetNativeState() {

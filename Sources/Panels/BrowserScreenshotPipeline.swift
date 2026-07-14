@@ -156,8 +156,14 @@ enum BrowserScreenshotCrop {
 
 enum BrowserScreenshotPasteboardWriter {
     static func pngData(for image: NSImage) throws -> Data {
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
+        guard let tiffData = image.tiffRepresentation else {
+            throw BrowserScreenshotError.invalidImageRepresentation
+        }
+        return try pngData(fromTIFF: tiffData)
+    }
+
+    private static func pngData(fromTIFF tiffData: Data) throws -> Data {
+        guard let bitmap = NSBitmapImageRep(data: tiffData),
               let pngData = bitmap.representation(using: .png, properties: [:]) else {
             throw BrowserScreenshotError.invalidImageRepresentation
         }
@@ -174,7 +180,7 @@ enum BrowserScreenshotPasteboardWriter {
 
     static func pasteboardItem(for image: NSImage) throws -> NSPasteboardItem {
         guard let tiffData = image.tiffRepresentation else { throw BrowserScreenshotError.invalidImageRepresentation }
-        let pngData = try pngData(for: image)
+        let pngData = try pngData(fromTIFF: tiffData)
 
         let item = NSPasteboardItem()
         item.setData(pngData, forType: NSPasteboard.PasteboardType(UTType.png.identifier))

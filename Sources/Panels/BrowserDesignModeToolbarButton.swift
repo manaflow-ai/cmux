@@ -6,17 +6,10 @@ struct BrowserDesignModeToolbarButton: View {
     let hitSize: CGFloat
     let inactiveColor: Color
 
-    @State private var editorPresented = false
-
     var body: some View {
         Button {
             Task { @MainActor in
-                if controller.isActive {
-                    editorPresented = true
-                } else {
-                    let enabled = await controller.setEnabled(true, reason: "toolbar")
-                    editorPresented = enabled && controller.isActive
-                }
+                await controller.presentEditor(reason: "toolbar")
             }
         } label: {
             CmuxSystemSymbolImage(
@@ -30,9 +23,7 @@ struct BrowserDesignModeToolbarButton: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: hitSize, height: hitSize, alignment: .center)
         .disabled(controller.phase == .activating || controller.phase == .deactivating)
-        .popover(isPresented: $editorPresented, arrowEdge: .bottom) {
-            BrowserDesignModeEditor(controller: controller)
-        }
+        .browserDesignModeEditorPopover(controller: controller)
         .safeHelp(
             String(
                 format: String(
@@ -43,8 +34,19 @@ struct BrowserDesignModeToolbarButton: View {
             )
         )
         .accessibilityIdentifier("BrowserDesignModeButton")
-        .onChange(of: controller.phase) { _, phase in
-            if phase == .inactive { editorPresented = false }
+    }
+}
+
+extension View {
+    func browserDesignModeEditorPopover(controller: BrowserDesignModeController) -> some View {
+        popover(
+            isPresented: Binding(
+                get: { controller.editorPresented },
+                set: { controller.editorPresented = $0 }
+            ),
+            arrowEdge: .bottom
+        ) {
+            BrowserDesignModeEditor(controller: controller)
         }
     }
 }

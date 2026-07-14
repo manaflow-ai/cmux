@@ -16,7 +16,7 @@ actor BrowserDesignModeScreenshotStore {
         let filename = "surface-\(surfaceID.uuidString.prefix(8))-\(timestamp)-\(UUID().uuidString.prefix(8)).png"
         let url = directory.appendingPathComponent(filename, isDirectory: false)
         try pngData.write(to: url, options: .atomic)
-        pruneKeepingNewest(100)
+        pruneKeepingNewest(limit: 100)
         return url
     }
 

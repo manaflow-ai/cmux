@@ -15,7 +15,11 @@ extension TerminalController {
         guard terminal.sendText(prompt) else {
             throw BrowserDesignModeSendError.terminalUnavailable
         }
-        guard terminal.sendNamedKeyResult("return").accepted else {
+        let submitKey = TextBoxAgentDetection.composedPromptSubmitKey(
+            containsNewline: prompt.contains("\n") || prompt.contains("\r"),
+            context: WorkspaceContentView.terminalAgentContext(panel: terminal, workspace: workspace)
+        )
+        guard terminal.sendNamedKeyResult(submitKey).accepted else {
             throw BrowserDesignModeSendError.submitUnavailable
         }
     }

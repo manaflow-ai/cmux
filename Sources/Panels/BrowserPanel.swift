@@ -3013,7 +3013,8 @@ final class BrowserPanel: Panel, ObservableObject {
         promptSender: { [weak self] prompt in
             guard let self else { throw BrowserDesignModeSendError.terminalUnavailable }
             try self.sendDesignModePromptToAgent(prompt)
-        }
+        },
+        onActivityChanged: { [weak self] in self?.reevaluateHiddenWebViewDiscardScheduling(reason: "design_mode_changed") }
     )
     var reactGrabMessageHandler: ReactGrabMessageHandler?
     var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
@@ -6003,6 +6004,7 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isDeveloperToolsVisible: isDeveloperToolsVisible(),
             isElementFullscreenActive: isElementFullscreenActive,
             isReactGrabActive: isReactGrabActive,
+            isDesignModeActive: designModeController.protectsFromDiscard,
             isVisualAutomationCaptureActive: activeVisualAutomationCaptureCount > 0,
             hasPopups: !popupControllers.isEmpty,
             isCapturingMedia: webView.cameraCaptureState != .none || webView.microphoneCaptureState != .none,
