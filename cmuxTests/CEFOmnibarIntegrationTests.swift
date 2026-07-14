@@ -40,6 +40,52 @@ struct CEFOmnibarIntegrationTests {
     }
 
     @Test
+    func plainTextResolvesAsSearchInsteadOfURL() {
+        let panel = CEFBrowserPanel(workspaceId: UUID())
+
+        #expect(panel.resolveNavigableURL(from: "weather today") == nil)
+    }
+
+    @Test
+    func hiddenPaneHidesNativeHostBeforeBrowserCreation() {
+        let panel = CEFBrowserPanel(workspaceId: UUID())
+
+        panel.setVisibleInUI(false)
+
+        #expect(panel.hostView.isHidden)
+        #expect(!panel.isVisibleInUI)
+    }
+
+    @Test
+    func sessionSnapshotPreservesChromiumPanelURL() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panel = CEFBrowserPanel(
+            workspaceId: workspace.id,
+            initialURL: "https://example.com/session"
+        )
+        workspace.panels[panel.id] = panel
+        workspace.panelTitles[panel.id] = panel.displayTitle
+        let tabID = try #require(workspace.bonsplitController.createTab(
+            title: panel.displayTitle,
+            icon: panel.displayIcon,
+            kind: "cefBrowser",
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: pane
+        ))
+        workspace.bindSurface(tabID, toPanelId: panel.id)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try #require(snapshot.panels.first { $0.id == panel.id })
+
+        #expect(panelSnapshot.type == .cefBrowser)
+        #expect(panelSnapshot.browser?.urlString == "https://example.com/session")
+    }
+
+    @Test
     func completedLoadingTransitionRecordsVisit() throws {
         let directory = temporaryDirectory(named: "visit")
         defer { try? FileManager.default.removeItem(at: directory) }
