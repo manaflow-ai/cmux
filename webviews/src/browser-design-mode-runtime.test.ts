@@ -115,14 +115,27 @@ describe("browser design-mode runtime", () => {
     await new Promise<void>((resolve) => dom.window.setTimeout(resolve, 0));
     expect(runtime.snapshot().selection).toBeNull();
 
+    const elementPrototype = dom.window.Element.prototype;
+    const originalQuerySelector = elementPrototype.querySelector;
+    let subtreeSelectorQueries = 0;
+    Object.defineProperty(elementPrototype, "querySelector", {
+      value(this: Element, selector: string) {
+        subtreeSelectorQueries += 1;
+        return originalQuerySelector.call(this, selector);
+      },
+    });
     const replacement = dom.window.document.createElement("h1");
     replacement.id = "hero";
     replacement.textContent = "Later render";
+    for (let index = 0; index < 100; index += 1) {
+      dom.window.document.querySelector("main")?.append(dom.window.document.createElement("span"));
+    }
     dom.window.document.querySelector("main")?.append(replacement);
-    await new Promise<void>((resolve) => dom.window.setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
 
     expect(runtime.snapshot().selection?.selector).toBe("#hero");
     expect(replacement.style.getPropertyValue("font-size")).toBe("44px");
+    expect(subtreeSelectorQueries).toBe(0);
   });
 
   test("fails closed when selection or SPA rebinding is ambiguous", async () => {
@@ -210,10 +223,10 @@ describe("browser design-mode runtime", () => {
   });
 
   test("bounds page-controlled snapshot fields before crossing the bridge", () => {
-    const { dom, runtime } = fixture(`<textarea id="notes"></textarea>`);
+    const { dom, runtime } = fixture(`<p id="notes"></p>`);
     const huge = "x".repeat(1_000_000);
-    const textarea = dom.window.document.querySelector("#notes") as HTMLTextAreaElement;
-    textarea.value = "Original";
+    const paragraph = dom.window.document.querySelector("#notes") as HTMLParagraphElement;
+    paragraph.textContent = "Original";
 
     const selected = runtime.select("#notes");
     runtime.applyText(huge);
@@ -226,17 +239,17 @@ describe("browser design-mode runtime", () => {
   });
 
   test("refuses text editing when the reversible original exceeds the text limit", () => {
-    const { dom, runtime } = fixture(`<textarea id="notes"></textarea>`);
+    const { dom, runtime } = fixture(`<p id="notes"></p>`);
     const huge = "x".repeat(1_000_000);
-    const textarea = dom.window.document.querySelector("#notes") as HTMLTextAreaElement;
-    textarea.value = huge;
+    const paragraph = dom.window.document.querySelector("#notes") as HTMLParagraphElement;
+    paragraph.textContent = huge;
 
     const selected = runtime.select("#notes");
     const edited = runtime.applyText("Replacement");
 
     expect(selected.selection?.text_editable).toBe(false);
     expect(edited.edits).toHaveLength(0);
-    expect(textarea.value).toBe(huge);
+    expect(paragraph.textContent).toBe(huge);
   });
 
   test("redacts sensitive form data before snapshots cross the bridge", () => {
@@ -273,28 +286,22 @@ describe("browser design-mode runtime", () => {
     expect(account.selection?.text_content).not.toContain("style-secret");
   });
 
-  test("rebinds controlled inputs without redispatching an input loop", async () => {
+  test("does not expose or edit form values or dispatch page input events", () => {
     const { dom, runtime } = fixture(`<main><input id="name" value="Original"></main>`);
     let inputEvents = 0;
-    const replaceOnInput = (event: Event) => {
-      inputEvents += 1;
-      const current = event.currentTarget as HTMLInputElement;
-      const replacement = current.cloneNode(true) as HTMLInputElement;
-      replacement.value = "Server value";
-      replacement.addEventListener("input", replaceOnInput);
-      current.replaceWith(replacement);
-    };
     const input = dom.window.document.querySelector("#name") as HTMLInputElement;
-    input.addEventListener("input", replaceOnInput);
+    input.addEventListener("input", () => { inputEvents += 1; });
 
-    runtime.select("#name");
-    runtime.applyText("Edited");
-    await Promise.resolve();
-    await Promise.resolve();
+    const selected = runtime.select("#name");
+    const edited = runtime.applyText("Edited");
+    runtime.revertAll();
 
-    const replacement = dom.window.document.querySelector("#name") as HTMLInputElement;
-    expect(inputEvents).toBe(1);
-    expect(replacement.value).toBe("Edited");
+    expect(selected.selection?.text_content).toBe("<redacted>");
+    expect(selected.selection?.text_editable).toBe(false);
+    expect(selected.selection?.dom_snippet).not.toContain("Original");
+    expect(edited.edits).toHaveLength(0);
+    expect(input.value).toBe("Original");
+    expect(inputEvents).toBe(0);
   });
 
   test("prepares capture without depending on animation-frame delivery", () => {
@@ -331,20 +338,6 @@ describe("browser design-mode runtime", () => {
     await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
 
     expect(selectorQueries).toBe(0);
-  });
-
-  test("reverts form text through the page input event path", () => {
-    const { dom, runtime } = fixture(`<input id="name" value="Original">`);
-    const input = dom.window.document.querySelector("#name") as HTMLInputElement;
-    const values: string[] = [];
-    input.addEventListener("input", () => values.push(input.value));
-
-    runtime.select("#name");
-    runtime.applyText("Edited");
-    runtime.revert("text:text-content");
-
-    expect(input.value).toBe("Original");
-    expect(values).toEqual(["Edited", "Original"]);
   });
 
   test("destroy restores every touched node and removes injected DOM state", () => {
