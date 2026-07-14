@@ -19,12 +19,14 @@ extension MobileShellComposite {
         guard let workspace = workspaces.first(where: { $0.id == workspaceID }),
               workspace.actionCapabilities.supportsTerminalCloseActions,
               let terminal = workspace.terminals.first(where: { $0.id == terminalID }),
-              terminal.canClose,
-              reservation.workspaceID == workspaceID else {
+              terminal.canClose else {
             return .failure(.rejected(hostDisplayName: workspaceHostDisplayName(for: workspaceID)))
         }
-        let paneIDs = workspace.paneID(containing: terminal)
-            .map { workspace.terminals(in: $0).map(\.id) } ?? []
+        guard reservation.workspaceID == workspaceID,
+              workspace.paneID(containing: terminal) == reservation.paneID else {
+            return .failure(.busy(hostDisplayName: workspaceHostDisplayName(for: workspaceID)))
+        }
+        let paneIDs = workspace.terminals(in: reservation.paneID).map(\.id)
         let fallback = MobileTerminalCloseFallback(
             closedTerminalID: terminalID,
             selectedTerminalID: selectedTerminalID,
