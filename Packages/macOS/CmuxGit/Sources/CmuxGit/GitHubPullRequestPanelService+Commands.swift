@@ -53,7 +53,6 @@ extension GitHubPullRequestPanelService {
             arguments: [
                 "pr", "create", "--web",
                 "--repo", context.repositorySlug,
-                "--head", context.branch,
             ],
             timeout: 30
         )

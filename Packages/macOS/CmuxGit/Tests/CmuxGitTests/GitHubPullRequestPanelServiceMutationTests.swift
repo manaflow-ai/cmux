@@ -63,7 +63,7 @@ import Testing
         ])
     }
 
-    @Test func createPullRequestPinsRepositoryAndBranch() async throws {
+    @Test func createPullRequestPinsRepositoryAndKeepsCurrentBranchInference() async throws {
         let runner = RecordingPullRequestCommandRunner()
         let service = GitHubPullRequestPanelService(commandRunner: runner)
         let context = PullRequestPanelContext(
@@ -76,7 +76,7 @@ import Testing
 
         #expect(await runner.lastArguments == [
             "pr", "create", "--web",
-            "--repo", "example/repo", "--head", "feature",
+            "--repo", "example/repo",
         ])
     }
 
