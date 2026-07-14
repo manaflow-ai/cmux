@@ -474,6 +474,7 @@ enum SessionOpenError {
     Failed,
 }
 
+#[allow(clippy::too_many_lines)]
 async fn open_session(
     state: &AppState,
     params: OpenSessionRequest,
@@ -510,6 +511,10 @@ async fn open_session(
             source: params.source,
         });
     }
+    let _permit = state
+        .child_processes
+        .try_acquire()
+        .map_err(|_| SessionOpenError::Failed)?;
 
     let repo = match &params.source {
         DiffSource::Unstaged { repo_root }
@@ -537,7 +542,8 @@ async fn open_session(
     tokio::fs::rename(&temporary_path, &final_path)
         .await
         .map_err(|_| SessionOpenError::Failed)?;
-    let _ = unregister_session_temp(&state.config.root, &temporary_path);
+    replace_session_temp(&state.config.root, &temporary_path, &final_path)
+        .map_err(|_| SessionOpenError::Failed)?;
     temporary_file.retarget(final_path.clone());
     let metadata = tokio::fs::metadata(&final_path)
         .await
@@ -568,6 +574,7 @@ async fn open_session(
         return Err(SessionOpenError::Failed);
     }
     temporary_file.disarm();
+    let _ = unregister_session_temp(&state.config.root, &final_path);
 
     Ok(SessionOpened {
         session_id,
@@ -853,6 +860,10 @@ fn valid_session_temp_name(name: &str) -> bool {
     name.strip_prefix(".diff-session-")
         .and_then(|value| value.strip_suffix(".patch.tmp"))
         .is_some_and(|session_id| uuid::Uuid::parse_str(session_id).is_ok())
+        || name
+            .strip_prefix("diff-session-")
+            .and_then(|value| value.strip_suffix(".patch"))
+            .is_some_and(|session_id| uuid::Uuid::parse_str(session_id).is_ok())
 }
 
 fn register_session_temp(root: &Path, path: &Path) -> Result<(), String> {
@@ -881,6 +892,27 @@ fn unregister_session_temp(root: &Path, path: &Path) -> Result<(), String> {
         .ok_or("invalid temp name")?;
     mutate_temp_index(root, |entries| {
         entries.retain(|entry| entry != name);
+        Ok(())
+    })
+}
+
+fn replace_session_temp(root: &Path, old_path: &Path, new_path: &Path) -> Result<(), String> {
+    let old_name = old_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or("invalid temp name")?;
+    let new_name = new_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or("invalid final name")?;
+    if !valid_session_temp_name(old_name) || !valid_session_temp_name(new_name) {
+        return Err("invalid owned patch name".to_owned());
+    }
+    mutate_temp_index(root, |entries| {
+        let Some(entry) = entries.iter_mut().find(|entry| entry.as_str() == old_name) else {
+            return Err("temp ownership missing".to_owned());
+        };
+        new_name.clone_into(entry);
         Ok(())
     })
 }
@@ -949,7 +981,7 @@ async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
     if removed {
         let _ = tokio::fs::remove_file(file_path).await;
     }
-    removed
+    true
 }
 
 fn mutate_manifest<T>(
