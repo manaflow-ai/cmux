@@ -51,6 +51,11 @@
             "action": {
               "type": "string",
               "description": "ID of the action run by plain New Workspace. This is the default workspace layout; omit or remove it for None (Blank Terminal). Project-local ui.newWorkspace.action wins over the global value."
+            },
+            "showLayoutManagement": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show Save Workspace as Layout and Manage Layouts in the New Workspace menu."
             }
           }
         }

@@ -35,6 +35,7 @@ struct NewWorkspaceMenuModel: Equatable {
         loadedActions: [CmuxResolvedConfigAction],
         newWorkspaceActionID: String?,
         deletable: (CmuxResolvedConfigAction) -> Bool,
+        showsLayoutManagement: Bool = true,
         sectionOrder: CmuxNewWorkspaceMenuSectionOrder
     ) -> NewWorkspaceMenuModel {
         var createRows: [CreateRow] = []
@@ -118,9 +119,9 @@ struct NewWorkspaceMenuModel: Equatable {
         if !templateNames.isEmpty {
             sections.append(.templates(templateNames))
         }
-        // Always present: the Save affordance must survive an otherwise-empty
-        // menu (no create/cloud/layout/template rows), matching the pre-model menu.
-        sections.append(.management(management))
+        if showsLayoutManagement {
+            sections.append(.management(management))
+        }
 
         return NewWorkspaceMenuModel(sections: sections)
     }

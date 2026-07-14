@@ -83,6 +83,7 @@ extension AppDelegate {
                 guard let self, let cmuxConfigStore else { return false }
                 return isDeletableGlobalAction(action, cmuxConfigStore: cmuxConfigStore)
             },
+            showsLayoutManagement: cmuxConfigStore.newWorkspaceShowsLayoutManagement,
             sectionOrder: cmuxConfigStore.newWorkspaceMenuSectionOrder
         )
         return renderNewWorkspaceContextMenu(

@@ -1719,6 +1719,7 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
     @Published private(set) var newWorkspaceContextMenuIsConfigured = false
     @Published private(set) var newWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder = .default
+    @Published private(set) var newWorkspaceShowsLayoutManagement = true
     @Published private(set) var agentChat: CmuxAgentChatConfiguration = .default
     /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
     /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
@@ -1984,6 +1985,7 @@ final class CmuxConfigStore: ObservableObject {
         var configuredNewWorkspaceContextMenu: [CmuxConfigContextMenuItem]?
         var configuredNewWorkspaceContextMenuSourcePath: String?
         var configuredNewWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder?
+        var configuredNewWorkspaceShowsLayoutManagement: Bool?
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
         var configuredSurfaceTabBarButtonSourcePath: String?
         let localPath = localConfigPath
@@ -2023,6 +2025,9 @@ final class CmuxConfigStore: ObservableObject {
             if let menuSectionOrder = localConfig.ui?.newWorkspace?.menuSectionOrder {
                 configuredNewWorkspaceMenuSectionOrder = menuSectionOrder
             }
+            if let showLayoutManagement = localConfig.ui?.newWorkspace?.showLayoutManagement {
+                configuredNewWorkspaceShowsLayoutManagement = showLayoutManagement
+            }
             if configuredNewWorkspaceActionID == nil,
                let newWorkspaceCommand = localConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
@@ -2059,6 +2064,10 @@ final class CmuxConfigStore: ObservableObject {
             if configuredNewWorkspaceMenuSectionOrder == nil,
                let menuSectionOrder = globalConfig.ui?.newWorkspace?.menuSectionOrder {
                 configuredNewWorkspaceMenuSectionOrder = menuSectionOrder
+            }
+            if configuredNewWorkspaceShowsLayoutManagement == nil,
+               let showLayoutManagement = globalConfig.ui?.newWorkspace?.showLayoutManagement {
+                configuredNewWorkspaceShowsLayoutManagement = showLayoutManagement
             }
             if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
@@ -2147,6 +2156,7 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
         newWorkspaceContextMenuIsConfigured = configuredNewWorkspaceContextMenu != nil
         newWorkspaceMenuSectionOrder = configuredNewWorkspaceMenuSectionOrder ?? .default
+        newWorkspaceShowsLayoutManagement = configuredNewWorkspaceShowsLayoutManagement ?? true
         agentChat = CmuxAgentChatConfiguration.resolved(
             local: localConfig?.agentChat, global: globalConfig?.agentChat,
             localSourcePath: localConfig?.agentChat == nil ? nil : localPath, globalSourcePath: globalConfig?.agentChat == nil ? nil : globalConfigPath

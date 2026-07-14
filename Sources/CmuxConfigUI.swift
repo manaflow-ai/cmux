@@ -17,6 +17,7 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
     var tooltip: String?
     var contextMenu: [CmuxConfigContextMenuItem]?
     var menuSectionOrder: CmuxNewWorkspaceMenuSectionOrder?
+    var showLayoutManagement: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case action
@@ -26,6 +27,7 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
         case rightClick
         case menuSectionOrder
         case sectionOrder
+        case showLayoutManagement
     }
 
     init(
@@ -33,13 +35,15 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
         icon: CmuxButtonIcon? = nil,
         tooltip: String? = nil,
         contextMenu: [CmuxConfigContextMenuItem]? = nil,
-        menuSectionOrder: CmuxNewWorkspaceMenuSectionOrder? = nil
+        menuSectionOrder: CmuxNewWorkspaceMenuSectionOrder? = nil,
+        showLayoutManagement: Bool? = nil
     ) {
         self.action = action
         self.icon = icon
         self.tooltip = tooltip
         self.contextMenu = contextMenu
         self.menuSectionOrder = menuSectionOrder
+        self.showLayoutManagement = showLayoutManagement
     }
 
     init(from decoder: Decoder) throws {
@@ -51,6 +55,7 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
             ?? container.decodeIfPresent([CmuxConfigContextMenuItem].self, forKey: .rightClick)
         menuSectionOrder = try container.decodeIfPresent(CmuxNewWorkspaceMenuSectionOrder.self, forKey: .menuSectionOrder)
             ?? container.decodeIfPresent(CmuxNewWorkspaceMenuSectionOrder.self, forKey: .sectionOrder)
+        showLayoutManagement = try container.decodeIfPresent(Bool.self, forKey: .showLayoutManagement)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -60,6 +65,7 @@ struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {
         try container.encodeIfPresent(tooltip, forKey: .tooltip)
         try container.encodeIfPresent(contextMenu, forKey: .contextMenu)
         try container.encodeIfPresent(menuSectionOrder, forKey: .menuSectionOrder)
+        try container.encodeIfPresent(showLayoutManagement, forKey: .showLayoutManagement)
     }
 
     private static func trimmedString(
