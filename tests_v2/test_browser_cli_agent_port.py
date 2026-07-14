@@ -291,15 +291,16 @@ def main() -> int:
         _must(metrics.get("width") == 1280 and metrics.get("height") == 720, f"Expected exact WKWebView viewport: {metrics}")
         _must(metrics.get("wide") is True, f"Expected responsive media query to use emulated viewport: {metrics}")
 
-        viewport_screenshot = Path(tempfile.mkdtemp(prefix="cmux-cli-viewport-")) / "viewport.png"
-        _run_cli_text(cli, ["browser", surface, "screenshot", "--out", str(viewport_screenshot)])
-        png_header = viewport_screenshot.read_bytes()[:24]
-        _must(png_header.startswith(b"\x89PNG\r\n\x1a\n"), "Expected viewport screenshot to be PNG")
-        screenshot_width, screenshot_height = struct.unpack(">II", png_header[16:24])
-        _must(
-            (screenshot_width, screenshot_height) == (1280, 720),
-            f"Expected screenshot to match emulated viewport, got {screenshot_width}x{screenshot_height}",
-        )
+        with tempfile.TemporaryDirectory(prefix="cmux-cli-viewport-") as screenshot_dir:
+            viewport_screenshot = Path(screenshot_dir) / "viewport.png"
+            _run_cli_text(cli, ["browser", surface, "screenshot", "--out", str(viewport_screenshot)])
+            png_header = viewport_screenshot.read_bytes()[:24]
+            _must(png_header.startswith(b"\x89PNG\r\n\x1a\n"), "Expected viewport screenshot to be PNG")
+            screenshot_width, screenshot_height = struct.unpack(">II", png_header[16:24])
+            _must(
+                (screenshot_width, screenshot_height) == (1280, 720),
+                f"Expected screenshot to match emulated viewport, got {screenshot_width}x{screenshot_height}",
+            )
 
         _run_cli_json(cli, ["browser", surface, "zoom", "in"])
         zoomed_metrics = _run_cli_json(
@@ -317,15 +318,16 @@ def main() -> int:
             and zoomed_viewport.get("height") == 720,
             f"Expected viewport RPC to report exact CSS dimensions at page zoom: {zoomed_viewport}",
         )
-        zoomed_viewport_screenshot = Path(tempfile.mkdtemp(prefix="cmux-cli-viewport-zoomed-")) / "viewport.png"
-        _run_cli_text(cli, ["browser", surface, "screenshot", "--out", str(zoomed_viewport_screenshot)])
-        zoomed_png_header = zoomed_viewport_screenshot.read_bytes()[:24]
-        _must(zoomed_png_header.startswith(b"\x89PNG\r\n\x1a\n"), "Expected zoomed viewport screenshot to be PNG")
-        zoomed_screenshot_size = struct.unpack(">II", zoomed_png_header[16:24])
-        _must(
-            zoomed_screenshot_size == (1280, 720),
-            f"Expected zoomed screenshot to retain CSS viewport pixels, got {zoomed_screenshot_size}",
-        )
+        with tempfile.TemporaryDirectory(prefix="cmux-cli-viewport-zoomed-") as screenshot_dir:
+            zoomed_viewport_screenshot = Path(screenshot_dir) / "viewport.png"
+            _run_cli_text(cli, ["browser", surface, "screenshot", "--out", str(zoomed_viewport_screenshot)])
+            zoomed_png_header = zoomed_viewport_screenshot.read_bytes()[:24]
+            _must(zoomed_png_header.startswith(b"\x89PNG\r\n\x1a\n"), "Expected zoomed viewport screenshot to be PNG")
+            zoomed_screenshot_size = struct.unpack(">II", zoomed_png_header[16:24])
+            _must(
+                zoomed_screenshot_size == (1280, 720),
+                f"Expected zoomed screenshot to retain CSS viewport pixels, got {zoomed_screenshot_size}",
+            )
         _run_cli_json(cli, ["browser", surface, "zoom", "reset"])
 
         focus_after_viewport = (_run_cli_json(cli, ["identify"]).get("focused") or {})
