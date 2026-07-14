@@ -9,7 +9,7 @@ extension TerminalSurface {
     ///
     /// - Returns: Whether the runtime performed the action.
     @discardableResult
-    private func performRawBindingAction(_ action: String) -> Bool {
+    public func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
@@ -19,15 +19,7 @@ extension TerminalSurface {
     /// Performs an internal binding action without treating it as user input.
     @discardableResult
     public func performInternalBindingAction(_ action: String) -> Bool {
-        performRawBindingAction(action)
-    }
-
-    /// Performs a user-initiated Ghostty binding action.
-    @MainActor
-    @discardableResult
-    public func performBindingAction(_ action: String) -> Bool {
-        didReceiveExplicitInput()
-        return performRawBindingAction(action)
+        performBindingAction(action)
     }
 
     /// Performs a user-initiated Ghostty binding action after notifying the pane host.
@@ -39,6 +31,7 @@ extension TerminalSurface {
     @MainActor
     @discardableResult
     public func performExplicitInputBindingAction(_ action: String) -> Bool {
+        didReceiveExplicitInput()
         return performBindingAction(action)
     }
 
