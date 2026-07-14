@@ -5380,8 +5380,23 @@ final class BrowserPanel: Panel, ObservableObject {
 
     // MARK: - Panel Protocol
 
+    /// Whether `responder` sits in the responder chain of this panel's live
+    /// web content — the Chromium engine view when active, else the WKWebView.
+    func responderOwnsEngineWebContent(_ responder: NSResponder?) -> Bool {
+        if let chromiumView = chromium?.webView,
+           Self.responderChainContains(responder, target: chromiumView) {
+            return true
+        }
+        return Self.responderChainContains(responder, target: webView)
+    }
+
     func focus() {
         if shouldSuppressWebViewFocus() {
+            return
+        }
+
+        if engineKind == .chromium {
+            focusChromiumWebView()
             return
         }
 
@@ -5404,6 +5419,19 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
+    private func focusChromiumWebView() {
+        guard let chromiumView = chromium?.webView,
+              let window = chromiumView.window,
+              !chromiumView.isHiddenOrHasHiddenAncestor else { return }
+        if Self.responderChainContains(window.firstResponder, target: chromiumView) {
+            noteWebViewFocused()
+            return
+        }
+        if window.makeFirstResponder(chromiumView) {
+            noteWebViewFocused()
+        }
+    }
+
     @discardableResult
     func requestExplicitWebViewFocus() -> Bool {
         // Programmatic WebView focus should win over stale omnibar focus state, especially
@@ -5411,6 +5439,21 @@ final class BrowserPanel: Panel, ObservableObject {
         endSuppressWebViewFocusForAddressBar()
         clearWebViewFocusSuppression()
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
+
+        if engineKind == .chromium {
+            guard let chromiumView = chromium?.webView,
+                  let window = chromiumView.window,
+                  !chromiumView.isHiddenOrHasHiddenAncestor else { return false }
+            if Self.responderChainContains(window.firstResponder, target: chromiumView) {
+                suppressOmnibarAutofocus(for: 1.5)
+                noteWebViewFocused()
+                return true
+            }
+            guard window.makeFirstResponder(chromiumView) else { return false }
+            suppressOmnibarAutofocus(for: 1.5)
+            noteWebViewFocused()
+            return true
+        }
 
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
 
@@ -5442,11 +5485,11 @@ final class BrowserPanel: Panel, ObservableObject {
     func unfocus() {
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
-        guard let window = webView.window else { return }
+        guard let window = webView.window ?? chromium?.webView.window else { return }
         if BrowserWindowPortalRegistry.yieldSearchOverlayFocusIfOwned(by: id, in: window) {
             return
         }
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        if responderOwnsEngineWebContent(window.firstResponder) {
             window.makeFirstResponder(nil)
         }
     }
@@ -5905,6 +5948,7 @@ final class BrowserPanel: Panel, ObservableObject {
         applyChromiumModelState(state.model)
         observeChromiumModel(state)
         startChromiumPoll(state)
+        wireChromiumWebViewFocusHooks(state)
         let coordinator = BrowserChromiumNativeSurfaceCoordinator(
             session: state.session,
             hostView: state.webView
@@ -5922,6 +5966,29 @@ final class BrowserPanel: Panel, ObservableObject {
             }
 #endif
             coordinator?.handle(tree)
+        }
+    }
+
+    /// Routes the Chromium view's pointer/focus events through the same
+    /// notification path the WebKit engine uses, so pane focus, address-bar
+    /// tracking, and the keyboard-focus coordinator stay in sync regardless of
+    /// engine. Observers identify the panel by its canonical `webView`
+    /// instance, which chromium panels keep as their web-content identity
+    /// token even though it is never mounted.
+    private func wireChromiumWebViewFocusHooks(_ state: BrowserPanelChromiumState) {
+        state.webView.acceptsFirstMouseProvider = { PaneFirstClickFocusSettings.isEnabled() }
+        state.webView.onPointerClick = { [weak self] in
+            guard let self else { return }
+            NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self.webView)
+        }
+        state.webView.onDidBecomeFirstResponder = { [weak self] pointerInitiated in
+            guard let self else { return }
+            self.noteWebViewFocused()
+            NotificationCenter.default.post(
+                name: .browserDidBecomeFirstResponderWebView,
+                object: self.webView,
+                userInfo: [BrowserFirstResponderNotificationUserInfoKey.pointerInitiated: pointerInitiated]
+            )
         }
     }
 
@@ -8045,7 +8112,7 @@ extension BrowserPanel {
         }
 
         if let window,
-           Self.responderChainContains(window.firstResponder, target: webView) {
+           responderOwnsEngineWebContent(window.firstResponder) {
             return .browser(.webView)
         }
 
@@ -8122,7 +8189,7 @@ extension BrowserPanel {
             return .browser(.findField)
         }
 
-        if Self.responderChainContains(responder, target: webView) {
+        if responderOwnsEngineWebContent(responder) {
             return .browser(.webView)
         }
 
@@ -8156,7 +8223,7 @@ extension BrowserPanel {
 #endif
             return true
         case .webView:
-            guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
+            guard responderOwnsEngineWebContent(window.firstResponder) else { return false }
             return window.makeFirstResponder(nil)
         }
     }

@@ -18,10 +18,23 @@ public final class ChromiumWebView: NSView {
     private var lastSentSize: CGSize = .zero
     private var lastSentScale: CGFloat = 0
     private var mouseTrackingArea: NSTrackingArea?
+    private var isHandlingPointerDown = false
 
     /// Invoked on the main actor whenever the shell reports a new surface tree,
     /// so the host can present native menus and file pickers.
     public var onSurfaceTree: (@MainActor (ChromiumSurfaceTree) -> Void)?
+
+    /// Supplies the host's pane-first-click policy for `acceptsFirstMouse`.
+    /// When `nil`, AppKit's default behavior applies.
+    public var acceptsFirstMouseProvider: (@MainActor () -> Bool)?
+
+    /// Invoked before a primary-button press is forwarded, so the host can run
+    /// its click-to-focus handoff (focus the owning pane, blur the address bar).
+    public var onPointerClick: (@MainActor () -> Void)?
+
+    /// Invoked after the view becomes first responder. `pointerInitiated` is
+    /// `true` when the change came from a click into this view.
+    public var onDidBecomeFirstResponder: (@MainActor (_ pointerInitiated: Bool) -> Void)?
 
     /// Creates a view driving `session` and projecting its state into `model`.
     public init(session: ChromiumSession, model: ChromiumBrowserModel) {
@@ -75,9 +88,17 @@ public final class ChromiumWebView: NSView {
         mouseTrackingArea = area
     }
 
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        acceptsFirstMouseProvider?() ?? super.acceptsFirstMouse(for: event)
+    }
+
     public override func becomeFirstResponder() -> Bool {
         session.setFocus(true)
-        return super.becomeFirstResponder()
+        let result = super.becomeFirstResponder()
+        if result {
+            onDidBecomeFirstResponder?(isHandlingPointerDown)
+        }
+        return result
     }
 
     public override func resignFirstResponder() -> Bool {
@@ -158,7 +179,10 @@ public final class ChromiumWebView: NSView {
     // MARK: - Mouse input
 
     public override func mouseDown(with event: NSEvent) {
+        onPointerClick?()
+        isHandlingPointerDown = true
         window?.makeFirstResponder(self)
+        isHandlingPointerDown = false
         forwardMouse(event, kind: .down, button: .left)
     }
 
@@ -223,6 +247,85 @@ public final class ChromiumWebView: NSView {
     }
 
     // MARK: - Keyboard input
+
+    /// Handles the standard editing key equivalents (⌘A/C/X/V/Z, ⇧⌘Z/V) when
+    /// this view is first responder. AppKit never routes Command keys through
+    /// `keyDown`, and the OWL wire protocol cannot attach Blink edit commands
+    /// to raw key events, so the commands run through JavaScript instead.
+    /// Everything else falls through to cmux shortcuts and the main menu.
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              window?.firstResponder === self else {
+            return super.performKeyEquivalent(with: event)
+        }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard let command = ChromiumEditingCommand(
+            characters: event.charactersIgnoringModifiers,
+            command: flags.contains(.command),
+            shift: flags.contains(.shift),
+            option: flags.contains(.option),
+            control: flags.contains(.control)
+        ) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        performEditingCommand(command)
+        return true
+    }
+
+    // MARK: - Edit menu actions
+
+    public override func selectAll(_ sender: Any?) {
+        performEditingCommand(.selectAll)
+    }
+
+    /// Edit ▸ Copy for the focused Chromium page.
+    @objc public func copy(_ sender: Any?) {
+        performEditingCommand(.copy)
+    }
+
+    /// Edit ▸ Cut for the focused Chromium page.
+    @objc public func cut(_ sender: Any?) {
+        performEditingCommand(.cut)
+    }
+
+    /// Edit ▸ Paste for the focused Chromium page.
+    @objc public func paste(_ sender: Any?) {
+        performEditingCommand(.paste)
+    }
+
+    private func performEditingCommand(_ command: ChromiumEditingCommand) {
+        let session = session
+        switch command {
+        case .selectAll:
+            Task { try? await session.selectAllInFocusedDocument() }
+        case .copy:
+            Task { @MainActor in
+                guard let text = try? await session.focusedSelectionText(), !text.isEmpty else { return }
+                Self.writeToGeneralPasteboard(text)
+            }
+        case .cut:
+            Task { @MainActor in
+                guard let text = try? await session.focusedSelectionText(), !text.isEmpty else { return }
+                Self.writeToGeneralPasteboard(text)
+                try? await session.deleteFocusedSelection()
+            }
+        case .paste:
+            Task {
+                guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
+                try? await session.insertTextIntoFocusedDocument(text)
+            }
+        case .undo:
+            Task { try? await session.undoEditingInFocusedDocument() }
+        case .redo:
+            Task { try? await session.redoEditingInFocusedDocument() }
+        }
+    }
+
+    private static func writeToGeneralPasteboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
 
     public override func keyDown(with event: NSEvent) {
         forwardKey(event, isKeyDown: true)

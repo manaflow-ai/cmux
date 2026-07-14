@@ -20,6 +20,9 @@ final class BrowserPanelChromiumState {
         pollTask?.cancel()
         pollTask = nil
         webView.onSurfaceTree = nil
+        webView.onPointerClick = nil
+        webView.onDidBecomeFirstResponder = nil
+        webView.acceptsFirstMouseProvider = nil
         nativeSurfaceCoordinator = nil
         session.close()
     }
