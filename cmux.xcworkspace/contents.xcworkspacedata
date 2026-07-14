@@ -133,6 +133,9 @@
          location = "group:CmuxHive">
       </FileRef>
       <FileRef
+         location = "group:CmuxHiveUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxLiveEval">
       </FileRef>
       <FileRef

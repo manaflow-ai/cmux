@@ -49,6 +49,31 @@ final class HiveComputersService {
         }
     }
 
+    /// Builds a live viewing session onto one paired computer, or `nil` when
+    /// the computer has no local pairing record (the Computers pane only
+    /// offers Open on paired rows) or auth is not configured.
+    func makeViewerSession(deviceID: String) async -> HiveRemoteMacSession? {
+        guard let auth, let directory else { return nil }
+        guard let computer = directory.computers.first(where: { $0.deviceID == deviceID }) else {
+            return nil
+        }
+        // Prefer the freshest routes: a live online instance's advertised set,
+        // falling back to whatever the pairing/registry row carries.
+        guard let best = computer.bestPairingRoutes else { return nil }
+        let runtime = HiveSyncRuntime.network(
+            allowsLoopbackRoutes: Self.allowsLoopbackPairing,
+            stackAccessTokenProvider: { try await auth.accessToken() },
+            stackAccessTokenForceRefresher: { try await auth.forceRefreshAccessToken() }
+        )
+        return HiveRemoteMacSession(
+            runtime: runtime,
+            macDeviceID: deviceID,
+            displayName: computer.displayName,
+            routes: best.routes,
+            retryDelay: HiveReconnectBackoff.delay
+        )
+    }
+
     /// Dev builds may pair over loopback so two instances on one machine can
     /// dogfood Mac-to-Mac viewing; release builds never dial themselves.
     private static var allowsLoopbackPairing: Bool {

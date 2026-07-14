@@ -76,7 +76,8 @@ public struct ComputersSection: View {
                     computer: computer,
                     isPending: pendingDeviceIDs.contains(computer.deviceID),
                     pair: { pair(deviceID: computer.deviceID) },
-                    unpair: { unpair(deviceID: computer.deviceID) }
+                    unpair: { unpair(deviceID: computer.deviceID) },
+                    open: { hostActions.openComputerViewer(deviceID: computer.deviceID) }
                 )
             }
         }
@@ -282,6 +283,7 @@ private struct ComputersSectionRow: View {
     let isPending: Bool
     let pair: () -> Void
     let unpair: () -> Void
+    let open: () -> Void
 
     var body: some View {
         SettingsCardRow(
@@ -359,6 +361,13 @@ private struct ComputersSectionRow: View {
     @ViewBuilder
     private var control: some View {
         if computer.isPaired, !computer.isThisMac {
+            Button(String(localized: "settings.computers.row.open", defaultValue: "Open")) {
+                open()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsComputersOpenButton-\(computer.deviceID)")
+
             Button(String(localized: "settings.computers.row.unpair", defaultValue: "Unpair")) {
                 unpair()
             }

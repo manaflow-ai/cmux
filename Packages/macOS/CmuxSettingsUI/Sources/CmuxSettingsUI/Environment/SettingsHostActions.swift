@@ -174,6 +174,10 @@ public protocol SettingsHostActions: AnyObject {
     /// pasting it — no camera involved.
     func copyComputerPairingLink() async -> ComputersCopyLinkResult
 
+    /// Opens the remote-workspace viewer window for a paired computer. The
+    /// host owns the window, so the package can't open it directly.
+    func openComputerViewer(deviceID: String)
+
     /// Applies an explicitly-requested iOS pairing port, checking availability
     /// first so a port already in use leaves the running listener untouched. The
     /// Mobile section calls this from its **Apply** button and renders the
@@ -263,6 +267,9 @@ public extension SettingsHostActions {
 
     /// Default failure for hosts without a pairing listener (previews/tests).
     func copyComputerPairingLink() async -> ComputersCopyLinkResult { .failed }
+
+    /// Default no-op viewer open for previews/tests.
+    func openComputerViewer(deviceID: String) {}
 
     /// Default: save-for-later, for hosts without a live mobile service (previews/tests).
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {
