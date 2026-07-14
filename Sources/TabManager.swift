@@ -759,8 +759,6 @@ class TabManager: ObservableObject {
         for tab in tabs where tab.isRemoteWorkspace {
             tab.applyRemotePortScanningEnabled(enabled)
         }
-        timer.resume()
-        selectedWorkspaceGitMetadataPollTimer = timer
     }
 
     private func updateWorkspacePullRequestPollTimer() {
