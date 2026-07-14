@@ -129,32 +129,19 @@ public final class PullRequestPanelModel {
         )
     }
 
-    /// Merges the displayed pull request immediately or enables auto-merge.
-    /// - Parameters:
-    ///   - whenReady: `true` to enable auto-merge; `false` to merge immediately.
-    ///   - input: The currently visible workspace input that must own the snapshot.
-    public func merge(whenReady: Bool, for input: PullRequestWorkspaceInput) async {
+    /// Enables auto-merge for the displayed pull request.
+    /// - Parameter input: The currently visible workspace input that must own the snapshot.
+    public func enableAutoMerge(for input: PullRequestWorkspaceInput) async {
         guard !actionPhase.isBusy,
               currentInput == input,
               case .loaded(.pullRequest(let snapshot)) = phase else { return }
-        if whenReady, snapshot.mergeAvailability == .allowed { return }
-        let actionGeneration = generation
-        actionPhase = whenReady ? .enablingAutoMerge : .merging
-        do {
-            try await service.merge(
-                number: snapshot.pullRequest.number,
-                context: snapshot.context,
-                headRefOid: snapshot.pullRequest.headRefOid,
-                method: selectedMergeMethod,
-                whenReady: whenReady
-            )
-            guard accepts(actionGeneration, input: input) else { return }
-            actionPhase = .idle
-            await refresh()
-        } catch {
-            guard accepts(actionGeneration, input: input) else { return }
-            actionPhase = .failed(serviceError(error, fallback: .mergeFailed))
-        }
+        guard snapshot.mergeAvailability != .allowed else { return }
+        await performMerge(
+            snapshot: snapshot,
+            method: selectedMergeMethod,
+            whenReady: true,
+            input: input
+        )
     }
 
     /// Merges using an immutable user-confirmed pull-request identity.
@@ -165,8 +152,45 @@ public final class PullRequestPanelModel {
         confirmation: PullRequestMergeConfirmation,
         for input: PullRequestWorkspaceInput
     ) async {
-        _ = confirmation
-        await merge(whenReady: false, for: input)
+        guard !actionPhase.isBusy,
+              currentInput == input,
+              case .loaded(.pullRequest(let snapshot)) = phase,
+              snapshot.mergeAvailability == .allowed,
+              confirmation.context == snapshot.context,
+              confirmation.number == snapshot.pullRequest.number,
+              confirmation.headRefOid == snapshot.pullRequest.headRefOid,
+              snapshot.mergeMethods.contains(confirmation.method) else { return }
+        await performMerge(
+            snapshot: snapshot,
+            method: confirmation.method,
+            whenReady: false,
+            input: input
+        )
+    }
+
+    private func performMerge(
+        snapshot: PullRequestPanelSnapshot,
+        method: PullRequestMergeMethod,
+        whenReady: Bool,
+        input: PullRequestWorkspaceInput
+    ) async {
+        let actionGeneration = generation
+        actionPhase = whenReady ? .enablingAutoMerge : .merging
+        do {
+            try await service.merge(
+                number: snapshot.pullRequest.number,
+                context: snapshot.context,
+                headRefOid: snapshot.pullRequest.headRefOid,
+                method: method,
+                whenReady: whenReady
+            )
+            guard accepts(actionGeneration, input: input) else { return }
+            actionPhase = .idle
+            await refresh()
+        } catch {
+            guard accepts(actionGeneration, input: input) else { return }
+            actionPhase = .failed(serviceError(error, fallback: .mergeFailed))
+        }
     }
 
     /// Disables auto-merge for the displayed pull request.

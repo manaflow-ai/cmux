@@ -31,14 +31,15 @@ import Testing
             branch: "feature",
             repositorySlug: "example/repo"
         )
-        let cached = PullRequestPanelContent.pullRequest(PullRequestPanelSnapshot(
+        let snapshot = PullRequestPanelSnapshot(
             context: context,
             pullRequest: try PullRequestFixtureLoader().pullRequest(),
             checks: [],
             checksStatus: .success,
             unresolvedReviewThreadCount: nil,
             mergeMethods: [.squash]
-        ))
+        )
+        let cached = PullRequestPanelContent.pullRequest(snapshot)
         let service = StubPullRequestPanelService(
             cached: cached,
             refreshResult: .failure(.refreshFailed)
@@ -47,7 +48,15 @@ import Testing
 
         model.setVisible(true)
         await model.activate(input)
-        await model.merge(whenReady: false, for: input)
+        await model.merge(
+            confirmation: PullRequestMergeConfirmation(
+                context: snapshot.context,
+                number: snapshot.pullRequest.number,
+                headRefOid: snapshot.pullRequest.headRefOid,
+                method: .squash
+            ),
+            for: input
+        )
 
         #expect(await service.mergeCallCount == 0)
         model.setVisible(false)
@@ -73,7 +82,7 @@ import Testing
 
         model.setVisible(true)
         await model.activate(input)
-        await model.merge(whenReady: true, for: input)
+        await model.enableAutoMerge(for: input)
 
         #expect(await service.mergeCallCount == 0)
         model.setVisible(false)
@@ -120,14 +129,15 @@ import Testing
             branch: "old",
             repositorySlug: "example/repo"
         )
-        let pullRequestContent = PullRequestPanelContent.pullRequest(PullRequestPanelSnapshot(
+        let pullRequestSnapshot = PullRequestPanelSnapshot(
             context: context,
             pullRequest: try PullRequestFixtureLoader().pullRequest(),
             checks: [],
             checksStatus: .success,
             unresolvedReviewThreadCount: nil,
             mergeMethods: [.squash]
-        ))
+        )
+        let pullRequestContent = PullRequestPanelContent.pullRequest(pullRequestSnapshot)
         let pullRequestService = StubPullRequestPanelService(
             cached: nil,
             refreshResult: .success(pullRequestContent)
@@ -137,7 +147,15 @@ import Testing
         await pullRequestModel.activate(oldInput)
         pullRequestModel.visibleInputDidChange(to: visibleInput)
 
-        await pullRequestModel.merge(whenReady: false, for: oldInput)
+        await pullRequestModel.merge(
+            confirmation: PullRequestMergeConfirmation(
+                context: pullRequestSnapshot.context,
+                number: pullRequestSnapshot.pullRequest.number,
+                headRefOid: pullRequestSnapshot.pullRequest.headRefOid,
+                method: .squash
+            ),
+            for: oldInput
+        )
         await pullRequestModel.disableAutoMerge(for: oldInput)
 
         #expect(await pullRequestService.mergeCallCount == 0)

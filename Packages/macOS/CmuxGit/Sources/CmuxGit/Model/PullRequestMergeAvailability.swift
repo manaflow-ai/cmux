@@ -32,7 +32,7 @@ public enum PullRequestMergeAvailability: Equatable, Sendable {
             return .blocked(.githubBlocked)
         }
         let blockedMergeStates: Set<String> = [
-            "BLOCKED", "BEHIND", "DIRTY", "DRAFT",
+            "BLOCKED", "DIRTY", "DRAFT",
         ]
         if blockedMergeStates.contains(pullRequest.mergeStateStatus.uppercased()) {
             return .blocked(.githubBlocked)

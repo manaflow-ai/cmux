@@ -3,7 +3,7 @@ import SwiftUI
 
 struct PullRequestPanelView: View {
     @State private var model: PullRequestPanelModel
-    @State private var isMergeConfirmationPresented = false
+    @State private var mergeConfirmation: PullRequestMergeConfirmation? = nil
 
     let input: PullRequestWorkspaceInput
     let isVisible: Bool
@@ -33,30 +33,44 @@ struct PullRequestPanelView: View {
                 model.setVisible(false)
             }
             .onChange(of: input) { _, newInput in
-                isMergeConfirmationPresented = false
+                mergeConfirmation = nil
                 model.visibleInputDidChange(to: newInput)
+            }
+            .onChange(of: isVisible) { _, visible in
+                if !visible { mergeConfirmation = nil }
             }
             .confirmationDialog(
                 String(localized: "pullRequestPanel.merge.confirm.title", defaultValue: "Merge Pull Request?"),
-                isPresented: $isMergeConfirmationPresented,
-                titleVisibility: .visible
-            ) {
+                isPresented: isMergeConfirmationPresented,
+                titleVisibility: .visible,
+                presenting: mergeConfirmation
+            ) { confirmation in
                 Button(
                     String(localized: "pullRequestPanel.merge.confirm.button", defaultValue: "Merge Pull Request"),
                     role: .destructive
                 ) {
-                    Task { await model.merge(whenReady: false, for: input) }
+                    mergeConfirmation = nil
+                    Task { await model.merge(confirmation: confirmation, for: input) }
                 }
                 Button(
                     String(localized: "common.cancel", defaultValue: "Cancel"),
                     role: .cancel
-                ) {}
-            } message: {
+                ) { mergeConfirmation = nil }
+            } message: { _ in
                 Text(String(
                     localized: "pullRequestPanel.merge.confirm.message",
                     defaultValue: "This uses the selected merge method and cannot be undone."
                 ))
             }
+    }
+
+    private var isMergeConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { mergeConfirmation != nil },
+            set: { presented in
+                if !presented { mergeConfirmation = nil }
+            }
+        )
     }
 
     @ViewBuilder
@@ -201,7 +215,12 @@ struct PullRequestPanelView: View {
             .disabled(model.actionPhase.isBusy)
 
             Button {
-                isMergeConfirmationPresented = true
+                mergeConfirmation = PullRequestMergeConfirmation(
+                    context: snapshot.context,
+                    number: snapshot.pullRequest.number,
+                    headRefOid: snapshot.pullRequest.headRefOid,
+                    method: model.selectedMergeMethod
+                )
             } label: {
                 HStack {
                     Spacer(minLength: 0)
@@ -234,7 +253,7 @@ struct PullRequestPanelView: View {
                     localized: "pullRequestPanel.autoMerge.enable",
                     defaultValue: "Enable Auto-Merge"
                 )) {
-                    Task { await model.merge(whenReady: true, for: input) }
+                    Task { await model.enableAutoMerge(for: input) }
                 }
                 .disabled(!canConfigureAutoMerge)
             }
