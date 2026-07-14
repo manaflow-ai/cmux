@@ -221,6 +221,56 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(store.notifications.contains { $0.tabId == duplicate.id })
     }
 
+    @MainActor
+    func testSessionRoundTripPersistsBannerOwnerWithoutUsingChronology() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalNotificationStore = appDelegate.notificationStore
+        appDelegate.notificationStore = store
+        store.replaceNotificationsForTesting([])
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let source = Workspace()
+        let olderOwner = TerminalNotification(
+            id: UUID(),
+            tabId: source.id,
+            surfaceId: nil,
+            title: "Displayed older row",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 1),
+            isRead: false
+        )
+        let newerHistory = TerminalNotification(
+            id: UUID(),
+            tabId: source.id,
+            surfaceId: nil,
+            title: "Newer restored history",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 2),
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([olderOwner])
+        store.restoreSessionNotifications([newerHistory], forTabId: source.id)
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.externalBannerOwnerNotificationIds, [olderOwner.id])
+        store.replaceNotificationsForTesting([])
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertEqual(
+            store.externalBannerOwnerNotificationIDs(forTabId: restored.id),
+            [olderOwner.id]
+        )
+        XCTAssertEqual(store.notifications.map(\.id), [newerHistory.id, olderOwner.id])
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

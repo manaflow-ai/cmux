@@ -1,5 +1,11 @@
 import Foundation
 
+enum ReliableTerminalNotificationEnqueueResult: Sendable, Equatable {
+    case accepted
+    case saturated
+    case cancelled
+}
+
 final class TerminalMutationBus: @unchecked Sendable {
     static let shared = TerminalMutationBus()
     static let maximumPendingMutationCount = 256
@@ -101,7 +107,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         title: String,
         subtitle: String,
         body: String
-    ) async -> Bool {
+    ) async -> ReliableTerminalNotificationEnqueueResult {
         await withCheckedContinuation { continuation in
             Self.reliableSubmissionLock.lock()
             guard let admissionToken = captureNotificationAdmissionToken(
@@ -109,7 +115,7 @@ final class TerminalMutationBus: @unchecked Sendable {
                 surfaceId: surfaceId
             ) else {
                 Self.reliableSubmissionLock.unlock()
-                continuation.resume(returning: false)
+                continuation.resume(returning: .saturated)
                 return
             }
             Self.reliableAdmissionQueue.async { [self] in
@@ -152,7 +158,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         title: String,
         subtitle: String,
         body: String
-    ) -> Bool {
+    ) -> ReliableTerminalNotificationEnqueueResult {
         lock.lock()
         reliablyWaitingNotificationProducerCount += 1
         while pending.count - pendingHead >= Self.maximumPendingMutationCount,
@@ -162,7 +168,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         reliablyWaitingNotificationProducerCount -= 1
         guard let admission = reliableAdmissionsById.removeValue(forKey: admissionToken.id) else {
             lock.unlock()
-            return false
+            return .cancelled
         }
         let notification = QueuedTerminalNotification(
             id: admission.id,
@@ -190,25 +196,33 @@ final class TerminalMutationBus: @unchecked Sendable {
         )
 #endif
         if shouldScheduleDrain { scheduleDrain() }
-        return true
+        return .accepted
     }
 
     nonisolated func enqueueClearAllNotifications() {
-        enqueueClear({ .clearAllNotifications(through: $0) }) { _ in true }
+        enqueueClear(
+            { .clearAllNotifications(through: $0) },
+            droppingPending: { _ in true },
+            droppingReliableAdmissions: { _ in true }
+        )
     }
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID) {
         // Surface-addressed entries may have moved since enqueue. Keep them
         // ahead of the barrier so delivery can resolve their live owner first.
-        enqueueClear({ .clearNotificationsForTab(tabId, through: $0) }) { key in
-            key.tabId == tabId && key.surfaceId == nil
-        }
+        enqueueClear(
+            { .clearNotificationsForTab(tabId, through: $0) },
+            droppingPending: { key in key.tabId == tabId && key.surfaceId == nil },
+            droppingReliableAdmissions: { key in key.tabId == tabId }
+        )
     }
 
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID, surfaceId: UUID) {
         // Canonical surface identity: a stale-keyed entry would retarget here at drain.
-        enqueueClear({ .clearNotificationsForSurface(tabId, surfaceId, through: $0) }) { key in
-            key.surfaceId == surfaceId
-        }
+        enqueueClear(
+            { .clearNotificationsForSurface(tabId, surfaceId, through: $0) },
+            droppingPending: { key in key.surfaceId == surfaceId },
+            droppingReliableAdmissions: { key in key.surfaceId == surfaceId }
+        )
     }
 
     nonisolated func enqueueMainActorMutation(_ mutation: @escaping @MainActor () -> Void) {
@@ -217,17 +231,18 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private func enqueueClear(
         _ mutation: (UInt64) -> TerminalSocketMutation,
-        dropping shouldDrop: (QueuedTerminalNotificationKey) -> Bool
+        droppingPending shouldDropPending: (QueuedTerminalNotificationKey) -> Bool,
+        droppingReliableAdmissions shouldDropReliableAdmission: (QueuedTerminalNotificationKey) -> Bool
     ) {
         let shouldScheduleDrain: Bool
         lock.lock()
         let boundary = currentNotificationGeneration
         currentNotificationGeneration &+= 1
-        reliableAdmissionsById = reliableAdmissionsById.filter { !shouldDrop($0.value.key) }
+        reliableAdmissionsById = reliableAdmissionsById.filter { !shouldDropReliableAdmission($0.value.key) }
         compactPendingForMutation()
         pending.removeAll { entry in
             if case .deliverNotification(let notification) = entry.mutation {
-                return shouldDrop(notification.key)
+                return shouldDropPending(notification.key)
             }
             return false
         }

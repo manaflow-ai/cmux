@@ -46,12 +46,62 @@ extension TerminalNotificationStore {
         guard !notification.isRead else { return }
         indexes.unreadCount += 1
         indexes.unreadCountByTabId[notification.tabId, default: 0] += 1
-        indexes.unreadByTabSurface.insert(tabSurfaceKey)
-        if let panelId = notification.panelId, panelId != notification.surfaceId {
-            indexes.unreadByTabSurface.insert(TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId))
+        for key in unreadIndexKeys(for: notification) {
+            indexes.unreadCountByTabSurface[key, default: 0] += 1
+            indexes.unreadByTabSurface.insert(key)
         }
-        if indexes.latestUnreadByTabId[notification.tabId].map({ notificationSortPrecedes(notification, $0) }) ?? true {
-            indexes.latestUnreadByTabId[notification.tabId] = notification
+
+    }
+
+    static func updateReadState(
+        from before: TerminalNotification,
+        to after: TerminalNotification,
+        in indexes: inout NotificationIndexes,
+        notifications: [TerminalNotification]
+    ) -> Bool {
+        guard before.id == after.id,
+              before.tabId == after.tabId,
+              before.surfaceId == after.surfaceId,
+              before.panelId == after.panelId,
+              before.isRead != after.isRead,
+              indexes.ids.count == notifications.count,
+              indexes.ids.contains(after.id) else {
+            indexes = buildIndexes(for: notifications)
+            return false
+        }
+
+        if indexes.latestByTabId[after.tabId]?.id == after.id {
+            indexes.latestByTabId[after.tabId] = after
+        }
+        let tabSurfaceKey = TabSurfaceKey(tabId: after.tabId, surfaceId: after.surfaceId)
+        if indexes.latestByTabSurface[tabSurfaceKey]?.id == after.id {
+            indexes.latestByTabSurface[tabSurfaceKey] = after
+        }
+
+        let delta = after.isRead ? -1 : 1
+        indexes.unreadCount += delta
+        adjustCount(for: after.tabId, by: delta, in: &indexes.unreadCountByTabId)
+        for key in unreadIndexKeys(for: after) {
+            adjustCount(for: key, by: delta, in: &indexes.unreadCountByTabSurface)
+            if indexes.unreadCountByTabSurface[key] == nil {
+                indexes.unreadByTabSurface.remove(key)
+            } else {
+                indexes.unreadByTabSurface.insert(key)
+            }
+        }
+        return true
+    }
+
+    private static func adjustCount<Key: Hashable>(
+        for key: Key,
+        by delta: Int,
+        in counts: inout [Key: Int]
+    ) {
+        let next = (counts[key] ?? 0) + delta
+        if next > 0 {
+            counts[key] = next
+        } else {
+            counts.removeValue(forKey: key)
         }
     }
 

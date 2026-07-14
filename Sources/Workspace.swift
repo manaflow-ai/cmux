@@ -133,6 +133,7 @@ extension Workspace {
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
+            externalBannerOwnerNotificationIds: notificationStore?.externalBannerOwnerNotificationIDs(forTabId: id),
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
             layout: layout,
@@ -290,7 +291,12 @@ extension Workspace {
         } else {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
-        AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id, replacingTabId: snapshot.workspaceId, panelIdMap: oldToNewPanelIds)
+        AppDelegate.shared?.notificationStore?.restoreSessionNotifications(
+            restoredNotifications,
+            forTabId: id,
+            panelIdMap: oldToNewPanelIds,
+            restoredExternalBannerOwnerIDs: Set(snapshot.externalBannerOwnerNotificationIds ?? [])
+        )
         syncUnreadBadgeStateForAllPanels()
         return oldToNewPanelIds
     }

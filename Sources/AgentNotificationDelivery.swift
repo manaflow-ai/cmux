@@ -75,13 +75,20 @@ struct AgentNotificationDelivery: Sendable {
            ) {
             return .gated
         }
-        let accepted = await TerminalMutationBus.shared.enqueueNotificationReliably(
+        let result = await TerminalMutationBus.shared.enqueueNotificationReliably(
             tabId: workspaceID,
             surfaceId: surfaceID,
             title: title,
             subtitle: subtitle,
             body: body
         )
-        return accepted ? .accepted : .cancelled
+        switch result {
+        case .accepted:
+            return .accepted
+        case .saturated:
+            return .saturated
+        case .cancelled:
+            return .cancelled
+        }
     }
 }

@@ -1,13 +1,21 @@
 import Foundation
 
-/// Tracks the row that actually owns (or, after a cold restore, is assumed to
-/// own) the native and phone banner for each tab/surface. Feed chronology is a
-/// separate concern: restored rows may sort ahead without ever displaying.
+/// Tracks the row that actually owns the native and phone banner for each
+/// tab/surface. Feed chronology is a separate concern: restored rows may sort
+/// ahead without ever displaying.
 struct ExternalNotificationBannerOwnership {
     private var ownerByKey: [String: TerminalNotification] = [:]
 
     func owner(tabId: UUID, surfaceId: UUID?) -> TerminalNotification? {
         ownerByKey[SupersededPhoneDismissBuffer.key(tabId: tabId, surfaceId: surfaceId)]
+    }
+
+    func owners(tabId: UUID) -> [TerminalNotification] {
+        ownerByKey.values.filter { $0.tabId == tabId }
+    }
+
+    func ownerIDs(tabId: UUID) -> [UUID] {
+        owners(tabId: tabId).map(\.id).sorted { $0.uuidString < $1.uuidString }
     }
 
     mutating func setOwner(_ notification: TerminalNotification?) {
@@ -35,12 +43,13 @@ struct ExternalNotificationBannerOwnership {
         ownerByKey.removeAll()
     }
 
-    /// Preserve owners by stable notification id while rows move during
-    /// restore. Only keys consisting entirely of newly restored rows are
-    /// seeded, representing banners that may have survived a cold relaunch.
+    /// Preserve live owners by stable notification id while rows move during
+    /// restore, then restore only explicitly persisted owners. Chronology is
+    /// never evidence that a native or phone banner was displayed.
     mutating func reconcile(
         previous: [TerminalNotification],
-        merged: [TerminalNotification]
+        merged: [TerminalNotification],
+        restoredOwnerIDs: Set<UUID> = []
     ) {
         let mergedById = Dictionary(
             merged.map { ($0.id, $0) },
@@ -54,9 +63,10 @@ struct ExternalNotificationBannerOwnership {
         }
         ownerByKey = reconciled
 
-        let previousIds = Set(previous.map(\.id))
-        let keysWithPreviousRows = Set(merged.lazy.filter { previousIds.contains($0.id) }.map(Self.key))
-        for notification in merged where !keysWithPreviousRows.contains(Self.key(notification)) {
+        let restoredOwners = restoredOwnerIDs.compactMap { mergedById[$0] }
+            .filter { !$0.isRead }
+            .sorted(by: TerminalNotificationStore.notificationSortPrecedes)
+        for notification in restoredOwners {
             let key = Self.key(notification)
             if ownerByKey[key] == nil { ownerByKey[key] = notification }
         }

@@ -89,7 +89,8 @@ extension TerminalNotificationStore {
         _ restoredNotifications: [TerminalNotification],
         forTabId tabId: UUID,
         replacingTabId: UUID? = nil,
-        panelIdMap: [UUID: UUID] = [:]
+        panelIdMap: [UUID: UUID] = [:],
+        restoredExternalBannerOwnerIDs: Set<UUID> = []
     ) {
         clearFocusedReadIndicator(forTabId: tabId)
         let merged = Self.mergeRestoredSessionNotifications(
@@ -99,7 +100,10 @@ extension TerminalNotificationStore {
             replacingTabId: replacingTabId,
             panelIdMap: panelIdMap
         )
-        applySessionNotificationMerge(merged)
+        applySessionNotificationMerge(
+            merged,
+            restoredExternalBannerOwnerIDs: restoredExternalBannerOwnerIDs
+        )
     }
 
     func transferSessionNotifications(

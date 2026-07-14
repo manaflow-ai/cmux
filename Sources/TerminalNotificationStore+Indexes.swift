@@ -32,16 +32,22 @@ extension TerminalNotificationStore {
             guard !notification.isRead else { continue }
             indexes.unreadCount += 1
             indexes.unreadCountByTabId[notification.tabId, default: 0] += 1
-            indexes.unreadByTabSurface.insert(
-                TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
-            )
-            if let panelId = notification.panelId, panelId != notification.surfaceId {
-                indexes.unreadByTabSurface.insert(TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId))
-            }
-            if indexes.latestUnreadByTabId[notification.tabId] == nil {
-                indexes.latestUnreadByTabId[notification.tabId] = notification
+            let unreadKeys = unreadIndexKeys(for: notification)
+            for key in unreadKeys {
+                indexes.unreadCountByTabSurface[key, default: 0] += 1
+                indexes.unreadByTabSurface.insert(key)
             }
         }
         return indexes
+    }
+
+    static func unreadIndexKeys(for notification: TerminalNotification) -> Set<TabSurfaceKey> {
+        var keys: Set<TabSurfaceKey> = [
+            TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
+        ]
+        if let panelId = notification.panelId {
+            keys.insert(TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId))
+        }
+        return keys
     }
 }
