@@ -87,7 +87,7 @@ extension GhosttySurfaceScrollView {
         if isPostReplayGeometry,
            isPostReplayGeometryUpdate,
            !isAuthoritativePostReplayFrame,
-           notificationScrollRestoreBoundaryFrameGeneration != nil {
+           notificationScrollRestoreRenderedFrameObserver != nil {
             return false
         }
         // Legacy anchors have no captured total, so stale boundary-time geometry
@@ -262,14 +262,10 @@ extension GhosttySurfaceScrollView {
                       renderedGeneration > boundaryGeneration else {
                     return
                 }
-                // A post-boundary drawable is requested from Ghostty's renderer
-                // after the parser/model consumed the replay. Publish the latest
-                // coalesced scrollbar before resolving against that frame.
-                _ = self.surfaceView.flushPendingScrollbarIfAvailable()
-                _ = self.restorePendingNotificationScrollPositionIfReady(
-                    isPostReplayGeometryUpdate: true,
-                    isAuthoritativePostReplayFrame: true
-                )
+                // Drawable acquisition precedes Ghostty's matching scrollbar
+                // publication. Mark the frame observed, then let that subsequent
+                // scrollbar update provide the authoritative geometry.
+                self.notificationScrollRestoreBoundaryFrameGeneration = nil
             }
         }
         surfaceView.terminalSurface?.forceRefresh(reason: "notificationScrollRestoreReplayBoundary")
@@ -311,5 +307,14 @@ extension GhosttySurfaceScrollView {
 
     func terminalSurfaceDidReceiveExplicitInput() {
         cancelPendingNotificationScrollRestoreForUserInput()
+    }
+
+    func restorePendingNotificationScrollPositionAfterScrollbarUpdate() {
+        let isAuthoritativePostReplayFrame = notificationScrollRestoreRenderedFrameObserver != nil &&
+            notificationScrollRestoreBoundaryFrameGeneration == nil
+        _ = restorePendingNotificationScrollPositionIfReady(
+            isPostReplayGeometryUpdate: true,
+            isAuthoritativePostReplayFrame: isAuthoritativePostReplayFrame
+        )
     }
 }

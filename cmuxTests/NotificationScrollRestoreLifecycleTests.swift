@@ -59,6 +59,27 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
     }
 
+    @Test func renderedFrameWaitsForItsFollowingScrollbarPublication() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 0, offset: 0, len: 0)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+
+        #expect(!hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 100, totalRows: 400)
+        ))
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
+        postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
+
+        postRenderedFrameOnly(to: surfaceView)
+        #expect(surfaceView.performedBindingActions.isEmpty)
+
+        postScrollbar(scrollbar(total: 400, offset: 356, len: 44), to: surfaceView)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:256"])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
     @Test func replayCompletionUsesAlreadyPublishedFinalGeometry() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
@@ -437,6 +458,13 @@ struct NotificationScrollRestoreLifecycleTests {
     }
 
     private func postRenderedFrame(to surfaceView: GhosttyNSView) {
+        postRenderedFrameOnly(to: surfaceView)
+        if let scrollbar = surfaceView.scrollbar {
+            postScrollbar(scrollbar, to: surfaceView)
+        }
+    }
+
+    private func postRenderedFrameOnly(to surfaceView: GhosttyNSView) {
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
             object: surfaceView,

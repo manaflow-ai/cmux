@@ -9398,7 +9398,6 @@ final class GhosttySurfaceScrollView: NSView {
         imageTransferIndicatorSpinner.stopAnimation(nil)
         imageTransferIndicatorContainerView.isHidden = true
     }
-
     private func makeSearchOverlayRootView(
         terminalSurface: TerminalSurface,
         searchState: TerminalSurface.SearchState
@@ -9413,6 +9412,7 @@ final class GhosttySurfaceScrollView: NSView {
             onNavigateSearch: { [weak terminalSurface] action in
                 _ = terminalSurface?.performExplicitInputBindingAction(action)
             },
+            onSearchTextChanged: { [weak terminalSurface] in terminalSurface?.didReceiveExplicitInput() },
             onFieldDidFocus: { [weak self, weak terminalSurface] in
                 self?.searchFocusTarget = .searchField
                 terminalSurface?.setFocus(false)
@@ -11424,11 +11424,11 @@ final class GhosttySurfaceScrollView: NSView {
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
-            _ = restorePendingNotificationScrollPositionIfReady(isPostReplayGeometryUpdate: true)
+            restorePendingNotificationScrollPositionAfterScrollbarUpdate()
             return
         }
         synchronizeScrollView()
-        _ = restorePendingNotificationScrollPositionIfReady(isPostReplayGeometryUpdate: true)
+        restorePendingNotificationScrollPositionAfterScrollbarUpdate()
     }
 
     @discardableResult
