@@ -32,6 +32,10 @@ struct PullRequestPanelView: View {
             .onDisappear {
                 model.setVisible(false)
             }
+            .onChange(of: input) { _, newInput in
+                isMergeConfirmationPresented = false
+                model.visibleInputDidChange(to: newInput)
+            }
             .confirmationDialog(
                 String(localized: "pullRequestPanel.merge.confirm.title", defaultValue: "Merge Pull Request?"),
                 isPresented: $isMergeConfirmationPresented,

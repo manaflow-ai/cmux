@@ -54,6 +54,18 @@ public final class PullRequestPanelModel {
         }
     }
 
+    /// Invalidates displayed state synchronously when SwiftUI presents a different input.
+    /// - Parameter input: The newly visible workspace input.
+    public func visibleInputDidChange(to input: PullRequestWorkspaceInput) {
+        guard currentInput != input else { return }
+        generation &+= 1
+        currentInput = nil
+        actionPhase = .idle
+        phase = .loading
+        mergeabilityRefreshTimer?.invalidate()
+        mergeabilityRefreshTimer = nil
+    }
+
     /// Activates a repository/branch input, shows any cached content, and refreshes it.
     /// - Parameter input: The selected workspace checkout.
     public func activate(_ input: PullRequestWorkspaceInput) async {

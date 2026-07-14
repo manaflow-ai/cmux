@@ -102,9 +102,10 @@ import Testing
         let pullRequestModel = PullRequestPanelModel(service: pullRequestService)
         pullRequestModel.setVisible(true)
         await pullRequestModel.activate(oldInput)
+        pullRequestModel.visibleInputDidChange(to: visibleInput)
 
-        await pullRequestModel.merge(whenReady: false, for: visibleInput)
-        await pullRequestModel.disableAutoMerge(for: visibleInput)
+        await pullRequestModel.merge(whenReady: false, for: oldInput)
+        await pullRequestModel.disableAutoMerge(for: oldInput)
 
         #expect(await pullRequestService.mergeCallCount == 0)
         #expect(await pullRequestService.disableAutoMergeCallCount == 0)
@@ -118,8 +119,9 @@ import Testing
         let noPullRequestModel = PullRequestPanelModel(service: noPullRequestService)
         noPullRequestModel.setVisible(true)
         await noPullRequestModel.activate(oldInput)
+        noPullRequestModel.visibleInputDidChange(to: visibleInput)
 
-        await noPullRequestModel.createPullRequest(for: visibleInput)
+        await noPullRequestModel.createPullRequest(for: oldInput)
 
         #expect(await noPullRequestService.createPullRequestCallCount == 0)
         noPullRequestModel.setVisible(false)

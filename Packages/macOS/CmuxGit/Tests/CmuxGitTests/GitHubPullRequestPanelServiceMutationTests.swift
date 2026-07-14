@@ -41,4 +41,38 @@ import Testing
         #expect(cache.count == GitHubPullRequestPanelService.cacheCapacity)
         #expect(cache.keys.contains { $0.repositoryRoot == "/repo/0" } == false)
     }
+
+    @Test func olderRefreshCannotOverwriteNewerCompletedRefresh() async throws {
+        let service = GitHubPullRequestPanelService()
+        let context = PullRequestPanelContext(
+            repositoryRoot: "/repo",
+            branch: "feature",
+            repositorySlug: "example/repo"
+        )
+        let oldSequence = await service.beginRefresh(for: context)
+        let newSequence = await service.beginRefresh(for: context)
+        let newContent = PullRequestPanelContent.pullRequest(PullRequestPanelSnapshot(
+            context: context,
+            pullRequest: try PullRequestFixtureLoader().pullRequest(),
+            checks: [],
+            checksStatus: .success,
+            unresolvedReviewThreadCount: nil,
+            mergeMethods: [.squash]
+        ))
+
+        await service.storeCachedContentIfLatest(
+            newContent,
+            for: context,
+            refreshSequence: newSequence
+        )
+        await service.finishRefresh(newSequence, for: context)
+        await service.storeCachedContentIfLatest(
+            .noPullRequest(context),
+            for: context,
+            refreshSequence: oldSequence
+        )
+
+        let cache = await service.cacheByContext
+        #expect(cache[context] == newContent)
+    }
 }
