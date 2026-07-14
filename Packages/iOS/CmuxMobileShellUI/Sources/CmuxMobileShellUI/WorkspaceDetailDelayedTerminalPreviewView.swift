@@ -101,16 +101,55 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     }
 
     private func runThemeParitySequence() async {
-        store.applyTerminalTheme(themeParityTheme(background: "#101522", foreground: "#e6edf3"))
-        themeStage = "dark"
-        try? await ContinuousClock().sleep(for: .seconds(3))
-        guard !Task.isCancelled else { return }
-        store.applyTerminalTheme(themeParityTheme(background: "#f4f0df", foreground: "#17212b"))
-        themeStage = "light"
-        try? await ContinuousClock().sleep(for: .seconds(3))
-        guard !Task.isCancelled else { return }
-        store.applyTerminalTheme(themeParityTheme(background: "#063f46", foreground: "#fff2a8"))
-        themeStage = "custom"
+        let themes = [
+            (stage: "dark", background: "#101522", foreground: "#e6edf3"),
+            (stage: "light", background: "#f4f0df", foreground: "#17212b"),
+            (stage: "custom", background: "#063f46", foreground: "#fff2a8"),
+        ]
+        for (index, fixture) in themes.enumerated() {
+            guard !Task.isCancelled,
+                  let frame = try? themeParityFrame(
+                    background: fixture.background,
+                    foreground: fixture.foreground,
+                    revision: UInt64(index + 1)
+                  ) else { return }
+            while !store.debugDeliverTerminalRenderGrid(frame) {
+                guard !Task.isCancelled else { return }
+                await Task.yield()
+            }
+            themeStage = fixture.stage
+            if fixture.stage != themes.last?.stage {
+                try? await ContinuousClock().sleep(for: .seconds(5))
+            }
+        }
+    }
+
+    private func themeParityFrame(
+        background: String,
+        foreground: String,
+        revision: UInt64
+    ) throws -> MobileTerminalRenderGridFrame {
+        let theme = themeParityTheme(background: background, foreground: foreground)
+        return try MobileTerminalRenderGridFrame(
+            surfaceID: Self.terminalID.rawValue,
+            stateSeq: 1,
+            columns: 40,
+            rows: 12,
+            cursor: .init(row: 2, column: 2, blinking: true),
+            styles: [
+                .init(id: 0, foreground: foreground, background: background),
+            ],
+            rowSpans: [
+                .init(row: 0, column: 0, text: "cmux theme parity renderer"),
+                .init(row: 1, column: 0, text: "Mac full-frame theme reload"),
+            ],
+            terminalForeground: foreground,
+            terminalBackground: background,
+            terminalCursorColor: foreground,
+            terminalTheme: theme,
+            terminalConfigTheme: theme,
+            terminalThemeRevision: revision
+        )
     }
 
     private static var usesRefreshingTerminalMenu: Bool {

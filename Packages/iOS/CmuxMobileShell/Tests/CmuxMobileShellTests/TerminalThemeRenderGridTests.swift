@@ -47,12 +47,12 @@ import Testing
 }
 
 @MainActor
-@Test func hybridPrimaryAdvisoryFrameStillUpdatesTerminalTheme() throws {
+@Test func hybridPrimaryAdvisoryFrameRepaintsTerminalThemeWithoutReplacingContent() async throws {
     let surfaceID = "terminal-hybrid-theme"
     let store = MobileShellComposite.preview()
     store.selectedTerminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
     store.terminalOutputTransport = .hybrid
-    let outputStream = store.terminalOutputStream(surfaceID: surfaceID)
+    var outputIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     var light = TerminalTheme.monokai
     light.background = "#f4f0df"
     light.foreground = "#17212b"
@@ -62,13 +62,22 @@ import Testing
         columns: 4,
         rows: 1,
         rowSpans: [],
-        terminalTheme: light
+        terminalForeground: light.foreground,
+        terminalBackground: light.background,
+        terminalCursorColor: light.cursor,
+        terminalTheme: light,
+        terminalConfigTheme: light,
+        terminalThemeRevision: 1
     )
 
     store.deliverAuthoritativeTerminalRenderGrid(frame, source: "event")
+    let themeChunk = try #require(await outputIterator.next())
+    let themeBytes = try #require(String(data: themeChunk.data, encoding: .utf8))
 
     #expect(store.activeTerminalTheme == light)
-    _ = outputStream
+    #expect(themeChunk.terminalConfigTheme == light)
+    #expect(themeBytes.contains("\u{1B}]11;rgb:f4/f0/df\u{1B}\\"))
+    #expect(!themeBytes.contains("\u{1B}[2J"))
 }
 
 @MainActor

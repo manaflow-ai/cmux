@@ -1,9 +1,23 @@
-import CMUXMobileCore
+public import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 public import Foundation
 
 extension MobileShellComposite {
+    #if DEBUG
+    /// Injects a full render-grid frame through the production surface delivery path.
+    ///
+    /// UI artifact tests use this to verify mounted Ghostty surfaces, including
+    /// ordered theme-config application and terminal canvas repainting.
+    /// - Parameter frame: The Mac-style terminal frame to deliver.
+    /// - Returns: `true` when the target surface has an attached output consumer.
+    public func debugDeliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame) -> Bool {
+        guard hasTerminalOutputSink(surfaceID: frame.surfaceID) else { return false }
+        deliverAuthoritativeTerminalRenderGrid(frame, source: "debug-theme-preview")
+        return true
+    }
+    #endif
+
     func claimTerminalReplayBarrierFollowUp(surfaceID: String) -> Bool {
         let followUpCount = terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] ?? 0
         guard followUpCount < Self.maxTerminalReplayBarrierFollowUps else {

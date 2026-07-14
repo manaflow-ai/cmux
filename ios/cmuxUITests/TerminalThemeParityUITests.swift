@@ -27,7 +27,7 @@ final class TerminalThemeParityUITests: XCTestCase {
     @MainActor
     private func waitForStage(_ stage: String, in app: XCUIApplication) throws {
         XCTAssertTrue(
-            app.otherElements["TerminalThemeStage-\(stage)"].waitForExistence(timeout: 8),
+            app.otherElements["TerminalThemeStage-\(stage)"].waitForExistence(timeout: 10),
             "Theme fixture did not reach \(stage)."
         )
     }
