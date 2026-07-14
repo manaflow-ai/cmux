@@ -133,7 +133,8 @@ public struct SettingsWindowRoot: View {
             guard acceptsNavigationNotification(notification) else { return }
             applyNavigationRequest(notification)
         }
-        .onReceive(NotificationCenter.default.publisher(for: Self.sidebarToggleRequestName)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: Self.sidebarToggleRequestName)) { notification in
+            guard acceptsNavigationNotification(notification) else { return }
             // AppKit hosts this window, so SwiftUI's SidebarCommands cannot
             // reach the split view; the host app routes its sidebar-toggle
             // menu command here when the Settings window is key.

@@ -7545,7 +7545,9 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.toggleSidebar") {
-            sidebarState.toggle()
+            if AppDelegate.shared?.toggleSidebarInActiveMainWindow(preferredWindow: observedWindow) != true {
+                sidebarState.toggle()
+            }
         }
         // Register a handler for every possible view (including the hosted
         // extension sidebar) regardless of the beta flag, so a contribution that

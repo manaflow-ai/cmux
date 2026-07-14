@@ -6554,6 +6554,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
             setActiveMainWindow(window)
+            if toggleFocusedSettingsPaneSidebar(tabManager: context.tabManager) {
+                return true
+            }
             context.sidebarState.toggle()
             return true
         }

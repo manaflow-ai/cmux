@@ -72,6 +72,17 @@ extension AppDelegate {
         openPreferencesWindow(debugSource: "appDelegate")
     }
 
+    func toggleFocusedSettingsPaneSidebar(tabManager: TabManager) -> Bool {
+        guard let workspace = tabManager.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let panel = workspace.panels[focusedPanelId] as? AppUtilityPanel,
+              panel.kind == .settings else {
+            return false
+        }
+        SettingsWindowPresenter.requestSidebarToggle(scope: panel.settingsNavigationScope)
+        return true
+    }
+
     @discardableResult
     func openMobilePairingPane(
         debugSource: String,
@@ -131,6 +142,9 @@ extension AppDelegate {
 
         if activateApplication, let targetWindow, contextForMainWindow(targetWindow) != nil {
             NSRunningApplication.current.activate(options: [.activateAllWindows])
+            if targetWindow.isMiniaturized {
+                targetWindow.deminiaturize(nil)
+            }
             targetWindow.makeKeyAndOrderFront(nil)
         }
 #if DEBUG
