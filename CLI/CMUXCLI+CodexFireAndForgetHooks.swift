@@ -177,15 +177,21 @@ extension CMUXCLI {
             socketSetup = "cmux_socket=\"\""
         }
         let ownershipGate: String
+        let agentPIDSetup: String
         switch ownership {
         case .persistent:
             ownershipGate = "[ \"$\(def.disableEnvVar)\" != \"1\" ]"
+            // Codex launches the persistent hook shell directly, so PPID is
+            // the native Codex process used by the ancestry walker. The wrapper
+            // PID remains a fallback for runtimes that insert a hook runner.
+            agentPIDSetup = "agent_pid=\"${PPID:-${CMUX_CODEX_PID:-}}\""
         case .wrapperInjected:
             ownershipGate = "[ \"${\(Self.codexWrapperHookOwnerEnvironmentKey):-}\" = \"1\" ]"
+            agentPIDSetup = "agent_pid=\"${CMUX_CODEX_PID:-${PPID:-}}\""
         }
         return [
             targetSetup,
-            "agent_pid=\"${CMUX_CODEX_PID:-${PPID:-}}\"",
+            agentPIDSetup,
             socketSetup,
             "if [ -n \"$CMUX_SURFACE_ID\" ] && \(ownershipGate) && [ -n \"$cmux_cli\" ] && [ -x \"$cmux_cli\" ]; then payload=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-hook.XXXXXX\" 2>/dev/null || mktemp -t cmux-codex-hook 2>/dev/null)\" || { echo '{}'; exit 0; }; cat >\"$payload\" || true; if [ -n \"$cmux_socket\" ]; then CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" --socket \"$cmux_socket\" \(routedArguments) >/dev/null 2>&1 & else CMUX_CODEX_PID=\"$agent_pid\" nohup sh -c '\(runner)' cmux-codex-hook \"$payload\" \"$cmux_cli\" \(routedArguments) >/dev/null 2>&1 & fi; echo '{}'; else echo '{}'; fi",
         ].joined(separator: "; ")
