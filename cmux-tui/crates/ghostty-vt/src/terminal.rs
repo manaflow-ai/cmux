@@ -546,6 +546,13 @@ impl Terminal {
         )
     }
 
+    /// Cursor position (col, row), 0-indexed within the active area.
+    pub fn cursor_position(&self) -> Option<(u16, u16)> {
+        let x = self.get::<u16>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_X).ok()?;
+        let y = self.get::<u16>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_Y).ok()?;
+        Some((x, y))
+    }
+
     pub fn resize(
         &mut self,
         cols: u16,
@@ -899,7 +906,9 @@ impl Terminal {
         &mut self,
         selection: Option<&sys::GhosttySelection>,
     ) -> Result<Vec<u8>> {
-        self.format(Self::vt_replay_options(selection))
+        let mut bytes = self.format(Self::vt_replay_options(selection))?;
+        self.append_cursor_position(&mut bytes);
+        Ok(bytes)
     }
 
     fn vt_replay_with_selection_bounded(
@@ -907,7 +916,11 @@ impl Terminal {
         selection: Option<&sys::GhosttySelection>,
         max_bytes: usize,
     ) -> Result<Option<Vec<u8>>> {
-        self.format_bounded(Self::vt_replay_options(selection), max_bytes)
+        let mut bytes = self.format_bounded(Self::vt_replay_options(selection), max_bytes)?;
+        if let Some(bytes) = bytes.as_mut() {
+            self.append_cursor_position(bytes);
+        }
+        Ok(bytes)
     }
 
     fn vt_replay_options(
@@ -950,6 +963,21 @@ impl Terminal {
             sys::GhosttyGridRef { size: size_of::<sys::GhosttyGridRef>(), ..Default::default() };
         let result = unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut out) };
         (result == sys::GHOSTTY_SUCCESS).then_some(out)
+    }
+
+    fn append_cursor_position(&self, bytes: &mut Vec<u8>) {
+        // Ghostty's formatter emits tabstop programming (CHA+HTS pairs) and
+        // the OSC 7 pwd report AFTER its cursor restore, so a fresh mirror
+        // ends with its cursor parked on the last tabstop column. Re-assert
+        // the true position as the final sequence. (A pending soft-wrap flag
+        // is not restorable this way; the next print in that rare state
+        // wraps one column early on the mirror only.) Remove once the
+        // formatter orders the cursor restore last.
+        if let Some((x, y)) = self.cursor_position() {
+            bytes.extend_from_slice(
+                format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).as_bytes(),
+            );
+        }
     }
 
     fn format(&mut self, opts: sys::GhosttyFormatterTerminalOptions) -> Result<Vec<u8>> {
