@@ -91,6 +91,21 @@ struct MobileWorkspaceHierarchyProjectionTests {
         #expect(fallbackEvaluations == 0)
     }
 
+    @Test func mobileRemoteCloseUsesLiveActivityAndFailsClosedWhenItIsUnavailable() {
+        #expect(Workspace.resolveMobileRemoteCloseConfirmation(
+            cachedHasActiveCommand: false,
+            liveHasActiveCommand: true
+        ))
+        #expect(Workspace.resolveMobileRemoteCloseConfirmation(
+            cachedHasActiveCommand: false,
+            liveHasActiveCommand: nil
+        ))
+        #expect(!Workspace.resolveMobileRemoteCloseConfirmation(
+            cachedHasActiveCommand: true,
+            liveHasActiveCommand: false
+        ))
+    }
+
     @Test func observerDigestIgnoresUnpublishedCloseConfirmationFallback() {
         let workspaceID = UUID()
         let terminalID = UUID()

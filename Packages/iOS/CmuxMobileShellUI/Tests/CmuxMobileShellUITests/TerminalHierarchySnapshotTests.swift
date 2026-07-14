@@ -175,6 +175,25 @@ import Testing
     ) == .failed)
 }
 
+@Test func creationResultPresentationMapsEveryActionableFailure() {
+    #expect(TerminalHierarchyCreationResultPresentation(.success(())) == .created)
+    #expect(TerminalHierarchyCreationResultPresentation(
+        .failure(.appliedNeedsRefresh(hostDisplayName: "Test Mac"))
+    ) == .appliedNeedsRefresh)
+    #expect(TerminalHierarchyCreationResultPresentation(
+        .failure(.resultUnknownNeedsRefresh(hostDisplayName: "Test Mac"))
+    ) == .resultUnknownNeedsRefresh)
+    #expect(TerminalHierarchyCreationResultPresentation(
+        .failure(.resultUnknownRefreshed(hostDisplayName: "Test Mac"))
+    ) == .resultUnknownRefreshed)
+    #expect(TerminalHierarchyCreationResultPresentation(
+        .failure(.busy(hostDisplayName: "Test Mac"))
+    ) == .failed)
+    #expect(TerminalHierarchyCreationResultPresentation(
+        .failure(.rejected(hostDisplayName: "Test Mac"))
+    ) == .failed)
+}
+
 @Test func moveResultPresentationMapsEveryActionOutcome() {
     #expect(TerminalHierarchyMoveResultPresentation(.unavailable) == .unavailable)
     #expect(TerminalHierarchyMoveResultPresentation(.completed(.success(()))) == .reordered)
