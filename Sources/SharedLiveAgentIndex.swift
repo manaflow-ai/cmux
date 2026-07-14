@@ -25,6 +25,11 @@ final class SharedLiveAgentIndex {
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
 
+    static func hookEventReloadInterval(liveAgentCount: Int) -> TimeInterval {
+        _ = liveAgentCount
+        return minEventReloadInterval
+    }
+
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
@@ -300,13 +305,16 @@ final class SharedLiveAgentIndex {
             changePending = true
             return
         }
+        let reloadInterval = Self.hookEventReloadInterval(
+            liveAgentCount: liveAgentProcessFingerprint.count
+        )
         let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
-        if elapsed >= Self.minEventReloadInterval {
+        if elapsed >= reloadInterval {
             startReload()
         } else if deferredReloadTimer == nil {
             // DispatchSourceTimer coalesces hook-store event bursts without Task.sleep in runtime code.
             let timer = DispatchSource.makeTimerSource(queue: watchQueue)
-            timer.schedule(deadline: .now() + (Self.minEventReloadInterval - elapsed))
+            timer.schedule(deadline: .now() + (reloadInterval - elapsed))
             timer.setEventHandler { [weak self] in
                 Task { @MainActor in
                     guard let self else { return }
