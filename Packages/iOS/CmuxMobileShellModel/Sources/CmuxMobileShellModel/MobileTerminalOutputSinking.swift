@@ -27,17 +27,21 @@ public struct MobileTerminalOutputChunk: Sendable {
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?
     /// Source grid whose VT replay bytes are carried by this chunk.
     public let sourceRenderGridFrame: MobileTerminalRenderGridFrame?
+    /// Whether nonempty output must pass render-grid verification before display.
+    public let requiresVerifiedReplay: Bool
 
     public init(
         data: Data,
         streamToken: UUID,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
-        sourceRenderGridFrame: MobileTerminalRenderGridFrame? = nil
+        sourceRenderGridFrame: MobileTerminalRenderGridFrame? = nil,
+        requiresVerifiedReplay: Bool = false
     ) {
         self.data = data
         self.streamToken = streamToken
         self.viewportPolicy = viewportPolicy
         self.sourceRenderGridFrame = sourceRenderGridFrame
+        self.requiresVerifiedReplay = requiresVerifiedReplay
     }
 }
 

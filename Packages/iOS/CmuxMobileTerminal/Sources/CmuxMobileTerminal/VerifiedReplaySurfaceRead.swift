@@ -9,6 +9,7 @@ nonisolated struct VerifiedReplaySurfaceRead: @unchecked Sendable {
     let generation: UInt64
     let surfaceID: String
     let stateSeq: UInt64
+    let renderEpoch: String
     let renderRevision: UInt64
 }
 #endif

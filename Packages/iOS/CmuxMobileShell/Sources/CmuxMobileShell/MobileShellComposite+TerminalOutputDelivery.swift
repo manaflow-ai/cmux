@@ -291,7 +291,9 @@ extension MobileShellComposite {
                     data: immediate.bytes,
                     streamToken: streamToken,
                     viewportPolicy: immediate.viewportPolicy,
-                    sourceRenderGridFrame: immediate.sourceRenderGridFrame
+                    sourceRenderGridFrame: immediate.sourceRenderGridFrame,
+                    requiresVerifiedReplay: terminalOutputTransport == .renderGrid
+                        && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
                 )
             )
         }
@@ -376,7 +378,9 @@ extension MobileShellComposite {
             data: next.bytes,
             streamToken: streamToken,
             viewportPolicy: next.viewportPolicy,
-            sourceRenderGridFrame: next.sourceRenderGridFrame
+            sourceRenderGridFrame: next.sourceRenderGridFrame,
+            requiresVerifiedReplay: terminalOutputTransport == .renderGrid
+                && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
         ))
     }
 

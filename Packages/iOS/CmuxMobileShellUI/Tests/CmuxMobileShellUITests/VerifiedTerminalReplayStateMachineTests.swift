@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 @testable import CmuxMobileShellUI
 import Foundation
 import Testing
@@ -115,7 +116,8 @@ struct VerifiedTerminalReplayStateMachineTests {
             text: "delayed old epoch"
         )
         guard case .keepFrozenAndRequestReplay = machine.begin(frame: delayedOldEpoch) else {
-            return Issue.record("a retired producer epoch must never become visible again")
+            Issue.record("a retired producer epoch must never become visible again")
+            return
         }
         #expect(machine.visibleSnapshot?.rows.first?.first?.text == "after reconnect")
     }
@@ -139,10 +141,12 @@ struct VerifiedTerminalReplayStateMachineTests {
         )
 
         guard case .keepFrozenAndRequestReplay = machine.begin(frame: missingEpoch) else {
-            return Issue.record("verified replay must reject a missing producer epoch")
+            Issue.record("verified replay must reject a missing producer epoch")
+            return
         }
         guard case .keepFrozenAndRequestReplay = machine.begin(frame: zeroRevision) else {
-            return Issue.record("verified replay must reject revision zero")
+            Issue.record("verified replay must reject revision zero")
+            return
         }
         #expect(machine.visibleSnapshot == nil)
         #expect(machine.isFrozen)

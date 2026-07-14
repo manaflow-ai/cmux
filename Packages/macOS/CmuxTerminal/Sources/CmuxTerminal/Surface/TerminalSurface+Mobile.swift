@@ -57,6 +57,7 @@ extension TerminalSurface {
     @MainActor
     public func mobileRenderGridFrame(
         stateSeq: UInt64,
+        renderEpoch: String = "",
         renderRevision: UInt64 = 0,
         full: Bool = true,
         changedRows: Set<Int>? = nil,
@@ -80,6 +81,7 @@ extension TerminalSurface {
         guard var fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
             return nil
         }
+        fullFrame.renderEpoch = renderEpoch
         fullFrame.renderRevision = renderRevision
         let frame: MobileTerminalRenderGridFrame
         if full, changedRows == nil {

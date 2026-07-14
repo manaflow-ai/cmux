@@ -10,6 +10,7 @@ final class VerifiedTerminalReplayStateMachine {
 
     struct Transaction {
         let id: UInt64
+        let renderEpoch: String
         let renderRevision: UInt64
         let stateSeq: UInt64
         let expected: MobileTerminalRenderGridVisualSnapshot
@@ -36,6 +37,8 @@ final class VerifiedTerminalReplayStateMachine {
     private var phase = Phase.ready
     private var nextTransactionID: UInt64 = 0
     private var activeTransaction: Transaction?
+    private var activeRenderEpoch: String?
+    private var retiredRenderEpochs = Set<String>()
     private var lastVerifiedRenderRevision: UInt64 = 0
     private var lastVerifiedStateSeq: UInt64 = 0
 
@@ -59,7 +62,22 @@ final class VerifiedTerminalReplayStateMachine {
         guard phase != .invalidated else {
             return .keepFrozenAndRequestReplay
         }
-        guard isNewerThanPresentationFloor(frame) else {
+        guard !frame.renderEpoch.isEmpty,
+              frame.renderRevision > 0 else {
+            phase = .recovering
+            activeTransaction = nil
+            return .keepFrozenAndRequestReplay
+        }
+
+        let startsNewEpoch = activeRenderEpoch != frame.renderEpoch
+        if startsNewEpoch {
+            guard frame.full,
+                  !retiredRenderEpochs.contains(frame.renderEpoch) else {
+                phase = .recovering
+                activeTransaction = nil
+                return .keepFrozenAndRequestReplay
+            }
+        } else if !isNewerThanPresentationFloor(frame) {
             phase = .recovering
             activeTransaction = nil
             return .keepFrozenAndRequestReplay
@@ -77,9 +95,19 @@ final class VerifiedTerminalReplayStateMachine {
             return .keepFrozenAndRequestReplay
         }
 
+        if startsNewEpoch {
+            if let activeRenderEpoch {
+                retiredRenderEpochs.insert(activeRenderEpoch)
+            }
+            activeRenderEpoch = frame.renderEpoch
+            lastVerifiedRenderRevision = 0
+            lastVerifiedStateSeq = 0
+        }
+
         nextTransactionID &+= 1
         let transaction = Transaction(
             id: nextTransactionID,
+            renderEpoch: frame.renderEpoch,
             renderRevision: frame.renderRevision,
             stateSeq: frame.stateSeq,
             expected: expected
@@ -99,6 +127,8 @@ final class VerifiedTerminalReplayStateMachine {
             return .ignoreStaleCompletion
         }
         guard let observedFrame,
+              observedFrame.renderEpoch == transaction.renderEpoch,
+              observedFrame.renderRevision == transaction.renderRevision,
               let observed = MobileTerminalRenderGridVisualSnapshot(fullFrame: observedFrame),
               observed == transaction.expected else {
             activeTransaction = nil
@@ -107,32 +137,36 @@ final class VerifiedTerminalReplayStateMachine {
         }
 
         visibleSnapshot = transaction.expected
-        lastVerifiedRenderRevision = max(lastVerifiedRenderRevision, transaction.renderRevision)
-        lastVerifiedStateSeq = max(lastVerifiedStateSeq, transaction.stateSeq)
+        lastVerifiedRenderRevision = transaction.renderRevision
+        lastVerifiedStateSeq = transaction.stateSeq
         activeTransaction = nil
         phase = .ready
         return .reveal
+    }
+
+    /// Invalidates any in-flight verification and returns an overlay token for
+    /// output that verified transport refused before it could form a frame.
+    func rejectUnverifiedOutput() -> UInt64 {
+        nextTransactionID &+= 1
+        activeTransaction = nil
+        phase = .recovering
+        return nextTransactionID
     }
 
     func invalidate() {
         nextTransactionID &+= 1
         activeTransaction = nil
         visibleSnapshot = nil
+        activeRenderEpoch = nil
+        retiredRenderEpochs.removeAll()
         phase = .invalidated
     }
 
     private func isNewerThanPresentationFloor(
         _ frame: MobileTerminalRenderGridFrame
     ) -> Bool {
-        if frame.renderRevision > 0 {
-            let pendingRevision = activeTransaction?.renderRevision ?? 0
-            return frame.renderRevision > max(lastVerifiedRenderRevision, pendingRevision)
-        }
-        guard lastVerifiedRenderRevision == 0,
-              activeTransaction?.renderRevision ?? 0 == 0 else {
-            return false
-        }
-        let pendingStateSeq = activeTransaction?.stateSeq ?? 0
-        return frame.stateSeq >= max(lastVerifiedStateSeq, pendingStateSeq)
+        guard frame.renderEpoch == activeRenderEpoch else { return false }
+        let pendingRevision = activeTransaction?.renderRevision ?? 0
+        return frame.renderRevision > max(lastVerifiedRenderRevision, pendingRevision)
     }
 }

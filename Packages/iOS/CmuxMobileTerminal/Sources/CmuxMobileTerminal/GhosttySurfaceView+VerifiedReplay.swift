@@ -8,17 +8,28 @@ import UIKit
 
 @MainActor
 extension GhosttySurfaceView {
-    /// Retains the last presented IOSurface above the live renderer while a
-    /// replacement grid is resized, replayed, rendered, and verified.
-    public func freezeVerifiedReplayPresentation(transactionID: UInt64) {
+    /// Retains an immutable copy of the last presented pixels and cursor above
+    /// the live renderer while a replacement grid is replayed and verified.
+    @discardableResult
+    public func freezeVerifiedReplayPresentation(transactionID: UInt64) -> Bool {
         if verifiedReplayFrozenPresentationLayer != nil {
             verifiedReplayFrozenTransactionID = transactionID
             cursorOverlayLayer?.isHidden = true
-            return
+            return true
         }
 
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         let presentedRenderer = renderer?.presentation() ?? renderer
+        let presentedContents = presentedRenderer?.contents ?? renderer?.contents
+        let frozenImage = VerifiedReplayFrameCapture.copyCGImage(from: presentedContents)
+        // If Ghostty has pixels, never start mutating its surface unless those
+        // pixels were copied out of the reusable swap chain successfully.
+        guard presentedContents == nil || frozenImage != nil else {
+            MobileDebugLog.anchormux(
+                "verified_replay.freeze_failed transaction=\(transactionID) reason=pixel_copy"
+            )
+            return false
+        }
         let frozenLayer = CALayer()
         frozenLayer.name = "cmux.verifiedReplay.lastGood"
         frozenLayer.frame = layer.bounds
@@ -35,10 +46,10 @@ extension GhosttySurfaceView {
 
         var contentLayer: CALayer?
         if let presentedRenderer,
-           let contents = presentedRenderer.contents ?? renderer?.contents {
+           let frozenImage {
             let copy = CALayer()
             copy.name = "cmux.verifiedReplay.contents"
-            copy.contents = contents
+            copy.contents = frozenImage
             copy.contentsScale = presentedRenderer.contentsScale
             copy.contentsGravity = presentedRenderer.contentsGravity
             copy.contentsRect = presentedRenderer.contentsRect
@@ -56,6 +67,26 @@ extension GhosttySurfaceView {
             contentLayer = copy
         }
 
+        var cursorLayer: CALayer?
+        if let liveCursor = cursorOverlayLayer,
+           !liveCursor.isHidden {
+            let presentedCursor = liveCursor.presentation() ?? liveCursor
+            let copy = CALayer()
+            copy.name = "cmux.verifiedReplay.cursor"
+            copy.anchorPoint = presentedCursor.anchorPoint
+            copy.bounds = presentedCursor.bounds
+            copy.position = presentedCursor.position
+            copy.transform = presentedCursor.transform
+            copy.opacity = presentedCursor.opacity
+            copy.backgroundColor = presentedCursor.backgroundColor
+            copy.cornerRadius = presentedCursor.cornerRadius
+            copy.contentsScale = presentedCursor.contentsScale
+            copy.actions = Self.verifiedReplayDisabledLayerActions
+            copy.zPosition = 2
+            frozenLayer.addSublayer(copy)
+            cursorLayer = copy
+        }
+
         let viewportRect = terminalViewportRect
         let coveredRect = contentLayer.map { viewportRect.union($0.frame) } ?? viewportRect
         backgroundLayer.frame = coveredRect
@@ -63,21 +94,24 @@ extension GhosttySurfaceView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.addSublayer(frozenLayer)
+        cursorOverlayLayer?.isHidden = true
         CATransaction.commit()
 
         verifiedReplayFrozenPresentationLayer = frozenLayer
         verifiedReplayFrozenBackgroundLayer = backgroundLayer
         verifiedReplayFrozenContentLayer = contentLayer
+        verifiedReplayFrozenCursorLayer = cursorLayer
+        verifiedReplayFrozenImage = frozenImage
         verifiedReplayFrozenTransactionID = transactionID
         verifiedReplayFrozenViewportRect = viewportRect
-        cursorOverlayLayer?.isHidden = true
         MobileDebugLog.anchormux(
             "verified_replay.freeze transaction=\(transactionID) contents=\(contentLayer != nil)"
         )
+        return true
     }
 
     /// Removes the retained last-good pixels only for the transaction that
-    /// successfully verified the live Ghostty grid and synchronous present.
+    /// successfully verified the live Ghostty grid and fenced presentation.
     @discardableResult
     public func revealVerifiedReplayPresentation(transactionID: UInt64) -> Bool {
         guard verifiedReplayFrozenTransactionID == transactionID else { return false }
@@ -86,11 +120,12 @@ extension GhosttySurfaceView {
         return true
     }
 
-    /// Exports the locally reconstructed Ghostty grid and then synchronously
-    /// presents that exact surface behind the retained last-good pixels.
+    /// Exports the locally reconstructed Ghostty grid, submits a Metal frame,
+    /// and resumes only after that target reaches the presentation tree.
     public func presentVerifiedReplayAndReadBack(
         surfaceID: String,
         stateSeq: UInt64,
+        renderEpoch: String,
         renderRevision: UInt64
     ) async -> MobileTerminalRenderGridFrame? {
         guard let surface,
@@ -99,6 +134,8 @@ extension GhosttySurfaceView {
             return nil
         }
         let generation = surfaceGeneration
+        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let initialIdentity = VerifiedReplayFrameCapture.rendererIdentity(from: renderer?.contents)
         return await withCheckedContinuation { continuation in
             let operationID = makeSurfaceOperationID()
             if let existing = pendingVerifiedReplayPresentation {
@@ -108,6 +145,9 @@ extension GhosttySurfaceView {
             pendingVerifiedReplayPresentation = PendingVerifiedReplayPresentation(
                 id: operationID,
                 startedAt: CACurrentMediaTime(),
+                fence: VerifiedReplayPresentationFence(initialIdentity: initialIdentity),
+                observedFrame: nil,
+                renderSubmitted: false,
                 continuation: continuation
             )
             ensureSurfaceOperationDeadlinePump()
@@ -117,13 +157,11 @@ extension GhosttySurfaceView {
                 generation: generation,
                 surfaceID: surfaceID,
                 stateSeq: stateSeq,
+                renderEpoch: renderEpoch,
                 renderRevision: renderRevision
             )
             outputQueue.async { [weak self] in
                 let observed = Self.exportVerifiedReplayGrid(read)
-                // The iOS Ghostty present path is synchronous. The last-good
-                // layer remains above it until the main-actor verifier accepts
-                // `observed`, so a malformed frame never becomes visible.
                 ghostty_surface_render_now(read.surface)
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -135,9 +173,9 @@ extension GhosttySurfaceView {
                         )
                         return
                     }
-                    self.completePendingVerifiedReplayPresentation(
+                    self.markPendingVerifiedReplayRenderSubmitted(
                         id: operationID,
-                        returning: observed
+                        observedFrame: observed
                     )
                 }
             }
@@ -162,13 +200,54 @@ extension GhosttySurfaceView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         verifiedReplayFrozenPresentationLayer?.removeFromSuperlayer()
-        CATransaction.commit()
         verifiedReplayFrozenPresentationLayer = nil
         verifiedReplayFrozenBackgroundLayer = nil
         verifiedReplayFrozenContentLayer = nil
+        verifiedReplayFrozenCursorLayer = nil
+        verifiedReplayFrozenImage = nil
         verifiedReplayFrozenTransactionID = nil
         verifiedReplayFrozenViewportRect = nil
         updateCursorOverlay()
+        CATransaction.commit()
+    }
+
+    /// Called by the display link until the exact completed Metal target has
+    /// reached Core Animation's presentation tree. Ghostty updates the model
+    /// layer only from its command-buffer completion callback, so this is both
+    /// the GPU completion fence and the presentation fence, without sleeping.
+    func completePendingVerifiedReplayPresentationIfPresented() {
+        guard let pending = pendingVerifiedReplayPresentation,
+              pending.renderSubmitted else {
+            return
+        }
+        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let modelIdentity = VerifiedReplayFrameCapture.rendererIdentity(from: renderer?.contents)
+        let presentationIdentity = VerifiedReplayFrameCapture.rendererIdentity(
+            from: renderer?.presentation()?.contents
+        )
+        guard pending.fence.isSatisfied(
+            modelIdentity: modelIdentity,
+            presentationIdentity: presentationIdentity
+        ) else {
+            return
+        }
+        completePendingVerifiedReplayPresentation(
+            id: pending.id,
+            returning: pending.observedFrame
+        )
+    }
+
+    private func markPendingVerifiedReplayRenderSubmitted(
+        id: UInt64,
+        observedFrame: MobileTerminalRenderGridFrame?
+    ) {
+        guard var pending = pendingVerifiedReplayPresentation,
+              pending.id == id else {
+            return
+        }
+        pending.observedFrame = observedFrame
+        pending.renderSubmitted = true
+        pendingVerifiedReplayPresentation = pending
     }
 
     @discardableResult
@@ -201,6 +280,7 @@ extension GhosttySurfaceView {
         guard let pointer = exported.ptr, exported.len > 0 else { return nil }
         let data = Data(bytes: pointer, count: Int(exported.len))
         guard var frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
+        frame.renderEpoch = read.renderEpoch
         frame.renderRevision = read.renderRevision
         return frame
     }

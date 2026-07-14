@@ -6,6 +6,9 @@ import QuartzCore
 nonisolated struct PendingVerifiedReplayPresentation {
     let id: UInt64
     let startedAt: CFTimeInterval
+    let fence: VerifiedReplayPresentationFence
+    var observedFrame: MobileTerminalRenderGridFrame?
+    var renderSubmitted: Bool
     let continuation: CheckedContinuation<MobileTerminalRenderGridFrame?, Never>
 }
 #endif

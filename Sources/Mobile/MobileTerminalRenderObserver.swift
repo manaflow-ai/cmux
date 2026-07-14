@@ -174,11 +174,12 @@ final class MobileTerminalRenderObserver {
 
     private func emitRenderGrid(surfaceID: UUID) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
-        let renderRevision = MobileTerminalByteTee.shared.nextRenderRevision(surfaceID: surfaceID)
+        let renderCapture = MobileTerminalByteTee.shared.nextRenderCaptureIdentity(surfaceID: surfaceID)
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
               let snapshot = surface.mobileRenderGridFrame(
                 stateSeq: stateSeq,
-                renderRevision: renderRevision,
+                renderEpoch: renderCapture.epoch,
+                renderRevision: renderCapture.revision,
                 full: true
               ) else {
             renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)

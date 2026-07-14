@@ -85,7 +85,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let storedMacReconnectRestoringDeadlineSeconds: Double = 6
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
-    private static let terminalVerifiedReplayCapability = "terminal.render_grid.verified_replay.v1"
+    static let terminalVerifiedReplayCapability = "terminal.render_grid.verified_replay.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
     static let terminalReplayCapability = "terminal.replay.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256

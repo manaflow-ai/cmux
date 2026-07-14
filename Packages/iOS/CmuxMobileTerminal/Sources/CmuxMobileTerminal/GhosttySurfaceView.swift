@@ -82,10 +82,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var displayLink: CADisplayLink?
     private var cursorBlinkState = TerminalCursorBlinkState()
     var cursorOverlayLayer: CALayer?
-    /// Last verified IOSurface contents retained above an in-progress replay.
+    /// Immutable last-verified pixels retained above an in-progress replay.
     var verifiedReplayFrozenPresentationLayer: CALayer?
     var verifiedReplayFrozenBackgroundLayer: CALayer?
     var verifiedReplayFrozenContentLayer: CALayer?
+    var verifiedReplayFrozenCursorLayer: CALayer?
+    var verifiedReplayFrozenImage: CGImage?
     var verifiedReplayFrozenTransactionID: UInt64?
     var verifiedReplayFrozenViewportRect: CGRect?
     /// Whether the host terminal currently wants the cursor shown (DECTCEM).
@@ -2567,6 +2569,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if checkSurfaceOperationDeadlines(now: now) {
             return
         }
+        completePendingVerifiedReplayPresentationIfPresented()
         guard surface != nil else {
             if !hasPendingSurfaceOperationDeadline {
                 stopDisplayLink()
@@ -2739,6 +2742,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard !renderPipelineRecoveryPaused,
               !renderingSuspended,
               !isRenderDispatchSuppressed,
+              verifiedReplayFrozenPresentationLayer == nil,
               let surface,
               !isDismantled else { return }
         // Coalesce: never let more than one render_now sit on the serial queue.

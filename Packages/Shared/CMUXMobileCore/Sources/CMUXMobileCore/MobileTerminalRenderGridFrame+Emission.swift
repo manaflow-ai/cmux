@@ -5,6 +5,7 @@ extension MobileTerminalRenderGridFrame {
     /// ``renderGridEmission(comparedTo:)`` for the next full producer snapshot.
     public var emissionState: MobileTerminalRenderGridEmissionState {
         MobileTerminalRenderGridEmissionState(
+            renderEpoch: renderEpoch,
             columns: columns,
             rows: rows,
             stateSeq: stateSeq,
@@ -29,6 +30,7 @@ extension MobileTerminalRenderGridFrame {
     ) throws -> (frame: MobileTerminalRenderGridFrame, state: MobileTerminalRenderGridEmissionState)? {
         let nextSignatures = rowSignatures()
         let nextState = MobileTerminalRenderGridEmissionState(
+            renderEpoch: renderEpoch,
             columns: columns,
             rows: rows,
             stateSeq: stateSeq,
@@ -36,6 +38,7 @@ extension MobileTerminalRenderGridFrame {
             rowSignatures: nextSignatures
         )
         guard let previous,
+              previous.renderEpoch == renderEpoch,
               previous.columns == columns,
               previous.rows == rows else {
             return (self, nextState)

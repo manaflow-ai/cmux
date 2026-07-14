@@ -48,13 +48,13 @@ struct VerifiedReplayPresentationTests {
     }
 
     private func overwrite(_ surface: IOSurface, with byte: UInt8) {
-        #expect(IOSurfaceLock(surface, [], nil) == kIOReturnSuccess)
+        #expect(IOSurfaceLock(surface, [], nil) == 0)
         memset(
             IOSurfaceGetBaseAddress(surface),
             Int32(byte),
             IOSurfaceGetBytesPerRow(surface) * IOSurfaceGetHeight(surface)
         )
-        #expect(IOSurfaceUnlock(surface, [], nil) == kIOReturnSuccess)
+        #expect(IOSurfaceUnlock(surface, [], nil) == 0)
     }
 }
 #endif

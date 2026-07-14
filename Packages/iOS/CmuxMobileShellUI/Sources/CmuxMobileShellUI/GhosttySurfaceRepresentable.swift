@@ -9,6 +9,26 @@ import CmuxMobileTerminal
 import SwiftUI
 import UIKit
 
+enum TerminalOutputApplicationPath: Equatable {
+    case verifiedReplay
+    case rejectUnverified
+    case legacy
+}
+
+func terminalOutputApplicationPath(
+    for chunk: MobileTerminalOutputChunk
+) -> TerminalOutputApplicationPath {
+    if let frame = chunk.sourceRenderGridFrame,
+       !frame.renderEpoch.isEmpty,
+       frame.renderRevision > 0 {
+        return .verifiedReplay
+    }
+    if chunk.requiresVerifiedReplay, !chunk.data.isEmpty {
+        return .rejectUnverified
+    }
+    return .legacy
+}
+
 /// SwiftUI wrapper that mounts a `GhosttySurfaceView` and routes terminal output
 /// chunks into `ghostty_surface_process_output`. Primary-screen output can stay
 /// at the phone's natural height, while alternate-screen render-grid replay can
@@ -286,8 +306,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
                     guard let surfaceView else { return }
-                    if let frame = chunk.sourceRenderGridFrame,
-                       frame.renderRevision > 0 {
+                    switch terminalOutputApplicationPath(for: chunk) {
+                    case .verifiedReplay:
+                        guard let frame = chunk.sourceRenderGridFrame else { return }
                         await self.applyVerifiedRenderGrid(
                             frame,
                             chunk: chunk,
@@ -295,6 +316,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             store: store
                         )
                         continue
+                    case .rejectUnverified:
+                        let transactionID = self.verifiedReplayState.rejectUnverifiedOutput()
+                        surfaceView.freezeVerifiedReplayPresentation(transactionID: transactionID)
+                        store.terminalOutputDidReset(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                        continue
+                    case .legacy:
+                        break
                     }
                     switch chunk.viewportPolicy {
                     case .natural:
@@ -386,7 +417,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 return
             }
 
-            surfaceView.freezeVerifiedReplayPresentation(transactionID: transaction.id)
+            guard surfaceView.freezeVerifiedReplayPresentation(transactionID: transaction.id) else {
+                _ = verifiedReplayState.complete(
+                    transactionID: transaction.id,
+                    observedFrame: nil
+                )
+                store.terminalOutputDidReset(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken
+                )
+                return
+            }
             activeViewportPolicy = .remoteGrid(columns: frame.columns, rows: frame.rows)
             guard await surfaceView.applyViewSizeAndWait(
                 cols: frame.columns,
@@ -420,6 +461,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             let observed = await surfaceView.presentVerifiedReplayAndReadBack(
                 surfaceID: frame.surfaceID,
                 stateSeq: frame.stateSeq,
+                renderEpoch: frame.renderEpoch,
                 renderRevision: frame.renderRevision
             )
             guard !Task.isCancelled else { return }
