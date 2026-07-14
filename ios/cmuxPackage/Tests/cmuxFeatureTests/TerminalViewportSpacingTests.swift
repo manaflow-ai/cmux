@@ -568,6 +568,34 @@ struct TerminalViewportSpacingTests {
         )
     }
 
+    /// A natural policy handoff ends the report authority that existed before
+    /// the handoff. If a newer remote-grid policy arrives before that old RPC
+    /// echo, releasing the echo must not overwrite the newer remote grid.
+    @Test("natural handoff fences an older viewport acknowledgement")
+    func naturalHandoffFencesOlderViewportAcknowledgement() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let oldReport = try #require(await harness.waitForReport(after: 0))
+        let oldReportID = try #require(harness.delegate.reportIDs[oldReport])
+
+        harness.view.applyViewSize(cols: 90, rows: 40)
+        harness.view.useNaturalViewSize()
+        harness.view.applyViewSize(cols: 100, rows: 50)
+
+        harness.view.applyConfirmedViewSize(
+            cols: 80,
+            rows: 24,
+            reportID: oldReportID
+        )
+
+        #expect(harness.snapshot.effectiveGrid?.cols == 100)
+        #expect(
+            harness.snapshot.effectiveGrid?.rows == 50,
+            "an acknowledgement from before the natural handoff must not re-pin a newer remote grid"
+        )
+    }
+
     /// Whether the render rect currently reflects the effective pin (used to
     /// wait out the async geometry pass after a daemon push).
     private func renderMatchesPin(_ harness: ViewportSpacingHarness) -> Bool {
