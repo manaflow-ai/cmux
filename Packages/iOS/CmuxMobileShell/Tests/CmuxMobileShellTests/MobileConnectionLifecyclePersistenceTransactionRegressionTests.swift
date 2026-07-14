@@ -6,6 +6,24 @@ import Testing
 
 @MainActor
 @Suite struct MobileConnectionLifecyclePersistenceTransactionRegressionTests {
+    @Test func forgettingUnrelatedMacPreservesOwnedRetiredReconnectDemand() {
+        var ownership = MobileConnectionLifecycleTaskOwnership()
+        ownership.primaryRetiredReconnectDemand = .macDeviceID("reconnecting-mac")
+        ownership.cachedRetiredReconnectDemand = .unresolvedTarget
+
+        ownership.clearRetiredReconnectDemand(forgetting: ["other-mac"])
+
+        #expect(ownership.primaryRetiredReconnectDemand == .macDeviceID("reconnecting-mac"))
+        #expect(ownership.cachedRetiredReconnectDemand == .unresolvedTarget)
+        #expect(ownership.retiredCarriesReconnectDemand)
+
+        ownership.clearRetiredReconnectDemand(forgetting: ["reconnecting-mac"])
+
+        #expect(ownership.primaryRetiredReconnectDemand == nil)
+        #expect(ownership.cachedRetiredReconnectDemand == .unresolvedTarget)
+        #expect(ownership.retiredCarriesReconnectDemand)
+    }
+
     @Test func directRollbackRestoresClaimedTeamlessRecordToItsOriginalScope() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -280,184 +298,5 @@ import Testing
         case .delete:
             return nil
         }
-    }
-}
-
-private enum ReconnectPersistenceProbeError: Error {
-    case loadFailed
-}
-
-private actor ReconnectPersistenceProbeState {
-    private let failFirstLoadAfterWrite: Bool
-    private var hasWritten = false
-    private var didFailLoad = false
-
-    init(failFirstLoadAfterWrite: Bool) {
-        self.failFirstLoadAfterWrite = failFirstLoadAfterWrite
-    }
-
-    func recordWrite() {
-        hasWritten = true
-    }
-
-    func shouldFailLoad() -> Bool {
-        guard failFirstLoadAfterWrite, hasWritten, !didFailLoad else { return false }
-        didFailLoad = true
-        return true
-    }
-}
-
-private struct ReconnectPersistenceProbeStore: MobilePairedMacStoring {
-    let inner: any MobilePairedMacStoring
-    let invalidateAfterWrite: SynchronousGenerationBoundary?
-    let state: ReconnectPersistenceProbeState
-
-    init(
-        inner: any MobilePairedMacStoring,
-        invalidateAfterWrite: SynchronousGenerationBoundary? = nil,
-        failFirstLoadAfterWrite: Bool = false
-    ) {
-        self.inner = inner
-        self.invalidateAfterWrite = invalidateAfterWrite
-        self.state = ReconnectPersistenceProbeState(
-            failFirstLoadAfterWrite: failFirstLoadAfterWrite
-        )
-    }
-
-    func upsert(
-        macDeviceID: String,
-        displayName: String?,
-        routes: [CmxAttachRoute],
-        instanceTag: String?,
-        markActive: Bool,
-        stackUserID: String?,
-        teamID: String?,
-        now: Date
-    ) async throws {
-        try await inner.upsert(
-            macDeviceID: macDeviceID,
-            displayName: displayName,
-            routes: routes,
-            instanceTag: instanceTag,
-            markActive: markActive,
-            stackUserID: stackUserID,
-            teamID: teamID,
-            now: now
-        )
-        await didWrite()
-    }
-
-    func upsertIfNewer(
-        macDeviceID: String,
-        displayName: String?,
-        routes: [CmxAttachRoute],
-        instanceTag: String?,
-        customName: String?,
-        customColor: String?,
-        customIcon: String?,
-        markActive: Bool,
-        stackUserID: String?,
-        teamID: String?,
-        now: Date
-    ) async throws -> Bool {
-        let wrote = try await inner.upsertIfNewer(
-            macDeviceID: macDeviceID,
-            displayName: displayName,
-            routes: routes,
-            instanceTag: instanceTag,
-            customName: customName,
-            customColor: customColor,
-            customIcon: customIcon,
-            markActive: markActive,
-            stackUserID: stackUserID,
-            teamID: teamID,
-            now: now
-        )
-        if wrote { await didWrite() }
-        return wrote
-    }
-
-    func upsertRoutesIfAuthorized(
-        macDeviceID: String,
-        displayName: String?,
-        routes: [CmxAttachRoute],
-        condition: MobilePairedMacRouteWriteCondition,
-        markActive: Bool?,
-        stackUserID: String?,
-        teamID: String?,
-        now: Date
-    ) async throws -> Bool {
-        let wrote = try await inner.upsertRoutesIfAuthorized(
-            macDeviceID: macDeviceID,
-            displayName: displayName,
-            routes: routes,
-            condition: condition,
-            markActive: markActive,
-            stackUserID: stackUserID,
-            teamID: teamID,
-            now: now
-        )
-        if wrote { await didWrite() }
-        return wrote
-    }
-
-    func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
-        if await state.shouldFailLoad() {
-            throw ReconnectPersistenceProbeError.loadFailed
-        }
-        return try await inner.loadAll(stackUserID: stackUserID, teamID: teamID)
-    }
-
-    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
-        try await inner.activeMac(stackUserID: stackUserID, teamID: teamID)
-    }
-
-    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
-        try await inner.setActive(
-            macDeviceID: macDeviceID,
-            stackUserID: stackUserID,
-            teamID: teamID
-        )
-    }
-
-    func clearActive(stackUserID: String?, teamID: String?) async throws {
-        try await inner.clearActive(stackUserID: stackUserID, teamID: teamID)
-    }
-
-    func setCustomization(
-        macDeviceID: String,
-        customName: String?,
-        customColor: String?,
-        customIcon: String?,
-        stackUserID: String?,
-        teamID: String?,
-        now: Date
-    ) async throws {
-        try await inner.setCustomization(
-            macDeviceID: macDeviceID,
-            customName: customName,
-            customColor: customColor,
-            customIcon: customIcon,
-            stackUserID: stackUserID,
-            teamID: teamID,
-            now: now
-        )
-    }
-
-    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
-        try await inner.remove(
-            macDeviceID: macDeviceID,
-            stackUserID: stackUserID,
-            teamID: teamID
-        )
-    }
-
-    func removeAll() async throws {
-        try await inner.removeAll()
-    }
-
-    private func didWrite() async {
-        await state.recordWrite()
-        invalidateAfterWrite?.invalidate()
     }
 }

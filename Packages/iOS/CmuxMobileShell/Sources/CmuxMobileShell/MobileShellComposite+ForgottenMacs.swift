@@ -173,6 +173,12 @@ extension MobileShellComposite {
         } else if forgetsKnownMac {
             invalidateStoredMacReconnectAttempt()
         }
+        connectionLifecycleTaskOwnership.clearRetiredReconnectDemand(
+            forgetting: targetIDSet
+        )
+        if !connectionLifecycleTaskOwnership.retiredCarriesReconnectDemand {
+            connectionLifecycleReconnectPendingAfterRetirement = false
+        }
         let teamlessLegacyIDs = Set(pairedMacsForIdentityMatching
             .filter { targetIDSet.contains($0.macDeviceID) && $0.teamID == nil }
             .map(\.macDeviceID))

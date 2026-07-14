@@ -334,6 +334,21 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    public func rollbackRejectedUpsert(
+        _ rollback: MobilePairedMacUpsertRollback
+    ) async throws {
+        try await mutationGate.withLock {
+            try await inner.rollbackRejectedUpsert(MobilePairedMacUpsertRollback(
+                rejectedMacDeviceID: rollback.rejectedMacDeviceID,
+                rejectedStackUserID: rollback.rejectedStackUserID,
+                rejectedTeamID: scopedTeamID(rollback.rejectedTeamID),
+                previousMac: rollback.previousMac.map(scopedRollbackMac),
+                previousActiveMac: rollback.previousActiveMac.map(scopedRollbackMac),
+                compensatingTimestamp: rollback.compensatingTimestamp
+            ))
+        }
+    }
+
     private func removeUnlocked(
         macDeviceID: String,
         stackUserID: String?,
@@ -378,6 +393,12 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         let rawTeam = String(teamID.dropLast(suffix.count))
         var copy = mac
         copy.teamID = rawTeam.isEmpty ? nil : rawTeam
+        return copy
+    }
+
+    private func scopedRollbackMac(_ mac: MobilePairedMac) -> MobilePairedMac {
+        var copy = mac
+        copy.teamID = scopedTeamID(mac.teamID)
         return copy
     }
 

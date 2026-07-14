@@ -21,10 +21,15 @@ struct DeferredStoredMacReconnectPersistence {
 
     func run() async -> DeferredStoredMacReconnectPersistenceResult {
         guard ownsFence else { return .skipped }
-        let scopedMacs = (try? await store.loadAll(
-            stackUserID: scope.userID,
-            teamID: scope.teamID
-        )) ?? []
+        let scopedMacs: [MobilePairedMac]
+        do {
+            scopedMacs = try await store.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )
+        } catch {
+            return .skipped
+        }
         guard ownsFence else { return .skipped }
 
         let matchingMacs = scopedMacs.filter {
@@ -40,10 +45,15 @@ struct DeferredStoredMacReconnectPersistence {
         let displayName = request.displayName
             ?? request.ticket.macDisplayName
             ?? displayFallbackMac?.displayName
-        let previousActiveMac = try? await store.activeMac(
-            stackUserID: scope.userID,
-            teamID: scope.teamID
-        )
+        let previousActiveMac: MobilePairedMac?
+        do {
+            previousActiveMac = try await store.activeMac(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )
+        } catch {
+            return .skipped
+        }
         guard ownsFence else { return .skipped }
 
         let preservesUnclaimedAuthority = request.reportedInstanceTag == nil
@@ -61,6 +71,7 @@ struct DeferredStoredMacReconnectPersistence {
                 storedRoutes: storedRoutes
             )
             : request.ticket.routes
+        let persistedAt = Date()
 
         do {
             if preservesUnclaimedAuthority {
@@ -72,7 +83,7 @@ struct DeferredStoredMacReconnectPersistence {
                     markActive: true,
                     stackUserID: scope.userID,
                     teamID: scope.teamID,
-                    now: Date()
+                    now: persistedAt
                 )
                 guard accepted else { return .skipped }
             } else {
@@ -84,7 +95,7 @@ struct DeferredStoredMacReconnectPersistence {
                     markActive: true,
                     stackUserID: scope.userID,
                     teamID: scope.teamID,
-                    now: Date()
+                    now: persistedAt
                 )
             }
         } catch {
@@ -93,20 +104,34 @@ struct DeferredStoredMacReconnectPersistence {
 
         guard ownsFence else {
             await rollback(
-                previousPersistedMac: existing,
-                previousActiveMac: previousActiveMac
+                previousPersistedMac: displayFallbackMac,
+                previousActiveMac: previousActiveMac,
+                rejectedTimestamp: persistedAt
             )
             return .skipped
         }
 
-        let refreshedMacs = (try? await store.loadAll(
-            stackUserID: scope.userID,
-            teamID: scope.teamID
-        )) ?? []
+        let refreshedMacs: [MobilePairedMac]
+        do {
+            refreshedMacs = try await store.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )
+        } catch {
+            if !ownsFence {
+                await rollback(
+                    previousPersistedMac: displayFallbackMac,
+                    previousActiveMac: previousActiveMac,
+                    rejectedTimestamp: persistedAt
+                )
+            }
+            return .skipped
+        }
         guard ownsFence else {
             await rollback(
-                previousPersistedMac: existing,
-                previousActiveMac: previousActiveMac
+                previousPersistedMac: displayFallbackMac,
+                previousActiveMac: previousActiveMac,
+                rejectedTimestamp: persistedAt
             )
             return .skipped
         }
@@ -115,8 +140,9 @@ struct DeferredStoredMacReconnectPersistence {
             forgottenIDs.formUnion(await forgottenStore.load(scope: key))
             guard ownsFence else {
                 await rollback(
-                    previousPersistedMac: existing,
-                    previousActiveMac: previousActiveMac
+                    previousPersistedMac: displayFallbackMac,
+                    previousActiveMac: previousActiveMac,
+                    rejectedTimestamp: persistedAt
                 )
                 return .skipped
             }
@@ -132,7 +158,8 @@ struct DeferredStoredMacReconnectPersistence {
 
     private func rollback(
         previousPersistedMac: MobilePairedMac?,
-        previousActiveMac: MobilePairedMac?
+        previousActiveMac: MobilePairedMac?,
+        rejectedTimestamp: Date
     ) async {
         let persistedMacDeviceID = request.ticket.macDeviceID
         do {
@@ -142,32 +169,22 @@ struct DeferredStoredMacReconnectPersistence {
                     stackUserID: scope.userID,
                     teamID: scope.teamID
                 )
-            } else if let previousPersistedMac {
-                try await store.upsert(
-                    macDeviceID: previousPersistedMac.macDeviceID,
-                    displayName: previousPersistedMac.displayName,
-                    routes: previousPersistedMac.routes,
-                    instanceTag: previousPersistedMac.instanceTag,
-                    markActive: previousPersistedMac.isActive,
-                    stackUserID: previousPersistedMac.stackUserID,
-                    teamID: previousPersistedMac.teamID,
-                    now: previousPersistedMac.lastSeenAt
-                )
             } else {
-                try await store.remove(
-                    macDeviceID: persistedMacDeviceID,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID
-                )
-            }
-            if let previousActiveMac,
-               previousActiveMac.macDeviceID != persistedMacDeviceID,
-               !progress.wasForgotten(previousActiveMac.macDeviceID) {
-                try await store.setActive(
-                    macDeviceID: previousActiveMac.macDeviceID,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID
-                )
+                let rollbackActiveMac: MobilePairedMac? = if let previousActiveMac,
+                    previousActiveMac.macDeviceID != persistedMacDeviceID,
+                    !progress.wasForgotten(previousActiveMac.macDeviceID) {
+                    previousActiveMac
+                } else {
+                    nil
+                }
+                try await store.rollbackRejectedUpsert(MobilePairedMacUpsertRollback(
+                    rejectedMacDeviceID: persistedMacDeviceID,
+                    rejectedStackUserID: scope.userID,
+                    rejectedTeamID: scope.teamID,
+                    previousMac: previousPersistedMac,
+                    previousActiveMac: rollbackActiveMac,
+                    rejectedTimestamp: rejectedTimestamp
+                ))
             }
         } catch {
             // A subsequent serialized user write still owns the final authority.

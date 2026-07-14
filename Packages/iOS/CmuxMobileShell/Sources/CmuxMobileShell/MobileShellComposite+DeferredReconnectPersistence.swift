@@ -26,6 +26,7 @@ extension MobileShellComposite {
         connectionLifecycleTaskOwnership.cachedRetiredGeneration &+= 1
         connectionLifecycleTaskOwnership.cachedRetiredTask?.cancel()
         connectionLifecycleTaskOwnership.cachedRetiredTask = nil
+        connectionLifecycleTaskOwnership.clearRetiredReconnectDemand()
         invalidateDeferredCachedReconnectPersistence()
         connectionLifecycleReconnectPendingAfterRetirement = false
     }

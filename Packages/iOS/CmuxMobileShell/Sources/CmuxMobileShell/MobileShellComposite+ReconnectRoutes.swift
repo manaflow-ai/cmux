@@ -7,6 +7,7 @@ extension MobileShellComposite {
     var hasStoredMacReconnectDemand: Bool {
         connectionLifecycle.hasStoredMacReconnectDemand
             || connectionLifecycleReconnectPendingAfterRetirement
+            || connectionLifecycleTaskOwnership.retiredCarriesReconnectDemand
     }
 
     /// Yield automatic recovery ownership before the user enters manual pairing.

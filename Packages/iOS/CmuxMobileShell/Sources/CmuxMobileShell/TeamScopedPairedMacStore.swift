@@ -168,6 +168,14 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Rollback already carries the original and rejected scopes, so forwarding
+    /// must bypass the live-team substitution used by ordinary mutations.
+    public func rollbackRejectedUpsert(
+        _ rollback: MobilePairedMacUpsertRollback
+    ) async throws {
+        try await inner.rollbackRejectedUpsert(rollback)
+    }
+
     /// Remove all paired Macs.
     public func removeAll() async throws {
         try await inner.removeAll()
