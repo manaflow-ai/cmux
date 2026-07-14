@@ -159,18 +159,28 @@ extension GhosttySurfaceScrollView {
             : authoritativeGeometry ?? currentGeometry else {
             return false
         }
-        let anchorGeometry = replayContext.geometry
+        let anchorGeometry: NotificationScrollRestoreGeometry
+        let retryReplayContext: NotificationReplayRestoreContext
         if position.row != 0,
-           anchorGeometry.rowSpaceRevision != geometry.rowSpaceRevision {
-            clearPendingNotificationScrollRestore()
-            return false
+           replayContext.geometry.rowSpaceRevision != geometry.rowSpaceRevision {
+            switch replayContext {
+            case .provisional:
+                anchorGeometry = geometry
+                retryReplayContext = .provisional(geometry)
+            case .stable:
+                clearPendingNotificationScrollRestore()
+                return false
+            }
+        } else {
+            anchorGeometry = replayContext.geometry
+            retryReplayContext = replayContext
         }
         let anchorScrollbar = position.row == 0
             ? geometry.scrollbar
             : GhosttyScrollbar(
                 total: anchorGeometry.scrollbar.total,
                 offset: anchorGeometry.scrollbar.offset,
-                len: geometry.scrollbar.len
+                len: currentGeometry?.scrollbar.len ?? geometry.scrollbar.len
             )
         let shouldRebase = position.totalRows.map {
             Int(clamping: anchorScrollbar.total) != $0
@@ -199,7 +209,7 @@ extension GhosttySurfaceScrollView {
                 return .awaitingPostReplayRestore(
                     position: position,
                     attemptsRemaining: remaining,
-                    replayContext: replayContext
+                    replayContext: retryReplayContext
                 )
             }
         )
