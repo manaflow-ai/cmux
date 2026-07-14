@@ -95,12 +95,18 @@ extension NotesTreeStorage {
                   values.isDirectory == true,
                   values.isSymbolicLink != true,
                   let marker = trustedWorkspaceMarker(inDirectory: url.path) else { continue }
-            if let anchorId, marker.anchorId == anchorId { return url.path }
+            // The enumerator can hand back canonicalized paths (`/private/var/…`
+            // for a `/var/…` notes dir, macOS-version dependent); standardize so
+            // adopted roots compare equal to deterministically-built ones
+            // everywhere downstream (store rebinds, tests, marker rewrites).
+            if let anchorId, marker.anchorId == anchorId { return standardized(url.path) }
             if (marker.cwd as NSString).standardizingPath == cwd {
-                if anchorId == nil { return url.path }
+                if anchorId == nil { return standardized(url.path) }
                 // Anchor-less marker: adoption candidate for the first
                 // anchor-carrying workspace that binds to this cwd.
-                if marker.anchorId == nil, legacyCwdMatch == nil { legacyCwdMatch = url.path }
+                if marker.anchorId == nil, legacyCwdMatch == nil {
+                    legacyCwdMatch = standardized(url.path)
+                }
             }
         }
         return legacyCwdMatch
