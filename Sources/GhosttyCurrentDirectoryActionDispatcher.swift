@@ -1,6 +1,5 @@
 import CmuxTerminal
 import Foundation
-import Synchronization
 
 /// Nonblocking ordered handoff from Ghostty's serialized PTY callback to the
 /// main actor. Mutable delivery state lives in `AsyncStream`; atomics only tag
@@ -8,15 +7,18 @@ import Synchronization
 final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
     typealias Delivery = @MainActor @Sendable (GhosttyCurrentDirectoryAction) -> Void
 
-    private let startBoundaryHash = Atomic<UInt64>(0)
-    private let endBoundaryHash = Atomic<UInt64>(0)
-    private let startBoundaryPending = Atomic<Bool>(false)
-    private let endBoundaryPending = Atomic<Bool>(false)
-    private let boundaryGeneration = Atomic<UInt64>(0)
+    private let startBoundaryHash: UInt64?
+    private let endBoundaryHash: UInt64?
     private let replayBoundaryContinuation: AsyncStream<GhosttyCurrentDirectoryAction>.Continuation
     private let ordinaryContinuation: AsyncStream<GhosttyCurrentDirectoryAction>.Continuation
 
-    init(delivery: Delivery? = nil) {
+    init(
+        startBoundary: String? = nil,
+        endBoundary: String? = nil,
+        delivery: Delivery? = nil
+    ) {
+        self.startBoundaryHash = startBoundary.map(Self.stableHash)
+        self.endBoundaryHash = endBoundary.map(Self.stableHash)
         let (replayBoundaryStream, replayBoundaryContinuation) =
             AsyncStream<GhosttyCurrentDirectoryAction>.makeStream(
                 bufferingPolicy: .bufferingNewest(2)
@@ -47,20 +49,6 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
         ordinaryContinuation.finish()
     }
 
-    func registerReplayBoundaries(startBoundary: String, endBoundary: String) {
-        _ = boundaryGeneration.wrappingAdd(1, ordering: .acquiringAndReleasing)
-        startBoundaryHash.store(Self.stableHash(startBoundary), ordering: .releasing)
-        endBoundaryHash.store(Self.stableHash(endBoundary), ordering: .releasing)
-        startBoundaryPending.store(true, ordering: .releasing)
-        endBoundaryPending.store(true, ordering: .releasing)
-    }
-
-    func cancelReplayBoundaries() {
-        _ = boundaryGeneration.wrappingAdd(1, ordering: .acquiringAndReleasing)
-        startBoundaryPending.store(false, ordering: .releasing)
-        endBoundaryPending.store(false, ordering: .releasing)
-    }
-
     func enqueue(
         directory: String,
         authoritativeGeometry: NotificationScrollRestoreGeometry?,
@@ -68,15 +56,12 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
         terminalSurface: TerminalSurface?
     ) {
         let directoryHash = Self.stableHash(directory)
-        let generation = boundaryGeneration.load(ordering: .acquiring)
-        let isStartBoundary = directoryHash == startBoundaryHash.load(ordering: .acquiring)
-            && startBoundaryPending.exchange(false, ordering: .acquiringAndReleasing)
-        let isEndBoundary = directoryHash == endBoundaryHash.load(ordering: .acquiring)
-            && endBoundaryPending.exchange(false, ordering: .acquiringAndReleasing)
+        let isStartBoundary = directoryHash == startBoundaryHash
+        let isEndBoundary = directoryHash == endBoundaryHash
         let action = GhosttyCurrentDirectoryAction(
             directory: directory,
             authoritativeGeometry: authoritativeGeometry,
-            replayBoundaryGeneration: isStartBoundary || isEndBoundary ? generation : nil,
+            replayBoundaryGeneration: isStartBoundary || isEndBoundary ? 0 : nil,
             surfaceView: surfaceView,
             terminalSurface: terminalSurface
         )

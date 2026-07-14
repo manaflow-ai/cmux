@@ -3419,7 +3419,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
-    nonisolated let currentDirectoryActionDispatcher = GhosttyCurrentDirectoryActionDispatcher()
+    // SAFETY: replay setup replaces this dispatcher on the main actor before
+    // Ghostty attaches the runtime callback; callback delivery only reads it.
+    nonisolated(unsafe) var currentDirectoryActionDispatcher = GhosttyCurrentDirectoryActionDispatcher()
     var scrollbar: GhosttyScrollbar?
     /// Pending scrollbar value written from the action callback thread;
     /// read and cleared on the main thread by `flushPendingScrollbar()`.
@@ -7492,7 +7494,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
     deinit {
-        cancelNotificationScrollReplayBoundaryRegistration()
         selectionAccessibilitySignal.finish()
 #if DEBUG
         cmuxDebugLog(

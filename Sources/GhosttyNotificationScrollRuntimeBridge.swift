@@ -32,14 +32,10 @@ extension GhosttyNSView {
         startBoundary: String,
         endBoundary: String
     ) {
-        currentDirectoryActionDispatcher.registerReplayBoundaries(
+        currentDirectoryActionDispatcher = GhosttyCurrentDirectoryActionDispatcher(
             startBoundary: startBoundary,
             endBoundary: endBoundary
         )
-    }
-
-    nonisolated func cancelNotificationScrollReplayBoundaryRegistration() {
-        currentDirectoryActionDispatcher.cancelReplayBoundaries()
     }
 
     static func retainRenderedFrameNotifications() -> () -> Void {

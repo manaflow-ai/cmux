@@ -15,14 +15,13 @@ struct GhosttyCurrentDirectoryActionDispatcherTests {
         let startBoundary = "/.cmux/session-scrollback-replay/test/start"
         let endBoundary = "/.cmux/session-scrollback-replay/test/end"
         var deliveredDirectories: [String] = []
-        let dispatcher = GhosttyCurrentDirectoryActionDispatcher { action in
+        let dispatcher = GhosttyCurrentDirectoryActionDispatcher(
+            startBoundary: startBoundary,
+            endBoundary: endBoundary
+        ) { action in
             deliveredDirectories.append(action.directory)
         }
         let surfaceView = GhosttyNSView(frame: .zero)
-        dispatcher.registerReplayBoundaries(
-            startBoundary: startBoundary,
-            endBoundary: endBoundary
-        )
 
         dispatcher.enqueue(
             directory: startBoundary,
