@@ -36,7 +36,7 @@ extension CmuxSettingsFileStore {
             fallback: socketModeManagedValue(in: template)
         )
         guard case .string(let rawMode) = resolved else { return template }
-        let source = String(data: template, encoding: .utf8) ?? defaultTemplate()
+        let source = (try? JSONCParser.source(data: template).text) ?? defaultTemplate()
         let encodedMode = "\"\(rawMode)\""
         if let updated = JSONCObjectEditor.setNestedObjectProperty(
             parentKey: "automation",
