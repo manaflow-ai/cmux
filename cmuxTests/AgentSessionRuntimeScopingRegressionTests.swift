@@ -229,6 +229,69 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(Set(historyNodes.compactMap { $0["session_id"] as? String }) == ["current-session", "other-session"])
     }
 
+    @Test func agentsTreeKeepsDistinctSessionsThatShareAProcessGeneration() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agents-shared-process-run-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func writeStore(provider: String, sessionId: String) throws {
+            let runtime: [String: Any] = ["id": "current-runtime"]
+            let store: [String: Any] = [
+                "version": 2,
+                "sessions": [
+                    sessionId: [
+                        "sessionId": sessionId,
+                        "workspaceId": "workspace",
+                        "surfaceId": "surface-\(provider)",
+                        "runId": "pid:4242@100",
+                        "activeRunId": "pid:4242@100",
+                        "restoreAuthority": true,
+                        "cmuxRuntime": runtime,
+                        "runs": [[
+                            "runId": "pid:4242@100",
+                            "pid": 4242,
+                            "processStartedAt": 100.0,
+                            "restoreAuthority": true,
+                            "cmuxRuntime": runtime,
+                            "startedAt": 100.0,
+                            "updatedAt": 200.0,
+                        ]],
+                        "startedAt": 100.0,
+                        "updatedAt": 200.0,
+                    ],
+                ],
+            ]
+            try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+                .write(to: root.appendingPathComponent("\(provider)-hook-sessions.json"), options: .atomic)
+        }
+        try writeStore(provider: "codex", sessionId: "codex-session")
+        try writeStore(provider: "kimi", sessionId: "kimi-session")
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_RUNTIME_ID"] = "current-runtime"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["agents", "tree", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let output = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let nodes = try #require(output["nodes"] as? [[String: Any]])
+        #expect(Set(nodes.compactMap { $0["session_id"] as? String }) == ["codex-session", "kimi-session"])
+    }
+
 }
 
 extension CLINotifyProcessIntegrationRegressionTests {
