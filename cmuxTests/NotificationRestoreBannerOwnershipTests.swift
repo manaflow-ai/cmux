@@ -154,6 +154,50 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(!tombstones.contains(destinationOwner.id.uuidString))
     }
 
+    @Test func transferPreservesSourceConfinedBannerOwner() throws {
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        let owner = notification(
+            id: UUID(), tabId: sourceTabId, surfaceId: surfaceId,
+            title: "Source-confined owner", createdAt: Date(timeIntervalSince1970: 10),
+            retargetsToLiveSurfaceOwner: false
+        )
+        var ownership = ExternalNotificationBannerOwnership()
+        ownership.setOwner(owner)
+
+        #expect(ownership.transfer(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            panelIdMap: [:]
+        ).isEmpty)
+
+        let moved = try #require(ownership.owner(tabId: destinationTabId, surfaceId: surfaceId))
+        #expect(!moved.retargetsToLiveSurfaceOwner)
+    }
+
+    @Test func rebindPreservesSourceConfinedBannerOwner() throws {
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        let owner = notification(
+            id: UUID(), tabId: sourceTabId, surfaceId: surfaceId,
+            title: "Source-confined owner", createdAt: Date(timeIntervalSince1970: 10),
+            retargetsToLiveSurfaceOwner: false
+        )
+        var ownership = ExternalNotificationBannerOwnership()
+        ownership.setOwner(owner)
+
+        #expect(ownership.rebind(
+            surfaceId: surfaceId,
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId
+        ) == nil)
+
+        let moved = try #require(ownership.owner(tabId: destinationTabId, surfaceId: surfaceId))
+        #expect(!moved.retargetsToLiveSurfaceOwner)
+    }
+
     @Test func restoredNewerRowDoesNotOwnLiveBannerRowActions() {
         let store = TerminalNotificationStore.shared
         let previousNotifications = store.notifications
@@ -241,10 +285,12 @@ struct NotificationRestoreBannerOwnershipTests {
         tabId: UUID,
         surfaceId: UUID?,
         title: String,
-        createdAt: Date
+        createdAt: Date,
+        retargetsToLiveSurfaceOwner: Bool = true
     ) -> TerminalNotification {
         TerminalNotification(
             id: id, tabId: tabId, surfaceId: surfaceId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             title: title, subtitle: "", body: "",
             createdAt: createdAt, isRead: false
         )
