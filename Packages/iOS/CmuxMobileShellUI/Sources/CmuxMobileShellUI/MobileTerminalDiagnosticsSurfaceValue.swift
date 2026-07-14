@@ -2,7 +2,7 @@
 import CmuxMobileTerminal
 import Foundation
 
-struct MobileTerminalDiagnosticsSurfaceValue: Equatable {
+nonisolated struct MobileTerminalDiagnosticsSurfaceValue: Equatable {
     let surfaceID: String
     let surfaceMounted: Bool
     let surfaceGeneration: UInt64

@@ -1,7 +1,7 @@
 #if canImport(UIKit) && DEBUG
 import CmuxMobileShell
 
-struct MobileTerminalDiagnosticsTransportValue: Equatable {
+nonisolated struct MobileTerminalDiagnosticsTransportValue: Equatable {
     let deliveryQueueDepth: Int
     let replayBarrierDepth: Int
     let replayInFlightDepth: Int
