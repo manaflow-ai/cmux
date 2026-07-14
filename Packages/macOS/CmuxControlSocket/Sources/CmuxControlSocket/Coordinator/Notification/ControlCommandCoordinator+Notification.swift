@@ -22,7 +22,7 @@ extension ControlCommandCoordinator {
         case "notification.create_for_target":
             return notificationCreateForTarget(request.params)
         case "notification.list":
-            return notificationList()
+            return notificationList(context: context)
         case "notification.clear":
             return notificationClear()
         case "notification.dismiss":
@@ -144,10 +144,71 @@ extension ControlCommandCoordinator {
 
     // MARK: - List / clear
 
+    private struct NotificationPayloadRefs: Sendable {
+        let workspace: JSONValue
+        let surface: JSONValue
+    }
+
+    private struct NotificationListHopOutcome: Sendable {
+        let snapshots: [ControlNotificationSnapshot]
+        let refs: [NotificationPayloadRefs]
+    }
+
     /// `notification.list` — every notification, with read state.
-    func notificationList() -> ControlCallResult {
-        let items = (context?.controlNotificationList() ?? []).map {
-            notificationPayload($0, opened: nil, includeReadState: true)
+    ///
+    /// Full-list snapshotting and ref minting take one bounded main hop. Date
+    /// rendering and JSON row construction scale with history size, so both run
+    /// on the calling socket-worker thread with response encoding.
+    nonisolated func notificationList(
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult {
+        guard let context else {
+            return .ok(.object(["notifications": .array([])]))
+        }
+
+        let outcome: NotificationListHopOutcome = context.controlResolveOnMain { seam in
+            let snapshots = seam.controlNotificationList()
+            var workspaceRefs: [UUID: JSONValue] = [:]
+            var surfaceRefs: [UUID: JSONValue] = [:]
+            var refs: [NotificationPayloadRefs] = []
+            refs.reserveCapacity(snapshots.count)
+            for snapshot in snapshots {
+                let workspaceRef: JSONValue
+                if let cached = workspaceRefs[snapshot.workspaceID] {
+                    workspaceRef = cached
+                } else {
+                    workspaceRef = self.ref(.workspace, snapshot.workspaceID)
+                    workspaceRefs[snapshot.workspaceID] = workspaceRef
+                }
+
+                let surfaceRef: JSONValue
+                if let surfaceID = snapshot.surfaceID {
+                    if let cached = surfaceRefs[surfaceID] {
+                        surfaceRef = cached
+                    } else {
+                        surfaceRef = self.ref(.surface, surfaceID)
+                        surfaceRefs[surfaceID] = surfaceRef
+                    }
+                } else {
+                    surfaceRef = .null
+                }
+                refs.append(NotificationPayloadRefs(
+                    workspace: workspaceRef,
+                    surface: surfaceRef
+                ))
+            }
+            return NotificationListHopOutcome(snapshots: snapshots, refs: refs)
+        }
+
+        let formatter = Self.notificationTimestampFormatter()
+        let items = outcome.snapshots.enumerated().map { index, snapshot in
+            JSONValue.object(Self.notificationPayloadObject(
+                snapshot,
+                createdAtISO8601: formatter.string(from: snapshot.createdAt),
+                refs: outcome.refs[index],
+                opened: nil,
+                includeReadState: true
+            ))
         }
         return .ok(.object(["notifications": .array(items)]))
     }
@@ -333,17 +394,37 @@ extension ControlCommandCoordinator {
         opened: Bool?,
         includeReadState: Bool
     ) -> [String: JSONValue] {
+        let formatter = Self.notificationTimestampFormatter()
+        return Self.notificationPayloadObject(
+            snapshot,
+            createdAtISO8601: formatter.string(from: snapshot.createdAt),
+            refs: NotificationPayloadRefs(
+                workspace: ref(.workspace, snapshot.workspaceID),
+                surface: ref(.surface, snapshot.surfaceID)
+            ),
+            opened: opened,
+            includeReadState: includeReadState
+        )
+    }
+
+    private nonisolated static func notificationPayloadObject(
+        _ snapshot: ControlNotificationSnapshot,
+        createdAtISO8601: String,
+        refs: NotificationPayloadRefs,
+        opened: Bool?,
+        includeReadState: Bool
+    ) -> [String: JSONValue] {
         var payload: [String: JSONValue] = [
             "id": .string(snapshot.id.uuidString),
             "workspace_id": .string(snapshot.workspaceID.uuidString),
-            "workspace_ref": ref(.workspace, snapshot.workspaceID),
-            "surface_id": orNull(snapshot.surfaceID?.uuidString),
-            "surface_ref": ref(.surface, snapshot.surfaceID),
+            "workspace_ref": refs.workspace,
+            "surface_id": snapshot.surfaceID.map { .string($0.uuidString) } ?? .null,
+            "surface_ref": refs.surface,
             "title": .string(snapshot.title),
             "subtitle": .string(snapshot.subtitle),
             "body": .string(snapshot.body),
-            "created_at": .string(snapshot.createdAtISO8601),
-            "tab_title": orNull(snapshot.tabTitle),
+            "created_at": .string(createdAtISO8601),
+            "tab_title": snapshot.tabTitle.map(JSONValue.string) ?? .null,
         ]
         if includeReadState {
             payload["is_read"] = .bool(snapshot.isRead)
@@ -352,6 +433,13 @@ extension ControlCommandCoordinator {
             payload["opened"] = .bool(opened)
         }
         return payload
+    }
+
+    private nonisolated static func notificationTimestampFormatter() -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter
     }
 
     // MARK: - Localized error messages

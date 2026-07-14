@@ -139,6 +139,8 @@ public final class ControlCommandCoordinator {
             return systemIdentify(request.params, context: context)
         case "system.tree":
             return systemTree(request.params, context: context)
+        case "notification.list":
+            return notificationList(context: context)
         case "surface.send_text":
             return surfaceSendText(request.params, context: context)
         case "surface.send_key":
