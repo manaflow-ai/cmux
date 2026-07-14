@@ -5,6 +5,17 @@ import Foundation
 ///
 /// Every entry is appended to the resolved log file immediately so `tail -f`
 /// shows live keyboard, focus, split, tab, and browser diagnostics.
+///
+/// All appends go through one serial queue and one kept-open O_APPEND file
+/// handle, and every persisted line carries a monotonic `#<seq>` prefix.
+/// The log used to open a fresh handle per line and seekToEnd()+write, and
+/// bonsplit's `dlog` did the same on its own queue; concurrent lines
+/// clobbered each other and landed out of timestamp order, which once sent
+/// a live-capture investigation chasing lines that were merely misfiled.
+/// The sequence prefix makes any future reordering visible in captures.
+/// A flood is bounded: past `maxPersistedLinesPerWindow` lines per window
+/// the disk write is skipped and the next window opens with an explicit
+/// `log.dropped N lines` marker, so lines can be dropped but never silently.
 public final class DebugEventLog: @unchecked Sendable {
     public static let shared = DebugEventLog()
 
@@ -12,6 +23,25 @@ public final class DebugEventLog: @unchecked Sendable {
     private let capacity = 500
     private let queue = DispatchQueue(label: "cmux.debug-event-log")
     private static let logPath = resolveLogPath()
+
+    // MARK: Serialized append state (confined to `queue`)
+
+    /// The single append handle, opened once with O_APPEND and kept open.
+    /// Dropped (and lazily reopened) after a write error or a `dump()`.
+    private var appendHandle: FileHandle?
+    /// Monotonic sequence stamped into every persisted line.
+    private var nextSequence: UInt64 = 0
+    private var windowStart = Date.distantPast
+    private var persistedInWindow = 0
+    private var droppedInWindow = 0
+
+    /// Disk-write budget per `persistWindow`. Log storms once dirtied
+    /// gigabytes per hour; beyond this budget lines stay in the ring buffer
+    /// but skip the disk, and the next window starts with a
+    /// `log.dropped N lines` marker covering them.
+    /// Duplicated in cmuxTests/DebugEventLogSerializedAppendTests.swift.
+    static let maxPersistedLinesPerWindow = 2000
+    static let persistWindow: TimeInterval = 1.0
     private static let debugFieldPattern = try! NSRegularExpression(
         pattern: "(^| )([A-Za-z][A-Za-z0-9_-]*)=",
         options: []
@@ -129,33 +159,75 @@ public final class DebugEventLog: @unchecked Sendable {
         let redactedMessage = Self.redactedDebugMessage(message)
 
         queue.async {
-            let timestamp = Self.formatter.string(from: date)
-            let entry = "\(timestamp) \(redactedMessage)"
-
-            if self.entries.count >= self.capacity {
-                self.entries.removeFirst()
-            }
-            self.entries.append(entry)
-
-            let line = entry + "\n"
-            guard let data = line.data(using: .utf8) else { return }
-
-            if let handle = FileHandle(forWritingAtPath: Self.logPath) {
-                defer { try? handle.close() }
-                guard (try? handle.seekToEnd()) != nil else { return }
-                try? handle.write(contentsOf: data)
-            } else {
-                FileManager.default.createFile(atPath: Self.logPath, contents: data)
-            }
+            self.appendLine(timestamp: Self.formatter.string(from: date), message: redactedMessage)
         }
     }
 
     /// Writes the current buffer to disk, replacing the existing log file.
     public func dump() {
         queue.sync {
+            // The atomic write replaces the inode, so the kept-open append
+            // handle would keep writing to the unlinked file; reopen lazily.
+            try? self.appendHandle?.close()
+            self.appendHandle = nil
             let content = self.entries.joined(separator: "\n") + "\n"
             try? content.write(toFile: Self.logPath, atomically: true, encoding: .utf8)
         }
+    }
+
+    /// Must run on `queue`.
+    private func appendLine(timestamp: String, message: String) {
+        let now = Date()
+        if now.timeIntervalSince(windowStart) >= Self.persistWindow {
+            windowStart = now
+            persistedInWindow = 0
+            if droppedInWindow > 0 {
+                let dropped = droppedInWindow
+                droppedInWindow = 0
+                persist(timestamp: timestamp, message: "log.dropped \(dropped) lines")
+            }
+        }
+
+        if persistedInWindow >= Self.maxPersistedLinesPerWindow {
+            // Storm: keep the entry for dump(), skip the disk write, and
+            // account for it in the marker that opens the next window.
+            droppedInWindow += 1
+            appendToRing("\(timestamp) \(message)")
+            return
+        }
+
+        persist(timestamp: timestamp, message: message)
+    }
+
+    /// Must run on `queue`.
+    private func persist(timestamp: String, message: String) {
+        nextSequence += 1
+        let entry = "\(timestamp) #\(nextSequence) \(message)"
+        appendToRing(entry)
+        persistedInWindow += 1
+
+        guard let data = (entry + "\n").data(using: .utf8) else { return }
+        if appendHandle == nil {
+            let fd = open(Self.logPath, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+            if fd >= 0 {
+                appendHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+            }
+        }
+        guard let handle = appendHandle else { return }
+        do {
+            try handle.write(contentsOf: data)
+        } catch {
+            // The file may have been rotated away; reopen on the next line.
+            appendHandle = nil
+        }
+    }
+
+    /// Must run on `queue`.
+    private func appendToRing(_ entry: String) {
+        if entries.count >= capacity {
+            entries.removeFirst()
+        }
+        entries.append(entry)
     }
 
     public static func currentLogPath() -> String {

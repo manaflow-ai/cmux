@@ -532,6 +532,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C79470010000000000000005 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
 		CC0DE00000000000000000A3 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
 		CC0DE00000000000000000A4 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
+		A500D015A1B2C3D4E5F60718 /* CMUXDebugLog in Frameworks */ = {isa = PBXBuildFile; productRef = A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */; };
 		D1320AA0D1320AA0D1320AA2 /* CmuxDockTilePlugin.plugin in Copy Dock Tile Plugin */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C54860040000000000000001 /* CmuxDurableDeepLinkRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860040000000000000002 /* CmuxDurableDeepLinkRestoreTests.swift */; };
 		E7E000000000000000000005 /* CmuxEventBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000006 /* CmuxEventBus.swift */; };
@@ -678,6 +679,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00090000000000000002 /* CustomSidebarPanelView.swift */; };
 		DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */; };
 		DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */; };
+		C0DE31410000000000000103 /* DebugEventLogSerializedAppendTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */; };
 		A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */; };
 		C0DE75890000000000000003 /* DeflatedAssetTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE75890000000000000004 /* DeflatedAssetTestSupport.swift */; };
 		A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001F000000000000000002 /* DetachedFolderDragIcon.swift */; };
@@ -2590,6 +2592,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C57B00090000000000000002 /* CustomSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPanelView.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolver.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolverTests.swift; sourceTree = "<group>"; };
+		C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugEventLogSerializedAppendTests.swift; sourceTree = "<group>"; };
 		A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DebugLogging.swift; sourceTree = "<group>"; };
 		C0DE75890000000000000004 /* DeflatedAssetTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeflatedAssetTestSupport.swift; sourceTree = "<group>"; };
 		A5001F000000000000000002 /* DetachedFolderDragIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderDragIcon.swift; sourceTree = "<group>"; };
@@ -3897,6 +3900,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
 				5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */,
 				CC0DE00000000000000000A4 /* CmuxCore in Frameworks */,
+				A500D015A1B2C3D4E5F60718 /* CMUXDebugLog in Frameworks */,
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
 				1A0B0C0D0E0F101112132014 /* CmuxIrohTransport in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
@@ -5608,6 +5612,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D6069001D6069001D6069001 /* MarkdownMermaidZoomTests.swift */,
 				D3664001D3664001D3664001 /* MarkdownPanelTests.swift */,
 				A3340001A3340001A3340001 /* ViewerNavigationTests.swift */,
+				C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */,
 				C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */,
 				C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */,
 				D7AB00000000000000000010 /* AppDelegateMoveTabToNewWorkspaceTests.swift */,
@@ -6011,6 +6016,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5E55200000000000000000B2 /* CmuxWindowing */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
 				A5001262 /* Bonsplit */,
+				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 			);
 			productName = cmuxTests;
 			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
@@ -7779,6 +7785,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A91C0D100000000000000002 /* CompletedRestoredAgentInputRoutingTests.swift in Sources */,
 				C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */,
 				DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */,
+				C0DE31410000000000000103 /* DebugEventLogSerializedAppendTests.swift in Sources */,
 				C0DE75890000000000000003 /* DeflatedAssetTestSupport.swift in Sources */,
 				B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */,
 				DE71CE000000000000000002 /* DeviceRegistryClientTests.swift in Sources */,
