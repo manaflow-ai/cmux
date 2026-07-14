@@ -103,6 +103,7 @@ export type StreamPatchOptions = {
   getCollapsed: () => boolean;
   initialFileTreeRowCount: number;
   label: DiffViewerLabelResolver;
+  signal?: AbortSignal;
   onBatch: (items: DiffItem[]) => void;
   onComplete: (metrics: StreamMetrics) => void;
   onMetrics: (metrics: StreamMetrics) => void;
@@ -116,6 +117,11 @@ export type StreamPatchOptions = {
 const commitMetadataPattern = /^From\s+([a-f0-9]+)\s/im;
 
 export async function streamPatch(options: StreamPatchOptions): Promise<void> {
+  const throwIfAborted = () => {
+    if (options.signal?.aborted) {
+      throw options.signal.reason ?? new DOMException("The diff stream was cancelled", "AbortError");
+    }
+  };
   const model = createStreamingDiffModel();
   const metrics: StreamMetrics = {
     startedAt: performance.now(),
@@ -141,6 +147,7 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
   };
 
   function makeItem(fileDiff: any, patchPrefix: string | undefined): DiffItem | undefined {
+    throwIfAborted();
     annotateDiffMetadata(fileDiff);
     normalizeGitFileDiffPaths(fileDiff);
     const result = appendFileDiffToModel(model, fileDiff, patchPrefix, options.getCollapsed(), options.label("untitled"));
@@ -151,6 +158,7 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
   }
 
   async function enqueueFileDiff(fileDiff: any, patchPrefix: string | undefined) {
+    throwIfAborted();
     const item = makeItem(fileDiff, patchPrefix);
     if (!item) {
       return;
@@ -159,6 +167,7 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
   }
 
   async function maybeFlushPendingItems(force: boolean) {
+    throwIfAborted();
     if (model.pendingItems.length === 0) {
       return;
     }
@@ -184,6 +193,7 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
   }
 
   function flushPendingItems() {
+    throwIfAborted();
     if (model.pendingItems.length === 0) {
       return;
     }
@@ -209,6 +219,7 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
   }
 
   async function measuredYield() {
+    throwIfAborted();
     const startedAt = performance.now();
     await yieldToNextFrame();
     const duration = performance.now() - startedAt;
@@ -220,11 +231,13 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
   }
 
   function refreshTreeSource() {
+    throwIfAborted();
     metrics.treeRefreshCount += 1;
     options.onTreeSource(createFileTreeSourceFromModel(model));
   }
 
   async function appendCompleteFileText(fileText: string) {
+    throwIfAborted();
     if (fileText.trim() === "") {
       return;
     }
@@ -239,13 +252,15 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
     await enqueueFileDiff(fileDiff, currentPatchPrefix);
   }
 
-  const response = await fetch(options.patchURL, { cache: "no-store" });
+  const response = await fetch(options.patchURL, { cache: "no-store", signal: options.signal });
   if (!response.ok) {
     throw new Error(`${options.label("loadingDiff")} (${response.status})`);
   }
 
   if (!response.body?.getReader) {
+    throwIfAborted();
     const text = await response.text();
+    throwIfAborted();
     await appendParsedPatchText(text, options, enqueueFileDiff);
     await maybeFlushPendingItems(true);
     metrics.completedAt = performance.now();
@@ -258,6 +273,7 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
   const splitter = createStreamingPatchFileSplitter();
   const maxDecodeChunkBytes = 256 * 1024;
   while (true) {
+    throwIfAborted();
     const { done, value } = await reader.read();
     if (done) {
       const tail = decoder.decode();
@@ -268,12 +284,14 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
       break;
     }
     for (let offset = 0; offset < value.byteLength; offset += maxDecodeChunkBytes) {
+      throwIfAborted();
       splitter.push(decoder.decode(value.subarray(offset, offset + maxDecodeChunkBytes), { stream: true }));
       await drainPatchFileSplitter(splitter, appendCompleteFileText);
     }
   }
 
   const finalFile = splitter.finish();
+  throwIfAborted();
   if (finalFile.fileText != null) {
     await appendCompleteFileText(finalFile.fileText);
     await drainPatchFileSplitter(splitter, appendCompleteFileText);

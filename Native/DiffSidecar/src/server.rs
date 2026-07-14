@@ -598,6 +598,15 @@ async fn run_git_patch(
     repo: &Path,
     output_path: &Path,
 ) -> Result<(), SessionOpenError> {
+    run_git_patch_with_limit(source, repo, output_path, MAX_SESSION_PATCH_BYTES).await
+}
+
+async fn run_git_patch_with_limit(
+    source: &DiffSource,
+    repo: &Path,
+    output_path: &Path,
+    max_patch_bytes: u64,
+) -> Result<(), SessionOpenError> {
     let mut arguments = vec![
         "-C".to_owned(),
         repo.to_string_lossy().into_owned(),
@@ -635,21 +644,57 @@ async fn run_git_patch(
         }
     }
 
-    let output = std::fs::File::create(output_path).map_err(|_| SessionOpenError::Failed)?;
     let mut command = Command::new("/usr/bin/git");
     command
         .args(arguments)
         .stdin(Stdio::null())
-        .stdout(Stdio::from(output))
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
     let mut child = command.spawn().map_err(|_| SessionOpenError::Failed)?;
-    let Ok(Ok(status)) = tokio::time::timeout(SESSION_GIT_TIMEOUT, child.wait()).await else {
+    let Some(mut stdout) = child.stdout.take() else {
         let _ = child.kill().await;
         let _ = tokio::fs::remove_file(output_path).await;
         return Err(SessionOpenError::Failed);
     };
-    if !status.success() {
+    let result = tokio::time::timeout(SESSION_GIT_TIMEOUT, async {
+        let mut output = tokio::fs::File::create(output_path)
+            .await
+            .map_err(|_| SessionOpenError::Failed)?;
+        let mut bytes_written = 0_u64;
+        let mut buffer = vec![0_u8; 64 * 1024];
+        loop {
+            let read = stdout
+                .read(&mut buffer)
+                .await
+                .map_err(|_| SessionOpenError::Failed)?;
+            if read == 0 {
+                break;
+            }
+            let next_size = bytes_written
+                .checked_add(read as u64)
+                .ok_or(SessionOpenError::Failed)?;
+            if next_size > max_patch_bytes {
+                return Err(SessionOpenError::Failed);
+            }
+            output
+                .write_all(&buffer[..read])
+                .await
+                .map_err(|_| SessionOpenError::Failed)?;
+            bytes_written = next_size;
+        }
+        output.flush().await.map_err(|_| SessionOpenError::Failed)?;
+        let status = child.wait().await.map_err(|_| SessionOpenError::Failed)?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(SessionOpenError::Failed)
+        }
+    })
+    .await;
+    if !matches!(result, Ok(Ok(()))) {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
         let _ = tokio::fs::remove_file(output_path).await;
         return Err(SessionOpenError::Failed);
     }
@@ -1323,6 +1368,7 @@ pub async fn write_handshake_to_stdout() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use std::process::Command;
     use std::time::Duration;
 
     use tokio::io::AsyncWriteExt;
@@ -1331,8 +1377,8 @@ mod tests {
     use crate::protocol::{DiffCommand, DiffRequest, DiffResult};
 
     use super::{
-        RpcRequestRead, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request, read_rpc_request,
-        valid_group_id,
+        DiffSource, RpcRequestRead, SessionOpenError, UNTRUSTED_RPC_REQUEST_ID,
+        handle_protocol_request, read_rpc_request, run_git_patch_with_limit, valid_group_id,
     };
 
     #[tokio::test]
@@ -1386,5 +1432,55 @@ mod tests {
             response.error.as_ref().map(|error| error.code.as_str()),
             Some("requestTimeout")
         );
+    }
+
+    #[tokio::test]
+    async fn git_patch_limit_removes_partial_output() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-size-limit-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).expect("create repo");
+        let run_git = |arguments: &[&str]| {
+            let output = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(&repo)
+                .args(arguments)
+                .output()
+                .expect("run git");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        run_git(&["init"]);
+        run_git(&["config", "user.name", "cmux tests"]);
+        run_git(&["config", "user.email", "cmux@example.invalid"]);
+        std::fs::write(repo.join("large.txt"), "before\n").expect("write initial file");
+        run_git(&["add", "large.txt"]);
+        run_git(&["commit", "-m", "initial"]);
+        std::fs::write(
+            repo.join("large.txt"),
+            format!("{}\n", "x".repeat(8 * 1024)),
+        )
+        .expect("write large diff");
+        let patch_path = root.join("too-large.patch");
+
+        let result = run_git_patch_with_limit(
+            &DiffSource::Unstaged {
+                repo_root: repo.to_string_lossy().into_owned(),
+            },
+            &repo,
+            &patch_path,
+            1024,
+        )
+        .await;
+
+        assert_eq!(result, Err(SessionOpenError::Failed));
+        assert!(!patch_path.exists());
+        let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -1585,6 +1585,7 @@ function useRenderDiff(
       }
     }
     let cancelled = false;
+    const streamAbortController = new AbortController();
     const handlePageHide = () => {
       void closeActiveSession();
     };
@@ -1598,15 +1599,16 @@ function useRenderDiff(
           if (result.type !== "sessionOpened") {
             throw new DiffTransportError("invalidResponse", "Diff transport did not open a session");
           }
-          activeSessionRef.current = {
+          const openedSession = {
             sessionId: result.value.sessionId,
             capabilityToken: String(payload.capabilityToken ?? ""),
           };
-          onResolvedSessionSource(result.value.source);
           if (cancelled) {
-            await closeActiveSession();
+            await closeDiffSession(transport!, openedSession);
             return;
           }
+          activeSessionRef.current = openedSession;
+          onResolvedSessionSource(result.value.source);
           patchURL = result.value.patch.id;
         }
         if (cancelled || !patchURL) {
@@ -1619,11 +1621,14 @@ function useRenderDiff(
           getCollapsed: () => latestState.current.options.collapsed,
           initialFileTreeRowCount: getInitialFileTreeRowCount(),
           label,
+          signal: streamAbortController.signal,
           onBatch: (items) => {
+            if (cancelled) return;
             streamedItems.push(...items);
             dispatch({ type: "append-items", items });
           },
           onComplete: (metrics) => {
+            if (cancelled) return;
             dispatch({ type: "set-metrics", metrics });
             const items = streamedItems;
             if (items.length === 0) {
@@ -1639,9 +1644,15 @@ function useRenderDiff(
             preloadHighlighter({ themes, langs: langs.length > 0 ? langs : ["text"] })
               .catch((error) => console.warn("cmux diff highlighter preload failed", error));
           },
-          onMetrics: (metrics) => dispatch({ type: "set-metrics", metrics }),
-          onRename: (rename) => dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId }),
-          onTreeSource: (source) => dispatch({ type: "set-tree-source", source }),
+          onMetrics: (metrics) => {
+            if (!cancelled) dispatch({ type: "set-metrics", metrics });
+          },
+          onRename: (rename) => {
+            if (!cancelled) dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId });
+          },
+          onTreeSource: (source) => {
+            if (!cancelled) dispatch({ type: "set-tree-source", source });
+          },
           parsePatchFiles,
           patchURL,
           processFile,
@@ -1667,10 +1678,15 @@ function useRenderDiff(
     })();
     return () => {
       cancelled = true;
+      streamAbortController.abort();
       window.removeEventListener("pagehide", handlePageHide);
       void closeActiveSession();
     };
   }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, sessionSource, transport]);
+}
+
+function closeDiffSession(transport: DiffTransport, session: ActiveDiffSession): Promise<void> {
+  return transport.request({ method: "sessionClose", params: session }).then(() => {}, () => {});
 }
 
 function diffSessionRequest(payload: any, transport: DiffTransport | null, overrideSource?: DiffSource | null): {
