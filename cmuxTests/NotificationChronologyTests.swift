@@ -34,7 +34,8 @@ struct NotificationChronologyTests {
             surfaceId: surfaceId,
             title: "Earlier",
             subtitle: "",
-            body: "same payload"
+            body: "same payload",
+            retargetsToLiveSurfaceOwner: false
         )
         store.addNotification(
             id: laterId,
@@ -43,7 +44,8 @@ struct NotificationChronologyTests {
             surfaceId: surfaceId,
             title: "Later",
             subtitle: "",
-            body: "same payload"
+            body: "same payload",
+            retargetsToLiveSurfaceOwner: false
         )
         store.addNotification(
             id: earlierId,
@@ -52,7 +54,8 @@ struct NotificationChronologyTests {
             surfaceId: surfaceId,
             title: "Replay must not replace",
             subtitle: "",
-            body: "same payload"
+            body: "same payload",
+            retargetsToLiveSurfaceOwner: false
         )
 
         #expect(store.notifications.map(\.id) == [laterId, earlierId])
@@ -93,7 +96,8 @@ struct NotificationChronologyTests {
             surfaceId: surfaceId,
             title: "Newer",
             subtitle: "",
-            body: ""
+            body: "",
+            retargetsToLiveSurfaceOwner: false
         )
         store.addNotification(
             id: olderId,
@@ -102,7 +106,8 @@ struct NotificationChronologyTests {
             surfaceId: surfaceId,
             title: "Older",
             subtitle: "",
-            body: ""
+            body: "",
+            retargetsToLiveSurfaceOwner: false
         )
 
         #expect(store.notifications.map(\.id) == [newerId, olderId])

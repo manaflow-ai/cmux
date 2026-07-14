@@ -98,7 +98,8 @@ struct NotificationFeedScaleTests {
                 surfaceId: surfaceId,
                 title: "Live \(index)",
                 subtitle: "",
-                body: ""
+                body: "",
+                retargetsToLiveSurfaceOwner: false
             )
         }
 

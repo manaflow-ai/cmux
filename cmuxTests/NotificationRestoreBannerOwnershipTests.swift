@@ -124,7 +124,8 @@ struct NotificationRestoreBannerOwnershipTests {
             surfaceId: surfaceId,
             title: "Replacement",
             subtitle: "",
-            body: ""
+            body: "",
+            retargetsToLiveSurfaceOwner: false
         )
 
         #expect(store.notifications.map(\.id) == [replacementId, restored.id, live.id])
