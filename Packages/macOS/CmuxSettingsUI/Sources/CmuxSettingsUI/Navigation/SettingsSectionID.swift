@@ -23,6 +23,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case customSidebars
     case betaFeatures
     case automation
+    /// Voice dictation: enable gate and language.
+    case voice
     case browser
     case browserImport
     case globalHotkey
@@ -46,6 +48,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
         case .betaFeatures: return "Beta Features"
         case .automation: return "Automation"
+        case .voice: return String(localized: "settings.section.voice", defaultValue: "Voice")
         case .browser: return "Browser"
         case .browserImport: return "Import Browser Data"
         case .globalHotkey: return "Global Hotkey"
@@ -69,6 +72,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return "sidebar.squares.left"
         case .betaFeatures: return "exclamationmark.triangle"
         case .automation: return "wand.and.sparkles"
+        case .voice: return "mic"
         case .browser: return "globe"
         case .browserImport: return "square.and.arrow.down"
         case .globalHotkey: return "keyboard.badge.ellipsis"
@@ -94,6 +98,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini naming auto naming workspace tabs"
+        case .voice: return "voice dictation speech microphone speak transcribe transcription on-device language"
         case .browser: return "search engine links history theme"
         case .browserImport: return "browser import bookmarks history cookies"
         case .globalHotkey: return "system wide shortcut"
