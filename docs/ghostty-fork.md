@@ -12,17 +12,17 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `e215e78bf`. It combines the previous cmux pin
-`dd726a9a6`, current fork `main` (`8495e581a`), and upstream
-`ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
-render-grid preserved-page OOM fix, lock-free selection notifications, and
-compressed-storage-preserving full scrollback reads.
+Current cmux pinned fork head: `5e5039068`. It advances the previous cmux pin
+`5ae712a89` with the live surface font-size accessor used by mobile viewport
+fitting.
 Published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
-https://github.com/manaflow-ai/ghostty/pull/106.
+https://github.com/manaflow-ai/ghostty/pull/106 and
+https://github.com/manaflow-ai/ghostty/pull/108 and
+https://github.com/manaflow-ai/ghostty/pull/112.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -84,6 +84,12 @@ https://github.com/manaflow-ai/ghostty/pull/106.
    wide/grapheme cells, and compressed-page ownership. Upstream conflicts should
    keep this beside the existing embedded read-text APIs and retain
    `PageListFormatter.pagePreservingState` rather than restoring cold pages.
+10. `ghostty_surface_font_size` reads the live surface font size through
+    the embedded public C API. The value uses CoreText point units and includes
+    surface-local font changes, so mobile viewport fitting can reload from the
+    terminal core's owning state instead of mirroring stale host configuration.
+    Upstream conflicts should keep the accessor with the other embedded surface
+    queries in `src/apprt/embedded.zig` and preserve its public header export.
 
 Verified with Zig 0.15.2: compression, formatter, selection activity, and
 libghostty-vt compression tests,
@@ -92,19 +98,19 @@ build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
 and clearing.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5ae712a89479f16d47d9a75e1a802a22415a3033-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5e50390680bb390c8461d1608b53ed3b5522bd8a-crashsubdir-cmux-crash-v1
 
 ### Previous pin
 
-The previous cmux pin was `1ae98c991`. It was superseded by `e215e78bf` after
-full scrollback formatting was changed to preserve compressed storage and
-selection notifications moved to a lock-free terminal-wide epoch. The initial
-compression merge for this update was `870ed36f9`; it was superseded by
-`4117298e4` after the preserved-page OOM ownership fix, by `bdf4baa80` after
-the selection notification callback fix, then by `1ae98c991` after preserving
-public action tag values. The fork's prior `main` head was
-`cc31d54ee`, which merged upstream through `d560c645`; both histories are
-ancestors of `e215e78bf`.
+The previous cmux pin was `5ae712a89`. It added the bounded VT screen-tail
+export to `e215e78bf`, which preserved compressed scrollback during full-text
+reads and moved selection notifications to a lock-free terminal-wide epoch.
+The initial compression merge for that update was `870ed36f9`; it was
+superseded by `4117298e4` after the preserved-page OOM ownership fix, by
+`bdf4baa80` after the selection notification callback fix, then by
+`1ae98c991` after preserving public action tag values. The fork's prior `main`
+head was `cc31d54ee`, which merged upstream through `d560c645`; both histories
+are ancestors of `e215e78bf`.
 
 ### Earlier pin
 
