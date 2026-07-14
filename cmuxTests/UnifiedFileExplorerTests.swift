@@ -155,6 +155,51 @@ struct UnifiedFileExplorerTests {
         #expect(searchBar.frame.height == 0)
     }
 
+    @Test("Unified pane preserves the original Files and Finder chrome")
+    func unifiedPanePreservesOriginalChrome() throws {
+        let state = FileExplorerState()
+        state.mode = .files
+        let store = FileExplorerStore()
+        store.rootPath = "/tmp/unified-file-explorer-tests"
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: SearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        container.layoutSubtreeIfNeeded()
+
+        let searchField = try #require(Self.searchField(in: container))
+        let searchBar = try #require(searchField.superview)
+        #expect(searchBar.isHidden)
+        #expect(searchBar.frame.height == 0)
+
+        state.mode = .find
+        container.updatePresentation(.unified)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        container.layoutSubtreeIfNeeded()
+
+        #expect(!searchBar.isHidden)
+        #expect(searchBar.frame.height == max(48, GlobalFontMagnification.scaled(48)))
+        #expect(
+            searchField.placeholderString ==
+                String(localized: "fileExplorer.search.placeholder", defaultValue: "Search files")
+        )
+        #expect((searchField.cell as? NSSearchFieldCell)?.searchMenuTemplate == nil)
+        #expect(
+            !container.subviews
+                .compactMap { $0 as? NSTextField }
+                .contains { !$0.isHidden && $0.stringValue == String(localized: "fileExplorer.search.empty", defaultValue: "Type to search") }
+        )
+    }
+
     @Test("Typing preserves the selected Names or Contents activation")
     func typingPreservesSelectedSearchScope() throws {
         let defaults = UserDefaults.standard
