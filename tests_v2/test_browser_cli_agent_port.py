@@ -7,6 +7,7 @@ import http.server
 import json
 import os
 import socketserver
+import struct
 import subprocess
 import sys
 import tempfile
@@ -278,7 +279,33 @@ def main() -> int:
         _must(str(saved.get("path") or "") == state_file, f"Expected saved state path via CLI: {saved}")
         _run_cli_json(cli, ["browser", surface, "state", "load", state_file])
 
-        _run_cli_expect_failure(cli, ["browser", surface, "viewport", "800", "600"], ["not_supported"])
+        focus_before_viewport = (_run_cli_json(cli, ["identify"]).get("focused") or {})
+        viewport = _run_cli_json(cli, ["browser", surface, "viewport", "1280", "720"])
+        _must(viewport.get("mode") == "emulated", f"Expected emulated viewport result: {viewport}")
+        _must(viewport.get("width") == 1280 and viewport.get("height") == 720, f"Expected effective viewport size: {viewport}")
+
+        metrics = _run_cli_json(
+            cli,
+            ["browser", surface, "eval", "({ width: innerWidth, height: innerHeight, wide: matchMedia('(min-width: 1000px)').matches })"],
+        ).get("value") or {}
+        _must(metrics.get("width") == 1280 and metrics.get("height") == 720, f"Expected exact WKWebView viewport: {metrics}")
+        _must(metrics.get("wide") is True, f"Expected responsive media query to use emulated viewport: {metrics}")
+
+        viewport_screenshot = Path(tempfile.mkdtemp(prefix="cmux-cli-viewport-")) / "viewport.png"
+        _run_cli_text(cli, ["browser", surface, "screenshot", "--out", str(viewport_screenshot)])
+        png_header = viewport_screenshot.read_bytes()[:24]
+        _must(png_header.startswith(b"\x89PNG\r\n\x1a\n"), "Expected viewport screenshot to be PNG")
+        screenshot_width, screenshot_height = struct.unpack(">II", png_header[16:24])
+        _must(
+            (screenshot_width, screenshot_height) == (1280, 720),
+            f"Expected screenshot to match emulated viewport, got {screenshot_width}x{screenshot_height}",
+        )
+
+        focus_after_viewport = (_run_cli_json(cli, ["identify"]).get("focused") or {})
+        _must(focus_after_viewport == focus_before_viewport, "browser viewport must preserve workspace and surface focus")
+
+        reset_viewport = _run_cli_json(cli, ["browser", surface, "viewport", "reset"])
+        _must(reset_viewport.get("mode") == "native", f"Expected native viewport after reset: {reset_viewport}")
 
         legacy_new = _run_cli_text(cli, ["new-pane", "--type", "browser", "--direction", "right", "--url", page_url])
         _must("surface:" in legacy_new, f"Expected new-pane output to prefer short surface refs, got: {legacy_new!r}")
