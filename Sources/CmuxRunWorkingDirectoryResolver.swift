@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 // Safety: stored state is immutable; FileManager is used only by synchronous
@@ -98,7 +97,6 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
         let terminate: @Sendable () -> Void = {
             guard process.isRunning else { return }
             process.terminate()
-            _ = Darwin.kill(process.processIdentifier, SIGKILL)
         }
         let timeoutTask = Task {
             do {
