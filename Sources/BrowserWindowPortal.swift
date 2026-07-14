@@ -1218,6 +1218,11 @@ final class WindowBrowserSlotView: NSView {
         super.layout()
         paneDropTargetView.frame = bounds
         applyResolvedDropZoneOverlay()
+        if let hostedWebView,
+           hostedWebView.superview === self,
+           !browserPortalHasVisibleWebKitCompanionSubview(for: hostedWebView) {
+            hostedWebView.cmuxApplyBrowserViewportLayout(in: bounds)
+        }
         guard !isApplyingHostedInspectorLayout else { return }
         if let previousSize = lastHostedInspectorLayoutBoundsSize,
            Self.sizeApproximatelyEqual(previousSize, bounds.size) {
@@ -1516,7 +1521,7 @@ final class WindowBrowserSlotView: NSView {
         let hasCompanionWKSubviews = browserPortalHasVisibleWebKitCompanionSubview(for: webView)
         let needsPlainWebViewFrameReset =
             !hasCompanionWKSubviews &&
-            Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
+            !webView.cmuxBrowserViewportLayoutMatches(bounds)
         let needsFrameHosting =
             hostedWebView !== webView ||
             !hostedWebViewConstraints.isEmpty ||
@@ -1535,20 +1540,14 @@ final class WindowBrowserSlotView: NSView {
         // Attached Web Inspector mutates the moved WKWebView's frame directly.
         // Re-pin plain web views after cross-host reattach, but preserve the
         // WebKit-managed split frame when docked DevTools siblings are present.
-        webView.translatesAutoresizingMaskIntoConstraints = true
-        webView.autoresizingMask = [.width, .height]
         if !hasCompanionWKSubviews {
-            webView.frame = bounds
+            webView.cmuxApplyBrowserViewportLayout(in: bounds)
+        } else {
+            webView.translatesAutoresizingMaskIntoConstraints = true
+            webView.autoresizingMask = [.width, .height]
         }
         needsLayout = true
         layoutSubtreeIfNeeded()
-    }
-
-    private static func frameDiffersFromBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
-        abs(frame.minX - bounds.minX) > epsilon ||
-            abs(frame.minY - bounds.minY) > epsilon ||
-            abs(frame.width - bounds.width) > epsilon ||
-            abs(frame.height - bounds.height) > epsilon
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {

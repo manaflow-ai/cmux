@@ -2738,6 +2738,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     private(set) var webView: WKWebView
+    let viewportModel = BrowserViewportModel()
     private var websiteDataStore: WKWebsiteDataStore
     var webViewDidRequestClose: (() -> Void)?
 
@@ -3648,6 +3649,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
+        webView.browserViewportModel = viewportModel
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
@@ -4220,9 +4222,8 @@ final class BrowserPanel: Panel, ObservableObject {
                   let contentView = preloadWindow.contentView else {
                 return false
             }
-            webView.frame = contentView.bounds
-            webView.autoresizingMask = [.width, .height]
             contentView.addSubview(webView)
+            webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
             webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
             return true
         }
@@ -4246,9 +4247,8 @@ final class BrowserPanel: Panel, ObservableObject {
         window.isExcludedFromWindowsMenu = true
 
         let contentView = NSView(frame: frame)
-        webView.frame = contentView.bounds
-        webView.autoresizingMask = [.width, .height]
         contentView.addSubview(webView)
+        webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         window.contentView = contentView
         backgroundPreloadWindow = window
         window.orderFrontRegardless()
@@ -7130,6 +7130,9 @@ extension BrowserPanel {
     }
 
     private func visualAutomationViewportSize() -> NSSize {
+        if let viewport = viewportModel.viewport {
+            return viewport.size
+        }
         let candidates = [
             webView.bounds.size,
             webView.frame.size,

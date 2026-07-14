@@ -223,11 +223,11 @@ enum BrowserScreenshotWebViewSnapshotter {
         window.hidesOnDeactivate = false
         window.collectionBehavior = [.transient, .ignoresCycle, .stationary, .canJoinAllSpaces]
         window.isExcludedFromWindowsMenu = true
-
         let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
         contentView.wantsLayer = true
         webView.removeFromSuperview()
         webView.frame = contentView.bounds
+        webView.bounds = contentView.bounds
         webView.autoresizingMask = [.width, .height]
         contentView.addSubview(webView)
         window.contentView = contentView
@@ -304,11 +304,11 @@ enum BrowserScreenshotWebViewSnapshotter {
         window.hidesOnDeactivate = false
         window.collectionBehavior = [.transient, .ignoresCycle, .stationary, .canJoinAllSpaces]
         window.isExcludedFromWindowsMenu = true
-
         let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
         contentView.wantsLayer = true
         webView.removeFromSuperview()
         webView.frame = contentView.bounds
+        webView.bounds = contentView.bounds
         webView.autoresizingMask = [.width, .height]
         contentView.addSubview(webView)
         window.contentView = contentView

@@ -14601,12 +14601,26 @@ struct CMUXCLI {
 
         if subcommand == "viewport" {
             let sid = try requireSurface()
-            guard subArgs.count >= 2,
+            if subArgs.first?.lowercased() == "reset" {
+                guard subArgs.count == 1 else {
+                    throw CLIError(message: "browser viewport reset does not accept additional arguments")
+                }
+                let payload = try client.sendV2(
+                    method: "browser.viewport.set",
+                    params: ["surface_id": sid, "reset": true]
+                )
+                output(payload, fallback: "OK")
+                return
+            }
+            guard subArgs.count == 2,
                   let width = Int(subArgs[0]),
                   let height = Int(subArgs[1]) else {
-                throw CLIError(message: "browser viewport requires: <width> <height>")
+                throw CLIError(message: "browser viewport requires: <width> <height> | reset")
             }
-            let payload = try client.sendV2(method: "browser.viewport.set", params: ["surface_id": sid, "width": width, "height": height])
+            let payload = try client.sendV2(
+                method: "browser.viewport.set",
+                params: ["surface_id": sid, "width": width, "height": height]
+            )
             output(payload, fallback: "OK")
             return
         }
@@ -16957,7 +16971,9 @@ struct CMUXCLI {
               state <save|load> <path>
               addinitscript|addscript [--script <js> | <js>]
               addstyle [--css <css> | <css>]
-              viewport <width> <height>
+              viewport <width> <height> | reset
+                Emulate an exact 1...4096 CSS-pixel viewport inside the pane without resizing it
+                The page is aspect-fitted in the existing pane; reset restores native pane sizing
               geolocation|geo <latitude> <longitude>
               offline <true|false>
               trace <start|stop> [path]

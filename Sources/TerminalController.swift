@@ -10261,8 +10261,8 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserViewportSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.viewport.set", details: "WKWebView does not provide a per-tab programmable viewport emulation API equivalent to CDP")
+    private func v2BrowserViewportSet(params: [String: Any]) -> V2CallResult {
+        v2BrowserViewportSetWKWebView(params: params)
     }
 
     private func v2BrowserGeolocationSet(params _: [String: Any]) -> V2CallResult {

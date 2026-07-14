@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
@@ -10,6 +11,7 @@ import WebKit
 /// Find-family shortcuts. The configured Find shortcut stays app-owned so cmux can
 /// choose browser find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
+    var browserViewportModel: BrowserViewportModel?
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
     // middle-click so navigation delegates can recover intent reliably.
@@ -17,7 +19,6 @@ final class CmuxWebView: WKWebView {
         let webViewID: ObjectIdentifier
         let uptime: TimeInterval
     }
-
     private static var lastMiddleClickIntent: MiddleClickIntent?
     private static let middleClickIntentMaxAge: TimeInterval = 0.8
     private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
