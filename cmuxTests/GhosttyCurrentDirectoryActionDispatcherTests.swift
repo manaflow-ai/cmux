@@ -10,7 +10,8 @@ import Testing
 @MainActor
 @Suite("Ghostty current-directory action dispatcher", .serialized)
 struct GhosttyCurrentDirectoryActionDispatcherTests {
-    @Test func replayBoundariesSurviveOrdinaryPWDFlood() async {
+    @Test(arguments: [2, 100])
+    func replayBoundariesSurviveOrdinaryPWDQueueing(ordinaryCount: Int) async {
         let startBoundary = "/.cmux/session-scrollback-replay/test/start"
         let endBoundary = "/.cmux/session-scrollback-replay/test/end"
         var deliveredDirectories: [String] = []
@@ -29,7 +30,7 @@ struct GhosttyCurrentDirectoryActionDispatcherTests {
             surfaceView: surfaceView,
             terminalSurface: nil
         )
-        for index in 0..<100 {
+        for index in 0..<ordinaryCount {
             dispatcher.enqueue(
                 directory: "/replayed/\(index)",
                 authoritativeGeometry: nil,
@@ -43,7 +44,7 @@ struct GhosttyCurrentDirectoryActionDispatcherTests {
             surfaceView: surfaceView,
             terminalSurface: nil
         )
-        for index in 0..<100 {
+        for index in 0..<ordinaryCount {
             dispatcher.enqueue(
                 directory: "/live/\(index)",
                 authoritativeGeometry: nil,

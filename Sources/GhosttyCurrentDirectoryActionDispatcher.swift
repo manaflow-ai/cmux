@@ -13,18 +13,30 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
     private let startBoundaryPending = Atomic<Bool>(false)
     private let endBoundaryPending = Atomic<Bool>(false)
     private let boundaryGeneration = Atomic<UInt64>(0)
-    private let continuation: AsyncStream<GhosttyCurrentDirectoryAction>.Continuation
+    private let replayBoundaryContinuation: AsyncStream<GhosttyCurrentDirectoryAction>.Continuation
+    private let ordinaryContinuation: AsyncStream<GhosttyCurrentDirectoryAction>.Continuation
 
     init(delivery: Delivery? = nil) {
-        let (stream, continuation) = AsyncStream<GhosttyCurrentDirectoryAction>.makeStream(
-            bufferingPolicy: .bufferingNewest(3)
-        )
-        self.continuation = continuation
+        let (replayBoundaryStream, replayBoundaryContinuation) =
+            AsyncStream<GhosttyCurrentDirectoryAction>.makeStream(
+                bufferingPolicy: .bufferingNewest(2)
+            )
+        let (ordinaryStream, ordinaryContinuation) =
+            AsyncStream<GhosttyCurrentDirectoryAction>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+        self.replayBoundaryContinuation = replayBoundaryContinuation
+        self.ordinaryContinuation = ordinaryContinuation
         let resolvedDelivery: Delivery = delivery ?? { action in
             Self.deliver(action)
         }
         Task { @MainActor in
-            for await action in stream {
+            for await action in replayBoundaryStream {
+                resolvedDelivery(action)
+            }
+        }
+        Task { @MainActor in
+            for await action in ordinaryStream {
                 resolvedDelivery(action)
             }
         }
@@ -63,22 +75,10 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
             surfaceView: surfaceView,
             terminalSurface: terminalSurface
         )
-        yieldPreservingCurrentReplayBoundary(action)
-    }
-
-    private func yieldPreservingCurrentReplayBoundary(_ action: GhosttyCurrentDirectoryAction) {
-        var next: GhosttyCurrentDirectoryAction? = action
-        let currentGeneration = boundaryGeneration.load(ordering: .acquiring)
-        while let candidate = next {
-            switch continuation.yield(candidate) {
-            case .dropped(let dropped)
-                where dropped.replayBoundaryGeneration == currentGeneration:
-                next = dropped
-            case .enqueued, .dropped, .terminated:
-                next = nil
-            @unknown default:
-                next = nil
-            }
+        if action.replayBoundaryGeneration == nil {
+            ordinaryContinuation.yield(action)
+        } else {
+            replayBoundaryContinuation.yield(action)
         }
     }
 
