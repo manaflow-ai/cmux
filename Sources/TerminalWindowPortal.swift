@@ -23,6 +23,11 @@ enum RemoteTmuxSizingDiagnostics {
     static var sizingPassCount = 0
     static var parityRearmCount = 0
     static var fullHierarchySyncCount = 0
+    /// Executed external-geometry sync passes (not merely scheduled ones):
+    /// the liveness counter for the deferred-hop chain — with static
+    /// geometry this must stay bounded no matter which interactive flags
+    /// are held, or the chain is a per-runloop-turn busy loop.
+    static var externalGeometrySyncPassCount = 0
 }
 #endif
 
@@ -654,7 +659,7 @@ final class WindowTerminalPortal: NSObject {
     private let chromeComposition = AppWindowChromeComposition()
     private weak var installedContainerView: NSView?
     weak var installedReferenceView: NSView?
-    private var installConstraints: [NSLayoutConstraint] = []
+    private var referenceGeometryObservers: [NSObjectProtocol] = []
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
     private var pendingExternalGeometrySyncRequiresImmediate = false
@@ -692,7 +697,14 @@ final class WindowTerminalPortal: NSObject {
         hostView.layer?.masksToBounds = true
         hostView.postsFrameChangedNotifications = true
         hostView.postsBoundsChangedNotifications = true
-        hostView.translatesAutoresizingMaskIntoConstraints = false
+        // Frame-based on purpose (see ensureInstalled): the portal owns
+        // hostView.frame and writes it from the reference's ACTUAL bounds.
+        // Autoresizing keeps the host tracking container resizes within the
+        // same layout pass (a window live-resize tick) — it reads actual
+        // frames, so unlike the old edge constraints it cannot deliver a
+        // layout-engine solution the reference refuses to hold.
+        hostView.translatesAutoresizingMaskIntoConstraints = true
+        hostView.autoresizingMask = [.width, .height]
         dividerOverlayView.translatesAutoresizingMaskIntoConstraints = true
         dividerOverlayView.autoresizingMask = [.width, .height]
         installGeometryObservers(for: window)
@@ -780,6 +792,34 @@ final class WindowTerminalPortal: NSObject {
             NotificationCenter.default.removeObserver(observer)
         }
         geometryObservers.removeAll()
+        removeReferenceGeometryObservers()
+    }
+
+    /// hostView is frame-managed by the portal (see ensureInstalled), so a
+    /// reference resize that moves no anchor would otherwise leave hostView
+    /// stale until the next unrelated sync. These observers are the
+    /// notification form of the glue the old edge constraints provided —
+    /// minus the engine coupling those constraints created.
+    private func installReferenceGeometryObservers(reference: NSView) {
+        removeReferenceGeometryObservers()
+        reference.postsFrameChangedNotifications = true
+        let center = NotificationCenter.default
+        referenceGeometryObservers.append(center.addObserver(
+            forName: NSView.frameDidChangeNotification,
+            object: reference,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.scheduleExternalGeometrySynchronize(forceImmediate: false)
+            }
+        })
+    }
+
+    private func removeReferenceGeometryObservers() {
+        for observer in referenceGeometryObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        referenceGeometryObservers.removeAll()
     }
 
     fileprivate func scheduleExternalGeometrySynchronize() {
@@ -962,6 +1002,9 @@ final class WindowTerminalPortal: NSObject {
             return
         }
         Self.currentlySynchronizingPortalId = ObjectIdentifier(self)
+#if DEBUG
+        RemoteTmuxSizingDiagnostics.externalGeometrySyncPassCount += 1
+#endif
         defer {
             Self.currentlySynchronizingPortalId = nil
             if resyncRequestedDuringPass {
@@ -1056,9 +1099,6 @@ final class WindowTerminalPortal: NSObject {
         if hostView.superview !== container ||
             installedContainerView !== container ||
             installedReferenceView !== reference {
-            NSLayoutConstraint.deactivate(installConstraints)
-            installConstraints.removeAll()
-
             hostView.removeFromSuperview()
             if let browserHost {
                 container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
@@ -1066,15 +1106,25 @@ final class WindowTerminalPortal: NSObject {
                 container.addSubview(hostView, positioned: .above, relativeTo: reference)
             }
 
-            installConstraints = [
-                hostView.leadingAnchor.constraint(equalTo: reference.leadingAnchor),
-                hostView.trailingAnchor.constraint(equalTo: reference.trailingAnchor),
-                hostView.topAnchor.constraint(equalTo: reference.topAnchor),
-                hostView.bottomAnchor.constraint(equalTo: reference.bottomAnchor),
-            ]
-            NSLayoutConstraint.activate(installConstraints)
+            // The portal owns hostView.frame — synchronizeHostFrameToReference
+            // writes it from the reference's ACTUAL bounds on every sync pass,
+            // install, and geometry notification. It is deliberately NOT
+            // edge-constrained to the reference: constraints read the layout
+            // ENGINE's solution for the reference, and when a hosted AppKit
+            // subtree carries a required width demand beyond the window, the
+            // engine's solution for the hosting view exceeds the frame the
+            // hosting view actually holds (its frame setter refuses oversize).
+            // Edge constraints then stomped hostView to the oversized engine
+            // solution on every layout pass, stretched every hosted terminal
+            // view by the same delta through autoresizing, and the sync pass
+            // that undid it forced the next layout pass — a display-rate
+            // hierarchy-sync storm that never converged (seen live: hosted
+            // views pinned at plan+175pt for minutes, full_hierarchy_sync in
+            // the thousands per settle window). Frames written manually from
+            // actual bounds cannot diverge from actual bounds.
             installedContainerView = container
             installedReferenceView = reference
+            installReferenceGeometryObservers(reference: reference)
         } else if let browserHost {
             if !Self.isView(browserHost, above: hostView, in: container) {
                 container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
@@ -1966,8 +2016,6 @@ final class WindowTerminalPortal: NSObject {
         for hostedId in Array(entriesByHostedId.keys) {
             detachHostedView(withId: hostedId)
         }
-        NSLayoutConstraint.deactivate(installConstraints)
-        installConstraints.removeAll()
         hostView.removeFromSuperview()
         installedContainerView = nil
         installedReferenceView = nil
