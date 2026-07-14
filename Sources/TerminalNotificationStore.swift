@@ -1695,6 +1695,9 @@ final class TerminalNotificationStore: ObservableObject {
         guard sourceTabId != destinationTabId else { return }
 
         var didMoveNotification = false
+        let hasSourceConfinedNotification = notifications.contains {
+            !$0.retargetsToLiveSurfaceOwner && $0.matches(tabId: sourceTabId, surfaceId: surfaceId)
+        }
         let updated = notifications.map { notification -> TerminalNotification in
             guard notification.retargetsToLiveSurfaceOwner,
                   notification.matches(tabId: sourceTabId, surfaceId: surfaceId) else {
@@ -1722,7 +1725,7 @@ final class TerminalNotificationStore: ObservableObject {
             notifications = updated
         }
 
-        if focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
+        if !hasSourceConfinedNotification, focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
             focusedReadIndicatorByTabId.removeValue(forKey: sourceTabId)
             if focusedReadIndicatorByTabId[destinationTabId] == nil {
                 focusedReadIndicatorByTabId[destinationTabId] = surfaceId

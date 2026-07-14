@@ -1,29 +1,6 @@
 import CmuxControlSocket
 import Foundation
 
-extension TerminalController {
-    func deliverNotificationSynchronously(
-        tabId: UUID,
-        surfaceId: UUID?,
-        title: String,
-        subtitle: String,
-        body: String
-    ) {
-#if DEBUG
-        cmuxDebugLog(
-            "notification.sync.deliver workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
-        )
-#endif
-        TerminalNotificationStore.shared.addNotification(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            title: title,
-            subtitle: subtitle,
-            body: body
-        )
-    }
-}
-
 /// The notification-domain witnesses are the byte-faithful bodies of the former
 /// `TerminalController.v2Notification*` dispatchers, minus the per-read
 /// `v2MainSync` hop: the coordinator already runs on the main actor inside the

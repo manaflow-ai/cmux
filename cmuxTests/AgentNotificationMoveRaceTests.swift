@@ -393,7 +393,7 @@ struct AgentNotificationRegressionTests {
         fixture.store.clearNotifications(forTabId: fixture.destination.id)
 
         #expect(await waitForFile(at: completionURL))
-        for _ in 0..<100 { await Task.yield() }
+        await waitForNotification(in: fixture.store)
         let recorded = fixture.store.notifications.filter { $0.title == "Relay" }
         #expect(recorded.map(\.tabId) == [fixture.source.id])
         #expect(!recorded.contains { $0.tabId == fixture.destination.id })
@@ -437,7 +437,7 @@ struct AgentNotificationRegressionTests {
         fixture.store.clearNotifications(forTabId: fixture.source.id, surfaceId: fixture.panelId)
 
         #expect(await waitForFile(at: completionURL))
-        for _ in 0..<100 { await Task.yield() }
+        await waitForNotification(in: fixture.store)
         let recorded = fixture.store.notifications.filter { $0.title.hasPrefix("Relay") }
         #expect(recorded.map(\.tabId) == [fixture.destination.id])
         #expect(recorded.map(\.body) == ["Must survive stale source clear"])
