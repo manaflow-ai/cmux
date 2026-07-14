@@ -3,6 +3,7 @@ import CmuxSettings
 import Dispatch
 import Foundation
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
