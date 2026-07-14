@@ -67,17 +67,20 @@ private final class FakeOpenRouting: NotificationOpenRouting {
     var titles: [UUID: String] = [:]
     private(set) var log: [String] = []
     private(set) var receivedRowSpaceRevisions: [UInt64?] = []
+    private(set) var routedRetargetingValues: [Bool] = []
 
     func openRouted(
         tabId: UUID,
         surfaceId: UUID?,
         panelId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool,
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
         scrollRowSpaceRevision: UInt64?
     ) -> Bool {
         receivedRowSpaceRevisions.append(scrollRowSpaceRevision)
+        routedRetargetingValues.append(retargetsToLiveSurfaceOwner)
         log.append("routed(tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows)))")
         return routedSucceeds
     }
@@ -153,6 +156,7 @@ private func snapshot(
     tabId: UUID,
     surfaceId: UUID? = nil,
     panelId: UUID? = nil,
+    retargetsToLiveSurfaceOwner: Bool = true,
     isRead: Bool = false,
     clickAction: NotificationNavClickAction? = nil,
     scrollRow: Int? = nil,
@@ -165,6 +169,7 @@ private func snapshot(
         tabId: tabId,
         surfaceId: surfaceId,
         panelId: panelId,
+        retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
         isRead: isRead,
         clickAction: clickAction,
         scrollRow: scrollRow,
@@ -411,6 +416,20 @@ struct NotificationNavigationCoordinatorTests {
         #expect(openRouting.receivedRowSpaceRevisions == [7])
     }
 
+    @Test("source-confined notification navigation preserves its workspace boundary")
+    func sourceConfinedNotificationDoesNotEnableLiveRetargeting() {
+        let openRouting = FakeOpenRouting()
+        let notification = snapshot(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            retargetsToLiveSurfaceOwner: false
+        )
+        let coordinator = makeCoordinator(openRouting: openRouting)
+
+        #expect(coordinator.openNotification(notification))
+        #expect(openRouting.routedRetargetingValues == [false])
+    }
+
     @Test("openNotification by id preserves stored panel and scroll context")
     func openNotificationByIdPreservesStoredContext() {
         let store = FakeStore()
@@ -444,11 +463,13 @@ struct NotificationNavigationCoordinatorTests {
         let opened = coordinator.openNotification(
             id: notificationId,
             fallbackTabId: fallbackTabId,
-            fallbackSurfaceId: fallbackSurfaceId
+            fallbackSurfaceId: fallbackSurfaceId,
+            fallbackRetargetsToLiveSurfaceOwner: false
         )
 
         #expect(opened)
         #expect(openRouting.log == ["routed(tab=\(short(fallbackTabId)),surf=\(short(fallbackSurfaceId)),notif=\(short(notificationId)),row=nil,total=nil)"])
+        #expect(openRouting.routedRetargetingValues == [false])
     }
 
     // MARK: - Focus signal (the #if DEBUG recorder hook)
