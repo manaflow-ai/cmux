@@ -161,6 +161,8 @@ extension MobileShellComposite {
         if bypassLiveBaselineBarrier {
             terminalOutputQueuesBySurfaceID[renderGrid.surfaceID] = TerminalOutputDeliveryQueue()
             terminalOutputStreamTokensBySurfaceID[renderGrid.surfaceID] = UUID()
+            terminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
+            pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
             terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
             terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
         }
@@ -210,7 +212,8 @@ extension MobileShellComposite {
     func deliverTerminalRenderGrid(
         _ frame: MobileTerminalRenderGridFrame,
         surfaceID: String,
-        bypassReplayBarrier: Bool = false
+        bypassReplayBarrier: Bool = false,
+        forceSemanticFullReplay: Bool = false
     ) -> Bool {
         return deliverTerminalOutput(
             TerminalOutputDelivery(
@@ -218,7 +221,8 @@ extension MobileShellComposite {
                 replaceable: usesAuthoritativeRenderGrid(surfaceID: surfaceID)
                     ? frame.full
                     : frame.isReplaceableViewportPatchForMobileDelivery,
-                viewportPolicy: frame.mobileViewportPolicy
+                viewportPolicy: frame.mobileViewportPolicy,
+                requiresFullSemanticReplay: forceSemanticFullReplay
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -304,6 +308,11 @@ extension MobileShellComposite {
     public func terminalOutputDidProcess(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
+        if let pendingState = pendingTerminalSemanticRenderGridStatesBySurfaceID[surfaceID],
+           pendingState.streamToken == streamToken {
+            terminalSemanticRenderGridStatesBySurfaceID[surfaceID] = pendingState
+            pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+        }
         let next = queue.completeInFlight()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken {
@@ -389,10 +398,33 @@ extension MobileShellComposite {
         let renderGrid = usesAuthoritativeRenderGrid(surfaceID: surfaceID)
             ? delivery.renderGrid
             : nil
+        let data: Data
+        if let renderGrid {
+            let previousState = terminalSemanticRenderGridStatesBySurfaceID[surfaceID]
+            let previousFrame = previousState?.streamToken == streamToken
+                ? previousState?.frame
+                : nil
+            data = renderGrid.semanticReplayBytes(
+                comparedTo: previousFrame,
+                forceFull: delivery.requiresFullSemanticReplay
+            )
+            if renderGrid.full {
+                pendingTerminalSemanticRenderGridStatesBySurfaceID[surfaceID] =
+                    TerminalSemanticRenderGridState(
+                        streamToken: streamToken,
+                        frame: renderGrid
+                    )
+            } else {
+                pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+            }
+        } else {
+            data = delivery.bytes
+            pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+        }
         return MobileTerminalOutputChunk(
             // A typed grid owns visible pixels, while its synthesized VT replay
             // keeps the mounted Ghostty surface current for semantic consumers.
-            data: delivery.bytes,
+            data: data,
             streamToken: streamToken,
             viewportPolicy: delivery.viewportPolicy,
             renderGrid: renderGrid
@@ -408,6 +440,8 @@ extension MobileShellComposite {
     public func terminalOutputDidReset(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
+        terminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
             guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {
                 terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
@@ -437,6 +471,8 @@ extension MobileShellComposite {
         }
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
+        terminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
         // Post-reset retry: rebuilt surface, so drop the floor, don't stash.
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)

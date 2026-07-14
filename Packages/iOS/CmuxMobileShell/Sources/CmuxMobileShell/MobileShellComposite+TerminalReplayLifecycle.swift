@@ -73,6 +73,8 @@ extension MobileShellComposite {
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
+        terminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
         stashTerminalPreBarrierDeliveredEndSeq(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)

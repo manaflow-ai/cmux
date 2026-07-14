@@ -2784,7 +2784,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func updateCursorOverlay() {
         guard let surface,
-              !isAuthoritativeGridPresented,
+              !shouldHideGhosttyRenderer,
               hostCursorVisible,
               window != nil,
               !isHidden,
@@ -3341,7 +3341,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.setDisableActions(true)
         layer.contentsScale = scale
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
-            sublayer.isHidden = isAuthoritativeGridPresented
+            sublayer.isHidden = shouldHideGhosttyRenderer
             if sublayer.frame != renderRect {
                 sublayer.frame = renderRect
             }
@@ -3485,7 +3485,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSnapshotFallback() {
-        if isAuthoritativeGridPresented {
+        if shouldHideGhosttyRenderer {
             snapshotFallbackView.isHidden = true
             return
         }

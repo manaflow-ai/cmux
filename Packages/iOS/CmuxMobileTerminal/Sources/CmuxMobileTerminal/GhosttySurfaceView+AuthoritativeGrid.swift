@@ -85,6 +85,13 @@ extension GhosttySurfaceView {
         authoritativeGridView?.isHidden == false
     }
 
+    var shouldHideGhosttyRenderer: Bool {
+        GhosttyPresentationSuppression.shouldHideRenderer(
+            isRenderDispatchSuppressed: isRenderDispatchSuppressed,
+            isAuthoritativeGridPresented: isAuthoritativeGridPresented
+        )
+    }
+
     func layoutAuthoritativeGridView() {
         guard let authoritativeGridView, !lastRenderRect.isEmpty else { return }
         authoritativeGridView.frame = lastRenderRect

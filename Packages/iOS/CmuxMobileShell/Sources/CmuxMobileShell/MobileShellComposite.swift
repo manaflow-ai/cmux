@@ -788,6 +788,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
+    var terminalSemanticRenderGridStatesBySurfaceID: [String: TerminalSemanticRenderGridState]
+    var pendingTerminalSemanticRenderGridStatesBySurfaceID: [String: TerminalSemanticRenderGridState]
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
@@ -1005,6 +1007,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
+        self.terminalSemanticRenderGridStatesBySurfaceID = [:]
+        self.pendingTerminalSemanticRenderGridStatesBySurfaceID = [:]
         self.terminalScrollQueueTokensBySurfaceID = [:]
         self.terminalScrollQueuesBySurfaceID = [:]
         self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
@@ -5208,6 +5212,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = Set(terminalByteContinuationsBySurfaceID.keys)
         terminalOutputQueuesBySurfaceID = [:]
         terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
+        terminalSemanticRenderGridStatesBySurfaceID = [:]
+        pendingTerminalSemanticRenderGridStatesBySurfaceID = [:]
         terminalFullReplacementSeqBySurfaceID = [:]
         terminalFullReplacementGenerationBySurfaceID = [:]
         terminalFullReplacementGeneration = 0
@@ -6624,6 +6630,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
+        terminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
@@ -6646,6 +6654,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
+        terminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
@@ -7012,7 +7022,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     let accepted = self.deliverTerminalRenderGrid(
                         renderGrid,
                         surfaceID: surfaceID,
-                        bypassReplayBarrier: replayBarrierTokenForRequest != nil
+                        bypassReplayBarrier: replayBarrierTokenForRequest != nil,
+                        forceSemanticFullReplay: true
                     )
                     guard accepted else {
                         transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
