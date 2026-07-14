@@ -17,6 +17,7 @@ final class ComputerUseUXCoordinator {
     private let featureEnabled: @MainActor () -> Bool
 
     private var menuBarController: ComputerUseMenuBarController?
+    private var cursorOverlayController: ComputerUseCursorOverlayController?
     private var onboardingWindowController: ComputerUseOnboardingWindowController?
     private var enabledSettingTask: Task<Void, Never>?
     private var agentSessionRequiresRestart = false
@@ -93,9 +94,24 @@ final class ComputerUseUXCoordinator {
             }
         )
 
+        // Render the branded, click-through cursor overlay whenever the local
+        // driver is steering the pointer. Gated the same way as the menu bar via
+        // `featureEnabled`; the controller hides itself when the feature is off.
+        let cursorOverlay = ComputerUseCursorOverlayController(
+            stateDirectoryURL: stateDirectoryURL,
+            featureEnabled: featureEnabled
+        )
+        cursorOverlay.start()
+        cursorOverlayController = cursorOverlay
+
         // Offer permission setup at app startup so the embedded driver does not
         // have to be the first process to discover missing TCC grants.
         presentOnboardingAutomaticallyIfNeeded()
+    }
+
+    func teardown() {
+        cursorOverlayController?.stop()
+        cursorOverlayController = nil
     }
 
     func presentOnboarding() {

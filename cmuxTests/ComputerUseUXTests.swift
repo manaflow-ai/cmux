@@ -254,6 +254,149 @@ struct ComputerUseUXTests {
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "1")
     }
 
+    // MARK: - Cursor overlay
+
+    @Test func cursorFeedFlipsGlobalTopLeftToAppKitBottomLeft() {
+        // Non-zero primary-screen-height fixture: a feed point 200px below the top
+        // of a 1200pt-tall primary display lands 1000pt above the AppKit origin.
+        let point = ComputerUseCursorOverlayGeometry.appKitPoint(
+            feedX: 100,
+            feedY: 200,
+            primaryScreenMaxY: 1200
+        )
+        #expect(point.x == 100)
+        #expect(point.y == 1000)
+
+        // The origin at the very top-left of the primary display flips to its full
+        // height; the bottom-left flips to zero.
+        #expect(ComputerUseCursorOverlayGeometry.appKitPoint(feedX: 0, feedY: 0, primaryScreenMaxY: 1200).y == 1200)
+        #expect(ComputerUseCursorOverlayGeometry.appKitPoint(feedX: 0, feedY: 1200, primaryScreenMaxY: 1200).y == 0)
+    }
+
+    @Test func cursorWindowOriginPlacesHotspotAtConvertedPoint() {
+        let hotspot = ComputerUseCursorOverlayGeometry.appKitPoint(
+            feedX: 100,
+            feedY: 200,
+            primaryScreenMaxY: 1200
+        )
+        let origin = ComputerUseCursorOverlayGeometry.windowOrigin(forAppKitHotspot: hotspot)
+        let inset = ComputerUseCursorOverlayGeometry.hotspotInset
+        let height = ComputerUseCursorOverlayGeometry.windowSize.height
+        // Adding the hotspot inset back to the window origin returns the hotspot.
+        #expect(origin.x + inset == hotspot.x)
+        #expect(origin.y + (height - inset) == hotspot.y)
+    }
+
+    @Test func cursorFeedSelectsNewestVisibleFreshFile() throws {
+        try withStateDirectory { directory in
+            let now = Date(timeIntervalSince1970: 2_000_000_000)
+            try writeCursorState(
+                to: directory.appendingPathComponent("10.cursor.json"),
+                driverPID: 10, visible: true, x: 1, y: 1, updatedAt: now.addingTimeInterval(-3)
+            )
+            try writeCursorState(
+                to: directory.appendingPathComponent("11.cursor.json"),
+                driverPID: 11, visible: true, x: 42, y: 84, updatedAt: now.addingTimeInterval(-1)
+            )
+            // A hidden file that is newer must NOT win over the visible one.
+            try writeCursorState(
+                to: directory.appendingPathComponent("12.cursor.json"),
+                driverPID: 12, visible: false, x: 9, y: 9, updatedAt: now
+            )
+            let selected = ComputerUseCursorFeed().scan(directoryURL: directory, now: now)
+            #expect(selected?.driverPID == 11)
+            #expect(selected?.x == 42)
+            #expect(selected?.y == 84)
+        }
+    }
+
+    @Test func cursorFeedIgnoresStaleAndHiddenFiles() throws {
+        try withStateDirectory { directory in
+            let now = Date(timeIntervalSince1970: 2_000_000_000)
+            // Fresh but hidden -> not shown.
+            try writeCursorState(
+                to: directory.appendingPathComponent("20.cursor.json"),
+                driverPID: 20, visible: false, x: 1, y: 1, updatedAt: now
+            )
+            // Visible but stale (older than the freshness window) -> not shown.
+            try writeCursorState(
+                to: directory.appendingPathComponent("21.cursor.json"),
+                driverPID: 21, visible: true, x: 1, y: 1, updatedAt: now.addingTimeInterval(-30)
+            )
+            let feed = ComputerUseCursorFeed(freshnessInterval: 5)
+            #expect(feed.scan(directoryURL: directory, now: now) == nil)
+
+            // Once the visible file refreshes it becomes selectable again.
+            try writeCursorState(
+                to: directory.appendingPathComponent("21.cursor.json"),
+                driverPID: 21, visible: true, x: 5, y: 6, updatedAt: now
+            )
+            #expect(feed.scan(directoryURL: directory, now: now)?.driverPID == 21)
+        }
+    }
+
+    @Test func cursorStateParsesBrandedFeedShape() throws {
+        let json = """
+        {"driver_pid":4242,"session":null,"visible":true,"x":812.5,"y":460.0,\
+        "label":"cmux","gradient":["#12c7f5","#2d8cff","#6c5cff"],"bloom":"#2d8cff",\
+        "updated_at":"2026-07-14T01:09:37.745752Z","schema":1}
+        """
+        let state = try #require(ComputerUseCursorState(data: Data(json.utf8)))
+        #expect(state.driverPID == 4242)
+        #expect(state.visible)
+        #expect(state.x == 812.5)
+        #expect(state.y == 460.0)
+        #expect(state.label == "cmux")
+        #expect(state.gradient == ["#12C7F5", "#2D8CFF", "#6C5CFF"])
+        #expect(state.bloom == "#2D8CFF")
+    }
+
+    @Test func cursorPresentationFallsBackToBrandedDefaults() {
+        // Empty gradient in the feed -> the branded cmux gradient.
+        #expect(
+            ComputerUseCursorPresentation.resolvedGradientHexes([])
+                == ComputerUseCursorPresentation.defaultGradientHexes
+        )
+        // Junk hex values are dropped; if none survive, defaults apply.
+        #expect(
+            ComputerUseCursorPresentation.resolvedGradientHexes(["not-a-color", "#zzzzzz"])
+                == ComputerUseCursorPresentation.defaultGradientHexes
+        )
+        let state = try? #require(ComputerUseCursorState(data: Data("""
+        {"driver_pid":7,"visible":true,"x":0,"y":0,"updated_at":"2026-07-14T01:09:37Z"}
+        """.utf8)))
+        let presentation = ComputerUseCursorPresentation.make(from: state!)
+        #expect(presentation.label == "cmux")
+        #expect(presentation.bloomHex == ComputerUseCursorPresentation.defaultBloomHex)
+        #expect(presentation.gradientHexes == ComputerUseCursorPresentation.defaultGradientHexes)
+    }
+
+    private func writeCursorState(
+        to url: URL,
+        driverPID: Int,
+        visible: Bool,
+        x: Double,
+        y: Double,
+        updatedAt: Date
+    ) throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let object: [String: Any] = [
+            "driver_pid": driverPID,
+            "session": NSNull(),
+            "visible": visible,
+            "x": x,
+            "y": y,
+            "label": "cmux",
+            "gradient": ["#12c7f5", "#2d8cff", "#6c5cff"],
+            "bloom": "#2d8cff",
+            "updated_at": formatter.string(from: updatedAt),
+            "schema": 1,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: object)
+        try data.write(to: url, options: .atomic)
+    }
+
     private func withStateDirectory(_ body: (URL) throws -> Void) throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-computer-use-tests-\(UUID().uuidString)", isDirectory: true)
