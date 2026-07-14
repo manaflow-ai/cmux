@@ -6,6 +6,8 @@ public protocol OrchestrationFileSystem: Sendable {
     func fileExists(atPath path: String) -> Bool
     func directoryExists(atPath path: String) -> Bool
     func isExecutableFile(atPath path: String) -> Bool
+    /// Whether the path itself is a symbolic link (not resolved).
+    func isSymbolicLink(atPath path: String) -> Bool
     func contentsOfDirectory(atPath path: String) throws -> [String]
     func readData(atPath path: String) throws -> Data
     func writeData(_ data: Data, atPath path: String) throws
@@ -29,6 +31,11 @@ public struct DefaultOrchestrationFileSystem: OrchestrationFileSystem {
 
     public func isExecutableFile(atPath path: String) -> Bool {
         FileManager.default.isExecutableFile(atPath: path)
+    }
+
+    public func isSymbolicLink(atPath path: String) -> Bool {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return attributes?[.type] as? FileAttributeType == .typeSymbolicLink
     }
 
     public func contentsOfDirectory(atPath path: String) throws -> [String] {

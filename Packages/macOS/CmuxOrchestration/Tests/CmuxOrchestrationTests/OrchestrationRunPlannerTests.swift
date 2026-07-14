@@ -204,6 +204,23 @@ import Testing
         #expect(command.hasPrefix("claude '"))
     }
 
+    @Test func trustFingerprintTracksTrustMaterial() throws {
+        let fixture = try Fixture()
+        let plan = try fixture.planner.plan(fixture.request(tasks: [OrchestrationTaskInput(title: "x")]))
+        let same = try fixture.planner.plan(fixture.request(tasks: [OrchestrationTaskInput(title: "y")]))
+        // Deterministic across runs and independent of task inputs.
+        #expect(plan.trust.fingerprint == same.trust.fingerprint)
+        #expect(plan.trust.fingerprint.count == 64)
+
+        var changed = plan.trust
+        changed.agentCommands = ["claude: claude --dangerously-skip-permissions {{prompt}}"]
+        #expect(changed.fingerprint != plan.trust.fingerprint)
+
+        var versionBump = plan.trust
+        versionBump.templateVersion = "9.9.9"
+        #expect(versionBump.fingerprint != plan.trust.fingerprint)
+    }
+
     @Test func planIsCodable() throws {
         let fixture = try Fixture()
         let plan = try fixture.planner.plan(fixture.request(tasks: [OrchestrationTaskInput(title: "x")]))

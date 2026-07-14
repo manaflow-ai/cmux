@@ -7,6 +7,7 @@ final class InMemoryFileSystem: OrchestrationFileSystem, @unchecked Sendable {
     private var files: [String: Data] = [:]
     private var directories: Set<String> = []
     private var executablePaths: Set<String> = []
+    private var symlinkPaths: Set<String> = []
 
     init() {}
 
@@ -18,6 +19,15 @@ final class InMemoryFileSystem: OrchestrationFileSystem, @unchecked Sendable {
         files[normalize(path)] = Data(contents.utf8)
         if executable { executablePaths.insert(normalize(path)) }
         addParentDirectories(of: normalize(path))
+    }
+
+    /// Registers a symlink whose resolved target reads as `contents`
+    /// (mirrors the real filesystem, where reads follow the link).
+    func addSymlink(_ path: String, contents: String = "linked") {
+        addFile(path, contents)
+        lock.lock()
+        defer { lock.unlock() }
+        symlinkPaths.insert(normalize(path))
     }
 
     func addDirectory(_ path: String) {
@@ -57,6 +67,12 @@ final class InMemoryFileSystem: OrchestrationFileSystem, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return executablePaths.contains(normalize(path))
+    }
+
+    func isSymbolicLink(atPath path: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return symlinkPaths.contains(normalize(path))
     }
 
     func contentsOfDirectory(atPath path: String) throws -> [String] {

@@ -105,8 +105,9 @@ public enum ControlOrchestrationPlanResolution: Sendable {
     case notInstalled
     /// Planning failed (unanswered parameters, bad agent, version gate, …).
     case planFailed(String)
-    /// The run plan as a JSON object, plus current trust state.
-    case resolved(plan: JSONValue, trustConfirmed: Bool)
+    /// The run plan as a JSON object, the current trust state, and the
+    /// trust fingerprint a client must echo back when confirming.
+    case resolved(plan: JSONValue, trustConfirmed: Bool, trustFingerprint: String)
     /// The store could not be read.
     case failed(String)
 }
@@ -148,9 +149,14 @@ public protocol ControlOrchestrationContext: AnyObject {
 
     /// Plans a run and starts actuation (provision + workspaces) if trust is
     /// confirmed. Workspace creation never steals focus.
+    ///
+    /// A first-run confirmation (`confirmTrust`) must carry the
+    /// `confirmFingerprint` from the plan the user reviewed; the run is
+    /// rejected if the template's trust material changed since (TOCTOU).
     func controlOrchestrationRun(
         routing: ControlRoutingSelectors,
         inputs: ControlOrchestrationRunInputs,
-        confirmTrust: Bool
+        confirmTrust: Bool,
+        confirmFingerprint: String?
     ) -> ControlOrchestrationRunResolution
 }

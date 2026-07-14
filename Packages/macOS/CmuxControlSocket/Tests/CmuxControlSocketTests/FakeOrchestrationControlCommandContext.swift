@@ -12,7 +12,11 @@ final class FakeOrchestrationControlCommandContext: ControlCommandContext {
 
     private(set) var infoCall: String?
     private(set) var planCall: ControlOrchestrationRunInputs?
-    private(set) var runCall: (inputs: ControlOrchestrationRunInputs, confirmTrust: Bool)?
+    private(set) var runCall: (
+        inputs: ControlOrchestrationRunInputs,
+        confirmTrust: Bool,
+        confirmFingerprint: String?
+    )?
 
     func controlOrchestrationList() -> ControlOrchestrationListResolution {
         listResolution
@@ -33,9 +37,10 @@ final class FakeOrchestrationControlCommandContext: ControlCommandContext {
     func controlOrchestrationRun(
         routing: ControlRoutingSelectors,
         inputs: ControlOrchestrationRunInputs,
-        confirmTrust: Bool
+        confirmTrust: Bool,
+        confirmFingerprint: String?
     ) -> ControlOrchestrationRunResolution {
-        runCall = (inputs, confirmTrust)
+        runCall = (inputs, confirmTrust, confirmFingerprint)
         return runResolution
     }
 }

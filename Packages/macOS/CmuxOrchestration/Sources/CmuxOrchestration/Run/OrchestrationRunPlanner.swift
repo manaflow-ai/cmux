@@ -158,7 +158,8 @@ public struct OrchestrationRunPlanner: Sendable {
                 substrate: manifest.substrate.kind,
                 scriptPaths: manifest.substrate.scriptPaths,
                 agentCommands: manifest.agents.map { "\($0.id): \($0.command)" },
-                workspaceRoot: workspaceRoot
+                workspaceRoot: workspaceRoot,
+                templateVersion: manifest.version
             ),
             notes: notes
         )
@@ -293,7 +294,9 @@ public struct OrchestrationRunPlanner: Sendable {
 
         let promptFile = Self.promptFileRelativePath
         values["prompt"] = OrchestrationPlaceholders().shellQuoted(renderedPrompt)
-        values["prompt_file"] = promptFile
+        // Quoted like {{prompt}}: constant relative path today, but quoting keeps
+        // agent commands safe if the location ever gains spaces.
+        values["prompt_file"] = OrchestrationPlaceholders().shellQuoted(promptFile)
 
         let commandText: String
         do {

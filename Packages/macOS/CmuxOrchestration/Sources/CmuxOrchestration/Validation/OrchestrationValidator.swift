@@ -99,6 +99,7 @@ public struct OrchestrationValidator: Sendable {
             return OrchestrationValidationReport(manifest: nil, findings: findings)
         }
 
+        validateNoSymlinks(in: templateDirectory, into: &findings)
         validateIdentity(manifest, into: &findings)
         validateParameters(manifest, into: &findings)
         validateAgents(manifest, into: &findings)
@@ -112,6 +113,40 @@ public struct OrchestrationValidator: Sendable {
     }
 
     // MARK: - Individual checks
+
+    /// Templates must not contain symlinks: `fileExists` and reads resolve
+    /// them, so a symlinked prompt or script could reach outside the
+    /// template root (e.g. `prompts/task.md -> ~/.ssh/id_rsa`) and leak the
+    /// target's contents into rendered prompts at run time.
+    private func validateNoSymlinks(
+        in templateDirectory: String,
+        into findings: inout [OrchestrationValidationFinding]
+    ) {
+        for relativePath in symlinkPaths(under: templateDirectory) {
+            findings.append(.init(
+                severity: .error,
+                code: "symlink",
+                message: "'\(relativePath)' is a symbolic link; templates must contain regular files only",
+                path: relativePath
+            ))
+        }
+    }
+
+    private func symlinkPaths(under root: String, prefix: String = "", depth: Int = 0) -> [String] {
+        guard depth < 6, let entries = try? fileSystem.contentsOfDirectory(atPath: root) else { return [] }
+        var results: [String] = []
+        for entry in entries.sorted() {
+            if entry == ".git" { continue }
+            let absolute = join(root, entry)
+            let relative = prefix.isEmpty ? entry : "\(prefix)/\(entry)"
+            if fileSystem.isSymbolicLink(atPath: absolute) {
+                results.append(relative)
+            } else if fileSystem.directoryExists(atPath: absolute) {
+                results.append(contentsOf: symlinkPaths(under: absolute, prefix: relative, depth: depth + 1))
+            }
+        }
+        return results
+    }
 
     private func validateIdentity(
         _ manifest: OrchestrationManifest,

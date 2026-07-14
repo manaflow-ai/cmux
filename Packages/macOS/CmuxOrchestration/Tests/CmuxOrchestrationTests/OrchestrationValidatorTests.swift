@@ -186,6 +186,16 @@ import Testing
         #expect(report.isValid, "unexpected findings: \(report.findings)")
     }
 
+    @Test func rejectsSymlinksAnywhereInTemplate() {
+        let report = validate { fileSystem in
+            addMinimalTemplate(to: fileSystem, at: "/t")
+            fileSystem.addSymlink("/t/prompts/evil.md")
+        }
+        let symlinkFindings = report.findings.filter { $0.code == "symlink" }
+        #expect(symlinkFindings.map(\.path) == ["prompts/evil.md"])
+        #expect(!report.isValid)
+    }
+
     @Test func flagsSecretMaterial() {
         let report = validate { fileSystem in
             addMinimalTemplate(to: fileSystem, at: "/t")

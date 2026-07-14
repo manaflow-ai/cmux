@@ -22,7 +22,8 @@ extension ControlOrchestrationContext {
     func controlOrchestrationRun(
         routing: ControlRoutingSelectors,
         inputs: ControlOrchestrationRunInputs,
-        confirmTrust: Bool
+        confirmTrust: Bool,
+        confirmFingerprint: String?
     ) -> ControlOrchestrationRunResolution {
         .notInstalled
     }

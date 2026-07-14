@@ -55,14 +55,19 @@ extension TerminalController: ControlOrchestrationContext {
             guard let payload = Self.orchestrationJSON(plan) else {
                 return .failed("Could not encode run plan")
             }
-            return .resolved(plan: payload, trustConfirmed: installation.record.trustConfirmedAt != nil)
+            return .resolved(
+                plan: payload,
+                trustConfirmed: installation.record.trustConfirmedAt != nil,
+                trustFingerprint: plan.trust.fingerprint
+            )
         }
     }
 
     func controlOrchestrationRun(
         routing: ControlRoutingSelectors,
         inputs: ControlOrchestrationRunInputs,
-        confirmTrust: Bool
+        confirmTrust: Bool,
+        confirmFingerprint: String?
     ) -> ControlOrchestrationRunResolution {
         let store = orchestrationStore
         switch orchestrationPlan(inputs: inputs) {
@@ -77,6 +82,14 @@ extension TerminalController: ControlOrchestrationContext {
                 guard confirmTrust else {
                     return .needsTrustConfirmation(
                         trust: Self.orchestrationJSON(plan.trust) ?? .object([:])
+                    )
+                }
+                // The confirmation must be for the plan the user actually
+                // reviewed: reject if the template's trust material changed
+                // between plan and run (or if no fingerprint was echoed).
+                guard confirmFingerprint == plan.trust.fingerprint else {
+                    return .planFailed(
+                        "Template trust material changed since the reviewed plan; run 'cmux orchestration plan \(inputs.name)' again"
                     )
                 }
                 do {

@@ -129,7 +129,14 @@ Enforced in code, not convention:
   run (and again after every `update`), cmux shows the substrate, every
   agent command template, and every script the template would execute, and
   asks for confirmation. `--yes` skips the prompt. Script-substrate
-  templates are flagged in that summary.
+  templates are flagged in that summary. The confirmation is bound to a
+  `trust_fingerprint` of the reviewed plan's trust material, so a template
+  that changes between review and confirmation is rejected instead of
+  silently approved.
+- **Templates contain regular files only.** Validation rejects symbolic
+  links anywhere in the template — a symlinked prompt or script could
+  otherwise resolve outside the template root and leak its target into
+  rendered prompts.
 - **Templates never contain secrets.** Validation rejects files containing
   obvious credential material (token prefixes, private keys). Agent
   commands run with whatever auth the *user's* machine already has; scripts
@@ -164,8 +171,8 @@ The v2 domain `orchestration.*` follows the standard coordinator patterns:
 | --- | --- | --- |
 | `orchestration.list` | — | `{orchestrations: [{name, version, description, substrate, agents, source, trust_confirmed, unanswered_parameters}]}` |
 | `orchestration.info` | `name` | summary + parameters/steps/paths detail |
-| `orchestration.plan` | `name`, `tasks` (strings or `{title, body?, issue_number?}`), `params?`, `agent?` | `{plan, trust_confirmed}` |
-| `orchestration.run` | plan params + `confirm_trust?`, routing selectors | `{status: "started", run_id, group, workspaces…}`; errors `needs_confirmation` (with the trust summary) until confirmed |
+| `orchestration.plan` | `name`, `tasks` (strings or `{title, body?, issue_number?}`), `params?`, `agent?` | `{plan, trust_confirmed, trust_fingerprint}` |
+| `orchestration.run` | plan params + `confirm_trust?` + `confirm_fingerprint?`, routing selectors | `{status: "started", run_id, group, workspaces…}`; errors `needs_confirmation` (with the trust summary) until confirmed with the reviewed plan's fingerprint |
 
 ## Storage
 

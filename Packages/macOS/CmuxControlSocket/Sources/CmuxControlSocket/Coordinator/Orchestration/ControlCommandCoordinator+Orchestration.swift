@@ -68,10 +68,11 @@ extension ControlCommandCoordinator {
                 return .err(code: "not_found", message: "Orchestration not installed", data: .object(["name": .string(inputs.name)]))
             case .planFailed(let message):
                 return .err(code: "invalid_params", message: message, data: nil)
-            case .resolved(let plan, let trustConfirmed):
+            case .resolved(let plan, let trustConfirmed, let trustFingerprint):
                 return .ok(.object([
                     "plan": plan,
                     "trust_confirmed": .bool(trustConfirmed),
+                    "trust_fingerprint": .string(trustFingerprint),
                 ]))
             case .failed(let message):
                 return .err(code: "internal_error", message: message, data: nil)
@@ -90,7 +91,8 @@ extension ControlCommandCoordinator {
             let resolution = context.controlOrchestrationRun(
                 routing: routingSelectors(params),
                 inputs: inputs,
-                confirmTrust: bool(params, "confirm_trust") ?? false
+                confirmTrust: bool(params, "confirm_trust") ?? false,
+                confirmFingerprint: string(params, "confirm_fingerprint")
             )
             switch resolution {
             case .notInstalled:

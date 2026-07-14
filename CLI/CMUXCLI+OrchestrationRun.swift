@@ -84,6 +84,7 @@ extension CMUXCLI {
         let planPayload = try client.sendV2(method: "orchestration.plan", params: params)
         let plan = planPayload["plan"] as? [String: Any] ?? [:]
         let trustConfirmed = planPayload["trust_confirmed"] as? Bool ?? false
+        let trustFingerprint = planPayload["trust_fingerprint"] as? String
 
         if effectiveJSONOutput, dryRun {
             print(jsonString(planPayload))
@@ -109,6 +110,11 @@ extension CMUXCLI {
         }
 
         params["confirm_trust"] = true
+        // Echo the reviewed plan's fingerprint so the app rejects the run if
+        // the template changed between plan and confirmation.
+        if let trustFingerprint {
+            params["confirm_fingerprint"] = trustFingerprint
+        }
         let runPayload = try client.sendV2(method: "orchestration.run", params: params)
         if effectiveJSONOutput {
             print(jsonString(runPayload))

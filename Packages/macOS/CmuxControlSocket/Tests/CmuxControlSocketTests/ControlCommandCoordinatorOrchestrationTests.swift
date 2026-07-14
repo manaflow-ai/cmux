@@ -81,7 +81,7 @@ struct ControlCommandCoordinatorOrchestrationTests {
 
     @Test func planParsesTasksAndOverrides() throws {
         let (coordinator, context) = coordinator()
-        context.planResolution = .resolved(plan: .object(["run_id": .string("r1")]), trustConfirmed: true)
+        context.planResolution = .resolved(plan: .object(["run_id": .string("r1")]), trustConfirmed: true, trustFingerprint: "fp123")
 
         let result = coordinator.handle(request("orchestration.plan", [
             "name": .string("issue-fleet"),
@@ -98,6 +98,7 @@ struct ControlCommandCoordinatorOrchestrationTests {
             return
         }
         #expect(payload["trust_confirmed"] == .bool(true))
+        #expect(payload["trust_fingerprint"] == .string("fp123"))
         let inputs = try #require(context.planCall)
         #expect(inputs.name == "issue-fleet")
         #expect(inputs.tasks.count == 2)
@@ -156,12 +157,14 @@ struct ControlCommandCoordinatorOrchestrationTests {
             "name": .string("issue-fleet"),
             "tasks": .array([.string("t")]),
             "confirm_trust": .bool(true),
+            "confirm_fingerprint": .string("fp123"),
         ])) else {
             Issue.record("expected started payload")
             return
         }
         #expect(payload["run_id"] == .string("r1"))
         #expect(context.runCall?.confirmTrust == true)
+        #expect(context.runCall?.confirmFingerprint == "fp123")
     }
 
     @Test func planFailureMapsToInvalidParams() throws {
