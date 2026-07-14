@@ -359,6 +359,31 @@ import Testing
         #expect(!store.terminalReorderGate.canMutate(workspaceID: workspace.id))
     }
 
+    @Test func newTerminalActionRecoversRefreshRequiredHierarchy() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected,
+            workspaceActionCapabilities: MobileWorkspaceActionCapabilities(
+                supportsTerminalCloseActions: true,
+                supportsTerminalCreateInPane: true,
+                supportsTerminalReorderActions: true
+            )
+        )
+        let workspaceID = try #require(store.workspaces.first?.id)
+        store.terminalReorderGate.requireRefresh(workspaceID: workspaceID)
+
+        store.createTerminal(in: workspaceID)
+        for _ in 0..<300 where store.terminalReorderGate.requiresRefresh(workspaceID: workspaceID) {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+
+        #expect(await router.workspaceListGate.requestCount() == 1)
+        #expect(await router.recordedTerminalCreateCount() == 0)
+        #expect(!store.terminalReorderGate.requiresRefresh(workspaceID: workspaceID))
+        #expect(store.terminalReorderGate.canMutate(workspaceID: workspaceID))
+    }
+
     @Test func invalidatedWorkspaceCreateCompletionRemainsBenign() async throws {
         let originalRouter = RoutingHostRouter()
         await originalRouter.setHoldFirstWorkspaceCreate(true)

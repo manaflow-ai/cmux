@@ -50,6 +50,30 @@ import Testing
 }
 
 @MainActor
+@Test func hierarchyReservationsAreScopedToTheirWorkspace() throws {
+    let gate = MobileTerminalReorderGate()
+    let first = try #require(gate.reserve(
+        workspaceID: "workspace-a",
+        paneID: "pane-a"
+    ))
+    let second = try #require(gate.reserve(
+        workspaceID: "workspace-b",
+        paneID: "pane-b"
+    ))
+
+    #expect(!gate.canMutate(workspaceID: "workspace-a"))
+    #expect(!gate.canMutate(workspaceID: "workspace-b"))
+    #expect(gate.canMutate(workspaceID: "workspace-c"))
+
+    gate.finish(first)
+    #expect(gate.canMutate(workspaceID: "workspace-a"))
+    #expect(!gate.canMutate(workspaceID: "workspace-b"))
+
+    gate.finish(second)
+    #expect(gate.canMutate(workspaceID: "workspace-b"))
+}
+
+@MainActor
 @Test func authoritativeRefreshReopensAndPrunesHierarchyMutationGates() {
     let gate = MobileTerminalReorderGate()
     gate.requireRefresh(workspaceID: "refreshed-workspace")
