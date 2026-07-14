@@ -489,6 +489,7 @@ public struct SettingsWindowRoot: View {
 
         KeyboardShortcutsSection(
             jsonStore: jsonStore,
+            userDefaultsStore: defaultsStore,
             catalog: catalog,
             errorLog: runtime.errorLog,
             hostActions: hostActions
