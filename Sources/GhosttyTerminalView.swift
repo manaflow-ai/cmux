@@ -3064,7 +3064,11 @@ class GhosttyApp {
                         return (false, nil)
                     }
                     guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
-                        return (false, resolvedPath)
+                        // Not a cmux-supported file type; open directly in the preferred editor
+                        // so that app.preferredEditor is honoured for .tsx, .py, .go etc.
+                        let fileURL = URL(fileURLWithPath: resolvedPath)
+                        PreferredEditorService(defaults: .standard).open(fileURL)
+                        return (true, resolvedPath)
                     }
                     #if DEBUG
                     cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
@@ -3076,7 +3080,7 @@ class GhosttyApp {
                         surfaceId: termSurface.id,
                         filePath: resolvedPath
                     ) {
-                        NSWorkspace.shared.open(fileURL)
+                        PreferredEditorService(defaults: .standard).open(fileURL)
                     }
                     return (true, resolvedPath)
                 }
@@ -3124,7 +3128,7 @@ class GhosttyApp {
                         surfaceId: termSurface.id,
                         filePath: fileURL.path
                     ) {
-                        NSWorkspace.shared.open(fileURL)
+                        PreferredEditorService(defaults: .standard).open(fileURL)
                     }
                     return true
                 }
