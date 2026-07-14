@@ -27,8 +27,26 @@ extension FileExplorerPanelView.Coordinator {
 
         let treeChanged = fileFilterTreeRevision != store.treeRevision
         if treeChanged, fileFilter.isActive {
-            fileFilter.rebuildIndex(nodes: store.rootNodes)
-            fileFilterTreeRevision = store.treeRevision
+            let treeRevision = store.treeRevision
+            let builder = FileExplorerTreeFilterSnapshotBuilder(nodes: store.rootNodes)
+            if let captured = builder.buildSynchronously(
+                upTo: FileExplorerTreeFilterSnapshot.synchronousNodeLimit
+            ) {
+                fileFilter.replaceIndex(
+                    snapshot: captured.snapshot,
+                    nodesByPath: captured.nodesByPath
+                )
+                fileFilterTreeRevision = treeRevision
+            } else {
+                startFileFilterTask(
+                    snapshot: nil,
+                    builder: builder,
+                    query: fileFilter.query,
+                    treeRevision: treeRevision,
+                    outlineView: outlineView
+                )
+                return
+            }
         }
 
         guard fileFilter.isActive else {
@@ -66,6 +84,7 @@ extension FileExplorerPanelView.Coordinator {
 
         startFileFilterTask(
             snapshot: snapshot,
+            builder: nil,
             query: fileFilter.query,
             treeRevision: fileFilterTreeRevision,
             outlineView: outlineView
@@ -73,7 +92,8 @@ extension FileExplorerPanelView.Coordinator {
     }
 
     private func startFileFilterTask(
-        snapshot: FileExplorerTreeFilterSnapshot,
+        snapshot: FileExplorerTreeFilterSnapshot?,
+        builder: FileExplorerTreeFilterSnapshotBuilder?,
         query: String,
         treeRevision: Int,
         outlineView: NSOutlineView
@@ -83,7 +103,31 @@ extension FileExplorerPanelView.Coordinator {
         let generation = fileFilterGeneration
         fileFilterTask = Task { [weak self, weak outlineView] in
             do {
-                let result = try await snapshot.filter(query: query)
+                var filterSnapshot = snapshot
+                if let builder {
+                    let captured = try await builder.build()
+                    try Task.checkCancellation()
+                    guard let coordinator = self, let outlineView,
+                          coordinator.fileFilterGeneration == generation else { return }
+                    guard coordinator.containerView?.displayedSearchScope == .names else {
+                        coordinator.fileFilterTask = nil
+                        return
+                    }
+                    guard treeRevision == coordinator.store.treeRevision else {
+                        coordinator.fileFilterTask = nil
+                        coordinator.setFileFilterQuery(coordinator.fileFilter.query, in: outlineView)
+                        return
+                    }
+                    coordinator.fileFilter.replaceIndex(
+                        snapshot: captured.snapshot,
+                        nodesByPath: captured.nodesByPath
+                    )
+                    coordinator.fileFilterTreeRevision = treeRevision
+                    filterSnapshot = captured.snapshot
+                }
+
+                guard let filterSnapshot else { return }
+                let result = try await filterSnapshot.filter(query: query)
                 try Task.checkCancellation()
                 guard let self, let outlineView,
                       self.fileFilterGeneration == generation else { return }

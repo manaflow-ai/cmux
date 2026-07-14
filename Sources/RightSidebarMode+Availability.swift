@@ -133,6 +133,7 @@ enum RightSidebarKeyboardNavigation {
         }
         return text.unicodeScalars.allSatisfy {
             !CharacterSet.controlCharacters.contains($0)
+                && !(0xF700...0xF8FF).contains($0.value)
         }
     }
 }

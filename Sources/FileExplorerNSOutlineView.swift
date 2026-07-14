@@ -16,6 +16,8 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             }
         }
 
+        // Bare letters remain query input while filtering. AppKit function-key
+        // scalars are non-printable and fall through to navigation below.
         if quickSearchActive,
            RightSidebarKeyboardNavigation.isPlainPrintableText(event),
            handleQuickSearchKey(event) {

@@ -25,10 +25,12 @@ struct FileExplorerTreeFilter {
     }
 
     @MainActor
-    mutating func rebuildIndex(nodes: [FileExplorerNode]) {
-        let captured = FileExplorerTreeFilterSnapshot.capture(nodes: nodes)
-        snapshot = captured.snapshot
-        nodesByPath = captured.nodesByPath
+    mutating func replaceIndex(
+        snapshot: FileExplorerTreeFilterSnapshot,
+        nodesByPath: [String: FileExplorerNode]
+    ) {
+        self.snapshot = snapshot
+        self.nodesByPath = nodesByPath
         needsFiltering = isActive
     }
 

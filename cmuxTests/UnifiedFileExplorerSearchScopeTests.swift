@@ -21,7 +21,7 @@ struct UnifiedFileExplorerSearchScopeTests {
     }
 
     @Test("Name filtering reads only already-loaded nodes")
-    func nameFilterPreservesLazyNodes() {
+    func nameFilterPreservesLazyNodes() throws {
         let root = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
         let unloadedDirectory = FileExplorerNode(
             name: "Unloaded",
@@ -36,7 +36,9 @@ struct UnifiedFileExplorerSearchScopeTests {
         root.children = [unloadedDirectory, matchingFile]
         var filter = FileExplorerTreeFilter()
 
-        filter.rebuildIndex(nodes: [root])
+        let builder = FileExplorerTreeFilterSnapshotBuilder(nodes: [root])
+        let captured = try #require(builder.buildSynchronously(upTo: .max))
+        filter.replaceIndex(snapshot: captured.snapshot, nodesByPath: captured.nodesByPath)
         let activatedFilter = filter.setQuery("needle")
         let unchangedFilter = filter.setQuery(" needle ")
         _ = filter.apply(filter.snapshot.filterSynchronously(query: filter.query))

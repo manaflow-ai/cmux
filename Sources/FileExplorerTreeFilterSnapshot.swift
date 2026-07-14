@@ -3,6 +3,8 @@ import Foundation
 /// Immutable, already-loaded filename index used by cancellable off-main filtering.
 nonisolated struct FileExplorerTreeFilterSnapshot: Sendable {
     static let synchronousNodeLimit = 2_048
+    /// Bounds automatic outline expansion work for broad filename queries.
+    static let maximumVisibleNodeCount = 512
 
     let namesByPath: [String: String]
     let parentByPath: [String: String]
@@ -18,31 +20,6 @@ nonisolated struct FileExplorerTreeFilterSnapshot: Sendable {
 
     var nodeCount: Int { namesByPath.count }
 
-    @MainActor
-    static func capture(
-        nodes: [FileExplorerNode]
-    ) -> (snapshot: FileExplorerTreeFilterSnapshot, nodesByPath: [String: FileExplorerNode]) {
-        var namesByPath: [String: String] = [:]
-        var parentByPath: [String: String] = [:]
-        var childrenByPath: [String: [String]] = [:]
-        var nodesByPath: [String: FileExplorerNode] = [:]
-        Self.append(
-            nodes,
-            parentPath: nil,
-            namesByPath: &namesByPath,
-            parentByPath: &parentByPath,
-            childrenByPath: &childrenByPath,
-            nodesByPath: &nodesByPath
-        )
-        let snapshot = FileExplorerTreeFilterSnapshot(
-            namesByPath: namesByPath,
-            parentByPath: parentByPath,
-            rootPaths: nodes.map(\.path),
-            childrenByPath: childrenByPath
-        )
-        return (snapshot, nodesByPath)
-    }
-
     func filterSynchronously(query: String) -> FileExplorerTreeFilterResult {
         do {
             return try filteredResult(query: query, checksCancellation: false)
@@ -56,7 +33,7 @@ nonisolated struct FileExplorerTreeFilterSnapshot: Sendable {
         try filteredResult(query: query, checksCancellation: true)
     }
 
-    private init(
+    init(
         namesByPath: [String: String],
         parentByPath: [String: String],
         rootPaths: [String],
@@ -74,18 +51,30 @@ nonisolated struct FileExplorerTreeFilterSnapshot: Sendable {
     ) throws -> FileExplorerTreeFilterResult {
         guard !query.isEmpty else { return .empty(query: query) }
         var visiblePaths: Set<String> = []
-        for (index, entry) in namesByPath.enumerated() {
-            if checksCancellation, index.isMultiple(of: 256) {
+        var pendingPaths = Array(rootPaths.reversed())
+        var visitedNodeCount = 0
+        while let path = pendingPaths.popLast() {
+            if checksCancellation, visitedNodeCount.isMultiple(of: 256) {
                 try Task.checkCancellation()
             }
-            guard entry.value.localizedStandardContains(query) else { continue }
-            var path: String? = entry.key
-            while let currentPath = path {
-                if checksCancellation {
-                    try Task.checkCancellation()
+            visitedNodeCount += 1
+            if let name = namesByPath[path], name.localizedStandardContains(query) {
+                var lineage: [String] = []
+                var currentPath: String? = path
+                while let candidate = currentPath, !visiblePaths.contains(candidate) {
+                    lineage.append(candidate)
+                    currentPath = parentByPath[candidate]
                 }
-                guard visiblePaths.insert(currentPath).inserted else { break }
-                path = parentByPath[currentPath]
+                guard visiblePaths.count + lineage.count <= Self.maximumVisibleNodeCount else {
+                    break
+                }
+                visiblePaths.formUnion(lineage)
+                if visiblePaths.count == Self.maximumVisibleNodeCount {
+                    break
+                }
+            }
+            if let children = childrenByPath[path] {
+                pendingPaths.append(contentsOf: children.reversed())
             }
         }
         let filteredRootPaths = rootPaths.filter(visiblePaths.contains)
@@ -107,33 +96,4 @@ nonisolated struct FileExplorerTreeFilterSnapshot: Sendable {
         )
     }
 
-    @MainActor
-    private static func append(
-        _ nodes: [FileExplorerNode],
-        parentPath: String?,
-        namesByPath: inout [String: String],
-        parentByPath: inout [String: String],
-        childrenByPath: inout [String: [String]],
-        nodesByPath: inout [String: FileExplorerNode]
-    ) {
-        for node in nodes {
-            nodesByPath[node.path] = node
-            namesByPath[node.path] = node.name
-            if let parentPath {
-                parentByPath[node.path] = parentPath
-            }
-            // FileExplorerStore keeps loaded siblings sorted; preserving that
-            // order avoids recursive comparison work on the main actor.
-            let children = node.children ?? []
-            childrenByPath[node.path] = children.map(\.path)
-            append(
-                children,
-                parentPath: node.path,
-                namesByPath: &namesByPath,
-                parentByPath: &parentByPath,
-                childrenByPath: &childrenByPath,
-                nodesByPath: &nodesByPath
-            )
-        }
-    }
 }
