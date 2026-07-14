@@ -71,6 +71,26 @@ struct TerminalArtifactScopeTests {
         #expect(scope.artifactPaths() == ["/safe/Report.txt", "/safe/notes.txt"])
     }
 
+    @Test("request resolution shares the visible-scan canonical identity")
+    func requestResolutionUsesCanonicalIdentity() {
+        let canonicalizer = ChatArtifactPathCanonicalizer { path in
+            path == "/safe/report.txt" ? "/safe/Report.txt" : path
+        }
+        let scope = TerminalArtifactScope(
+            terminalText: "cat /safe/report.txt",
+            workingDirectory: "/safe",
+            resolver: FakeResolver(
+                files: ["/safe/report.txt", "/safe/Report.txt"],
+                directories: ["/safe"],
+                symlinks: [:]
+            ),
+            canonicalizer: canonicalizer
+        )
+
+        #expect(scope.canonicalPath(for: "/safe/report.txt") == "/safe/Report.txt")
+        #expect(scope.canonicalPath(for: "/safe/Report.txt") == "/safe/Report.txt")
+    }
+
     private func scope(
         text: String,
         workingDirectory: String? = "/safe/project",

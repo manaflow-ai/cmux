@@ -58,19 +58,20 @@ public struct TerminalArtifactScope: Sendable {
     /// - Parameter path: Requested path, absolute or relative to the terminal cwd.
     /// - Returns: Canonical path when authorized, otherwise `nil`.
     public func canonicalPath(for path: String) -> String? {
-        guard let absoluteRequest = absolutePath(for: path) else {
+        guard let absoluteRequest = absolutePath(for: path),
+              let resolvedRequest = ChatArtifactScope.canonicalizedPath(absoluteRequest, resolver: resolver) else {
             return nil
         }
-        guard let canonicalRequest = ChatArtifactScope.canonicalizedPath(absoluteRequest, resolver: resolver) else {
-            return nil
-        }
+        let canonicalRequest = canonicalizer.canonicalPathKey(for: resolvedRequest)
         var seen: Set<String> = []
         for candidate in detector.paths(in: terminalText).compactMap(absolutePath(for:)) {
-            guard let canonical = ChatArtifactScope.canonicalizedPath(candidate, resolver: resolver),
-                  !seen.contains(canonical) else {
+            guard let resolved = ChatArtifactScope.canonicalizedPath(candidate, resolver: resolver) else {
                 continue
             }
-            seen.insert(canonical)
+            let canonical = canonicalizer.canonicalPathKey(for: resolved)
+            guard seen.insert(canonical).inserted else {
+                continue
+            }
             if canonical == canonicalRequest {
                 return canonicalRequest
             }
