@@ -262,6 +262,10 @@ struct CmuxRunURLCoordinatorTests {
         #expect(textView.isSelectable)
         #expect(textView.isHorizontallyResizable)
         #expect(textView.textContainer?.widthTracksTextView == false)
+        #expect(textView.frame.width > 560)
+        #expect(scrollView.constraints.contains { constraint in
+            constraint.firstAttribute == .height && constraint.constant == 42
+        })
     }
 
     @Test func shortApprovalDirectoryRemainsFullyInspectableAndCopyable() throws {

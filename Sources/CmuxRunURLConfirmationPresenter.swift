@@ -149,11 +149,63 @@ final class CmuxRunURLConfirmationPresenter {
     }
 
     func directoryDetailRow(value: String) -> NSView {
-        detailRow(
-            label: String(localized: "dialog.runURL.field.directory", defaultValue: "Directory"),
-            value: value,
-            monospaced: true
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = 8
+
+        let label = String(localized: "dialog.runURL.field.directory", defaultValue: "Directory")
+        let labelField = NSTextField(labelWithString: "\(label):")
+        labelField.font = .boldSystemFont(ofSize: NSFont.smallSystemFontSize)
+        labelField.setContentHuggingPriority(.required, for: .horizontal)
+
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = false
+        scrollView.borderType = .bezelBorder
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.setAccessibilityIdentifier("cmux.runURL.directory")
+        scrollView.setAccessibilityValue(value)
+        scrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let font = NSFont.monospacedSystemFont(
+            ofSize: NSFont.smallSystemFontSize,
+            weight: .regular
         )
+        let measuredWidth = (value as NSString).size(withAttributes: [.font: font]).width
+        let textView = NSTextView(frame: NSRect(
+            x: 0,
+            y: 0,
+            width: max(440, ceil(measuredWidth) + 12),
+            height: 24
+        ))
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.isVerticallyResizable = false
+        textView.isHorizontallyResizable = true
+        textView.minSize = NSSize(width: 0, height: 24)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: 24)
+        textView.textContainer?.containerSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: 24
+        )
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.heightTracksTextView = true
+        textView.font = font
+        textView.string = value
+        textView.textContainerInset = NSSize(width: 6, height: 4)
+        textView.setAccessibilityValue(value)
+        scrollView.documentView = textView
+
+        row.addArrangedSubview(labelField)
+        row.addArrangedSubview(scrollView)
+        NSLayoutConstraint.activate([
+            row.widthAnchor.constraint(equalToConstant: 560),
+            scrollView.heightAnchor.constraint(equalToConstant: 42)
+        ])
+        return row
     }
 
     private func showFailureMessage(_ message: String, presentingWindow: NSWindow?) {
