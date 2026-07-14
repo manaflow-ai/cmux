@@ -189,7 +189,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
     @MainActor
     @Test
-    func dockPresentationReadsLiveSidebarFocusOwnership() async throws {
+    func dockPresentationKeepsFocusedTerminalActiveWhenSidebarOwnsFocus() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
@@ -220,13 +220,13 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             fileExplorerState.rightSidebarOwnsInputFocus = false
             #expect(
                 dock.terminalPortalPresentation(panelId: panelId, tabId: tabId, paneId: pane) ==
-                    .visible(isActive: true, zPriority: 1)
+                    .visible(isActive: false, zPriority: 1)
             )
 
             fileExplorerState.rightSidebarOwnsInputFocus = true
             #expect(
                 dock.terminalPortalPresentation(panelId: panelId, tabId: tabId, paneId: pane) ==
-                    .visible(isActive: false, zPriority: 1)
+                    .visible(isActive: true, zPriority: 1)
             )
         }
     }
