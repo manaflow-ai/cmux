@@ -287,12 +287,19 @@ final class SidebarInteractionLifecycleTests {
             )
         }
 
-        func closeWorkspaceUnderStationaryPointer() async throws {
-            let targetId = try #require(workspaceId(at: NSEvent.mouseLocation))
-            let workspace = try #require(tabManager.tabs.first { $0.id == targetId })
+        func closeLeadingWorkspaceWhilePointerIsStationary() async throws {
+            let workspace = try #require(tabManager.tabs.first)
+            let targetId = workspace.id
             tabManager.closeWorkspace(workspace, recordHistory: false)
             await Self.drainMainRunLoop(iterations: 6)
             #expect(!tabManager.tabs.contains { $0.id == targetId })
+        }
+
+        func mountedRowPlatformBridgeCounts() -> (hover: Int, middleClick: Int) {
+            var hover = 0
+            var middleClick = 0
+            countRowPlatformBridges(in: hostingView, hover: &hover, middleClick: &middleClick)
+            return (hover, middleClick)
         }
 
         func churn(pass: Int) async throws -> Int {
@@ -380,49 +387,9 @@ final class SidebarInteractionLifecycleTests {
                 return nil
             }
             let clipView = scrollView.contentView
-            for step in 1..<20 {
-                let fraction = Double(step) / 20
-                let pointInClip = NSPoint(
-                    x: clipView.bounds.midX,
-                    y: clipView.bounds.minY + clipView.bounds.height * fraction
-                )
-                let pointInWindow = clipView.convert(pointInClip, to: nil)
-                let pointInScreen = window.convertPoint(toScreen: pointInWindow)
-                if workspaceId(at: pointInScreen) != nil {
-                    return pointInScreen
-                }
-            }
-            return nil
-        }
-
-        private func workspaceId(at screenPoint: NSPoint) -> UUID? {
-            var candidate: Any? = window.accessibilityHitTest(screenPoint)
-            for _ in 0..<24 {
-                guard let current = candidate else { return nil }
-                if let view = current as? NSView {
-                    if let workspaceId = workspaceId(from: view.accessibilityIdentifier()) {
-                        return workspaceId
-                    }
-                    candidate = view.accessibilityParent() ?? view.superview
-                    continue
-                }
-                if let accessibilityElement = current as? any NSAccessibilityProtocol {
-                    if let workspaceId = workspaceId(from: accessibilityElement.accessibilityIdentifier()) {
-                        return workspaceId
-                    }
-                    candidate = accessibilityElement.accessibilityParent()
-                    continue
-                }
-                return nil
-            }
-            return nil
-        }
-
-        private func workspaceId(from accessibilityIdentifier: String?) -> UUID? {
-            let prefix = "sidebarWorkspace."
-            guard let accessibilityIdentifier else { return nil }
-            guard accessibilityIdentifier.hasPrefix(prefix) else { return nil }
-            return UUID(uuidString: String(accessibilityIdentifier.dropFirst(prefix.count)))
+            let pointInClip = NSPoint(x: clipView.bounds.midX, y: clipView.bounds.midY)
+            let pointInWindow = clipView.convert(pointInClip, to: nil)
+            return window.convertPoint(toScreen: pointInWindow)
         }
 
         private func findScrollView(in view: NSView) -> NSScrollView? {
@@ -431,6 +398,21 @@ final class SidebarInteractionLifecycleTests {
                 if let found = findScrollView(in: subview) { return found }
             }
             return nil
+        }
+
+        private func countRowPlatformBridges(
+            in view: NSView,
+            hover: inout Int,
+            middleClick: inout Int
+        ) {
+            switch String(describing: type(of: view)) {
+            case "SidebarWorkspaceRowHoverReconcilerView": hover += 1
+            case "MiddleClickCaptureView": middleClick += 1
+            default: break
+            }
+            for subview in view.subviews {
+                countRowPlatformBridges(in: subview, hover: &hover, middleClick: &middleClick)
+            }
         }
 
         private static func turnMainRunLoopOnce() {
@@ -464,8 +446,9 @@ final class SidebarInteractionLifecycleTests {
 
         await harness.mountProductionSidebar()
         try harness.positionStationaryPointerOverWorkspaceRow()
+        let mountedBridgeCounts = harness.mountedRowPlatformBridgeCounts()
         for _ in 0..<Self.stationaryPointerRemovalPasses {
-            try await harness.closeWorkspaceUnderStationaryPointer()
+            try await harness.closeLeadingWorkspaceWhilePointerIsStationary()
         }
 
         var worstRealizationPass = 0
@@ -475,8 +458,12 @@ final class SidebarInteractionLifecycleTests {
 
         let accumulatedFaults = try RuntimeFaultCounts.read(since: logStart)
         let faults = accumulatedFaults.subtracting(baselineFaults)
-        print("#8004 fault counts: \(faults); heartbeat=\(heartbeat.count); longestGap=\(heartbeat.longestGap); worstRealizationPass=\(worstRealizationPass)")
+        print("#8004 fault counts: \(faults); heartbeat=\(heartbeat.count); longestGap=\(heartbeat.longestGap); worstRealizationPass=\(worstRealizationPass); hoverBridges=\(mountedBridgeCounts.hover); middleClickBridges=\(mountedBridgeCounts.middleClick)")
 
+        #expect(
+            mountedBridgeCounts.hover == 0 && mountedBridgeCounts.middleClick == 0,
+            "Workspace rows mounted per-row platform bridges: hover=\(mountedBridgeCounts.hover), middleClick=\(mountedBridgeCounts.middleClick)."
+        )
         #expect(
             worstRealizationPass < Self.realizedRowCeiling,
             "A churn pass realized \(worstRealizationPass) rows; the lazy viewport bound is broken."
