@@ -14,8 +14,14 @@ extension AppDelegate {
         switch admission {
         case .none:
             return false
-        case .multipleLinks:
+        case .multipleRunLinks:
             CmuxRunURLConfirmationPresenter().showNonModalParseFailure(.multipleLinks)
+            return true
+        case .multipleSSHLinks:
+            showCmuxSSHURLParseError(.multipleLinks)
+            return true
+        case .multipleNonRunLinks:
+            showCmuxTextURLParseError(.multipleLinks)
             return true
         case .busy:
             CmuxRunURLConfirmationPresenter().showNonModalFailure(.busy)
@@ -66,8 +72,17 @@ extension AppDelegate {
         isRunBusy: Bool
     ) -> CmuxExternalURLAdmission {
         guard intentCounts.total > 0 else { return .none }
-        guard intentCounts.run > 0 else { return .route }
-        guard intentCounts.total == 1 else { return .multipleLinks }
+        guard intentCounts.total == 1 else {
+            if intentCounts.run > 0 {
+                return .multipleRunLinks
+            }
+            if intentCounts.ssh > 1,
+               intentCounts.navigation == 0,
+               intentCounts.text == 0 {
+                return .multipleSSHLinks
+            }
+            return .multipleNonRunLinks
+        }
         if intentCounts.run == 1, isRunBusy {
             return .busy
         }

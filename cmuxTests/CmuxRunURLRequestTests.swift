@@ -242,23 +242,43 @@ struct CmuxRunURLRequestTests {
         #expect(AppDelegate.cmuxExternalURLAdmission(
             intentCounts: mixedCounts,
             isRunBusy: true
-        ) == .multipleLinks)
+        ) == .multipleRunLinks)
         #expect(AppDelegate.cmuxExternalURLAdmission(
             intentCounts: runCounts,
             isRunBusy: true
         ) == .busy)
     }
 
-    @Test @MainActor func nonRunURLBatchesKeepTheirExistingRouteSpecificAdmission() {
+    @Test @MainActor func nonRunURLBatchesKeepTheirExistingAllOrNothingAdmission() {
         let sshCounts = AppDelegate.CmuxExternalURLIntentCounts(
             run: 0,
             ssh: 2,
             navigation: 0,
             text: 0
         )
+        let mixedCounts = AppDelegate.CmuxExternalURLIntentCounts(
+            run: 0,
+            ssh: 1,
+            navigation: 0,
+            text: 1
+        )
+        let singleSSHCounts = AppDelegate.CmuxExternalURLIntentCounts(
+            run: 0,
+            ssh: 1,
+            navigation: 0,
+            text: 0
+        )
 
         #expect(AppDelegate.cmuxExternalURLAdmission(
             intentCounts: sshCounts,
+            isRunBusy: false
+        ) == .multipleSSHLinks)
+        #expect(AppDelegate.cmuxExternalURLAdmission(
+            intentCounts: mixedCounts,
+            isRunBusy: false
+        ) == .multipleNonRunLinks)
+        #expect(AppDelegate.cmuxExternalURLAdmission(
+            intentCounts: singleSSHCounts,
             isRunBusy: false
         ) == .route)
     }
