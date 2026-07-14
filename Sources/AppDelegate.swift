@@ -8703,6 +8703,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarSelectionState)
             .environmentObject(fileExplorerState)
             .environmentObject(cmuxConfigStore)
+            .usageTipsOverlay(controller: usageTipsController, windowID: windowId)
             // AppKit hosts this ContentView in its own NSHostingView, which does
             // not inherit the App scene's SwiftUI environment. Inject the
             // settings runtime so `@LiveSetting` can resolve the stores it
@@ -8711,7 +8712,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // catalog default.
             .environment(\.settingsRuntime, settingsRuntime)
             .cmuxFontMagnificationEnvironment()
-            .usageTipsOverlay(controller: usageTipsController, windowID: windowId)
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
