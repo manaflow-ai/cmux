@@ -29,7 +29,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use ghostty_vt::{KeyEncoder, key_input_from_chord};
+use ghostty_vt::{
+    Dirty, KeyEncoder, StyledRun, UnderlineStyle, key_input_from_chord, rows_to_runs,
+};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -41,12 +43,12 @@ use crate::model::{Screen, State};
 use crate::platform::{self, transport};
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, DefaultColors, Direction, LayoutLeafSpec,
-    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, Rgb, ScreenId, SidebarPluginStatus,
-    SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, TerminalColors, WorkspaceId, ZoomMode,
-    assign_short_ids,
+    LayoutSpec, Mux, MuxEvent, Node, NotificationLevel, PaneId, RenderAttachFrame, Rgb, ScreenId,
+    SidebarPluginStatus, SplitDir, SurfaceId, SurfaceKind, SurfaceNotification, SurfaceRenderFrame,
+    TerminalColors, TreeDelta, TreeDeltaKind, WorkspaceId, ZoomMode, assign_short_ids,
 };
 
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 7;
 
 /// Default socket path for a session.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -103,9 +105,16 @@ enum Command {
         /// Base64-encoded raw bytes, written verbatim to the pty.
         #[serde(default)]
         bytes: Option<String>,
+        #[serde(default)]
+        paste: bool,
     },
     ReadScreen {
         surface: SurfaceId,
+    },
+    ReadScrollback {
+        surface: SurfaceId,
+        start: u32,
+        count: u32,
     },
     SidebarPlugin {
         cols: u16,
@@ -390,10 +399,15 @@ enum Command {
         delta: Option<isize>,
     },
     /// Stream mux events on this connection.
-    Subscribe,
+    Subscribe {
+        #[serde(default)]
+        tree_events: Option<String>,
+    },
     /// Stream a surface: vt-state event followed by live output events.
     AttachSurface {
         surface: SurfaceId,
+        #[serde(default)]
+        mode: Option<String>,
     },
     /// Scroll a surface's viewport by a row delta (negative is up).
     ScrollSurface {
@@ -1179,6 +1193,75 @@ fn workspaces_json(
     })
 }
 
+pub(crate) fn tree_entity_json(
+    state: &State,
+    notifications: &HashMap<SurfaceId, SurfaceNotification>,
+    kind: TreeDeltaKind,
+    id: u64,
+) -> Option<Value> {
+    let tree = workspaces_json(state, notifications);
+    let workspaces = tree.get("workspaces")?.as_array()?;
+    match kind {
+        TreeDeltaKind::WorkspaceAdded
+        | TreeDeltaKind::WorkspaceClosed
+        | TreeDeltaKind::WorkspaceRenamed => workspaces
+            .iter()
+            .find(|workspace| workspace.get("id").and_then(Value::as_u64) == Some(id))
+            .cloned(),
+        TreeDeltaKind::ScreenAdded | TreeDeltaKind::ScreenClosed | TreeDeltaKind::ScreenRenamed => {
+            workspaces
+                .iter()
+                .flat_map(|workspace| {
+                    workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+                })
+                .find(|screen| screen.get("id").and_then(Value::as_u64) == Some(id))
+                .cloned()
+        }
+        TreeDeltaKind::PaneAdded | TreeDeltaKind::PaneClosed => workspaces
+            .iter()
+            .flat_map(|workspace| {
+                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+            })
+            .flat_map(|screen| screen.get("panes").and_then(Value::as_array).into_iter().flatten())
+            .find(|pane| pane.get("id").and_then(Value::as_u64) == Some(id))
+            .cloned(),
+        TreeDeltaKind::TabAdded | TreeDeltaKind::TabClosed | TreeDeltaKind::TabRenamed => {
+            workspaces
+                .iter()
+                .flat_map(|workspace| {
+                    workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+                })
+                .flat_map(|screen| {
+                    screen.get("panes").and_then(Value::as_array).into_iter().flatten()
+                })
+                .flat_map(|pane| pane.get("tabs").and_then(Value::as_array).into_iter().flatten())
+                .find(|tab| tab.get("surface").and_then(Value::as_u64) == Some(id))
+                .cloned()
+        }
+    }
+}
+
+fn tree_delta_json(delta: &TreeDelta) -> Value {
+    let mut value = json!({
+        "event": delta.kind.as_str(),
+        "workspace": delta.workspace,
+        "entity": delta.entity,
+    });
+    if let Some(screen) = delta.screen {
+        value["screen"] = json!(screen);
+    }
+    if let Some(pane) = delta.pane {
+        value["pane"] = json!(pane);
+    }
+    if let Some(surface) = delta.surface {
+        value["surface"] = json!(surface);
+    }
+    if let Some(index) = delta.index {
+        value["index"] = json!(index);
+    }
+    value
+}
+
 fn ids_json(state: &State, kind: Option<&str>) -> anyhow::Result<Value> {
     let allowed = ["workspace", "screen", "pane", "surface"];
     if let Some(kind) = kind
@@ -1318,6 +1401,134 @@ fn terminal_colors_json(colors: TerminalColors) -> Value {
         "cursor_style": cursor_style,
         "cursor_blink": colors.cursor_blink,
     })
+}
+
+fn rgb_hex(color: Rgb) -> String {
+    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+}
+
+fn styled_run_json(run: &StyledRun) -> Value {
+    let underline = run.underline.map(|style| match style {
+        UnderlineStyle::Single => "single",
+        UnderlineStyle::Double => "double",
+        UnderlineStyle::Curly => "curly",
+        UnderlineStyle::Dotted => "dotted",
+        UnderlineStyle::Dashed => "dashed",
+    });
+    let mut value = json!({
+        "text": run.text,
+        "fg": run.fg.map(rgb_hex),
+        "bg": run.bg.map(rgb_hex),
+        "attrs": run.attrs,
+    });
+    if let Some(underline) = underline {
+        value["underline"] = json!(underline);
+    }
+    if let Some(width_hint) = run.width_hint {
+        value["width_hint"] = json!(width_hint);
+    }
+    value
+}
+
+fn render_rows_json(frame: &SurfaceRenderFrame, rows: impl IntoIterator<Item = u16>) -> Vec<Value> {
+    rows.into_iter()
+        .filter_map(|row| {
+            frame.frame.row_runs(row).map(|runs| {
+                json!({
+                    "row": row,
+                    "runs": runs.iter().map(styled_run_json).collect::<Vec<_>>(),
+                })
+            })
+        })
+        .collect()
+}
+
+fn render_cursor_json(frame: &SurfaceRenderFrame) -> Value {
+    let (style, blink) = frame.frame.cursor_visual;
+    let style = match style {
+        ghostty_vt::CursorShape::Bar => "bar",
+        ghostty_vt::CursorShape::Underline => "underline",
+        ghostty_vt::CursorShape::Block | ghostty_vt::CursorShape::BlockHollow => "block",
+    };
+    let (x, y, visible) =
+        frame.frame.cursor.map(|cursor| (cursor.x, cursor.y, true)).unwrap_or((0, 0, false));
+    json!({
+        "x": x,
+        "y": y,
+        "style": style,
+        "blink": blink,
+        "visible": visible,
+        "color": frame.frame.cursor_color.map(rgb_hex),
+    })
+}
+
+fn render_state_json(surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
+    let (cols, rows) = frame.frame.size;
+    json!({
+        "event": "render-state",
+        "surface": surface,
+        "size": { "cols": cols, "rows": rows },
+        "cursor": render_cursor_json(frame),
+        "default_fg": rgb_hex(frame.frame.default_colors.1),
+        "default_bg": rgb_hex(frame.frame.default_colors.0),
+        "scrollback_rows": frame.scrollback_rows,
+        "rows": render_rows_json(frame, 0..rows),
+    })
+}
+
+struct RenderClientState {
+    size: (u16, u16),
+    default_colors: (Rgb, Rgb),
+    scrollback_rows: u32,
+}
+
+impl RenderClientState {
+    fn new(frame: &SurfaceRenderFrame) -> Self {
+        Self {
+            size: frame.frame.size,
+            default_colors: frame.frame.default_colors,
+            scrollback_rows: frame.scrollback_rows,
+        }
+    }
+
+    fn delta_json(&mut self, surface: SurfaceId, frame: &SurfaceRenderFrame) -> Value {
+        let size_changed = self.size != frame.frame.size;
+        let foreground_changed = self.default_colors.1 != frame.frame.default_colors.1;
+        let background_changed = self.default_colors.0 != frame.frame.default_colors.0;
+        let scrollback_changed = self.scrollback_rows != frame.scrollback_rows;
+        let full = size_changed
+            || foreground_changed
+            || background_changed
+            || frame.frame.dirty == Dirty::Full;
+        let rows = if full {
+            render_rows_json(frame, 0..frame.frame.size.1)
+        } else {
+            render_rows_json(frame, frame.frame.dirty_rows.iter().copied())
+        };
+        let mut value = json!({
+            "event": "render-delta",
+            "surface": surface,
+            "cursor": render_cursor_json(frame),
+            "full": full,
+            "rows": rows,
+        });
+        if size_changed {
+            value["size"] = json!({ "cols": frame.frame.size.0, "rows": frame.frame.size.1 });
+        }
+        if foreground_changed {
+            value["default_fg"] = json!(rgb_hex(frame.frame.default_colors.1));
+        }
+        if background_changed {
+            value["default_bg"] = json!(rgb_hex(frame.frame.default_colors.0));
+        }
+        if scrollback_changed {
+            value["scrollback_rows"] = json!(frame.scrollback_rows);
+        }
+        self.size = frame.frame.size;
+        self.default_colors = frame.frame.default_colors;
+        self.scrollback_rows = frame.scrollback_rows;
+        value
+    }
 }
 
 fn browser_state_json(
@@ -1473,15 +1684,23 @@ fn handle_command(
                 }).collect::<Vec<_>>(),
             }))
         }
-        Command::Send { surface, text, bytes } => {
+        Command::Send { surface, text, bytes, paste } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            if let Some(text) = text {
-                surface.write_bytes(text.as_bytes())?;
-            }
-            if let Some(b64) = bytes {
-                let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
-                surface.write_bytes(&raw)?;
+            if paste {
+                let mut payload = text.unwrap_or_default().into_bytes();
+                if let Some(b64) = bytes {
+                    payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
+                }
+                surface.write_paste(&payload)?;
+            } else {
+                if let Some(text) = text {
+                    surface.write_bytes(text.as_bytes())?;
+                }
+                if let Some(b64) = bytes {
+                    let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
+                    surface.write_bytes(&raw)?;
+                }
             }
             Ok(json!({}))
         }
@@ -1490,6 +1709,28 @@ fn handle_command(
             require_pty(&surface)?;
             let text = surface.try_with_terminal(|t| t.viewport_text())??;
             Ok(json!({ "text": text }))
+        }
+        Command::ReadScrollback { surface, start, count } => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let count = u16::try_from(count).map_err(|_| anyhow::anyhow!("count out of range"))?;
+            let (start, total, rows) = surface.try_with_terminal(|term| {
+                let total = term.history_rows();
+                let start = start.min(total);
+                term.styled_history_rows(start, count).map(|rows| (start, total, rows))
+            })??;
+            let runs = rows_to_runs(&rows);
+            let rows = runs
+                .iter()
+                .enumerate()
+                .map(|(row, runs)| {
+                    json!({
+                        "row": row as u16,
+                        "runs": runs.iter().map(styled_run_json).collect::<Vec<_>>(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({ "rows": rows, "start": start, "total": total }))
         }
         Command::SidebarPlugin { cols, rows, relaunch } => {
             Ok(sidebar_plugin_status_json(mux.ensure_sidebar_plugin(cols, rows, relaunch)))
@@ -1928,7 +2169,12 @@ fn handle_command(
             surface.scroll_delta(delta)?;
             Ok(json!({}))
         }
-        Command::Subscribe => {
+        Command::Subscribe { tree_events } => {
+            let tree_deltas = match tree_events.as_deref().unwrap_or("coarse") {
+                "coarse" => false,
+                "deltas" => true,
+                other => anyhow::bail!("bad request: unsupported tree_events {other:?}"),
+            };
             let events = mux.subscribe();
             let writer = writer.clone();
             std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
@@ -1981,6 +2227,13 @@ fn handle_command(
                             "at_bottom": at_bottom,
                         }),
                         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
+                        MuxEvent::TreeDelta(delta) => {
+                            if tree_deltas {
+                                tree_delta_json(delta)
+                            } else {
+                                json!({"event": "tree-changed"})
+                            }
+                        }
                         MuxEvent::LayoutChanged(screen) => {
                             json!({"event": "layout-changed", "screen": screen})
                         }
@@ -2009,8 +2262,49 @@ fn handle_command(
             })?;
             Ok(json!({}))
         }
-        Command::AttachSurface { surface: surface_id } => {
+        Command::AttachSurface { surface: surface_id, mode } => {
             let surface = get_surface(mux, surface_id)?;
+            let render_mode = match mode.as_deref().unwrap_or("bytes") {
+                "bytes" => false,
+                "render" => true,
+                other => anyhow::bail!("bad attach mode {other}"),
+            };
+            if render_mode {
+                require_pty(&surface)?;
+                let attach = surface.attach_render_stream()?;
+                mark_client_attached(mux, client, surface_id)?;
+                writer.send(&render_state_json(surface_id, &attach.initial))?;
+                let writer = writer.clone();
+                let mux = mux.clone();
+                std::thread::Builder::new().name("mux-render-attach-out".into()).spawn(
+                    move || {
+                        let mut state = RenderClientState::new(&attach.initial);
+                        while writer.is_open() {
+                            let value = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
+                                Ok(RenderAttachFrame::Frame(frame)) => {
+                                    state.delta_json(surface_id, &frame)
+                                }
+                                Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
+                                    json!({
+                                        "event": "scroll-changed",
+                                        "surface": surface_id,
+                                        "offset": offset,
+                                        "at_bottom": at_bottom,
+                                    })
+                                }
+                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                            };
+                            if writer.send(&value).is_err() {
+                                break;
+                            }
+                        }
+                        let _ = writer.send(&json!({"event": "detached", "surface": surface_id}));
+                        mux.control_clients.detach_surface(client, surface_id);
+                    },
+                )?;
+                return Ok(json!({}));
+            }
             if surface.kind() == SurfaceKind::Browser {
                 let (state, frames) = surface.attach_frames()?;
                 mark_client_attached(mux, client, surface_id)?;
@@ -2086,6 +2380,7 @@ fn handle_command(
                         AttachFrame::ColorsChanged(colors) => {
                             let mut value = terminal_colors_json(colors);
                             value["event"] = json!("colors-changed");
+                            value["surface"] = json!(surface_id);
                             value
                         }
                     };

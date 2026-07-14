@@ -7,10 +7,12 @@
 
 use std::io::{Read, Write};
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, Weak};
+use std::time::{Duration, Instant};
 
-use ghostty_vt::{Callbacks, CursorShape, RenderState, Rgb, Terminal};
+use ghostty_vt::{Callbacks, CursorShape, RenderFrame, RenderState, Rgb, Terminal};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::platform;
@@ -136,7 +138,7 @@ pub struct AttachStream {
     pub rows: u16,
     pub replay: Vec<u8>,
     pub colors: TerminalColors,
-    pub stream: std::sync::mpsc::Receiver<AttachFrame>,
+    pub stream: Receiver<AttachFrame>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,6 +146,35 @@ pub enum AttachFrame {
     Output(Vec<u8>),
     Resized { cols: u16, rows: u16, replay: Vec<u8> },
     ColorsChanged(TerminalColors),
+}
+
+/// One immutable terminal frame plus the scrollback count captured with it.
+#[derive(Debug, Clone)]
+pub struct SurfaceRenderFrame {
+    pub frame: RenderFrame,
+    pub scrollback_rows: u32,
+    pub palette_colors: [Rgb; 256],
+    pub palette_overridden: [bool; 256],
+}
+
+/// Live events delivered to one protocol-v7 render attachment.
+#[derive(Debug, Clone)]
+pub enum RenderAttachFrame {
+    Frame(Arc<SurfaceRenderFrame>),
+    ScrollChanged { offset: u64, at_bottom: bool },
+}
+
+/// Initial render snapshot and the ordered live stream registered with it.
+pub struct RenderAttachStream {
+    pub initial: Arc<SurfaceRenderFrame>,
+    pub stream: Receiver<RenderAttachFrame>,
+}
+
+struct RenderHub {
+    state: Box<RenderState>,
+    built_generation: u64,
+    latest: Option<Arc<SurfaceRenderFrame>>,
+    taps: Vec<std::sync::mpsc::Sender<RenderAttachFrame>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,6 +244,11 @@ pub struct PtySurface {
     /// the same lock, so a subscriber sees exactly the bytes applied
     /// after its replay snapshot — no gap, no duplication.
     taps: Mutex<Vec<std::sync::mpsc::Sender<AttachFrame>>>,
+    /// Single consume-once Ghostty render state shared by the local TUI and
+    /// every protocol-v7 render attachment.
+    render: Mutex<RenderHub>,
+    render_generation: AtomicU64,
+    frame_requests: SyncSender<u64>,
 }
 
 impl std::fmt::Debug for Surface {
@@ -292,6 +328,8 @@ impl Surface {
             term.set_default_colors(colors.fg, colors.bg);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
+        let render_state = RenderState::new()?;
+        let (frame_requests, frame_rx) = sync_channel(1);
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
@@ -308,7 +346,17 @@ impl Surface {
             size: Mutex::new((opts.cols, opts.rows)),
             mux: mux.clone(),
             taps: Mutex::new(Vec::new()),
+            render: Mutex::new(RenderHub {
+                state: Box::new(render_state),
+                built_generation: 0,
+                latest: None,
+                taps: Vec::new(),
+            }),
+            render_generation: AtomicU64::new(1),
+            frame_requests,
         }));
+
+        spawn_frame_producer(&surface, frame_rx)?;
 
         // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
         std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
@@ -322,7 +370,7 @@ impl Surface {
                     };
                     let pty = surface.as_pty().expect("surface reader got non-pty surface");
                     let mut scroll_changed = None;
-                    {
+                    let generation = {
                         let mut term = pty.term.lock().unwrap();
                         let before = terminal_scroll_position(&term);
                         term.vt_write(&buf[..n]);
@@ -346,8 +394,11 @@ impl Surface {
                         }
                         if before != after {
                             scroll_changed = Some(after);
+                            broadcast_render_scroll_locked(pty, after);
                         }
-                    }
+                        pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
+                    };
+                    pty.request_frame(generation);
                     if let Some((offset, at_bottom)) = scroll_changed
                         && let Some(mux) = mux.upgrade()
                     {
@@ -360,11 +411,6 @@ impl Surface {
                     let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
                     if !responses.is_empty() {
                         let _ = surface.write_bytes(&responses);
-                    }
-                    if !pty.dirty.swap(true, Ordering::AcqRel)
-                        && let Some(mux) = mux.upgrade()
-                    {
-                        mux.emit(MuxEvent::SurfaceOutput(surface.id));
                     }
                 }
                 if let Some(pty) = surface.as_pty() {
@@ -409,6 +455,9 @@ impl Surface {
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
 
+        let render_state = RenderState::new()?;
+        let (frame_requests, _frame_rx) = sync_channel(1);
+
         Ok(Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
@@ -432,6 +481,14 @@ impl Surface {
             size: Mutex::new((opts.cols, opts.rows)),
             mux,
             taps: Mutex::new(Vec::new()),
+            render: Mutex::new(RenderHub {
+                state: Box::new(render_state),
+                built_generation: 0,
+                latest: None,
+                taps: Vec::new(),
+            }),
+            render_generation: AtomicU64::new(1),
+            frame_requests,
         })))
     }
 
@@ -469,6 +526,33 @@ impl Surface {
         writer.flush()
     }
 
+    /// Write a protocol input payload, conditionally applying bracketed-paste
+    /// markers from a terminal-mode snapshot taken before the PTY write.
+    pub fn write_paste(&self, bytes: &[u8]) -> std::io::Result<()> {
+        let Some(pty) = self.as_pty() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "browser surface does not accept PTY bytes",
+            ));
+        };
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        let bracketed = {
+            let term = pty.term.lock().unwrap();
+            term.mode(2004, false)
+        };
+        let mut writer = pty.writer.lock().unwrap();
+        if bracketed {
+            writer.write_all(b"\x1b[200~")?;
+        }
+        writer.write_all(bytes)?;
+        if bracketed {
+            writer.write_all(b"\x1b[201~")?;
+        }
+        writer.flush()
+    }
+
     /// Run `f` with exclusive access to the terminal state.
     ///
     /// Browser-aware code should call [`Surface::kind`] first. This
@@ -494,7 +578,14 @@ impl Surface {
             let before = terminal_scroll_position(&term);
             term.scroll_delta(delta);
             let after = terminal_scroll_position(&term);
-            (before != after).then_some(after)
+            if before == after {
+                None
+            } else {
+                broadcast_render_scroll_locked(pty, after);
+                let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                let _ = pty.build_frame_locked(&mut term, generation, false);
+                Some(after)
+            }
         };
         if let Some((offset, at_bottom)) = changed
             && let Some(mux) = pty.mux.upgrade()
@@ -513,7 +604,14 @@ impl Surface {
             let before = terminal_scroll_position(&term);
             term.scroll_to_bottom();
             let after = terminal_scroll_position(&term);
-            (before != after).then_some(after)
+            if before == after {
+                None
+            } else {
+                broadcast_render_scroll_locked(pty, after);
+                let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                let _ = pty.build_frame_locked(&mut term, generation, false);
+                Some(after)
+            }
         };
         if let Some((offset, at_bottom)) = changed
             && let Some(mux) = pty.mux.upgrade()
@@ -533,6 +631,9 @@ impl Surface {
             if !taps.is_empty() {
                 taps.retain(|tap| tap.send(AttachFrame::ColorsChanged(colors)).is_ok());
             }
+            drop(taps);
+            let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+            let _ = pty.build_frame_locked(&mut term, generation, false);
             pty.dirty.store(true, Ordering::Release);
         }
     }
@@ -560,6 +661,17 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         rs.update(&mut pty.term.lock().unwrap())
+    }
+
+    /// Latest immutable frame from the surface's shared render producer.
+    pub fn render_frame(&self) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ghostty_vt::Error::InvalidValue);
+        };
+        let mut term = pty.term.lock().unwrap();
+        let generation = pty.render_generation.load(Ordering::Acquire);
+        let _ = pty.build_frame_locked(&mut term, generation, false)?;
+        pty.render.lock().unwrap().latest.clone().ok_or(ghostty_vt::Error::NoValue)
     }
 
     /// Resize this surface. PTYs receive cell dimensions; browsers also
@@ -642,6 +754,25 @@ impl Surface {
         let colors = TerminalColors::from_terminal(&mut term, defaults);
         pty.taps.lock().unwrap().push(tx);
         Ok(AttachStream { cols, rows, replay, colors, stream: rx })
+    }
+
+    /// Attach to the shared protocol-v7 render stream without consuming
+    /// terminal damage a second time.
+    pub fn attach_render_stream(&self) -> ghostty_vt::Result<RenderAttachStream> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ghostty_vt::Error::InvalidValue);
+        };
+        let mut term = pty.term.lock().unwrap();
+        let generation = pty.render_generation.load(Ordering::Acquire);
+        let _ = pty.build_frame_locked(&mut term, generation, false)?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let initial = {
+            let mut render = pty.render.lock().unwrap();
+            let initial = render.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
+            render.taps.push(tx);
+            initial
+        };
+        Ok(RenderAttachStream { initial, stream: rx })
     }
 
     pub fn kill(&self) {
@@ -815,6 +946,52 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    fn request_frame(&self, generation: u64) {
+        match self.frame_requests.try_send(generation) {
+            Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
+        }
+    }
+
+    /// Build and fan out one immutable frame while the caller holds `term`.
+    fn build_frame_locked(
+        &self,
+        term: &mut Terminal,
+        generation: u64,
+        producer_driven: bool,
+    ) -> ghostty_vt::Result<bool> {
+        let built = {
+            let mut render = self.render.lock().unwrap();
+            if (producer_driven && render.taps.is_empty()) || render.built_generation >= generation
+            {
+                false
+            } else {
+                render.state.update(term)?;
+                let palette_colors =
+                    std::array::from_fn(|idx| render.state.palette_color(idx as u8));
+                let palette_overridden =
+                    std::array::from_fn(|idx| render.state.palette_overridden(idx as u8));
+                let frame = Arc::new(SurfaceRenderFrame {
+                    frame: render.state.build_frame()?,
+                    scrollback_rows: term.history_rows(),
+                    palette_colors,
+                    palette_overridden,
+                });
+                render.built_generation = generation;
+                render.latest = Some(frame.clone());
+                render.taps.retain(|tap| tap.send(RenderAttachFrame::Frame(frame.clone())).is_ok());
+                true
+            }
+        };
+
+        if producer_driven
+            && !self.dirty.swap(true, Ordering::AcqRel)
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.emit(MuxEvent::SurfaceOutput(self.meta.id));
+        }
+        Ok(built)
+    }
+
     /// Resize both the PTY and the terminal state. Returns whether the
     /// final clamped size actually changed.
     fn resize(&self, cols: u16, rows: u16) -> bool {
@@ -845,13 +1022,81 @@ impl PtySurface {
                 tap.send(AttachFrame::Resized { cols, rows, replay: replay.clone() }).is_ok()
             });
         }
+        drop(taps);
+        let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let _ = self.build_frame_locked(&mut term, generation, false);
         true
     }
+}
+
+const RENDER_FRAME_CADENCE: Duration = Duration::from_millis(8);
+
+fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyhow::Result<()> {
+    let weak = Arc::downgrade(surface);
+    let id = surface.id;
+    std::thread::Builder::new().name(format!("surface-{id}-frames")).spawn(move || {
+        let mut last_frame = Instant::now() - RENDER_FRAME_CADENCE;
+        while let Ok(mut requested) = requests.recv() {
+            let deadline = last_frame + RENDER_FRAME_CADENCE;
+            loop {
+                let now = Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                match requests.recv_timeout(deadline.saturating_duration_since(now)) {
+                    Ok(next) => requested = requested.max(next),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                }
+            }
+            let Some(surface) = weak.upgrade() else { break };
+            let Some(pty) = surface.as_pty() else { break };
+            let mut term = pty.term.lock().unwrap();
+            let generation = requested.max(pty.render_generation.load(Ordering::Acquire));
+            if pty.build_frame_locked(&mut term, generation, true).unwrap_or(false) {
+                last_frame = Instant::now();
+            }
+        }
+    })?;
+    Ok(())
+}
+
+fn broadcast_render_scroll_locked(pty: &PtySurface, position: (u64, bool)) {
+    let (offset, at_bottom) = position;
+    let mut render = pty.render.lock().unwrap();
+    render
+        .taps
+        .retain(|tap| tap.send(RenderAttachFrame::ScrollChanged { offset, at_bottom }).is_ok());
 }
 
 fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
     match term.scrollbar() {
         Some(scrollbar) => (scrollbar.offset, !scrollbar.scrolled_back()),
         None => (0, true),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn producer_without_render_taps_skips_frame_but_emits_output() {
+        let mux = Mux::new_for_test("producer-skip", SurfaceOptions::default());
+        let events = mux.subscribe();
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+
+        let mut term = pty.term.lock().unwrap();
+        assert!(!pty.build_frame_locked(&mut term, 2, true).unwrap());
+        drop(term);
+
+        let render = pty.render.lock().unwrap();
+        assert_eq!(render.built_generation, 0);
+        assert!(render.latest.is_none());
+        drop(render);
+        assert!(pty.dirty.load(Ordering::Acquire));
+        assert!(matches!(events.try_recv(), Ok(MuxEvent::SurfaceOutput(1))));
     }
 }

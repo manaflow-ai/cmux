@@ -27,12 +27,14 @@ pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, Direction, LayoutLeafSpec,
     LayoutSpec, Mux, MuxEvent, NotificationEvent, NotificationLevel, RunPlacement,
-    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, ZoomMode, ZoomState,
+    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, TreeDelta, TreeDeltaKind,
+    ZoomMode, ZoomState,
 };
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachStream, BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource,
-    BrowserStatus, DefaultColors, Surface, SurfaceKind, SurfaceOptions, TerminalColors,
+    BrowserStatus, DefaultColors, RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind,
+    SurfaceOptions, SurfaceRenderFrame, TerminalColors,
 };
 
 pub use cmux_tui_cdp::BrowserMode;

@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use base64::Engine;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::{AttachFrame, CursorShape, DefaultColors, Mux, MuxEvent, Rgb, SurfaceOptions};
 use ghostty_vt::RenderState;
@@ -49,6 +50,16 @@ fn read_json_line(reader: &mut impl BufRead) -> Option<serde_json::Value> {
         }
         Err(e) => panic!("socket read failed: {e}"),
     }
+}
+
+fn rendered_rows_text(value: &serde_json::Value) -> String {
+    value["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|row| row["runs"].as_array().into_iter().flatten())
+        .filter_map(|run| run["text"].as_str())
+        .collect()
 }
 
 fn socket_request(
@@ -685,6 +696,7 @@ fn control_socket_attach_stream_receives_merged_colors_changed() {
         event,
         serde_json::json!({
             "event": "colors-changed",
+            "surface": surface.id,
             "fg": "#010203",
             "bg": "#131415",
             "cursor": null,
@@ -924,6 +936,403 @@ fn attach_stream_orders_resize_between_output_frames() {
     }
 
     mux.close_surface(surface.id);
+}
+
+#[test]
+fn render_attach_headless_fans_one_frame_to_render_and_byte_consumers() {
+    let mux = Mux::new(
+        unique_session("test-render-multi"),
+        shell_opts("stty -echo -icanon; printf ready; cat"),
+    );
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    wait_for(
+        || {
+            surface
+                .with_terminal(|term| {
+                    term.viewport_text().ok().filter(|text| text.contains("ready"))
+                })
+                .flatten()
+        },
+        Duration::from_secs(10),
+    )
+    .expect("raw echo reader ready");
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+
+    let render_stream = connect(&sock_path);
+    render_stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut render_writer = render_stream.try_clone_box().unwrap();
+    let mut render_reader = BufReader::new(render_stream);
+    writeln!(
+        render_writer,
+        r#"{{"id":1,"cmd":"attach-surface","surface":{},"mode":"render"}}"#,
+        surface.id
+    )
+    .unwrap();
+    let initial = wait_for(|| read_json_line(&mut render_reader), Duration::from_secs(5))
+        .expect("render-state event");
+    assert_eq!(initial["event"], "render-state");
+    assert_eq!(initial["surface"], surface.id);
+    assert_eq!(initial["size"], serde_json::json!({"cols": 20, "rows": 4}));
+    assert_eq!(initial["rows"].as_array().unwrap().len(), 4);
+    assert!(initial["cursor"].get("visible").is_some());
+    let response = wait_for(|| read_json_line(&mut render_reader), Duration::from_secs(5))
+        .expect("render attach response");
+    assert_eq!(response["id"], 1);
+    assert_eq!(response["ok"], true);
+
+    let byte_stream = connect(&sock_path);
+    byte_stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut byte_writer = byte_stream.try_clone_box().unwrap();
+    let mut byte_reader = BufReader::new(byte_stream);
+    writeln!(byte_writer, r#"{{"id":2,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
+    assert_eq!(
+        wait_for(|| read_json_line(&mut byte_reader), Duration::from_secs(5)).unwrap()["event"],
+        "vt-state"
+    );
+    assert_eq!(
+        wait_for(|| read_json_line(&mut byte_reader), Duration::from_secs(5)).unwrap()["ok"],
+        true
+    );
+
+    surface.write_bytes(b"render-multi").unwrap();
+    let delta = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut render_reader) {
+                if value["event"] == "render-delta"
+                    && rendered_rows_text(&value).contains("render-multi")
+                {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(10),
+    )
+    .expect("headless render delta");
+    assert_eq!(delta["full"], false);
+    assert_eq!(delta["rows"].as_array().unwrap().len(), 1);
+    assert!(delta.get("cursor").is_some());
+
+    let output = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut byte_reader) {
+                if value["event"] == "output" {
+                    let bytes = base64::engine::general_purpose::STANDARD
+                        .decode(value["data"].as_str().unwrap())
+                        .unwrap();
+                    if bytes.windows(b"render-multi".len()).any(|part| part == b"render-multi") {
+                        return Some(bytes);
+                    }
+                }
+            }
+            None
+        },
+        Duration::from_secs(10),
+    );
+    assert!(output.is_some(), "byte attachment stopped while render attachment was active");
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn render_attach_snapshot_and_raced_write_have_no_gap_or_duplicate_frame() {
+    let mux = Mux::new(unique_session("test-render-race"), shell_opts("stty -echo; cat"));
+    let surface = mux.new_workspace(None, Some((24, 3))).unwrap();
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    let raced_surface = surface.clone();
+    let raced = std::thread::spawn(move || raced_surface.write_bytes(b"race-v7\n").unwrap());
+    writeln!(
+        writer,
+        r#"{{"id":1,"cmd":"attach-surface","surface":{},"mode":"render"}}"#,
+        surface.id
+    )
+    .unwrap();
+    raced.join().unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut marker_events = 0;
+    let mut saw_response = false;
+    while Instant::now() < deadline && (!saw_response || marker_events == 0) {
+        if let Some(value) = read_json_line(&mut reader) {
+            if value["id"] == 1 {
+                assert_eq!(value["ok"], true);
+                saw_response = true;
+            }
+            if matches!(value["event"].as_str(), Some("render-state" | "render-delta"))
+                && rendered_rows_text(&value).contains("race-v7")
+            {
+                marker_events += 1;
+            }
+        }
+    }
+    assert!(saw_response, "render attach response was not delivered");
+    assert_eq!(marker_events, 1, "raced output was missing or duplicated across snapshot/delta");
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn render_attach_resize_is_a_full_replacement_at_the_new_size() {
+    let mux = Mux::new(unique_session("test-render-resize"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(
+        writer,
+        r#"{{"id":1,"cmd":"attach-surface","surface":{},"mode":"render"}}"#,
+        surface.id
+    )
+    .unwrap();
+    assert_eq!(
+        wait_for(|| read_json_line(&mut reader), Duration::from_secs(5)).unwrap()["event"],
+        "render-state"
+    );
+    assert_eq!(
+        wait_for(|| read_json_line(&mut reader), Duration::from_secs(5)).unwrap()["ok"],
+        true
+    );
+
+    let command = connect(&sock_path);
+    let mut command_writer = command.try_clone_box().unwrap();
+    let mut command_reader = BufReader::new(command);
+    socket_request(
+        &mut command_writer,
+        &mut command_reader,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "resize-surface",
+            "surface": surface.id,
+            "cols": 31,
+            "rows": 6,
+        }),
+    );
+
+    let delta = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut reader) {
+                if value["event"] == "render-delta" && value["size"]["cols"] == 31 {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(5),
+    )
+    .expect("resize render delta");
+    assert_eq!(delta["full"], true);
+    assert_eq!(delta["size"], serde_json::json!({"cols": 31, "rows": 6}));
+    assert_eq!(delta["rows"].as_array().unwrap().len(), 6);
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn read_scrollback_pages_oldest_rows_and_clamps_bounds() {
+    let script =
+        "i=0; while [ $i -lt 30 ]; do printf 'history-%02d\\n' $i; i=$((i+1)); done; sleep 30";
+    let mux = Mux::new(unique_session("test-read-scrollback"), shell_opts(script));
+    let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+    wait_for(
+        || surface.with_terminal(|term| (term.history_rows() >= 20).then_some(())).flatten(),
+        Duration::from_secs(10),
+    )
+    .expect("history rows");
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    let page = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "read-scrollback",
+            "surface": surface.id,
+            "start": 0,
+            "count": 3,
+        }),
+    )["data"]
+        .clone();
+    assert_eq!(page["start"], 0);
+    assert_eq!(page["rows"].as_array().unwrap().len(), 3);
+    assert!(page["total"].as_u64().unwrap() >= 20);
+    assert!(rendered_rows_text(&page).contains("history-00"));
+
+    let total = page["total"].as_u64().unwrap();
+    let past_end = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "read-scrollback",
+            "surface": surface.id,
+            "start": u32::MAX,
+            "count": 10,
+        }),
+    );
+    assert_eq!(past_end["data"]["start"].as_u64(), Some(total));
+    assert!(past_end["data"]["rows"].as_array().unwrap().is_empty());
+    let empty = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 3,
+            "cmd": "read-scrollback",
+            "surface": surface.id,
+            "start": 0,
+            "count": 0,
+        }),
+    );
+    assert!(empty["data"]["rows"].as_array().unwrap().is_empty());
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn tree_event_modes_receive_delta_or_exact_coarse_fallback() {
+    let mux = Mux::new(unique_session("test-tree-event-modes"), shell_opts("sleep 30"));
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+
+    let coarse = connect(&sock_path);
+    coarse.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut coarse_writer = coarse.try_clone_box().unwrap();
+    let mut coarse_reader = BufReader::new(coarse);
+    coarse_writer.write_all(br#"{"id":1,"cmd":"subscribe"}"#).unwrap();
+    coarse_writer.write_all(b"\n").unwrap();
+    assert_eq!(
+        wait_for(|| read_json_line(&mut coarse_reader), Duration::from_secs(5)).unwrap()["ok"],
+        true
+    );
+
+    let deltas = connect(&sock_path);
+    deltas.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut deltas_writer = deltas.try_clone_box().unwrap();
+    let mut deltas_reader = BufReader::new(deltas);
+    deltas_writer.write_all(br#"{"id":2,"cmd":"subscribe","tree_events":"deltas"}"#).unwrap();
+    deltas_writer.write_all(b"\n").unwrap();
+    assert_eq!(
+        wait_for(|| read_json_line(&mut deltas_reader), Duration::from_secs(5)).unwrap()["ok"],
+        true
+    );
+
+    let commands = connect(&sock_path);
+    let mut command_writer = commands.try_clone_box().unwrap();
+    let mut command_reader = BufReader::new(commands);
+    let created = socket_request(
+        &mut command_writer,
+        &mut command_reader,
+        serde_json::json!({"id": 3, "cmd": "new-workspace", "name": "delta"}),
+    );
+    let surface = created["data"]["surface"].as_u64().unwrap();
+
+    let coarse_event = wait_for(|| read_json_line(&mut coarse_reader), Duration::from_secs(5))
+        .expect("coarse tree event");
+    assert_eq!(coarse_event, serde_json::json!({"event": "tree-changed"}));
+    let delta = wait_for(|| read_json_line(&mut deltas_reader), Duration::from_secs(5))
+        .expect("workspace-added event");
+    assert_eq!(delta["event"], "workspace-added");
+    assert_eq!(delta["workspace"], delta["entity"]["id"]);
+    assert_eq!(delta["index"], 0);
+    assert_eq!(delta["entity"]["name"], "delta");
+    assert!(
+        delta["entity"]["screens"][0]["panes"][0]["tabs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tab| tab["surface"] == surface)
+    );
+
+    mux.close_surface(surface);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn send_paste_wraps_only_while_dec_mode_2004_is_enabled() {
+    let script =
+        "stty -echo; printf 'paste-ready\\n'; od -An -tx1 -N 14; od -An -tx1 -N 3; sleep 30";
+    let mux = Mux::new(unique_session("test-paste-mode"), shell_opts(script));
+    let surface = mux.new_workspace(None, Some((80, 8))).unwrap();
+    wait_for(
+        || {
+            surface
+                .with_terminal(|term| {
+                    term.viewport_text().ok().filter(|text| text.contains("paste-ready"))
+                })
+                .flatten()
+        },
+        Duration::from_secs(10),
+    )
+    .expect("paste reader ready");
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    surface.try_with_terminal(|term| term.vt_write(b"\x1b[?2004h")).unwrap();
+    socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "send",
+            "surface": surface.id,
+            "text": "hi",
+            "paste": true,
+        }),
+    );
+    wait_for(
+        || {
+            surface
+                .with_terminal(|term| {
+                    term.viewport_text()
+                        .ok()
+                        .filter(|text| text.contains("1b 5b 32 30 30 7e 68 69 1b 5b 32 30 31 7e"))
+                })
+                .flatten()
+        },
+        Duration::from_secs(10),
+    )
+    .expect("bracketed bytes");
+
+    surface.try_with_terminal(|term| term.vt_write(b"\x1b[?2004l")).unwrap();
+    socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "send",
+            "surface": surface.id,
+            "text": "raw",
+            "paste": true,
+        }),
+    );
+    wait_for(
+        || {
+            surface
+                .with_terminal(|term| {
+                    term.viewport_text().ok().filter(|text| text.contains("72 61 77"))
+                })
+                .flatten()
+        },
+        Duration::from_secs(10),
+    )
+    .expect("raw paste bytes");
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
 }
 
 #[test]
