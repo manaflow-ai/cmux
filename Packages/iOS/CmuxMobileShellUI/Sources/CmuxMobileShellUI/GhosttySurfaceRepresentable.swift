@@ -246,12 +246,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         case nil:
                             break
                         }
-                        if operation.data.isEmpty {
+                        if operation.data.isEmpty && operation.followingScrollRuns.isEmpty {
                             applied = true
                         } else {
                             applied = await surfaceView.processOutputAndWait(
                                 operation.data,
-                                scrollbackOffsetFromBottomRows: operation.scrollbackOffsetFromBottomRows
+                                scrollbackOffsetFromBottomRows: operation.scrollbackOffsetFromBottomRows,
+                                followingScrollRuns: operation.followingScrollRuns
                             )
                         }
                     case .localScroll(let runs): applied = await surfaceView.applyLocalScrollbackScrollAndWait(runs)
@@ -447,10 +448,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             )
         }
 
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScroll run: MobileTerminalScrollRun) {
             // Forward to the Mac's real surface; libghostty scrolls scrollback
             // (normal screen) or sends mouse-wheel to the program (alt screen).
-            store?.scrollTerminal(surfaceID: surfaceID, lines: lines, col: col, row: row)
+            store?.scrollTerminal(surfaceID: surfaceID, run: run)
         }
 
         func ghosttySurfaceViewDidBeginScrollInteraction(_ surfaceView: GhosttySurfaceView) {

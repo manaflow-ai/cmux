@@ -8,6 +8,13 @@ extension MobileTerminalRenderGridReplay {
             bytes.append(Data("\u{1B}[?25h".utf8))
             return
         }
+        appendCursorRestore(cursor, to: &bytes)
+    }
+
+    func appendCursorRestore(
+        _ cursor: MobileTerminalRenderGridFrame.Cursor,
+        to bytes: inout Data
+    ) {
         bytes.append(cursorStyleBytes(for: cursor))
         let preservesReconstructedActiveRow = switch cursor.location {
         case .aboveViewport, .belowViewport: true

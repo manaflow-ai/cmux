@@ -1,6 +1,15 @@
 import Foundation
 
+private func renderGridStyleSignature(_ style: MobileTerminalRenderGridFrame.Style) -> String {
+    let flags = [
+        style.bold, style.faint, style.italic, style.underline, style.blink,
+        style.inverse, style.invisible, style.strikethrough, style.overline,
+    ].map { $0 ? "1" : "0" }.joined()
+    return "\(style.foreground ?? "-")/\(style.background ?? "-")/\(flags)"
+}
+
 extension MobileTerminalRenderGridFrame {
+    /// Returns viewport text reconstructed from positioned row spans.
     public func plainRows() -> [String] {
         var rows = Array(repeating: "", count: self.rows)
         for span in rowSpans.sorted(by: { lhs, rhs in
@@ -46,21 +55,18 @@ extension MobileTerminalRenderGridFrame {
                 .sorted { $0.column < $1.column }
                 .map { span in
                     let style = stylesByID[span.styleID] ?? .default
-                    return "\(span.column):\(span.gridCellWidth):\(Self.styleSignature(style)):\(span.text)"
+                    return "\(span.column):\(span.gridCellWidth):\(renderGridStyleSignature(style)):\(span.text)"
                 }
                 .joined(separator: "\u{1F}")
         }
         return signatures
     }
 
-    private static func styleSignature(_ style: Style) -> String {
-        let flags = [
-            style.bold, style.faint, style.italic, style.underline, style.blink,
-            style.inverse, style.invisible, style.strikethrough, style.overline,
-        ].map { $0 ? "1" : "0" }.joined()
-        return "\(style.foreground ?? "-")/\(style.background ?? "-")/\(flags)"
-    }
-
+    /// Returns a frame containing only the selected viewport rows.
+    ///
+    /// - Parameters:
+    ///   - includedRows: Viewport row indexes retained in the result.
+    ///   - full: Whether the result is a full snapshot or a delta.
     public func filteredRows(_ includedRows: Set<Int>, full: Bool) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,

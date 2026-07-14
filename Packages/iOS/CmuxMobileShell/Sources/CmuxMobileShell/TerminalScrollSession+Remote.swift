@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 extension TerminalScrollSession {
@@ -17,7 +18,7 @@ extension TerminalScrollSession {
             return
         }
         prepareIntent()
-        lastDirectionLines = first.lines
+        lastDirectionLines = first.directionValue
         lastCol = first.col
         lastRow = first.row
         var nextRevision = latestClientRevision &+ UInt64(scroll.submissionCount)
@@ -27,9 +28,10 @@ extension TerminalScrollSession {
             interactionEpoch: interactionEpoch,
             clientRevision: nextRevision,
             lines: first.lines,
+            primaryRows: first.primaryRows,
             col: first.col,
             row: first.row,
-            prefetchWindow: prefetchWindow(for: first.lines)
+            prefetchWindow: prefetchWindow(for: first)
         )
         for run in scroll.runs.dropFirst() {
             let appended = request.append(TerminalScrollRequest(
@@ -37,20 +39,18 @@ extension TerminalScrollSession {
                 interactionEpoch: interactionEpoch,
                 clientRevision: nextRevision,
                 lines: run.lines,
+                primaryRows: run.primaryRows,
                 col: run.col,
                 row: run.row,
-                prefetchWindow: prefetchWindow(for: run.lines)
+                prefetchWindow: prefetchWindow(for: run)
             ))
             guard appended else {
                 recoverFromLaneFailure()
                 return
             }
-            lastDirectionLines = run.lines
+            lastDirectionLines = run.directionValue
             lastCol = run.col
             lastRow = run.row
-        }
-        if request.prefetchWindow == nil {
-            request.prefetchWindow = scroll.inheritedPrefetchWindow
         }
         latestClientRevision = nextRevision
         startScrollTransaction(
@@ -176,20 +176,6 @@ extension TerminalScrollSession {
             recoverFromLaneFailure()
             return
         }
-        if intents.first?.isOptimisticallyAppliedScroll == true {
-            if let inheritedWindow = transaction.request.prefetchWindow {
-                intents.mutateFirst { intent in
-                    guard case .scroll(var scroll) = intent,
-                          scroll.inheritedPrefetchWindow == nil else { return }
-                    scroll.inheritedPrefetchWindow = inheritedWindow
-                    intent = .scroll(scroll)
-                }
-            }
-            cancelPhaseTasks()
-            phase = .idle
-            startNextIntentIfIdle()
-            return
-        }
         transaction.remoteCompleted = true
         transaction.response = response
         phase = .scroll(transaction)
@@ -202,19 +188,21 @@ extension TerminalScrollSession {
               transaction.localApplied,
               transaction.remoteCompleted,
               let response = transaction.response else { return }
-        if intents.first?.isOptimisticallyAppliedScroll == true {
-            cancelPhaseTasks()
-            phase = .idle
-            startNextIntentIfIdle()
-            return
-        }
         if let frame = response.renderGrid {
+            let followingScrollRuns: [MobileTerminalScrollRun]
+            if case .scroll(let queuedScroll) = intents.first,
+               !queuedScroll.localReceipts.isEmpty {
+                followingScrollRuns = queuedScroll.runs
+            } else {
+                followingScrollRuns = []
+            }
             transaction.awaitingAuthoritative = true
             phase = .scroll(transaction)
             guard deliverAuthoritative(
                 frame,
                 response.interactionEpoch,
-                response.clientRevision
+                response.clientRevision,
+                followingScrollRuns
             ) else {
                 recoverFromLaneFailure()
                 return
@@ -247,9 +235,7 @@ extension TerminalScrollSession {
         latestReconciledRevision = transaction.request.clientRevision
         cancelPhaseTasks()
         phase = .idle
-        if supersession.reason != .optimisticScroll {
-            reconciliationDidComplete()
-        }
+        reconciliationDidComplete()
         startNextIntentIfIdle()
     }
 

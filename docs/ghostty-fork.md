@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `c1674657c`. It combines the previous cmux pin
+Current cmux pinned fork head: `473c64f2a`. It combines the previous cmux pin
 `dd726a9a6`, current fork `main` (`8495e581a`), and upstream
 `ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
 render-grid preserved-page OOM fix, lock-free selection notifications, and
@@ -22,7 +22,11 @@ screen-tail export `5ae712a89` with bidirectional mobile render-grid export
 `4df356ae6`, the exact active-screen cursor row in `10c0ea1e3`, and a bounded
 active-screen suffix for deep viewports in `c73796d44`. It then merges current
 fork `main` through `cbbddb292`, adds API and cursor visibility regressions in
-`f9de0abc9`, and fixes both in `c1674657c`.
+`f9de0abc9`, and fixes both in `c1674657c`. It adds the legacy row-bound
+regression in `6b09476c9` and separates legacy and bounded newer-row policy in
+`3a0b38a61`. It adds exact mobile-scroll and style-index regressions in
+`9510b71ae`, then preserves exact viewport rows and indexed render-grid style
+lookup in `473c64f2a`.
 Published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
@@ -40,6 +44,10 @@ https://github.com/manaflow-ai/ghostty/pull/106.
   - `c73796d44` (`fix: export primary active rows for deep viewports`)
   - `f9de0abc9` (`test: cover render grid API and cursor visibility regressions`)
   - `c1674657c` (`fix: preserve render grid ABI and cursor mode`)
+  - `6b09476c9` (`test: cover legacy render grid row bounds`)
+  - `3a0b38a61` (`fix: separate legacy and bounded render grid rows`)
+  - `9510b71ae` (`test: cover exact mobile scroll and style indexing`)
+  - `473c64f2a` (`fix: preserve exact mobile scroll rows`)
 - PR: https://github.com/manaflow-ai/ghostty/pull/107
 - Files:
   - `include/ghostty.h`
@@ -67,6 +75,14 @@ https://github.com/manaflow-ai/ghostty/pull/106.
   - Keeps existing `scrollback_rows` and `scrollback_spans` semantics intact.
   - Preserves DECTCEM cursor visibility even when the active cursor is above or
     below the exported viewport; `cursor.location` carries that geometry.
+  - Gives the legacy export an explicit no-newer-rows policy while the bounded
+    export retains its active-screen suffix, so a zero count cannot conflate
+    two different API contracts.
+  - Adds a mode-aware scroll API that applies exact viewport rows on the
+    primary screen while preserving wheel input for alternate-screen and mouse
+    reporting modes.
+  - Indexes packed render-grid styles during capture so large grids do not scan
+    every existing style for every cell while holding the renderer-state lock.
 - Conflict note: both API symbols and the JSON object live beside the existing
   render-grid scrollback encoder. Rebase both bounds, cursor location
   classification, active-row export, and the shared traversal together so a
@@ -79,7 +95,7 @@ https://github.com/manaflow-ai/ghostty/pull/106.
   - universal ReleaseFast GhosttyKit build with the exported symbol present in
     the macOS, iOS device, and iOS simulator slices
 - Prebuilt archive:
-  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-c1674657c3e6803233dc2fd70e7abe9829cde84e-crashsubdir-cmux-crash-v1
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-473c64f2a4f05954680623645578e2af4a95c396-crashsubdir-cmux-crash-v1
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -148,9 +164,9 @@ the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
 build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
 and clearing.
-The combined pin has no prebuilt archive; `ensure-ghosttykit.sh` falls back to
-a ReleaseFast source build. The checksum manifest retains the published
-component archives for `267824293` and `5ae712a89`.
+The combined pin has the reviewed prebuilt archive listed above. The checksum
+manifest also retains the published component archives for `267824293` and
+`5ae712a89`.
 
 ### Previous pin
 

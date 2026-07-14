@@ -1450,13 +1450,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // normal-screen scrollback and alt-screen mouse-wheel delivery.
         guard deltaY != 0 else { return }
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
-        let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
-        pendingScrollLines += -Double(deltaY) / divisor
+        let primaryDivisor = max(Double(cellHeightPt), 1)
+        scrollInputAccumulator.accumulate(
+            primaryRows: -Double(deltaY) / primaryDivisor,
+            alternateScreenLines: -Double(deltaY) / (primaryDivisor * 3)
+        )
         pendingScrollCell = scrollCell(at: touchPoint)
     }
 
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
-    var pendingScrollLines: Double = 0
+    var scrollInputAccumulator = MobileTerminalScrollInputAccumulator()
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
@@ -1471,11 +1474,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func flushPendingScrollIfNeeded() {
-        guard pendingScrollLines != 0 else { return }
-        let lines = pendingScrollLines
         let cell = pendingScrollCell
-        pendingScrollLines = 0
-        delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+        guard let run = scrollInputAccumulator.drain(col: cell.col, row: cell.row) else { return }
+        delegate?.ghosttySurfaceView(self, didScroll: run)
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -1824,7 +1825,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @discardableResult
     public func processOutputAndWait(
         _ data: Data,
-        scrollbackOffsetFromBottomRows: Int? = nil
+        scrollbackOffsetFromBottomRows: Int? = nil,
+        followingScrollRuns: [MobileTerminalScrollRun] = []
     ) async -> Bool {
         return await withCheckedContinuation { continuation in
             let operationID = registerPendingOutputApply(
@@ -1833,7 +1835,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
             processOutput(
                 data,
-                scrollbackOffsetFromBottomRows: scrollbackOffsetFromBottomRows
+                scrollbackOffsetFromBottomRows: scrollbackOffsetFromBottomRows,
+                followingScrollRuns: followingScrollRuns
             ) { [weak self] applied in
                 self?.completePendingOutputApply(id: operationID, returning: applied)
             }
@@ -1963,6 +1966,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func processOutput(
         _ data: Data,
         scrollbackOffsetFromBottomRows: Int? = nil,
+        followingScrollRuns: [MobileTerminalScrollRun] = [],
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
         guard !renderPipelineRecoveryPaused else {
@@ -1995,6 +1999,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // TUI that hides the cursor. nil = this delta carried no DECTCEM, so the
         // previous visibility stands.
         let cursorVisibilityDelta = Self.lastCursorVisibility(in: forwarded)
+        let outputScale = Double(max(preferredScreenScale, 1))
 
         // `ghostty_surface_process_output` BLOCKS on libghostty's internal
         // renderer/IO synchronization (a futex). Device crash logs show it
@@ -2015,6 +2020,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     rowsFromBottom: scrollbackOffsetFromBottomRows
                 )
             }
+            Self.applyLocalScrollbackRuns(
+                followingScrollRuns,
+                to: surface,
+                scale: outputScale
+            )
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
             // `process_output`. Reading it on the MAIN thread per-output (to feed

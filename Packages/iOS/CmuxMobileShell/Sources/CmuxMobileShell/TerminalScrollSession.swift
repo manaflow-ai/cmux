@@ -32,7 +32,8 @@ final class TerminalScrollSession {
     typealias DeliverAuthoritative = @MainActor @Sendable (
         _ frame: MobileTerminalRenderGridFrame,
         _ interactionEpoch: UInt64,
-        _ clientRevision: UInt64
+        _ clientRevision: UInt64,
+        _ followingScrollRuns: [MobileTerminalScrollRun]
     ) -> Bool
     typealias CompleteGridlessAuthoritative = @MainActor @Sendable (_ renderRevision: UInt64?) -> Bool
     typealias ReconciliationDidComplete = @MainActor @Sendable () -> Void
@@ -44,12 +45,11 @@ final class TerminalScrollSession {
         var runs: [MobileTerminalScrollRun]
         var submissionCount: Int
         var localReceipts: [TerminalSurfaceMutationReceipt]
-        var inheritedPrefetchWindow: TerminalScrollPrefetchWindow?
 
         mutating func append(_ run: MobileTerminalScrollRun) -> Bool {
             if let lastIndex = runs.indices.last,
                TerminalScrollRequest.canCoalesce(runs[lastIndex], run) {
-                runs[lastIndex].lines += run.lines
+                runs[lastIndex].merge(run)
                 submissionCount += 1
                 return true
             }
@@ -234,10 +234,13 @@ final class TerminalScrollSession {
     }
 
     func submit(lines: Double, col: Int, row: Int) {
-        guard lines != 0 else { return }
+        submit(MobileTerminalScrollRun(lines: lines, col: col, row: row))
+    }
+
+    func submit(_ run: MobileTerminalScrollRun) {
+        guard run.hasEffect else { return }
         markBottomSnapNeeded()
         hasUnsettledScroll = true
-        let run = MobileTerminalScrollRun(lines: lines, col: col, row: row)
         let mayApplyOptimistically: Bool
         if case .scroll = phase {
             mayApplyOptimistically = intents.count == 0
@@ -268,8 +271,7 @@ final class TerminalScrollSession {
             guard intents.append(.scroll(ScrollIntent(
                 runs: [run],
                 submissionCount: 1,
-                localReceipts: localReceipt.map { [$0] } ?? [],
-                inheritedPrefetchWindow: nil
+                localReceipts: localReceipt.map { [$0] } ?? []
             ))) else {
                 queuedInteractionCount -= 1
                 recoverFromLaneFailure()
@@ -378,15 +380,19 @@ final class TerminalScrollSession {
         admittedBottomSnapGeneration = generation
     }
 
-    func prefetchWindow(for lines: Double) -> TerminalScrollPrefetchWindow? {
-        accumulatedRowsSincePrefetch += abs(lines)
+    func prefetchWindow(for run: MobileTerminalScrollRun) -> TerminalScrollPrefetchWindow? {
+        accumulatedRowsSincePrefetch += run.prefetchDistanceRows
         guard !hasPrimedPrefetch
                 || accumulatedRowsSincePrefetch >= TerminalScrollPrefetchWindow.refreshDistanceRows else {
             return nil
         }
         hasPrimedPrefetch = true
         accumulatedRowsSincePrefetch = 0
-        return .directional(for: lines)
+        return .directional(for: run.directionValue)
+    }
+
+    func prefetchWindow(for lines: Double) -> TerminalScrollPrefetchWindow? {
+        prefetchWindow(for: MobileTerminalScrollRun(lines: lines, col: 0, row: 0))
     }
 
     func advanceToNextEpoch() -> UInt64 {

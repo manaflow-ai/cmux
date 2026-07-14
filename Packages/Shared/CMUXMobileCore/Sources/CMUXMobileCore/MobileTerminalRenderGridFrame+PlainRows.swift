@@ -1,6 +1,37 @@
 import Foundation
 
+private func normalizedRenderGridRows(from text: String, maxRows: Int) -> [String] {
+    var normalized = text
+        .replacingOccurrences(of: "\r\n", with: "\n")
+        .replacingOccurrences(of: "\r", with: "\n")
+        .components(separatedBy: "\n")
+    if normalized.count > maxRows, normalized.last?.isEmpty == true {
+        normalized.removeLast()
+    }
+    if normalized.count > maxRows {
+        normalized = Array(normalized.prefix(maxRows))
+    }
+    while normalized.count < maxRows {
+        normalized.append("")
+    }
+    return normalized
+}
+
+private func trimmingTrailingRenderGridBlanks(_ text: String) -> String {
+    let scalars = text.unicodeScalars
+    let space = UnicodeScalar(" ")
+    let tab = UnicodeScalar("\t")
+    var end = scalars.endIndex
+    while end > scalars.startIndex {
+        let previous = scalars.index(before: end)
+        guard scalars[previous] == space || scalars[previous] == tab else { break }
+        end = previous
+    }
+    return String(String.UnicodeScalarView(scalars[..<end]))
+}
+
 extension MobileTerminalRenderGridFrame {
+    /// Creates a render-grid frame from newline-delimited viewport text.
     public static func fromPlainRows(
         surfaceID: String,
         stateSeq: UInt64,
@@ -12,11 +43,11 @@ extension MobileTerminalRenderGridFrame {
         full: Bool = true,
         changedRows: Set<Int>? = nil
     ) throws -> MobileTerminalRenderGridFrame {
-        let lines = normalizedRows(from: text, maxRows: rows)
+        let lines = normalizedRenderGridRows(from: text, maxRows: rows)
         let includedRows = changedRows ?? Set(0..<rows)
         let spans = lines.enumerated().compactMap { row, line -> RowSpan? in
             guard includedRows.contains(row) else { return nil }
-            let trimmed = trimmingTrailingGridBlanks(line)
+            let trimmed = trimmingTrailingRenderGridBlanks(line)
             guard !trimmed.isEmpty else { return nil }
             let clipped = trimmed.clippedToRenderGridColumns(columns)
             guard !clipped.isEmpty else { return nil }
@@ -40,37 +71,8 @@ extension MobileTerminalRenderGridFrame {
         )
     }
 
+    /// Splits text into exactly `maxRows` normalized viewport rows.
     public static func normalizedPlainRows(from text: String, maxRows: Int) -> [String] {
-        normalizedRows(from: text, maxRows: maxRows)
-    }
-
-    private static func normalizedRows(from text: String, maxRows: Int) -> [String] {
-        var normalized = text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
-        if normalized.count > maxRows, normalized.last?.isEmpty == true {
-            normalized.removeLast()
-        }
-        if normalized.count > maxRows {
-            normalized = Array(normalized.prefix(maxRows))
-        }
-        while normalized.count < maxRows {
-            normalized.append("")
-        }
-        return normalized
-    }
-
-    private static func trimmingTrailingGridBlanks(_ text: String) -> String {
-        let scalars = text.unicodeScalars
-        let space = UnicodeScalar(" ")
-        let tab = UnicodeScalar("\t")
-        var end = scalars.endIndex
-        while end > scalars.startIndex {
-            let previous = scalars.index(before: end)
-            guard scalars[previous] == space || scalars[previous] == tab else { break }
-            end = previous
-        }
-        return String(String.UnicodeScalarView(scalars[..<end]))
+        normalizedRenderGridRows(from: text, maxRows: maxRows)
     }
 }

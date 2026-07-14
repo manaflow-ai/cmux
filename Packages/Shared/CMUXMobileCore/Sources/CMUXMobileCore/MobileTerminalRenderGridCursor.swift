@@ -4,6 +4,7 @@ extension MobileTerminalRenderGridFrame.Cursor {
         case activeRow = "active_row"
     }
 
+    /// Encodes cursor metadata using the render-grid wire keys.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(row, forKey: .row)
@@ -24,16 +25,25 @@ extension MobileTerminalRenderGridFrame.Cursor {
         }
     }
 
+    /// The cursor's position relative to the exported viewport.
     public enum Location: String, Codable, Equatable, Sendable {
+        /// The cursor lies inside the exported viewport.
         case viewport
+        /// The cursor lies before the exported viewport.
         case aboveViewport = "above_viewport"
+        /// The cursor lies after the exported viewport.
         case belowViewport = "below_viewport"
     }
 
+    /// The terminal cursor shape captured by the render-grid producer.
     public enum Style: String, Codable, Equatable, Sendable {
+        /// A filled block cursor.
         case block
+        /// A vertical bar cursor.
         case bar
+        /// An underline cursor.
         case underline
+        /// A hollow block cursor.
         case blockHollow = "block_hollow"
     }
 }

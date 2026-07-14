@@ -5,10 +5,15 @@ public import Foundation
 /// epoch and newest client revision so optimistic local work reconciles only
 /// with the matching Mac mutation. Older hosts may omit those fields.
 public struct MobileTerminalScrollResponse: Decodable, Sendable {
+    /// Whether the host accepted the scroll mutation.
     public let accepted: Bool?
+    /// Interaction epoch echoed by modern hosts.
     public let interactionEpoch: UInt64?
+    /// Latest client scroll revision acknowledged by the host.
     public let clientScrollRevision: UInt64?
+    /// Monotonic host render revision for this terminal surface.
     public let renderRevision: UInt64?
+    /// Authoritative render-grid snapshot returned for prefetch requests.
     public let renderGrid: MobileTerminalRenderGridFrame?
 
     private enum CodingKeys: String, CodingKey {
@@ -19,6 +24,7 @@ public struct MobileTerminalScrollResponse: Decodable, Sendable {
         case renderGrid = "render_grid"
     }
 
+    /// Decodes the scroll response and its optional compatibility fields.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         accepted = try container.decodeIfPresent(Bool.self, forKey: .accepted)
@@ -28,6 +34,7 @@ public struct MobileTerminalScrollResponse: Decodable, Sendable {
         renderGrid = try container.decodeIfPresent(MobileTerminalRenderGridFrame.self, forKey: .renderGrid)
     }
 
+    /// Decodes a scroll response from JSON data.
     public static func decode(_ data: Data) throws -> Self {
         try JSONDecoder().decode(Self.self, from: data)
     }

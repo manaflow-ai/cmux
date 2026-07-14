@@ -12,9 +12,14 @@ extension TerminalSurface {
     /// the alt-screen wheel reports at the right cell. Runs on the main actor
     /// like the desktop's own scroll path.
     @MainActor
-    public func mobileScroll(deltaLines: Double, col: Int, row: Int) -> Bool {
+    public func mobileScroll(
+        primaryRows: Int? = nil,
+        deltaLines: Double,
+        col: Int,
+        row: Int
+    ) -> Bool {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileScroll") else { return false }
-        guard deltaLines != 0 else { return true }
+        guard (primaryRows.map { $0 != 0 } ?? false) || deltaLines != 0 else { return true }
         let size = ghostty_surface_size(surface)
         // The surface is sized in backing pixels; `ghostty_surface_mouse_pos`
         // wants points, so divide the cell size by the content scale.
@@ -24,7 +29,17 @@ extension TerminalSurface {
         let posX = (Double(col) + 0.5) * cellWidthPt
         let posY = (Double(row) + 0.5) * cellHeightPt
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
-        ghostty_surface_mouse_scroll(surface, 0, deltaLines, 0)
+        if let primaryRows {
+            ghostty_surface_mouse_scroll_with_viewport_rows(
+                surface,
+                0,
+                deltaLines,
+                Int32(clamping: primaryRows),
+                0
+            )
+        } else {
+            ghostty_surface_mouse_scroll(surface, 0, deltaLines, 0)
+        }
         return true
     }
 

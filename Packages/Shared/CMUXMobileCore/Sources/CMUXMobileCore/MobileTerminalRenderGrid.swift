@@ -389,6 +389,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         /// The cursor's position relative to the captured viewport. Older
         /// render-grid producers omit this field.
         public var location: Location?
+        /// Exact cursor row on the live active screen, when supplied.
         public var activeRow: Int?
         public var style: Style
         public var blinking: Bool

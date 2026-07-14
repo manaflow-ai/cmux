@@ -4,9 +4,8 @@ import Foundation
 
 /// Backpressure queue for one mounted mobile terminal output stream.
 ///
-/// Raw byte chunks are nonreplaceable barriers. Render-grid chunks that repaint
-/// the whole viewport are replaceable while the iOS surface is still applying a
-/// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
+/// Raw byte chunks and interaction ordering are preserved. Consecutive pending
+/// render-grid viewport replacements may collapse only within the same scope.
 @MainActor
 struct TerminalOutputDeliveryQueue: Sendable {
     struct OptimisticScrollEnqueueResult {
@@ -21,7 +20,6 @@ struct TerminalOutputDeliveryQueue: Sendable {
 
     private struct PendingEntry: Sendable {
         var delivery: TerminalOutputDelivery
-        var optimisticGeneration: UInt64
         var reconciliationGeneration: UInt64
     }
 
@@ -46,7 +44,6 @@ struct TerminalOutputDeliveryQueue: Sendable {
     private var barrierInteractionReleaseRequested = false
     private var rawBacklogOverflowed = false
     private var reconciliationSupersessions: [TerminalScrollReconciliationSupersession] = []
-    private(set) var optimisticInvalidationGeneration: UInt64 = 0
     private var reconciliationInvalidationGeneration: UInt64 = 0
 
     var isIdle: Bool {
@@ -146,14 +143,13 @@ struct TerminalOutputDeliveryQueue: Sendable {
         return rawBacklogOverflowed
     }
 
-    /// Invalidates older unclaimed viewport/reconciliation output and inserts
-    /// the local scroll behind every preserved mutation in one main-actor step.
+    /// Inserts local scroll behind every existing mutation in one main-actor
+    /// step. Authoritative frames stay ordered ahead of later gesture input.
     mutating func enqueueOptimisticScroll(
         _ delivery: TerminalOutputDelivery
     ) -> OptimisticScrollEnqueueResult {
         precondition(delivery.isInteractionMutation)
         let candidateReceipt = delivery.primaryReceipt!
-        optimisticInvalidationGeneration &+= 1
         let mergesPendingInteraction = canMergePendingTail(with: delivery)
         guard mergesPendingInteraction
                 || queuedInteractionCount < Self.maximumQueuedInteractionCount else {
@@ -171,16 +167,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
         let effectiveReceipt = appended
             ? candidateReceipt
             : (pending.last?.delivery.primaryReceipt ?? candidateReceipt)
-        guard inFlight?.isSupersededByOptimisticScroll == true,
-              !inFlightClaimed else {
-            return OptimisticScrollEnqueueResult(immediate: nil, receipt: effectiveReceipt)
-        }
-        if let inFlight {
-            recordSupersededReconciliation(from: inFlight, reason: .optimisticScroll)
-        }
-        inFlight = popPending()
-        inFlightClaimed = false
-        return OptimisticScrollEnqueueResult(immediate: inFlight, receipt: effectiveReceipt)
+        return OptimisticScrollEnqueueResult(immediate: nil, receipt: effectiveReceipt)
     }
 
     mutating func completeInFlight(applied: Bool = true) -> TerminalOutputDelivery? {
@@ -264,7 +251,6 @@ struct TerminalOutputDeliveryQueue: Sendable {
         barrierInteractionReleaseRequested = false
         rawBacklogOverflowed = false
         reconciliationSupersessions.removeAll(keepingCapacity: false)
-        optimisticInvalidationGeneration = 0
         reconciliationInvalidationGeneration = 0
     }
 
@@ -307,7 +293,6 @@ struct TerminalOutputDeliveryQueue: Sendable {
         barrierInteractionReleaseRequested = false
         rawBacklogOverflowed = false
         reconciliationSupersessions.removeAll(keepingCapacity: false)
-        optimisticInvalidationGeneration = 0
         reconciliationInvalidationGeneration = 0
     }
 
@@ -353,7 +338,6 @@ struct TerminalOutputDeliveryQueue: Sendable {
             }
             pending[lastIndex] = PendingEntry(
                 delivery: delivery,
-                optimisticGeneration: optimisticInvalidationGeneration,
                 reconciliationGeneration: reconciliationInvalidationGeneration
             )
             return false
@@ -361,12 +345,10 @@ struct TerminalOutputDeliveryQueue: Sendable {
                   let lastIndex = pending.indices.last,
                   lastIndex >= pendingHeadIndex,
                   pending[lastIndex].delivery.mergeLocalScroll(delivery) {
-            pending[lastIndex].optimisticGeneration = optimisticInvalidationGeneration
             return false
         } else {
             pending.append(PendingEntry(
                 delivery: delivery,
-                optimisticGeneration: optimisticInvalidationGeneration,
                 reconciliationGeneration: reconciliationInvalidationGeneration
             ))
             return true
@@ -384,11 +366,6 @@ struct TerminalOutputDeliveryQueue: Sendable {
             let entry = pending[pendingHeadIndex]
             pendingHeadIndex += 1
             compactPendingStorageIfNeeded()
-            if entry.optimisticGeneration != optimisticInvalidationGeneration,
-               entry.delivery.isSupersededByOptimisticScroll {
-                recordSupersededReconciliation(from: entry.delivery, reason: .optimisticScroll)
-                continue
-            }
             if entry.reconciliationGeneration != reconciliationInvalidationGeneration,
                entry.delivery.scrollReconciliation != nil {
                 recordSupersededReconciliation(from: entry.delivery, reason: .policyInvalidation)

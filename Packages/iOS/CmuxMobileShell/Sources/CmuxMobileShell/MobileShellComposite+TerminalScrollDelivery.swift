@@ -82,7 +82,7 @@ extension MobileShellComposite {
             prepareInput: { [weak self] in
                 self?.invalidateQueuedTerminalScrollReconciliations(surfaceID: surfaceID)
             },
-            deliverAuthoritative: { [weak self] frame, epoch, revision in
+            deliverAuthoritative: { [weak self] frame, epoch, revision, followingRuns in
                 self?.deliverAuthoritativeTerminalRenderGrid(
                     frame,
                     expectedSurfaceID: surfaceID,
@@ -90,7 +90,8 @@ extension MobileShellComposite {
                     scrollReconciliation: TerminalScrollReconciliation(
                         interactionEpoch: epoch,
                         clientRevision: revision
-                    )
+                    ),
+                    followingScrollRuns: followingRuns
                 ) ?? false
             },
             completeGridlessAuthoritative: { [weak self] revision in
@@ -158,6 +159,10 @@ extension MobileShellComposite {
             col: col,
             row: row
         )
+    }
+
+    public func scrollTerminal(surfaceID: String, run: MobileTerminalScrollRun) {
+        terminalScrollSessionsBySurfaceID[surfaceID]?.submit(run)
     }
 
     public func terminalScrollInteractionDidBegin(surfaceID: String) {
@@ -235,13 +240,20 @@ extension MobileShellComposite {
             switch request.wireEncoding {
             case .legacyScalar:
                 params["delta_lines"] = request.lines
+                if let primaryRows = request.primaryRows {
+                    params["primary_rows"] = primaryRows
+                }
             case .orderedRuns:
                 params["delta_runs"] = request.directionalRuns.map { run in
-                    [
+                    var object: [String: Any] = [
                         "lines": run.lines,
                         "col": run.col,
                         "row": run.row,
-                    ] as [String: Any]
+                    ]
+                    if let primaryRows = run.primaryRows {
+                        object["primary_rows"] = primaryRows
+                    }
+                    return object
                 }
             }
             if let window = request.prefetchWindow {

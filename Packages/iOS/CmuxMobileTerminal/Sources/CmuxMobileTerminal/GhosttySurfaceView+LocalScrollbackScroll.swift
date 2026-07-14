@@ -46,19 +46,37 @@ extension GhosttySurfaceView {
     /// makes `+n` followed by `-n` differ from a net zero delta.
     @discardableResult
     public func applyLocalScrollbackScrollAndWait(_ runs: [MobileTerminalScrollRun]) async -> Bool {
-        let hasNonzeroRun = runs.contains { $0.lines != 0 }
+        let hasNonzeroRun = runs.contains { $0.hasEffect }
         guard hasNonzeroRun, let state = localScrollbackScrollState() else {
             return !hasNonzeroRun
         }
         return await performLocalScrollbackOperation(state: state) {
-            let size = ghostty_surface_size(state.surface)
-            let cellWidthPt = max(Double(size.cell_width_px) / state.scale, 1)
-            let cellHeightPt = max(Double(size.cell_height_px) / state.scale, 1)
-            for run in runs where run.lines != 0 {
-                let posX = (Double(run.col) + 0.5) * cellWidthPt
-                let posY = (Double(run.row) + 0.5) * cellHeightPt
-                ghostty_surface_mouse_pos(state.surface, posX, posY, GHOSTTY_MODS_NONE)
-                ghostty_surface_mouse_scroll(state.surface, 0, run.lines, 0)
+            Self.applyLocalScrollbackRuns(runs, to: state.surface, scale: state.scale)
+        }
+    }
+
+    nonisolated static func applyLocalScrollbackRuns(
+        _ runs: [MobileTerminalScrollRun],
+        to surface: ghostty_surface_t,
+        scale: Double
+    ) {
+        let size = ghostty_surface_size(surface)
+        let cellWidthPt = max(Double(size.cell_width_px) / scale, 1)
+        let cellHeightPt = max(Double(size.cell_height_px) / scale, 1)
+        for run in runs where run.hasEffect {
+            let posX = (Double(run.col) + 0.5) * cellWidthPt
+            let posY = (Double(run.row) + 0.5) * cellHeightPt
+            ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
+            if let primaryRows = run.primaryRows {
+                ghostty_surface_mouse_scroll_with_viewport_rows(
+                    surface,
+                    0,
+                    run.lines,
+                    Int32(clamping: primaryRows),
+                    0
+                )
+            } else {
+                ghostty_surface_mouse_scroll(surface, 0, run.lines, 0)
             }
         }
     }
@@ -116,7 +134,7 @@ extension GhosttySurfaceView {
     /// Stops UIKit drag/deceleration without mutating Ghostty. The shell then
     /// inserts the bottom snap into its causal surface mutation stream.
     public func cancelScrollMomentum() {
-        pendingScrollLines = 0
+        scrollInputAccumulator.reset()
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
     }
 

@@ -8,10 +8,6 @@ extension TerminalController {
     /// the Mac remains authoritative.
     nonisolated static let mobileReplayScrollbackLineBudget = 240
 
-    /// Larger history window returned only on explicit mobile scroll prefetch
-    /// requests, keeping ordinary scroll RPCs small.
-    nonisolated static let mobileScrollPrefetchScrollbackLineBudget = 600
-
     func mobileTerminalRenderGridFrame(
         terminalPanel: TerminalPanel,
         surfaceID: UUID,
@@ -118,22 +114,47 @@ extension TerminalController {
             ?? defaultBeforeRows
         let requestedAfter = (params["prefetch_after_rows"] as? NSNumber)?.intValue
             ?? defaultAfterRows
+        let directionLines = (params["delta_runs"] as? [[String: Any]])?
+            .reversed()
+            .compactMap { object -> Double? in
+                if let rows = (object["primary_rows"] as? NSNumber)?.intValue,
+                   rows != 0 {
+                    return Double(rows)
+                }
+                return (object["lines"] as? NSNumber)?.doubleValue
+            }
+            .first(where: { $0.isFinite && $0 != 0 })
+            ?? (params["primary_rows"] as? NSNumber).map { Double($0.intValue) }
+            ?? (params["delta_lines"] as? NSNumber)?.doubleValue
+        let bounded = MobileTerminalScrollPrefetchWindow.bounded(
+            requestedBeforeRows: requestedBefore,
+            requestedAfterRows: requestedAfter,
+            directionLines: directionLines
+        )
         return (
-            before: min(max(0, requestedBefore), Self.mobileScrollPrefetchScrollbackLineBudget),
-            after: min(max(0, requestedAfter), Self.mobileScrollPrefetchScrollbackLineBudget)
+            before: bounded.rowsBeforeViewport,
+            after: bounded.rowsAfterViewport
         )
     }
 
     func mobileScrollDirectionalRuns(params: [String: Any]) -> [MobileTerminalScrollRun]? {
         guard let rawRuns = params["delta_runs"] else {
             let lines = (params["delta_lines"] as? NSNumber)?.doubleValue ?? 0
+            let primaryRows = (params["primary_rows"] as? NSNumber)?.intValue
             guard lines.isFinite else { return nil }
-            if lines == 0 { return [] }
-            return [MobileTerminalScrollRun(
+            let run = primaryRows.map {
+                MobileTerminalScrollRun(
+                    primaryRows: $0,
+                    alternateScreenLines: lines,
+                    col: (params["col"] as? NSNumber)?.intValue ?? 0,
+                    row: (params["row"] as? NSNumber)?.intValue ?? 0
+                )
+            } ?? MobileTerminalScrollRun(
                 lines: lines,
                 col: (params["col"] as? NSNumber)?.intValue ?? 0,
                 row: (params["row"] as? NSNumber)?.intValue ?? 0
-            )]
+            )
+            return run.hasEffect ? [run] : []
         }
         guard let objects = rawRuns as? [[String: Any]],
               objects.count <= MobileTerminalScrollRun.maximumOrderedBatchCount else {
@@ -148,8 +169,17 @@ extension TerminalController {
                   let row = (object["row"] as? NSNumber)?.intValue else {
                 return nil
             }
-            guard lines != 0 else { continue }
-            runs.append(MobileTerminalScrollRun(lines: lines, col: col, row: row))
+            let primaryRows = (object["primary_rows"] as? NSNumber)?.intValue
+            let run = primaryRows.map {
+                MobileTerminalScrollRun(
+                    primaryRows: $0,
+                    alternateScreenLines: lines,
+                    col: col,
+                    row: row
+                )
+            } ?? MobileTerminalScrollRun(lines: lines, col: col, row: row)
+            guard run.hasEffect else { continue }
+            runs.append(run)
         }
         return runs
     }
@@ -193,7 +223,12 @@ extension TerminalController {
             )
         }
         if directionalRuns.isEmpty {
-            guard terminalPanel.surface.mobileScroll(deltaLines: 0, col: 0, row: 0) else {
+            guard terminalPanel.surface.mobileScroll(
+                primaryRows: nil,
+                deltaLines: 0,
+                col: 0,
+                row: 0
+            ) else {
                 return .ok(mobileTerminalScrollRejectedPayload(
                     workspaceID: resolved.workspace.id,
                     surfaceID: surfaceId,
@@ -203,6 +238,7 @@ extension TerminalController {
         } else {
             for run in directionalRuns {
                 guard terminalPanel.surface.mobileScroll(
+                    primaryRows: run.primaryRows,
                     deltaLines: run.lines,
                     col: run.col,
                     row: run.row

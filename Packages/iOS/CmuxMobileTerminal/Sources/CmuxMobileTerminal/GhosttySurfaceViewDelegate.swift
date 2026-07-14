@@ -19,10 +19,8 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// after a newer report was emitted is recognized as stale and dropped
     /// instead of re-pinning the grid the surface already outgrew.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64)
-    /// Forward a scroll gesture to the Mac's real surface. `lines` is signed
-    /// (sign = direction), `col`/`row` is the grid cell under the finger (so
-    /// alt-screen mouse-wheel reports at the right cell). Optional.
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int)
+    /// Forward a mode-aware scroll gesture to the Mac's real surface. Optional.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScroll run: MobileTerminalScrollRun)
     /// Native tracking began. The host uses the explicit UIKit lifecycle
     /// instead of a timer to delimit optimistic scroll reconciliation.
     func ghosttySurfaceViewDidBeginScrollInteraction(_ surfaceView: GhosttySurfaceView)
@@ -65,7 +63,7 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
 /// hosts only implement the surfaces they actually route.
 public extension GhosttySurfaceViewDelegate {
     /// Default no-op so hosts without remote scroll forwarding can ignore it.
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScroll run: MobileTerminalScrollRun) {}
     /// Default no-op so hosts without a scroll session can ignore lifecycle.
     func ghosttySurfaceViewDidBeginScrollInteraction(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without a scroll session can ignore lifecycle.

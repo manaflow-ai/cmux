@@ -78,12 +78,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         // snapshot) it leaves a nil cursor untouched instead of forcing it
         // visible.
         if let cursor = frame.cursor {
-            bytes.append(cursorStyleBytes(for: cursor))
-            if cursor.visible {
-                bytes.append(Data("\u{1B}[?25h\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
-            } else {
-                bytes.append(Data("\u{1B}[?25l\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
-            }
+            appendCursorRestore(cursor, to: &bytes)
         }
         return bytes
     }

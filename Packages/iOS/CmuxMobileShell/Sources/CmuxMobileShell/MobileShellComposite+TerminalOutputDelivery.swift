@@ -51,7 +51,8 @@ extension MobileShellComposite {
         expectedSurfaceID: String? = nil,
         source: String,
         bypassReplayBarrier: Bool = false,
-        scrollReconciliation: TerminalScrollReconciliation? = nil
+        scrollReconciliation: TerminalScrollReconciliation? = nil,
+        followingScrollRuns: [MobileTerminalScrollRun] = []
     ) -> Bool {
         guard expectedSurfaceID == nil || renderGrid.surfaceID == expectedSurfaceID,
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
@@ -146,10 +147,7 @@ extension MobileShellComposite {
             }
             MobileDebugLog.anchormux("sync.render_grid_waiting_for_baseline source=\(source) surface=\(renderGrid.surfaceID) seq=\(renderGrid.stateSeq)")
             if terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] != nil {
-                let delivered = deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
-                if delivered, let renderRevision = renderGrid.renderRevision {
-                    acceptTerminalRenderRevision(renderRevision, surfaceID: renderGrid.surfaceID)
-                }
+                _ = deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
             } else {
                 requestTerminalReplayForMissingRenderGridBaseline(surfaceID: renderGrid.surfaceID)
             }
@@ -205,22 +203,14 @@ extension MobileShellComposite {
             renderGrid,
             surfaceID: renderGrid.surfaceID,
             bypassReplayBarrier: shouldBypassReplayBarrier,
-            scrollReconciliation: scrollReconciliation
+            scrollReconciliation: scrollReconciliation,
+            followingScrollRuns: followingScrollRuns
         ) else { return false }
         if bypassLiveBaselineBarrier,
            terminalReplayBarrierAckStreamTokensBySurfaceID[renderGrid.surfaceID] != nil {
             cancelTerminalReplayInFlight(surfaceID: renderGrid.surfaceID)
             terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID[renderGrid.surfaceID] =
                 terminalReplayBarrierDroppedOutputCountsBySurfaceID[renderGrid.surfaceID] ?? 0
-        }
-        recordTerminalRenderGridDelivery(renderGrid)
-        markTerminalBytesDelivered(
-            surfaceID: renderGrid.surfaceID,
-            endSeq: renderGrid.stateSeq,
-            fullReplacement: renderGrid.full
-        )
-        if let renderRevision = renderGrid.renderRevision {
-            acceptTerminalRenderRevision(renderRevision, surfaceID: renderGrid.surfaceID)
         }
         return true
     }
@@ -255,7 +245,8 @@ extension MobileShellComposite {
         _ frame: MobileTerminalRenderGridFrame,
         surfaceID: String,
         bypassReplayBarrier: Bool = false,
-        scrollReconciliation: TerminalScrollReconciliation? = nil
+        scrollReconciliation: TerminalScrollReconciliation? = nil,
+        followingScrollRuns: [MobileTerminalScrollRun] = []
     ) -> Bool {
         return deliverTerminalOutput(
             TerminalOutputDelivery(
@@ -263,7 +254,8 @@ extension MobileShellComposite {
                 replaceable: scrollReconciliation == nil
                     && frame.isReplaceableViewportPatchForMobileDelivery,
                 viewportPolicy: frame.mobileViewportPolicy,
-                scrollReconciliation: scrollReconciliation
+                scrollReconciliation: scrollReconciliation,
+                followingScrollRuns: followingScrollRuns
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -384,6 +376,17 @@ extension MobileShellComposite {
         let next = queue.completeInFlight()
         let superseded = queue.takeScrollReconciliationSupersessions()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        if let renderGrid = completedDelivery?.renderGridFrame {
+            recordTerminalRenderGridDelivery(renderGrid)
+            markTerminalBytesDelivered(
+                surfaceID: renderGrid.surfaceID,
+                endSeq: renderGrid.stateSeq,
+                fullReplacement: renderGrid.full
+            )
+            if let renderRevision = renderGrid.renderRevision {
+                acceptTerminalRenderRevision(renderRevision, surfaceID: renderGrid.surfaceID)
+            }
+        }
         if let reconciliation = completedDelivery?.scrollReconciliation {
             terminalScrollSessionsBySurfaceID[surfaceID]?.authoritativeDidApply(
                 interactionEpoch: reconciliation.interactionEpoch,

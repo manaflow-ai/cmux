@@ -16,6 +16,7 @@ struct TerminalScrollRequest: Equatable, Sendable {
     var interactionEpoch: UInt64
     var clientRevision: UInt64
     var lines: Double
+    var primaryRows: Int?
     var col: Int
     var row: Int
     var prefetchWindow: TerminalScrollPrefetchWindow?
@@ -27,6 +28,7 @@ struct TerminalScrollRequest: Equatable, Sendable {
         interactionEpoch: UInt64,
         clientRevision: UInt64,
         lines: Double,
+        primaryRows: Int? = nil,
         col: Int,
         row: Int,
         prefetchWindow: TerminalScrollPrefetchWindow?
@@ -35,12 +37,19 @@ struct TerminalScrollRequest: Equatable, Sendable {
         self.interactionEpoch = interactionEpoch
         self.clientRevision = clientRevision
         self.lines = lines
+        self.primaryRows = primaryRows
         self.col = col
         self.row = row
         self.prefetchWindow = prefetchWindow
-        self.directionalRuns = lines == 0
-            ? []
-            : [MobileTerminalScrollRun(lines: lines, col: col, row: row)]
+        let run = primaryRows.map {
+            MobileTerminalScrollRun(
+                primaryRows: $0,
+                alternateScreenLines: lines,
+                col: col,
+                row: row
+            )
+        } ?? MobileTerminalScrollRun(lines: lines, col: col, row: row)
+        self.directionalRuns = run.hasEffect ? [run] : []
         self.wireEncoding = .legacyScalar
     }
 
@@ -63,12 +72,20 @@ struct TerminalScrollRequest: Equatable, Sendable {
         for run in newer.directionalRuns {
             if let lastIndex = directionalRuns.indices.last,
                Self.canCoalesce(directionalRuns[lastIndex], run) {
-                directionalRuns[lastIndex].lines += run.lines
+                directionalRuns[lastIndex].merge(run)
             } else {
                 directionalRuns.append(run)
             }
         }
         lines += newer.lines
+        switch (primaryRows, newer.primaryRows) {
+        case (.some(let olderRows), .some(let newerRows)):
+            primaryRows = olderRows + newerRows
+        case (.none, .none):
+            break
+        case (.some, .none), (.none, .some):
+            primaryRows = nil
+        }
         clientRevision = newer.clientRevision
         col = newer.col
         row = newer.row
@@ -99,6 +116,9 @@ struct TerminalScrollRequest: Equatable, Sendable {
             var request = self
             request.directionalRuns = runs
             request.lines = runs.reduce(0) { $0 + $1.lines }
+            request.primaryRows = runs.allSatisfy { $0.primaryRows != nil }
+                ? runs.reduce(0) { $0 + ($1.primaryRows ?? 0) }
+                : nil
             request.col = runs.last?.col ?? col
             request.row = runs.last?.row ?? row
             request.prefetchWindow = endIndex == directionalRuns.count ? prefetchWindow : nil
@@ -134,7 +154,8 @@ struct TerminalScrollRequest: Equatable, Sendable {
         _ older: MobileTerminalScrollRun,
         _ newer: MobileTerminalScrollRun
     ) -> Bool {
-        older.lines.sign == newer.lines.sign
+        (older.primaryRows != nil) == (newer.primaryRows != nil)
+            && older.directionValue.sign == newer.directionValue.sign
             && older.col == newer.col
             && older.row == newer.row
     }

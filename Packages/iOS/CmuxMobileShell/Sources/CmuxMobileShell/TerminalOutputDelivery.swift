@@ -9,7 +9,6 @@ struct TerminalScrollReconciliation: Equatable, Sendable {
 
 struct TerminalScrollReconciliationSupersession: Equatable, Sendable {
     enum Reason: Equatable, Sendable {
-        case optimisticScroll
         case replacement
         case policyInvalidation
     }
@@ -65,6 +64,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
     var scrollReconciliation: TerminalScrollReconciliation?
+    var followingScrollRuns: [MobileTerminalScrollRun]
     /// An explicit authoritative viewport position. `nil` preserves the local
     /// position; `.some(0)` snaps to the bottom after a full history rebuild.
     var scrollbackOffsetFromBottomRows: Int?
@@ -87,6 +87,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.scrollReconciliation = nil
+        self.followingScrollRuns = []
         self.scrollbackOffsetFromBottomRows = scrollbackOffsetFromBottomRows.map { max(0, $0) }
     }
 
@@ -96,7 +97,8 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         replaceable: Bool,
         replacementScope: ReplacementScope? = nil,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
-        scrollReconciliation: TerminalScrollReconciliation? = nil
+        scrollReconciliation: TerminalScrollReconciliation? = nil,
+        followingScrollRuns: [MobileTerminalScrollRun] = []
     ) {
         self.deliveryID = deliveryID
         self.payload = .renderGrid(frame)
@@ -104,6 +106,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.scrollReconciliation = scrollReconciliation
+        self.followingScrollRuns = followingScrollRuns
         self.scrollbackOffsetFromBottomRows = frame.full && frame.activeScreen == .primary
             ? frame.scrollForwardRows + frame.primaryActiveRows
             : nil
@@ -120,6 +123,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replacementScope = nil
         self.viewportPolicy = nil
         self.scrollReconciliation = nil
+        self.followingScrollRuns = []
         self.scrollbackOffsetFromBottomRows = nil
     }
 
@@ -133,6 +137,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replacementScope = nil
         self.viewportPolicy = nil
         self.scrollReconciliation = nil
+        self.followingScrollRuns = []
         self.scrollbackOffsetFromBottomRows = nil
     }
 
@@ -146,6 +151,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replacementScope = nil
         self.viewportPolicy = nil
         self.scrollReconciliation = nil
+        self.followingScrollRuns = []
         self.scrollbackOffsetFromBottomRows = nil
     }
 
@@ -154,15 +160,13 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             && lhs.replacementScope == rhs.replacementScope
             && lhs.viewportPolicy == rhs.viewportPolicy
             && lhs.scrollReconciliation == rhs.scrollReconciliation
+            && lhs.followingScrollRuns == rhs.followingScrollRuns
             && lhs.scrollbackOffsetFromBottomRows == rhs.scrollbackOffsetFromBottomRows
     }
 
-    var isViewportRepaint: Bool {
-        replacementScope == .renderGridViewport || replacementScope == .byteViewport
-    }
-
-    var isSupersededByOptimisticScroll: Bool {
-        isViewportRepaint || scrollReconciliation != nil
+    var renderGridFrame: MobileTerminalRenderGridFrame? {
+        guard case .renderGrid(let frame) = payload else { return nil }
+        return frame
     }
 
     var bytes: Data {
@@ -182,7 +186,8 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             .output(MobileTerminalOutputOperation(
                 data: bytes,
                 viewportPolicy: viewportPolicy,
-                scrollbackOffsetFromBottomRows: scrollbackOffsetFromBottomRows
+                scrollbackOffsetFromBottomRows: scrollbackOffsetFromBottomRows,
+                followingScrollRuns: followingScrollRuns
             ))
         case .localScroll(let runs):
             .localScroll(runs)
@@ -222,7 +227,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         for run in newerRuns {
             if let lastIndex = combinedRuns.indices.last,
                TerminalScrollRequest.canCoalesce(combinedRuns[lastIndex], run) {
-                combinedRuns[lastIndex].lines += run.lines
+                combinedRuns[lastIndex].merge(run)
             } else {
                 guard combinedRuns.count < TerminalScrollRequest.maximumJournalRunCount else {
                     return false
