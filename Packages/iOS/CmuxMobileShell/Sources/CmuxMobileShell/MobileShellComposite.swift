@@ -784,6 +784,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalColdReplayNeedsBarrierUpgradeSurfaceIDs: Set<String>
     var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
+    var terminalOutputRegistrationTokensBySurfaceID: [String: UUID]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
@@ -1001,6 +1002,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = []
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
+        self.terminalOutputRegistrationTokensBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
         self.terminalScrollQueueTokensBySurfaceID = [:]
@@ -6612,7 +6614,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func registerTerminalOutput(
         surfaceID: String,
         continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
-    ) {
+    ) -> UUID {
+        let registrationToken = UUID()
+        terminalOutputRegistrationTokensBySurfaceID[surfaceID] = registrationToken
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
@@ -6629,11 +6633,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         #endif
         requestColdAttachTerminalReplay(surfaceID: surfaceID)
+        return registrationToken
     }
 
-    private func unregisterTerminalOutput(surfaceID: String) {
+    private func unregisterTerminalOutput(surfaceID: String, registrationToken: UUID) {
+        guard terminalOutputRegistrationTokensBySurfaceID[surfaceID] == registrationToken else {
+            return
+        }
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
+        terminalOutputRegistrationTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
@@ -6686,10 +6695,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// - Returns: An `AsyncStream` of output byte chunks.
     public func terminalOutputStream(surfaceID: String) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
-            registerTerminalOutput(surfaceID: surfaceID, continuation: continuation)
+            let registrationToken = registerTerminalOutput(
+                surfaceID: surfaceID,
+                continuation: continuation
+            )
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in
-                    self?.unregisterTerminalOutput(surfaceID: surfaceID)
+                    self?.unregisterTerminalOutput(
+                        surfaceID: surfaceID,
+                        registrationToken: registrationToken
+                    )
                 }
             }
         }
