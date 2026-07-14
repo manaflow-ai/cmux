@@ -9,6 +9,31 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func pidlessEventCannotBorrowVerifiedActiveProcessGeneration() {
+        let activeRun = AgentSessionRunRecord(
+            runId: "resumed-run", pid: 202, processStartedAt: 200,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true, startedAt: 200, updatedAt: 210, endedAt: nil
+        )
+        let record = ClaudeHookSessionRecord(
+            sessionId: "session", workspaceId: "workspace", surfaceId: "surface",
+            pid: 202, startedAt: 100, updatedAt: 210,
+            runs: [activeRun], activeRunId: activeRun.runId
+        )
+        let borrowedLineage = AgentHookSessionLineage(
+            runId: activeRun.runId, pid: activeRun.pid,
+            processStartedAt: activeRun.processStartedAt,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: true
+        )
+
+        #expect(!AgentHookSessionActivationPolicy().canActivate(
+            record: record,
+            lineage: borrowedLineage,
+            hasIncomingPID: false
+        ))
+    }
+
     @Test func liveHookMovesSurvivingRunIntoConnectedCmuxRuntime() throws {
         let oldRuntime = AgentCmuxRuntimeIdentity(
             id: "old-runtime", socketPath: "/tmp/old.sock", bundleIdentifier: "com.cmuxterm.old"

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -331,6 +332,66 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(record["sessionState"] as? String == "active")
         #expect(record["activeRunId"] as? String == "replacement-run")
         #expect(record["restoreAuthority"] as? Bool == true)
+    }
+
+    @Test func queuedRootExitCannotDeleteNewerActiveSlot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-completion-slot-fence-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let registryURL = root.appendingPathComponent(CmuxAgentSessionRegistry.filename)
+        let sessionID = "resumed-session"
+        let record: [String: Any] = [
+            "sessionId": sessionID,
+            "workspaceId": "workspace-a",
+            "surfaceId": "surface-a",
+            "activeRunId": "old-run",
+            "restoreAuthority": true,
+            "startedAt": 50.0,
+            "updatedAt": 100.0,
+        ]
+        let active: [String: Any] = [
+            "sessionId": sessionID,
+            "updatedAt": 300.0,
+        ]
+        let registry = CmuxAgentSessionRegistry(url: registryURL)
+        try registry.apply(
+            provider: "codex",
+            records: [CmuxAgentSessionRegistry.Record(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: 100,
+                json: try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+            )],
+            activeSlots: [CmuxAgentSessionRegistry.ActiveSlot(
+                provider: "codex",
+                scope: .surface,
+                scopeID: "surface-a",
+                sessionID: sessionID,
+                updatedAt: 300,
+                json: try JSONSerialization.data(withJSONObject: active, options: [.sortedKeys])
+            )]
+        )
+        let writer = AgentHookSessionStateWriter(
+            homeDirectory: root.path,
+            environment: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path,
+                "CMUX_AGENT_SESSION_REGISTRY_PATH": registryURL.path,
+            ]
+        )
+
+        writer.completeSynchronously(
+            kind: .codex,
+            sessionId: sessionID,
+            expectedRecordUpdatedAt: 100,
+            now: 200
+        )
+
+        let snapshot = try registry.snapshot(provider: "codex")
+        let slot = try #require(snapshot.activeSlots.first)
+        #expect(slot.sessionID == sessionID)
+        #expect(slot.updatedAt == 300)
     }
 
     @Test func workloadHistoryAppliesHardCapWhenEveryRecordIsActive() {

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 import XCTest
@@ -10,6 +11,45 @@ import Darwin
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func appRestoreLoaderHonorsExplicitAgentRegistryPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-explicit-registry-\(UUID().uuidString)", isDirectory: true)
+        let legacyDirectory = root.appendingPathComponent("legacy", isDirectory: true)
+        let registryURL = root.appendingPathComponent("custom-agent-sessions.sqlite3")
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionID = "configured-registry-session"
+        let record: [String: Any] = [
+            "sessionId": sessionID,
+            "workspaceId": "workspace",
+            "surfaceId": "surface",
+            "startedAt": 100.0,
+            "updatedAt": 200.0,
+        ]
+        try CmuxAgentSessionRegistry(url: registryURL).apply(provider: "codex", records: [
+            CmuxAgentSessionRegistry.Record(
+                provider: "codex",
+                sessionID: sessionID,
+                updatedAt: 200,
+                json: try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+            ),
+        ])
+
+        let key = "CMUX_AGENT_SESSION_REGISTRY_PATH"
+        let previous = ProcessInfo.processInfo.environment[key]
+        setenv(key, registryURL.path, 1)
+        defer {
+            if let previous { setenv(key, previous, 1) } else { unsetenv(key) }
+        }
+        let snapshots = RestorableAgentSessionIndex.agentRegistrySnapshots(
+            [(.codex, legacyDirectory.appendingPathComponent("codex-hook-sessions.json"))],
+            fileManager: .default
+        )
+
+        #expect(snapshots?["codex"]?.records.contains { $0.sessionID == sessionID } == true)
+    }
+
     @Test func agentHookRuntimeIdentityPrefersTheConnectedSocketOverMissingOrStaleEnvironment() throws {
         let socketCapabilities: [String: Any] = [
             "runtime_id": "socket-runtime",
