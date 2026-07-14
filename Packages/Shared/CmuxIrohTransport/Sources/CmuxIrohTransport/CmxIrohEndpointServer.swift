@@ -22,6 +22,7 @@ public actor CmxIrohEndpointServer {
 
     private struct ActiveConnection {
         let generation: UInt64
+        let remoteIdentity: CmxIrohPeerIdentity
         let connection: any CmxIrohConnection
         let handlerTask: Task<Void, Never>
     }
@@ -29,6 +30,8 @@ public actor CmxIrohEndpointServer {
     private let supervisor: CmxIrohEndpointSupervisor
     private let maximumPendingAdmissions: Int
     private let maximumPendingAdmissionsPerIdentity: Int
+    private let maximumConnections: Int
+    private let maximumConnectionsPerIdentity: Int
     private let admissionTimeout: TimeInterval
     private let clock: any CmxIrohRelayClock
     private let handler: ConnectionHandler
@@ -42,6 +45,8 @@ public actor CmxIrohEndpointServer {
         supervisor: CmxIrohEndpointSupervisor,
         maximumPendingAdmissions: Int = 10,
         maximumPendingAdmissionsPerIdentity: Int = 1,
+        maximumConnections: Int = 10,
+        maximumConnectionsPerIdentity: Int = 2,
         admissionTimeout: TimeInterval = 15,
         clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
         handler: @escaping ConnectionHandler
@@ -49,10 +54,15 @@ public actor CmxIrohEndpointServer {
         precondition(maximumPendingAdmissions > 0)
         precondition(maximumPendingAdmissionsPerIdentity > 0)
         precondition(maximumPendingAdmissionsPerIdentity <= maximumPendingAdmissions)
+        precondition(maximumConnections > 0)
+        precondition(maximumConnectionsPerIdentity > 0)
+        precondition(maximumConnectionsPerIdentity <= maximumConnections)
         precondition(admissionTimeout > 0)
         self.supervisor = supervisor
         self.maximumPendingAdmissions = maximumPendingAdmissions
         self.maximumPendingAdmissionsPerIdentity = maximumPendingAdmissionsPerIdentity
+        self.maximumConnections = maximumConnections
+        self.maximumConnectionsPerIdentity = maximumConnectionsPerIdentity
         self.admissionTimeout = admissionTimeout
         self.clock = clock
         self.handler = handler
@@ -171,6 +181,10 @@ public actor CmxIrohEndpointServer {
             await connection.close(errorCode: 1, reason: "admission_capacity")
             return
         }
+        guard pendingAdmissions.count + activeConnections.count < maximumConnections else {
+            await connection.close(errorCode: 1, reason: "connection_capacity")
+            return
+        }
         let pendingForIdentity = pendingAdmissions.values.lazy.filter {
             $0.remoteIdentity == remoteIdentity
         }.count
@@ -178,6 +192,16 @@ public actor CmxIrohEndpointServer {
             await connection.close(
                 errorCode: 1,
                 reason: "admission_identity_capacity"
+            )
+            return
+        }
+        let activeForIdentity = activeConnections.values.lazy.filter {
+            $0.remoteIdentity == remoteIdentity
+        }.count
+        guard pendingForIdentity + activeForIdentity < maximumConnectionsPerIdentity else {
+            await connection.close(
+                errorCode: 1,
+                reason: "connection_identity_capacity"
             )
             return
         }
@@ -220,6 +244,7 @@ public actor CmxIrohEndpointServer {
         admission.deadlineTask.cancel()
         activeConnections[id] = ActiveConnection(
             generation: generation,
+            remoteIdentity: admission.remoteIdentity,
             connection: admission.connection,
             handlerTask: admission.handlerTask
         )
