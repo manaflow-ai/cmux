@@ -503,6 +503,7 @@ import Testing
         primaryScreenSnapshot: .init(
             rows: 4,
             viewportOffset: 1,
+            cursor: .init(row: 1, column: 3, style: .bar),
             rowSpans: [
                 .init(row: 0, column: 0, text: "primary-history"),
                 .init(row: 1, column: 0, text: "primary-visible-0"),
@@ -522,8 +523,14 @@ import Testing
     let newer = try #require(replayThenExit.range(of: "primary-newer"))
     let alternate = try #require(replayThenExit.range(of: "active-alt"))
     let finalExit = try #require(replayThenExit.range(of: "\u{1B}[?1049l", options: .backwards))
+    let savedPrimaryCursor = try #require(replayThenExit.range(
+        of: "\u{1B}[2;4H",
+        options: .backwards,
+        range: primary.lowerBound..<alternate.lowerBound
+    ))
     #expect(primary.lowerBound < newer.lowerBound)
-    #expect(newer.lowerBound < alternate.lowerBound)
+    #expect(newer.lowerBound < savedPrimaryCursor.lowerBound)
+    #expect(savedPrimaryCursor.lowerBound < alternate.lowerBound)
     #expect(alternate.lowerBound < finalExit.lowerBound)
 }
 
