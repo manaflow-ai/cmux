@@ -27,6 +27,7 @@
   const maxSelectorValueCharacters = 160;
   const maxStyleValueCharacters = 512;
   const maxSnippetCharacters = 2400;
+  const maxSelectionRecoveryAttempts = 8;
   const redactedValue = "<redacted>";
   const sensitiveNamePattern = /(?:^|[-_:])(api[-_]?key|auth|authorization|credential|csrf|password|passwd|secret|session|token)(?:$|[-_:])/i;
   const sensitiveAutocompletePattern = /(?:current-password|new-password|one-time-code|cc-number|cc-csc)/i;
@@ -36,6 +37,7 @@
   let revision = 0;
   let selectedElement = null;
   let selectedBaseline = null;
+  let selectedIdentity = null;
   let hoveredElement = null;
   let overlayHost = null;
   let overlay = null;
@@ -43,6 +45,7 @@
   let refreshScheduled = false;
   let selectionIdentityNeedsRefresh = false;
   let selectionRecoveryFrame = 0;
+  let selectionRecoveryAttemptsRemaining = 0;
   let overlayFrame = 0;
   let captureHidden = false;
   const edits = new Map();
@@ -208,8 +211,39 @@
 
   const textIsEditable = (element) => {
     if (isSensitiveElement(element)) return false;
-    if (textValue(element).length > maxTextCharacters) return false;
-    return element.childElementCount === 0 && !["html", "body", "script", "style"].includes(element.localName);
+    if (element.childElementCount !== 0
+        || ["html", "body", "script", "style"].includes(element.localName)) return false;
+    let length = 0;
+    let visited = 0;
+    for (const node of element.childNodes || []) {
+      visited += 1;
+      if (visited > maxTextNodeCount) return false;
+      if (node.nodeType !== 3) continue;
+      length += node.nodeValue?.length || 0;
+      if (length > maxTextCharacters) return false;
+    }
+    return true;
+  };
+
+  const identityFor = (element) => {
+    const childTags = [];
+    for (const child of element.children || []) {
+      childTags.push(child.localName || "");
+      if (childTags.length === 16) break;
+    }
+    const parent = element.parentElement;
+    return [
+      element.namespaceURI || "",
+      element.localName || "",
+      bounded(element.getAttribute?.("role"), maxSelectorValueCharacters),
+      bounded(element.getAttribute?.("type"), maxSelectorValueCharacters),
+      String(element.childElementCount || 0),
+      childTags.join(","),
+      parent?.namespaceURI || "",
+      parent?.localName || "",
+      bounded(parent?.id, maxSelectorValueCharacters),
+      bounded(parent?.getAttribute?.("role"), maxSelectorValueCharacters),
+    ].join("|");
   };
 
   const escapedMarkup = (value) => String(value)
@@ -268,6 +302,15 @@
       result[property] = bounded(computed.getPropertyValue(property).trim(), maxStyleValueCharacters);
     }
     return result;
+  };
+
+  const canonicalStyleValue = (property, value) => {
+    const style = document.createElement("span").style;
+    style.setProperty(property, value, "important");
+    const canonical = style.getPropertyValue(property);
+    return canonical && style.getPropertyPriority(property) === "important"
+      ? bounded(canonical, maxStyleValueCharacters)
+      : null;
   };
 
   const rectFor = (element) => {
@@ -334,13 +377,14 @@
     return value;
   };
 
-  const resolveSelectedElement = () => {
+  const resolveSelectedElement = (allowRecovery = false) => {
     if (!selectedBaseline) return null;
     if (selectedElement?.isConnected) return selectedElement;
+    if (!allowRecovery) return null;
     for (const selector of selectedBaseline.selectors) {
       try {
         const candidates = document.querySelectorAll(selector);
-        if (candidates.length === 1) {
+        if (candidates.length === 1 && identityFor(candidates[0]) === selectedIdentity) {
           selectedElement = candidates[0];
           return candidates[0];
         }
@@ -572,8 +616,11 @@
         restoreAll();
         selectedElement = null;
         selectedBaseline = null;
+        selectedIdentity = null;
         hoveredElement = null;
         selectionIdentityNeedsRefresh = false;
+        selectionRecoveryAttemptsRemaining = 0;
+        cancelSelectionRecovery();
         revision += 1;
         emit();
         scheduleOverlayRefresh();
@@ -586,9 +633,15 @@
     }
     selectionIdentityNeedsRefresh = false;
     const previous = selectedElement;
-    const current = resolveSelectedElement();
+    const current = resolveSelectedElement(true);
     if (previous && previous !== current) restoreAndForgetElement(previous);
-    if (current) applyEditsTo(current);
+    if (current) {
+      applyEditsTo(current);
+      selectedIdentity = identityFor(current);
+      selectionRecoveryAttemptsRemaining = 0;
+    } else if (previous) {
+      selectionRecoveryAttemptsRemaining = maxSelectionRecoveryAttempts;
+    }
     if (previous !== current || identityChanged || (emitRecoveredSelection && current)) {
       revision += 1;
       emit();
@@ -609,12 +662,13 @@
   };
 
   const scheduleSelectionRecovery = () => {
-    if (selectionRecoveryFrame) return;
+    if (selectionRecoveryFrame || selectionRecoveryAttemptsRemaining <= 0) return;
     if (overlayFrame) cancelAnimationFrame(overlayFrame);
     overlayFrame = 0;
     selectionRecoveryFrame = requestAnimationFrame(() => {
       selectionRecoveryFrame = 0;
       if (!enabled || !selectedBaseline) return;
+      selectionRecoveryAttemptsRemaining -= 1;
       refreshAfterMutation(true);
     });
   };
@@ -629,12 +683,15 @@
   };
 
   const mutationCanRestoreSelection = (mutation) => {
+    const selectedTag = selectedBaseline?.tag_name;
+    if (!selectedTag) return false;
     if (mutation.type === "attributes") {
-      return selectorAttributes.has(mutation.attributeName || "");
+      return selectorAttributes.has(mutation.attributeName || "")
+        && mutation.target?.localName === selectedTag;
     }
     if (mutation.type !== "childList") return false;
     return [...mutation.addedNodes, ...mutation.removedNodes]
-      .some((node) => node.nodeType === 1);
+      .some((node) => node.nodeType === 1 && node.localName === selectedTag);
   };
 
   const mutationTouchesSelection = (mutation) => {
@@ -693,7 +750,9 @@
     const baseline = element.isConnected ? baselineFor(element) || validatedBaseline : validatedBaseline;
     selectedElement = element;
     selectedBaseline = baseline;
+    selectedIdentity = identityFor(element);
     selectionIdentityNeedsRefresh = false;
+    selectionRecoveryAttemptsRemaining = 0;
     hoveredElement = null;
     revision += 1;
     scheduleOverlayRefresh();
@@ -725,7 +784,9 @@
     restoreAll();
     selectedElement = null;
     selectedBaseline = null;
+    selectedIdentity = null;
     selectionIdentityNeedsRefresh = false;
+    selectionRecoveryAttemptsRemaining = 0;
     cancelSelectionRecovery();
     revision += 1;
     scheduleOverlayRefresh();
@@ -780,7 +841,9 @@
       restoreAll();
       selectedElement = null;
       selectedBaseline = null;
+      selectedIdentity = null;
       selectionIdentityNeedsRefresh = false;
+      selectionRecoveryAttemptsRemaining = 0;
       cancelSelectionRecovery();
       hoveredElement = null;
       overlayHost?.remove();
@@ -806,6 +869,8 @@
       const element = resolveSelectedElement();
       if (!element || !styleProperties.has(property)) return snapshot();
       if (!value) return api.revert(`style:${property}`);
+      value = canonicalStyleValue(property, value);
+      if (!value) return snapshot();
       const id = `style:${property}`;
       const previous = edits.get(id);
       const original = previous?.original_value
