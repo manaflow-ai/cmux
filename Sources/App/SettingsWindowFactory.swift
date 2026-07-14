@@ -29,26 +29,14 @@ enum SettingsWindowFactory {
         let hostingController = NSHostingController(
             rootView: SettingsWindowHostRoot(onContentAppear: onContentAppear)
         )
-        // SwiftUI owns the NavigationSplitView toolbar content and placement;
-        // AppKit owns only the surrounding window chrome. Bridging both keeps
-        // the sidebar search, title, and toggle in the split view's columns.
+        // Bridge SwiftUI's navigation title, the sidebar toggle, and the
+        // search field into the AppKit window's titlebar/toolbar.
         hostingController.sceneBridgingOptions = [.toolbars, .title]
         let window = SettingsHostWindow(contentViewController: hostingController)
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.title = String(localized: "settings.title", defaultValue: "Settings")
-        configureChrome(on: window)
         window.setContentSize(NSSize(width: 980, height: 680))
         return window
-    }
-
-    /// Establishes the AppKit-owned portion of the modern Settings chrome at
-    /// construction time. The hosted split view supplies the bridged toolbar.
-    private static func configureChrome(on window: SettingsHostWindow) {
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.titlebarSeparatorStyle = .none
-
-        window.toolbarStyle = .unifiedCompact
     }
 }
 
@@ -61,14 +49,8 @@ extension SettingsWindowPresenter {
     /// main actor and warn under strict concurrency.
     static func handleSidebarToggleIfSettingsWindowIsKey(keyWindow: NSWindow?) -> Bool {
         guard keyWindow?.identifier?.rawValue == windowIdentifier else { return false }
-        requestSidebarToggle()
-        return true
-    }
-
-    /// Routes the app's Toggle Left Sidebar command into the same SwiftUI
-    /// mutation path used by the Settings toolbar button.
-    static func requestSidebarToggle() {
         NotificationCenter.default.post(name: SettingsWindowRoot.sidebarToggleRequestName, object: nil)
+        return true
     }
 }
 
