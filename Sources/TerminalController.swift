@@ -127,6 +127,8 @@ class TerminalController {
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
+    nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
+    private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
     /// windows), constructed at this app-hub composition point and injected into each
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
@@ -349,11 +351,16 @@ class TerminalController {
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         transport: SocketTransport = SocketTransport(),
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
+        socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter = .init(
+            maximumConcurrentClaims: 32
+        ),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         )
     ) {
         self.passwordStore = passwordStore
+        self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
+        self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
         let serverEventTarget = ServerEventTarget()
@@ -373,7 +380,7 @@ class TerminalController {
                     close(connection.socket)
                     continue
                 }
-                controller.spawnClientHandler(socket: connection.socket, peerPid: connection.peerProcessID)
+                await controller.spawnClientHandler(socket: connection.socket, peerPid: connection.peerProcessID)
             }
         }
         serverEventTarget.controller = self
@@ -846,35 +853,34 @@ class TerminalController {
 
         // Wire batched port scanner results back to workspace state.
         PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
-            guard let self, let tabManager = self.tabManager else { return }
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-            let validSurfaceIds = Set(workspace.panels.keys)
-            guard validSurfaceIds.contains(panelId) else { return }
-            workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
-            workspace.recomputeListeningPorts()
+            self?.applyPanelPortPublication(workspaceId: workspaceId, panelId: panelId, ports: ports)
         }
         PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
-            guard let self, let tabManager = self.tabManager else { return false }
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return false }
-            if workspace.agentListeningPorts != ports {
-                workspace.agentListeningPorts = ports
-                workspace.recomputeListeningPorts()
-            }
-            return true
-        }
-        PortScanner.shared.agentPIDsProvider = { [weak self] workspaceIds in
-            guard let self, let tabManager = self.tabManager else { return [:] }
-            var pidsByWorkspace: [UUID: Set<Int>] = [:]
-            for workspaceId in workspaceIds {
-                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
-                let pids = Set(workspace.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
-                if !pids.isEmpty {
-                    pidsByWorkspace[workspaceId] = pids
-                }
-            }
-            return pidsByWorkspace
+            self?.applyAgentPortPublication(workspaceId: workspaceId, ports: ports) ?? false
         }
         PortScanner.shared.setTrackedAgentScanningPaused(!NSApplication.shared.isActive)
+    }
+
+    func applyPanelPortPublication(workspaceId: UUID, panelId: UUID, ports: [Int]) {
+        guard let workspace = portPublicationWorkspace(workspaceId: workspaceId),
+              workspace.panels[panelId] != nil else { return }
+        let nextPorts: [Int]? = ports.isEmpty ? nil : ports
+        guard workspace.surfaceListeningPorts[panelId] != nextPorts else { return }
+        workspace.surfaceListeningPorts[panelId] = nextPorts
+        workspace.recomputeListeningPorts()
+    }
+
+    func applyAgentPortPublication(workspaceId: UUID, ports: [Int]) -> Bool {
+        guard let workspace = portPublicationWorkspace(workspaceId: workspaceId) else { return false }
+        if workspace.agentListeningPorts != ports {
+            workspace.agentListeningPorts = ports
+            workspace.recomputeListeningPorts()
+        }
+        return true
+    }
+
+    private func portPublicationWorkspace(workspaceId: UUID) -> Workspace? {
+        AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs.first { $0.id == workspaceId }
     }
 
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
@@ -1376,8 +1382,8 @@ class TerminalController {
             return v2RemoteTmuxDetach(id: request.id, params: request.params)
         case "remote.tmux.state":
             return v2RemoteTmuxState(id: request.id, params: request.params)
-        case "remote.tmux.mirror":
-            return v2RemoteTmuxMirror(id: request.id, params: request.params)
+        case "remote.tmux.mirror": return v2RemoteTmuxMirror(id: request.id, params: request.params)
+        case "remote.tmux.window": return v2RemoteTmuxWindow(id: request.id, params: request.params)
         case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
 #if DEBUG
         case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
@@ -1426,78 +1432,70 @@ class TerminalController {
         }
     }
 
-    private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) {
+    private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) async {
+        let initialReadLimits = socketClientInitialReadLimits(peerProcessID: peerPid)
+        let claimedPreauthorizationSlot = if initialReadLimits != nil {
+            await socketClientPreauthorizationLimiter.claim()
+        } else {
+            false
+        }
+        guard initialReadLimits == nil || claimedPreauthorizationSlot else {
+            close(clientSocket)
+            return
+        }
         Thread.detachNewThread { [weak self] in
             guard let self else {
                 close(clientSocket)
                 return
             }
-            self.handleClient(clientSocket, peerPid: peerPid)
-        }
-    }
-
-    private nonisolated func scheduleListenerRearm(
-        generation: UInt64,
-        errnoCode: Int32,
-        consecutiveFailures: Int,
-        delayMs: Int
-    ) {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            // Bounded rearm delay on the server's injected recovery clock
-            // (replaces the legacy main-queue asyncAfter); a stale fire is a
-            // no-op via the pending-rearm generation guard in the claim.
-            try? await self.socketServer.recoveryClock.sleep(forMilliseconds: delayMs)
-            guard let tabManager = self.tabManager else { return }
-            guard let restartPath = self.socketServer.claimPendingRearm(
-                generation: generation,
-                errnoCode: errnoCode,
-                consecutiveFailures: consecutiveFailures,
-                delayMs: delayMs
-            ) else { return }
-
-            let restartMode = self.socketServer.accessMode
-
-            self.stop()
-            self.start(
-                tabManager: tabManager,
-                socketPath: restartPath,
-                accessMode: restartMode,
-                preserveAcceptFailureStreak: true
+            self.handleClient(
+                clientSocket,
+                peerPid: peerPid,
+                initialReadLimits: initialReadLimits,
+                holdsPreauthorizationSlot: claimedPreauthorizationSlot
             )
         }
     }
 
-    private nonisolated func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
+    private nonisolated func handleClient(
+        _ socket: Int32,
+        peerPid: pid_t? = nil,
+        initialReadLimits: ControlClientLineReadLimits? = nil,
+        holdsPreauthorizationSlot initialSlotHeld: Bool = false
+    ) {
         defer { close(socket) }
+        let pid = peerPid ?? transport.peerProcessID(of: socket)
+        let peerHasSameUID = transport.peerHasSameUID(socket)
+        let preauthorizationLimiter = socketClientPreauthorizationLimiter
+        var holdsPreauthorizationSlot = initialSlotHeld
+        defer {
+            if holdsPreauthorizationSlot {
+                Task { await preauthorizationLimiter.release() }
+            }
+        }
+        var authenticated = false
+        let lineReader = ControlClientLineReader(socket: socket, initialLimits: initialReadLimits)
 
-        // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
-        // In allowAll mode (env-var only), skip the ancestry check.
-        if socketServer.accessMode == .cmuxOnly {
-            // Use pre-captured peer PID if available (captured in accept loop before
-            // the peer can disconnect), falling back to live lookup.
-            let pid = peerPid ?? transport.peerProcessID(of: socket)
-            guard SocketClientAuthorization().isCmuxOnlyClientAllowed(
+        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
+            let receivedCommand = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !receivedCommand.isEmpty else { continue }
+            guard let trimmed = authorizedSocketCommand(
+                receivedCommand,
                 peerProcessID: pid,
-                peerHasSameUID: false,
-                isDescendant: { isDescendant($0) }
+                peerHasSameUID: peerHasSameUID
             ) else {
                 _ = writeSocketResponse(
-                    pid == nil
-                        ? "ERROR: Unable to verify client process"
+                    pid == nil ? "ERROR: Unable to verify client process"
                         : "ERROR: Access denied — only processes started inside cmux can connect",
                     to: socket
                 )
                 return
             }
-        }
-
-        var authenticated = false
-        let lineReader = ControlClientLineReader(socket: socket)
-
-        while let line = lineReader.nextLine(shouldContinueReading: { socketServer.isRunning }) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
+            lineReader.clearLimits()
+            if holdsPreauthorizationSlot {
+                holdsPreauthorizationSlot = false
+                Task { await preauthorizationLimiter.release() }
+            }
 
             var shouldCloseSocket = false
             autoreleasepool {
@@ -2418,7 +2416,7 @@ class TerminalController {
             "workspace.remote.status",
             "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
             "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.pane_grids",
+            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids",
             "session.restore_previous",
             "settings.open",
             "feedback.open",
@@ -3072,117 +3070,86 @@ class TerminalController {
         index: Int,
         selected: Bool
     ) -> [String: Any] {
-        var paneByPanelId: [UUID: UUID] = [:]
-        var indexInPaneByPanelId: [UUID: Int] = [:]
-        var selectedInPaneByPanelId: [UUID: Bool] = [:]
-
-        let paneIds = workspace.bonsplitController.allPaneIds
-        for paneId in paneIds {
-            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
-            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
-            for (tabIndex, tab) in tabs.enumerated() {
-                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-                paneByPanelId[panelId] = paneId.id
-                indexInPaneByPanelId[panelId] = tabIndex
-                selectedInPaneByPanelId[panelId] = (tab.id == selectedTab?.id)
-            }
-        }
-
-        var surfacesByPane: [UUID: [[String: Any]]] = [:]
-        let focusedSurfaceId = workspace.focusedPanelId
-        for (surfaceIndex, panel) in orderedPanels(in: workspace).enumerated() {
-            let paneUUID = paneByPanelId[panel.id]
-            let selectedInPane = selectedInPaneByPanelId[panel.id] ?? false
-
-            var item: [String: Any] = [
-                "kind": "surface",
-                "id": panel.id.uuidString,
-                "ref": v2Ref(kind: .surface, uuid: panel.id),
-                "index": surfaceIndex,
-                "type": panel.panelType.rawValue,
-                "title": workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
-                "focused": panel.id == focusedSurfaceId,
-                "selected": selectedInPane,
-                "selected_in_pane": v2OrNull(selectedInPaneByPanelId[panel.id]),
-                "pane_id": v2OrNull(paneUUID?.uuidString),
-                "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
-                "index_in_pane": v2OrNull(indexInPaneByPanelId[panel.id]),
-                "tty": v2OrNull(workspace.surfaceTTYNames[panel.id]),
-                "webviews": []
-            ]
-
-            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
-                let webContentPID = CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
-                let url = browserPanel.currentURL?.absoluteString ?? ""
-                let webViewLifecycle = browserPanel.webViewLifecycleTopPayload()
-                item["url"] = url
-                item["browser_web_content_pid"] = v2OrNull(webContentPID)
-                item["browser_webview_lifecycle_state"] = browserPanel.webViewLifecycleState.rawValue
-                item["webviews"] = [
-                    [
-                        "kind": "webview",
-                        "id": "\(panel.id.uuidString):webview",
-                        "ref": "\(v2Ref(kind: .surface, uuid: panel.id)):webview",
-                        "index": 0,
-                        "surface_id": panel.id.uuidString,
-                        "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-                        "title": browserPanel.displayTitle,
-                        "url": url,
-                        "pid": v2OrNull(webContentPID),
-                        "lifecycle": webViewLifecycle
-                    ] as [String: Any]
-                ]
-            } else {
-                item["url"] = NSNull()
-                item["browser_web_content_pid"] = NSNull()
-            }
-            if let paneUUID {
-                surfacesByPane[paneUUID, default: []].append(item)
-            }
-        }
-
-        for paneUUID in surfacesByPane.keys {
-            surfacesByPane[paneUUID]?.sort {
-                let lhs = ($0["index_in_pane"] as? Int) ?? ($0["index"] as? Int) ?? Int.max
-                let rhs = ($1["index_in_pane"] as? Int) ?? ($1["index"] as? Int) ?? Int.max
-                return lhs < rhs
-            }
-        }
-
-        let focusedPaneId = workspace.bonsplitController.focusedPaneId
-        let panes: [[String: Any]] = paneIds.enumerated().map { paneIndex, paneId in
-            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
-            let surfaceUUIDs: [UUID] = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
-            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
-            let selectedSurfaceUUID = selectedTab.flatMap { workspace.panelIdFromSurfaceId($0.id) }
-
+        let topology = controlSystemTreeWorkspaceNode(
+            workspace: workspace,
+            index: index,
+            selected: selected
+        )
+        let panes = topology.panes.map { pane in
             return [
                 "kind": "pane",
-                "id": paneId.id.uuidString,
-                "ref": v2Ref(kind: .pane, uuid: paneId.id),
-                "index": paneIndex,
-                "focused": paneId == focusedPaneId,
-                "surface_ids": surfaceUUIDs.map { $0.uuidString },
-                "surface_refs": surfaceUUIDs.map { v2Ref(kind: .surface, uuid: $0) },
-                "selected_surface_id": v2OrNull(selectedSurfaceUUID?.uuidString),
-                "selected_surface_ref": v2Ref(kind: .surface, uuid: selectedSurfaceUUID),
-                "surface_count": surfaceUUIDs.count,
-                "surfaces": surfacesByPane[paneId.id] ?? []
+                "id": pane.paneID.uuidString,
+                "ref": v2Ref(kind: .pane, uuid: pane.paneID),
+                "index": pane.index,
+                "focused": pane.isFocused,
+                "surface_ids": pane.surfaceIDs.map(\.uuidString),
+                "surface_refs": pane.surfaceIDs.map { v2Ref(kind: .surface, uuid: $0) },
+                "selected_surface_id": v2OrNull(pane.selectedSurfaceID?.uuidString),
+                "selected_surface_ref": v2Ref(kind: .surface, uuid: pane.selectedSurfaceID),
+                "surface_count": pane.surfaceIDs.count,
+                "surfaces": pane.surfaces.map { v2TopSurfaceNode($0, workspace: workspace) }
             ]
         }
 
         return [
             "kind": "workspace",
-            "id": workspace.id.uuidString,
-            "ref": v2Ref(kind: .workspace, uuid: workspace.id),
-            "index": index,
-            "title": workspace.title,
-            "description": v2OrNull(workspace.customDescription),
-            "selected": selected,
-            "pinned": workspace.isPinned,
+            "id": topology.workspaceID.uuidString,
+            "ref": v2Ref(kind: .workspace, uuid: topology.workspaceID),
+            "index": topology.index,
+            "title": topology.title,
+            "description": v2OrNull(topology.description),
+            "selected": topology.isSelected,
+            "pinned": topology.isPinned,
             "panes": panes,
             "tags": v2TopTagNodes(for: workspace)
         ]
+    }
+
+    private func v2TopSurfaceNode(
+        _ surface: ControlSystemTreeSurfaceNode,
+        workspace: Workspace
+    ) -> [String: Any] {
+        var item: [String: Any] = [
+            "kind": "surface",
+            "id": surface.surfaceID.uuidString,
+            "ref": v2Ref(kind: .surface, uuid: surface.surfaceID),
+            "index": surface.index,
+            "type": surface.typeRawValue,
+            "title": surface.title,
+            "focused": surface.isFocused,
+            "selected": surface.isSelected,
+            "selected_in_pane": v2OrNull(surface.selectedInPane),
+            "pane_id": v2OrNull(surface.paneID?.uuidString),
+            "pane_ref": v2Ref(kind: .pane, uuid: surface.paneID),
+            "index_in_pane": v2OrNull(surface.indexInPane),
+            "tty": v2OrNull(surface.tty),
+            "webviews": []
+        ]
+
+        guard let browserPanel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel as? BrowserPanel else {
+            item["url"] = surface.isBrowser ? (surface.url ?? "") : NSNull()
+            item["browser_web_content_pid"] = NSNull()
+            return item
+        }
+
+        let webContentPID = CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
+        let url = browserPanel.currentURL?.absoluteString ?? ""
+        item["url"] = url
+        item["browser_web_content_pid"] = v2OrNull(webContentPID)
+        item["browser_webview_lifecycle_state"] = browserPanel.webViewLifecycleState.rawValue
+        item["webviews"] = [[
+            "kind": "webview",
+            "id": "\(surface.surfaceID.uuidString):webview",
+            "ref": "\(v2Ref(kind: .surface, uuid: surface.surfaceID)):webview",
+            "index": 0,
+            "surface_id": surface.surfaceID.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surface.surfaceID),
+            "title": browserPanel.displayTitle,
+            "url": url,
+            "pid": v2OrNull(webContentPID),
+            "lifecycle": browserPanel.webViewLifecycleTopPayload()
+        ] as [String: Any]]
+        return item
     }
 
     private func v2TopTagNodes(for workspace: Workspace) -> [[String: Any]] {
@@ -6734,46 +6701,6 @@ class TerminalController {
             ])
         }
         return result
-    }
-
-    private func v2IsDiffViewerURL(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
-            return true
-        }
-        return url.scheme?.lowercased() == "http" &&
-            url.host == "127.0.0.1" &&
-            url.fragment == "cmux-diff-viewer"
-    }
-
-    private func v2RegisterDiffViewerURLIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
-        guard let url,
-              url.scheme == CmuxDiffViewerURLSchemeHandler.scheme else {
-            return nil
-        }
-        guard let token = v2String(params, "diff_viewer_token"),
-              token == url.host,
-              let rawFiles = params["diff_viewer_files"] as? [[String: Any]],
-              !rawFiles.isEmpty,
-              rawFiles.count <= CmuxDiffViewerURLSchemeHandler.maxRegisteredFiles else {
-            return .err(code: "invalid_params", message: "Missing or invalid trusted diff viewer allowlist", data: nil)
-        }
-
-        let files = rawFiles.compactMap(CmuxDiffViewerURLSchemeHandler.registeredFile(from:))
-        guard files.count == rawFiles.count else {
-            return .err(code: "invalid_params", message: "Invalid trusted diff viewer allowlist", data: nil)
-        }
-
-        do {
-            try CmuxDiffViewerURLSchemeHandler.shared.register(token: token, files: files)
-            return nil
-        } catch {
-            return .err(
-                code: "invalid_params",
-                message: "Invalid trusted diff viewer allowlist",
-                data: ["details": error.localizedDescription]
-            )
-        }
     }
 
     private nonisolated func v2BrowserNavigate(params: [String: Any]) -> V2CallResult {
@@ -12302,10 +12229,16 @@ class TerminalController {
         }
         let (title, subtitle, body, meta) = parseNotificationPayload(payload)
 
-        // Agent-tagged notifications carry a category + a background-work-pending
-        // flag; gate delivery by the user's notification settings. Untagged
-        // notifications (meta == nil) always pass, preserving prior behavior.
-        guard shouldDeliverAgentNotification(meta) else {
+        // Hook and PTY-derived agent notifications share one gate + mutation-bus path.
+        guard AgentNotificationDelivery().enqueue(
+            workspaceID: tabId,
+            surfaceID: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            category: meta?.category,
+            pending: meta?.pending ?? false
+        ) else {
 #if DEBUG
             if let meta {
                 cmuxDebugLog(
@@ -12320,14 +12253,6 @@ class TerminalController {
             "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
         )
 #endif
-        TerminalMutationBus.shared.enqueueNotification(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            title: title,
-            subtitle: subtitle,
-            body: body,
-            coalesces: false
-        )
         return "OK"
     }
 
@@ -14201,7 +14126,7 @@ class TerminalController {
 
         return .ok([
             "mac_device_id": MobileHostIdentity.deviceID(),
-            "mac_display_name": v2OrNull(MobileHostIdentity.displayName()),
+            "mac_display_name": v2OrNull(MobileHostIdentity.instanceDisplayName()),
             "host_service": status.payload,
             "workspace_count": workspaceCount,
             "terminal_fidelity": "render_grid",
@@ -14211,91 +14136,6 @@ class TerminalController {
 
     #if DEBUG
     #endif
-
-    @MainActor
-    func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
-        let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
-        let routeID = v2OptionalTrimmedRawString(params, "route_id")
-            ?? v2OptionalTrimmedRawString(params, "routeID")
-        let routeKind = v2OptionalTrimmedRawString(params, "route_kind")
-            ?? v2OptionalTrimmedRawString(params, "routeKind")
-        let scope = v2OptionalTrimmedRawString(params, "scope")
-        // scope=mac mints a Mac-wide ticket that grants access to every
-        // workspace on the host. Without this, the ticket gets pinned to
-        // the workspace selected at QR-generation time, and tapping any
-        // other workspace from the paired iPhone falls back to Stack
-        // Auth verification, which is brittle on real-world networks.
-        let isMacScope = scope?.lowercased() == "mac"
-
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
-        }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
-        }
-
-        let resolvedWorkspaceID: String
-        let resolvedTerminalID: String?
-        if isMacScope {
-            resolvedWorkspaceID = ""
-            resolvedTerminalID = nil
-        } else {
-            guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: false) else {
-                return .err(code: "not_found", message: "Workspace not found", data: nil)
-            }
-            let terminalPanel: TerminalPanel?
-            if let surfaceId = resolved.surfaceId {
-                guard let panel = resolved.workspace.terminalPanel(for: surfaceId) else {
-                    return .err(
-                        code: "invalid_request",
-                        message: "terminal_id does not reference a terminal",
-                        data: nil
-                    )
-                }
-                terminalPanel = panel
-            } else {
-                terminalPanel = nil
-            }
-            resolvedWorkspaceID = resolved.workspace.id.uuidString
-            resolvedTerminalID = terminalPanel?.id.uuidString
-        }
-
-        do {
-            let payload = try await MobileHostService.shared.createAttachTicket(
-                workspaceID: resolvedWorkspaceID,
-                terminalID: resolvedTerminalID,
-                ttl: ttl,
-                routeID: routeID,
-                routeKind: routeKind
-            )
-            return .ok(payload)
-        } catch MobileAttachTicketStoreError.noRoutes {
-            return .err(
-                code: "unavailable",
-                message: "Mobile host routes are not available yet",
-                data: nil
-            )
-        } catch MobileAttachTicketStoreError.routeUnavailable {
-            var data: [String: Any] = [:]
-            if let routeID {
-                data["route_id"] = routeID
-            }
-            if let routeKind {
-                data["route_kind"] = routeKind
-            }
-            return .err(
-                code: "unavailable",
-                message: "Requested mobile host route is not available",
-                data: data.isEmpty ? nil : data
-            )
-        } catch {
-            return .err(
-                code: "internal_error",
-                message: "Failed to create mobile attach ticket",
-                data: ["error": String(describing: error)]
-            )
-        }
-    }
 
     enum MobileTerminalAliasUUID {
         case missing
@@ -14326,7 +14166,7 @@ class TerminalController {
         return sawAlias ? .invalid : .missing
     }
 
-    private func mobileTerminalAliasValidationError(params: [String: Any]) -> V2CallResult? {
+    func mobileTerminalAliasValidationError(params: [String: Any]) -> V2CallResult? {
         switch mobileTerminalAliasUUID(params: params) {
         case .missing, .value:
             return nil

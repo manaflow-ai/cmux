@@ -1,13 +1,18 @@
+import { useReducer } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { ConnectScreen } from "./components/ConnectScreen";
 import { Sidebar } from "./components/Sidebar";
 import { TerminalPane } from "./components/TerminalPane";
 import { Toasts } from "./components/Toasts";
 import { useCmuxClient } from "./hooks/useCmuxClient";
+import { useVisualViewport } from "./hooks/useVisualViewport";
 import { t } from "./i18n";
+import { drawerReducer } from "./lib/mobile";
 
 export default function App() {
+  useVisualViewport();
   const connection = useCmuxClient();
+  const [drawer, dispatchDrawer] = useReducer(drawerReducer, "closed");
   const hasSession = connection.info !== null || connection.tree !== null;
   if (!hasSession) {
     return (
@@ -20,7 +25,7 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell drawer-${drawer}`}>
       {connection.status === "reconnecting" && connection.reconnect && (
         <div className="reconnect-banner" role="status">
           {t("reconnecting", {
@@ -29,7 +34,32 @@ export default function App() {
           })}
         </div>
       )}
-      <Sidebar workspaces={connection.view} onSelect={connection.selectScreen} />
+      <header className="mobile-toolbar">
+        <button
+          type="button"
+          aria-label={drawer === "open" ? t("closeWorkspaces") : t("openWorkspaces")}
+          aria-expanded={drawer === "open"}
+          onClick={() => dispatchDrawer("toggle")}
+        >
+          <span aria-hidden="true">☰</span>
+        </button>
+        <span>{connection.active?.label || t("terminal")}</span>
+      </header>
+      <button
+        className="drawer-backdrop"
+        type="button"
+        aria-label={t("closeWorkspaces")}
+        onClick={() => dispatchDrawer("close")}
+      />
+      <Sidebar
+        open={drawer === "open"}
+        workspaces={connection.view}
+        onClose={() => dispatchDrawer("close")}
+        onSelect={async (...args) => {
+          dispatchDrawer("select");
+          await connection.selectScreen(...args);
+        }}
+      />
       <TerminalPane client={connection.client} screen={connection.active} onSelectTab={connection.selectTab} />
       <footer className="status-bar">
         <span><b>{t("session")}</b> {connection.info?.session ?? "—"}</span>

@@ -125,6 +125,22 @@ extension RemoteTmuxControlConnection {
         send(Self.paneReflowSubscriptionCommand(paneId: paneId))
     }
 
+    /// All three live subscriptions (reflow, cwd, header) for a pane in ONE
+    /// `refresh-client`. tmux accepts multiple `-B` directives per command,
+    /// so this is exactly equivalent to the three separate sends but costs
+    /// one FIFO slot instead of three. Under rapid pane churn the per-pane
+    /// subscription sends dominate the command stream, and collapsing 3→1
+    /// keeps the FIFO from backing up faster than tmux drains it.
+    func subscribePaneAll(paneId: Int) {
+        send(
+            "refresh-client"
+                + " -B \"\(Self.reflowSubscriptionPrefix)\(paneId):%\(paneId):"
+                + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}\""
+                + " -B \"\(Self.cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}\""
+                + " -B \"\(Self.headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\""
+        )
+    }
+
 
     /// Removes the live reflow-classification subscription for `paneId` (issued once
     /// the pane is gone), mirroring ``unsubscribePanePath(paneId:)``.

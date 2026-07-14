@@ -37,6 +37,7 @@
 //!   },
 //!   "browser": {
 //!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+//!     "mode": "headful",
 //!     "cdp_url": "http://127.0.0.1:9222",
 //!     "discover": false,
 //!     "discover_ports": [9222],
@@ -100,6 +101,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
 use cmux_tui_core::SurfaceOptions;
 use cmux_tui_core::platform;
@@ -382,6 +384,7 @@ struct RawSidebarPlugin {
 #[serde(deny_unknown_fields)]
 struct RawBrowser {
     chrome_binary: Option<String>,
+    mode: Option<ConfigBrowserMode>,
     cdp_url: Option<String>,
     discover: Option<bool>,
     discover_ports: Option<Vec<u16>>,
@@ -389,6 +392,22 @@ struct RawBrowser {
     ephemeral: Option<bool>,
     max_capture_megapixels: Option<f64>,
     capture_scale: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum ConfigBrowserMode {
+    Headful,
+    Headless,
+}
+
+impl From<ConfigBrowserMode> for BrowserMode {
+    fn from(mode: ConfigBrowserMode) -> Self {
+        match mode {
+            ConfigBrowserMode::Headful => BrowserMode::Headful,
+            ConfigBrowserMode::Headless => BrowserMode::Headless,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -509,7 +528,7 @@ pub struct Sidebar {
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { view: SidebarView::Files, width: 22, max_width: 0, plugin: None }
+        Sidebar { view: SidebarView::Workspaces, width: 22, max_width: 0, plugin: None }
     }
 }
 
@@ -542,6 +561,7 @@ fn parse_sidebar_view(value: &str) -> Result<SidebarView, String> {
 #[derive(Debug, Clone)]
 pub struct Browser {
     pub chrome_binary: Option<String>,
+    pub mode: BrowserMode,
     pub cdp_url: Option<String>,
     pub discover: bool,
     pub discover_ports: Vec<u16>,
@@ -555,6 +575,7 @@ impl Default for Browser {
     fn default() -> Self {
         Browser {
             chrome_binary: None,
+            mode: BrowserMode::Headful,
             cdp_url: None,
             discover: false,
             discover_ports: vec![9222],
@@ -1118,6 +1139,9 @@ pub fn load() -> Config {
         }
     }
     config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
+    if let Some(mode) = raw.browser.mode {
+        config.browser.mode = mode.into();
+    }
     config.browser.cdp_url = raw.browser.cdp_url.filter(|s| !s.trim().is_empty());
     if let Some(discover) = raw.browser.discover {
         config.browser.discover = discover;
@@ -1158,6 +1182,7 @@ pub fn load() -> Config {
 
 pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOptions) {
     options.chrome_binary = config.browser.chrome_binary.clone();
+    options.browser_mode = config.browser.mode;
     options.cdp_url = config.browser.cdp_url.clone();
     options.browser_discover = config.browser.discover;
     options.browser_discover_ports = config.browser.discover_ports.clone();
@@ -1611,6 +1636,22 @@ mod tests {
     }
 
     #[test]
+    fn browser_mode_defaults_headful_parses_headless_and_rejects_invalid_values() {
+        let raw: RawConfig = serde_json::from_str(r##"{}"##).unwrap();
+        assert!(raw.browser.mode.is_none());
+        assert_eq!(Browser::default().mode, BrowserMode::Headful);
+
+        let raw: RawConfig =
+            serde_json::from_str(r##"{"browser": {"mode": "headless"}}"##).unwrap();
+        assert_eq!(raw.browser.mode.map(BrowserMode::from), Some(BrowserMode::Headless));
+
+        let err = serde_json::from_str::<RawConfig>(r##"{"browser": {"mode": "stealth"}}"##)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unknown variant `stealth`"), "{err}");
+    }
+
+    #[test]
     fn config_path_prefers_cmux_tui_json_and_falls_back_to_legacy_mux_json() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join(format!(
@@ -1683,7 +1724,7 @@ mod tests {
 
     #[test]
     fn sidebar_view_defaults_parses_and_unknown_values_fall_back_with_warning() {
-        assert_eq!(Sidebar::default().view, SidebarView::Files);
+        assert_eq!(Sidebar::default().view, SidebarView::Workspaces);
         assert_eq!(parse_sidebar_view("files"), Ok(SidebarView::Files));
         assert_eq!(parse_sidebar_view("workspaces"), Ok(SidebarView::Workspaces));
 
@@ -1693,7 +1734,7 @@ mod tests {
         if let Ok(view) = parse_sidebar_view("tree") {
             sidebar.view = view;
         }
-        assert_eq!(sidebar.view, SidebarView::Files);
+        assert_eq!(sidebar.view, SidebarView::Workspaces);
     }
 
     #[test]
