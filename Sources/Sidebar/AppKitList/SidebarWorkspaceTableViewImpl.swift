@@ -14,7 +14,7 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         }
         let next = NSTrackingArea(
             rect: bounds,
-            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
             owner: self,
             userInfo: nil
         )

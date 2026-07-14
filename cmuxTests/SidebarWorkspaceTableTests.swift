@@ -11,9 +11,15 @@ import Testing
 struct SidebarWorkspaceTableTests {
     @Test
     @MainActor
-    func containerHasNoStructuralHorizontalRowInset() throws {
+    func containerHasNoStructuralHorizontalRowInsetAndAlwaysActiveHoverTracking() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
         let column = try #require(container.tableView.tableColumns.first)
+        container.tableView.updateTrackingAreas()
+        let hoverTrackingArea = try #require(container.tableView.trackingAreas.first { area in
+            area.options.contains(.mouseEnteredAndExited)
+                && area.options.contains(.mouseMoved)
+                && area.options.contains(.inVisibleRect)
+        })
 
         #expect(container.tableView.style == .fullWidth)
         #expect(container.scrollView.contentInsets.left == 0)
@@ -21,6 +27,8 @@ struct SidebarWorkspaceTableTests {
         #expect(container.tableView.intercellSpacing.width == 0)
         #expect(container.tableView.columnAutoresizingStyle == .uniformColumnAutoresizingStyle)
         #expect(column.resizingMask.contains(.autoresizingMask))
+        #expect(hoverTrackingArea.options.contains(.activeAlways))
+        #expect(!hoverTrackingArea.options.contains(.activeInKeyWindow))
     }
 
     @Test
