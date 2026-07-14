@@ -34,13 +34,22 @@ final class CmuxRunURLCoordinator {
             return true
         }
 
+        appDelegate.isHandlingCmuxRunURLRequest = true
+        Task { [self] in
+            defer { appDelegate.isHandlingCmuxRunURLRequest = false }
+            await resolvePlanConfirmAndExecute(request)
+        }
+        return true
+    }
+
+    private func resolvePlanConfirmAndExecute(_ request: CmuxRunURLRequest) async {
         let workingDirectory: String
-        switch directoryResolver.resolve(request.workingDirectory) {
+        switch await directoryResolver.resolveWithDeadline(request.workingDirectory) {
         case .success(let path):
             workingDirectory = path
         case .failure(let error):
             confirmationPresenter.showFailure(error)
-            return true
+            return
         }
 
         let plan: CmuxRunExecutionPlan
@@ -49,11 +58,9 @@ final class CmuxRunURLCoordinator {
             plan = resolvedPlan
         case .failure(let error):
             confirmationPresenter.showFailure(error)
-            return true
+            return
         }
 
-        appDelegate.isHandlingCmuxRunURLRequest = true
-        defer { appDelegate.isHandlingCmuxRunURLRequest = false }
         appDelegate.deferInitialMainWindowBootstrapForExternalConfirmation()
         let preferredWindow = window(for: plan.target)
         guard confirmationPresenter.confirm(plan, presentingWindow: preferredWindow) else {
@@ -61,7 +68,7 @@ final class CmuxRunURLCoordinator {
             appDelegate.resumeInitialMainWindowBootstrapAfterExternalConfirmation(
                 debugSource: "runURL.cancelled"
             )
-            return true
+            return
         }
 
         appDelegate.prepareForExplicitOpenIntentAtStartup()
@@ -69,14 +76,13 @@ final class CmuxRunURLCoordinator {
             debugSource: "runURL.confirmed",
             suppressWelcome: true
         )
-        switch execute(plan) {
+        switch await execute(plan) {
         case .success:
             cmuxDebugLog("runURL.executed")
         case .failure(let error):
             cmuxDebugLog("runURL.executionFailed error=\(error)")
             confirmationPresenter.showFailure(error, presentingWindow: preferredWindow)
         }
-        return true
     }
 
     func makePlan(
@@ -236,12 +242,16 @@ final class CmuxRunURLCoordinator {
         }
     }
 
-    func execute(_ plan: CmuxRunExecutionPlan) -> Result<Void, CmuxRunURLExecutionError> {
-        switch directoryResolver.resolve(plan.workingDirectory) {
+    func execute(_ plan: CmuxRunExecutionPlan) async -> Result<Void, CmuxRunURLExecutionError> {
+        switch await directoryResolver.resolveWithDeadline(plan.workingDirectory) {
         case .success(let path) where path == plan.workingDirectory:
             break
         case .success:
             return .failure(.targetChanged)
+        case .failure(.workingDirectoryResolutionTimedOut):
+            return .failure(.workingDirectoryResolutionTimedOut)
+        case .failure(.workingDirectoryContainsUnsafeCharacters):
+            return .failure(.workingDirectoryContainsUnsafeCharacters)
         case .failure:
             return .failure(.workingDirectoryNotFound)
         }

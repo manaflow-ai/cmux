@@ -253,6 +253,11 @@ final class CmuxRunURLConfirmationPresenter {
         switch error {
         case .busy:
             return String(localized: "dialog.runURL.error.busy", defaultValue: "Another external command request is already awaiting approval.")
+        case .workingDirectoryContainsUnsafeCharacters:
+            return String(
+                localized: "dialog.runURL.error.directoryUnsafe",
+                defaultValue: "The resolved working directory contains hidden or unsupported characters."
+            )
         case .workingDirectoryContainsSurroundingWhitespace:
             return String(
                 localized: "dialog.runURL.error.directoryWhitespace",
@@ -262,6 +267,11 @@ final class CmuxRunURLConfirmationPresenter {
             return String(localized: "dialog.runURL.error.absoluteDirectory", defaultValue: "The working directory must be an absolute path or start with ~.")
         case .workingDirectoryNotFound:
             return String(localized: "dialog.runURL.error.directoryNotFound", defaultValue: "The working directory does not exist or is not a directory.")
+        case .workingDirectoryResolutionTimedOut:
+            return String(
+                localized: "dialog.runURL.error.directoryTimeout",
+                defaultValue: "The working directory could not be verified before the request timed out."
+            )
         case .targetNotFound:
             return String(localized: "dialog.runURL.error.targetNotFound", defaultValue: "The requested cmux window, workspace, pane, or surface is no longer available.")
         case .remoteWorkspaceUnsupported:

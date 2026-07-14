@@ -124,7 +124,7 @@ struct CmuxRunURLCoordinatorTests {
         )
     }
 
-    @Test func approvedWorkspacePlanCreatesExactlyOneWorkspace() throws {
+    @Test func approvedWorkspacePlanCreatesExactlyOneWorkspace() async throws {
         let app = AppDelegate()
         let manager = TabManager()
         let window = NSWindow(
@@ -150,7 +150,7 @@ struct CmuxRunURLCoordinatorTests {
             targetDescription: "Test window"
         )
 
-        switch CmuxRunURLCoordinator(appDelegate: app).execute(plan) {
+        switch await CmuxRunURLCoordinator(appDelegate: app).execute(plan) {
         case .success:
             break
         case .failure(let error):
@@ -159,7 +159,7 @@ struct CmuxRunURLCoordinatorTests {
         #expect(manager.tabs.count == initialCount + 1)
     }
 
-    @Test func approvedSurfacePlanCreatesAndFocusesTabInBackgroundWorkspace() throws {
+    @Test func approvedSurfacePlanCreatesAndFocusesTabInBackgroundWorkspace() async throws {
         let app = AppDelegate()
         let manager = TabManager()
         let targetWorkspace = manager.addWorkspace(select: false)
@@ -190,7 +190,7 @@ struct CmuxRunURLCoordinatorTests {
             targetDescription: "Background workspace"
         )
 
-        switch CmuxRunURLCoordinator(appDelegate: app).execute(plan) {
+        switch await CmuxRunURLCoordinator(appDelegate: app).execute(plan) {
         case .success:
             break
         case .failure(let error):
@@ -203,7 +203,7 @@ struct CmuxRunURLCoordinatorTests {
         #expect(manager.selectedTabId == targetWorkspace.id)
     }
 
-    @Test func approvedPanePlanCreatesAndFocusesSplitInBackgroundWorkspace() throws {
+    @Test func approvedPanePlanCreatesAndFocusesSplitInBackgroundWorkspace() async throws {
         let app = AppDelegate()
         let manager = TabManager()
         let targetWorkspace = manager.addWorkspace(select: false)
@@ -235,7 +235,7 @@ struct CmuxRunURLCoordinatorTests {
             targetDescription: "Background workspace"
         )
 
-        switch CmuxRunURLCoordinator(appDelegate: app).execute(plan) {
+        switch await CmuxRunURLCoordinator(appDelegate: app).execute(plan) {
         case .success:
             break
         case .failure(let error):

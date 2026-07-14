@@ -221,7 +221,7 @@ struct CmuxRunURLRequest: Equatable {
         }
     }
 
-    private static func containsUnsafeHiddenCharacter(_ value: String) -> Bool {
+    static func containsUnsafeHiddenCharacter(_ value: String) -> Bool {
         value.unicodeScalars.contains { scalar in
             switch scalar.properties.generalCategory {
             case .control, .format, .lineSeparator, .paragraphSeparator:
