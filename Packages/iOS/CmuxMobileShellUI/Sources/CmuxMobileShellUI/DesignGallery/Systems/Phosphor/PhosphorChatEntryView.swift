@@ -6,7 +6,7 @@ struct PhosphorChatEntryView: View {
     let entry: GalleryChatEntry
 
     @Environment(\.colorScheme) private var colorScheme
-    private var typography = PhosphorTypography()
+    private let typography = PhosphorTypography()
 
     @ViewBuilder
     var body: some View {

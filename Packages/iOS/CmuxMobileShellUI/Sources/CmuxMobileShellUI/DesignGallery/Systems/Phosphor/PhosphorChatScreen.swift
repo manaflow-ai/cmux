@@ -21,6 +21,7 @@ struct PhosphorChatScreen: View {
             .padding(12)
         }
         .scrollIndicators(.hidden)
+        .defaultScrollAnchor(.bottom)
         .background(theme.bg0.ignoresSafeArea())
         .onAppear {
             withAnimation(.easeOut(duration: reduceMotion ? 0.15 : 0.18)) {

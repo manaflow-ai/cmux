@@ -6,7 +6,7 @@ struct PhosphorSettingsScreen: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var notificationsEnabled = DesignGalleryFixtures.settings.notificationsEnabled
     @State private var appearanceSelection = 0
-    private var typography = PhosphorTypography()
+    private let typography = PhosphorTypography()
 
     var body: some View {
         let theme = PhosphorTheme(scheme: colorScheme)

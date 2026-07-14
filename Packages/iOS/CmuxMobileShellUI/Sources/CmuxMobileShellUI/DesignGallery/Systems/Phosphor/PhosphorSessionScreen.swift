@@ -5,7 +5,7 @@ import SwiftUI
 struct PhosphorSessionScreen: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var command = ""
-    private var typography = PhosphorTypography()
+    private let typography = PhosphorTypography()
 
     private let workspace = DesignGalleryFixtures.workspaces[1]
 
@@ -29,6 +29,7 @@ struct PhosphorSessionScreen: View {
                 .padding(.vertical, 12)
             }
             .scrollIndicators(.hidden)
+            .defaultScrollAnchor(.topLeading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(theme.bg0)
         }

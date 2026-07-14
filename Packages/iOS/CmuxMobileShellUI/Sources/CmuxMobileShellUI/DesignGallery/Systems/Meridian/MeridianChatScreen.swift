@@ -22,6 +22,7 @@ struct MeridianChatScreen: View {
             .padding(.bottom, 12)
         }
         .scrollDismissesKeyboard(.interactively)
+        .defaultScrollAnchor(.bottom)
         .background(theme.background.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 8) {
             MeridianComposer()

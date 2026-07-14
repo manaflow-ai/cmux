@@ -33,6 +33,7 @@ struct AtelierChatScreen: View {
             .padding(.bottom, 16)
         }
         .scrollIndicators(.hidden)
+        .defaultScrollAnchor(.bottom)
         .background(theme.background)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             AtelierComposer(placeholder: "Reply to Claude…")

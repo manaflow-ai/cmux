@@ -22,6 +22,7 @@ struct SignalChatScreen: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 16)
         }
+        .defaultScrollAnchor(.bottom)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             SignalTriageBar(theme: theme)
         }

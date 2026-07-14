@@ -6,7 +6,7 @@ struct PhosphorActivityScreen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @State private var feedVisible = false
-    private var typography = PhosphorTypography()
+    private let typography = PhosphorTypography()
 
     var body: some View {
         let theme = PhosphorTheme(scheme: colorScheme)

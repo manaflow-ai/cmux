@@ -7,7 +7,7 @@ struct PhosphorApprovalCard: View {
     let timeText: String
 
     @Environment(\.colorScheme) private var colorScheme
-    private var typography = PhosphorTypography()
+    private let typography = PhosphorTypography()
 
     var body: some View {
         let theme = PhosphorTheme(scheme: colorScheme)

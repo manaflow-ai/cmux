@@ -6,7 +6,7 @@ struct PhosphorAppearanceControl: View {
     @Binding var selection: Int
 
     @Environment(\.colorScheme) private var colorScheme
-    private var typography = PhosphorTypography()
+    private let typography = PhosphorTypography()
 
     private let choices = ["System", "Light", "Dark"]
 
