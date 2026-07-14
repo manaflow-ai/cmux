@@ -34,6 +34,10 @@ extension TerminalPanel {
 
     func close() {
         retireFromUIForClose()
+        teardownRuntimeForClose()
+    }
+
+    func teardownRuntimeForClose() {
         guard !didTeardownRuntimeForClose else { return }
         didTeardownRuntimeForClose = true
         surface.teardownSurface()

@@ -133,12 +133,7 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     var canReopen: Bool {
-        guard let newestRecord = records.enumerated().max(by: {
-            $0.element.closedAt == $1.element.closedAt
-                ? $0.offset < $1.offset
-                : $0.element.closedAt < $1.element.closedAt
-        })?.element else { return false }
-        return !pendingEnrichmentRecordIDs.contains(newestRecord.id)
+        records.count > pendingEnrichmentRecordIDs.count
     }
 
     func push(_ entry: ClosedItemHistoryEntry) {
@@ -208,19 +203,17 @@ final class ClosedItemHistoryStore: ObservableObject {
             newerThan: cutoff,
             excluding: excludedRecordIds
         )
-        guard candidates.first.map({ !pendingEnrichmentRecordIDs.contains($0.id) }) ?? true else {
+        guard candidates.contains(where: { !pendingEnrichmentRecordIDs.contains($0.id) }) else {
             return .blockedByPendingEnrichment
         }
         for candidate in candidates {
-            guard !pendingEnrichmentRecordIDs.contains(candidate.id) else {
-                return .blockedByPendingEnrichment
-            }
             guard restore(candidate.entry) else {
                 onFailure?(candidate.id)
                 continue
             }
             if let index = records.firstIndex(where: { $0.id == candidate.id }) {
                 records.remove(at: index)
+                pendingEnrichmentRecordIDs.remove(candidate.id)
                 revision &+= 1
                 persistRecords()
             }

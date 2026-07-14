@@ -366,6 +366,7 @@ extension Workspace {
             return nil
         }
         panel.retireFromUIForDeferredClose()
+        panel.teardownRuntimeForClose()
         return agentMetadataCloseDeferrer.deferClose(
             id: panelId,
             until: captureTask
