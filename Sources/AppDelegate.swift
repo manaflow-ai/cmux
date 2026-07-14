@@ -13568,6 +13568,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
             return true
         }
+        if matchConfiguredShortcut(event: event, action: .moveSurfaceLeft) {
+            _ = (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
+                .moveSelectedSurface(by: -1)
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .moveSurfaceRight) {
+            _ = (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
+                .moveSelectedSurface(by: 1)
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .moveWorkspaceUp) {
+            _ = (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
+                .moveSelectedWorkspace(by: -1)
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .moveWorkspaceDown) {
+            _ = (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
+                .moveSelectedWorkspace(by: 1)
+            return true
+        }
 
         if matchConfiguredShortcut(event: event, action: .toggleTerminalCopyMode) {
             let handled = tabManager?.toggleFocusedTerminalCopyMode() ?? false

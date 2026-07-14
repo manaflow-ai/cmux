@@ -34,6 +34,8 @@ Values for `shortcuts.bindings.<action>`:
 
 - `shortcuts.bindings.goToWorkspace`
 - `shortcuts.bindings.selectWorkspaceByNumber`
+- `shortcuts.bindings.moveWorkspaceUp`
+- `shortcuts.bindings.moveWorkspaceDown`
 - `shortcuts.bindings.renameWorkspace`
 - `shortcuts.bindings.editWorkspaceDescription`
 - `shortcuts.bindings.closeWorkspace`
@@ -45,6 +47,8 @@ Values for `shortcuts.bindings.<action>`:
 
 - `shortcuts.bindings.nextSurface`
 - `shortcuts.bindings.prevSurface`
+- `shortcuts.bindings.moveSurfaceLeft`
+- `shortcuts.bindings.moveSurfaceRight`
 - `shortcuts.bindings.selectSurfaceByNumber`
 - `shortcuts.bindings.newSurface`
 - `shortcuts.bindings.toggleTerminalCopyMode`

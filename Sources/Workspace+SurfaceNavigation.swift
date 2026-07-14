@@ -64,6 +64,19 @@ extension Workspace {
         }
     }
 
+    /// Move the selected surface within its focused split pane while preserving focus.
+    @discardableResult
+    func moveSelectedSurface(by offset: Int) -> Bool {
+        guard offset != 0,
+              let paneId = bonsplitController.focusedPaneId,
+              let selectedTab = bonsplitController.selectedTab(inPane: paneId),
+              let panelId = panelIdFromSurfaceId(selectedTab.id),
+              let currentIndex = indexInPane(forPanelId: panelId) else { return false }
+        let targetIndex = currentIndex + offset
+        guard bonsplitController.tabs(inPane: paneId).indices.contains(targetIndex) else { return false }
+        return reorderSurface(panelId: panelId, toIndex: targetIndex, focus: true)
+    }
+
     /// Select a surface by index in the currently focused split pane, or in
     /// workspace Canvas order when Canvas layout is active.
     func selectSurface(at index: Int) {

@@ -103,6 +103,8 @@ extension ShortcutAction {
             return nil
         case .nextSurface: return ShortcutStroke(key: "]", command: true, shift: true)
         case .prevSurface: return ShortcutStroke(key: "[", command: true, shift: true)
+        case .moveSurfaceLeft, .moveSurfaceRight, .moveWorkspaceUp, .moveWorkspaceDown:
+            return nil
         case .selectSurfaceByNumber: return ShortcutStroke(key: "1", control: true)
         case .selectWorkspaceByNumber: return ShortcutStroke(key: "1", command: true)
         case .newSurface: return ShortcutStroke(key: "t", command: true)

@@ -177,6 +177,113 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         }
     }
 
+    @Test func surfaceMoveShortcutsReorderSelectedSurfaceAndPreserveFocus() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        let window = try #require(mainWindow(for: windowId))
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let secondPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: true))
+        let thirdPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: true))
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let panelOrder = {
+            workspace.bonsplitController.tabs(inPane: paneId).compactMap {
+                workspace.panelIdFromSurfaceId($0.id)
+            }
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        workspace.focusPanel(secondPanel.id)
+        #expect(panelOrder() == [firstPanelId, secondPanel.id, thirdPanel.id])
+
+        let moveLeft = StoredShortcut(key: "h", command: true, shift: true, option: true, control: true)
+        let moveLeftEvent = try #require(makeKeyDownEvent(
+            key: "h",
+            modifiers: [.command, .shift, .option, .control],
+            keyCode: 4,
+            windowNumber: window.windowNumber
+        ))
+        try withTemporaryShortcut(action: .moveSurfaceLeft, shortcut: moveLeft) {
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: moveLeftEvent))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+        #expect(panelOrder() == [secondPanel.id, firstPanelId, thirdPanel.id])
+        #expect(workspace.focusedPanelId == secondPanel.id)
+
+        let moveRight = StoredShortcut(key: "l", command: true, shift: true, option: true, control: true)
+        let moveRightEvent = try #require(makeKeyDownEvent(
+            key: "l",
+            modifiers: [.command, .shift, .option, .control],
+            keyCode: 37,
+            windowNumber: window.windowNumber
+        ))
+        try withTemporaryShortcut(action: .moveSurfaceRight, shortcut: moveRight) {
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: moveRightEvent))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+        #expect(panelOrder() == [firstPanelId, secondPanel.id, thirdPanel.id])
+        #expect(workspace.focusedPanelId == secondPanel.id)
+    }
+
+    @Test func workspaceMoveShortcutsReorderSelectedWorkspaceAndPreserveSelection() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        let window = try #require(mainWindow(for: windowId))
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let firstWorkspace = try #require(manager.selectedWorkspace)
+        let secondWorkspace = manager.addTab(select: false)
+        let thirdWorkspace = manager.addTab(select: false)
+
+        window.makeKeyAndOrderFront(nil)
+        manager.selectWorkspace(secondWorkspace)
+        #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id, thirdWorkspace.id])
+
+        let moveUp = StoredShortcut(key: "k", command: true, shift: true, option: true, control: true)
+        let moveUpEvent = try #require(makeKeyDownEvent(
+            key: "k",
+            modifiers: [.command, .shift, .option, .control],
+            keyCode: 40,
+            windowNumber: window.windowNumber
+        ))
+        try withTemporaryShortcut(action: .moveWorkspaceUp, shortcut: moveUp) {
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: moveUpEvent))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+        #expect(manager.tabs.map(\.id) == [secondWorkspace.id, firstWorkspace.id, thirdWorkspace.id])
+        #expect(manager.selectedWorkspace?.id == secondWorkspace.id)
+
+        let moveDown = StoredShortcut(key: "j", command: true, shift: true, option: true, control: true)
+        let moveDownEvent = try #require(makeKeyDownEvent(
+            key: "j",
+            modifiers: [.command, .shift, .option, .control],
+            keyCode: 38,
+            windowNumber: window.windowNumber
+        ))
+        try withTemporaryShortcut(action: .moveWorkspaceDown, shortcut: moveDown) {
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: moveDownEvent))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+        #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id, thirdWorkspace.id])
+        #expect(manager.selectedWorkspace?.id == secondWorkspace.id)
+    }
+
     @Test func cmdShiftReturnInCanvasModeDoesNotToggleBonsplitSplitZoom() throws {
         try withTemporaryShortcut(action: .toggleSplitZoom) {
             let appDelegate = try #require(AppDelegate.shared)
@@ -418,7 +525,11 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         )
     }
 
-    private func withTemporaryShortcut(action: KeyboardShortcutSettings.Action, _ body: () throws -> Void) rethrows {
+    private func withTemporaryShortcut(
+        action: KeyboardShortcutSettings.Action,
+        shortcut: StoredShortcut? = nil,
+        _ body: () throws -> Void
+    ) rethrows {
         let hadPersistedShortcut = UserDefaults.standard.object(forKey: action.defaultsKey) != nil
         let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
         defer {
@@ -431,7 +542,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
 #endif
         }
-        KeyboardShortcutSettings.setShortcut(action.defaultShortcut, for: action)
+        KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
 #if DEBUG
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
 #endif

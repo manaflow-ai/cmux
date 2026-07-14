@@ -1547,6 +1547,19 @@ class TabManager: ObservableObject {
         workspaceReordering.reorderWorkspace(tabId: tabId, toIndex: targetIndex, isDragOperation: isDragOperation)
     }
 
+    /// Move the selected workspace by a relative number of sidebar positions.
+    @discardableResult
+    func moveSelectedWorkspace(by offset: Int) -> Bool {
+        guard offset != 0,
+              let workspace = selectedWorkspace,
+              let currentIndex = tabs.firstIndex(where: { $0.id == workspace.id }) else { return false }
+        let targetIndex = currentIndex + offset
+        guard tabs.indices.contains(targetIndex),
+              reorderWorkspace(tabId: workspace.id, toIndex: targetIndex) else { return false }
+        selectWorkspace(workspace)
+        return true
+    }
+
     func sidebarReorderWorkspaceIds(
         forDraggedWorkspaceId draggedWorkspaceId: UUID?,
         targetWorkspaceId: UUID? = nil,
@@ -3617,6 +3630,12 @@ class TabManager: ObservableObject {
     /// Select the previous surface in the currently focused pane of the selected workspace
     func selectPreviousSurface() {
         selectedWorkspace?.selectPreviousSurface()
+    }
+
+    /// Move the selected surface within its focused pane while preserving focus.
+    @discardableResult
+    func moveSelectedSurface(by offset: Int) -> Bool {
+        selectedWorkspace?.moveSelectedSurface(by: offset) ?? false
     }
 
     /// Select a surface by index in the currently focused pane of the selected workspace

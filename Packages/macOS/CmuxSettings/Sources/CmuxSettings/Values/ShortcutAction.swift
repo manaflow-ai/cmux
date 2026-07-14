@@ -48,6 +48,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     // MARK: Navigation
     case nextSurface
     case prevSurface
+    case moveSurfaceLeft
+    case moveSurfaceRight
+    case moveWorkspaceUp
+    case moveWorkspaceDown
     case selectSurfaceByNumber
     case nextSidebarTab
     case prevSidebarTab
@@ -195,7 +199,8 @@ extension ShortcutAction {
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
              .switchRightSidebarToDock, .triggerFlash:
             return .workspace
-        case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
+        case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight,
+             .moveWorkspaceUp, .moveWorkspaceDown, .selectSurfaceByNumber, .nextSidebarTab,
              .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
@@ -369,6 +374,14 @@ extension ShortcutAction {
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
+        case .moveSurfaceLeft:
+            return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left")
+        case .moveSurfaceRight:
+            return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right")
+        case .moveWorkspaceUp:
+            return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
+        case .moveWorkspaceDown:
+            return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
         case .selectSurfaceByNumber: return "Select Surface 1…9"
         case .nextSidebarTab: return "Next Workspace"
         case .prevSidebarTab: return "Previous Workspace"

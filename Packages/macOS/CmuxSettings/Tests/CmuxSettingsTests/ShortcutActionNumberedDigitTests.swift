@@ -79,4 +79,20 @@ struct ShortcutActionNumberedDigitTests {
         #expect(!ShortcutAction.fileExplorerOpenSelection.allowsChordShortcut)
         #expect(!ShortcutAction.fileExplorerOpenSelectionFinderAlias.allowsChordShortcut)
     }
+
+    @Test func reorderActionsAreVisibleNavigationActionsAndUnboundByDefault() {
+        let reorderActions: [ShortcutAction] = [
+            .moveSurfaceLeft,
+            .moveSurfaceRight,
+            .moveWorkspaceUp,
+            .moveWorkspaceDown,
+        ]
+
+        for action in reorderActions {
+            #expect(action.group == .navigation)
+            #expect(ShortcutAction.settingsVisibleActions.contains(action))
+            #expect(action.defaultStroke == nil)
+            #expect(action.defaultShortcut == nil)
+        }
+    }
 }
