@@ -1,3 +1,6 @@
+import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
 import SwiftUI
 
 /// The shared title-bar control for showing and hiding the right sidebar.
