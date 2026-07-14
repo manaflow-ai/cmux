@@ -7129,24 +7129,6 @@ extension BrowserPanel {
         return false
     }
 
-    private func visualAutomationViewportSize() -> NSSize {
-        if let viewport = viewportModel.viewport {
-            return viewport.size
-        }
-        let candidates = [
-            webView.bounds.size,
-            webView.frame.size,
-            webView.window?.contentView?.bounds.size ?? .zero,
-        ]
-        for candidate in candidates where candidate.width > 1 && candidate.height > 1 {
-            return NSSize(
-                width: min(max(candidate.width, 1), 4096),
-                height: min(max(candidate.height, 1), 4096)
-            )
-        }
-        return NSSize(width: 1280, height: 720)
-    }
-
     /// Execute JavaScript
     func evaluateJavaScript(_ script: String) async throws -> Any? {
         try await webView.evaluateJavaScript(script)
@@ -7952,6 +7934,7 @@ private extension BrowserPanel {
             return false
         }
         webView.pageZoom = clamped
+        reapplyAutomationViewportAfterPageZoom()
         return true
     }
 

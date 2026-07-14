@@ -14,14 +14,15 @@ extension WKWebView {
     func cmuxBrowserViewportLayout(in containerBounds: CGRect) -> BrowserViewportLayout {
         BrowserViewportLayout(
             containerBounds: containerBounds,
-            viewport: (self as? CmuxWebView)?.browserViewportModel?.viewport
+            viewport: (self as? CmuxWebView)?.browserViewportModel?.viewport,
+            pageZoom: Double(pageZoom)
         )
     }
 
     func cmuxBrowserViewportLayoutMatches(_ containerBounds: CGRect, epsilon: Double = 0.5) -> Bool {
         let layout = cmuxBrowserViewportLayout(in: containerBounds)
         return Self.cmuxBrowserViewportRect(frame, matches: layout.frame, epsilon: epsilon) &&
-            Self.cmuxBrowserViewportRect(bounds, matches: layout.bounds, epsilon: epsilon) &&
+            Self.cmuxBrowserViewportRect(bounds, matches: layout.webViewBounds, epsilon: epsilon) &&
             autoresizingMask == cmuxBrowserViewportAutoresizingMask
     }
 
@@ -36,11 +37,44 @@ extension WKWebView {
         if !Self.cmuxBrowserViewportRect(frame, matches: layout.frame) {
             frame = layout.frame
         }
-        if !Self.cmuxBrowserViewportRect(bounds, matches: layout.bounds) {
-            bounds = layout.bounds
+        if !Self.cmuxBrowserViewportRect(bounds, matches: layout.webViewBounds) {
+            bounds = layout.webViewBounds
         }
         CATransaction.commit()
         return layout
+    }
+
+    func cmuxRestoreBrowserViewportAfterTemporaryReparenting(
+        to previousSuperview: NSView?,
+        frame previousFrame: NSRect,
+        bounds previousBounds: NSRect,
+        autoresizingMask previousAutoresizingMask: NSView.AutoresizingMask,
+        translatesAutoresizingMaskIntoConstraints previousTranslatesAutoresizingMaskIntoConstraints: Bool,
+        anchor: NSView?,
+        position: NSWindow.OrderingMode
+    ) {
+        removeFromSuperview()
+        if let previousSuperview {
+            if let anchor, anchor.superview === previousSuperview {
+                previousSuperview.addSubview(self, positioned: position, relativeTo: anchor)
+            } else {
+                previousSuperview.addSubview(self)
+            }
+        }
+
+        let hasVisibleWebKitCompanion = previousSuperview?
+            .browserPortalHasVisibleWebKitCompanionSubview(for: self) ?? false
+        if BrowserViewportLayout.shouldPreservePreviousGeometryOnRestore(
+            hasPreviousHost: previousSuperview != nil,
+            hasVisibleWebKitCompanion: hasVisibleWebKitCompanion
+        ) {
+            frame = previousFrame
+            bounds = previousBounds
+            autoresizingMask = previousAutoresizingMask
+            translatesAutoresizingMaskIntoConstraints = previousTranslatesAutoresizingMaskIntoConstraints
+        } else if let previousSuperview {
+            cmuxApplyBrowserViewportLayout(in: previousSuperview.bounds)
+        }
     }
 
     private static func cmuxBrowserViewportRect(

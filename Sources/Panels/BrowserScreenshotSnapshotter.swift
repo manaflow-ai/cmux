@@ -94,6 +94,7 @@ enum BrowserScreenshotWebViewSnapshotter {
     ) async throws -> NSImage {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = afterScreenUpdates
+        configuration.snapshotWidth = requestedViewportSnapshotWidth(for: webView)
         return try await takeSnapshot(from: webView, configuration: configuration)
     }
 
@@ -104,6 +105,7 @@ enum BrowserScreenshotWebViewSnapshotter {
     ) {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = afterScreenUpdates
+        configuration.snapshotWidth = requestedViewportSnapshotWidth(for: webView)
         takeSnapshot(from: webView, configuration: configuration, completion: completion)
     }
 
@@ -226,16 +228,13 @@ enum BrowserScreenshotWebViewSnapshotter {
         let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
         contentView.wantsLayer = true
         webView.removeFromSuperview()
-        webView.frame = contentView.bounds
-        webView.bounds = contentView.bounds
-        webView.autoresizingMask = [.width, .height]
         contentView.addSubview(webView)
+        webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         window.contentView = contentView
         window.orderFrontRegardless()
 
         defer {
-            restoreWebView(
-                webView,
+            webView.cmuxRestoreBrowserViewportAfterTemporaryReparenting(
                 to: previousSuperview,
                 frame: previousFrame,
                 bounds: previousBounds,
@@ -307,10 +306,8 @@ enum BrowserScreenshotWebViewSnapshotter {
         let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
         contentView.wantsLayer = true
         webView.removeFromSuperview()
-        webView.frame = contentView.bounds
-        webView.bounds = contentView.bounds
-        webView.autoresizingMask = [.width, .height]
         contentView.addSubview(webView)
+        webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         window.contentView = contentView
         window.orderFrontRegardless()
 
@@ -321,8 +318,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             didFinish = true
             timeoutTimer?.invalidate()
             timeoutTimer = nil
-            restoreWebView(
-                webView,
+            webView.cmuxRestoreBrowserViewportAfterTemporaryReparenting(
                 to: previousSuperview,
                 frame: previousFrame,
                 bounds: previousBounds,
@@ -660,6 +656,10 @@ enum BrowserScreenshotWebViewSnapshotter {
         )
     }
 
+    private static func requestedViewportSnapshotWidth(for webView: WKWebView) -> NSNumber? {
+        (webView as? CmuxWebView)?.browserViewportModel?.viewport.map { NSNumber(value: $0.width) }
+    }
+
     private static var visualCaptureLayoutFlushScript: String {
         """
         (() => {
@@ -687,30 +687,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         webView.layoutSubtreeIfNeeded()
         webView.superview?.displayIfNeeded()
         webView.displayIfNeeded()
-    }
-
-    private static func restoreWebView(
-        _ webView: WKWebView,
-        to previousSuperview: NSView?,
-        frame: NSRect,
-        bounds: NSRect,
-        autoresizingMask: NSView.AutoresizingMask,
-        translatesAutoresizingMaskIntoConstraints: Bool,
-        anchor: NSView?,
-        position: NSWindow.OrderingMode
-    ) {
-        webView.removeFromSuperview()
-        if let previousSuperview {
-            if let anchor, anchor.superview === previousSuperview {
-                previousSuperview.addSubview(webView, positioned: position, relativeTo: anchor)
-            } else {
-                previousSuperview.addSubview(webView)
-            }
-            webView.frame = frame
-            webView.bounds = bounds
-            webView.autoresizingMask = autoresizingMask
-            webView.translatesAutoresizingMaskIntoConstraints = translatesAutoresizingMaskIntoConstraints
-        }
     }
 
     private static func numberValue(_ value: Any?) -> CGFloat {

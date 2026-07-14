@@ -23,7 +23,34 @@ struct BrowserViewportLayoutTests {
         #expect(layout.mode == .emulated)
         #expect(layout.frame == CGRect(x: 0, y: 75, width: 800, height: 450))
         #expect(layout.bounds == CGRect(x: 0, y: 0, width: 1_280, height: 720))
+        #expect(layout.webViewBounds == layout.bounds)
         #expect(layout.scale == 0.625)
+    }
+
+    @Test func pageZoomExpandsOnlyAppKitBounds() throws {
+        let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
+        let layout = BrowserViewportLayout(
+            containerBounds: CGRect(x: 0, y: 0, width: 800, height: 600),
+            viewport: viewport,
+            pageZoom: 1.25
+        )
+
+        #expect(layout.bounds == CGRect(x: 0, y: 0, width: 1_280, height: 720))
+        #expect(layout.webViewBounds == CGRect(x: 0, y: 0, width: 1_600, height: 900))
+        #expect(layout.frame == CGRect(x: 0, y: 75, width: 800, height: 450))
+        #expect(layout.scale == 0.625)
+    }
+
+    @Test(arguments: [0.0, -Double.infinity, Double.infinity, Double.nan])
+    func invalidPageZoomFallsBackToOne(pageZoom: Double) throws {
+        let viewport = try #require(BrowserViewport(width: 375, height: 812))
+        let layout = BrowserViewportLayout(
+            containerBounds: CGRect(x: 0, y: 0, width: 375, height: 812),
+            viewport: viewport,
+            pageZoom: pageZoom
+        )
+
+        #expect(layout.webViewBounds == layout.bounds)
     }
 
     @Test func tallViewportCentersInsideWidePane() throws {
@@ -49,7 +76,23 @@ struct BrowserViewportLayoutTests {
         #expect(layout.mode == .native)
         #expect(layout.frame == container)
         #expect(layout.bounds == CGRect(origin: .zero, size: container.size))
+        #expect(layout.webViewBounds == layout.bounds)
         #expect(layout.scale == 1)
+    }
+
+    @Test func temporaryReparentingPreservesOnlyExternallyManagedGeometry() {
+        #expect(!BrowserViewportLayout.shouldPreservePreviousGeometryOnRestore(
+            hasPreviousHost: true,
+            hasVisibleWebKitCompanion: false
+        ))
+        #expect(BrowserViewportLayout.shouldPreservePreviousGeometryOnRestore(
+            hasPreviousHost: true,
+            hasVisibleWebKitCompanion: true
+        ))
+        #expect(BrowserViewportLayout.shouldPreservePreviousGeometryOnRestore(
+            hasPreviousHost: false,
+            hasVisibleWebKitCompanion: false
+        ))
     }
 }
 

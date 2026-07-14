@@ -301,6 +301,33 @@ def main() -> int:
             f"Expected screenshot to match emulated viewport, got {screenshot_width}x{screenshot_height}",
         )
 
+        _run_cli_json(cli, ["browser", surface, "zoom", "in"])
+        zoomed_metrics = _run_cli_json(
+            cli,
+            ["browser", surface, "eval", "({ width: innerWidth, height: innerHeight })"],
+        ).get("value") or {}
+        _must(
+            zoomed_metrics.get("width") == 1280 and zoomed_metrics.get("height") == 720,
+            f"Expected page zoom to preserve the emulated CSS viewport: {zoomed_metrics}",
+        )
+        zoomed_viewport = _run_cli_json(cli, ["browser", surface, "viewport", "1280", "720"])
+        _must(
+            zoomed_viewport.get("exact") is True
+            and zoomed_viewport.get("width") == 1280
+            and zoomed_viewport.get("height") == 720,
+            f"Expected viewport RPC to report exact CSS dimensions at page zoom: {zoomed_viewport}",
+        )
+        zoomed_viewport_screenshot = Path(tempfile.mkdtemp(prefix="cmux-cli-viewport-zoomed-")) / "viewport.png"
+        _run_cli_text(cli, ["browser", surface, "screenshot", "--out", str(zoomed_viewport_screenshot)])
+        zoomed_png_header = zoomed_viewport_screenshot.read_bytes()[:24]
+        _must(zoomed_png_header.startswith(b"\x89PNG\r\n\x1a\n"), "Expected zoomed viewport screenshot to be PNG")
+        zoomed_screenshot_size = struct.unpack(">II", zoomed_png_header[16:24])
+        _must(
+            zoomed_screenshot_size == (1280, 720),
+            f"Expected zoomed screenshot to retain CSS viewport pixels, got {zoomed_screenshot_size}",
+        )
+        _run_cli_json(cli, ["browser", surface, "zoom", "reset"])
+
         focus_after_viewport = (_run_cli_json(cli, ["identify"]).get("focused") or {})
         _must(focus_after_viewport == focus_before_viewport, "browser viewport must preserve workspace and surface focus")
 

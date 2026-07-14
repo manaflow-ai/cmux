@@ -24,6 +24,36 @@ extension BrowserPanel {
         return layout
     }
 
+    func reapplyAutomationViewportAfterPageZoom() {
+        guard viewportModel.viewport != nil,
+              let host = webView.superview else {
+            return
+        }
+        if host.browserPortalHasVisibleWebKitCompanionSubview(for: webView) {
+            webView.bounds = webView.cmuxBrowserViewportLayout(in: host.bounds).webViewBounds
+        } else {
+            webView.cmuxApplyBrowserViewportLayout(in: host.bounds)
+        }
+    }
+
+    func visualAutomationViewportSize() -> NSSize {
+        if let viewport = viewportModel.viewport {
+            return viewport.size
+        }
+        let candidates = [
+            webView.bounds.size,
+            webView.frame.size,
+            webView.window?.contentView?.bounds.size ?? .zero,
+        ]
+        for candidate in candidates where candidate.width > 1 && candidate.height > 1 {
+            return NSSize(
+                width: min(max(candidate.width, 1), 4096),
+                height: min(max(candidate.height, 1), 4096)
+            )
+        }
+        return NSSize(width: 1280, height: 720)
+    }
+
     private var fallbackAutomationViewportContainerBounds: CGRect {
         let candidates = [webView.frame.size, webView.bounds.size]
         let size = candidates.first(where: { $0.width > 1 && $0.height > 1 })

@@ -12,14 +12,20 @@ extension TerminalController {
                   let height = v2StrictInt(params, "height") else {
                 return .err(
                     code: "invalid_params",
-                    message: "browser.viewport.set requires integer width and height",
+                    message: String(
+                        localized: "browser.viewport.error.requiresIntegerDimensions",
+                        defaultValue: "browser.viewport.set requires integer width and height"
+                    ),
                     data: nil
                 )
             }
             guard let viewport = BrowserViewport(width: width, height: height) else {
                 return .err(
                     code: "invalid_params",
-                    message: "Viewport dimensions must be between 1 and 4096",
+                    message: String(
+                        localized: "browser.viewport.error.dimensionsOutOfRange",
+                        defaultValue: "Viewport dimensions must be between 1 and 4096"
+                    ),
                     data: [
                         "minimum": BrowserViewport.minimumDimension,
                         "maximum": BrowserViewport.maximumDimension,
@@ -35,7 +41,10 @@ extension TerminalController {
             guard let layout = panel.setAutomationViewport(requestedViewport) else {
                 return .err(
                     code: "invalid_state",
-                    message: "Close or detach Web Inspector before changing the browser viewport",
+                    message: String(
+                        localized: "browser.viewport.error.attachedWebInspector",
+                        defaultValue: "Close or detach Web Inspector before changing the browser viewport"
+                    ),
                     data: [
                         "reason": "attached_web_inspector",
                         "supported_modes": ["native", "emulated"],
