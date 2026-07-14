@@ -257,6 +257,93 @@ import Testing
 }
 
 @MainActor
+@Test func closeFallbackUsesReportedPaneMembershipWhenTerminalPaneIDIsMissing() async throws {
+    let router = RoutingHostRouter()
+    await router.setUsesNilPaneIDCloseFallbackFixture(true)
+    let capabilities = MobileWorkspaceActionCapabilities(
+        supportsTerminalCloseActions: true
+    )
+    let store = try await makeRoutingConnectedStore(
+        router: router,
+        connectionState: .connected,
+        workspaceActionCapabilities: capabilities
+    )
+    let workspaceID = MobileWorkspacePreview.ID(rawValue: RoutingHostRouter.workspaceID)
+    let leftAID = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.closeFallbackLeftA)
+    let targetID = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.closeFallbackTarget)
+    let rightID = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.closeFallbackRight)
+    let leftCID = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.closeFallbackLeftC)
+    let workspace = MobileWorkspacePreview(
+        id: workspaceID,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        name: "Nil pane ID fallback",
+        terminals: [
+            MobileTerminalPreview(id: leftAID, name: "Left A"),
+            MobileTerminalPreview(id: targetID, name: "Target"),
+            MobileTerminalPreview(id: rightID, name: "Right"),
+            MobileTerminalPreview(id: leftCID, name: "Left C"),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "pane-left",
+                spatialIndex: 0,
+                isFocused: true,
+                terminalIDs: [
+                    leftAID,
+                    targetID,
+                    leftCID,
+                ]
+            ),
+            MobilePanePreview(
+                id: "pane-right",
+                spatialIndex: 1,
+                terminalIDs: [
+                    rightID,
+                ]
+            ),
+        ],
+        focusedPaneID: "pane-left",
+        selectedTerminalID: targetID
+    )
+    var actionableWorkspace = workspace
+    actionableWorkspace.actionCapabilities = capabilities
+    store.setWorkspaceStatesForTesting(
+        [
+            "test-mac": MacWorkspaceState(
+                macDeviceID: "test-mac",
+                displayName: "Test Mac",
+                workspaces: [actionableWorkspace],
+                status: .connected,
+                actionCapabilities: capabilities
+            ),
+        ],
+        foregroundMacDeviceID: "test-mac"
+    )
+    store.selectedWorkspaceID = workspaceID
+    store.selectTerminal(targetID)
+    let reservation = try #require(store.terminalReorderGate.reserve(
+        workspaceID: workspaceID,
+        paneID: "pane-left"
+    ))
+
+    let result = await store.closeTerminal(
+        workspaceID: workspaceID,
+        terminalID: targetID,
+        confirmed: false,
+        reservation: reservation
+    )
+
+    guard case .success = result else {
+        Issue.record("Expected close success, got \(result)")
+        return
+    }
+    #expect(store.selectedTerminalID?.rawValue == RoutingHostRouter.closeFallbackLeftC)
+    #expect(await router.recordedTerminalCloseCount() == 1)
+    #expect(await router.workspaceListGate.requestCount() == 1)
+}
+
+@MainActor
 @Test func definiteCloseFailuresSkipRefreshAndReleaseReservation() async throws {
     for code in ["protected", "confirmation_required"] {
         let router = RoutingHostRouter()

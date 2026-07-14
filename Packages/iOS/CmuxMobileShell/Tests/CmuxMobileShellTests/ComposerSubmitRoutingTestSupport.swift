@@ -60,6 +60,8 @@ actor RoutingHostRouter {
     private var terminalCloseErrorCode: String?
     private var dropTerminalCloseResponse = false
     private var terminalCloseCount = 0
+    private var usesNilPaneIDCloseFallbackFixture = false
+    private var closedTerminalIDs: Set<String> = []
     private var terminalReorderCount = 0
     private var terminalCloseReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstWorkspaceCreate = false
@@ -124,6 +126,10 @@ actor RoutingHostRouter {
 
     func setDropTerminalCloseResponse(_ drop: Bool) {
         dropTerminalCloseResponse = drop
+    }
+
+    func setUsesNilPaneIDCloseFallbackFixture(_ enabled: Bool) {
+        usesNilPaneIDCloseFallbackFixture = enabled
     }
 
     func awaitTerminalCloseReached() async {
@@ -194,11 +200,17 @@ actor RoutingHostRouter {
             if rejectWorkspaceList {
                 return try? Self.errorFrame(id: id, message: "workspace.list rejected")
             }
-            var workspaces: [[String: Any]] = [Self.routingWorkspacePayload(
-                title: workspaceTitle,
-                isSelected: selectedHostWorkspaceID == Self.workspaceID,
-                includesCreatedTerminal: terminalHasBeenCreated
-            )]
+            let routingWorkspace = usesNilPaneIDCloseFallbackFixture
+                ? Self.nilPaneIDCloseFallbackWorkspacePayload(
+                    title: workspaceTitle,
+                    closedTerminalIDs: closedTerminalIDs
+                )
+                : Self.routingWorkspacePayload(
+                    title: workspaceTitle,
+                    isSelected: selectedHostWorkspaceID == Self.workspaceID,
+                    includesCreatedTerminal: terminalHasBeenCreated
+                )
+            var workspaces: [[String: Any]] = [routingWorkspace]
             if workspaceHasBeenCreated {
                 workspaces.append(Self.createdWorkspacePayload(
                     isSelected: selectedHostWorkspaceID == "workspace-created"
@@ -289,6 +301,9 @@ actor RoutingHostRouter {
                     code: terminalCloseErrorCode,
                     message: "terminal.close rejected"
                 )
+            }
+            if let surfaceID = info.surfaceID {
+                closedTerminalIDs.insert(surfaceID)
             }
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.reorder":
