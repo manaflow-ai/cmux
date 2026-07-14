@@ -2,6 +2,16 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.19] - 2026-07-14
+
+### Fixed
+- Fix overflowed tab bar scrolling to the wrong place, right-edge tabs hiding their close buttons, and a misaligned active-tab indicator ([#8071](https://github.com/manaflow-ai/cmux/pull/8071))
+- Preserve the Claude Code permission mode when restoring, resuming, or forking a session, including interactively chosen auto-accept/plan/bypass modes; stop a one-word prompt after a boolean flag from being replayed on resume ([#8070](https://github.com/manaflow-ai/cmux/pull/8070))
+
+### Thanks to 1 contributor!
+
+- [@austinywang](https://github.com/austinywang)
+
 ## [0.64.18] - 2026-07-14
 
 ### Added
