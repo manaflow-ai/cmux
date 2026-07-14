@@ -85,6 +85,7 @@ const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
 const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_secs(2 * 60);
 const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
 const MAX_ORPHAN_REMOVALS: usize = 64;
+const MAX_TEMP_INDEX_ENTRIES: usize = 4096;
 // Branch regeneration runs Git commands with 60-second deadlines, then writes
 // the page, patch, assets, and manifest. Keep the outer safety deadline above
 // that complete contract while still releasing a stuck child eventually.
@@ -528,12 +529,15 @@ async fn open_session(
     let final_path = state.config.root.join(&file_name);
     let temporary_path = state.config.root.join(format!(".{file_name}.tmp"));
     let mut temporary_file = TemporaryPatchFile::new(temporary_path.clone());
+    register_session_temp(&state.config.root, &temporary_path)
+        .map_err(|_| SessionOpenError::Failed)?;
 
     let source = resolve_session_source(state, params.source, &canonical_repo).await?;
     run_git_patch(&source, &canonical_repo, &temporary_path).await?;
     tokio::fs::rename(&temporary_path, &final_path)
         .await
         .map_err(|_| SessionOpenError::Failed)?;
+    let _ = unregister_session_temp(&state.config.root, &temporary_path);
     temporary_file.retarget(final_path.clone());
     let metadata = tokio::fs::metadata(&final_path)
         .await
@@ -816,92 +820,99 @@ async fn append_manifest_file(
 }
 
 async fn prune_orphaned_session_temp_files(root: &Path, minimum_age: Duration, scan_limit: usize) {
-    if scan_limit < 2 {
-        return;
+    let root = root.to_owned();
+    let _ = tokio::task::spawn_blocking(move || {
+        mutate_temp_index(&root, |entries| {
+            let take = scan_limit.min(MAX_ORPHAN_REMOVALS).min(entries.len());
+            let mut rotated = entries.drain(..take).collect::<Vec<_>>();
+            rotated.retain(|name| {
+                let path = root.join(name);
+                let Ok(metadata) = std::fs::metadata(&path) else {
+                    return false;
+                };
+                let old_enough = metadata
+                    .modified()
+                    .ok()
+                    .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+                    .is_some_and(|age| age >= minimum_age);
+                if old_enough {
+                    let _ = std::fs::remove_file(path);
+                    false
+                } else {
+                    true
+                }
+            });
+            entries.extend(rotated);
+            Ok(())
+        })
+    })
+    .await;
+}
+
+fn valid_session_temp_name(name: &str) -> bool {
+    name.strip_prefix(".diff-session-")
+        .and_then(|value| value.strip_suffix(".patch.tmp"))
+        .is_some_and(|session_id| uuid::Uuid::parse_str(session_id).is_ok())
+}
+
+fn register_session_temp(root: &Path, path: &Path) -> Result<(), String> {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or("invalid temp name")?;
+    if !valid_session_temp_name(name) {
+        return Err("invalid temp name".to_owned());
     }
-    let lock_path = root.join(".diff-session-prune.lock");
-    let Ok(lock) = OpenOptions::new()
+    mutate_temp_index(root, |entries| {
+        if entries.len() >= MAX_TEMP_INDEX_ENTRIES {
+            return Err("temp index full".to_owned());
+        }
+        if !entries.iter().any(|entry| entry == name) {
+            entries.push(name.to_owned());
+        }
+        Ok(())
+    })
+}
+
+fn unregister_session_temp(root: &Path, path: &Path) -> Result<(), String> {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or("invalid temp name")?;
+    mutate_temp_index(root, |entries| {
+        entries.retain(|entry| entry != name);
+        Ok(())
+    })
+}
+
+fn mutate_temp_index<T>(
+    root: &Path,
+    update: impl FnOnce(&mut Vec<String>) -> Result<T, String>,
+) -> Result<T, String> {
+    let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
         .read(true)
         .write(true)
-        .open(lock_path)
-    else {
-        return;
-    };
-    if lock.try_lock_exclusive().is_err() {
-        return;
-    }
-    let cursor_path = root.join(".diff-session-prune-cursor");
-    let cursor = std::fs::read_to_string(&cursor_path)
-        .ok()
-        .filter(|value| !value.is_empty());
-    let Ok(mut entries) = tokio::fs::read_dir(root).await else {
-        return;
-    };
-    let mut scanned = 0;
-    let mut removed = 0;
-    let mut cursor_found = cursor.is_none();
-    let mut next_cursor = None;
-    while removed < MAX_ORPHAN_REMOVALS {
-        let Ok(Some(entry)) = entries.next_entry().await else {
-            break;
-        };
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if !cursor_found {
-            cursor_found = cursor.as_deref() == Some(name.as_ref());
-            continue;
-        }
-        if scanned + 1 >= scan_limit {
-            next_cursor = Some(name.into_owned());
-            break;
-        }
-        scanned += 1;
-        if remove_orphaned_session_temp_file(&entry.path(), &name, minimum_age).await {
-            removed += 1;
-        }
-    }
-    if removed < MAX_ORPHAN_REMOVALS
-        && cursor_found
-        && let Some(cursor_name) = cursor.as_deref()
-    {
-        let _ =
-            remove_orphaned_session_temp_file(&root.join(cursor_name), cursor_name, minimum_age)
-                .await;
-    }
-    if cursor.is_some() && !cursor_found {
-        next_cursor = None;
-    }
-    let cursor_value = next_cursor.unwrap_or_default();
+        .open(root.join(".diff-session-temp-index.lock"))
+        .map_err(|error| error.to_string())?;
+    FileExt::lock_exclusive(&lock).map_err(|error| error.to_string())?;
+    let index_path = root.join(".diff-session-temp-index");
+    let contents = std::fs::read_to_string(&index_path).unwrap_or_default();
+    let mut entries: Vec<String> = contents
+        .lines()
+        .filter(|name| valid_session_temp_name(name))
+        .take(MAX_TEMP_INDEX_ENTRIES)
+        .map(str::to_owned)
+        .collect();
+    let value = update(&mut entries)?;
     let temporary = root.join(format!(
-        ".diff-session-prune-cursor-{}.tmp",
+        ".diff-session-temp-index-{}.tmp",
         uuid::Uuid::new_v4()
     ));
-    if std::fs::write(&temporary, cursor_value).is_ok() {
-        let _ = std::fs::rename(temporary, cursor_path);
-    } else {
-        let _ = std::fs::remove_file(temporary);
-    }
-}
-
-async fn remove_orphaned_session_temp_file(path: &Path, name: &str, minimum_age: Duration) -> bool {
-    let Some(session_id) = name
-        .strip_prefix(".diff-session-")
-        .and_then(|value| value.strip_suffix(".patch.tmp"))
-    else {
-        return false;
-    };
-    if uuid::Uuid::parse_str(session_id).is_err() {
-        return false;
-    }
-    let old_enough = tokio::fs::metadata(path)
-        .await
-        .ok()
-        .and_then(|metadata| metadata.modified().ok())
-        .and_then(|modified| SystemTime::now().duration_since(modified).ok())
-        .is_some_and(|age| age >= minimum_age);
-    old_enough && tokio::fs::remove_file(path).await.is_ok()
+    std::fs::write(&temporary, entries.join("\n")).map_err(|error| error.to_string())?;
+    std::fs::rename(temporary, index_path).map_err(|error| error.to_string())?;
+    Ok(value)
 }
 
 fn session_patch_request_path(request_path: &str) -> bool {
@@ -1545,7 +1556,7 @@ mod tests {
     use super::{
         DiffSource, RpcRequestRead, SessionOpenError, TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID,
         handle_protocol_request, prune_orphaned_session_temp_files, read_rpc_request,
-        run_git_patch_with_limit, valid_group_id,
+        register_session_temp, run_git_patch_with_limit, valid_group_id,
     };
 
     #[tokio::test]
@@ -1620,6 +1631,7 @@ mod tests {
         let unrelated = root.join(".diff-session-invalid.patch.tmp");
         for orphan in &orphans {
             std::fs::write(orphan, b"private diff").expect("write orphan");
+            register_session_temp(&root, orphan).expect("register orphan");
         }
         std::fs::write(&unrelated, b"keep").expect("write unrelated file");
 

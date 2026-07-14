@@ -423,12 +423,14 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
 }
 
 actor DiffSidecarProcessPool {
+    private enum PoolError: Error { case queueFull }
     private struct Waiter {
         let id: UUID
         let continuation: CheckedContinuation<Bool, Never>
     }
 
     private let limit: Int
+    private let queueLimit = 32
     private var activeCount = 0
     private var waiters: [Waiter] = []
 
@@ -457,6 +459,7 @@ actor DiffSidecarProcessPool {
             activeCount += 1
             return
         }
+        guard waiters.count < queueLimit else { throw PoolError.queueFull }
 
         let waiterID = UUID()
         let granted = await withTaskCancellationHandler {
