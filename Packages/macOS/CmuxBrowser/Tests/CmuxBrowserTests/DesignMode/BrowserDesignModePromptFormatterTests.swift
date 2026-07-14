@@ -118,7 +118,7 @@ import Testing
             computedStyles: [:]
         )
         let context = BrowserDesignModePromptContext(
-            pageURL: "https://user:password@example.com/callback?theme=dark&accessToken=query-secret#/done?idToken=fragment-secret&tab=design",
+            pageURL: "https://user:password@example.com/callback?theme=dark&auth[token]=query-secret&X-Amz-Signature=signed-secret#/done?user[password]=fragment-secret&tab=design",
             snapshot: BrowserDesignModeSnapshot(
                 revision: 1,
                 enabled: true,
@@ -129,12 +129,18 @@ import Testing
             screenshotPath: nil
         )
 
-        #expect(!context.pageURL.contains("user"))
-        #expect(!context.pageURL.contains("password"))
+        #expect(context.pageURL.hasPrefix("https://example.com/callback?"))
+        #expect(!context.pageURL.contains("user:password@"))
         #expect(!context.pageURL.contains("query-secret"))
+        #expect(!context.pageURL.contains("signed-secret"))
         #expect(!context.pageURL.contains("fragment-secret"))
-        #expect(context.pageURL.contains("theme=dark"))
-        #expect(context.pageURL.contains("tab=design"))
+        #expect(context.pageURL.contains("theme="))
+        #expect(context.pageURL.contains("auth%5Btoken%5D="))
+        #expect(context.pageURL.contains("X-Amz-Signature="))
+        #expect(context.pageURL.contains("user%5Bpassword%5D="))
+        #expect(context.pageURL.contains("tab="))
+        #expect(!context.pageURL.contains("theme=dark"))
+        #expect(!context.pageURL.contains("tab=design"))
         #expect(context.pageURL.contains("%3Credacted%3E"))
     }
 

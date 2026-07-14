@@ -30,6 +30,7 @@ type Snapshot = {
     text_content?: string;
     text_editable?: boolean;
     dom_snippet?: string;
+    computed_styles?: Record<string, string>;
   };
   edits: Array<{ id: string; property: string; original_value: string; value: string }>;
   css_diff: string;
@@ -139,6 +140,53 @@ describe("browser design-mode runtime", () => {
     expect(rejected.selection?.selector).toBe("#hero");
     expect(rejected.edits).toHaveLength(1);
     expect(hero.style.getPropertyValue("font-size")).toBe("44px");
+  });
+
+  test("keeps the original baseline when reselecting the edited element", () => {
+    const { dom, runtime } = fixture(`<main><h1 id="hero">Original</h1></main>`);
+    const before = runtime.select("#hero");
+    runtime.applyStyle("font-size", "44px");
+    runtime.applyText("Edited");
+
+    const reselected = runtime.select("#hero");
+
+    expect(reselected.selection?.text_content).toBe("Original");
+    expect(reselected.selection?.computed_styles?.["font-size"]).toBe(before.selection?.computed_styles?.["font-size"]);
+    runtime.revertAll();
+    expect((dom.window.document.querySelector("#hero") as HTMLElement).textContent).toBe("Original");
+  });
+
+  test("ignores unrelated DOM churn and reconciles relevant selected mutations", async () => {
+    const { dom, runtime } = fixture(`<main><h1 id="hero">Hero</h1><section id="ticker"></section></main>`);
+    const hero = dom.window.document.querySelector("#hero") as HTMLElement;
+    const originalSetProperty = hero.style.setProperty.bind(hero.style);
+    let styleWrites = 0;
+    Object.defineProperty(hero.style, "setProperty", {
+      value: (property: string, value: string, priority?: string) => {
+        styleWrites += 1;
+        originalSetProperty(property, value, priority);
+      },
+    });
+    runtime.select("#hero");
+    runtime.applyStyle("font-size", "44px");
+    await Promise.resolve();
+    await Promise.resolve();
+    styleWrites = 0;
+
+    dom.window.document.querySelector("#ticker")?.append(dom.window.document.createElement("span"));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(styleWrites).toBe(0);
+
+    hero.style.removeProperty("font-size");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hero.style.getPropertyValue("font-size")).toBe("44px");
+    expect(styleWrites).toBe(1);
+
+    hero.id = "renamed-hero";
+    await new Promise<void>((resolve) => dom.window.setTimeout(resolve, 0));
+    expect(runtime.snapshot().selection?.selector).toBe("#renamed-hero");
   });
 
   test("bounds page-controlled snapshot fields before crossing the bridge", () => {
