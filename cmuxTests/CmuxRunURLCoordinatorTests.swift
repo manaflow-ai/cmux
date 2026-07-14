@@ -188,6 +188,35 @@ struct CmuxRunURLCoordinatorTests {
         #expect(manager.tabs.count == initialCount + 1)
     }
 
+    @Test func approvedNewWindowPlanSubmitsTheReviewedCommand() async throws {
+        let app = AppDelegate()
+        let plan = CmuxRunExecutionPlan(
+            command: "printf reviewed",
+            workingDirectory: "/tmp",
+            target: .newWindow,
+            placementDescription: "New workspace",
+            targetDescription: "New window"
+        )
+
+        switch await CmuxRunURLCoordinator(appDelegate: app).execute(plan) {
+        case .success:
+            break
+        case .failure(let error):
+            Issue.record("Expected new-window creation to succeed, saw \(error)")
+        }
+        let context = try #require(app.preferredRegisteredMainWindowContext())
+        let window = try #require(app.windowForMainWindowId(context.windowId))
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: context.windowId)
+            window.close()
+        }
+        let workspace = try #require(context.tabManager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let terminal = try #require(workspace.terminalPanel(for: panelId)?.surface)
+
+        #expect(terminal.debugInitialInputForTesting() == plan.launchCommand + "\n")
+    }
+
     @Test func approvedSurfacePlanCreatesAndFocusesTabInBackgroundWorkspace() async throws {
         let app = AppDelegate()
         let manager = TabManager()
