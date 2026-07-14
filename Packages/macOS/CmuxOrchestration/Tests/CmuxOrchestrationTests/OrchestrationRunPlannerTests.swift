@@ -221,6 +221,17 @@ import Testing
         #expect(versionBump.fingerprint != plan.trust.fingerprint)
     }
 
+    @Test func trustFingerprintTracksPromptContent() throws {
+        let fixture = try Fixture()
+        let before = try fixture.planner.plan(fixture.request(tasks: [OrchestrationTaskInput(title: "x")]))
+        // A content-only edit (same paths, commands, version) must change
+        // the fingerprint so a pending confirmation is invalidated.
+        fixture.fileSystem.addFile("/i/template/prompts/task.md", "Do this instead: {{task}}")
+        let after = try fixture.planner.plan(fixture.request(tasks: [OrchestrationTaskInput(title: "x")]))
+        #expect(after.trust.contentDigest != before.trust.contentDigest)
+        #expect(after.trust.fingerprint != before.trust.fingerprint)
+    }
+
     @Test func planIsCodable() throws {
         let fixture = try Fixture()
         let plan = try fixture.planner.plan(fixture.request(tasks: [OrchestrationTaskInput(title: "x")]))

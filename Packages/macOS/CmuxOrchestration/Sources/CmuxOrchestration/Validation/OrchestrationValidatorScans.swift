@@ -22,8 +22,11 @@ extension OrchestrationValidator {
         }
     }
 
-    private func symlinkPaths(under root: String, prefix: String = "", depth: Int = 0) -> [String] {
-        guard depth < 6, let entries = try? fileSystem.contentsOfDirectory(atPath: root) else { return [] }
+    // No depth cap: a manifest may reference arbitrarily deep paths, and a
+    // symlinked directory is flagged (never descended), so recursion is
+    // bounded by the template's real directory depth.
+    private func symlinkPaths(under root: String, prefix: String = "") -> [String] {
+        guard let entries = try? fileSystem.contentsOfDirectory(atPath: root) else { return [] }
         var results: [String] = []
         for entry in entries.sorted() {
             if entry == ".git" { continue }
@@ -32,7 +35,7 @@ extension OrchestrationValidator {
             if fileSystem.isSymbolicLink(atPath: absolute) {
                 results.append(relative)
             } else if fileSystem.directoryExists(atPath: absolute) {
-                results.append(contentsOf: symlinkPaths(under: absolute, prefix: relative, depth: depth + 1))
+                results.append(contentsOf: symlinkPaths(under: absolute, prefix: relative))
             }
         }
         return results
@@ -73,15 +76,15 @@ extension OrchestrationValidator {
     }
 
     /// Walks the template (skipping `.git`) and returns relative file paths.
-    private func textFiles(under root: String, prefix: String = "", depth: Int = 0) -> [String] {
-        guard depth < 6, let entries = try? fileSystem.contentsOfDirectory(atPath: root) else { return [] }
+    private func textFiles(under root: String, prefix: String = "") -> [String] {
+        guard let entries = try? fileSystem.contentsOfDirectory(atPath: root) else { return [] }
         var results: [String] = []
         for entry in entries.sorted() {
             if entry == ".git" { continue }
             let absolute = join(root, entry)
             let relative = prefix.isEmpty ? entry : "\(prefix)/\(entry)"
             if fileSystem.directoryExists(atPath: absolute) {
-                results.append(contentsOf: textFiles(under: absolute, prefix: relative, depth: depth + 1))
+                results.append(contentsOf: textFiles(under: absolute, prefix: relative))
             } else {
                 results.append(relative)
             }

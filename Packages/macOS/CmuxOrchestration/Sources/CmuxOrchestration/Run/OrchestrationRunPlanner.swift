@@ -106,6 +106,18 @@ public struct OrchestrationRunPlanner: Sendable {
         let layoutJSON = try manifest.layout.map {
             try readTemplateFile(request.installation, relativePath: $0, role: "layout")
         }
+        // Digest every template file that shapes provisioning or terminal
+        // input, so content-only edits (same paths/commands/version) still
+        // invalidate a pending trust confirmation.
+        var contentMaterial = "prompt:\(promptPath)\n\(promptTemplate)\u{0}"
+        if let layoutJSON {
+            contentMaterial += "layout:\(layoutJSON)\u{0}"
+        }
+        for scriptPath in manifest.substrate.scriptPaths.sorted() {
+            let script = try readTemplateFile(request.installation, relativePath: scriptPath, role: "script")
+            contentMaterial += "script:\(scriptPath)\n\(script)\u{0}"
+        }
+        let contentDigest = OrchestrationTrustSummary.sha256Hex(Data(contentMaterial.utf8))
 
         var tasks = request.tasks
         if case .int(let concurrency)? = parameters[OrchestrationWellKnownParameter.concurrency.rawValue],
@@ -159,7 +171,8 @@ public struct OrchestrationRunPlanner: Sendable {
                 scriptPaths: manifest.substrate.scriptPaths,
                 agentCommands: manifest.agents.map { "\($0.id): \($0.command)" },
                 workspaceRoot: workspaceRoot,
-                templateVersion: manifest.version
+                templateVersion: manifest.version,
+                contentDigest: contentDigest
             ),
             notes: notes
         )

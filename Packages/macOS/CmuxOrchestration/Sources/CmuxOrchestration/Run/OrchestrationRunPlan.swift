@@ -1,5 +1,5 @@
 import CryptoKit
-import Foundation
+public import Foundation
 
 /// One unit of work fed into a run. v1 tasks come from `--task` /
 /// `--tasks-file`; the fleet engine will later feed these from issue
@@ -149,38 +149,50 @@ public struct OrchestrationTrustSummary: Sendable, Hashable, Codable {
     public var workspaceRoot: String
     /// Template version the summary was built from.
     public var templateVersion: String
+    /// Digest of the executable template contents (prompt, layout, and
+    /// substrate script bytes), so content edits invalidate a pending
+    /// confirmation even when paths, commands, and version are unchanged.
+    public var contentDigest: String
 
     public init(
         substrate: OrchestrationSubstrate.Kind,
         scriptPaths: [String],
         agentCommands: [String],
         workspaceRoot: String,
-        templateVersion: String
+        templateVersion: String,
+        contentDigest: String
     ) {
         self.substrate = substrate
         self.scriptPaths = scriptPaths
         self.agentCommands = agentCommands
         self.workspaceRoot = workspaceRoot
         self.templateVersion = templateVersion
+        self.contentDigest = contentDigest
+    }
+
+    /// Hex SHA-256 of arbitrary material, used for `contentDigest` and
+    /// `fingerprint`.
+    public static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Stable digest of the trust-relevant material (substrate, scripts,
-    /// agent commands, template version). A client that showed the user a
-    /// plan echoes this back with its confirmation, so a template that
-    /// changed between review and run is rejected instead of silently
-    /// confirmed (time-of-check/time-of-use).
+    /// agent commands, template version, and the content digest). A client
+    /// that showed the user a plan echoes this back with its confirmation,
+    /// so a template that changed between review and run is rejected
+    /// instead of silently confirmed (time-of-check/time-of-use).
     public var fingerprint: String {
-        var material = "v1\n"
+        var material = "v2\n"
         material += substrate.rawValue + "\n"
         material += templateVersion + "\n"
+        material += "content:" + contentDigest + "\n"
         for script in scriptPaths {
             material += "script:" + script + "\n"
         }
         for command in agentCommands {
             material += "agent:" + command + "\n"
         }
-        let digest = SHA256.hash(data: Data(material.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
+        return Self.sha256Hex(Data(material.utf8))
     }
 }
 
