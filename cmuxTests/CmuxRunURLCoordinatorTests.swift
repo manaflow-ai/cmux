@@ -214,7 +214,8 @@ struct CmuxRunURLCoordinatorTests {
         let panelId = try #require(workspace.focusedPanelId)
         let terminal = try #require(workspace.terminalPanel(for: panelId)?.surface)
 
-        #expect(terminal.debugInitialInputForTesting() == plan.launchCommand + "\n")
+        #expect(terminal.debugInitialCommand() == plan.launchCommand)
+        #expect(terminal.debugInitialInputForTesting() == nil)
     }
 
     @Test func approvedSurfacePlanCreatesAndFocusesTabInBackgroundWorkspace() async throws {

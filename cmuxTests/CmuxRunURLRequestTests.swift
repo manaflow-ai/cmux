@@ -249,6 +249,40 @@ struct CmuxRunURLRequestTests {
         ) == .busy)
     }
 
+    @Test @MainActor func activeRunApprovalBlocksOtherExecutableLinkTypes() {
+        let sshCounts = AppDelegate.CmuxExternalURLIntentCounts(
+            run: 0,
+            ssh: 1,
+            navigation: 0,
+            text: 0
+        )
+        let textCounts = AppDelegate.CmuxExternalURLIntentCounts(
+            run: 0,
+            ssh: 0,
+            navigation: 0,
+            text: 1
+        )
+        let navigationCounts = AppDelegate.CmuxExternalURLIntentCounts(
+            run: 0,
+            ssh: 0,
+            navigation: 1,
+            text: 0
+        )
+
+        #expect(AppDelegate.cmuxExternalURLAdmission(
+            intentCounts: sshCounts,
+            isRunBusy: true
+        ) == .busy)
+        #expect(AppDelegate.cmuxExternalURLAdmission(
+            intentCounts: textCounts,
+            isRunBusy: true
+        ) == .busy)
+        #expect(AppDelegate.cmuxExternalURLAdmission(
+            intentCounts: navigationCounts,
+            isRunBusy: true
+        ) == .route)
+    }
+
     @Test @MainActor func nonRunURLBatchesKeepTheirExistingAllOrNothingAdmission() {
         let sshCounts = AppDelegate.CmuxExternalURLIntentCounts(
             run: 0,
