@@ -14946,7 +14946,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Don't consume the event when there is no focused workspace — let the
         // matched chord propagate, consistent with the group shortcuts'
         // fall-through policy.
-        guard let focusedId = tabManager.selectedTabId else { return false }
+        guard let focusedId = tabManager.selectedTabId,
+              tabManager.tabs.contains(where: { $0.id == focusedId }) else {
+            // The selected id can be stale mid-transition; togglePin silently
+            // no-ops on an absent id, so don't consume the chord when there's
+            // no live workspace to pin.
+            return false
+        }
         tabManager.togglePin(tabId: focusedId)
         return true
     }
