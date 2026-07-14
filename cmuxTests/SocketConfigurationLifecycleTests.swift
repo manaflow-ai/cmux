@@ -155,6 +155,30 @@ extension SocketACLReloadRegressionTests {
         }
     }
 
+    @Test func bootstrapPreservesUTF16FallbackSettingsWhileRestrictingSocketMode() throws {
+        let source = """
+        {
+          "app": { "appearance": "dark" },
+          "automation": { "socketControlMode": "allowAll" }
+        }
+        """
+        let fallback = try #require(source.data(using: .utf16LittleEndian))
+
+        let materialized = CmuxSettingsFileStore.materializeBootstrapSocketPolicy(
+            in: fallback,
+            imported: .string(SocketControlMode.cmuxOnly.rawValue)
+        )
+        let sanitized = try JSONCParser.preprocess(data: materialized)
+        let root = try #require(
+            JSONSerialization.jsonObject(with: sanitized) as? [String: Any]
+        )
+        let app = try #require(root["app"] as? [String: Any])
+        let automation = try #require(root["automation"] as? [String: Any])
+
+        #expect(app["appearance"] as? String == "dark")
+        #expect(automation["socketControlMode"] as? String == SocketControlMode.cmuxOnly.rawValue)
+    }
+
     @Test func malformedReloadPreservesLastValidRestrictiveMode() throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
