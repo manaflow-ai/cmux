@@ -252,6 +252,20 @@ import Testing
         #expect(plan.bands.contains { !$0.isVertical && $0.rect.maxX <= 387 })
     }
 
+    @Test func cursorRectPlanCutsInteractiveControlsOutWithoutRemovingTheOppositeHalf() {
+        let (outer, _) = makeNestedSplits()
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+        let actionRect = NSRect(x: 680, y: 300, width: 40, height: 20)
+
+        let plan = PortalSplitDividerRegion.cursorRectPlan(
+            for: [horizontal],
+            excluding: [actionRect]
+        )
+
+        #expect(!plan.bands.contains { $0.rect.contains(NSPoint(x: 700, y: 306)) })
+        #expect(plan.bands.contains { $0.rect.contains(NSPoint(x: 700, y: 294)) })
+    }
+
     @Test func horizontalHitBandIsCenteredEvenlyOnDividerLine() {
         let (outer, _) = makeNestedSplits()
         let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)

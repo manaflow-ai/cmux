@@ -99,7 +99,7 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
-    func horizontalDividerOwnsBothSidesWhenTabBarOverlapsOneSide() throws {
+    func horizontalDividerOwnsEmptyTabBarSpaceButYieldsToActions() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -125,6 +125,11 @@ struct PortalHitTestingPerformanceTests {
         BonsplitTabBarHitRegionRegistry.register(tabStrip)
         defer { BonsplitTabBarHitRegionRegistry.unregister(tabStrip) }
 
+        let tabBarAction = NSView(frame: NSRect(x: 300, y: dividerY, width: 40, height: 24))
+        contentView.addSubview(tabBarAction)
+        BonsplitTabBarInteractiveHitRegionRegistry.register(tabBarAction)
+        defer { BonsplitTabBarInteractiveHitRegionRegistry.unregister(tabBarAction) }
+
         let host = WindowTerminalHostView(frame: container.convert(contentView.bounds, from: contentView))
         container.addSubview(host, positioned: .above, relativeTo: contentView)
 
@@ -136,6 +141,19 @@ struct PortalHitTestingPerformanceTests {
             #expect(
                 host.performHitTest(at: pointInHost, currentEvent: event) === host,
                 "The portal must own the centered resize band even where one half overlaps pane chrome."
+            )
+        }
+
+        let actionPointInWindow = contentView.convert(
+            NSPoint(x: tabBarAction.frame.midX, y: dividerY + 6),
+            to: nil
+        )
+        let actionPointInHost = host.convert(actionPointInWindow, from: nil)
+        for eventType in [NSEvent.EventType.mouseMoved, .leftMouseDown] {
+            let event = makeMouseEvent(type: eventType, at: actionPointInWindow, window: window)
+            #expect(
+                host.performHitTest(at: actionPointInHost, currentEvent: event) == nil,
+                "A tab-bar action inside the divider band must retain hover and mouse-down ownership."
             )
         }
     }
