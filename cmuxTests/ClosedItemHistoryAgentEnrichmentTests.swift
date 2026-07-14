@@ -208,8 +208,12 @@ struct ClosedItemHistoryAgentEnrichmentTests {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.terminalPanel(for: panelId))
-        let captureGate = AsyncGate()
-        let captureTask = Task { await captureGate.wait() }
+        let processMetadataGate = AsyncGate()
+        let enrichmentGate = AsyncGate()
+        let captureTask = AgentMetadataCapture(
+            enrichmentTask: Task { await enrichmentGate.wait() },
+            processMetadataCaptureTask: Task { await processMetadataGate.wait() }
+        )
         defer { panel.close() }
         panel.hostedView.setVisibleInUI(true)
 
@@ -220,7 +224,14 @@ struct ClosedItemHistoryAgentEnrichmentTests {
 
         #expect(!panel.hostedView.debugPortalVisibleInUI)
         #expect(!panel.didTeardownRuntimeForClose)
-        await captureGate.open()
+        await processMetadataGate.open()
+        await captureTask.processMetadataCaptureTask.value
+        for _ in 0..<100 where !panel.didTeardownRuntimeForClose {
+            await Task.yield()
+        }
+        #expect(panel.didTeardownRuntimeForClose)
+
+        await enrichmentGate.open()
         await closeTask.value
         #expect(panel.didTeardownRuntimeForClose)
         panel.close()
@@ -279,11 +290,11 @@ struct ClosedItemHistoryAgentEnrichmentTests {
             snapshot: enrichedPanel
         ))
 
-        let browserCapture: Task<Void, Never>? = store.pushPreservingAgentMetadata(
+        let browserCapture: AgentMetadataCapture? = store.pushPreservingAgentMetadata(
             browserEntry,
             coordinatedBy: sharedIndex
         )
-        let enrichedCapture: Task<Void, Never>? = store.pushPreservingAgentMetadata(
+        let enrichedCapture: AgentMetadataCapture? = store.pushPreservingAgentMetadata(
             enrichedEntry,
             coordinatedBy: sharedIndex
         )

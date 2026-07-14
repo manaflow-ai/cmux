@@ -19,6 +19,7 @@ final class SharedLiveAgentIndex {
     var refreshTasksByID: [UUID: Task<LoadResult?, Never>] = [:]
     var refreshWorkTasksByID: [UUID: Task<Void, Never>] = [:]
     var refreshTimeoutTasksByID: [UUID: Task<Void, Never>] = [:]
+    var processMetadataCaptureByGenerationID: [UUID: SharedLiveAgentIndexProcessMetadataBoundary] = [:]
     var refreshOutcomeContinuationsByID: [UUID: CheckedContinuation<LoadResult?, Never>] = [:]
     var refreshOutcomesByID: [UUID: RefreshOutcome] = [:]
     var resolvedRefreshOutcomeGenerationIDs = Set<UUID>()
@@ -39,7 +40,6 @@ final class SharedLiveAgentIndex {
     private static let cacheTTL: TimeInterval = 60.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     static let maximumConcurrentPhysicalLoads = 2
-    private static let destructiveCloseCaptureAttemptLimit = 2
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
@@ -48,16 +48,15 @@ final class SharedLiveAgentIndex {
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
+    let indexLoader: @Sendable (@Sendable () -> Void) -> SharedLiveAgentIndexLoader.LoadResult
     let processScopeFingerprintProvider: @Sendable () -> Set<String>
     let generationTimeoutWaiter: GenerationTimeoutWaiter
     private let hookStoreDirectoryProvider: @MainActor () -> String
     let dateProvider: @MainActor () -> Date
 
     init(
-        indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
-            SharedLiveAgentIndexLoader().loadResultSynchronously()
-        },
+        indexLoader: (@Sendable () -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
+        capturingIndexLoader: (@Sendable (@Sendable () -> Void) -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
         processScopeFingerprintProvider: @escaping @Sendable () -> Set<String> = {
             SharedLiveAgentIndexLoader.currentCacheValidationFingerprint()
         },
@@ -80,7 +79,20 @@ final class SharedLiveAgentIndex {
             Date()
         }
     ) {
-        self.indexLoader = indexLoader
+        if let capturingIndexLoader {
+            self.indexLoader = capturingIndexLoader
+        } else if let indexLoader {
+            self.indexLoader = { didCaptureProcessMetadata in
+                didCaptureProcessMetadata()
+                return indexLoader()
+            }
+        } else {
+            self.indexLoader = { didCaptureProcessMetadata in
+                SharedLiveAgentIndexLoader().loadResultSynchronously(
+                    processMetadataCaptured: didCaptureProcessMetadata
+                )
+            }
+        }
         self.processScopeFingerprintProvider = processScopeFingerprintProvider
         self.generationTimeoutWaiter = generationTimeoutWaiter
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
@@ -96,6 +108,9 @@ final class SharedLiveAgentIndex {
         }
         for task in refreshTimeoutTasksByID.values {
             task.cancel()
+        }
+        for boundary in processMetadataCaptureByGenerationID.values {
+            boundary.resolve(captured: false)
         }
         for continuation in refreshOutcomeContinuationsByID.values {
             continuation.resume(returning: nil)
@@ -179,39 +194,6 @@ final class SharedLiveAgentIndex {
         latestCompletedLoadResult?.index ?? index
     }
 
-    /// Captures agent metadata off-main for a committed destructive close.
-    /// The caller may tear down terminal runtime immediately while retaining
-    /// the lightweight close snapshot until this bounded generation resolves.
-    func indexRefreshTaskForDestructiveClose() -> Task<RestorableAgentSessionIndex?, Never> {
-        let firstRefreshTask = requestRefresh(
-            freshness: .captureAfterRequest,
-            publication: .scoped,
-            validating: nil
-        )
-        return Task { @MainActor [self] in
-            // The returned operation owns its coordinator until the requested
-            // generation resolves, including for injected non-singleton indexes.
-            defer { _ = self }
-            if let index = await firstRefreshTask.value?.index {
-                return index
-            }
-            // One successor generation absorbs a transient timeout without leaving
-            // an accepted close permanently pending. Each attempt retains the
-            // existing generation deadline; no additional timer or polling is added.
-            for _ in 1..<Self.destructiveCloseCaptureAttemptLimit {
-                let successor = requestRefresh(
-                    freshness: .captureAfterRequest,
-                    publication: .scoped,
-                    validating: nil
-                )
-                if let index = await successor.value?.index {
-                    return index
-                }
-            }
-            return nil
-        }
-    }
-
     /// Returns the cached index after awaiting any stale refresh this call schedules.
     func indexRefreshingIfNeeded() async -> RestorableAgentSessionIndex? {
         guard let task = refreshTaskIfStale() else {
@@ -285,11 +267,14 @@ final class SharedLiveAgentIndex {
     func startBackgroundRefresh() {
         deferredReloadTimer?.cancel()
         deferredReloadTimer = nil
-        _ = requestRefresh(
+        let request = requestRefreshDetails(
             freshness: .joinCurrentGeneration,
             publication: .workspace,
             validating: nil
         )
+        if request.generationID == nil {
+            changePending = true
+        }
     }
 
     func invalidatePublishedForkValidations() {

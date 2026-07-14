@@ -7,6 +7,20 @@ extension SharedLiveAgentIndex {
         validating panelKey: PanelKey?,
         cachedResultToValidate: LoadResult? = nil
     ) -> Task<LoadResult?, Never> {
+        requestRefreshDetails(
+            freshness: freshness,
+            publication: publication,
+            validating: panelKey,
+            cachedResultToValidate: cachedResultToValidate
+        ).task
+    }
+
+    func requestRefreshDetails(
+        freshness: RefreshFreshness,
+        publication: RefreshPublication,
+        validating panelKey: PanelKey?,
+        cachedResultToValidate: LoadResult? = nil
+    ) -> RefreshRequest {
         if let refreshTailID,
            var generation = refreshGenerationsByID[refreshTailID],
            let task = refreshTasksByID[refreshTailID],
@@ -22,13 +36,23 @@ extension SharedLiveAgentIndex {
                 pendingForkValidationGenerationByPanelID[panelKey.panelId] = generation.id
             }
             refreshGenerationsByID[refreshTailID] = generation
-            return task
+            let processMetadataCapture = processMetadataCaptureByGenerationID[refreshTailID]
+                ?? unavailableProcessMetadataCapture()
+            return RefreshRequest(
+                generationID: refreshTailID,
+                task: task,
+                processMetadataCapture: processMetadataCapture
+            )
         }
 
         // Timed-out generations keep their physical loader until it returns. Count them here
         // because that synchronous work cannot be cancelled, so replacements could grow unbounded.
         guard refreshGenerationsByID.count < Self.maximumConcurrentPhysicalLoads else {
-            return Task { nil }
+            return RefreshRequest(
+                generationID: nil,
+                task: Task { nil },
+                processMetadataCapture: unavailableProcessMetadataCapture()
+            )
         }
 
         let predecessor = refreshTailID.flatMap { refreshTasksByID[$0] }
@@ -52,6 +76,8 @@ extension SharedLiveAgentIndex {
             generation.cachedResultRevision = resumeAuthorityRevision
         }
         refreshGenerationsByID[generationID] = generation
+        let processMetadataCapture = SharedLiveAgentIndexProcessMetadataBoundary()
+        processMetadataCaptureByGenerationID[generationID] = processMetadataCapture
         let task = Task { @MainActor [weak self] () -> LoadResult? in
             guard let self else { return nil }
             return await self.consumeRefreshOutcome(generationID: generationID)
@@ -95,7 +121,7 @@ extension SharedLiveAgentIndex {
             if reusesCachedResult, let cachedResult {
                 result = cachedResult
             } else {
-                result = await self.loadIndex()
+                result = await self.loadIndex(generationID: generationID)
             }
             self.completeRefresh(
                 generationID: generationID,
@@ -104,7 +130,17 @@ extension SharedLiveAgentIndex {
             )
         }
         refreshWorkTasksByID[generationID] = workTask
-        return task
+        return RefreshRequest(
+            generationID: generationID,
+            task: task,
+            processMetadataCapture: processMetadataCapture
+        )
+    }
+
+    private func unavailableProcessMetadataCapture() -> SharedLiveAgentIndexProcessMetadataBoundary {
+        let boundary = SharedLiveAgentIndexProcessMetadataBoundary()
+        boundary.resolve(captured: false)
+        return boundary
     }
 
     private func finishTimedOutRefreshWork(generationID: UUID) {
@@ -115,6 +151,7 @@ extension SharedLiveAgentIndex {
         refreshGenerationsByID.removeValue(forKey: generationID)
         refreshTimeoutTasksByID.removeValue(forKey: generationID)?.cancel()
         refreshWorkTasksByID.removeValue(forKey: generationID)
+        processMetadataCaptureByGenerationID.removeValue(forKey: generationID)?.resolve(captured: false)
         capturingGenerationIDs.remove(generationID)
         resolvedRefreshOutcomeGenerationIDs.remove(generationID)
         refreshTasksByID.removeValue(forKey: generationID)
@@ -163,6 +200,7 @@ extension SharedLiveAgentIndex {
         if generation.phase == .queued {
             refreshGenerationsByID.removeValue(forKey: generationID)
             refreshWorkTasksByID.removeValue(forKey: generationID)?.cancel()
+            processMetadataCaptureByGenerationID.removeValue(forKey: generationID)?.resolve(captured: false)
             refreshTimeoutTasksByID.removeValue(forKey: generationID)
             resolveRefreshOutcome(generationID: generationID, outcome: .unavailable)
             resolvedRefreshOutcomeGenerationIDs.remove(generationID)
@@ -180,6 +218,7 @@ extension SharedLiveAgentIndex {
         guard generation.phase == .capturing else { return }
         generation.phase = .timedOut
         refreshGenerationsByID[generationID] = generation
+        processMetadataCaptureByGenerationID[generationID]?.resolve(captured: false)
         resolveRefreshOutcome(generationID: generationID, outcome: .unavailable)
         clearPendingForkValidations(
             validationPanelsByPanelID: generation.validationPanelsByPanelID,
@@ -199,10 +238,13 @@ extension SharedLiveAgentIndex {
         return cachedResult.processScopeFingerprint == currentProcessScopeFingerprint
     }
 
-    private func loadIndex() async -> LoadResult {
+    private func loadIndex(generationID: UUID) async -> LoadResult {
         let indexLoader = self.indexLoader
+        let processMetadataCapture = processMetadataCaptureByGenerationID[generationID]
         let result = await Task.detached(priority: .utility) {
-            indexLoader()
+            indexLoader {
+                processMetadataCapture?.resolve(captured: true)
+            }
         }.value
         return result
     }
@@ -217,6 +259,7 @@ extension SharedLiveAgentIndex {
         }
         refreshTimeoutTasksByID.removeValue(forKey: generationID)?.cancel()
         refreshWorkTasksByID.removeValue(forKey: generationID)
+        processMetadataCaptureByGenerationID.removeValue(forKey: generationID)?.resolve(captured: true)
         capturingGenerationIDs.remove(generationID)
         resolveRefreshOutcome(generationID: generationID, outcome: .result(result))
         resolvedRefreshOutcomeGenerationIDs.remove(generationID)
