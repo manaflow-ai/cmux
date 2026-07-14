@@ -67,7 +67,7 @@ struct VerifiedReplayPresentationTests {
             kIOSurfaceHeight: height,
             kIOSurfaceBytesPerElement: 4,
             kIOSurfaceBytesPerRow: bytesPerRow,
-            kIOSurfacePixelFormat: UInt32(0x4247_5241),
+            kIOSurfacePixelFormat: UInt32(0x4247_5241)
         ]
         let surface = try #require(IOSurfaceCreate(properties as CFDictionary))
         overwrite(surface, with: byte)

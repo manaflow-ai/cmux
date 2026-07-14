@@ -42,94 +42,25 @@ extension GhosttySurfaceView {
             return false
         }
 
-        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
-        let presentedRenderer = renderer?.presentation() ?? renderer
-        let presentedContents = presentedRenderer?.contents ?? renderer?.contents
-        let frozenImage = VerifiedReplayFrameCapture.copyCGImage(from: presentedContents)
-        // If Ghostty has pixels, never start mutating its surface unless those
-        // pixels were copied out of the reusable swap chain successfully.
-        guard presentedContents == nil || frozenImage != nil else {
-            MobileDebugLog.anchormux(
-                "verified_replay.freeze_failed transaction=\(transactionID) reason=pixel_copy"
-            )
+        guard let frozen = makeVerifiedReplayFrozenPresentation(transactionID: transactionID) else {
             return false
         }
-        let frozenLayer = CALayer()
-        frozenLayer.name = "cmux.verifiedReplay.lastGood"
-        frozenLayer.frame = layer.bounds
-        frozenLayer.zPosition = 2_000
-        frozenLayer.masksToBounds = false
-        frozenLayer.actions = Self.verifiedReplayDisabledLayerActions
-
-        let backgroundLayer = CALayer()
-        backgroundLayer.name = "cmux.verifiedReplay.background"
-        backgroundLayer.backgroundColor = (configBackgroundColor ?? backgroundColor ?? .black).cgColor
-        backgroundLayer.actions = Self.verifiedReplayDisabledLayerActions
-        backgroundLayer.zPosition = 0
-        frozenLayer.addSublayer(backgroundLayer)
-
-        var contentLayer: CALayer?
-        if let presentedRenderer,
-           let frozenImage {
-            let copy = CALayer()
-            copy.name = "cmux.verifiedReplay.contents"
-            copy.contents = frozenImage
-            copy.contentsScale = presentedRenderer.contentsScale
-            copy.contentsGravity = presentedRenderer.contentsGravity
-            copy.contentsRect = presentedRenderer.contentsRect
-            copy.contentsCenter = presentedRenderer.contentsCenter
-            copy.minificationFilter = presentedRenderer.minificationFilter
-            copy.magnificationFilter = presentedRenderer.magnificationFilter
-            copy.anchorPoint = presentedRenderer.anchorPoint
-            copy.bounds = presentedRenderer.bounds
-            copy.position = presentedRenderer.position
-            copy.transform = presentedRenderer.transform
-            copy.opacity = presentedRenderer.opacity
-            copy.actions = Self.verifiedReplayDisabledLayerActions
-            copy.zPosition = 1
-            frozenLayer.addSublayer(copy)
-            contentLayer = copy
-        }
-
-        var cursorLayer: CALayer?
-        if let liveCursor = cursorOverlayLayer,
-           !liveCursor.isHidden {
-            let presentedCursor = liveCursor.presentation() ?? liveCursor
-            let copy = CALayer()
-            copy.name = "cmux.verifiedReplay.cursor"
-            copy.anchorPoint = presentedCursor.anchorPoint
-            copy.bounds = presentedCursor.bounds
-            copy.position = presentedCursor.position
-            copy.transform = presentedCursor.transform
-            copy.opacity = presentedCursor.opacity
-            copy.backgroundColor = presentedCursor.backgroundColor
-            copy.cornerRadius = presentedCursor.cornerRadius
-            copy.contentsScale = presentedCursor.contentsScale
-            copy.actions = Self.verifiedReplayDisabledLayerActions
-            copy.zPosition = 2
-            frozenLayer.addSublayer(copy)
-            cursorLayer = copy
-        }
-
-        let viewportRect = terminalViewportRect
-        let coveredRect = contentLayer.map { viewportRect.union($0.frame) } ?? viewportRect
-        backgroundLayer.frame = coveredRect
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.addSublayer(frozenLayer)
+        layer.addSublayer(frozen.layer)
         cursorOverlayLayer?.isHidden = true
         CATransaction.commit()
 
-        verifiedReplayFrozenPresentationLayer = frozenLayer
-        verifiedReplayFrozenBackgroundLayer = backgroundLayer
-        verifiedReplayFrozenContentLayer = contentLayer
-        verifiedReplayFrozenCursorLayer = cursorLayer
-        verifiedReplayFrozenImage = frozenImage
+        verifiedReplayFrozenPresentationLayer = frozen.layer
+        verifiedReplayFrozenBackgroundLayer = frozen.backgroundLayer
+        verifiedReplayFrozenContentLayer = frozen.contentLayer
+        verifiedReplayFrozenCursorLayer = frozen.cursorLayer
+        verifiedReplayFrozenImage = frozen.image
         verifiedReplayFrozenTransactionID = transactionID
-        verifiedReplayFrozenViewportRect = viewportRect
+        verifiedReplayFrozenViewportRect = frozen.viewportRect
         MobileDebugLog.anchormux(
-            "verified_replay.freeze transaction=\(transactionID) contents=\(contentLayer != nil)"
+            "verified_replay.freeze transaction=\(transactionID) contents=\(frozen.contentLayer != nil)"
         )
         retainedFrozenPresentation = true
         return true
@@ -271,42 +202,54 @@ extension GhosttySurfaceView {
                 continuation: continuation
             )
             ensureSurfaceOperationDeadlinePump()
-            guard let read else {
-                outputQueue.async {
-                    ghostty_surface_render_now_with_token(submission.surface, submission.token)
-                }
-                return
+            enqueueVerifiedReplaySubmission(
+                read: read,
+                submission: submission,
+                generation: generation
+            )
+        }
+    }
+
+    private func enqueueVerifiedReplaySubmission(
+        read: VerifiedReplaySurfaceRead?,
+        submission: VerifiedReplayRenderSubmission,
+        generation: UInt64
+    ) {
+        guard let read else {
+            outputQueue.async {
+                ghostty_surface_render_now_with_token(submission.surface, submission.token)
             }
-            outputQueue.async { [weak self] in
-                let observed = VerifiedReplayAtomicSubmission.exportThenSubmit(
-                    export: {
-                        Self.exportVerifiedReplayGridSynchronously(read)
-                    },
-                    submit: {
-                        ghostty_surface_render_now_with_token(
-                            submission.surface,
-                            submission.token
-                        )
-                    }
-                )
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    guard self.surface == submission.surface,
-                          self.surfaceGeneration == generation,
-                          var pending = self.pendingVerifiedReplayPresentation,
-                          pending.id == submission.token,
-                          let observed else {
-                        self.completePendingVerifiedReplayPresentation(
-                            id: submission.token,
-                            returning: nil
-                        )
-                        return
-                    }
-                    pending.observedFrame = observed
-                    pending.fence.markObservedFrameReady()
-                    self.pendingVerifiedReplayPresentation = pending
-                    self.completePendingVerifiedReplayPresentationIfPresented()
+            return
+        }
+        outputQueue.async { [weak self] in
+            let observed = VerifiedReplayAtomicSubmission.exportThenSubmit(
+                export: {
+                    Self.exportVerifiedReplayGridSynchronously(read)
+                },
+                submit: {
+                    ghostty_surface_render_now_with_token(
+                        submission.surface,
+                        submission.token
+                    )
                 }
+            )
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard self.surface == submission.surface,
+                      self.surfaceGeneration == generation,
+                      var pending = self.pendingVerifiedReplayPresentation,
+                      pending.id == submission.token,
+                      let observed else {
+                    self.completePendingVerifiedReplayPresentation(
+                        id: submission.token,
+                        returning: nil
+                    )
+                    return
+                }
+                pending.observedFrame = observed
+                pending.fence.markObservedFrameReady()
+                self.pendingVerifiedReplayPresentation = pending
+                self.completePendingVerifiedReplayPresentationIfPresented()
             }
         }
     }
@@ -346,13 +289,108 @@ extension GhosttySurfaceView {
         return frame
     }
 
+    private func makeVerifiedReplayFrozenPresentation(
+        transactionID: UInt64
+    ) -> VerifiedReplayFrozenPresentation? {
+        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let presentedRenderer = renderer?.presentation() ?? renderer
+        let presentedContents = presentedRenderer?.contents ?? renderer?.contents
+        let image = VerifiedReplayFrameCapture.copyCGImage(from: presentedContents)
+        // If Ghostty has pixels, never start mutating its surface unless those
+        // pixels were copied out of the reusable swap chain successfully.
+        guard presentedContents == nil || image != nil else {
+            MobileDebugLog.anchormux(
+                "verified_replay.freeze_failed transaction=\(transactionID) reason=pixel_copy"
+            )
+            return nil
+        }
+        let frozenLayer = CALayer()
+        frozenLayer.name = "cmux.verifiedReplay.lastGood"
+        frozenLayer.frame = layer.bounds
+        frozenLayer.zPosition = 2_000
+        frozenLayer.masksToBounds = false
+        frozenLayer.actions = Self.verifiedReplayDisabledLayerActions
+
+        let backgroundLayer = CALayer()
+        backgroundLayer.name = "cmux.verifiedReplay.background"
+        backgroundLayer.backgroundColor = (configBackgroundColor ?? backgroundColor ?? .black).cgColor
+        backgroundLayer.actions = Self.verifiedReplayDisabledLayerActions
+        backgroundLayer.zPosition = 0
+        frozenLayer.addSublayer(backgroundLayer)
+
+        let contentLayer = makeVerifiedReplayFrozenContentLayer(
+            renderer: presentedRenderer,
+            image: image,
+            container: frozenLayer
+        )
+        let cursorLayer = makeVerifiedReplayFrozenCursorLayer(container: frozenLayer)
+        let viewportRect = terminalViewportRect
+        backgroundLayer.frame = contentLayer.map { viewportRect.union($0.frame) } ?? viewportRect
+        return VerifiedReplayFrozenPresentation(
+            layer: frozenLayer,
+            backgroundLayer: backgroundLayer,
+            contentLayer: contentLayer,
+            cursorLayer: cursorLayer,
+            image: image,
+            viewportRect: viewportRect
+        )
+    }
+
+    private func makeVerifiedReplayFrozenContentLayer(
+        renderer: CALayer?,
+        image: CGImage?,
+        container: CALayer
+    ) -> CALayer? {
+        guard let renderer, let image else { return nil }
+        let copy = CALayer()
+        copy.name = "cmux.verifiedReplay.contents"
+        copy.contents = image
+        copy.contentsScale = renderer.contentsScale
+        copy.contentsGravity = renderer.contentsGravity
+        copy.contentsRect = renderer.contentsRect
+        copy.contentsCenter = renderer.contentsCenter
+        copy.minificationFilter = renderer.minificationFilter
+        copy.magnificationFilter = renderer.magnificationFilter
+        copy.anchorPoint = renderer.anchorPoint
+        copy.bounds = renderer.bounds
+        copy.position = renderer.position
+        copy.transform = renderer.transform
+        copy.opacity = renderer.opacity
+        copy.actions = Self.verifiedReplayDisabledLayerActions
+        copy.zPosition = 1
+        container.addSublayer(copy)
+        return copy
+    }
+
+    private func makeVerifiedReplayFrozenCursorLayer(container: CALayer) -> CALayer? {
+        guard let liveCursor = cursorOverlayLayer,
+              !liveCursor.isHidden else {
+            return nil
+        }
+        let cursor = liveCursor.presentation() ?? liveCursor
+        let copy = CALayer()
+        copy.name = "cmux.verifiedReplay.cursor"
+        copy.anchorPoint = cursor.anchorPoint
+        copy.bounds = cursor.bounds
+        copy.position = cursor.position
+        copy.transform = cursor.transform
+        copy.opacity = cursor.opacity
+        copy.backgroundColor = cursor.backgroundColor
+        copy.cornerRadius = cursor.cornerRadius
+        copy.contentsScale = cursor.contentsScale
+        copy.actions = Self.verifiedReplayDisabledLayerActions
+        copy.zPosition = 2
+        container.addSublayer(copy)
+        return copy
+    }
+
     private static let verifiedReplayDisabledLayerActions: [String: any CAAction] = [
         "bounds": NSNull(),
         "contents": NSNull(),
         "frame": NSNull(),
         "opacity": NSNull(),
         "position": NSNull(),
-        "transform": NSNull(),
+        "transform": NSNull()
     ]
 }
 #endif

@@ -235,16 +235,16 @@ struct VerifiedTerminalReplayStateMachineTests {
                     background: "#272822",
                     bold: true,
                     underline: true
-                ),
+                )
             ],
             rowSpans: [
-                .init(row: 0, column: 0, styleID: styleID, text: text),
+                .init(row: 0, column: 0, styleID: styleID, text: text)
             ],
             activeScreen: .primary,
             modes: [
                 .init(code: 1, on: true),
                 .init(code: 7, on: true),
-                .init(code: 2004, on: true),
+                .init(code: 2004, on: true)
             ]
         )
     }

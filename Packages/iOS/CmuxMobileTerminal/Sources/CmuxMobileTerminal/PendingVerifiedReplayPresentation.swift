@@ -2,6 +2,15 @@
 import CMUXMobileCore
 import QuartzCore
 
+struct VerifiedReplayFrozenPresentation {
+    let layer: CALayer
+    let backgroundLayer: CALayer
+    let contentLayer: CALayer?
+    let cursorLayer: CALayer?
+    let image: CGImage?
+    let viewportRect: CGRect
+}
+
 /// Successful presentation of one exact tokened Ghostty render. A drain render
 /// has no observed frame; a replay render carries its local grid readback.
 nonisolated struct VerifiedReplayPresentedSubmission: Sendable {

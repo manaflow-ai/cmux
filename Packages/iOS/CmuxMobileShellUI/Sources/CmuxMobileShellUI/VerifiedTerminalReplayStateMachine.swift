@@ -64,23 +64,17 @@ final class VerifiedTerminalReplayStateMachine {
         }
         guard !frame.renderEpoch.isEmpty,
               frame.renderRevision > 0 else {
-            phase = .recovering
-            activeTransaction = nil
-            return .keepFrozenAndRequestReplay
+            return rejectFrame()
         }
 
         let startsNewEpoch = activeRenderEpoch != frame.renderEpoch
         if startsNewEpoch {
             guard frame.full,
                   !retiredRenderEpochs.contains(frame.renderEpoch) else {
-                phase = .recovering
-                activeTransaction = nil
-                return .keepFrozenAndRequestReplay
+                return rejectFrame()
             }
         } else if !isNewerThanPresentationFloor(frame) {
-            phase = .recovering
-            activeTransaction = nil
-            return .keepFrozenAndRequestReplay
+            return rejectFrame()
         }
 
         let expected: MobileTerminalRenderGridVisualSnapshot?
@@ -90,9 +84,7 @@ final class VerifiedTerminalReplayStateMachine {
             expected = visibleSnapshot?.applying(frame)
         }
         guard let expected else {
-            phase = .recovering
-            activeTransaction = nil
-            return .keepFrozenAndRequestReplay
+            return rejectFrame()
         }
 
         if startsNewEpoch {
@@ -115,6 +107,12 @@ final class VerifiedTerminalReplayStateMachine {
         activeTransaction = transaction
         phase = .verifying
         return .apply(transaction)
+    }
+
+    private func rejectFrame() -> BeginDecision {
+        phase = .recovering
+        activeTransaction = nil
+        return .keepFrozenAndRequestReplay
     }
 
     func complete(

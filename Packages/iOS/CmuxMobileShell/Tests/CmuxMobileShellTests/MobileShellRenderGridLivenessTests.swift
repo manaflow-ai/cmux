@@ -102,7 +102,7 @@ import Testing
         "terminal.bytes.v1",
         "terminal.render_grid.v1",
         "terminal.render_grid.verified_replay.v1",
-        "terminal.replay.v1",
+        "terminal.replay.v1"
     ])
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)

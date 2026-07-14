@@ -414,24 +414,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 _ = await surfaceView.freezeVerifiedReplayPresentation(
                     transactionID: frame.renderRevision
                 )
-                store.terminalOutputDidReset(
-                    surfaceID: surfaceID,
-                    streamToken: chunk.streamToken
-                )
+                requestVerifiedReplayReset(transactionID: nil, chunk: chunk, store: store)
                 return
             }
 
             guard await surfaceView.freezeVerifiedReplayPresentation(
                 transactionID: transaction.id
             ) else {
-                _ = verifiedReplayState.complete(
-                    transactionID: transaction.id,
-                    observedFrame: nil
-                )
-                store.terminalOutputDidReset(
-                    surfaceID: surfaceID,
-                    streamToken: chunk.streamToken
-                )
+                requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
                 return
             }
             activeViewportPolicy = .remoteGrid(columns: frame.columns, rows: frame.rows)
@@ -439,27 +429,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 cols: frame.columns,
                 rows: frame.rows
             ) else {
-                _ = verifiedReplayState.complete(
-                    transactionID: transaction.id,
-                    observedFrame: nil
-                )
-                store.terminalOutputDidReset(
-                    surfaceID: surfaceID,
-                    streamToken: chunk.streamToken
-                )
+                requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
                 return
             }
 
             if !chunk.data.isEmpty {
                 guard await surfaceView.processOutputAndWait(chunk.data) else {
-                    _ = verifiedReplayState.complete(
-                        transactionID: transaction.id,
-                        observedFrame: nil
-                    )
-                    store.terminalOutputDidReset(
-                        surfaceID: surfaceID,
-                        streamToken: chunk.streamToken
-                    )
+                    requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
                     return
                 }
             }
@@ -471,13 +447,46 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 renderRevision: frame.renderRevision
             )
             guard !Task.isCancelled else { return }
-            switch verifiedReplayState.complete(
+            finishVerifiedReplay(
                 transactionID: transaction.id,
+                observed: observed,
+                chunk: chunk,
+                surfaceView: surfaceView,
+                store: store
+            )
+        }
+
+        private func requestVerifiedReplayReset(
+            transactionID: UInt64?,
+            chunk: MobileTerminalOutputChunk,
+            store: CMUXMobileShellStore
+        ) {
+            if let transactionID {
+                _ = verifiedReplayState.complete(
+                    transactionID: transactionID,
+                    observedFrame: nil
+                )
+            }
+            store.terminalOutputDidReset(
+                surfaceID: surfaceID,
+                streamToken: chunk.streamToken
+            )
+        }
+
+        private func finishVerifiedReplay(
+            transactionID: UInt64,
+            observed: MobileTerminalRenderGridFrame?,
+            chunk: MobileTerminalOutputChunk,
+            surfaceView: GhosttySurfaceView,
+            store: CMUXMobileShellStore
+        ) {
+            switch verifiedReplayState.complete(
+                transactionID: transactionID,
                 observedFrame: observed
             ) {
             case .reveal:
                 guard surfaceView.revealVerifiedReplayPresentation(
-                    transactionID: transaction.id
+                    transactionID: transactionID
                 ) else {
                     store.terminalOutputDidReset(
                         surfaceID: surfaceID,
@@ -496,7 +505,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 )
             }
         }
-
 
         // MARK: - Composer band hosting
 

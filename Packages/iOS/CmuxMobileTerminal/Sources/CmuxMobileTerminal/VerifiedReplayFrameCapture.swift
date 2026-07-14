@@ -113,7 +113,7 @@ nonisolated enum VerifiedReplayFrameCapture {
         guard let contents else { return nil }
         let value = contents as CFTypeRef
         guard CFGetTypeID(value) == IOSurfaceGetTypeID() else { return nil }
-        return (contents as! IOSurface)
+        return contents as? IOSurface
     }
 }
 #endif
