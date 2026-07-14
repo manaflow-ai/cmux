@@ -11,6 +11,54 @@ let mobileHostIrohLog = Logger(
     category: "mobile-host-iroh"
 )
 
+/// Publishes live binding state synchronously while secure persistence drains
+/// on a lifecycle-cancellable, latest-value serial lane.
+@MainActor
+final class MobileHostIrohPersistenceQueue {
+    typealias Operation = @MainActor @Sendable () async -> Void
+
+    private var pending: Operation?
+    private var worker: Task<Void, Never>?
+    private var generation: UInt64 = 0
+
+    func publishAndEnqueue(
+        publish: @MainActor () -> Void,
+        persist: @escaping Operation
+    ) {
+        publish()
+        pending = persist
+        guard worker == nil else { return }
+        startWorker(generation: generation)
+    }
+
+    func cancel() {
+        generation &+= 1
+        pending = nil
+        worker?.cancel()
+        worker = nil
+    }
+
+    private func startWorker(generation: UInt64) {
+        worker = Task { @MainActor [weak self] in
+            await self?.drain(generation: generation)
+        }
+    }
+
+    private func drain(generation expectedGeneration: UInt64) async {
+        while generation == expectedGeneration,
+              !Task.isCancelled,
+              let operation = pending {
+            pending = nil
+            await operation()
+        }
+        guard generation == expectedGeneration else { return }
+        worker = nil
+        if pending != nil, !Task.isCancelled {
+            startWorker(generation: expectedGeneration)
+        }
+    }
+}
+
 /// macOS composition root for the account-scoped Iroh host runtime.
 @MainActor
 final class MobileHostIrohRuntime {
@@ -38,6 +86,7 @@ final class MobileHostIrohRuntime {
     let relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot?
     let lanPublisher: CmxIrohLANHostPublisher
     let authObserver = MobileHostIrohAuthObserver()
+    let bindingPersistenceQueue = MobileHostIrohPersistenceQueue()
 
     weak var auth: AuthCoordinator?
     var authObservationTask: Task<Void, Never>?
@@ -137,6 +186,7 @@ final class MobileHostIrohRuntime {
         restartActiveRuntime: Bool = false
     ) -> Task<Void, Never> {
         lifecycleRevision &+= 1
+        bindingPersistenceQueue.cancel()
         let revision = lifecycleRevision
         let previous = transitionTask
         previous?.cancel()
@@ -400,50 +450,61 @@ final class MobileHostIrohRuntime {
                 }
             },
             handleBinding: { [weak self] registration, discovery, attestation in
-                guard await self?.allowsPersistence(
-                    accountID: accountID,
-                    revision: revision
-                ) == true else { return }
                 let binding = registration.binding
                 let metadata = CmxIrohBrokerBindingMetadata(binding: binding)
-                try? await credentialRepository.saveBinding(
-                    metadata,
-                    accountID: accountID
-                )
                 guard await self?.allowsPersistence(
                     accountID: accountID,
                     revision: revision
                 ) == true else { return }
-                if let attestation,
-                   let discovered = discovery.bindings.first(where: {
-                       $0.bindingID == binding.bindingID
-                   }) {
-                    do {
-                        let policy = try CmxIrohCachedHostPolicy(
-                            binding: discovered,
-                            grantVerificationKeys: discovery.grantVerificationKeys,
-                            endpointAttestation: attestation,
-                            lanRendezvous: discovery.lanRendezvous
+                await self?.bindingPersistenceQueue.publishAndEnqueue(
+                    publish: { [weak self] in
+                        self?.recordRegisteredBinding(
+                            binding,
+                            accountID: accountID,
+                            tag: tag,
+                            revision: revision
                         )
-                        try await hostPolicyCache.save(
-                            policy,
-                            for: policyExpectation,
-                            now: Date()
+                    },
+                    persist: { [weak self] in
+                        guard let self,
+                              self.allowsPersistence(
+                                  accountID: accountID,
+                                  revision: revision
+                              ) else { return }
+                        try? await credentialRepository.saveBinding(
+                            metadata,
+                            accountID: accountID
                         )
-                    } catch {
-                        try? await hostPolicyCache.delete(for: policyExpectation)
-                        mobileHostIrohLog.error(
-                            "Iroh offline policy cache rejected: \(String(describing: error), privacy: .private)"
-                        )
+                        guard self.allowsPersistence(
+                            accountID: accountID,
+                            revision: revision
+                        ) else { return }
+                        if let attestation,
+                           let discovered = discovery.bindings.first(where: {
+                               $0.bindingID == binding.bindingID
+                           }) {
+                            do {
+                                let policy = try CmxIrohCachedHostPolicy(
+                                    binding: discovered,
+                                    grantVerificationKeys: discovery.grantVerificationKeys,
+                                    endpointAttestation: attestation,
+                                    lanRendezvous: discovery.lanRendezvous
+                                )
+                                try await hostPolicyCache.save(
+                                    policy,
+                                    for: policyExpectation,
+                                    now: Date()
+                                )
+                            } catch {
+                                try? await hostPolicyCache.delete(for: policyExpectation)
+                                mobileHostIrohLog.error(
+                                    "Iroh offline policy cache rejected: \(String(describing: error), privacy: .private)"
+                                )
+                            }
+                        } else if cachedHostPolicy?.binding != metadata {
+                            try? await hostPolicyCache.delete(for: policyExpectation)
+                        }
                     }
-                } else if cachedHostPolicy?.binding != metadata {
-                    try? await hostPolicyCache.delete(for: policyExpectation)
-                }
-                await self?.recordRegisteredBinding(
-                    binding,
-                    accountID: accountID,
-                    tag: tag,
-                    revision: revision
                 )
             },
             handleDeactivation: { bindingID in
