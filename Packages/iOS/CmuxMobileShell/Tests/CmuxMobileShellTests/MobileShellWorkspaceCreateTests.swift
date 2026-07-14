@@ -1,3 +1,4 @@
+import CmuxMobileRPC
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -158,6 +159,36 @@ import Testing
         }.value
 
         #expect(disposition == .surfaceError)
+    }
+
+    @Test func ambiguousLegacyTransportFailuresPreserveAtMostOnceSuccess() {
+        for error in [
+            MobileShellConnectionError.connectionClosed,
+            MobileShellConnectionError.requestTimedOut,
+            MobileShellConnectionError.invalidResponse,
+        ] {
+            #expect(
+                MobileShellComposite.WorkspaceCreatePinnedContext.caughtErrorDisposition(
+                    operationID: nil,
+                    error: error
+                ) == .preserveSuccess
+            )
+            #expect(
+                MobileShellComposite.WorkspaceCreatePinnedContext.caughtErrorDisposition(
+                    operationID: UUID(),
+                    error: error
+                ) == .failClosed
+            )
+        }
+    }
+
+    @Test func definiteLegacyHostFailureStillSurfaces() {
+        #expect(
+            MobileShellComposite.WorkspaceCreatePinnedContext.caughtErrorDisposition(
+                operationID: nil,
+                error: MobileShellConnectionError.rpcError("rejected", "Host rejected create")
+            ) == .surfaceError
+        )
     }
 
     @Test func differentGroupCreateWorkspaceRequestDoesNotJoinInFlightResult() async throws {
