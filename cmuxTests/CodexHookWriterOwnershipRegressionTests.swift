@@ -151,6 +151,47 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
         XCTAssertTrue(command.contains(#"agent_pid="${PPID:-${CMUX_CODEX_PID:-}}""#))
     }
 
+    func testPersistentHooksDoNotPinOneCmuxInstanceIntoSharedCodexConfig() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-shared-config-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let firstCLI = root.appendingPathComponent("cmux-first", isDirectory: false)
+        let secondCLI = root.appendingPathComponent("cmux-second", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: cliPath), to: firstCLI)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: cliPath), to: secondCLI)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: firstCLI.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: secondCLI.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func install(cli: URL, socket: String) throws -> [InstalledHookEntry] {
+            var environment = codexHookTestEnvironment(root: root, codexHome: codexHome)
+            environment["CMUX_BUNDLED_CLI_PATH"] = cli.path
+            environment["CMUX_SOCKET_PATH"] = socket
+            let result = runCodexHookProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "codex", "install", "--yes"],
+                environment: environment,
+                timeout: 10
+            )
+            XCTAssertEqual(result.status, 0, result.stderr)
+            return try codexHookEntries(in: codexHome)
+        }
+
+        let firstHooks = try install(cli: firstCLI, socket: "/tmp/cmux-debug-first.sock")
+        let secondHooks = try install(cli: secondCLI, socket: "/tmp/cmux-debug-second.sock")
+        XCTAssertEqual(firstHooks.map(\.command).sorted(), secondHooks.map(\.command).sorted())
+        for hook in secondHooks where hook.body.contains("hooks codex") {
+            XCTAssertTrue(hook.body.contains("CMUX_CODEX_HOOK_CMUX_BIN"))
+            XCTAssertTrue(hook.body.contains("CMUX_SOCKET_PATH"))
+            XCTAssertFalse(hook.body.contains(firstCLI.path))
+            XCTAssertFalse(hook.body.contains(secondCLI.path))
+            XCTAssertFalse(hook.body.contains("/tmp/cmux-debug-first.sock"))
+            XCTAssertFalse(hook.body.contains("/tmp/cmux-debug-second.sock"))
+        }
+    }
+
     func testHookScriptsAreImmutableAcrossConcurrentCmuxVersions() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-hook-content-address-\(UUID().uuidString)", isDirectory: true)
