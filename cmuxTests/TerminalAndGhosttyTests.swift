@@ -2976,7 +2976,10 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             XCTFail("Expected terminal surface view")
             return
         }
-        XCTAssertNotNil(surface.surface, "Expected runtime surface before simulating the detach race")
+        guard waitUntil(timeout: 15, condition: { surface.surface != nil }) else {
+            XCTFail("Expected runtime surface before simulating the detach race")
+            return
+        }
 
         surface.releaseSurfaceForTesting()
         XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
@@ -3029,7 +3032,10 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             XCTFail("Expected terminal surface view")
             return
         }
-        XCTAssertNotNil(surface.surface, "Expected runtime surface before simulating the detach race")
+        guard waitUntil(timeout: 15, condition: { surface.surface != nil }) else {
+            XCTFail("Expected runtime surface before simulating the detach race")
+            return
+        }
 
         let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
