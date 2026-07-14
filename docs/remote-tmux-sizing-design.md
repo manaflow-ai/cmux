@@ -258,20 +258,35 @@ split's geometry.**
   holds the parity re-arm and shields the dragged split until the send is
   resolved — and every edge that releases the hold is a protocol event,
   never time. The normal edge is a reconciled layout assigning the sent
-  span (or the split's structure disappearing under it). The send that
-  changes nothing — a span tmux's cascade minimums clamp to a no-op emits
-  no `%layout-change` at all — is proven, not timed out: control mode
+  span (or the split's structure disappearing under it). Control mode
   answers every command with an ordered `%begin`/`%end` block on the same
   stream as its notifications, and a notification a command causes lands
   after that command's `%end` but before any block for a command sent
   later. So when the resize's own block resolves, the mirror issues one
-  cheap barrier command; a barrier ack with no intervening layout event for
-  the window is a proof the resize changed nothing, and recovery re-imposes
-  the plan immediately. A barrier ack that instead finds the window's
-  layout still quarantined behind its rects fetch defers the verdict to
-  that fetch's resolution (publication or drop — also protocol events). An
-  `%error` reply recovers at once, and a stream reset fails the tracked
-  completion, so an armed hold always owns a pending protocol edge.
+  cheap barrier command. The barrier ack closes the ordering window: at
+  that point, if no layout for the window is quarantined behind its rects
+  fetch, every event the resize could produce is already on our side, and
+  the mirror judges the hold against the current tree; if a layout is
+  quarantined, the verdict defers to that fetch's resolution (publication
+  or drop — also protocol events). An `%error` reply recovers at once, and
+  a stream reset fails the tracked completion, so an armed hold always
+  owns a pending protocol edge.
+
+  Amendment (2026-07-14, root-caused): this section previously claimed "a
+  span tmux's cascade minimums clamp to a no-op emits no `%layout-change`
+  at all" and framed the barrier as proving that silence. tmux 3.7's
+  source says otherwise: `layout_resize_layout` notifies unconditionally,
+  no-op or clamped (layout.c:726-728), and the only silent `resize-pane`
+  is one along an axis with no container of that orientation above the
+  pane (layout.c:686-687). The claim was written from lab observation and
+  was unfalsifiable by our oracles — a no-op's identical-string layout
+  event stages, publishes, and releases the hold through the reconcile
+  path, so both hypotheses produce the same observable release; only
+  reading the source distinguished them. The mechanism was and is correct
+  under both readings; the barrier's real roles are the ordering fence and
+  the one silent case. The tmux facts now live in
+  `docs/remote-tmux-reconcile-design.md` (the tmux section), verified
+  against source rather than observed behavior.
 - **Hidden, nobody writes.** A hidden tab's tree is frozen: no impositions
   (already the rule) and no model re-assertions. It is re-planned from fresh
   inputs when shown.

@@ -257,6 +257,113 @@ existing `reconcile(layout:)`); a `WorldSnapshot` value groups the phase-one
 reads; an `InFlightSend` entry keys a tracked command to its resolution.
 All four are proposed names, not existing APIs.
 
+## The tmux side: what our instructions actually do
+
+This section pins tmux's half of the loop from its source (tmux 3.7, tag
+`3.7`, files cited by line), so nobody has to re-learn it by observation.
+tmux runs its own reconciliation: we never send it a layout tree. Our
+desired layout is decomposed into two instruction kinds, and tmux converges
+its own cell tree under them.
+
+The window's outer size travels as a claim: `refresh-client -C 'WxH'` for
+the whole client, `refresh-client -C '@id:WxH'` for one window. The
+per-window form stores the claim in a per-client record
+(cmd-refresh-client.c:82-131) and synchronously recalculates every window
+on the server. Each split's position travels as its own `resize-pane -t
+@w.%p -x N` — one divider at a time, in cells, where a percentage is of the
+whole window, not the pane's container (cmd-resize-pane.c:103).
+
+What tmux does with a claim, in order: it decides which clients count
+(`clients_calculate_size`, resize.c:113-264), resizes the window
+(`resize_window`, resize.c:25-66), spreads the delta over its tree
+(`layout_resize` + `layout_resize_adjust`, layout.c:617-668, 489-536),
+recomputes offsets and pane rects (layout.c:244-411), and notifies. Facts
+that shape our side, each verified in source:
+
+- A per-window claim is a ceiling in every `window-size` mode, including
+  latest and manual (the clamp block at resize.c:217-244). It can shrink a
+  window below another client's size; it can never grow one past what
+  other participants allow.
+- A control client can essentially never be the "latest" client:
+  `w->latest` is set by real key input and tty resizes, and the tty-resize
+  path skips control clients (server-client.c:2249-2251). Co-attached with
+  a regular client under `window-size latest`, our claims act only as
+  clamps.
+- If a claim cannot fit the tree's minimums (1 cell per pane, +1 row for a
+  border-status edge, layout.c:434-483), tmux clamps the WINDOW UP to the
+  tree minimum (resize.c:49-52). The claim is silently not honored, and
+  claimed == layout can never become true. The pass must read the
+  published layout as the feasibility verdict and stop re-claiming — this
+  is the infeasible-reported class, straight from tmux's source.
+- Window-resize redistribution is equal-absolute, not proportional:
+  siblings gain or lose one cell each, round-robin (layout.c:519-535).
+  tmux erodes split ratios on every resize, which is why imposing split
+  positions after size changes is permanent work, not a transitional
+  crutch.
+- No-ops still notify. A `resize-pane` that changes nothing — already at
+  target, or fully clamped — still emits `%layout-change`
+  (layout.c:726-728 notifies unconditionally). A claim echoes one
+  `%layout-change` PER WINDOW on the server, changed or not (the immediate
+  path skips the size-unchanged check, resize.c:382-388). Identical-string
+  layout lines are normal traffic, O(windows) per claim. The one genuinely
+  silent case: `resize-pane` along an axis with no container of that
+  orientation above the pane (layout.c:686-687).
+- A divider move's result can differ from the target: the delta is
+  measured against the nearest ancestor cell under a container of the
+  right orientation (a subtree, not the pane, layout.c:671-701), and the
+  grow/shrink walk stops when neighbors run out of shrinkable space.
+- `%layout-change` is ordered after the `%end` of the command that caused
+  it, on the same stream as `%output` (notify goes through the global
+  queue, notify.c:230; reply guards are written synchronously,
+  cmd-queue.c:619-676). But commands pipelined in one write all reply
+  before any of their notifications — attribution by position only works
+  when one command is in flight per window, which is what the FIFO does.
+- The pty resize (SIGWINCH) is deferred and rate-limited: one resize per
+  pane per 250ms, intermediate sizes collapsed
+  (server-client.c:1592-1661). The layout string updates immediately, so
+  the `%output` repaint flood always trails the `%layout-change`, and
+  content lag right after a resize is tmux pacing, not us.
+- Layout-string rects are cell sizes, exclusive of the border line between
+  siblings (sum(child+1)-1 = parent, layout-custom.c:147-155), and they do
+  NOT subtract border-status rows — an edge pane's real terminal is one
+  row shorter than the string says (layout.c:378-383). The chrome math
+  does that subtraction.
+- Once a client claims anything, its tty size participates in sizing for
+  every window without a per-window entry (the changed flag is
+  client-global, resize.c:91-94). Per-window claims must be paired with a
+  sane plain claim, which the connection's session-wide envelope is.
+
+The settle round trip, both sides:
+
+```
+ our claim ledger                   tmux                   our published model
+ ----------------                   ----                   -------------------
+ refresh-client -C '@1:184x44' -->  recalc + layout_resize
+                                    %end (ack)        -->  FIFO entry resolved
+                                    %layout-change @1 -->  stage raw tree, gen++
+                                                           list-panes fetch -->
+                                    verified rects    -->  publish windowsByID[@1]
+                                                           pendingLayouts drains
+
+ settled(@1) :=  claimed size == published layout size
+              && no pending layout for @1
+              && no @1 claim or fetch in the command FIFO
+ (and the fuzz oracle adds: rendered pane grids == assigned spans)
+```
+
+One correction this source reading forced. The divider-hold design said "a
+no-op resize emits no `%layout-change` at all", and the barrier existed to
+prove that case. tmux 3.7 notifies on no-ops too, so the barrier's real
+roles are narrower and still necessary: it is the ordering fence that makes
+"no pending layout for this window" a complete answer at ack time, and it
+catches the one silent case (no container of the requested orientation).
+The shipped code is correct under both readings — a no-op's
+identical-string layout event stages a pending layout, the verdict defers
+to publication, and the reconcile judges the sent span against the
+published tree — but the old rationale was unfalsifiable by our tests,
+because both hypotheses produce the same observable release. Only reading
+the source distinguished them. That is the layer-3 lesson in miniature.
+
 ## Authority and the in-flight set
 
 tmux owns cell assignment; that does not change. What changes is how the app
@@ -285,10 +392,13 @@ two phases: first the tracked command's block resolution — today
 `requestResizePane` sends untracked through plain `send`
 (`RemoteTmuxWindowMirror+ControlMutations.swift:101`); it becomes a tracked
 send — and then, on `%end`, the layout question. No pending layout for the
-window proves the no-op: the split leaves awaiting in that same pass, and
-its off-plan divider is now plain drift, written back onto the plan. A
-pending layout hands judgment to the publication, whose reconcile is itself
-a dirty edge and arrives carrying the verified tree. `%error` and stream
+window means every event the resize could produce is already on our side
+(tmux notifies even on no-op resizes — see the tmux section — so the empty
+case is either the silent missing-container path or a layout already
+published): the split leaves awaiting in that same pass, and its off-plan
+divider is now plain drift, written back onto the plan. A pending layout
+hands judgment to the publication, whose reconcile is itself a dirty edge
+and arrives carrying the verified tree. `%error` and stream
 reset resolve the entry immediately. That is the no-reply heal with no
 clock: the deadline in `recordDividerResizeAwaitingReply` and its
 `dividerResizeReplyGrace` exist only because today's hold is released by
