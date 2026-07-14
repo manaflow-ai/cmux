@@ -11984,7 +11984,7 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
 
         guard !sanitizedChars.isEmpty else { return }
-
+        terminalSurface?.didReceiveExplicitInput()
         // Otherwise send directly to the terminal
         recordDirectAgentHibernationTerminalInput()
         sendTextToSurface(

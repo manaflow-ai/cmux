@@ -27,6 +27,10 @@ extension GhosttySurfaceScrollView {
                 pendingPosition: position,
                 attemptsRemaining: 2
             )
+            if let scrollbar = surfaceView.scrollbar,
+               min(scrollbar.total, scrollbar.len) > 0 {
+                scheduleNotificationScrollRestoreFrameDeadline()
+            }
         case .replaying(let expectedBoundary, _):
             notificationScrollRestoreState = .replaying(
                 expectedBoundary: expectedBoundary,
