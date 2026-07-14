@@ -13,6 +13,11 @@ struct WorktreeSidebarBoundedGitProbe: Sendable {
         var hasContent: Bool { self != .empty }
     }
 
+    struct ContentFingerprint: Equatable, Sendable {
+        let fingerprint: Fingerprint
+        let hasContent: Bool
+    }
+
     private let commands: any CommandRunning
     private let timeout: TimeInterval
 
@@ -43,20 +48,61 @@ struct WorktreeSidebarBoundedGitProbe: Sendable {
         try await fingerprint(
             commandDirectory: commandDirectory,
             worktreePath: worktreePath,
-            script: "GIT_OPTIONAL_LOCKS=0 /usr/bin/git -C \"$1\" status --porcelain --untracked-files=all | /usr/bin/shasum -a 256",
+            script: "GIT_OPTIONAL_LOCKS=0 /usr/bin/git -C \"$1\" status --porcelain --untracked-files=all --ignore-submodules=none | /usr/bin/shasum -a 256",
             operation: .status
         )
     }
 
-    func ignoredFilesFingerprint(
+    func ignoredFilesSnapshot(
         commandDirectory: String,
         worktreePath: String
-    ) async throws -> Fingerprint {
-        try await fingerprint(
+    ) async throws -> ContentFingerprint {
+        try await contentFingerprint(
             commandDirectory: commandDirectory,
             worktreePath: worktreePath,
-            script: "GIT_OPTIONAL_LOCKS=0 /usr/bin/git -C \"$1\" ls-files --others --ignored --exclude-standard -z | /usr/bin/shasum -a 256",
+            script: """
+            export GIT_OPTIONAL_LOCKS=0
+            ignored_stream() {
+                /usr/bin/printf '.\\0'
+                /usr/bin/git -C "$1" ls-files --others --ignored --exclude-standard -z || return
+                /usr/bin/git -C "$1" submodule foreach --quiet --recursive \
+                    '/usr/bin/printf "%s\\0" "$displaypath"; /usr/bin/git ls-files --others --ignored --exclude-standard -z' || return
+            }
+            ignored_content() {
+                /usr/bin/git -C "$1" ls-files --others --ignored --exclude-standard -z || return
+                /usr/bin/git -C "$1" submodule foreach --quiet --recursive \
+                    '/usr/bin/git ls-files --others --ignored --exclude-standard -z' || return
+            }
+            digest=$(ignored_stream "$1" | /usr/bin/shasum -a 256) || exit
+            count=$(ignored_content "$1" | /usr/bin/wc -c) || exit
+            /usr/bin/printf '%s %s\n' "$digest" "$count"
+            """,
             operation: .inspect
+        )
+    }
+
+    private func contentFingerprint(
+        commandDirectory: String,
+        worktreePath: String,
+        script: String,
+        operation: WorktreeSidebarGitError.Operation
+    ) async throws -> ContentFingerprint {
+        let output = try await boundedOutput(
+            commandDirectory: commandDirectory,
+            worktreePath: worktreePath,
+            script: script,
+            operation: operation
+        )
+        let fields = output.split(whereSeparator: \.isWhitespace)
+        guard let digest = fields.first,
+              let byteCount = fields.last.flatMap({ UInt64($0) }),
+              digest.count == 64,
+              digest.allSatisfy(\.isHexDigit) else {
+            throw WorktreeSidebarGitError.commandFailed(operation, details: output)
+        }
+        return ContentFingerprint(
+            fingerprint: Fingerprint(sha256: String(digest).lowercased()),
+            hasContent: byteCount > 0
         )
     }
 

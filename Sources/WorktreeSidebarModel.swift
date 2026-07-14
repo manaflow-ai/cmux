@@ -43,6 +43,7 @@ final class WorktreeSidebarModel {
     @ObservationIgnored private var refreshState: RefreshState = .idle
     @ObservationIgnored private var worktrees: [WorktreeSidebarWorktree] = []
     @ObservationIgnored private var statusByPath: [String: WorktreeSidebarStatus] = [:]
+    @ObservationIgnored private var rowIndexByPath: [String: Int] = [:]
     @ObservationIgnored private var visiblePaths: Set<String> = []
     @ObservationIgnored private var staleStatusRefreshPaths: Set<String> = []
     @ObservationIgnored private var statusScheduler: WorktreeSidebarStatusScheduler!
@@ -219,7 +220,6 @@ final class WorktreeSidebarModel {
         let path = row.worktree.path
         guard visiblePaths.insert(path).inserted else { return }
         guard !row.worktree.isPrunable else { return }
-        guard prepareStatusProbe(for: row.worktree) else { return }
         scheduleStatusRefresh(path: path)
         reconcileStatusWatcher(path: path)
     }
@@ -305,19 +305,28 @@ final class WorktreeSidebarModel {
                 status: statusByPath[worktree.path] ?? .unknown
             )
         }
+        rowIndexByPath = Dictionary(uniqueKeysWithValues: rows.indices.map {
+            (rows[$0].worktree.path, $0)
+        })
+    }
+
+    private func updateStatus(_ status: WorktreeSidebarStatus, path: String) {
+        guard statusByPath[path] != status else { return }
+        statusByPath[path] = status
+        guard let index = rowIndexByPath[path] else { return }
+        let current = rows[index]
+        rows[index] = WorktreeSidebarRow(worktree: current.worktree, status: status)
     }
 
     private func scheduleStatusRefresh(path: String) {
         guard lifecyclePhase == .running,
               visiblePaths.contains(path),
-              let worktree = worktrees.first(where: { $0.path == path && !$0.isPrunable }),
-              prepareStatusProbe(for: worktree) else {
+              worktrees.contains(where: { $0.path == path && !$0.isPrunable }) else {
             return
         }
         guard statusScheduler.enqueue(path: path) else { return }
         if statusByPath[path] == nil || statusByPath[path] == .unknown {
-            statusByPath[path] = .loading
-            rebuildRows()
+            updateStatus(.loading, path: path)
         }
     }
 
@@ -327,20 +336,15 @@ final class WorktreeSidebarModel {
     ) {
         guard lifecyclePhase == .running,
               visiblePaths.contains(path),
-              let worktree = worktrees.first(where: { $0.path == path && !$0.isPrunable }) else {
+              worktrees.contains(where: { $0.path == path && !$0.isPrunable }) else {
             return
         }
         switch result {
         case .success(let status):
-            statusByPath[path] = status
-            rebuildRows()
+            staleStatusRefreshPaths.remove(path)
+            updateStatus(status, path: path)
         case .failure:
-            if requiresListingRefresh(for: worktree) {
-                requestListingRefreshForStaleWorktree(path: path)
-            } else {
-                statusByPath[path] = .unavailable
-                rebuildRows()
-            }
+            requestListingRefreshAfterStatusFailure(path: path)
         }
     }
 
@@ -397,7 +401,7 @@ final class WorktreeSidebarModel {
                         refresh()
                         continue
                     }
-                    guard prepareStatusProbe(for: worktree) else { continue }
+                    guard !worktree.isPrunable else { continue }
                     scheduleStatusRefresh(path: path)
                 }
             }
@@ -413,28 +417,9 @@ final class WorktreeSidebarModel {
         }
     }
 
-    private func prepareStatusProbe(for worktree: WorktreeSidebarWorktree) -> Bool {
-        guard !requiresListingRefresh(for: worktree) else {
-            requestListingRefreshForStaleWorktree(path: worktree.path)
-            return false
-        }
-        staleStatusRefreshPaths.remove(worktree.path)
-        return true
-    }
-
-    private func requiresListingRefresh(for worktree: WorktreeSidebarWorktree) -> Bool {
-        guard !worktree.isPrunable else { return false }
-        guard FileManager.default.fileExists(atPath: worktree.path) else { return true }
-        guard !worktree.isMain, !worktree.isBare else { return false }
-        let marker = URL(fileURLWithPath: worktree.path, isDirectory: true)
-            .appendingPathComponent(".git", isDirectory: false)
-        return !FileManager.default.fileExists(atPath: marker.path)
-    }
-
-    private func requestListingRefreshForStaleWorktree(path: String) {
+    private func requestListingRefreshAfterStatusFailure(path: String) {
         statusScheduler.remove(path: path)
-        statusByPath[path] = .unavailable
-        rebuildRows()
+        updateStatus(.unavailable, path: path)
         guard staleStatusRefreshPaths.insert(path).inserted else { return }
         refresh()
     }

@@ -239,7 +239,17 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
     }
 
     func statusWatchPaths(worktreePath: String) async -> [String] {
-        await metadata.watchedPaths(for: worktreePath) ?? []
+        guard let paths = await metadata.watchedPaths(for: worktreePath),
+              let rawGitDirectory = try? await checkedGit(
+                  projectRootPath: worktreePath,
+                  arguments: ["rev-parse", "--absolute-git-dir"],
+                  operation: .status,
+                  optionalLocks: true
+              ) else { return [] }
+        let gitDirectory = rawGitDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let roots = [worktreePath, gitDirectory]
+            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+        return paths.filter { path in roots.contains { path == $0 || path.hasPrefix($0 + "/") } }
     }
 
     private func deletionStatus(
@@ -255,15 +265,15 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             commandDirectory: projectRootPath,
             worktreePath: worktree.path
         )
-        let ignoredFingerprint = try await probe.ignoredFilesFingerprint(
+        let ignored = try await probe.ignoredFilesSnapshot(
             commandDirectory: projectRootPath,
             worktreePath: worktree.path
         )
         return StatusSnapshot(
             statusFingerprint: statusFingerprint,
-            ignoredFingerprint: ignoredFingerprint,
+            ignoredFingerprint: ignored.fingerprint,
             hasUncommittedChanges: statusFingerprint.hasContent,
-            hasIgnoredFiles: ignoredFingerprint.hasContent
+            hasIgnoredFiles: ignored.hasContent
         )
     }
 
