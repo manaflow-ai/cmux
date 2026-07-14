@@ -8,6 +8,40 @@ import Testing
 @Suite(.serialized)
 struct CmxIrohLibEndpointTests {
     @Test
+    func verificationModeSelectsTheExpectedIrohRelayMode() throws {
+        let cases: [(CmxIrohTransportVerificationMode, Bool)] = [
+            (.automatic, false),
+            (.relayOnly, false),
+            (.directOnly, true),
+        ]
+        for (mode, expectsDisabledRelayMode) in cases {
+            let options = CmxIrohLibEndpointFactory.endpointOptions(
+                configuration: try CmxIrohEndpointConfiguration(
+                    secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
+                    alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                    managedRelayURLs: [],
+                    relays: []
+                ),
+                socketAddress: nil,
+                relayMap: RelayMap.empty(),
+                transportVerificationMode: mode
+            )
+
+            #expect(
+                (options.relayMode?.description == "disabled")
+                    == expectsDisabledRelayMode
+            )
+        }
+    }
+
+    @Test
+    func relayOnlyVerificationModeDisablesPostAdmissionNATTraversal() {
+        #expect(CmxIrohTransportVerificationMode.automatic.allowsNATTraversalAfterAdmission)
+        #expect(!CmxIrohTransportVerificationMode.relayOnly.allowsNATTraversalAfterAdmission)
+        #expect(CmxIrohTransportVerificationMode.directOnly.allowsNATTraversalAfterAdmission)
+    }
+
+    @Test
     func cmuxEndpointStartsWithNoStreamCreditOrPreAdmissionNatTraversal() throws {
         let options = CmxIrohLibEndpointFactory.endpointOptions(
             configuration: try CmxIrohEndpointConfiguration(
@@ -179,6 +213,82 @@ struct CmxIrohLibEndpointTests {
     }
 
     @Test
+    func directOnlyIgnoresRelayPolicyReplacementAndRelayHints() async throws {
+        let endpoint = try await makeEndpoint(
+            managedRelayURLs: [],
+            transportVerificationMode: .directOnly
+        )
+        let concrete = try #require(endpoint as? CmxIrohLibEndpoint)
+        let identity = await endpoint.identity()
+        let relayURL = "https://private.example.net:8443/"
+        let custom = try CmxIrohCustomRelayProfile(
+            relays: [CmxIrohCustomRelay(url: relayURL)]
+        )
+
+        try await endpoint.replaceRelayProfile(
+            CmxIrohEndpointRelayProfile(customProfile: custom)
+        )
+
+        let now = Date()
+        let relayHint = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: relayURL,
+            source: .native,
+            privacyScope: .publicInternet,
+            observedAt: now,
+            expiresAt: now.addingTimeInterval(60)
+        )
+        let directHint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "8.8.8.8:50906",
+            source: .native,
+            privacyScope: .publicInternet,
+            observedAt: now,
+            expiresAt: now.addingTimeInterval(60)
+        )
+        let attempts = try await concrete.endpointAddresses(
+            CmxIrohEndpointAddress(
+                identity: identity,
+                pathHints: [relayHint, directHint]
+            )
+        )
+
+        #expect(attempts.count == 1)
+        #expect(attempts.first?.relayUrl() == nil)
+        #expect(attempts.first?.directAddresses() == [directHint.value])
+        #expect(await endpoint.address().pathHints.allSatisfy { $0.kind != .relayURL })
+        await endpoint.close()
+    }
+
+    @Test
+    func relayOnlyIgnoresDirectAddressHintsAndAdvertisement() async throws {
+        let endpoint = try await makeEndpoint(
+            managedRelayURLs: [],
+            transportVerificationMode: .relayOnly
+        )
+        let concrete = try #require(endpoint as? CmxIrohLibEndpoint)
+        let identity = await endpoint.identity()
+        let directHint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "8.8.4.4:50906",
+            source: .native,
+            privacyScope: .publicInternet,
+            observedAt: Date(),
+            expiresAt: Date().addingTimeInterval(60)
+        )
+
+        let attempts = try await concrete.endpointAddresses(
+            CmxIrohEndpointAddress(identity: identity, pathHints: [directHint])
+        )
+
+        #expect(attempts.count == 1)
+        #expect(attempts.first?.directAddresses().isEmpty == true)
+        #expect(await endpoint.localDirectAddresses().isEmpty)
+        #expect(await endpoint.address().pathHints.allSatisfy { $0.kind != .directAddress })
+        await endpoint.close()
+    }
+
+    @Test
     func requiredBindPortFailsOnCollisionAndSucceedsAfterRelease() async throws {
         let reservation = try reserveUDPPort()
         let policy = try CmxIrohEndpointBindPolicy.required(
@@ -280,7 +390,8 @@ struct CmxIrohLibEndpointTests {
 
     private func makeEndpoint(
         managedRelayURLs: Set<String>,
-        bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral
+        bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral,
+        transportVerificationMode: CmxIrohTransportVerificationMode = .automatic
     ) async throws -> any CmxIrohEndpoint {
         let configuration = try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: Data((0 ..< 32).map(UInt8.init))),
@@ -289,6 +400,8 @@ struct CmxIrohLibEndpointTests {
             managedRelayURLs: managedRelayURLs,
             relays: []
         )
-        return try await CmxIrohLibEndpointFactory().bind(configuration: configuration)
+        return try await CmxIrohLibEndpointFactory(
+            transportVerificationMode: transportVerificationMode
+        ).bind(configuration: configuration)
     }
 }
