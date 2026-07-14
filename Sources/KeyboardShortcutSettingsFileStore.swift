@@ -338,9 +338,9 @@ final class CmuxSettingsFileStore {
         do {
             let sanitized = try JSONCParser.preprocess(data: data)
             let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
-            guard let root = object as? [String: Any] else {
-                return .invalid
-            }
+            guard let root = object as? [String: Any],
+                  root["automation"] == nil || root["automation"] is [String: Any]
+            else { return .invalid }
             return .parsed(parseSettingsFile(root: root, sourcePath: path))
         } catch {
             cmuxSettingsFileStoreLogger.warning("parse error at \(path, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private(mask: .hash))")

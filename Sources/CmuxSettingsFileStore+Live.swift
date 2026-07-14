@@ -14,9 +14,15 @@ extension CmuxSettingsFileStore {
         SocketControlSettings.effectiveMode(userMode: configuredSocketMode(defaults: defaults))
     }
 
-    /// Keeps an explicit `off`; every other invalid policy falls back to `cmuxOnly`.
+    /// Preserves restrictive policies; broader invalid policies fall back to `cmuxOnly`.
     static func failClosedSocketMode(defaults: UserDefaults = .standard) -> SocketControlMode {
-        configuredSocketMode(defaults: defaults) == .off ? .off : .cmuxOnly
+        let configuredMode = configuredSocketMode(defaults: defaults)
+        switch configuredMode {
+        case .off, .cmuxOnly, .password:
+            return configuredMode
+        case .automation, .allowAll:
+            return .cmuxOnly
+        }
     }
 
     /// Resolves a missing primary without broadening the last live managed policy.
