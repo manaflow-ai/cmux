@@ -301,6 +301,8 @@ fn rpc_git_sessions_match_git_without_starting_a_server() {
     )
     .expect("write session");
 
+    assert_abandoned_session_is_replaced(&root, &repo, token);
+
     assert_session_matches_git(
         &root,
         &repo,
@@ -355,6 +357,38 @@ fn rpc_git_sessions_match_git_without_starting_a_server() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+fn assert_abandoned_session_is_replaced(root: &Path, repo: &Path, token: &str) {
+    let source = serde_json::json!({"kind": "unstaged", "repoRoot": repo});
+    let git_arguments = ["diff", "--no-ext-diff", "--no-color", "--binary", "--"];
+    let (abandoned_session, abandoned_path) =
+        open_session_matches_git(root, repo, token, &source, &git_arguments);
+    let (replacement_session, replacement_path) =
+        open_session_matches_git(root, repo, token, &source, &git_arguments);
+    assert!(!root.join(abandoned_path.trim_start_matches('/')).exists());
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join(format!(".manifest-{token}.json"))).expect("read manifest"),
+    )
+    .expect("decode manifest");
+    let session_paths: Vec<&str> = manifest["files"]
+        .as_array()
+        .expect("manifest files")
+        .iter()
+        .filter_map(|entry| entry["request_path"].as_str())
+        .filter(|path| path.starts_with("/diff-session-"))
+        .collect();
+    assert_eq!(session_paths, [replacement_path.as_str()]);
+    close_session(root, token, &replacement_session, &replacement_path);
+
+    let request = serde_json::to_vec(&serde_json::json!({
+        "id": "close-abandoned-session",
+        "version": 1,
+        "method": "sessionClose",
+        "params": {"sessionId": abandoned_session, "capabilityToken": token}
+    }))
+    .expect("encode abandoned close request");
+    assert!(run_stdio_rpc_in_root(&request, root).status.success());
+}
+
 fn assert_session_matches_git(
     root: &Path,
     repo: &Path,
@@ -362,6 +396,18 @@ fn assert_session_matches_git(
     source: &serde_json::Value,
     git_arguments: &[&str],
 ) {
+    let (session_id, request_path) =
+        open_session_matches_git(root, repo, token, source, git_arguments);
+    close_session(root, token, &session_id, &request_path);
+}
+
+fn open_session_matches_git(
+    root: &Path,
+    repo: &Path,
+    token: &str,
+    source: &serde_json::Value,
+    git_arguments: &[&str],
+) -> (String, String) {
     let request = serde_json::to_vec(&serde_json::json!({
         "id": "open-session",
         "version": 1,
@@ -383,12 +429,13 @@ fn assert_session_matches_git(
     }
     let session_id = response["result"]["value"]["sessionId"]
         .as_str()
-        .expect("session id");
+        .expect("session id")
+        .to_owned();
     let id = response["result"]["value"]["patch"]["id"]
         .as_str()
         .expect("patch id");
     assert!(id.starts_with(&format!("cmux-diff-viewer://{token}/diff-session-")));
-    let request_path = id.split_once(token).expect("token in id").1;
+    let request_path = id.split_once(token).expect("token in id").1.to_owned();
     let generated = std::fs::read(root.join(request_path.trim_start_matches('/')))
         .expect("read generated patch");
     let expected = Command::new("/usr/bin/git")
@@ -400,6 +447,10 @@ fn assert_session_matches_git(
     assert!(expected.status.success());
     assert_eq!(generated, expected.stdout);
 
+    (session_id, request_path)
+}
+
+fn close_session(root: &Path, token: &str, session_id: &str, request_path: &str) {
     let close = serde_json::to_vec(&serde_json::json!({
         "id": "close-session",
         "version": 1,

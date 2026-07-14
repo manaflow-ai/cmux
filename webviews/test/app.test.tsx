@@ -146,6 +146,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
           sourceOptions: [
             { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "branch" },
             { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/other-repo" }, value: "unstaged" },
+            { label: "Last turn", selected: false, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
           ],
           statusMessage: "Loading diff",
           title: "Diff",
@@ -177,11 +178,19 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   expect(requests[2].params.source).toEqual({ kind: "unstaged", repoRoot: "/tmp/other-repo" });
   await waitFor(() => commentRequests.length === 2);
   expect(commentRequests[1].params.repoRoot).toBe("/tmp/other-repo");
+  sourceSelect.value = "last-turn";
+  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.length === 5);
+  await waitFor(() => fetched.length === 3);
+  expect(requests.map((request) => request.method)).toEqual([
+    "sessionOpen", "sessionClose", "sessionOpen", "sessionClose", "sessionOpen",
+  ]);
+  expect(requests[4].params.source).toEqual({ kind: "patch", path: "/last-turn.patch" });
   dom.window.dispatchEvent(new dom.window.Event("pagehide"));
-  await waitFor(() => requests.filter((request) => request.method === "sessionClose").length === 2);
+  await waitFor(() => requests.filter((request) => request.method === "sessionClose").length === 3);
   flushSync(() => root?.unmount());
   root = null;
-  expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(2);
+  expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(3);
 });
 
 test("typed Rust empty diffs keep the localized source-specific message", async () => {
