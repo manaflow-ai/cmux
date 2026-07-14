@@ -144,6 +144,9 @@ struct AgentHookSessionLineageResolver: Sendable {
         var remaining = maximumAncestorDepth
         while candidate > 1, remaining > 0, visited.insert(candidate).inserted {
             guard let identity = processIdentity(candidate) else { return .unknown }
+            if identity.isCmuxTerminalHost {
+                return .none
+            }
             if AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
                 processName: identity.executableName,
                 arguments: identity.arguments
