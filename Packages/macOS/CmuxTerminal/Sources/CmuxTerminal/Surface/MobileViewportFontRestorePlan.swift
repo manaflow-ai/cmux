@@ -20,13 +20,12 @@ nonisolated enum MobileViewportFontRestoreOutcome: Equatable {
     }
 }
 
-nonisolated struct MobileViewportFontRestorer {
-    static func restore(
-        plan: MobileViewportFontRestorePlan,
+extension MobileViewportFontRestorePlan {
+    func restore(
         reset: () -> Bool,
         set: (Float) -> Bool
     ) -> MobileViewportFontRestoreOutcome {
-        switch plan {
+        switch self {
         case .none:
             return .notNeeded
         case .resetToConfigured:

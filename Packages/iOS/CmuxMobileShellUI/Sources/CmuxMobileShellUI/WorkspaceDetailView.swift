@@ -235,15 +235,7 @@ struct WorkspaceDetailView: View {
                 // `keyboardHeight` directly, so opt out of SwiftUI keyboard
                 // avoidance; otherwise the view ALSO shrinks for the keyboard
                 // and the reservation double-counts (extra gap when open).
-                .ignoresSafeArea(.keyboard, edges: .bottom)
-                #if DEBUG
-                // Independent owner-backed geometry and lifecycle evidence for
-                // simulator verification. Mounted before top padding so its
-                // full-bounds container frame is the surface's real allocation.
-                .overlay {
-                    MobileTerminalDiagnosticsOverlay(surfaceID: terminalID, store: store)
-                }
-                #endif
+                .mobileTerminalDiagnosticsOverlay(surfaceID: terminalID, store: store)
                 // Keep the grid clear of the Dynamic Island and nav bar.
                 .padding(.top, terminalTopPadding)
             } else {

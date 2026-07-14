@@ -7,66 +7,82 @@ import Foundation
 /// and its latest applied geometry transaction. They never call libghostty or
 /// maintain a second production state machine.
 public struct MobileTerminalSurfaceDiagnosticsSnapshot: Equatable, Sendable {
+    /// Stable identifier of the terminal surface requested by the verifier.
     public let surfaceID: String
+    /// Whether the selected surface currently owns a mounted libghostty surface.
     public let surfaceMounted: Bool
+    /// Lifecycle generation of the selected native surface.
     public let surfaceGeneration: UInt64
+    /// Number of process-wide mounted terminal surfaces.
     public let activeSurfaceCount: Int
+    /// Number of native surface frees waiting for the selected view to drain.
     public let pendingSurfaceFreeCount: Int
+    /// Number of recoveries completed by the selected surface view.
     public let recoveryCount: UInt64
+    /// Width of the latest applied terminal viewport in points.
     public let viewportWidth: Double
+    /// Height of the latest applied terminal viewport in points.
     public let viewportHeight: Double
+    /// Horizontal origin of the latest applied render rectangle in points.
     public let renderMinX: Double
+    /// Vertical origin of the latest applied render rectangle in points.
     public let renderMinY: Double
+    /// Width of the latest applied render rectangle in points.
     public let renderWidth: Double
+    /// Height of the latest applied render rectangle in points.
     public let renderHeight: Double
+    /// Backing scale used by the latest applied geometry transaction.
     public let backingScale: Double
+    /// Width of one measured terminal cell in backing pixels.
     public let cellPixelWidth: Double
+    /// Height of one measured terminal cell in backing pixels.
     public let cellPixelHeight: Double
+    /// Natural column count applied to the selected surface.
     public let naturalColumns: Int
+    /// Natural row count applied to the selected surface.
     public let naturalRows: Int
+    /// Effective negotiated column count applied to the selected surface.
     public let effectiveColumns: Int
+    /// Effective negotiated row count applied to the selected surface.
     public let effectiveRows: Int
+    /// User-selected base font size in points.
     public let baseFontPoints: Double
+    /// Font size currently rendering the selected surface in points.
     public let liveFontPoints: Double
-
-    static func unmounted(surfaceID: String, activeSurfaceCount: Int) -> Self {
-        Self(
-            surfaceID: surfaceID,
-            surfaceMounted: false,
-            surfaceGeneration: 0,
-            activeSurfaceCount: activeSurfaceCount,
-            pendingSurfaceFreeCount: 0,
-            recoveryCount: 0,
-            viewportWidth: 0,
-            viewportHeight: 0,
-            renderMinX: 0,
-            renderMinY: 0,
-            renderWidth: 0,
-            renderHeight: 0,
-            backingScale: 0,
-            cellPixelWidth: 0,
-            cellPixelHeight: 0,
-            naturalColumns: 0,
-            naturalRows: 0,
-            effectiveColumns: 0,
-            effectiveRows: 0,
-            baseFontPoints: 0,
-            liveFontPoints: 0
-        )
-    }
 }
 
-extension GhosttySurfaceView {
+extension MobileTerminalSurfaceDiagnosticsSnapshot {
     /// Reads the selected surface and process-wide active count from the
     /// surface-pointer registry that owns mounted libghostty lifetimes.
     @MainActor
-    public static func mobileTerminalDiagnostics(
-        surfaceID: String
-    ) -> MobileTerminalSurfaceDiagnosticsSnapshot {
-        let liveViews = registeredSurfaceViews.values.compactMap(\.value)
+    public init(surfaceID: String) {
+        let liveViews = GhosttySurfaceView.registeredSurfaceViews.values.compactMap(\.value)
         let activeViews = liveViews.filter { !$0.isDismantled && $0.surface != nil }
         guard let view = activeViews.first(where: { $0.hostSurfaceID == surfaceID }) else {
-            return .unmounted(surfaceID: surfaceID, activeSurfaceCount: activeViews.count)
+            self.init(
+                surfaceID: surfaceID,
+                surfaceMounted: false,
+                surfaceGeneration: 0,
+                activeSurfaceCount: activeViews.count,
+                pendingSurfaceFreeCount: 0,
+                recoveryCount: 0,
+                viewportWidth: 0,
+                viewportHeight: 0,
+                renderMinX: 0,
+                renderMinY: 0,
+                renderWidth: 0,
+                renderHeight: 0,
+                backingScale: 0,
+                cellPixelWidth: 0,
+                cellPixelHeight: 0,
+                naturalColumns: 0,
+                naturalRows: 0,
+                effectiveColumns: 0,
+                effectiveRows: 0,
+                baseFontPoints: 0,
+                liveFontPoints: 0
+            )
+            return
         }
 
         let geometry = view.debugGeometrySnapshotForTesting()
@@ -74,7 +90,7 @@ extension GhosttySurfaceView {
         let naturalRows = geometry.renderedSize?.rows ?? 0
         let effectiveColumns = geometry.effectiveGrid?.cols ?? naturalColumns
         let effectiveRows = geometry.effectiveGrid?.rows ?? naturalRows
-        return MobileTerminalSurfaceDiagnosticsSnapshot(
+        self.init(
             surfaceID: surfaceID,
             surfaceMounted: view.surface != nil,
             surfaceGeneration: view.surfaceGeneration,

@@ -199,8 +199,7 @@ struct MobileViewportFitGeometryTests {
         var resetCount = 0
         var reappliedFont: Float?
 
-        let outcome = MobileViewportFontRestorer.restore(
-            plan: state.restorePlan(configuredFontPointSize: 12),
+        let outcome = state.restorePlan(configuredFontPointSize: 12).restore(
             reset: {
                 resetCount += 1
                 return true
@@ -228,8 +227,7 @@ struct MobileViewportFitGeometryTests {
         let originalState = state
         var attemptedBaseReapply = false
 
-        let outcome = MobileViewportFontRestorer.restore(
-            plan: state.restorePlan(configuredFontPointSize: 12),
+        let outcome = state.restorePlan(configuredFontPointSize: 12).restore(
             reset: { false },
             set: { _ in
                 attemptedBaseReapply = true

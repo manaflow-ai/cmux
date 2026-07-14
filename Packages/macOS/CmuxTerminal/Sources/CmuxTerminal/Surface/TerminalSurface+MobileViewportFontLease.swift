@@ -76,8 +76,7 @@ extension TerminalSurface {
         let plan = mobileViewportFontFitState.restorePlan(
             configuredFontPointSize: configuredMobileViewportFontPointSize()
         )
-        let outcome = MobileViewportFontRestorer.restore(
-            plan: plan,
+        let outcome = plan.restore(
             reset: { performBindingAction("reset_font_size") },
             set: { applyMobileViewportFontPointSize($0) }
         )
