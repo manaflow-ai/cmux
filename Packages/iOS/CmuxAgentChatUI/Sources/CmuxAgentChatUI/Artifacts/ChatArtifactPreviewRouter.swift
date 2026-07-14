@@ -27,7 +27,7 @@ struct ChatArtifactPreviewRouter: Sendable {
         }
 
         let type = fileExtension.isEmpty ? nil : UTType(filenameExtension: fileExtension)
-        if let type, type.conforms(to: .movie) || type.conforms(to: .audio) {
+        if isMedia(type) || isMedia(mimeType.flatMap { UTType(mimeType: $0) }) {
             return .media
         }
         if fileExtension == "md" || fileExtension == "markdown" {
@@ -40,5 +40,10 @@ struct ChatArtifactPreviewRouter: Sendable {
             return .quickLook
         }
         return .binary
+    }
+
+    private func isMedia(_ type: UTType?) -> Bool {
+        guard let type else { return false }
+        return type.conforms(to: .movie) || type.conforms(to: .audio)
     }
 }

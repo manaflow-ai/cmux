@@ -15,6 +15,8 @@ struct ChatArtifactPreviewRouterTests {
             ("/tmp/report.PDF", .binary, "application/octet-stream", false, .pdf),
             ("/tmp/movie.mp4", .binary, "video/mp4", false, .media),
             ("/tmp/sound.m4a", .binary, "audio/mp4", false, .media),
+            ("/tmp/recording", .binary, "video/mp4", false, .media),
+            ("/tmp/voice-note", .binary, "audio/mp4; charset=binary", false, .media),
             ("/tmp/README.md", .text, "text/markdown", false, .markdown),
             ("/tmp/notes.MARKDOWN", .text, "text/plain", false, .markdown),
             ("/tmp/plain.txt", .text, "text/plain", false, .text),
