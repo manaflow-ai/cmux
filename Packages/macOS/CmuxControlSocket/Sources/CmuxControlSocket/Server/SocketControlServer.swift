@@ -1,6 +1,6 @@
 public import CmuxSettings
 internal import Dispatch
-internal import Foundation
+public import Foundation
 internal import os
 
 /// The cmux control-socket listener: path reservation, bind/listen lifecycle,
@@ -163,28 +163,12 @@ public final class SocketControlServer {
     ///     continuous clock.
     ///   - maximumBufferedConnections: Maximum accepted connections waiting
     ///     for the stream consumer. New connections are closed when full.
+    ///   - notificationCenter: Source of authorization-secret change
+    ///     notifications. The composition root supplies the process-wide
+    ///     center; tests can inject an isolated center.
     ///   - events: Host callback seam.
-    public convenience init(
+    public init(
         initialSocketPath: String = SocketControlSettings.stableDefaultSocketPath,
-        transport: SocketTransport = SocketTransport(),
-        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
-        recoveryClock: any SocketRecoveryClock = SystemSocketRecoveryClock(),
-        maximumBufferedConnections: Int = 32,
-        events: SocketControlServerEvents
-    ) {
-        self.init(
-            initialSocketPath: initialSocketPath,
-            transport: transport,
-            listenerPolicy: listenerPolicy,
-            recoveryClock: recoveryClock,
-            maximumBufferedConnections: maximumBufferedConnections,
-            notificationCenter: .default,
-            events: events
-        )
-    }
-
-    init(
-        initialSocketPath: String,
         transport: SocketTransport = SocketTransport(),
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
         recoveryClock: any SocketRecoveryClock = SystemSocketRecoveryClock(),

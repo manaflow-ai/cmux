@@ -367,6 +367,7 @@ class TerminalController {
         let socketServer = SocketControlServer(
             transport: transport,
             listenerPolicy: listenerPolicy,
+            notificationCenter: .default,
             events: Self.makeSocketServerEvents(target: serverEventTarget)
         )
         self.socketServer = socketServer
