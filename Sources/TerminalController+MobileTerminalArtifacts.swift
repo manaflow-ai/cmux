@@ -19,13 +19,38 @@ extension TerminalController {
 
     func v2MobileTerminalArtifactScan(params: [String: Any]) async -> V2CallResult {
         let visibleOnly = v2Bool(params, "visible_only") ?? false
+        let countOnly = v2Bool(params, "count_only") ?? false
         let resolution = mobileTerminalArtifactContext(
             params: params,
             requiresPath: false,
-            includeScrollback: !visibleOnly
+            includeScrollback: !visibleOnly,
+            includeTerminalText: !countOnly
         )
         guard case .success(let context) = resolution else {
             return resolution.failureResult
+        }
+        if countOnly {
+            guard let sessionID = context.sessionID else {
+                return .ok(TerminalArtifactWire.payload(
+                    TerminalArtifactScanResponse(artifacts: [])
+                ) ?? [:])
+            }
+            do {
+                guard let indexedSession = try await mobileChatArtifactIndexedSession(sessionID: sessionID) else {
+                    return .ok(TerminalArtifactWire.payload(
+                        TerminalArtifactScanResponse(artifacts: [], sessionID: sessionID)
+                    ) ?? [:])
+                }
+                let response = TerminalArtifactScanResponse.sessionCount(
+                    sessionID: indexedSession.sessionID,
+                    sessionArtifacts: indexedSession.snapshot.artifacts
+                )
+                return .ok(TerminalArtifactWire.payload(response) ?? [:])
+            } catch {
+                return .ok(TerminalArtifactWire.payload(
+                    TerminalArtifactScanResponse(artifacts: [], sessionID: sessionID)
+                ) ?? [:])
+            }
         }
         let response = await Task.detached(priority: .utility) {
             context.scan()
@@ -108,7 +133,8 @@ extension TerminalController {
     private func mobileTerminalArtifactContext(
         params: [String: Any],
         requiresPath: Bool,
-        includeScrollback: Bool = true
+        includeScrollback: Bool = true,
+        includeTerminalText: Bool = true
     ) -> TerminalArtifactContextResolution {
         guard let workspaceID = v2RawString(params, "workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
               let surfaceID = v2RawString(params, "surface_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -134,12 +160,14 @@ extension TerminalController {
                 panelId: resolvedSurfaceID,
                 localFallback: mobileNonEmpty(terminalPanel.directory) ?? mobileNonEmpty(terminalPanel.requestedWorkingDirectory)
             ) ?? resolved.workspace.currentDirectory
-            let terminalText = readTerminalTextForSnapshot(
-                terminalPanel: terminalPanel,
-                includeScrollback: includeScrollback,
-                lineLimit: nil,
-                allowVTExport: includeScrollback
-            ) ?? ""
+            let terminalText = includeTerminalText
+                ? readTerminalTextForSnapshot(
+                    terminalPanel: terminalPanel,
+                    includeScrollback: includeScrollback,
+                    lineLimit: nil,
+                    allowVTExport: includeScrollback
+                ) ?? ""
+                : ""
             let sessionID = agentChatTranscriptService.flatMap {
                 $0.currentOrMostRecentSessionRecord(surfaceID: resolvedSurfaceID.uuidString)?.sessionID
             }
@@ -226,7 +254,7 @@ private struct TerminalArtifactReadContext: Sendable {
     private let terminalText: String
     private let workingDirectory: String?
     let requestedPath: String?
-    private let sessionID: String?
+    let sessionID: String?
 
     init(
         terminalText: String,

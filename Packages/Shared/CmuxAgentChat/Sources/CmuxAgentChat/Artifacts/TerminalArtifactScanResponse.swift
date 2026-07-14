@@ -76,21 +76,55 @@ public struct TerminalArtifactScanResponse: Sendable, Equatable, Codable {
     public let artifacts: [TerminalArtifactReference]
     /// Agent session currently or most recently bound to the terminal, when supported.
     public let sessionID: String?
+    /// Complete Session-tab artifact count, present for supported count-only scans.
+    public let sessionArtifactTotal: Int?
 
     /// Creates a scan response.
-    public init(artifacts: [TerminalArtifactReference], sessionID: String? = nil) {
+    /// - Parameters:
+    ///   - artifacts: Capped terminal artifacts sorted by detection order.
+    ///   - sessionID: Agent session bound to the terminal, when available.
+    ///   - sessionArtifactTotal: Complete Session-tab count for a count-only scan.
+    public init(
+        artifacts: [TerminalArtifactReference],
+        sessionID: String? = nil,
+        sessionArtifactTotal: Int? = nil
+    ) {
         self.artifacts = artifacts
         self.sessionID = sessionID
+        self.sessionArtifactTotal = sessionArtifactTotal
+    }
+
+    /// Creates the lightweight response for a session-scoped count scan.
+    ///
+    /// This intentionally carries no page items and does not touch the
+    /// filesystem; absent paths therefore count exactly as they do in the
+    /// Session tab.
+    ///
+    /// - Parameters:
+    ///   - sessionID: Agent session bound to the terminal.
+    ///   - sessionArtifacts: Transcript-index snapshot used by the gallery.
+    /// - Returns: A count-only terminal scan response.
+    public static func sessionCount(
+        sessionID: String,
+        sessionArtifacts: [ChatArtifactIndexedReference]
+    ) -> TerminalArtifactScanResponse {
+        TerminalArtifactScanResponse(
+            artifacts: [],
+            sessionID: sessionID,
+            sessionArtifactTotal: ChatArtifactGalleryOrdering().sessionTotal(sessionArtifacts)
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
         case artifacts
         case sessionID = "session_id"
+        case sessionArtifactTotal = "session_artifact_total"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         artifacts = (try? container.decode([TerminalArtifactReference].self, forKey: .artifacts)) ?? []
         sessionID = try? container.decode(String.self, forKey: .sessionID)
+        sessionArtifactTotal = try? container.decode(Int.self, forKey: .sessionArtifactTotal)
     }
 }

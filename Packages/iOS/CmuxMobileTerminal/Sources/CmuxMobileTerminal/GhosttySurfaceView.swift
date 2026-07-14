@@ -73,10 +73,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         set {
             let changed = inputProxy.artifactFilesEnabled != newValue
             inputProxy.artifactFilesEnabled = newValue
-            guard changed, newValue else { return }
-            lastVisibleArtifactSnapshotText = nil
-            lastReportedVisibleArtifactCount = 0
-            scheduleVisibleArtifactCountUpdate()
+            guard changed else { return }
+            resetVisibleArtifactCountTracking()
         }
     }
     var onFocusInputRequestedForTesting: (() -> Void)?
@@ -179,6 +177,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var visibleArtifactCountTask: Task<Void, Never>?
     private var lastVisibleArtifactSnapshotText: String?
     private var lastReportedVisibleArtifactCount = 0
+
+    /// Current visible-snapshot generation used to reject stale artifact totals.
+    public var visibleArtifactCountGeneration: UInt64 {
+        visibleArtifactSnapshotGeneration
+    }
     private var hasPendingSurfaceOperationDeadline: Bool {
         pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
             || pendingCopyableTextRead != nil
@@ -1873,6 +1876,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if autoFocusOnWindowAttach {
                 focusInput()
             }
+            resetVisibleArtifactCountTracking()
             startDisplayLink()
         } else {
             prepareForReuseAfterDetach()
@@ -2232,8 +2236,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         visibleArtifactCountTask?.cancel()
         visibleArtifactCountTask = nil
         visibleArtifactCountSettleFrames = nil
+        visibleArtifactSnapshotGeneration &+= 1
         lastVisibleArtifactSnapshotText = nil
         lastReportedVisibleArtifactCount = 0
+        delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
         artifactChipHost.setContent(nil)
         updateArtifactChipVisibility(animated: false)
         completePendingSurfaceOperations(returning: false)
@@ -3705,6 +3711,39 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         visibleArtifactCountTask?.cancel()
     }
 
+    /// Clears cached artifact counts and re-arms settled detection when enabled.
+    ///
+    /// Hosts call this when session-count capability changes so a count from a
+    /// previous attachment or capability generation cannot remain visible.
+    public func resetVisibleArtifactCountTracking() {
+        visibleArtifactSnapshotGeneration &+= 1
+        visibleArtifactCountTask?.cancel()
+        visibleArtifactCountTask = nil
+        visibleArtifactCountSettleFrames = artifactFilesEnabled && !isDismantled ? 0 : nil
+        lastVisibleArtifactSnapshotText = nil
+        lastReportedVisibleArtifactCount = 0
+        delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
+    }
+
+    /// Reports an authoritative or fallback count for one settled snapshot.
+    ///
+    /// - Parameters:
+    ///   - count: Count selected by the host's session/local decision seam.
+    ///   - generation: Visible-snapshot generation that triggered the request.
+    /// - Returns: `true` when the generation was current, including unchanged values.
+    @discardableResult
+    public func reportArtifactCount(_ count: Int, generation: UInt64) -> Bool {
+        guard artifactFilesEnabled,
+              !isDismantled,
+              generation == visibleArtifactSnapshotGeneration else {
+            return false
+        }
+        guard count != lastReportedVisibleArtifactCount else { return true }
+        lastReportedVisibleArtifactCount = count
+        delegate?.ghosttySurfaceView(self, didChangeVisibleArtifactCount: count)
+        return true
+    }
+
     private func refreshVisibleArtifactCount() {
         guard artifactFilesEnabled, !isDismantled else { return }
         // Tap hit testing uses the same single visible-snapshot slot. Let that
@@ -3725,9 +3764,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             self.lastVisibleArtifactSnapshotText = snapshot.text
             let count = TerminalArtifactPathDetector().paths(in: snapshot.text).count
-            guard count != self.lastReportedVisibleArtifactCount else { return }
-            self.lastReportedVisibleArtifactCount = count
-            self.delegate?.ghosttySurfaceView(self, didChangeVisibleArtifactCount: count)
+            self.delegate?.ghosttySurfaceView(
+                self,
+                didDetectVisibleArtifactCount: count,
+                generation: generation
+            )
         }
     }
 

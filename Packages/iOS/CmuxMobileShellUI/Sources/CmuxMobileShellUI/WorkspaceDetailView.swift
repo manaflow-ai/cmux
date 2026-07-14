@@ -105,9 +105,10 @@ struct WorkspaceDetailView: View {
                 syncTerminalPickerRows(includeTitleChanges: true)
             }
             .onChange(of: store.supportsTerminalArtifacts) { _, supportsArtifacts in
-                if !supportsArtifacts {
-                    visibleArtifactCount = 0
-                }
+                visibleArtifactCount = 0
+            }
+            .onChange(of: store.supportsChatArtifactGallery) { _, _ in
+                visibleArtifactCount = 0
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
@@ -210,6 +211,7 @@ struct WorkspaceDetailView: View {
                     && store.shouldAutoFocusTerminalSurface(terminalID)
                     && !store.isComposerPresented
                 GhosttySurfaceRepresentable(
+                    workspaceID: workspace.id.rawValue,
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
@@ -224,6 +226,7 @@ struct WorkspaceDetailView: View {
                     // scrollback survives a theme change.
                     themeGeneration: store.terminalThemeGeneration,
                     artifactFilesEnabled: store.supportsTerminalArtifacts,
+                    sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
                     visibleArtifactCount: visibleArtifactCount,
                     onArtifactFilesRequested: { anchor in
                         terminalArtifactFilesContext = TerminalArtifactContext(

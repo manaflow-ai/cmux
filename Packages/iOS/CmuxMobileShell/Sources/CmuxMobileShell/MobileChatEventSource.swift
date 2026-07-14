@@ -343,11 +343,14 @@ public actor MobileChatEventSource: ChatEventSource {
     ///   - surfaceID: Terminal surface to scan.
     ///   - visibleOnly: Whether to scan only the rendered viewport. The default
     ///     keeps the existing visible-screen-plus-scrollback behavior.
+    ///   - countOnly: Whether to skip terminal items and return only the bound
+    ///     session's complete gallery count when supported.
     /// - Returns: Capped file references detected by the Mac.
     public func terminalArtifactScan(
         workspaceID: String,
         surfaceID: String,
-        visibleOnly: Bool = false
+        visibleOnly: Bool = false,
+        countOnly: Bool = false
     ) async throws -> TerminalArtifactScanResponse {
         var params: [String: Any] = [
             "workspace_id": workspaceID,
@@ -355,6 +358,9 @@ public actor MobileChatEventSource: ChatEventSource {
         ]
         if visibleOnly {
             params["visible_only"] = true
+        }
+        if countOnly {
+            params["count_only"] = true
         }
         return try await artifactCall(
             method: "mobile.terminal.artifact.scan",

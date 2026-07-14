@@ -24,6 +24,7 @@ import UIKit
 /// field-grow pushes only the terminal up. There is no toolbar handoff and no second
 /// layout system reaching into the surface's bottom math.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
+    let workspaceID: String
     let surfaceID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
@@ -44,6 +45,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// surface's background/colors in place via `GhosttyRuntime.applyLiveThemeIfRunning()`.
     var themeGeneration: UInt64 = 0
     var artifactFilesEnabled: Bool = false
+    var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
@@ -51,9 +53,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
+            workspaceID: workspaceID,
             surfaceID: surfaceID,
             store: store,
             artifactFilesEnabled: artifactFilesEnabled,
+            sessionArtifactCountEnabled: sessionArtifactCountEnabled,
             visibleArtifactCount: visibleArtifactCount,
             onArtifactFilesRequested: onArtifactFilesRequested,
             onArtifactPathTapped: onArtifactPathTapped,
@@ -122,14 +126,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
-        context.coordinator.artifactFilesEnabled = artifactFilesEnabled
-        context.coordinator.visibleArtifactCount = visibleArtifactCount
         context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
+        let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
+            artifactFilesEnabled: artifactFilesEnabled,
+            sessionArtifactCountEnabled: sessionArtifactCountEnabled
+        )
         surfaceView.artifactFilesEnabled = artifactFilesEnabled
+        if artifactCountModeChanged {
+            surfaceView.resetVisibleArtifactCountTracking()
+        }
+        let projectedArtifactCount = context.coordinator.artifactCountNeedsRefresh
+            ? 0
+            : visibleArtifactCount
         context.coordinator.updateArtifactChip(
-            count: visibleArtifactCount,
+            count: projectedArtifactCount,
             enabled: artifactFilesEnabled
         )
         surfaceView.setComposerActive(isComposerActive)
@@ -156,16 +168,21 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
+        let workspaceID: String
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         var artifactFilesEnabled: Bool
+        var sessionArtifactCountEnabled: Bool
         var visibleArtifactCount: Int
         var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void
         var onArtifactPathTapped: @MainActor (_ path: String) -> Void
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         private var outputTask: Task<Void, Never>?
         private var liveFontTask: Task<Void, Never>?
+        private var artifactCountTask: Task<Void, Never>?
+        private var artifactCountState = TerminalArtifactChipCountState()
+        var artifactCountNeedsRefresh: Bool
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
@@ -192,18 +209,23 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private var composerMountGeneration = 0
 
         init(
+            workspaceID: String,
             surfaceID: String,
             store: CMUXMobileShellStore,
             artifactFilesEnabled: Bool,
+            sessionArtifactCountEnabled: Bool,
             visibleArtifactCount: Int,
             onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
             onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void,
             onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void
         ) {
+            self.workspaceID = workspaceID
             self.surfaceID = surfaceID
             self.store = store
             self.artifactFilesEnabled = artifactFilesEnabled
+            self.sessionArtifactCountEnabled = sessionArtifactCountEnabled
             self.visibleArtifactCount = visibleArtifactCount
+            self.artifactCountNeedsRefresh = artifactFilesEnabled
             self.onArtifactFilesRequested = onArtifactFilesRequested
             self.onArtifactPathTapped = onArtifactPathTapped
             self.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
@@ -213,7 +235,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
-            updateArtifactChip(count: visibleArtifactCount, enabled: artifactFilesEnabled)
+            updateArtifactChip(
+                count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount,
+                enabled: artifactFilesEnabled
+            )
             guard let store else { return }
             let surfaceID = surfaceID
             viewportReportScheduler = TerminalViewportReportScheduler(
@@ -325,11 +350,92 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask = nil
             liveFontTask?.cancel()
             liveFontTask = nil
+            artifactCountTask?.cancel()
+            artifactCountTask = nil
+            artifactCountState.reset()
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
         }
 
         // MARK: - Artifact chip hosting
+
+        @discardableResult
+        func updateArtifactCountMode(
+            artifactFilesEnabled: Bool,
+            sessionArtifactCountEnabled: Bool
+        ) -> Bool {
+            let changed = self.artifactFilesEnabled != artifactFilesEnabled
+                || self.sessionArtifactCountEnabled != sessionArtifactCountEnabled
+            self.artifactFilesEnabled = artifactFilesEnabled
+            self.sessionArtifactCountEnabled = sessionArtifactCountEnabled
+            guard changed else { return false }
+
+            artifactCountTask?.cancel()
+            artifactCountTask = nil
+            artifactCountState.reset()
+            artifactCountNeedsRefresh = artifactFilesEnabled
+            visibleArtifactCount = 0
+            return true
+        }
+
+        private func handleArtifactCountAction(
+            _ action: TerminalArtifactChipCountState.TriggerAction,
+            surfaceView: GhosttySurfaceView
+        ) {
+            switch action {
+            case .none:
+                break
+            case .report(let report):
+                surfaceView.reportArtifactCount(
+                    report.count,
+                    generation: report.surfaceGeneration
+                )
+            case .request(let request):
+                startArtifactCountRequest(request, surfaceView: surfaceView)
+            }
+        }
+
+        private func startArtifactCountRequest(
+            _ request: TerminalArtifactChipCountState.Request,
+            surfaceView: GhosttySurfaceView
+        ) {
+            let workspaceID = workspaceID
+            let surfaceID = surfaceID
+            artifactCountTask = Task { @MainActor [weak self, weak surfaceView] in
+                let sessionTotal: Int?
+                if let source = self?.store?.makeChatEventSource() {
+                    do {
+                        let response = try await source.terminalArtifactScan(
+                            workspaceID: workspaceID,
+                            surfaceID: surfaceID,
+                            countOnly: true
+                        )
+                        sessionTotal = response.sessionArtifactTotal
+                    } catch {
+                        sessionTotal = nil
+                    }
+                } else {
+                    sessionTotal = nil
+                }
+
+                guard let self, let surfaceView else { return }
+                let completion = self.artifactCountState.complete(
+                    request,
+                    sessionTotal: sessionTotal,
+                    currentSurfaceGeneration: surfaceView.visibleArtifactCountGeneration
+                )
+                self.artifactCountTask = nil
+                if let report = completion.report {
+                    surfaceView.reportArtifactCount(
+                        report.count,
+                        generation: report.surfaceGeneration
+                    )
+                }
+                if let nextRequest = completion.nextRequest {
+                    self.startArtifactCountRequest(nextRequest, surfaceView: surfaceView)
+                }
+            }
+        }
 
         /// Projects the workspace's value count into a small SwiftUI chip hosted
         /// by the terminal surface, preserving the dock's keyboard geometry.
@@ -531,9 +637,38 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
 
         func ghosttySurfaceView(
             _ surfaceView: GhosttySurfaceView,
+            didDetectVisibleArtifactCount count: Int,
+            generation: UInt64
+        ) {
+            guard artifactFilesEnabled else { return }
+            let action = artifactCountState.trigger(
+                localCount: count,
+                surfaceGeneration: generation,
+                supportsSessionCount: sessionArtifactCountEnabled
+            )
+            handleArtifactCountAction(action, surfaceView: surfaceView)
+        }
+
+        func ghosttySurfaceViewDidResetArtifactCount(_ surfaceView: GhosttySurfaceView) {
+            artifactCountTask?.cancel()
+            artifactCountTask = nil
+            artifactCountState.reset()
+            artifactCountNeedsRefresh = artifactFilesEnabled
+            let previousCount = visibleArtifactCount
+            visibleArtifactCount = 0
+            guard self.surfaceView === surfaceView else { return }
+            updateArtifactChip(count: 0, enabled: artifactFilesEnabled)
+            guard previousCount != 0 else { return }
+            onVisibleArtifactCountChanged(0)
+        }
+
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
             didChangeVisibleArtifactCount count: Int
         ) {
+            artifactCountNeedsRefresh = false
             guard artifactFilesEnabled, count != visibleArtifactCount else { return }
+            visibleArtifactCount = count
             onVisibleArtifactCountChanged(count)
         }
 

@@ -46,7 +46,38 @@ struct ChatArtifactGalleryTests {
         let scanData = Data(#"{"artifacts":[]}"#.utf8)
         let scan = try coding.decode(TerminalArtifactScanResponse.self, from: scanData)
         #expect(scan.sessionID == nil)
+        #expect(scan.sessionArtifactTotal == nil)
         #expect(scan.artifacts.isEmpty)
+    }
+
+    @Test("count-only scan matches every Session section without stat filtering")
+    func sessionCountScan() throws {
+        let records = [
+            ChatArtifactIndexedReference(
+                path: "/definitely-missing/created.swift",
+                provenance: .created,
+                lastReferencedSeq: 3
+            ),
+            ChatArtifactIndexedReference(
+                path: "/definitely-missing/attachment.png",
+                provenance: .attached,
+                lastReferencedSeq: 2
+            ),
+            ChatArtifactIndexedReference(
+                path: "/definitely-missing/reference.md",
+                provenance: .referenced,
+                lastReferencedSeq: 1
+            ),
+        ]
+
+        let response = TerminalArtifactScanResponse.sessionCount(
+            sessionID: "session-1",
+            sessionArtifacts: records
+        )
+
+        #expect(response.artifacts.isEmpty)
+        #expect(response.sessionID == "session-1")
+        #expect(response.sessionArtifactTotal == 3)
     }
 
     @Test("written paths outrank attachments and references while last seq advances")

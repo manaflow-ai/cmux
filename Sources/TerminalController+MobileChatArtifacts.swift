@@ -35,25 +35,17 @@ extension TerminalController {
         } else {
             cursor = nil
         }
-        guard let service = agentChatTranscriptService,
-              let record = service.sessionRecord(sessionID: sessionID),
-              let transcriptPath = service.resolver.transcriptPath(for: record) else {
-            return mobileChatArtifactError(.notFound, path: "")
-        }
         do {
-            let snapshot = try await TerminalControllerChatArtifactIndexProvider.shared.snapshot(
-                sessionID: record.sessionID,
-                agentKind: record.agentKind,
-                transcriptPath: transcriptPath,
-                workingDirectory: record.workingDirectory
-            )
+            guard let indexedSession = try await mobileChatArtifactIndexedSession(sessionID: sessionID) else {
+                return mobileChatArtifactError(.notFound, path: "")
+            }
             let pageSize = min(max(v2Int(params, "page_size") ?? 60, 1), 100)
             let query = v2RawString(params, "query")
             let page = await Task.detached(priority: .utility) {
                 AgentChatArtifactGalleryBuilder().page(
-                    sessionID: record.sessionID,
-                    items: snapshot.artifacts,
-                    generation: snapshot.generation,
+                    sessionID: indexedSession.sessionID,
+                    items: indexedSession.snapshot.artifacts,
+                    generation: indexedSession.snapshot.generation,
                     cursor: cursor,
                     pageSize: pageSize,
                     query: query
@@ -68,6 +60,25 @@ extension TerminalController {
         } catch {
             return mobileChatArtifactError(.notFound, path: "")
         }
+    }
+
+    /// Resolves and derives the same authorized transcript snapshot used by
+    /// both gallery pages and terminal-bound count-only scans.
+    func mobileChatArtifactIndexedSession(
+        sessionID: String
+    ) async throws -> (sessionID: String, snapshot: AgentChatArtifactIndex.Snapshot)? {
+        guard let service = agentChatTranscriptService,
+              let record = service.sessionRecord(sessionID: sessionID),
+              let transcriptPath = service.resolver.transcriptPath(for: record) else {
+            return nil
+        }
+        let snapshot = try await TerminalControllerChatArtifactIndexProvider.shared.snapshot(
+            sessionID: record.sessionID,
+            agentKind: record.agentKind,
+            transcriptPath: transcriptPath,
+            workingDirectory: record.workingDirectory
+        )
+        return (record.sessionID, snapshot)
     }
 
     func v2MobileChatArtifactStat(params: [String: Any]) async -> V2CallResult {
