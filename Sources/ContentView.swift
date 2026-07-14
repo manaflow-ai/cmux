@@ -799,6 +799,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
+    let usageTipsController: UsageTipsController? = nil
     @EnvironmentObject var tabManager: TabManager
     // ContentView observes the coalesced unread projection, NOT the notification
     // store. Reading `notificationStore` directly here would re-render the entire
@@ -3074,6 +3075,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.ignoresSafeArea())
+        view = AnyView(view.usageTipsOverlay(controller: usageTipsController, windowID: windowId))
         view = AnyView(view.sheet(isPresented: $isFeedbackComposerPresented) {
             SidebarFeedbackComposerSheet()
         })

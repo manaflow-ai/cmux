@@ -174,6 +174,9 @@ struct cmuxApp: App {
             hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
+        let usageTipsController = UsageTipsController(
+            store: UsageTipsStore(defaults: .standard)
+        )
 
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)
@@ -220,6 +223,7 @@ struct cmuxApp: App {
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
+            usageTipsController: usageTipsController,
             auth: authComposition
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")

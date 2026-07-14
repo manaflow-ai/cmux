@@ -785,12 +785,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
     private let agentChatTranscriptService = AgentChatTranscriptService()
-    /// The app's settings dependency container, handed over by `cmuxApp` via
-    /// `configure(...)` before any main window is created. AppKit builds the
-    /// main window's `NSHostingView` itself, so it injects this into the
-    /// `ContentView` environment so `@LiveSetting` can resolve the stores it
-    /// observes inside the sidebar.
+    /// App-scoped dependencies injected by `cmuxApp` before any main window exists.
     var settingsRuntime: SettingsRuntime?
+    private var usageTipsController: UsageTipsController?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -2036,10 +2033,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore: TerminalNotificationStore,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
+        usageTipsController: UsageTipsController,
         auth: MacAuthComposition
     ) {
         self.tabManager = tabManager
         self.settingsRuntime = settingsRuntime
+        self.usageTipsController = usageTipsController
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
@@ -8696,7 +8695,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
+        let root = ContentView(updateViewModel: updateViewModel, windowId: windowId, usageTipsController: usageTipsController)
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(notificationStore.sidebarUnread)
