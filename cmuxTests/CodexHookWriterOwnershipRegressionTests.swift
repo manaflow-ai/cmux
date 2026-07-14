@@ -63,7 +63,7 @@ struct CodexHookWriterOwnershipRegressionTests {
         let result = runCodexInjectArgsProcess(executablePath: cliPath)
         #expect(result.status == 0, Comment(rawValue: result.stderr))
 
-        let arguments = result.stdout.split(separator: 0).compactMap { String(data: Data($0), encoding: .utf8) }
+        let arguments = result.stdout.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
         let hookConfigurations = arguments.filter { $0.hasPrefix("hooks.") }
         #expect(!hookConfigurations.isEmpty)
         for configuration in hookConfigurations {
@@ -137,5 +137,9 @@ struct CodexHookWriterOwnershipRegressionTests {
             stdout.fileHandleForReading.readDataToEndOfFile(),
             String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         )
+    }
+
+    private func bundledCLIPath() throws -> String {
+        try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
 }
