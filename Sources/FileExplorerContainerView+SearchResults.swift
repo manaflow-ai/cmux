@@ -84,6 +84,12 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         if clickedRow >= 0 && !searchResultsView.selectedRowIndexes.contains(clickedRow) {
             searchResultsView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
         }
+        let menuSelection = FileExplorerSearchMenuSelection(
+            clickedResult: searchSnapshot.results[row],
+            selectedResults: searchResultsView.selectedRowIndexes.compactMap {
+                searchSnapshot.results.indices.contains($0) ? searchSnapshot.results[$0] : nil
+            }
+        )
 
         let openInCmuxItem = NSMenuItem(
             title: String(localized: "fileExplorer.contextMenu.openInCmux", defaultValue: "Open in cmux"),
@@ -91,7 +97,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             keyEquivalent: ""
         )
         openInCmuxItem.target = self
-        openInCmuxItem.representedObject = NSNumber(value: row)
+        openInCmuxItem.representedObject = menuSelection
         menu.addItem(openInCmuxItem)
 
         FileExplorerExternalOpenMenuItems(
@@ -106,12 +112,12 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             keyEquivalent: ""
         )
         revealItem.target = self
-        revealItem.representedObject = NSNumber(value: row)
+        revealItem.representedObject = menuSelection
         menu.addItem(revealItem)
         menu.addItem(.separator())
         menu.addFileExplorerInsertPathItems(
             target: self,
-            representedObject: NSNumber(value: row),
+            representedObject: menuSelection,
             insertAction: #selector(contextMenuInsertSearchResultPath(_:)),
             insertRelativeAction: #selector(contextMenuInsertSearchResultRelativePath(_:))
         )
@@ -122,7 +128,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         ] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
-            item.representedObject = NSNumber(value: row)
+            item.representedObject = menuSelection
             menu.addItem(item)
         }
     }
@@ -135,9 +141,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     }
 
     private func searchResult(forMenuItem sender: NSMenuItem) -> FileSearchResult? {
-        guard let row = (sender.representedObject as? NSNumber)?.intValue,
-              searchSnapshot.results.indices.contains(row) else { return nil }
-        return searchSnapshot.results[row]
+        (sender.representedObject as? FileExplorerSearchMenuSelection)?.clickedResult
     }
 
     @objc func openSelectedSearchResultFromTable(_ sender: NSTableView) {

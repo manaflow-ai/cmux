@@ -110,6 +110,9 @@ struct UnifiedFileExplorerTests {
         )
         let selectedRow = try #require(container.searchSnapshot.results.firstIndex(of: selectedMatch))
         container.searchResultsView.selectRowIndexes(IndexSet(integer: selectedRow), byExtendingSelection: false)
+        let menu = try #require(container.searchResultsView.menu)
+        container.menuNeedsUpdate(menu)
+        let menuSelection = try #require(menu.items.first?.representedObject as? FileExplorerSearchMenuSelection)
 
         searchController.publish(
             FileSearchSnapshot(
@@ -122,6 +125,8 @@ struct UnifiedFileExplorerTests {
 
         let regroupedSelection = try #require(container.searchResultsView.selectedRowIndexes.first)
         #expect(container.searchSnapshot.results[regroupedSelection] == selectedMatch)
+        #expect(menuSelection.clickedResult == selectedMatch)
+        #expect(menuSelection.selectedResults == [selectedMatch])
     }
 
     @Test("Hidden unified search chrome stays collapsed after font changes")

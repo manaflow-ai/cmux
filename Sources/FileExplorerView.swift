@@ -687,6 +687,9 @@ final class FileExplorerContainerView: NSView {
     private let searchDebounceSubject = PassthroughSubject<Int, Never>()
     private var searchDebounceCancellable: AnyCancellable?
     private var searchDebounceGeneration = 0
+    private let fileFilterDebounceSubject = PassthroughSubject<Int, Never>()
+    private var fileFilterDebounceCancellable: AnyCancellable?
+    private var fileFilterDebounceGeneration = 0
     private var pendingSearchRefreshAfterSettled = false
     private var preservedSearchNeedsRefresh = false
     private var presentation: FileExplorerPanelPresentation
@@ -727,6 +730,7 @@ final class FileExplorerContainerView: NSView {
         searchBarView.apply(scope: displayedSearchScope, queryState: queryState)
         updateShortcutPlacement(coordinator.placement)
         configureSearchDebounce()
+        configureFileFilterDebounce()
         // Header
         headerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(headerView)
@@ -906,6 +910,7 @@ final class FileExplorerContainerView: NSView {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil {
             cancelPendingSearchRefresh()
+            cancelPendingFileFilterRefresh()
             searchController.cancel(clear: false)
         }
         super.viewWillMove(toWindow: newWindow)
@@ -953,6 +958,7 @@ final class FileExplorerContainerView: NSView {
         headerView.update(displayPath: store.displayRootPath)
         if workspaceRootChanged {
             cancelPendingSearchRefresh()
+            cancelPendingFileFilterRefresh()
             pendingSearchRefreshAfterSettled = false
             searchController.cancel(clear: true)
             queryState.clearQueries()
@@ -988,12 +994,13 @@ final class FileExplorerContainerView: NSView {
     private func setDisplayedSearchScope(_ scope: FileExplorerSearchScope) {
         captureDisplayedQuery()
         let previousScope = displayedSearchScope
+        if previousScope == .names, scope != .names { cancelPendingFileFilterRefresh() }
         if previousScope == .contents, scope != .contents {
             pauseSearchPreservingState()
         }
         displayedSearchScope = scope
         searchBarView.apply(scope: scope, queryState: queryState)
-        if scope == .names {
+        if scope == .names, previousScope != .names {
             coordinator.setFileFilterQuery(queryState.namesQuery, in: outlineView)
         }
         updateVisibility(
@@ -1037,12 +1044,7 @@ final class FileExplorerContainerView: NSView {
 #endif
         switch displayedSearchScope {
         case .names:
-            coordinator.setFileFilterQuery(queryState.namesQuery, in: outlineView)
-            updateVisibility(
-                hasContent: !currentRootPath.isEmpty,
-                isLoading: currentIsLoading,
-                statusMessage: currentStatusMessage
-            )
+            if queryState.namesQuery.isEmpty { applyPendingFileFilter() } else { scheduleFileFilterRefresh() }
         case .contents:
             if !hasContentsQuery {
                 cancelPendingSearchRefresh()
@@ -1083,6 +1085,7 @@ final class FileExplorerContainerView: NSView {
     private func moveSelectionFromSearchField(by delta: Int) {
         switch displayedSearchScope {
         case .names:
+            applyPendingFileFilter()
             coordinator.moveSelection(in: outlineView, by: delta)
             _ = window?.makeFirstResponder(outlineView)
         case .contents:
@@ -1093,6 +1096,7 @@ final class FileExplorerContainerView: NSView {
     private func commitSearchFieldSelection() {
         switch displayedSearchScope {
         case .names:
+            applyPendingFileFilter()
             coordinator.openSelectedItem(in: outlineView)
         case .contents:
             openSelectedSearchResult()
@@ -1308,6 +1312,40 @@ final class FileExplorerContainerView: NSView {
 
     private func cancelPendingSearchRefresh() {
         searchDebounceGeneration += 1
+    }
+
+    private func configureFileFilterDebounce() {
+        fileFilterDebounceCancellable = fileFilterDebounceSubject
+            .debounce(for: .milliseconds(searchDebounceDelayMilliseconds), scheduler: RunLoop.main)
+            .sink { [weak self] debounceGeneration in
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.displayedSearchScope == .names,
+                          self.fileFilterDebounceGeneration == debounceGeneration else { return }
+                    self.applyPendingFileFilter()
+                }
+            }
+    }
+
+    private func scheduleFileFilterRefresh() {
+        guard displayedSearchScope == .names else { return }
+        fileFilterDebounceGeneration += 1
+        fileFilterDebounceSubject.send(fileFilterDebounceGeneration)
+    }
+
+    private func cancelPendingFileFilterRefresh() {
+        fileFilterDebounceGeneration += 1
+    }
+
+    func applyPendingFileFilter() {
+        cancelPendingFileFilterRefresh()
+        guard displayedSearchScope == .names else { return }
+        coordinator.setFileFilterQuery(queryState.namesQuery, in: outlineView)
+        updateVisibility(
+            hasContent: !currentRootPath.isEmpty,
+            isLoading: currentIsLoading,
+            statusMessage: currentStatusMessage
+        )
     }
 
     private func pauseSearchPreservingState() {
@@ -1548,6 +1586,7 @@ final class FileExplorerContainerView: NSView {
                 _ = focusOutline()
                 return
             }
+            cancelPendingFileFilterRefresh()
             queryState.setQuery("", for: .names)
             searchBarView.apply(scope: .names, queryState: queryState)
             coordinator.setFileFilterQuery("", in: outlineView)

@@ -123,6 +123,7 @@ struct UnifiedFileExplorerSearchScopeTests {
         container.controlTextDidChange(
             Notification(name: NSControl.textDidChangeNotification, object: field)
         )
+        container.applyPendingFileFilter()
         #expect(state.mode == .files)
         #expect(container.displayedSearchScope == .names)
         #expect(outline.numberOfRows == 2)
@@ -204,6 +205,7 @@ struct UnifiedFileExplorerSearchScopeTests {
 
         field.stringValue = "needle"
         container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        container.applyPendingFileFilter()
         field.stringValue = ""
         container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
 
