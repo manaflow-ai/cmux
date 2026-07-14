@@ -66,6 +66,7 @@ final class CmuxLiteApp: NSObject, NSApplicationDelegate {
             windowController = controller
             controller.showWindow(nil)
             controller.start(hostname: ProcessInfo.processInfo.hostName)
+            CmuxStateDump.installIfConfigured()
             NSApp.activate(ignoringOtherApps: true)
         } catch {
             NSApp.presentError(error)
