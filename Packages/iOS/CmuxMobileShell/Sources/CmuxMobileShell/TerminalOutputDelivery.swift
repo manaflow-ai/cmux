@@ -113,15 +113,32 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 /// cannot retain obsolete intermediate repaints before the barrier fails open.
 struct TerminalReplayBarrierRetainedOutput: Sendable {
     private(set) var deliveries: [TerminalOutputDelivery] = []
+    private var followUpReplayCoveredDeliveryCount: Int?
 
     mutating func append(_ delivery: TerminalOutputDelivery) {
         if let replacementScope = delivery.replacementScope,
            let lastIndex = deliveries.indices.last,
+           lastIndex >= (followUpReplayCoveredDeliveryCount ?? 0),
            deliveries[lastIndex].replacementScope == replacementScope {
             deliveries[lastIndex] = delivery
         } else {
             deliveries.append(delivery)
         }
+    }
+
+    /// Freezes the retained prefix that the sole follow-up replay is about to
+    /// capture. Later deliveries must not coalesce backward across this edge.
+    mutating func markCoveredByFollowUpReplay() {
+        followUpReplayCoveredDeliveryCount = deliveries.count
+    }
+
+    /// A successfully applied follow-up makes its frozen prefix obsolete.
+    /// Failure leaves the prefix intact so fail-open can reconcile the entire
+    /// bounded episode in original order.
+    mutating func discardDeliveriesCoveredByFollowUpReplay() {
+        guard let followUpReplayCoveredDeliveryCount else { return }
+        deliveries.removeFirst(min(followUpReplayCoveredDeliveryCount, deliveries.count))
+        self.followUpReplayCoveredDeliveryCount = nil
     }
 }
 

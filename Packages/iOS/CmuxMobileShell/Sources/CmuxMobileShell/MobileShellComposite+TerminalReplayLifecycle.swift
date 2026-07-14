@@ -88,7 +88,9 @@ extension MobileShellComposite {
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
-        if !continuingReplayEpisode {
+        if continuingReplayEpisode {
+            markTerminalReplayBarrierRetainedOutputCoveredByFollowUp(surfaceID: surfaceID)
+        } else {
             terminalReplayBarrierRetainedOutputBySurfaceID.removeValue(forKey: surfaceID)
         }
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)

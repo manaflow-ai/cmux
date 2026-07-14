@@ -302,6 +302,7 @@ extension MobileShellComposite {
         let next = queue.completeInFlight()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken {
+            discardTerminalReplayBarrierRetainedOutputCoveredByFollowUp(surfaceID: surfaceID)
             let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID]
             let coldAttachReplayBarrier = replayBarrierToken.map {
                 terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] == $0

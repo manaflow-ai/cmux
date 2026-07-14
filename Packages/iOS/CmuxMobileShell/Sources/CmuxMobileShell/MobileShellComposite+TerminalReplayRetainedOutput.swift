@@ -9,6 +9,22 @@ extension MobileShellComposite {
         terminalReplayBarrierRetainedOutputBySurfaceID[surfaceID] = retained
     }
 
+    func markTerminalReplayBarrierRetainedOutputCoveredByFollowUp(surfaceID: String) {
+        guard var retained = terminalReplayBarrierRetainedOutputBySurfaceID[surfaceID] else {
+            return
+        }
+        retained.markCoveredByFollowUpReplay()
+        terminalReplayBarrierRetainedOutputBySurfaceID[surfaceID] = retained
+    }
+
+    func discardTerminalReplayBarrierRetainedOutputCoveredByFollowUp(surfaceID: String) {
+        guard var retained = terminalReplayBarrierRetainedOutputBySurfaceID[surfaceID] else {
+            return
+        }
+        retained.discardDeliveriesCoveredByFollowUpReplay()
+        terminalReplayBarrierRetainedOutputBySurfaceID[surfaceID] = retained
+    }
+
     /// Releases output that arrived after the final bounded replay snapshot.
     /// Render grids and raw bytes re-enter their authoritative delivery paths
     /// so each sequence is reconciled against the replay's delivered
