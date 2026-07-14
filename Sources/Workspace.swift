@@ -12778,7 +12778,10 @@ extension Workspace: BonsplitDelegate {
         // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
         // sequence actually changed, so divider drags and selection-only events
         // (also routed here) do not fire `objectWillChange` app-wide.
-        surfaceList.registerGeometryChange()
+        let didChangeSurfaceOrder = surfaceList.registerGeometryChange()
+        if didChangeSurfaceOrder {
+            owningTabManager?.reconcileBrowserWebExtensionTabOrder()
+        }
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()

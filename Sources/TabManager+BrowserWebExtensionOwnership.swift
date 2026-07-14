@@ -23,6 +23,7 @@ extension TabManager {
             )
             noteUserOwnedPanelsAdded(in: workspace)
         }
+        reconcileBrowserWebExtensionTabOrder()
         guard activateRestoredPanel else {
             pendingBrowserWebExtensionActivePanelID = nil
             return previouslyActiveBrowserPanelID
@@ -103,6 +104,18 @@ extension TabManager {
            let focusedPanelID = focusedBrowserWebExtensionPanelID(in: workspace) {
             browserWebExtensionHost?.noteActivated(panelID: focusedPanelID)
         }
+        reconcileBrowserWebExtensionTabOrder()
+    }
+
+    func reconcileBrowserWebExtensionTabOrder() {
+        guard let window else { return }
+        var panelIDs = tabs.flatMap { workspace in
+            workspace.orderedPanelIds + (workspace._dockSplit?.browserWebExtensionOrderedPanelIDs() ?? [])
+        }
+        if let windowDock = AppDelegate.shared?.existingWindowDock(for: self) {
+            panelIDs.append(contentsOf: windowDock.browserWebExtensionOrderedPanelIDs())
+        }
+        browserWebExtensionHost?.noteTabOrderChanged(panelIDs: panelIDs, in: window)
     }
 
     private func preferredFocusedBrowserWebExtensionPanelID() -> UUID? {

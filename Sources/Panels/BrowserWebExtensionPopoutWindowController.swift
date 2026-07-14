@@ -69,8 +69,9 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         popoutUIDelegate.newWindowAction = { [weak self] request in
             self?.routeNewWindowRequest(request)
         }
-        popoutUIDelegate.scriptedPopupAction = { [weak self] configuration, windowFeatures in
+        popoutUIDelegate.scriptedPopupAction = { [weak self] request, configuration, windowFeatures in
             self?.createScriptedPopup(
+                request: request,
                 configuration: configuration,
                 windowFeatures: windowFeatures
             )
@@ -234,15 +235,21 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
     }
 
     private func createScriptedPopup(
+        request: URLRequest,
         configuration: WKWebViewConfiguration,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         let popupID = UUID()
+        let popupConfiguration = Self.scriptedPopupConfiguration(
+            for: request,
+            suppliedConfiguration: configuration,
+            canLoadExtensionRequestedURL: request.url.map(canLoadExtensionRequestedURL) ?? false
+        )
         let controller = BrowserPopupWindowController(
-            configuration: configuration,
+            configuration: popupConfiguration,
             windowFeatures: windowFeatures,
             browserContext: BrowserPopupBrowserContext(
-                websiteDataStore: configuration.websiteDataStore
+                websiteDataStore: popupConfiguration.websiteDataStore
             ),
             openerPanel: nil,
             onClose: { [weak self] in
@@ -251,6 +258,21 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         )
         childPopupControllers[popupID] = controller
         return controller.webView
+    }
+
+    static func scriptedPopupConfiguration(
+        for request: URLRequest,
+        suppliedConfiguration: WKWebViewConfiguration,
+        canLoadExtensionRequestedURL: Bool
+    ) -> WKWebViewConfiguration {
+        guard !canLoadExtensionRequestedURL,
+              let scheme = request.url?.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return suppliedConfiguration
+        }
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = suppliedConfiguration.websiteDataStore
+        return configuration
     }
 
     private func closeChildPopups() {

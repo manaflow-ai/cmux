@@ -9,12 +9,12 @@ import WebKit
 final class BrowserWebExtensionPopoutUIDelegate: NSObject, WKUIDelegate {
     var closeAction: () -> Void
     var newWindowAction: (URLRequest) -> Void
-    var scriptedPopupAction: (WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?
+    var scriptedPopupAction: (URLRequest, WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?
 
     init(
         closeAction: @escaping () -> Void = {},
         newWindowAction: @escaping (URLRequest) -> Void = { _ in },
-        scriptedPopupAction: @escaping (WKWebViewConfiguration, WKWindowFeatures) -> WKWebView? = { _, _ in nil }
+        scriptedPopupAction: @escaping (URLRequest, WKWebViewConfiguration, WKWindowFeatures) -> WKWebView? = { _, _, _ in nil }
     ) {
         self.closeAction = closeAction
         self.newWindowAction = newWindowAction
@@ -41,6 +41,7 @@ final class BrowserWebExtensionPopoutUIDelegate: NSObject, WKUIDelegate {
         )
         if isScriptedPopup {
             return createScriptedPopup(
+                request: navigationAction.request,
                 configuration: configuration,
                 windowFeatures: windowFeatures
             )
@@ -50,10 +51,11 @@ final class BrowserWebExtensionPopoutUIDelegate: NSObject, WKUIDelegate {
     }
 
     func createScriptedPopup(
+        request: URLRequest,
         configuration: WKWebViewConfiguration,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        scriptedPopupAction(configuration, windowFeatures)
+        scriptedPopupAction(request, configuration, windowFeatures)
     }
 
     func handleNewWindowRequest(_ request: URLRequest) {

@@ -5,11 +5,13 @@ import WebKit
 protocol BrowserWebExtensionHosting: AnyObject {
     var isInitialReconciliationComplete: Bool { get }
     func waitForInitialReconciliation() async
+    func waitForInitialReconciliation(timeout: Duration) async -> Bool
     func attach(to configuration: WKWebViewConfiguration)
     func webViewConfiguration(forNavigatingTo url: URL) -> BrowserWebExtensionNavigationConfiguration?
     func register(panel: BrowserPanel)
     func unregister(panelID: UUID)
     func noteWindowChanged(panelID: UUID, nativeWindow: NSWindow?)
+    func noteTabOrderChanged(panelIDs: [UUID], in nativeWindow: NSWindow)
     func noteWindowClosed(_ nativeWindow: NSWindow) -> UUID?
     func discardWindowOwnership(panelIDs: [UUID])
     func noteUserOwnedPanelAdded(nativeWindow: NSWindow?, alongsidePanelIDs: [UUID])
@@ -24,11 +26,15 @@ extension BrowserWebExtensionHosting {
 
     func waitForInitialReconciliation() async {}
 
+    func waitForInitialReconciliation(timeout _: Duration) async -> Bool { true }
+
     func noteWindowChanged(panelID: UUID) {
         noteWindowChanged(panelID: panelID, nativeWindow: nil)
     }
 
     func noteWindowChanged(panelID _: UUID, nativeWindow _: NSWindow?) {}
+
+    func noteTabOrderChanged(panelIDs _: [UUID], in _: NSWindow) {}
 
     func noteWindowClosed(_: NSWindow) -> UUID? { nil }
 

@@ -20,7 +20,14 @@ extension AppDelegate {
             weak context,
             weak window,
         ] in
-            await browserWebExtensionHost.waitForInitialReconciliation()
+            let completedBeforeDeadline = await browserWebExtensionHost.waitForInitialReconciliation(
+                timeout: .seconds(10)
+            )
+#if DEBUG
+            if !completedBeforeDeadline {
+                cmuxDebugLog("browser.webext.startupReconciliation timedOut=1")
+            }
+#endif
             guard !Task.isCancelled,
                   let self,
                   let context,

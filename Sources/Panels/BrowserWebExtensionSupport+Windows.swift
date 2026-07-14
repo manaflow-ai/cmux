@@ -14,6 +14,33 @@ extension BrowserWebExtensionSupport {
         reconcileWindowOwnership(for: panelID, nativeWindow: nativeWindow)
     }
 
+    func noteTabOrderChanged(panelIDs: [UUID], in nativeWindow: NSWindow) {
+        let windowID = ObjectIdentifier(nativeWindow)
+        let previousPanelIDs = orderedPanelIDs.filter { windowIDsByPanelID[$0] == windowID }
+        let requestedPanelIDs = panelIDs.filter {
+            tabAdapters[$0] != nil && windowIDsByPanelID[$0] == windowID
+        }
+        let requestedSet = Set(requestedPanelIDs)
+        let nextPanelIDs = requestedPanelIDs + previousPanelIDs.filter { !requestedSet.contains($0) }
+        guard nextPanelIDs != previousPanelIDs else { return }
+
+        let insertionIndex = orderedPanelIDs.firstIndex { windowIDsByPanelID[$0] == windowID }
+            ?? orderedPanelIDs.endIndex
+        orderedPanelIDs.removeAll { windowIDsByPanelID[$0] == windowID }
+        orderedPanelIDs.insert(contentsOf: nextPanelIDs, at: min(insertionIndex, orderedPanelIDs.endIndex))
+
+        guard let windowAdapter = windowAdaptersByWindowID[windowID] else { return }
+        for (newIndex, panelID) in nextPanelIDs.enumerated() {
+            guard let oldIndex = previousPanelIDs.firstIndex(of: panelID),
+                  oldIndex != newIndex,
+                  openTabNotificationPanelIDs.contains(panelID),
+                  let tab = tabAdapters[panelID] else {
+                continue
+            }
+            controller.didMoveTab(tab, from: oldIndex, in: windowAdapter)
+        }
+    }
+
     func noteWindowClosed(_ nativeWindow: NSWindow) -> UUID? {
         let previouslyActivePanelID = activePanelID(in: nativeWindow)
         closeNativeWindow(

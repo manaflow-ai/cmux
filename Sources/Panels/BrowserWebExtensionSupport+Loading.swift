@@ -162,19 +162,24 @@ extension BrowserWebExtensionSupport {
     /// settings stream re-applies, so the button set refreshes everywhere
     /// without unloading the extension.
     func setToolbarButtonVisible(_ visible: Bool, entryID: String) {
-        guard let settingsStore, let settingsKey else { return }
         Task { @MainActor in
-            do {
-                try await settingsStore.update(settingsKey) { entries in
-                    guard let index = entries.firstIndex(where: { $0.id == entryID }),
-                          entries[index].effectiveShowsToolbarButton != visible else { return }
-                    entries[index].showsToolbarButton = visible ? nil : false
-                }
-            } catch {
-#if DEBUG
-                cmuxDebugLog("browser.webext.toolbarVisibility saveFailed id=\(entryID) error=\(error.localizedDescription)")
-#endif
+            await persistToolbarButtonVisibility(visible, entryID: entryID)
+        }
+    }
+
+    func persistToolbarButtonVisibility(_ visible: Bool, entryID: String) async {
+        guard let settingsStore, let settingsKey else { return }
+        do {
+            try await settingsStore.update(settingsKey) { entries in
+                guard let index = entries.firstIndex(where: { $0.id == entryID }),
+                      entries[index].effectiveShowsToolbarButton != visible else { return }
+                entries[index].showsToolbarButton = visible ? nil : false
             }
+        } catch {
+            recordLoadError(error.localizedDescription, entryID: entryID)
+#if DEBUG
+            cmuxDebugLog("browser.webext.toolbarVisibility saveFailed id=\(entryID) error=\(error.localizedDescription)")
+#endif
         }
     }
 

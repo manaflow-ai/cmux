@@ -174,6 +174,26 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         for await _ in initialReconciliationStream {}
     }
 
+    func waitForInitialReconciliation(timeout: Duration) async -> Bool {
+        guard !isInitialReconciliationComplete else { return true }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { @MainActor [weak self] in
+                guard let self else { return false }
+                await self.waitForInitialReconciliation()
+                return !Task.isCancelled && self.isInitialReconciliationComplete
+            }
+            group.addTask {
+                // A bounded startup deadline prevents extension loading or a
+                // permission prompt from indefinitely blocking session restore.
+                try? await ContinuousClock().sleep(for: timeout)
+                return false
+            }
+            let completed = await group.next() ?? false
+            group.cancelAll()
+            return completed
+        }
+    }
+
     // MARK: - Settings-driven loading
 
     /// Starts observing `browser.webExtensions` and keeps loaded extensions in
