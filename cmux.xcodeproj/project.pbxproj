@@ -370,6 +370,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B1CFE02E0000000000000001 /* BrowserWebExtensionReconciliationUnloadEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE02E0000000000000002 /* BrowserWebExtensionReconciliationUnloadEntry.swift */; };
 		B1CFE0210000000000000001 /* BrowserWebExtensionReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0210000000000000002 /* BrowserWebExtensionReviewRegressionTests.swift */; };
 		B1CFE0280000000000000001 /* BrowserWebExtensionReviewTestHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0280000000000000002 /* BrowserWebExtensionReviewTestHost.swift */; };
+		B1CFE0400000000000000001 /* BrowserWebExtensionSelectionLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0400000000000000002 /* BrowserWebExtensionSelectionLifecycleTests.swift */; };
 		B1CFE0070000000000000001 /* BrowserWebExtensionSupport+Loading.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0070000000000000002 /* BrowserWebExtensionSupport+Loading.swift */; };
 		B1CFE0100000000000000001 /* BrowserWebExtensionSupport+Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0100000000000000002 /* BrowserWebExtensionSupport+Permissions.swift */; };
 		B1CFE0350000000000000001 /* BrowserWebExtensionSupport+TabCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CFE0350000000000000002 /* BrowserWebExtensionSupport+TabCreation.swift */; };
@@ -2288,6 +2289,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B1CFE02E0000000000000002 /* BrowserWebExtensionReconciliationUnloadEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionReconciliationUnloadEntry.swift; sourceTree = "<group>"; };
 		B1CFE0210000000000000002 /* BrowserWebExtensionReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionReviewRegressionTests.swift; sourceTree = "<group>"; };
 		B1CFE0280000000000000002 /* BrowserWebExtensionReviewTestHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionReviewTestHost.swift; sourceTree = "<group>"; };
+		B1CFE0400000000000000002 /* BrowserWebExtensionSelectionLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionSelectionLifecycleTests.swift; sourceTree = "<group>"; };
 		B1CFE0070000000000000002 /* BrowserWebExtensionSupport+Loading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserWebExtensionSupport+Loading.swift"; sourceTree = "<group>"; };
 		B1CFE0100000000000000002 /* BrowserWebExtensionSupport+Permissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserWebExtensionSupport+Permissions.swift"; sourceTree = "<group>"; };
 		B1CFE0350000000000000002 /* BrowserWebExtensionSupport+TabCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserWebExtensionSupport+TabCreation.swift"; sourceTree = "<group>"; };
@@ -5354,6 +5356,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B1CFE0200000000000000002 /* BrowserWebExtensionSupportTests.swift */,
 				B1CFE0310000000000000002 /* BrowserWebExtensionPermissionReconciliationTests.swift */,
 				B1CFE0320000000000000002 /* BrowserWebExtensionFocusedWindowTests.swift */,
+				B1CFE0400000000000000002 /* BrowserWebExtensionSelectionLifecycleTests.swift */,
 				B1CFE0330000000000000002 /* BrowserWebExtensionInitialPermissionTests.swift */,
 				B1CFE03C0000000000000002 /* BrowserWebExtensionLoadErrorTests.swift */,
 				B1CFE0370000000000000002 /* BrowserWebExtensionCreatedWindowTests.swift */,
@@ -7492,6 +7495,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B1CFE03A0000000000000001 /* BrowserWebExtensionPopoutPolicyTests.swift in Sources */,
 				B1CFE0210000000000000001 /* BrowserWebExtensionReviewRegressionTests.swift in Sources */,
 				B1CFE0280000000000000001 /* BrowserWebExtensionReviewTestHost.swift in Sources */,
+				B1CFE0400000000000000001 /* BrowserWebExtensionSelectionLifecycleTests.swift in Sources */,
 				B1CFE03E0000000000000001 /* BrowserWebExtensionSupportLifecycleTests.swift in Sources */,
 				B1CFE0200000000000000001 /* BrowserWebExtensionSupportTests.swift in Sources */,
 				C0DE62600000000000000001 /* BrowserWindowPortalRegistryNotificationTests.swift in Sources */,

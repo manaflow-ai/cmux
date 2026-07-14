@@ -170,7 +170,7 @@ struct BrowserWebExtensionPopoutPolicyTests {
     @MainActor
     @Test
     @available(macOS 15.4, *)
-    func externalScriptedPopupUsesNormalConfigurationWithTheAdoptedDataStore() throws {
+    func externalScriptedPopupPreservesWebKitsSuppliedConfiguration() throws {
         let suppliedConfiguration = WKWebViewConfiguration()
         suppliedConfiguration.websiteDataStore = .nonPersistent()
         let request = URLRequest(url: try #require(URL(string: "https://accounts.example/login")))
@@ -181,8 +181,7 @@ struct BrowserWebExtensionPopoutPolicyTests {
             canLoadExtensionRequestedURL: false
         )
 
-        #expect(resolvedConfiguration !== suppliedConfiguration)
-        #expect(resolvedConfiguration.websiteDataStore === suppliedConfiguration.websiteDataStore)
+        #expect(resolvedConfiguration === suppliedConfiguration)
     }
 
     @MainActor

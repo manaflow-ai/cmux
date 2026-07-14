@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSettings
 import Dispatch
 import Foundation
@@ -12,6 +13,42 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct BrowserWebExtensionSupportLifecycleTests {
+    @Test
+    @available(macOS 15.4, *)
+    func startupRestoreDoesNotWaitForExtensionSettingsReconciliation() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let appDelegate = try #require(AppDelegate.shared)
+            let previousDidAttemptStartupSessionRestore = appDelegate.didAttemptStartupSessionRestore
+            let support = BrowserWebExtensionSupport()
+            let tabManager = TabManager(
+                autoWelcomeIfNeeded: false,
+                browserWebExtensionHost: support
+            )
+            let window = NSWindow()
+            let windowID = appDelegate.registerMainWindowContextForTesting(
+                tabManager: tabManager,
+                window: window
+            )
+            appDelegate.didAttemptStartupSessionRestore = false
+            defer {
+                appDelegate.contextForMainTerminalWindow(window)?
+                    .browserWebExtensionInitialReconciliationTask?
+                    .cancel()
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+                tabManager.tabs.forEach { $0.teardownAllPanels() }
+                window.close()
+                appDelegate.didAttemptStartupSessionRestore = previousDidAttemptStartupSessionRestore
+            }
+
+            appDelegate.completeMainWindowRegistrationWhenBrowserExtensionsReady(
+                tabManager: tabManager,
+                window: window
+            )
+
+            #expect(appDelegate.didAttemptStartupSessionRestore)
+        }
+    }
+
     @Test
     @available(macOS 15.4, *)
     func initialReconciliationWaitHasABoundedFallback() async {
