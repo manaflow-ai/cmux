@@ -262,24 +262,41 @@ extension CmxIrohHostRuntime {
         revision: UInt64,
         firstDeadline: Date
     ) async {
-        var deadline = firstDeadline
-        while lifecyclePhase == .active,
+        do {
+            try await registrationClock.sleep(until: firstDeadline)
+        } catch {
+            return
+        }
+        guard lifecyclePhase == .active,
               lifecycleRevision == revision,
-              !Task.isCancelled {
-            do {
-                try await registrationClock.sleep(until: deadline)
-            } catch {
-                return
-            }
-            guard lifecyclePhase == .active,
-                  lifecycleRevision == revision,
-                  !Task.isCancelled else { return }
-            scheduleRegistrationRefresh(revision: revision)
-            await registrationRefreshTask?.value
-            guard !Task.isCancelled else { return }
-            // A successful refresh replaces this task with the renewed hint
-            // deadline. Broker outages retry without waiting for address events.
-            deadline = registrationClock.now().addingTimeInterval(30)
+              !Task.isCancelled else { return }
+        scheduleRegistrationRefresh(revision: revision)
+        await registrationRefreshTask?.value
+    }
+
+    private func scheduleRegistrationRetry(
+        revision: UInt64,
+        error: any Error
+    ) {
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision else { return }
+        let delay = registrationRetrySchedule.delay(
+            failureCount: registrationRefreshFailureCount,
+            retryAfterSeconds: (error as? CmxIrohTrustBrokerClientError)?
+                .retryAfterSeconds,
+            jitterUnitInterval: registrationRetryJitter()
+        )
+        registrationRefreshFailureCount = min(
+            registrationRefreshFailureCount + 1,
+            20
+        )
+        registrationRenewalTask?.cancel()
+        let deadline = registrationClock.now().addingTimeInterval(delay)
+        registrationRenewalTask = Task { [weak self] in
+            await self?.runRegistrationRenewal(
+                revision: revision,
+                firstDeadline: deadline
+            )
         }
     }
 
@@ -295,10 +312,12 @@ extension CmxIrohHostRuntime {
     }
 
     func refreshRegistration(revision: UInt64) async {
+        var completedSuccessfully = false
         defer {
             if lifecycleRevision == revision {
                 registrationRefreshTask = nil
-                if registrationRefreshPending,
+                if completedSuccessfully,
+                   registrationRefreshPending,
                    lifecyclePhase == .active {
                     scheduleRegistrationRefresh(revision: revision)
                 }
@@ -341,6 +360,8 @@ extension CmxIrohHostRuntime {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
             await handleBinding(registration, discovery, policy.attestation)
+            registrationRefreshFailureCount = 0
+            completedSuccessfully = true
             scheduleRegistrationRenewal(
                 binding: registration.binding,
                 revision: revision
@@ -367,9 +388,12 @@ extension CmxIrohHostRuntime {
                 }
                 return
             }
-            // Broker availability cannot invalidate policy that this generation
-            // already authenticated. The next network change can retry without a
-            // local busy loop.
+            // One retry owner honors both bounded exponential backoff and the
+            // broker's validated Retry-After floor. A later retry re-reads the
+            // endpoint, so address changes observed during this failed round are
+            // already included without an immediate duplicate broker request.
+            registrationRefreshPending = false
+            scheduleRegistrationRetry(revision: revision, error: error)
         }
     }
 

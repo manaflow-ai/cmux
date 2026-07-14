@@ -66,6 +66,8 @@ public actor CmxIrohHostRuntime {
     let now: @Sendable () -> Date
     let admissionClock: any CmxIrohRelayClock
     let registrationClock: any CmxIrohRelayClock
+    let registrationRetrySchedule: CmxIrohRetrySchedule
+    let registrationRetryJitter: @Sendable () -> Double
     let handleTransport: TransportHandler
     let handleBinding: BindingHandler
     let handleDeactivation: DeactivationHandler
@@ -87,6 +89,7 @@ public actor CmxIrohHostRuntime {
     var registrationRenewalTask: Task<Void, Never>?
     var registrationRefreshPending = false
     var registrationRefreshEnabled = false
+    var registrationRefreshFailureCount = 0
     var localBinding: CmxIrohBrokerBindingMetadata?
     var managedRelayURLs: Set<String>
     var currentEndpointRelayProfile: CmxIrohEndpointRelayProfile?
@@ -111,6 +114,10 @@ public actor CmxIrohHostRuntime {
         now: @escaping @Sendable () -> Date = { Date() },
         admissionClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
         registrationClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        registrationRetrySchedule: CmxIrohRetrySchedule = CmxIrohRetrySchedule(),
+        registrationRetryJitter: @escaping @Sendable () -> Double = {
+            Double.random(in: 0 ... 1)
+        },
         handleTransport: @escaping TransportHandler,
         handleBinding: @escaping BindingHandler = { _, _, _ in },
         handleDeactivation: @escaping DeactivationHandler = { _ in },
@@ -126,6 +133,8 @@ public actor CmxIrohHostRuntime {
         self.now = now
         self.admissionClock = admissionClock
         self.registrationClock = registrationClock
+        self.registrationRetrySchedule = registrationRetrySchedule
+        self.registrationRetryJitter = registrationRetryJitter
         self.handleTransport = handleTransport
         self.handleBinding = handleBinding
         self.handleDeactivation = handleDeactivation
@@ -202,6 +211,7 @@ public actor CmxIrohHostRuntime {
         let revision = lifecycleRevision
         registrationRefreshPending = false
         registrationRefreshEnabled = false
+        registrationRefreshFailureCount = 0
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
             state: .starting,
             endpointID: nil,

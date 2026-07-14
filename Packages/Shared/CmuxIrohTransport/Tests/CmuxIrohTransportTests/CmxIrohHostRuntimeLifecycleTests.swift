@@ -117,6 +117,51 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func successfulRegistrationRenewalResetsBackoff() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            subsequentRegistrationErrors: [.connectivity]
+        )
+        let clock = HostRegistrationRenewalClock(now: now)
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { clock.now() },
+            registrationClock: clock,
+            registrationRetryJitter: { 0 },
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+        await clock.waitUntilSleepCount(1)
+        var deadline = try #require(clock.observedSleepDeadlines().last)
+        clock.advance(to: deadline)
+        await broker.waitForRegistrationCount(2)
+        await clock.waitUntilSleepCount(2)
+
+        deadline = try #require(clock.observedSleepDeadlines().last)
+        #expect(deadline.timeIntervalSince(clock.now()) == 30)
+        clock.advance(to: deadline)
+        await broker.waitForRegistrationCount(3)
+        await clock.waitUntilSleepCount(3)
+
+        await broker.enqueueSubsequentRegistrationError(.connectivity)
+        await endpoint.emit(.networkChanged)
+        await broker.waitForRegistrationCount(4)
+        await clock.waitUntilSleepCount(4)
+        let resetRetry = try #require(clock.observedSleepDeadlines().last)
+        #expect(resetRetry.timeIntervalSince(clock.now()) == 30)
+
+        await runtime.stop()
+    }
+
+    @Test
     func startBindsExactRegisteredIdentityAndStopClosesIt() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(

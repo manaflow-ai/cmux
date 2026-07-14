@@ -81,6 +81,7 @@ extension CmxIrohHostRuntime {
         registrationRenewalTask = nil
         registrationRefreshPending = false
         registrationRefreshEnabled = false
+        registrationRefreshFailureCount = 0
         await endpointServer?.stop()
         endpointServer = nil
         activePathConnections.removeAll(keepingCapacity: false)
