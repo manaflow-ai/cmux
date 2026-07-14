@@ -242,7 +242,8 @@ struct RemoteRelaySlotTeardownTests {
     @Test
     func coordinatorStopUsesFinalPersistentSlotTeardown() throws {
         let runner = SpyProcessRunner()
-        let coordinator = makeCoordinator(runner: runner)
+        let host = IntentionalCleanupTestHost()
+        let coordinator = makeCoordinator(runner: runner, host: host)
 
         coordinator.stop(cleanupScope: .persistentSlot)
         coordinator.queue.sync {}
@@ -250,6 +251,19 @@ struct RemoteRelaySlotTeardownTests {
         let cleanupCommand = try #require(runner.requests.last?.arguments.last)
         #expect(cleanupCommand.contains("serve --persistent-stop --slot"))
         #expect(cleanupCommand.contains("64010.shell"))
+        #expect(host.persistentCleanupResults == [true])
+    }
+
+    @Test
+    func coordinatorReportsFailedFinalCleanup() {
+        let runner = SpyProcessRunner(result: RemoteCommandResult(status: 1, stdout: "", stderr: "failed"))
+        let host = IntentionalCleanupTestHost()
+        let coordinator = makeCoordinator(runner: runner, host: host)
+
+        coordinator.stop(cleanupScope: .persistentSlot)
+        coordinator.queue.sync {}
+
+        #expect(host.persistentCleanupResults == [false])
     }
 
     @Test
@@ -266,9 +280,12 @@ struct RemoteRelaySlotTeardownTests {
         #expect(cleanupCommand.contains("64010.slot"))
     }
 
-    private func makeCoordinator(runner: SpyProcessRunner) -> RemoteSessionCoordinator {
+    private func makeCoordinator(
+        runner: SpyProcessRunner,
+        host: any RemoteSessionHosting = IntentionalCleanupTestHost()
+    ) -> RemoteSessionCoordinator {
         RemoteSessionCoordinator(
-            host: IntentionalCleanupTestHost(),
+            host: host,
             configuration: WorkspaceRemoteConfiguration(
                 destination: "user@example.test",
                 port: nil,

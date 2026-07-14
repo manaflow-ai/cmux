@@ -34,10 +34,13 @@ func existingPersistentDaemonPathsForSlot(slot string) (persistentDaemonPaths, b
 		return paths, false, err
 	}
 	if storedSocketDir, err := readPersistentDaemonSocketDir(paths.root); err == nil {
+		paths.socket = filepath.Join(storedSocketDir, filepath.Base(paths.socket))
 		if err := verifyPrivateDaemonDirectory(storedSocketDir); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return paths, true, nil
+			}
 			return paths, false, err
 		}
-		paths.socket = filepath.Join(storedSocketDir, filepath.Base(paths.socket))
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return paths, false, err
 	}
@@ -52,9 +55,11 @@ func stopPersistentDaemon(slot string) error {
 	token, err := readPersistentDaemonTokenFile(paths.tokenFile)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			if _, socketErr := os.Lstat(paths.socket); errors.Is(socketErr, os.ErrNotExist) {
-				return waitForPersistentDaemonStop(paths.lockFile)
+			if stopErr := waitForPersistentDaemonStop(paths.lockFile); stopErr != nil {
+				return stopErr
 			}
+			_ = os.Remove(paths.socket)
+			return nil
 		}
 		return err
 	}

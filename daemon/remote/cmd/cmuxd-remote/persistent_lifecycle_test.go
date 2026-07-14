@@ -242,6 +242,63 @@ func TestStopPersistentDaemonWaitsForSlotLockWhenSocketIsAbsent(t *testing.T) {
 	}
 }
 
+func TestStopPersistentDaemonHandlesMissingStoredSocketDirectory(t *testing.T) {
+	rootBase := t.TempDir()
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	paths, err := persistentDaemonPathsForSlot("missing-socket-directory")
+	if err != nil {
+		t.Fatalf("resolve persistent daemon paths: %v", err)
+	}
+	if err := os.MkdirAll(paths.root, 0o700); err != nil {
+		t.Fatalf("create persistent daemon root: %v", err)
+	}
+	storedSocketDirectory, err := os.MkdirTemp("/tmp", "cmuxd-remote-missing-socket-*")
+	if err != nil {
+		t.Fatalf("create stored socket directory: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(storedSocketDirectory) })
+	if err := writePersistentDaemonSocketDir(paths.root, storedSocketDirectory); err != nil {
+		t.Fatalf("record socket directory: %v", err)
+	}
+	if _, err := persistentDaemonToken(paths); err != nil {
+		t.Fatalf("create persistent daemon token: %v", err)
+	}
+	if err := os.RemoveAll(storedSocketDirectory); err != nil {
+		t.Fatalf("remove stored socket directory: %v", err)
+	}
+
+	if err := stopPersistentDaemon(paths.slot); err != nil {
+		t.Fatalf("stop with missing stored socket directory: %v", err)
+	}
+}
+
+func TestStopPersistentDaemonRemovesStaleSocketOnlyAfterLockReleased(t *testing.T) {
+	rootBase := t.TempDir()
+	t.Setenv("CMUX_REMOTE_DAEMON_ROOT", rootBase)
+	paths, err := persistentDaemonPathsForSlot("missing-token")
+	if err != nil {
+		t.Fatalf("resolve persistent daemon paths: %v", err)
+	}
+	if err := os.MkdirAll(paths.root, 0o700); err != nil {
+		t.Fatalf("create persistent daemon root: %v", err)
+	}
+	storedSocketDirectory := t.TempDir()
+	if err := writePersistentDaemonSocketDir(paths.root, storedSocketDirectory); err != nil {
+		t.Fatalf("record socket directory: %v", err)
+	}
+	paths.socket = filepath.Join(storedSocketDirectory, filepath.Base(paths.socket))
+	if err := os.WriteFile(paths.socket, []byte("stale"), 0o600); err != nil {
+		t.Fatalf("write stale socket: %v", err)
+	}
+
+	if err := stopPersistentDaemon(paths.slot); err != nil {
+		t.Fatalf("stop with missing token: %v", err)
+	}
+	if _, err := os.Lstat(paths.socket); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale socket still exists: %v", err)
+	}
+}
+
 func TestWaitForPersistentDaemonStopTimesOutWhenOwnershipDoesNotRelease(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), "daemon.lock")
 	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)

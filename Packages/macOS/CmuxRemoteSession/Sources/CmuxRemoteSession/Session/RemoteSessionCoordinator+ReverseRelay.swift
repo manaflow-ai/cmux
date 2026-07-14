@@ -222,7 +222,8 @@ extension RemoteSessionCoordinator {
         reverseRelayRestartToken = nil
     }
 
-    func stopReverseRelayLocked(cleanupScope: RemoteRelayCleanupScope = .transport) {
+    @discardableResult
+    func stopReverseRelayLocked(cleanupScope: RemoteRelayCleanupScope = .transport) -> Bool {
         reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
         if let reverseRelayProcess, reverseRelayProcess.isRunning {
             reverseRelayProcess.terminate()
@@ -233,7 +234,7 @@ extension RemoteSessionCoordinator {
         reverseRelayStderrBuffer = ""
         cliRelayServer?.stop()
         cliRelayServer = nil
-        removeRemoteRelayMetadataLocked(cleanupScope: cleanupScope)
+        return removeRemoteRelayMetadataLocked(cleanupScope: cleanupScope)
     }
 
     func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
@@ -396,13 +397,13 @@ extension RemoteSessionCoordinator {
         }
     }
 
-    private func removeRemoteRelayMetadataLocked(cleanupScope: RemoteRelayCleanupScope) {
-        guard let relayPort = configuration.relayPort, relayPort > 0 else { return }
+    private func removeRemoteRelayMetadataLocked(cleanupScope: RemoteRelayCleanupScope) -> Bool {
+        guard let relayPort = configuration.relayPort, relayPort > 0 else { return true }
         // VM workspaces never installed relay metadata (the reverse-relay path is gated off),
         // and the ssh-exec the cleanup would issue hangs on Freestyle's russh gateway.
         if configuration.skipDaemonBootstrap {
             debugLog("remote.relay.cleanup.skipped reason=vm-baked relayPort=\(relayPort)")
-            return
+            return true
         }
         let script = switch cleanupScope {
         case .transport:
@@ -432,11 +433,13 @@ extension RemoteSessionCoordinator {
                 remoteRelayLogger.error(
                     "cleanup failed scope=\(String(describing: cleanupScope), privacy: .public) relayPort=\(relayPort, privacy: .public) detail=\(detail, privacy: .private(mask: .hash))"
                 )
-                return
+                return false
             }
+            return true
         } catch {
             debugLog("remote.relay.cleanup.error \(error.localizedDescription)")
             remoteRelayLogger.error("cleanup error: \(error.localizedDescription, privacy: .private(mask: .hash))")
+            return false
         }
     }
 

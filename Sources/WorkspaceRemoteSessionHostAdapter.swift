@@ -87,4 +87,12 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
             workspace.applyBootstrapRemoteTTY(ttyName)
         }
     }
+
+    func publishPersistentCleanupResult(succeeded: Bool) {
+        guard succeeded else { return }
+        let controllerID = self.controllerID
+        Task { @MainActor [weak workspace] in
+            workspace?.remoteSessionCleanupControllers.removeValue(forKey: controllerID)
+        }
+    }
 }

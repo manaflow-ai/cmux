@@ -2294,8 +2294,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
     private var remoteSessionController: RemoteSessionCoordinator?
-    // Retains final cleanup ownership after a transport-only disconnect.
-    private var remoteSessionCleanupController: RemoteSessionCoordinator?
+    // Retains each controller until its own persistent cleanup succeeds.
+    var remoteSessionCleanupControllers: [UUID: (controller: RemoteSessionCoordinator, configuration: WorkspaceRemoteConfiguration)] = [:]
     private enum RemoteForegroundAuthenticationPhase: Equatable {
         case readyBeforeConfiguration(token: String), authenticating(token: String)
     }
@@ -3159,7 +3159,8 @@ final class Workspace: Identifiable, ObservableObject {
             NotificationCenter.default.removeObserver(sharedLiveAgentIndexObserver)
         }
         activeRemoteSessionControllerID = nil
-        (remoteSessionController ?? remoteSessionCleanupController)?.stop(cleanupScope: .persistentSlot)
+        remoteSessionController?.stop(cleanupScope: .persistentSlot)
+        for owner in remoteSessionCleanupControllers.values { owner.controller.stop(cleanupScope: .persistentSlot) }
         PortScanner.shared.scheduleAgentWorkspaceUnregistration(workspaceId: id)
     }
 
@@ -5303,15 +5304,23 @@ final class Workspace: Identifiable, ObservableObject {
         recomputeListeningPorts()
         postRemoteConnectionPresentationDidChange()
 
-        let previousController = remoteSessionController ?? remoteSessionCleanupController
+        let previousController = remoteSessionController
+        let previousControllerID = activeRemoteSessionControllerID
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
-        remoteSessionCleanupController = nil
         let preservesPersistentSlot = previousConfiguration?.hasSamePersistentPTYIdentity(
             as: configuration
         ) == true
-        previousController?.stop(cleanupScope: preservesPersistentSlot ? .transport : .persistentSlot)
-        if preservesPersistentSlot { remoteSessionCleanupController = previousController }
+        if let previousController, let previousControllerID, let previousConfiguration {
+            remoteSessionCleanupControllers[previousControllerID] = (previousController, previousConfiguration)
+        }
+        if preservesPersistentSlot {
+            previousController?.stop(cleanupScope: .transport)
+        } else if let previousConfiguration {
+            for owner in remoteSessionCleanupControllers.values where owner.configuration == previousConfiguration {
+                owner.controller.stop(cleanupScope: .persistentSlot)
+            }
+        }
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
         let foregroundAuthToken = Self.normalizedForegroundAuthToken(configuration.foregroundAuthToken)
@@ -5359,7 +5368,9 @@ final class Workspace: Identifiable, ObservableObject {
             strings: RemoteSessionStrings.appLocalized
         )
         activeRemoteSessionControllerID = controllerID
-        remoteSessionCleanupController = nil
+        remoteSessionCleanupControllers = remoteSessionCleanupControllers.filter {
+            !$0.value.configuration.hasSamePersistentPTYIdentity(as: configuration)
+        }
         remoteSessionController = controller
         controller.updateRemotePortScanningEnabled(Self.remotePortScanningEnabledFromSettings())
         syncRemotePortScanTTYs()
@@ -5468,12 +5479,18 @@ final class Workspace: Identifiable, ObservableObject {
             && pendingDetachedSurfaces.isEmpty
             && !skipControlMasterCleanupAfterDetachedRemoteTransfer
         let configurationForCleanup = shouldCleanupControlMaster ? remoteConfiguration : nil
-        let previousController = remoteSessionController ?? remoteSessionCleanupController
+        let previousController = remoteSessionController
+        let previousControllerID = activeRemoteSessionControllerID
+        if let previousController, let previousControllerID, let remoteConfiguration {
+            remoteSessionCleanupControllers[previousControllerID] = (previousController, remoteConfiguration)
+        }
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
-        remoteSessionCleanupController = nil
-        previousController?.stop(cleanupScope: clearConfiguration ? .persistentSlot : .transport)
-        if !clearConfiguration { remoteSessionCleanupController = previousController }
+        if clearConfiguration {
+            for owner in remoteSessionCleanupControllers.values { owner.controller.stop(cleanupScope: .persistentSlot) }
+        } else {
+            previousController?.stop(cleanupScope: .transport)
+        }
         remoteForegroundAuthenticationPhase = nil
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         activeRemoteTerminalSurfaceIds.removeAll()

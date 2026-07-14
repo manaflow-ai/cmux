@@ -246,7 +246,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         reachabilityProbeGeneration &+= 1
         cancelReverseRelayRestartLocked()
         cancelRemotePortScanCoalesceLocked()
-        stopReverseRelayLocked(cleanupScope: cleanupScope)
+        let cleanupSucceeded = stopReverseRelayLocked(cleanupScope: cleanupScope)
         remotePortScanGeneration &+= 1
         remotePortScanBurstTask?.cancel()
         remotePortScanBurstTask = nil
@@ -271,6 +271,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         daemonRemotePath = nil
         publishProxyEndpoint(nil)
         publishPortsSnapshotLocked()
+        if case .persistentSlot = cleanupScope { host.publishPersistentCleanupResult(succeeded: cleanupSucceeded) }
     }
 
     func beginConnectionAttemptLocked() {

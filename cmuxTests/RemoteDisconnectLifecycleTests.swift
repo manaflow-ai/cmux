@@ -387,17 +387,23 @@ struct RemoteDisconnectLifecycleTests {
         #expect(finalCleanupCommand.contains("64007.shell"))
     }
 
-    @Test func finalDisconnectRelinquishesPersistentDaemonSlot() throws {
-        let runner = CleanupRecordingRunner()
+    @Test func failedFinalCleanupSurvivesNewControllerAndRetries() throws {
+        let runner = CleanupRecordingRunner(cleanupStatuses: [1, 0, 0])
         let workspace = Workspace()
         workspace.remoteSessionProcessRunnerOverrideForTesting = runner
-        workspace.configureRemoteConnection(Self.persistentRemoteConfiguration(), autoConnect: true)
+        workspace.configureRemoteConnection(Self.persistentRemoteConfiguration(slot: "ssh-lifecycle-a"), autoConnect: true)
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+        #expect(try #require(runner.waitForCleanupCommand()).contains("'ssh-lifecycle-a'"))
 
+        workspace.configureRemoteConnection(
+            Self.persistentRemoteConfiguration(slot: "ssh-lifecycle-b", relayPort: 64_008),
+            autoConnect: true
+        )
         workspace.disconnectRemoteConnection(clearConfiguration: true)
 
-        let cleanupCommand = try #require(runner.waitForCleanupCommand())
-        #expect(cleanupCommand.contains("serve --persistent-stop --slot"))
-        #expect(cleanupCommand.contains("64007.shell"))
+        let retryCommands = try [#require(runner.waitForCleanupCommand()), #require(runner.waitForCleanupCommand())]
+        #expect(retryCommands.contains(where: { $0.contains("'ssh-lifecycle-a'") }))
+        #expect(retryCommands.contains(where: { $0.contains("'ssh-lifecycle-b'") }))
     }
 
     private static func remoteConfiguration(port: Int? = nil) -> WorkspaceRemoteConfiguration {
@@ -415,20 +421,23 @@ struct RemoteDisconnectLifecycleTests {
         )
     }
 
-    private static func persistentRemoteConfiguration() -> WorkspaceRemoteConfiguration {
+    private static func persistentRemoteConfiguration(
+        slot: String = "ssh-lifecycle-test",
+        relayPort: Int = 64_007
+    ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
             identityFile: nil,
             sshOptions: [],
             localProxyPort: nil,
-            relayPort: 64_007,
+            relayPort: relayPort,
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini",
             preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "ssh-lifecycle-test"
+            persistentDaemonSlot: slot
         )
     }
 
@@ -437,20 +446,26 @@ struct RemoteDisconnectLifecycleTests {
         private let lock = NSLock()
         private let cleanupObserved = DispatchSemaphore(value: 0)
         private var cleanupCommands: [String] = []
+        private var cleanupStatuses: [Int32]
+
+        init(cleanupStatuses: [Int32] = []) {
+            self.cleanupStatuses = cleanupStatuses
+        }
 
         func run(
             _ request: RemoteProcessRequest,
             operation: (any RemoteTransferCancelling)?
         ) throws -> RemoteCommandResult {
             let command = request.arguments.last ?? ""
-            guard command.contains("relay_socket='127.0.0.1:64007'") else {
+            guard command.contains("relay_socket='127.0.0.1:") else {
                 return RemoteCommandResult(status: 1, stdout: "", stderr: "intentional bootstrap stop")
             }
             lock.lock()
             cleanupCommands.append(command)
+            let status = cleanupStatuses.isEmpty ? 0 : cleanupStatuses.removeFirst()
             lock.unlock()
             cleanupObserved.signal()
-            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+            return RemoteCommandResult(status: status, stdout: "", stderr: "")
         }
 
         func waitForCleanupCommand() -> String? {
