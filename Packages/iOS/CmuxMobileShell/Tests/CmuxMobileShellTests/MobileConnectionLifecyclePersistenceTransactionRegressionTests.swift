@@ -114,6 +114,188 @@ import Testing
         #expect(restored.isActive)
     }
 
+    @Test func directForgottenRollbackUsesTransactionToRestorePreviousActiveMac() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let targetRoute = try route(id: "target", port: 51_028)
+        let previousRoute = try route(id: "previous", port: 51_029)
+        let targetBeforeReconnect = storedMac(
+            route: targetRoute,
+            teamID: "team-a",
+            isActive: false
+        )
+        let previousActive = storedMac(
+            macDeviceID: "mac-b",
+            displayName: "Previous Active Mac",
+            route: previousRoute,
+            teamID: "team-a"
+        )
+        try await seed(previousActive, in: inner)
+        try await seed(targetBeforeReconnect, in: inner)
+
+        let probe = ReconnectPersistenceProbeStore(inner: inner)
+        let forgottenStore = InMemoryPairedMacForgottenStore()
+        let shell = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: probe,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            forgottenMacStore: forgottenStore
+        )
+        let scope = MobileShellScopeSnapshot(
+            userID: "user-1",
+            teamID: "team-a",
+            generation: 0
+        )
+        await forgottenStore.save(["mac-a"], scope: shell.pairedMacScopeKey(scope))
+        let rejectedAt = Date(timeIntervalSince1970: 2_000)
+        try await inner.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Rejected Reconnect",
+            routes: [targetRoute],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: rejectedAt
+        )
+
+        await shell.rollbackStaleReconnectPersistenceIfNeeded(
+            persistedMacDeviceID: "mac-a",
+            reconnectSourceMacDeviceID: "mac-a",
+            previousPersistedMac: targetBeforeReconnect,
+            previousActiveMac: previousActive,
+            rejectedTimestamp: rejectedAt,
+            scope: scope,
+            store: probe
+        )
+
+        let stored = try await inner.loadAll(stackUserID: "user-1", teamID: "team-a")
+        #expect(stored.contains { $0.macDeviceID == "mac-a" } == false)
+        #expect(stored.first { $0.macDeviceID == "mac-b" }?.isActive == true)
+        let counts = await probe.mutationCounts()
+        #expect(counts.removes == 0)
+        #expect(counts.setActive == 0)
+        #expect(counts.rollbacks == 1)
+    }
+
+    @Test func deferredForgottenRollbackRestoresLocalAndBackupSelection() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let targetRoute = try route(id: "target", port: 51_030)
+        let previousRoute = try route(id: "previous", port: 51_031)
+        let targetBeforeReconnect = storedMac(
+            route: targetRoute,
+            teamID: "team-a",
+            isActive: false
+        )
+        let previousActive = storedMac(
+            macDeviceID: "mac-b",
+            displayName: "Previous Active Mac",
+            route: previousRoute,
+            teamID: "team-a"
+        )
+        try await seed(previousActive, in: inner)
+        try await seed(targetBeforeReconnect, in: inner)
+
+        let scoped = TeamScopedPairedMacStore(
+            inner: inner,
+            teamIDProvider: { "team-a" }
+        )
+        let backup = FakeBackup()
+        let backed = BackingUpPairedMacStore(
+            inner: scoped,
+            backup: backup,
+            teamIDProvider: { "team-a" }
+        )
+        let fence = SynchronousGenerationBoundary()
+        let generation = fence.generation
+        let probe = ReconnectPersistenceProbeStore(
+            inner: backed,
+            invalidateAfterWrite: fence
+        )
+        let progress = StoredMacReconnectProgress()
+        progress.markForgotten(["mac-a"])
+        let operation = DeferredStoredMacReconnectPersistence(
+            request: persistenceRequest(
+                ticket: try ticket(route: targetRoute),
+                storedAuthorityMac: targetBeforeReconnect
+            ),
+            store: probe,
+            forgottenStore: InMemoryPairedMacForgottenStore(),
+            forgottenScopeKeys: [],
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-a",
+                generation: 0
+            ),
+            fence: fence,
+            fenceGeneration: generation,
+            progress: progress
+        )
+
+        _ = await operation.run()
+
+        let stored = try await inner.loadAll(stackUserID: "user-1", teamID: "team-a")
+        #expect(stored.contains { $0.macDeviceID == "mac-a" } == false)
+        #expect(stored.first { $0.macDeviceID == "mac-b" }?.isActive == true)
+        let previousActiveUploads = await backup.uploadedOps().compactMap(uploadedRecord)
+            .filter { $0.macDeviceID == "mac-b" }
+        #expect(previousActiveUploads.last?.isActive == true)
+        #expect(await backup.uploadTeams().allSatisfy { $0 == "team-a" })
+        let counts = await probe.mutationCounts()
+        #expect(counts.removes == 0)
+        #expect(counts.setActive == 0)
+        #expect(counts.rollbacks == 1)
+    }
+
+    @Test func deferredForgottenRollbackWithNoPreviousActiveOnlyRemovesTarget() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let targetRoute = try route(id: "target", port: 51_032)
+        let targetBeforeReconnect = storedMac(
+            route: targetRoute,
+            teamID: "team-a",
+            isActive: false
+        )
+        try await seed(targetBeforeReconnect, in: inner)
+
+        let fence = SynchronousGenerationBoundary()
+        let generation = fence.generation
+        let probe = ReconnectPersistenceProbeStore(
+            inner: inner,
+            invalidateAfterWrite: fence
+        )
+        let progress = StoredMacReconnectProgress()
+        progress.markForgotten(["mac-a"])
+        let operation = DeferredStoredMacReconnectPersistence(
+            request: persistenceRequest(
+                ticket: try ticket(route: targetRoute),
+                storedAuthorityMac: targetBeforeReconnect
+            ),
+            store: probe,
+            forgottenStore: InMemoryPairedMacForgottenStore(),
+            forgottenScopeKeys: [],
+            scope: MobileShellScopeSnapshot(
+                userID: "user-1",
+                teamID: "team-a",
+                generation: 0
+            ),
+            fence: fence,
+            fenceGeneration: generation,
+            progress: progress
+        )
+
+        _ = await operation.run()
+
+        #expect(try await inner.loadAll(stackUserID: "user-1", teamID: "team-a").isEmpty)
+        #expect(try await inner.activeMac(stackUserID: "user-1", teamID: "team-a") == nil)
+        let counts = await probe.mutationCounts()
+        #expect(counts.removes == 0)
+        #expect(counts.setActive == 0)
+        #expect(counts.rollbacks == 1)
+    }
+
     @Test func deferredRefreshFailureDoesNotPublishAuthoritativeEmptySnapshot() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -229,17 +411,20 @@ import Testing
     }
 
     private func storedMac(
+        macDeviceID: String = "mac-a",
+        displayName: String = "Original Mac",
         route: CmxAttachRoute,
         teamID: String?,
+        isActive: Bool = true,
         lastSeenAt: Date = Date(timeIntervalSince1970: 1_000)
     ) -> MobilePairedMac {
         MobilePairedMac(
-            macDeviceID: "mac-a",
-            displayName: "Original Mac",
+            macDeviceID: macDeviceID,
+            displayName: displayName,
             routes: [route],
             createdAt: Date(timeIntervalSince1970: 900),
             lastSeenAt: lastSeenAt,
-            isActive: true,
+            isActive: isActive,
             stackUserID: "user-1",
             teamID: teamID,
             instanceTag: "default"

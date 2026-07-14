@@ -12,6 +12,9 @@ struct ReconnectPersistenceProbeStore: MobilePairedMacStoring {
         private let failFirstLoadAfterWrite: Bool
         private var hasWritten = false
         private var didFailLoad = false
+        private var removeCount = 0
+        private var setActiveCount = 0
+        private var rollbackCount = 0
 
         init(failFirstLoadAfterWrite: Bool) {
             self.failFirstLoadAfterWrite = failFirstLoadAfterWrite
@@ -25,6 +28,22 @@ struct ReconnectPersistenceProbeStore: MobilePairedMacStoring {
             guard failFirstLoadAfterWrite, hasWritten, !didFailLoad else { return false }
             didFailLoad = true
             return true
+        }
+
+        func recordRemove() {
+            removeCount += 1
+        }
+
+        func recordSetActive() {
+            setActiveCount += 1
+        }
+
+        func recordRollback() {
+            rollbackCount += 1
+        }
+
+        func mutationCounts() -> (removes: Int, setActive: Int, rollbacks: Int) {
+            (removeCount, setActiveCount, rollbackCount)
         }
     }
 
@@ -136,6 +155,7 @@ struct ReconnectPersistenceProbeStore: MobilePairedMacStoring {
             stackUserID: stackUserID,
             teamID: teamID
         )
+        await state.recordSetActive()
     }
 
     func clearActive(stackUserID: String?, teamID: String?) async throws {
@@ -168,12 +188,14 @@ struct ReconnectPersistenceProbeStore: MobilePairedMacStoring {
             stackUserID: stackUserID,
             teamID: teamID
         )
+        await state.recordRemove()
     }
 
     func rollbackRejectedUpsert(
         _ rollback: MobilePairedMacUpsertRollback
     ) async throws {
         try await inner.rollbackRejectedUpsert(rollback)
+        await state.recordRollback()
     }
 
     func removeAll() async throws {
@@ -183,5 +205,9 @@ struct ReconnectPersistenceProbeStore: MobilePairedMacStoring {
     private func didWrite() async {
         await state.recordWrite()
         invalidateAfterWrite?.invalidate()
+    }
+
+    func mutationCounts() async -> (removes: Int, setActive: Int, rollbacks: Int) {
+        await state.mutationCounts()
     }
 }
