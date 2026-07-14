@@ -1,7 +1,8 @@
-import XCTest
-import CmuxTerminal
 import AppKit
 import Bonsplit
+import Combine
+import CmuxTerminal
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,7 +11,8 @@ import Bonsplit
 #endif
 
 @MainActor
-final class ClosedMainWindowRoutingTests: XCTestCase {
+@Suite("Closed main window routing", .serialized)
+struct ClosedMainWindowRoutingTests {
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
@@ -22,7 +24,8 @@ final class ClosedMainWindowRoutingTests: XCTestCase {
         return window
     }
 
-    func testClosedMainWindowIsNotListedOrFocusableWhileItsObjectsLinger() throws {
+    @Test("Closed main window is not listed or focusable while its objects linger")
+    func closedMainWindowIsNotListedOrFocusableWhileItsObjectsLinger() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -64,26 +67,49 @@ final class ClosedMainWindowRoutingTests: XCTestCase {
         windowA.makeKeyAndOrderFront(nil)
         TerminalController.shared.setActiveTabManager(managerA)
 
-        let workspaceB = try XCTUnwrap(managerB.selectedWorkspace)
-        let terminalPanelB = try XCTUnwrap(workspaceB.focusedTerminalPanel)
-        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanelB.id) === terminalPanelB.surface)
+        let workspaceB = try #require(managerB.selectedWorkspace)
+        let terminalPanelB = try #require(workspaceB.focusedTerminalPanel)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanelB.id) === terminalPanelB.surface)
+        var surfacePortPublicationCount = 0
+        let surfacePortCancellable = workspaceB.$surfaceListeningPorts.dropFirst().sink { _ in
+            surfacePortPublicationCount += 1
+        }
+        defer { surfacePortCancellable.cancel() }
+        #expect(TerminalController.shared.applyAgentPortPublication(
+            workspaceId: workspaceB.id,
+            ports: [4200]
+        ))
+        TerminalController.shared.applyPanelPortPublication(
+            workspaceId: workspaceB.id,
+            panelId: terminalPanelB.id,
+            ports: [4300]
+        )
+        TerminalController.shared.applyPanelPortPublication(
+            workspaceId: workspaceB.id,
+            panelId: terminalPanelB.id,
+            ports: [4300]
+        )
+        #expect(workspaceB.agentListeningPorts == [4200])
+        #expect(workspaceB.surfaceListeningPorts[terminalPanelB.id] == [4300])
+        #expect(surfacePortPublicationCount == 1)
 
         let baselineSummaries = app.listMainWindowSummaries()
-        XCTAssertTrue(baselineSummaries.contains { $0.windowId == windowAId })
-        XCTAssertTrue(baselineSummaries.contains { $0.windowId == windowBId })
+        #expect(baselineSummaries.contains { $0.windowId == windowAId })
+        #expect(baselineSummaries.contains { $0.windowId == windowBId })
 
         app.unregisterMainWindowContextForTesting(windowId: windowBId)
         windowB.orderOut(nil)
 
-        XCTAssertFalse(windowB.isVisible)
-        XCTAssertFalse(windowB.isMiniaturized)
-        XCTAssertFalse(app.listMainWindowSummaries().contains { $0.windowId == windowBId })
-        XCTAssertFalse(app.focusMainWindow(windowId: windowBId))
-        XCTAssertFalse(windowB.isVisible)
-        XCTAssertTrue(app.tabManagerFor(windowId: windowBId) === managerB)
+        #expect(!windowB.isVisible)
+        #expect(!windowB.isMiniaturized)
+        #expect(!app.listMainWindowSummaries().contains { $0.windowId == windowBId })
+        #expect(!app.focusMainWindow(windowId: windowBId))
+        #expect(!windowB.isVisible)
+        #expect(app.tabManagerFor(windowId: windowBId) === managerB)
     }
 
-    func testRecoveredVisibleWindowStaysListedAndFocusable() throws {
+    @Test("Recovered visible window stays listed and focusable")
+    func recoveredVisibleWindowStaysListedAndFocusable() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -125,14 +151,14 @@ final class ClosedMainWindowRoutingTests: XCTestCase {
         windowC.makeKeyAndOrderFront(nil)
         TerminalController.shared.setActiveTabManager(managerA)
 
-        let workspaceC = try XCTUnwrap(managerC.selectedWorkspace)
-        let terminalPanelC = try XCTUnwrap(workspaceC.focusedTerminalPanel)
-        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanelC.id) === terminalPanelC.surface)
+        let workspaceC = try #require(managerC.selectedWorkspace)
+        let terminalPanelC = try #require(workspaceC.focusedTerminalPanel)
+        #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanelC.id) === terminalPanelC.surface)
 
         app.unregisterMainWindowContextForTesting(windowId: windowCId)
 
-        XCTAssertTrue(windowC.isVisible)
-        XCTAssertTrue(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
-        XCTAssertTrue(app.focusMainWindow(windowId: windowCId))
+        #expect(windowC.isVisible)
+        #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
+        #expect(app.focusMainWindow(windowId: windowCId))
     }
 }

@@ -7,7 +7,7 @@ final class AppKitCommandPaletteEventMonitorSource: CommandPaletteEventMonitorSo
         for window: AnyObject,
         handler: @escaping (CommandPalettePointerEvent) -> Void
     ) -> Any? {
-        weak let observedWindow = window
+        weak var observedWindow = window
         guard let monitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown],
             handler: { event in
