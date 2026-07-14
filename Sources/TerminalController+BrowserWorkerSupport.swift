@@ -36,7 +36,7 @@ extension TerminalController {
                     code: "unavailable",
                     message: String(
                         localized: "cli.browser.error.tabManagerUnavailable",
-                        defaultValue: "TabManager not available"
+                        defaultValue: "Browser controls are unavailable"
                     ),
                     data: nil
                 )

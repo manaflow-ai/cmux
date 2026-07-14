@@ -1,7 +1,7 @@
 import Foundation
 
 /// The complete context packaged for a coding agent after visual editing.
-public struct BrowserDesignModePromptContext: Equatable, Sendable {
+public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
     /// The page URL containing the edited element.
     public let pageURL: String
     /// The authoritative design-mode snapshot.

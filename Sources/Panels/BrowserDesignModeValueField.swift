@@ -38,7 +38,10 @@ struct BrowserDesignModeValueField: View {
                     }
                 }
                 .onChange(of: currentValue) { _, next in
-                    if !isFocused, value != next { value = next }
+                    if !isFocused || submittedValue != next {
+                        value = next
+                        submittedValue = nil
+                    }
                 }
         }
         .cmuxFont(size: 11)

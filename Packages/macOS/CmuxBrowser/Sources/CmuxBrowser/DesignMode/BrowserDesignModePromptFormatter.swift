@@ -1,7 +1,7 @@
 import Foundation
 
 /// Formats design-mode context into the prompt block delivered to a coding agent.
-public struct BrowserDesignModePromptFormatter: Sendable {
+public nonisolated struct BrowserDesignModePromptFormatter: Sendable {
     private struct Payload: Encodable {
         let pageURL: String
         let snapshot: BrowserDesignModeSnapshot

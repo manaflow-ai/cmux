@@ -24,7 +24,13 @@ function fixture(html: string) {
 
 type Snapshot = {
   enabled: boolean;
-  selection: null | { selector: string; selectors: string[]; text_content?: string; dom_snippet?: string };
+  selection: null | {
+    selector: string;
+    selectors: string[];
+    text_content?: string;
+    text_editable?: boolean;
+    dom_snippet?: string;
+  };
   edits: Array<{ id: string; property: string; original_value: string; value: string }>;
   css_diff: string;
 };
@@ -38,6 +44,8 @@ type DesignRuntime = {
   applyText(value: string): Snapshot;
   revert(id: string): Snapshot;
   revertAll(): Snapshot;
+  prepareCapture(): Snapshot;
+  finishCapture(): Snapshot;
 };
 
 afterEach(() => {
@@ -133,6 +141,75 @@ describe("browser design-mode runtime", () => {
     expect(selected.selection?.dom_snippet?.length).toBeLessThanOrEqual(2400);
     expect(edited.edits[0]?.value.length).toBeLessThanOrEqual(16 * 1024);
     expect(JSON.stringify(edited).length).toBeLessThanOrEqual(128 * 1024);
+  });
+
+  test("redacts sensitive form data before snapshots cross the bridge", () => {
+    const { runtime } = fixture(`
+      <main id="account">
+        <input id="password" type="password" value="hunter2">
+        <input type="hidden" name="csrf-token" value="secret-token">
+        <meta name="csrf-token" content="meta-secret">
+        <textarea name="api-token">nested-secret</textarea>
+        <script>window.config = "script-secret";</script>
+        <style>.style-secret { color: red; }</style>
+        <p>Visible account copy</p>
+      </main>
+    `);
+
+    const password = runtime.select("#password");
+    expect(password.selection?.text_content).toBe("<redacted>");
+    expect(password.selection?.text_editable).toBe(false);
+    expect(password.selection?.dom_snippet).not.toContain("hunter2");
+
+    const account = runtime.select("#account");
+    expect(account.selection?.dom_snippet).not.toContain("secret-token");
+    expect(account.selection?.dom_snippet).not.toContain("meta-secret");
+    expect(account.selection?.dom_snippet).toContain("&lt;redacted&gt;");
+    expect(account.selection?.text_content).toContain("Visible account copy");
+    expect(account.selection?.text_content).not.toContain("nested-secret");
+    expect(account.selection?.text_content).not.toContain("script-secret");
+    expect(account.selection?.text_content).not.toContain("style-secret");
+  });
+
+  test("rebinds controlled inputs without redispatching an input loop", async () => {
+    const { dom, runtime } = fixture(`<main><input id="name" value="Original"></main>`);
+    let inputEvents = 0;
+    const replaceOnInput = (event: Event) => {
+      inputEvents += 1;
+      const current = event.currentTarget as HTMLInputElement;
+      const replacement = current.cloneNode(true) as HTMLInputElement;
+      replacement.value = "Server value";
+      replacement.addEventListener("input", replaceOnInput);
+      current.replaceWith(replacement);
+    };
+    const input = dom.window.document.querySelector("#name") as HTMLInputElement;
+    input.addEventListener("input", replaceOnInput);
+
+    runtime.select("#name");
+    runtime.applyText("Edited");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const replacement = dom.window.document.querySelector("#name") as HTMLInputElement;
+    expect(inputEvents).toBe(1);
+    expect(replacement.value).toBe("Edited");
+  });
+
+  test("prepares capture without depending on animation-frame delivery", () => {
+    const { dom, runtime } = fixture(`<main><h1 id="hero">Hello</h1></main>`);
+    runtime.select("#hero");
+    let requestedFrames = 0;
+    Object.defineProperty(dom.window, "requestAnimationFrame", {
+      value: () => {
+        requestedFrames += 1;
+        return 1;
+      },
+    });
+
+    const prepared = runtime.prepareCapture();
+    expect(prepared.selection?.selector).toBe("#hero");
+    expect(requestedFrames).toBe(0);
+    runtime.finishCapture();
   });
 
   test("does not synthesize unique selectors while hovering", async () => {

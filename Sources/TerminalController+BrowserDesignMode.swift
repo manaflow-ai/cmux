@@ -1,23 +1,52 @@
+import CmuxAgentChat
+import Darwin
 import Foundation
 
 extension TerminalController {
     func sendDesignModePrompt(_ prompt: String, in workspace: Workspace) throws {
-        guard let service = agentChatTranscriptService,
-              let terminal = service.sessionRecords(workspaceID: nil).lazy.compactMap({ record -> TerminalPanel? in
-                  guard record.state != .ended,
-                        let surfaceID = record.surfaceID,
-                        service.registry.liveSession(surfaceID: surfaceID)?.sessionID == record.sessionID,
-                        let surfaceUUID = UUID(uuidString: surfaceID) else { return nil }
-                  return workspace.terminalPanel(for: surfaceUUID)
-              }).first else {
+        guard let service = agentChatTranscriptService else {
             throw BrowserDesignModeSendError.terminalUnavailable
+        }
+        let targets = service.sessionRecords(workspaceID: nil).compactMap { record -> (
+            record: AgentChatSessionRecord,
+            terminal: TerminalPanel
+        )? in
+            guard record.state != .ended,
+                  let surfaceID = record.surfaceID,
+                  service.registry.liveSession(surfaceID: surfaceID)?.sessionID == record.sessionID,
+                  let surfaceUUID = UUID(uuidString: surfaceID),
+                  let terminal = workspace.terminalPanel(for: surfaceUUID) else { return nil }
+            return (record, terminal)
+        }
+        guard targets.count == 1, let target = targets.first else {
+            throw targets.isEmpty
+                ? BrowserDesignModeSendError.terminalUnavailable
+                : BrowserDesignModeSendError.multipleAgentTerminals
+        }
+        guard target.record.state == .idle else {
+            throw BrowserDesignModeSendError.agentBusy
+        }
+        let terminal = target.terminal
+        if let pid = target.record.pid {
+            guard let exactPID = pid_t(exactly: pid),
+                  let liveTarget = AppDelegate.shared?.liveAgentDeliveryTarget(forAgentPID: exactPID),
+                  liveTarget.workspaceId == workspace.id,
+                  liveTarget.surfaceId == terminal.id else {
+                throw BrowserDesignModeSendError.terminalUnavailable
+            }
+        }
+        guard terminal.sessionTextBoxDraftSnapshot() == nil else {
+            throw BrowserDesignModeSendError.agentComposerNotEmpty
+        }
+        guard clearAgentPrompt(terminal).accepted else {
+            throw BrowserDesignModeSendError.promptClearUnavailable
         }
         guard terminal.sendText(prompt) else {
             throw BrowserDesignModeSendError.terminalUnavailable
         }
         let submitKey = TextBoxAgentDetection.composedPromptSubmitKey(
             containsNewline: prompt.contains("\n") || prompt.contains("\r"),
-            context: WorkspaceContentView.terminalAgentContext(panel: terminal, workspace: workspace)
+            agentKind: target.record.agentKind
         )
         guard terminal.sendNamedKeyResult(submitKey).accepted else {
             throw BrowserDesignModeSendError.submitUnavailable

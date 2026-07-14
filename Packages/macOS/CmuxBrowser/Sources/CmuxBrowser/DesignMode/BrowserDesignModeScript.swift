@@ -1,7 +1,7 @@
 import Foundation
 
 /// Loads the isolated JavaScript runtime shipped with ``CmuxBrowser``.
-public struct BrowserDesignModeScript: Sendable {
+public nonisolated struct BrowserDesignModeScript: Sendable {
     /// Creates a runtime script loader.
     public init() {}
 

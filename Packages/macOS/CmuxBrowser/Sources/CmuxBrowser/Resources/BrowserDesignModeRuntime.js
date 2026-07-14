@@ -21,8 +21,14 @@
   const preferredAttributes = ["data-testid", "data-test", "data-qa", "aria-label", "name"];
   const maxSnapshotCharacters = 128 * 1024;
   const maxTextCharacters = 16 * 1024;
+  const maxTextNodeCount = 512;
+  const maxSelectorCharacters = 2048;
+  const maxSelectorValueCharacters = 160;
   const maxStyleValueCharacters = 512;
   const maxSnippetCharacters = 2400;
+  const redactedValue = "<redacted>";
+  const sensitiveNamePattern = /(?:^|[-_:])(api[-_]?key|auth|authorization|credential|csrf|password|passwd|secret|session|token)(?:$|[-_:])/i;
+  const sensitiveAutocompletePattern = /(?:current-password|new-password|one-time-code|cc-number|cc-csc)/i;
   const voidElements = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
 
   let enabled = false;
@@ -65,7 +71,7 @@
     .replace(/\r/g, "");
 
   const isUniqueFor = (selector, element) => {
-    if (!selector) return false;
+    if (!selector || selector.length > maxSelectorCharacters) return false;
     try {
       const matches = document.querySelectorAll(selector);
       return matches.length === 1 && matches[0] === element;
@@ -92,7 +98,7 @@
     let current = element;
     while (current && current.nodeType === 1 && parts.length < 7) {
       let part = current.localName || "*";
-      if (current.id) {
+      if (current.id && current.id.length <= maxSelectorValueCharacters) {
         part = `#${cssEscape(current.id)}`;
         parts.unshift(part);
         break;
@@ -120,7 +126,9 @@
 
   const selectorsFor = (element) => {
     const candidates = [];
-    if (element.id) candidates.push(`#${cssEscape(element.id)}`);
+    if (element.id && element.id.length <= maxSelectorValueCharacters) {
+      candidates.push(`#${cssEscape(element.id)}`);
+    }
     for (const name of preferredAttributes) {
       const value = element.getAttribute?.(name);
       if (!value || value.length > 160) continue;
@@ -135,8 +143,42 @@
     for (const candidate of candidates) {
       if (!candidate || unique.includes(candidate)) continue;
       if (isUniqueFor(candidate, element)) unique.push(candidate);
+      if (unique.length === 6) break;
     }
     return unique;
+  };
+
+  const isSensitiveElement = (element) => {
+    if (!element || element.nodeType !== 1) return false;
+    if (["script", "style"].includes(element.localName)) return true;
+    const type = String(element.getAttribute?.("type") || "").toLowerCase();
+    if (element instanceof HTMLInputElement && ["hidden", "password"].includes(type)) return true;
+    const autocomplete = String(element.getAttribute?.("autocomplete") || "");
+    if (sensitiveAutocompletePattern.test(autocomplete)) return true;
+    return sensitiveNamePattern.test(String(element.getAttribute?.("name") || ""))
+      || sensitiveNamePattern.test(String(element.id || ""));
+  };
+
+  const sanitizedAttributeValue = (element, attribute) => {
+    const name = String(attribute.name || "");
+    const value = String(attribute.value || "");
+    if (sensitiveNamePattern.test(name)
+        || (isSensitiveElement(element)
+          && !["id", "name", "type", "autocomplete", "class", "role", "aria-label"].includes(name.toLowerCase()))
+        || /(?:token|secret|password|passwd|credential|authorization|api[-_]?key)\s*[:=]/i.test(value)) {
+      return redactedValue;
+    }
+    return value;
+  };
+
+  const hasSensitiveAncestor = (node, root) => {
+    let current = node.parentElement;
+    while (current) {
+      if (isSensitiveElement(current)) return true;
+      if (current === root) return false;
+      current = current.parentElement;
+    }
+    return false;
   };
 
   const textValue = (element) => {
@@ -147,15 +189,19 @@
   };
 
   const boundedTextValue = (element) => {
+    if (isSensitiveElement(element)) return redactedValue;
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
       return bounded(element.value, maxTextCharacters);
     }
     const parts = [];
     let remaining = maxTextCharacters;
+    let visited = 0;
     const walker = document.createTreeWalker(element, 4);
-    while (remaining > 0) {
+    while (remaining > 0 && visited < maxTextNodeCount) {
       const node = walker.nextNode();
       if (!node) break;
+      visited += 1;
+      if (hasSensitiveAncestor(node, element)) continue;
       const value = bounded(node.nodeValue, remaining);
       parts.push(value);
       remaining -= value.length;
@@ -164,6 +210,7 @@
   };
 
   const textIsEditable = (element) => {
+    if (isSensitiveElement(element)) return false;
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) return true;
     return element.childElementCount === 0 && !["html", "body", "script", "style"].includes(element.localName);
   };
@@ -199,12 +246,14 @@
       append(`<${tag}`);
       for (const attribute of node.attributes || []) {
         if (remaining <= 0) break;
-        const value = escapedMarkup(bounded(attribute.value, Math.min(remaining, 512)));
+        const value = escapedMarkup(bounded(sanitizedAttributeValue(node, attribute), Math.min(remaining, 512)));
         append(` ${attribute.name}="${value}"`);
       }
       append(">");
       if (voidElements.has(tag)) return;
-      if (depth < 5) {
+      if (isSensitiveElement(node)) {
+        append(redactedValue);
+      } else if (depth < 5) {
         for (const child of node.childNodes || []) visit(child, depth + 1);
       } else if (node.childNodes?.length) {
         append("…");
@@ -360,31 +409,31 @@
     if (!textValue) return;
     if (textValue.input) {
       element.value = textValue.value;
-      element.dispatchEvent(new Event("input", { bubbles: true }));
+      if (element.isConnected) element.dispatchEvent(new Event("input", { bubbles: true }));
     } else {
       element.textContent = textValue.value;
     }
     textOriginals.delete(element);
   };
 
-  const applyText = (element, value) => {
+  const applyText = (element, value, notifyPage) => {
     rememberTextOriginal(element);
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
       if (element.value === value) return;
       element.value = value;
-      element.dispatchEvent(new Event("input", { bubbles: true }));
+      if (notifyPage) element.dispatchEvent(new Event("input", { bubbles: true }));
       return;
     }
     if (element.textContent !== value) element.textContent = value;
   };
 
-  const applyEditsTo = (element) => {
+  const applyEditsTo = (element, notifyPage = true) => {
     for (const edit of edits.values()) {
       if (edit.kind === "style") {
         rememberStyleOriginal(element, edit.property);
         element.style.setProperty(edit.property, edit.value, "important");
       } else if (edit.kind === "text") {
-        applyText(element, edit.value);
+        applyText(element, edit.value, notifyPage);
       }
     }
   };
@@ -531,7 +580,7 @@
     const previous = selectedElement;
     const current = resolveSelectedElement();
     if (previous && previous !== current) restoreAndForgetElement(previous);
-    if (current) applyEditsTo(current);
+    if (current) applyEditsTo(current, false);
     if (previous !== current) {
       revision += 1;
       emit();
@@ -705,9 +754,10 @@
     prepareCapture() {
       captureHidden = true;
       hideOverlay();
-      return new Promise((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve(snapshot())));
-      });
+      // Force style/layout synchronization before WebKit's snapshot callback;
+      // requestAnimationFrame can stop entirely for a hidden or navigating document.
+      document.documentElement.getBoundingClientRect();
+      return snapshot();
     },
 
     finishCapture() {

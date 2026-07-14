@@ -146,15 +146,24 @@ final class BrowserDesignModeController {
                 apply(next)
                 phase = .active
                 return true
-            } catch {
+            } catch let enableError {
                 guard operation == operationRevision else { return false }
-                resetNativeState()
+                let cleanupSucceeded: Bool
+                do {
+                    try await destroyRuntime(in: webView)
+                    cleanupSucceeded = true
+                } catch {
+                    cleanupSucceeded = false
+                }
+                if cleanupSucceeded {
+                    resetNativeState()
+                } else {
+                    phase = .active
+                }
+                recordInternalFailure(enableError, operation: "enable")
                 errorMessage = String(
-                    format: String(
-                        localized: "browser.designMode.error.enableFormat",
-                        defaultValue: "Design Mode could not start: %@"
-                    ),
-                    error.localizedDescription
+                    localized: "browser.designMode.error.enable",
+                    defaultValue: "Design Mode could not start."
                 )
                 return false
             }
@@ -169,15 +178,13 @@ final class BrowserDesignModeController {
             guard operation == operationRevision else { return false }
             resetNativeState()
             return true
-        } catch {
+        } catch let disableError {
             guard operation == operationRevision else { return false }
-            resetNativeState()
+            phase = .active
+            recordInternalFailure(disableError, operation: "disable")
             errorMessage = String(
-                format: String(
-                    localized: "browser.designMode.error.disableFormat",
-                    defaultValue: "Design Mode cleanup failed: %@"
-                ),
-                error.localizedDescription
+                localized: "browser.designMode.error.disable",
+                defaultValue: "Design Mode cleanup failed. Reload the page or try again."
             )
             return false
         }
@@ -214,36 +221,22 @@ final class BrowserDesignModeController {
         handoffState = .preparing
         errorMessage = nil
         do {
-            let captureValue = try await evaluate(
-                "return globalThis.__cmuxDesignMode?.prepareCapture();",
-                in: webView
-            )
-            let captureSnapshot = try decodeSnapshot(captureValue)
+            let capture = try await captureStableSelection(in: webView)
             guard operation == operationRevision else { return }
-            apply(captureSnapshot)
+            apply(capture.snapshot)
 
-            let image: NSImage
-            do {
-                image = try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(from: webView)
-            } catch {
-                try? await finishCapture(in: webView)
-                throw error
-            }
-            try await finishCapture(in: webView)
-            guard operation == operationRevision else { return }
-
-            guard let selection = captureSnapshot.selection else {
+            guard let selection = capture.snapshot.selection else {
                 throw BrowserScreenshotError.invalidSelection
             }
             let cropRect = Self.captureRect(
                 selection: selection.bounds,
                 viewport: selection.viewport,
-                viewBounds: webView.bounds
+                viewBounds: capture.viewBounds
             )
             let crop = try BrowserScreenshotCrop.croppedImage(
-                from: image,
+                from: capture.image,
                 selectionInView: cropRect,
-                viewBounds: webView.bounds
+                viewBounds: capture.viewBounds
             )
             let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: crop)
             let screenshotURL = try await screenshotStore.save(pngData, surfaceID: surfaceID)
@@ -252,21 +245,22 @@ final class BrowserDesignModeController {
             let prompt = promptFormatter.format(
                 BrowserDesignModePromptContext(
                     pageURL: pageURL,
-                    snapshot: captureSnapshot,
+                    snapshot: capture.snapshot,
                     screenshotPath: screenshotURL.path
                 )
             )
             guard !prompt.isEmpty else { throw BrowserDesignModeSendError.invalidRuntimeResponse }
             try promptSender(prompt)
             handoffState = .sent
-        } catch {
+        } catch let sendError {
             guard operation == operationRevision else { return }
-            let message = String(
-                format: String(
-                    localized: "browser.designMode.error.sendFormat",
-                    defaultValue: "Could not send the design to the agent: %@"
-                ),
-                error.localizedDescription
+            recordInternalFailure(sendError, operation: "send")
+            let message = productMessage(
+                for: sendError,
+                fallback: String(
+                    localized: "browser.designMode.error.send",
+                    defaultValue: "Could not send the design to the agent."
+                )
             )
             handoffState = .failed(message)
             errorMessage = message
@@ -282,10 +276,73 @@ final class BrowserDesignModeController {
             apply(try decodeSnapshot(value))
             errorMessage = nil
             handoffState = .idle
-        } catch {
+        } catch let updateError {
             guard operation == operationRevision, phase == .active else { return }
-            errorMessage = error.localizedDescription
+            recordInternalFailure(updateError, operation: "edit")
+            errorMessage = String(
+                localized: "browser.designMode.error.apply",
+                defaultValue: "The design change could not be applied."
+            )
         }
+    }
+
+    private func captureStableSelection(
+        in webView: WKWebView
+    ) async throws -> (snapshot: BrowserDesignModeSnapshot, image: NSImage, viewBounds: NSRect) {
+        for _ in 0..<2 {
+            let candidate = try await captureCandidate(in: webView)
+            if Self.captureMatches(
+                before: candidate.before,
+                after: candidate.after,
+                beforeViewBounds: candidate.beforeViewBounds,
+                afterViewBounds: candidate.afterViewBounds
+            ) {
+                return (candidate.after, candidate.image, candidate.afterViewBounds)
+            }
+        }
+        throw BrowserDesignModeSendError.captureChanged
+    }
+
+    private func captureCandidate(
+        in webView: WKWebView
+    ) async throws -> (
+        before: BrowserDesignModeSnapshot,
+        after: BrowserDesignModeSnapshot,
+        image: NSImage,
+        beforeViewBounds: NSRect,
+        afterViewBounds: NSRect
+    ) {
+        let prepared = try await evaluate(
+            "return globalThis.__cmuxDesignMode?.prepareCapture();",
+            in: webView
+        )
+        do {
+            let before = try decodeSnapshot(prepared)
+            let beforeViewBounds = webView.bounds
+            let image = try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(from: webView)
+            let after = try decodeSnapshot(
+                try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView)
+            )
+            let afterViewBounds = webView.bounds
+            try await finishCapture(in: webView)
+            return (before, after, image, beforeViewBounds, afterViewBounds)
+        } catch let captureError {
+            try? await finishCapture(in: webView)
+            throw captureError
+        }
+    }
+
+    private static func captureMatches(
+        before: BrowserDesignModeSnapshot,
+        after: BrowserDesignModeSnapshot,
+        beforeViewBounds: NSRect,
+        afterViewBounds: NSRect
+    ) -> Bool {
+        before.enabled && after.enabled
+            && before.selection?.selector == after.selection?.selector
+            && before.selection?.bounds == after.selection?.bounds
+            && before.selection?.viewport == after.selection?.viewport
+            && beforeViewBounds == afterViewBounds
     }
 
     private func finishCapture(in webView: WKWebView) async throws {
@@ -294,6 +351,18 @@ final class BrowserDesignModeController {
 
     private func destroyRuntime(in webView: WKWebView) async throws {
         _ = try await evaluate("return globalThis.__cmuxDesignMode?.destroy();", in: webView)
+    }
+
+    private func productMessage(for error: any Error, fallback: String) -> String {
+        if let error = error as? BrowserDesignModeSendError { return error.localizedDescription }
+        if let error = error as? BrowserScreenshotError { return error.localizedDescription }
+        return fallback
+    }
+
+    private func recordInternalFailure(_ error: any Error, operation: String) {
+#if DEBUG
+        cmuxDebugLog("browser.designMode.\(operation).failed error=\(String(reflecting: error))")
+#endif
     }
 
     private func evaluate(

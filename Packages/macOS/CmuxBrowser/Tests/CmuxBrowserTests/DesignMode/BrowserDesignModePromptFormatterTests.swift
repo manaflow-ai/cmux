@@ -3,18 +3,6 @@ import Testing
 @testable import CmuxBrowser
 
 @Suite struct BrowserDesignModePromptFormatterTests {
-    private struct Payload: Decodable {
-        let pageURL: String
-        let snapshot: BrowserDesignModeSnapshot
-        let screenshotPath: String?
-
-        private enum CodingKeys: String, CodingKey {
-            case pageURL = "page_url"
-            case snapshot
-            case screenshotPath = "screenshot_path"
-        }
-    }
-
     @Test func formatsCompleteContextDeterministically() throws {
         let snapshot = BrowserDesignModeSnapshot(
             revision: 4,
@@ -153,11 +141,11 @@ import Testing
         #expect(decoded.cssDiff.contains("+  font-size: 44px"))
     }
 
-    private func decodePayload(from prompt: String) throws -> Payload {
+    private func decodePayload(from prompt: String) throws -> BrowserDesignModePromptPayload {
         let marker = "Payload:\n"
         let start = try #require(prompt.range(of: marker)?.upperBound)
         let end = try #require(prompt.range(of: "\n</cmux_design_mode>", range: start..<prompt.endIndex)?.lowerBound)
         let data = try #require(Data(base64Encoded: String(prompt[start..<end])))
-        return try JSONDecoder().decode(Payload.self, from: data)
+        return try JSONDecoder().decode(BrowserDesignModePromptPayload.self, from: data)
     }
 }

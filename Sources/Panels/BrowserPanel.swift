@@ -1825,22 +1825,6 @@ enum BrowserInsecureHTTPNavigationIntent {
     case newTab
 }
 
-enum BrowserInsecureHTTPNavigationResolution {
-    case openedExternally
-    case proceededInCurrentTab
-    case proceededInNewTab
-    case cancelled
-
-    var isTerminalPolicyCancellation: Bool {
-        switch self {
-        case .openedExternally, .proceededInNewTab:
-            true
-        case .proceededInCurrentTab, .cancelled:
-            false
-        }
-    }
-}
-
 nonisolated enum BrowserWebViewLifecycleState: String {
     case newTab = "new_tab"
     case deferredURL = "deferred_url"
@@ -2602,6 +2586,18 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             ].joined(separator: "; ")
         }
         return headers
+    }
+}
+
+/// Observable state for browser find-in-page. Mirrors `TerminalSurface.SearchState`.
+@MainActor
+final class BrowserSearchState: ObservableObject {
+    @Published var needle: String
+    @Published var selected: UInt?
+    @Published var total: UInt?
+
+    init(needle: String = "") {
+        self.needle = needle
     }
 }
 

@@ -22,6 +22,7 @@ struct BrowserDesignModeEditor: View {
                         editsSection(snapshot)
                     }
                     .padding(.trailing, 4)
+                    .id(selection.selector)
                 }
                 .frame(maxHeight: 520)
                 .disabled(controller.handoffState == .preparing)
@@ -175,13 +176,15 @@ struct BrowserDesignModeEditor: View {
 
     private func editsSection(_ snapshot: BrowserDesignModeSnapshot) -> some View {
         editorSection(
-            String(
-                format: String(
-                    localized: "browser.designMode.section.editsFormat",
-                    defaultValue: "Edits (%d)"
-                ),
-                snapshot.edits.count
-            )
+            snapshot.edits.count == 1
+                ? String(localized: "browser.designMode.section.edits.one", defaultValue: "Edit (1)")
+                : String(
+                    format: String(
+                        localized: "browser.designMode.section.edits.other",
+                        defaultValue: "Edits (%d)"
+                    ),
+                    snapshot.edits.count
+                )
         ) {
             if snapshot.edits.isEmpty {
                 Text(String(localized: "browser.designMode.edits.empty", defaultValue: "No changes yet."))
