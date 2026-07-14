@@ -8,11 +8,14 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
     private var terminalView: TerminalView?
     private var terminalSession: InMemoryTerminalSession?
     private var terminalController: TerminalController?
-    private var expectedColumns: UInt16?
-    private var expectedRows: UInt16?
     private var pendingChunks: [Data] = []
     private var ready = false
     private var colors: CmuxTerminalColors?
+    private var attachedSurface: UInt64?
+    private var applyingReplay = false
+    private var hasAppliedReplay = false
+    private var pendingInitialClaim = false
+    private var lastMeasurement: CmuxTerminalMeasurement?
 
     init(frontend: CmuxFrontendSession) {
         self.frontend = frontend
@@ -27,68 +30,93 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
     override func loadView() {
         let view = NSView()
         view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.black.cgColor
+        view.layer?.backgroundColor = CmuxPalette.tui.background.cgColor
         self.view = view
     }
 
     func consume(_ event: CmuxAttachEvent) {
         switch event {
-        case let .initialReplay(surface: _, columns, rows, bytes, colors):
+        case let .initialReplay(surface, columns: _, rows: _, bytes, colors):
             self.colors = colors
-            replaceTerminal(columns: columns, rows: rows, replay: bytes)
-        case let .resizedReplay(surface: _, columns, rows, bytes):
-            replaceTerminal(columns: columns, rows: rows, replay: bytes)
-        case let .output(surface: _, bytes):
+            if attachedSurface != surface {
+                replaceTerminal(for: surface)
+            } else {
+                _ = terminalController?.setTerminalConfiguration(
+                    colors?.ghosttyConfiguration ?? TerminalConfiguration()
+                )
+            }
+            applyReplay(bytes, claimAfterReplay: true)
+        case let .resizedReplay(surface, columns: _, rows: _, bytes):
+            guard attachedSurface == surface else { return }
+            applyReplay(bytes, claimAfterReplay: false)
+        case let .output(surface, bytes):
+            guard attachedSurface == surface else { return }
             if ready {
                 terminalSession?.receive(bytes)
             } else {
                 pendingChunks.append(bytes)
             }
-        case let .colorsChanged(surface: _, colors):
+        case let .colorsChanged(surface, colors):
+            guard surface == nil || surface == attachedSurface else { return }
             self.colors = colors
             _ = terminalController?.setTerminalConfiguration(colors.ghosttyConfiguration)
-        case .detached, .other:
+        case let .detached(surface):
+            guard attachedSurface == surface else { return }
+        case .other:
             break
         }
     }
 
     func terminalDidResize(_ size: TerminalGridMetrics) {
-        guard size.columns > 0, size.rows > 0 else { return }
+        guard let measurement = measurement(for: size) else { return }
+        let containerChanged = lastMeasurement.map {
+            $0.widthPixels != measurement.widthPixels
+                || $0.heightPixels != measurement.heightPixels
+        } ?? false
+        lastMeasurement = measurement
 
-        if size.columns == expectedColumns, size.rows == expectedRows, !ready {
+        if !ready {
             ready = true
             let chunks = pendingChunks
             pendingChunks.removeAll(keepingCapacity: true)
+            applyingReplay = true
             for chunk in chunks {
                 terminalSession?.receive(chunk)
             }
+            applyingReplay = false
         }
+
+        let claim = pendingInitialClaim
+            || (hasAppliedReplay && !applyingReplay && containerChanged)
+        if pendingInitialClaim {
+            pendingInitialClaim = false
+        }
+        submit(measurement, claim: claim && !applyingReplay)
     }
 
-    private func replaceTerminal(columns: UInt16, rows: UInt16, replay: Data) {
+    private func replaceTerminal(for surface: UInt64) {
         terminalView?.removeFromSuperview()
         terminalView = nil
         terminalSession = nil
         terminalController = nil
 
-        expectedColumns = columns
-        expectedRows = rows
-        pendingChunks = [replay]
+        attachedSurface = surface
+        pendingChunks.removeAll(keepingCapacity: true)
         ready = false
+        applyingReplay = false
+        hasAppliedReplay = false
+        pendingInitialClaim = false
+        lastMeasurement = nil
 
         let frontend = frontend
         let session = InMemoryTerminalSession(
             write: { data in
                 Task { await frontend.sendInput(data) }
             },
-            resize: { viewport in
-                Task {
-                    await frontend.scheduleResize(
-                        columns: viewport.columns,
-                        rows: viewport.rows
-                    )
-                }
-            }
+            // AppTerminalView reports the same metrics through its main-actor
+            // delegate. Keeping one path lets replay reconstruction suppress
+            // resize echoes while real container changes still claim sizing.
+            resize: { _ in }
         )
         let controller = TerminalController(
             terminalConfiguration: colors?.ghosttyConfiguration ?? TerminalConfiguration()
@@ -104,7 +132,8 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
         terminal.setAccessibilityLabel(
             String(
                 localized: "terminal.accessibility_label",
-                defaultValue: "Remote terminal"
+                defaultValue: "Remote terminal",
+                bundle: .module
             )
         )
         terminal.translatesAutoresizingMaskIntoConstraints = false
@@ -121,5 +150,56 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
             terminal.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         view.window?.makeFirstResponder(terminal)
+    }
+
+    private func applyReplay(_ replay: Data, claimAfterReplay: Bool) {
+        guard terminalSession != nil else { return }
+        pendingInitialClaim = pendingInitialClaim || claimAfterReplay
+        hasAppliedReplay = true
+
+        guard ready else {
+            pendingChunks.append(replay)
+            return
+        }
+
+        applyingReplay = true
+        terminalView?.fitToSize()
+        terminalSession?.receive(replay)
+        applyingReplay = false
+
+        if claimAfterReplay, let lastMeasurement {
+            pendingInitialClaim = false
+            submit(lastMeasurement, claim: true)
+        }
+    }
+
+    private func measurement(for size: TerminalGridMetrics) -> CmuxTerminalMeasurement? {
+        guard let terminalView,
+              size.cellWidthPixels > 0,
+              size.cellHeightPixels > 0,
+              terminalView.bounds.width > 0,
+              terminalView.bounds.height > 0,
+              abs(terminalView.frame.width - view.bounds.width) < 0.5,
+              abs(terminalView.frame.height - view.bounds.height) < 0.5
+        else { return nil }
+
+        let backingBounds = terminalView.convertToBacking(terminalView.bounds)
+        return CmuxTerminalMeasurement(
+            widthPixels: backingBounds.width,
+            heightPixels: backingBounds.height,
+            cellWidthPixels: size.cellWidthPixels,
+            cellHeightPixels: size.cellHeightPixels
+        )
+    }
+
+    private func submit(_ measurement: CmuxTerminalMeasurement, claim: Bool) {
+        let frontend = frontend
+        Task {
+            if claim {
+                await frontend.scheduleResize(for: measurement)
+            } else {
+                await frontend.recordTerminalMeasurement(measurement)
+            }
+        }
     }
 }

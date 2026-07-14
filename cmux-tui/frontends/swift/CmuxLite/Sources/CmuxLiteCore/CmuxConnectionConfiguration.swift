@@ -20,7 +20,16 @@ public struct CmuxConnectionConfiguration: Sendable, Equatable {
         self.token = token
     }
 
+    /// The config file consulted for the token when no token argument is
+    /// given, so a Finder-launched app (which receives no arguments) can
+    /// still authenticate: `~/.config/cmux-lite/token`.
+    public static var defaultTokenFile: String {
+        (NSHomeDirectory() as NSString).appendingPathComponent(".config/cmux-lite/token")
+    }
+
     /// Parses `--url`, `--token`, and `--token-file` command-line arguments.
+    /// Without a token argument, falls back to ``defaultTokenFile`` when that
+    /// file exists.
     /// - Parameters:
     ///   - arguments: Arguments after the executable name.
     ///   - readFile: An injected UTF-8 text-file reader.
@@ -58,6 +67,11 @@ public struct CmuxConnectionConfiguration: Sendable, Equatable {
                 throw CmuxProtocolError.invalidArgument("unknown option: \(option)")
             }
             index += 2
+        }
+
+        if token == nil, let fallback = try? readFile(defaultTokenFile) {
+            let trimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { token = trimmed }
         }
 
         return CmuxConnectionConfiguration(url: url, token: token)

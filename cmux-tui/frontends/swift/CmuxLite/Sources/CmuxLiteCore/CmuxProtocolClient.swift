@@ -66,6 +66,53 @@ public actor CmuxProtocolClient {
         try await request(CmuxCommandRequest(id: 0, cmd: "list-workspaces"))
     }
 
+    func subscribe() async throws {
+        _ = try await request(
+            CmuxCommandRequest(id: 0, cmd: "subscribe"),
+            as: CmuxEmptyResponse.self
+        )
+    }
+
+    func newWorkspace(size: CmuxSurfaceSize?) async throws -> CmuxSurfaceResponse {
+        try await request(CmuxCommandRequest(
+            id: 0,
+            cmd: "new-workspace",
+            cols: size?.cols,
+            rows: size?.rows
+        ))
+    }
+
+    func newScreen(workspace: UInt64, size: CmuxSurfaceSize?) async throws -> CmuxSurfaceResponse {
+        try await request(
+            CmuxCommandRequest(
+                id: 0,
+                cmd: "new-screen",
+                workspace: workspace,
+                cols: size?.cols,
+                rows: size?.rows
+            )
+        )
+    }
+
+    func newTab(pane: UInt64, size: CmuxSurfaceSize?) async throws -> CmuxSurfaceResponse {
+        try await request(
+            CmuxCommandRequest(
+                id: 0,
+                cmd: "new-tab",
+                pane: pane,
+                cols: size?.cols,
+                rows: size?.rows
+            )
+        )
+    }
+
+    func selectTab(pane: UInt64, index: Int) async throws {
+        _ = try await request(
+            CmuxCommandRequest(id: 0, cmd: "select-tab", pane: pane, index: index),
+            as: CmuxEmptyResponse.self
+        )
+    }
+
     func attachSurface(_ surface: UInt64, includeByteMode: Bool) async throws {
         _ = try await request(
             CmuxCommandRequest(
@@ -125,7 +172,10 @@ public actor CmuxProtocolClient {
             cmd: request.cmd,
             name: request.name,
             kind: request.kind,
+            workspace: request.workspace,
+            pane: request.pane,
             surface: request.surface,
+            index: request.index,
             mode: request.mode,
             text: request.text,
             bytes: request.bytes,

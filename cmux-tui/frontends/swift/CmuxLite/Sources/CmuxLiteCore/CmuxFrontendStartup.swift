@@ -1,9 +1,15 @@
 import Foundation
 
-/// Summarizes the selected workspace tree and byte attachment.
+/// Summarizes cmux-lite's local navigation and current byte attachment.
 public struct CmuxFrontendStartup: Sendable, Equatable {
-    /// Workspace names in server order.
-    public let workspaceNames: [String]
+    /// Workspaces and screens in server order.
+    public let workspaces: [CmuxWorkspaceSnapshot]
+
+    /// The workspace selected by this client without changing server selection.
+    public let selectedWorkspace: UInt64
+
+    /// The screen selected by this client without changing server selection.
+    public let selectedScreen: UInt64
 
     /// The attached PTY surface identifier.
     public let surface: UInt64
@@ -11,14 +17,30 @@ public struct CmuxFrontendStartup: Sendable, Equatable {
     /// The negotiated server protocol version.
     public let protocolVersion: UInt32
 
-    /// Creates a startup summary.
+    /// The server session name rendered in the status badge.
+    public let sessionName: String
+
+    /// Creates a frontend snapshot.
     /// - Parameters:
-    ///   - workspaceNames: Workspace names in server order.
+    ///   - workspaces: Workspaces and screens in server order.
+    ///   - selectedWorkspace: The locally selected workspace identifier.
+    ///   - selectedScreen: The locally selected screen identifier.
     ///   - surface: The selected PTY surface.
     ///   - protocolVersion: The identified server protocol.
-    public init(workspaceNames: [String], surface: UInt64, protocolVersion: UInt32) {
-        self.workspaceNames = workspaceNames
+    ///   - sessionName: The identified server session name.
+    public init(
+        workspaces: [CmuxWorkspaceSnapshot],
+        selectedWorkspace: UInt64,
+        selectedScreen: UInt64,
+        surface: UInt64,
+        protocolVersion: UInt32,
+        sessionName: String
+    ) {
+        self.workspaces = workspaces
+        self.selectedWorkspace = selectedWorkspace
+        self.selectedScreen = selectedScreen
         self.surface = surface
         self.protocolVersion = protocolVersion
+        self.sessionName = sessionName
     }
 }
