@@ -16949,7 +16949,7 @@ struct CMUXCLI {
               wait [--selector <css>] [--text <text>] [--url-contains <text>|--url <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>|--timeout <seconds>]
               click|dblclick|hover|focus|check|uncheck|scroll-into-view [--selector <css> | <css>] [--snapshot-after]
               type|fill [--selector <css> | <css>] [--text <text> | <text>] [--snapshot-after]
-              press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]
+              press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]  \(String(localized: "cli.browser.help.keyboardNaming", defaultValue: "Named keys follow Playwright/W3C names. Space, Spacebar, and space emit DOM key \" \" with code \"Space\"; --key ' ' passes the raw DOM key."))
               select [--selector <css> | <css>] [--value <value> | <value>] [--snapshot-after]
               scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
               screenshot [--out <path>]
