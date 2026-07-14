@@ -4,12 +4,12 @@ import CmuxMobileShellModel
 import Foundation
 
 @MainActor
-enum TaskComposerDirectoryCandidates {
-    static func make(
-        store: CMUXMobileShellStore,
-        selectedMacDeviceID: String,
-        selectedTemplate: MobileTaskTemplate?
-    ) -> [MobileTaskDirectoryCandidate] {
+struct TaskComposerDirectoryCandidates {
+    let store: CMUXMobileShellStore
+    let selectedMacDeviceID: String
+    let selectedTemplate: MobileTaskTemplate?
+
+    func make() -> [MobileTaskDirectoryCandidate] {
         var candidates: [MobileTaskDirectoryCandidate] = []
         append(
             selectedTemplate?.defaultDirectory,
@@ -60,7 +60,7 @@ enum TaskComposerDirectoryCandidates {
         return candidates
     }
 
-    private static func append(
+    private func append(
         _ rawPath: String?,
         source: MobileTaskDirectorySource,
         context: String?,

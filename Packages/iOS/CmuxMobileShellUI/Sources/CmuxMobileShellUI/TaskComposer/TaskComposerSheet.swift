@@ -329,11 +329,11 @@ struct TaskComposerSheet: View {
     }
 
     private var directoryCandidates: [MobileTaskDirectoryCandidate] {
-        TaskComposerDirectoryCandidates.make(
+        TaskComposerDirectoryCandidates(
             store: store,
             selectedMacDeviceID: selectedMacDeviceID,
             selectedTemplate: selectedTemplate
-        )
+        ).make()
     }
 
     private func selectDirectory(_ path: String) {
