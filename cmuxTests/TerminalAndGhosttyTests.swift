@@ -2998,6 +2998,83 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
+    func testKeyDownRecoveryReplaysTriggeringEventExactlyOnce() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        XCTAssertNotNil(surface.surface, "Expected runtime surface before simulating the detach race")
+
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        defer {
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { view, event in
+            view.insertText(
+                event.characters ?? "",
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            return true
+        }
+        var forwardedTexts: [String] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS,
+                  keyEvent.keycode == 0,
+                  let text = keyEvent.text else {
+                return
+            }
+            forwardedTexts.append(String(cString: text))
+        }
+
+        surface.releaseSurfaceForTesting()
+        hostedView.removeFromSuperview()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
+
+        let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
+        surfaceView.keyDown(with: event)
+        waitForRuntimeSurface(surface)
+
+        XCTAssertTrue(
+            waitUntil(timeout: 5) { forwardedTexts == ["a"] },
+            "The keyDown that demanded runtime recreation must reach Ghostty exactly once after the surface is ready"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testKeyDownRecoveryDoesNotReplayFocusAfterResponderMovesAway() throws {
 #if DEBUG
         let window = makeWindow()
