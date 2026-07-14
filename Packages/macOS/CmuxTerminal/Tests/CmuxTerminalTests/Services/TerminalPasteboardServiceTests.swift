@@ -147,6 +147,19 @@ struct ClipboardWriteCaptureTests {
         #expect(scratch.pasteboard.string(forType: .string) == userCopy)
     }
 
+    @Test func overlappingCaptureIsRejectedAndDoesNotStealTheFirstCapturesWrite() {
+        let service = TerminalPasteboardService()
+        let outer = service.captureNextStandardClipboardWrite { () -> Bool in
+            // A second capture while one is in flight must be rejected...
+            let inner = service.captureNextStandardClipboardWrite { true }
+            #expect(inner == nil)
+            // ...and the original capture still owns the next matching write.
+            service.writeString("outer-value", to: GHOSTTY_CLIPBOARD_STANDARD)
+            return true
+        }
+        #expect(outer == "outer-value")
+    }
+
     @Test func emptyStandardWriteDoesNotClearExistingClipboardContent() {
         let scratch = ScratchPasteboard()
         let service = TerminalPasteboardService(standardPasteboard: scratch.pasteboard)

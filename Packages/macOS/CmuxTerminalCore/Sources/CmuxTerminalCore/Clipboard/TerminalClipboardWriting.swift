@@ -25,8 +25,10 @@ public protocol TerminalClipboardWriting: AnyObject, Sendable {
     /// waiting for; non-matching writes (e.g. a concurrent user copy) pass
     /// through to the real pasteboard un-swallowed.
     ///
-    /// Returns `nil` when `action` reports failure or no matching write
-    /// occurred.
+    /// Returns `nil` when `action` reports failure, no matching write
+    /// occurred, or another capture is already in flight (overlapping
+    /// captures are rejected rather than allowed to steal each other's
+    /// writes; callers treat `nil` as "fall back to a non-capture read").
     @discardableResult
     func captureNextStandardClipboardWrite(
         matching predicate: @escaping @Sendable (String) -> Bool,

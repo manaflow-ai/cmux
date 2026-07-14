@@ -190,6 +190,12 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
     ///     as narrow as the expected payload allows — e.g. "an existing file
     ///     under the temporary directory" for a VT screen export.
     ///   - action: The operation expected to trigger the write.
+    ///
+    /// Returns `nil` without running a capture when another capture is
+    /// already in flight: replacing the armed slot would let one operation's
+    /// write satisfy the other's capture (both predicates accept export
+    /// paths), handing the wrong content to the wrong caller. Callers
+    /// already treat `nil` as "fall back to a non-capture read".
     @discardableResult
     public func captureNextStandardClipboardWrite(
         matching predicate: @escaping @Sendable (String) -> Bool = { _ in true },
@@ -197,8 +203,15 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
     ) -> String? {
         let capture = ClipboardWriteCapture(accepts: predicate)
         standardClipboardWriteCaptureLock.lock()
-        standardClipboardWriteCapture = capture
+        let alreadyArmed = standardClipboardWriteCapture != nil
+        if !alreadyArmed {
+            standardClipboardWriteCapture = capture
+        }
         standardClipboardWriteCaptureLock.unlock()
+        guard !alreadyArmed else {
+            Self.logger.info("clipboard capture rejected: another capture is in flight")
+            return nil
+        }
 
         defer {
             standardClipboardWriteCaptureLock.lock()
