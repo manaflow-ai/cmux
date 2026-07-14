@@ -5,14 +5,12 @@ import CmuxSettings
 import CmuxWorkspaces
 
 extension VerticalTabsSidebar {
-    @ViewBuilder
-    func sidebarWorkspaceGroupHeader(
+    func sidebarWorkspaceGroupTableConfiguration(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext,
-        shouldCollectWorkspaceDropTargets: Bool,
         showModifierHoldHints: Bool
-    ) -> some View {
+    ) -> SidebarWorkspaceTableRowConfiguration {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
@@ -69,7 +67,10 @@ extension VerticalTabsSidebar {
             dragState.beginDragging(tabId: anchorId)
             return SidebarTabDragPayload(tabId: anchorId).provider()
         }
-        let header = SidebarWorkspaceGroupHeaderView(
+        let makeHeader: (Bool, SidebarWorkspaceTableContextMenuActions) -> SidebarWorkspaceGroupHeaderView = {
+            isPointerHovering,
+            contextMenuActions in
+            SidebarWorkspaceGroupHeaderView(
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
@@ -94,6 +95,7 @@ extension VerticalTabsSidebar {
             cwdContextMenuItems: cwdContextMenuItems,
             newWorkspacePlacement: newWorkspacePlacement,
             rowSpacing: tabRowSpacing,
+            isPointerHovering: isPointerHovering,
             isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
             isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
             topDropIndicatorVisible: topDropIndicatorVisible,
@@ -193,16 +195,32 @@ extension VerticalTabsSidebar {
             },
             onOpenDocs: {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
-            }
+            },
+            onContextMenuAppear: contextMenuActions.didOpen,
+            onContextMenuDisappear: contextMenuActions.didClose
         )
-        .equatable()
-        .id(group.anchorWorkspaceId)
-        .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
-
-        header
-            .sidebarWorkspaceFrameAnchor(
-                id: group.anchorWorkspaceId,
-                isEnabled: shouldCollectWorkspaceDropTargets
+        }
+        let equivalenceValue = makeHeader(
+            false,
+            SidebarWorkspaceTableContextMenuActions(didOpen: {}, didClose: {})
+        )
+        return SidebarWorkspaceTableRowConfiguration(
+            id: .group(group.id),
+            workspaceId: group.anchorWorkspaceId,
+            groupId: group.id,
+            isGroupHeader: true,
+            isPinned: group.isPinned,
+            environment: renderContext.environment,
+            equivalenceValue: equivalenceValue
+        ) { isPointerHovering, contextMenuActions in
+            AnyView(
+                renderContext.environment.apply(
+                    to: makeHeader(isPointerHovering, contextMenuActions)
+                        .equatable()
+                        .id(group.anchorWorkspaceId)
+                        .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
+                )
             )
+        }
     }
 }

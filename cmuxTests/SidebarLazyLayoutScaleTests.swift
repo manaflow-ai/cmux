@@ -1,40 +1,24 @@
 import Testing
 import AppKit
 import CmuxUpdater
+import OSLog
 import SwiftUI
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
-/// Behavioral gate for the workspace sidebar's lazy-layout contract: layout
-/// and diff work must stay O(visible rows) no matter how many workspaces are
-/// open, and updates must converge (no self-sustaining invalidation).
-///
-/// The contract has regressed five times through five different mechanisms —
-/// per-row anchorPreference aggregation (#5323), per-row String ids (#5764),
-/// animated row-height interpolation (#5845), a force-measuring custom Layout
-/// (#6210), and GeometryReader → @State row-height feedback (#6556) — and each
-/// shipped to stable before being detected, because nothing exercised the
-/// sidebar at the 100+ workspace scale where O(N) per pass becomes a
-/// main-thread livelock (issue #2586). These tests mount the real
-/// `VerticalTabsSidebar` at that scale and count actual row body evaluations
-/// through `SidebarLazyContractProbe`, so ANY future mechanism that realizes
-/// the whole list or loops the AttributeGraph fails here instead of on a
-/// user's machine. `scripts/check-sidebar-lazy-layout.py` bans the known
-/// source shapes; this is the mechanism-independent backstop.
+/// Behavioral gate for the workspace sidebar's AppKit virtualization contract.
+/// Mounts the production `VerticalTabsSidebar` at 300 workspaces and verifies
+/// viewport-scale materialization, row-scoped updates, convergence, and clean
+/// SwiftUI/AppKit runtime logs. The source-topology companion is
+/// `scripts/check-sidebar-lazy-layout.py`.
 @Suite(.serialized)
 final class SidebarLazyLayoutScaleTests {
     private static let workspaceCount = 300
-    /// Generous ceiling for "how many rows may be realized for one viewport".
-    /// A 640pt window shows ~20 rows; LazyVStack prefetch and a second layout
-    /// pass can multiply that, but a virtualization defeat realizes all 300.
-    private static let realizedRowCeiling = 150
-
-    // Plain class (not @MainActor) so the probe's nonisolated `() -> Void`
-    // closures can mutate it; bodies only run on the main thread. Same shape
+    /// A 640pt window shows ~20 rows; allow a small AppKit reuse buffer.
+    private static let realizedRowCeiling = 80
+    // Plain class so the probe's nonisolated closures can mutate it on main. Same shape
     // as MinimalModeBodyProbeCounts in WorkspaceContentViewVisibilityTests.
     private final class RowBodyCounter {
         var workspaceRowBodies = 0
@@ -47,6 +31,7 @@ final class SidebarLazyLayoutScaleTests {
         var insideWorkspaceRowBody = false
         var snapshotBuildsInCurrentRowBody = 0
         var maxSnapshotBuildsInOneRowBody = 0
+        var tableRootViewReconfigures = 0
         func reset() {
             workspaceRowBodies = 0
             groupHeaderBodies = 0
@@ -54,6 +39,7 @@ final class SidebarLazyLayoutScaleTests {
             insideWorkspaceRowBody = false
             snapshotBuildsInCurrentRowBody = 0
             maxSnapshotBuildsInOneRowBody = 0
+            tableRootViewReconfigures = 0
         }
     }
 
@@ -114,7 +100,7 @@ final class SidebarLazyLayoutScaleTests {
         }
 
         // Group the first workspaces (top of the list, inside the viewport) so
-        // group-header rows — assembled by sidebarWorkspaceGroupHeader(...) in
+        // group-header rows — assembled by sidebarWorkspaceGroupTableConfiguration(...) in
         // VerticalTabsSidebar+WorkspaceGroups.swift, a historical regression
         // site (#4385) — are exercised by the same realization bounds.
         let groupCandidates = Array(tabManager.tabs.prefix(20).map(\.id))
@@ -172,7 +158,8 @@ final class SidebarLazyLayoutScaleTests {
                         counter.maxSnapshotBuildsInOneRowBody,
                         counter.snapshotBuildsInCurrentRowBody
                     )
-                }
+                },
+                tableRootViewReconfigure: { counter.tableRootViewReconfigures += 1 }
             )
         )
         .defaultAppStorage(defaults)
@@ -221,13 +208,21 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private static func hoverReconcilerViews(in rootView: NSView) -> [SidebarWorkspaceRowHoverReconcilerView] {
-        var result: [SidebarWorkspaceRowHoverReconcilerView] = []
+    private static func tableView(in rootView: NSView) -> SidebarWorkspaceTableViewImpl? {
         var pendingViews = [rootView]
         while let view = pendingViews.popLast() {
-            if let reconciler = view as? SidebarWorkspaceRowHoverReconcilerView {
-                result.append(reconciler)
-            }
+            if let table = view as? SidebarWorkspaceTableViewImpl { return table }
+            pendingViews.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
+    @MainActor
+    private static func materializedCells(in rootView: NSView) -> [SidebarWorkspaceTableCellView] {
+        var result: [SidebarWorkspaceTableCellView] = []
+        var pendingViews = [rootView]
+        while let view = pendingViews.popLast() {
+            result.append(contentsOf: view.subviews.compactMap { $0 as? SidebarWorkspaceTableCellView })
             pendingViews.append(contentsOf: view.subviews)
         }
         return result
@@ -245,16 +240,23 @@ final class SidebarLazyLayoutScaleTests {
 
         await Self.drainMainRunLoop(for: harness.window)
 
+        let rootView = try #require(harness.window.contentView)
+        let cells = Self.materializedCells(in: rootView)
+        #expect(!cells.isEmpty, "The production NSTableView mounted no reusable row cells.")
+        #expect(
+            cells.count < Self.realizedRowCeiling,
+            "NSTableView materialized \(cells.count) cells for a single viewport of \(Self.workspaceCount) rows."
+        )
+
         let realized = harness.counter.workspaceRowBodies
         #expect(realized > 0, "Sidebar mounted but no workspace row body ran; harness is broken.")
         #expect(
             realized < Self.realizedRowCeiling,
             """
             \(realized) workspace row bodies evaluated for a single ~20-row viewport with \
-            \(Self.workspaceCount) workspaces. The LazyVStack is being defeated (all rows \
-            realized per pass) — the #2586 sidebar livelock class. Look for per-row geometry \
-            feedback (GeometryReader/@State height, anchorPreference aggregation) or a \
-            force-measuring Layout; see scripts/check-sidebar-lazy-layout.py.
+            \(Self.workspaceCount) workspaces. NSTableView virtualization is being defeated \
+            (all rows realized per pass), recreating the #2586 sidebar livelock class; see \
+            scripts/check-sidebar-lazy-layout.py.
             """
         )
 
@@ -270,7 +272,7 @@ final class SidebarLazyLayoutScaleTests {
             headerRealized < Self.realizedRowCeiling,
             """
             \(headerRealized) group-header bodies evaluated for 5 groups in one viewport. \
-            The group-header row wrapper (sidebarWorkspaceGroupHeader) is defeating \
+            The group-header row factory (sidebarWorkspaceGroupTableConfiguration) is defeating \
             virtualization or re-evaluating without bound — the #4385 regression site.
             """
         )
@@ -352,6 +354,10 @@ final class SidebarLazyLayoutScaleTests {
             \(storms) updates re-realizing per pass is the #2586 livelock at scale.
             """
         )
+        #expect(
+            harness.counter.tableRootViewReconfigures < storms * 10,
+            "Unread storm replaced \(harness.counter.tableRootViewReconfigures) hosted roots; only changed visible rows may reconfigure."
+        )
 
         harness.counter.reset()
         await Self.drainMainRunLoop(for: harness.window, iterations: 30)
@@ -364,50 +370,62 @@ final class SidebarLazyLayoutScaleTests {
             loop (the #6556 signature). This livelocks the main thread at scale.
             """
         )
+        #expect(
+            harness.counter.tableRootViewReconfigures == 0,
+            "The table reconfigured \(harness.counter.tableRootViewReconfigures) roots during a quiet period."
+        )
     }
 
-    /// AppKit may invoke `updateTrackingAreas` repeatedly while SwiftUI is
-    /// reconciling a lazy row's platform children. A burst must collapse to a
-    /// bounded asynchronous delivery and then settle; calling row bindings on
-    /// this stack is the #8004 AttributeGraph/NSHostingView livelock.
+    /// Churn variable-height content, scroll, and synthetic table-owned hover.
     @Test
     @MainActor
-    func testTrackingAreaStormStaysBoundedAndConverges() async throws {
+    func testTableChurnScrollAndHoverEmitNoRuntimeFaults() async throws {
         let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
         let rootView = try #require(harness.window.contentView)
-        let reconcilers = Self.hoverReconcilerViews(in: rootView)
-        #expect(!reconcilers.isEmpty, "The mounted viewport has no hover reconcilers; the stress path is not covered.")
+        let table = try #require(Self.tableView(in: rootView))
+        let logStore = try OSLogStore(scope: .currentProcessIdentifier)
+        let start = logStore.position(date: Date())
 
-        harness.counter.reset()
-        for _ in 0..<100 {
-            for reconciler in reconcilers {
-                reconciler.updateTrackingAreas()
-            }
+        for index in 0..<40 {
+            let workspace = harness.tabManager.tabs[index % 8]
+            harness.tabManager.setCustomTitle(
+                tabId: workspace.id,
+                title: String(repeating: "variable title \(index) ", count: (index % 5) + 1)
+            )
+            harness.unread.apply(
+                totalUnreadCount: index + 1,
+                summaries: [
+                    workspace.id: SidebarWorkspaceUnreadSummary(
+                        unreadCount: index + 1,
+                        latestNotificationText: String(repeating: "update ", count: (index % 4) + 1)
+                    )
+                ],
+                unreadSurfaceKeys: [],
+                focusedReadIndicatorByWorkspaceId: [:],
+                manualUnreadWorkspaceIds: []
+            )
+            table.scrollRowToVisible((index * 17) % Self.workspaceCount)
+            table.setPointerWindowLocation(table.convert(
+                NSPoint(x: 20, y: table.visibleRect.midY),
+                to: nil
+            ))
+            await Self.drainMainRunLoop(for: harness.window, iterations: 2)
         }
-        await Self.drainMainRunLoop(for: harness.window)
-
-        let stormEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
-        #expect(
-            stormEvals < reconcilers.count * 4,
-            """
-            \(stormEvals) row bodies evaluated after 100 tracking-area passes across \
-            \(reconcilers.count) visible rows. AppKit lifecycle events must be coalesced before they update SwiftUI.
-            """
-        )
-
-        harness.counter.reset()
+        table.setPointerWindowLocation(nil)
         await Self.drainMainRunLoop(for: harness.window, iterations: 30)
-        let quietEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
-        #expect(
-            quietEvals < 20,
-            """
-            \(quietEvals) row bodies evaluated after the tracking-area burst ended. The sidebar failed to converge \
-            and is still feeding SwiftUI state changes back into AppKit layout.
-            """
-        )
+
+        let faultNeedles = ["Modifying state during view update",
+                            "Publishing changes from within view updates",
+                            "laid out reentrantly"]
+        let faults = try logStore.getEntries(at: start).compactMap { entry -> String? in
+            guard let log = entry as? OSLogEntryLog else { return nil }
+            return faultNeedles.contains { log.composedMessage.localizedCaseInsensitiveContains($0) }
+                ? log.composedMessage : nil
+        }
+        #expect(faults.isEmpty, "Sidebar churn emitted runtime faults: \(faults)")
     }
 
     /// Harness self-test: prove the drain loop + body counter actually detect
