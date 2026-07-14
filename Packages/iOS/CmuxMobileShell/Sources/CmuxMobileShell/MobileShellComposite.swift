@@ -6057,7 +6057,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         client: MobileCoreRPCClient,
         initialHostStatus: MobileHostStatusResponse? = nil
     ) async -> TerminalOutputTransport {
-        let fallback: TerminalOutputTransport = .rawBytes
+        let fallback = fallbackTerminalOutputTransport(
+            learnedCapabilities: supportedHostCapabilities
+        )
         do {
             let payload: MobileHostStatusResponse
             if let initialHostStatus {
@@ -6105,23 +6107,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // applying, run the dedicated recovery (it re-asks the token
             // provider and no-ops once an identity is adopted).
             scheduleHostIdentityAdoptionIfNeeded(client: client)
-            let supportsRenderGrid = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
-                payload.terminalFidelity == "render_grid"
-            let supportsTerminalBytes = payload.capabilities.contains(Self.terminalBytesCapability)
-            let supportsVerifiedReplay = payload.capabilities.contains(Self.terminalVerifiedReplayCapability)
-            let transport: TerminalOutputTransport
-            if supportsVerifiedReplay {
-                // The verified presentation path needs the source grid for
-                // every primary-screen update. Prefer it over hybrid raw bytes
-                // only when the paired Mac advertises capture revisions.
-                transport = .renderGrid
-            } else if supportsRenderGrid, supportsTerminalBytes {
-                transport = .hybrid
-            } else if supportsRenderGrid {
-                transport = .renderGrid
-            } else {
-                transport = .rawBytes
-            }
+            let transport = resolvedTerminalOutputTransport(
+                capabilities: Set(payload.capabilities),
+                terminalFidelity: payload.terminalFidelity
+            )
             terminalOutputTransport = transport
             MobileDebugLog.anchormux("sync.transport=\(transport.debugName)")
             upgradePendingColdTerminalReplaysIfNeeded()
@@ -6134,7 +6123,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // freshly QR-paired Mac still needs its identity recovered, with
             // a real timeout instead of the probe's 750ms.
             scheduleHostIdentityAdoptionIfNeeded(client: client)
-            MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
+            MobileDebugLog.anchormux(
+                "sync.transport=\(fallback.debugName) reason=status_failed"
+            )
             return fallback
         }
     }

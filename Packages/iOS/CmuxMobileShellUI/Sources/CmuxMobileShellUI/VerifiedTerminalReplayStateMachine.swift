@@ -1,6 +1,11 @@
 import CMUXMobileCore
 
 /// Owns the single atomic presentation transaction for one mounted terminal.
+/// "Verified" is deliberately scoped to the producer's serialized cell-grid
+/// model plus the exact IOSurface allocation, pixel extent, and Core Animation
+/// geometry presented by iOS. It does not claim to independently validate
+/// Ghostty's glyph rasterizer or renderer-only image protocols that are absent
+/// from the render-grid wire model.
 @MainActor
 final class VerifiedTerminalReplayStateMachine {
     typealias Dimensions = VerifiedTerminalReplayDimensions

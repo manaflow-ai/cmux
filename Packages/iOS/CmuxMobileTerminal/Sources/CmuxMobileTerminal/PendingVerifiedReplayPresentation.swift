@@ -11,8 +11,10 @@ struct VerifiedReplayFrozenPresentation {
     let viewportRect: CGRect
 }
 
-/// Successful presentation of one exact tokened Ghostty render. A drain render
-/// has no observed frame; a replay render carries its local grid readback.
+/// Successful presentation of one exact tokened Ghostty render target and its
+/// geometry. A drain render has no observed frame; a replay render carries its
+/// local serialized grid readback. Pixel contents outside that grid contract
+/// are not independently rerasterized by this proof.
 nonisolated struct VerifiedReplayPresentedSubmission: Sendable {
     let observedFrame: MobileTerminalRenderGridFrame?
 }

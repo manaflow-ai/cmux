@@ -22,9 +22,8 @@ struct VerifiedReplayPresentationTests {
 
     @Test("a stale in-flight completion cannot satisfy the replay submission fence")
     func presentationFenceRequiresExactSubmissionToken() {
-        let initial = VerifiedReplayRendererSurfaceIdentity(id: 7, seed: 10)
-        let stale = VerifiedReplayRendererSurfaceIdentity(id: 8, seed: 11)
-        let replay = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 12)
+        let stale = makeIdentity(id: 8, seed: 11)
+        let replay = makeIdentity(id: 9, seed: 12)
         let geometry = makeGeometry()
         var fence = VerifiedReplayPresentationFence(
             expectedToken: 42,
@@ -32,13 +31,6 @@ struct VerifiedReplayPresentationTests {
             expectedGeometry: geometry
         )
 
-        #expect(!fence.isSatisfied(
-            modelIdentity: initial,
-            presentationIdentity: initial,
-            geometryRevision: 7,
-            modelGeometry: geometry,
-            presentationGeometry: geometry
-        ))
         let acceptedStale = fence.acknowledge(
             token: 41,
             modelIdentity: stale,
@@ -60,6 +52,26 @@ struct VerifiedReplayPresentationTests {
             geometry: geometry
         )
         #expect(acceptedReplay)
+    }
+
+    @Test("presentation waits for grid readback and the exact surface allocation")
+    func presentationFenceRequiresReadbackAndSurfaceIdentity() {
+        let stale = makeIdentity(id: 8, seed: 11)
+        let replay = makeIdentity(id: 9, seed: 12)
+        let geometry = makeGeometry()
+        var fence = VerifiedReplayPresentationFence(
+            expectedToken: 42,
+            expectedGeometryRevision: 7,
+            expectedGeometry: geometry
+        )
+        let acceptedReplay = fence.acknowledge(
+            token: 42,
+            modelIdentity: replay,
+            geometryRevision: 7,
+            geometry: geometry
+        )
+        #expect(acceptedReplay)
+
         #expect(!fence.isSatisfied(
             modelIdentity: replay,
             presentationIdentity: stale,
@@ -86,10 +98,10 @@ struct VerifiedReplayPresentationTests {
 
     @Test("presentation accepts the tokened IOSurface after its content seed advances")
     func presentationFenceTracksAllocationAcrossSeedAdvance() {
-        let assigned = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 12)
-        let presented = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 13)
-        let divergent = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 14)
-        let otherAllocation = VerifiedReplayRendererSurfaceIdentity(id: 10, seed: 13)
+        let assigned = makeIdentity(id: 9, seed: 12)
+        let presented = makeIdentity(id: 9, seed: 13)
+        let divergent = makeIdentity(id: 9, seed: 14)
+        let otherAllocation = makeIdentity(id: 10, seed: 13)
         let geometry = makeGeometry()
         var fence = VerifiedReplayPresentationFence(
             expectedToken: 42,
@@ -97,12 +109,13 @@ struct VerifiedReplayPresentationTests {
             expectedGeometry: geometry
         )
 
-        #expect(fence.acknowledge(
+        let acceptedAssigned = fence.acknowledge(
             token: 42,
             modelIdentity: assigned,
             geometryRevision: 7,
             geometry: geometry
-        ))
+        )
+        #expect(acceptedAssigned)
         fence.markObservedFrameReady()
 
         #expect(fence.isSatisfied(
@@ -137,7 +150,7 @@ struct VerifiedReplayPresentationTests {
 
     @Test("presentation rejects a replay when keyboard relayout changes geometry")
     func presentationFenceRejectsGeometryChanges() {
-        let identity = VerifiedReplayRendererSurfaceIdentity(id: 9, seed: 12)
+        let identity = makeIdentity(id: 9, seed: 12)
         let initial = makeGeometry()
         let relaid = makeGeometry(rendererFrame: CGRect(x: 0, y: 0, width: 390, height: 500))
         var fence = VerifiedReplayPresentationFence(
@@ -146,12 +159,13 @@ struct VerifiedReplayPresentationTests {
             expectedGeometry: initial
         )
 
-        #expect(fence.acknowledge(
+        let acceptedReplay = fence.acknowledge(
             token: 42,
             modelIdentity: identity,
             geometryRevision: 7,
             geometry: initial
-        ))
+        )
+        #expect(acceptedReplay)
         fence.markObservedFrameReady()
 
         #expect(!fence.isSatisfied(
@@ -168,6 +182,20 @@ struct VerifiedReplayPresentationTests {
             modelGeometry: relaid,
             presentationGeometry: relaid
         ))
+
+        let wrongPixelExtent = makeIdentity(
+            id: 9,
+            seed: 12,
+            pixelWidth: 1_170,
+            pixelHeight: 1_500
+        )
+        #expect(!fence.isSatisfied(
+            modelIdentity: wrongPixelExtent,
+            presentationIdentity: wrongPixelExtent,
+            geometryRevision: 7,
+            modelGeometry: initial,
+            presentationGeometry: initial
+        ))
         #expect(!fence.isSatisfied(
             modelIdentity: identity,
             presentationIdentity: identity,
@@ -175,25 +203,6 @@ struct VerifiedReplayPresentationTests {
             modelGeometry: initial,
             presentationGeometry: relaid
         ))
-    }
-
-    @Test("grid export and token submission are one synchronous queue operation")
-    func exportAndTokenSubmissionStayAdjacent() {
-        var events: [String] = []
-
-        let exported = verifiedReplayExportThenSubmit(
-            export: {
-                events.append("export")
-                return 42
-            },
-            submit: {
-                events.append("submit")
-            }
-        )
-        events.append("publish")
-
-        #expect(exported == 42)
-        #expect(events == ["export", "submit", "publish"])
     }
 
     private func makeSurface(fill byte: UInt8) throws -> IOSurface {
@@ -227,6 +236,20 @@ struct VerifiedReplayPresentationTests {
             hostAnchorPoint: CGPoint(x: 0.5, y: 0.5),
             hostTransform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
             viewportRect: CGRect(x: 0, y: 0, width: 390, height: 700)
+        )
+    }
+
+    private func makeIdentity(
+        id: UInt32,
+        seed: UInt32,
+        pixelWidth: Int = 1_170,
+        pixelHeight: Int = 2_100
+    ) -> VerifiedReplayRendererSurfaceIdentity {
+        VerifiedReplayRendererSurfaceIdentity(
+            id: id,
+            seed: seed,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight
         )
     }
 

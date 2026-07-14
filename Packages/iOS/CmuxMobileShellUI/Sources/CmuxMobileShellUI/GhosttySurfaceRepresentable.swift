@@ -468,6 +468,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 guard surfaceView.revealVerifiedReplayPresentation(
                     transactionID: transactionID
                 ) else {
+                    _ = verifiedReplayState.rejectUnverifiedOutput()
                     store.terminalOutputDidReset(
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken

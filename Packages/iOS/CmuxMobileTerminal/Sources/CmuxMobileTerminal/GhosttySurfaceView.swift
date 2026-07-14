@@ -90,6 +90,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var verifiedReplayFrozenImage: CGImage?
     var verifiedReplayFrozenTransactionID: UInt64?
     var verifiedReplayFrozenViewportRect: CGRect?
+    var verifiedReplayGeometryRevision: UInt64 = 0
+    var verifiedReplayReadyFence: VerifiedReplayPresentationFence?
+    var verifiedReplayReadyTransactionID: UInt64?
     /// Set before the pre-freeze drain submission and kept set until an exact
     /// replay presentation is revealed or the surface is torn down.
     var verifiedReplayRenderSuppressed = false
@@ -3356,17 +3359,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // sublayer consistent.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        var geometryChanged = layer.contentsScale != scale
         layer.contentsScale = scale
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
             if sublayer.frame != renderRect {
+                geometryChanged = true
                 sublayer.frame = renderRect
             }
             if sublayer.bounds.size != renderRect.size {
+                geometryChanged = true
                 sublayer.bounds = CGRect(origin: .zero, size: renderRect.size)
+            }
+            if sublayer.contentsScale != scale {
+                geometryChanged = true
             }
             sublayer.contentsScale = scale
         }
         CATransaction.commit()
+        if geometryChanged {
+            verifiedReplayGeometryRevision &+= 1
+            verifiedReplayReadyFence = nil
+            verifiedReplayReadyTransactionID = nil
+        }
     }
 
     /// Add / update a 1-pixel separator border around the pinned surface
