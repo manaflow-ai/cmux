@@ -943,18 +943,17 @@ final class FileExplorerContainerView: NSView {
     }
 
     func updatePresentation(_ nextPresentation: FileExplorerPanelPresentation) {
-        let presentationChanged = presentation != nextPresentation
-        let wasSearchVisible = isSearchVisible
+        let presentationChanged = presentation != nextPresentation, wasSearchVisible = isSearchVisible
         presentation = nextPresentation
         switch presentation {
         case .unified:
             isSearchVisible = coordinator.state.mode == .find && hasSearchQuery
         case .files:
             isSearchVisible = false
-            if presentationChanged { searchController.cancel(clear: false) }
         case .find:
             isSearchVisible = true
         }
+        if wasSearchVisible, !isSearchVisible { pauseSearchPreservingState() }
         if !wasSearchVisible, isSearchVisible { refreshSearchIfNeeded() }
         updateSearchLayout()
         if presentationChanged { registerWithKeyboardFocusCoordinatorIfNeeded() }
@@ -1032,7 +1031,7 @@ final class FileExplorerContainerView: NSView {
         }
         if isSearchVisible {
             isSearchVisible = false
-            if presentation != .unified {
+            if presentation == .unified { pauseSearchPreservingState() } else {
                 searchController.cancel(clear: true)
                 searchField.stringValue = ""
                 searchSnapshot = .empty
@@ -1147,12 +1146,18 @@ final class FileExplorerContainerView: NSView {
         searchDebounceGeneration += 1
     }
 
+    private func pauseSearchPreservingState() { cancelPendingSearchRefresh(); pendingSearchRefreshAfterSettled = false; searchController.cancel(clear: false) }
+
     private func updateSearchLayout(hasContent: Bool? = nil, isLoading: Bool? = nil) {
         let effectiveHasContent = hasContent ?? !currentRootPath.isEmpty
         let effectiveIsLoading = isLoading ?? false
         let showSearchField = (presentation.keepsSearchFieldVisible || isSearchVisible) && effectiveHasContent && !effectiveIsLoading
         let showSearchResults = isSearchVisible && effectiveHasContent && !effectiveIsLoading
         let nextSearchBarHeight = showSearchField ? searchBarVisibleHeight : 0
+        if presentation == .unified, effectiveHasContent, !effectiveIsLoading, let window {
+            if showSearchResults, window.firstResponder === outlineView { _ = window.makeFirstResponder(searchField) }
+            else if !showSearchResults, window.firstResponder === searchResultsView, window.makeFirstResponder(outlineView) { coordinator.noteKeyboardFocus(mode: .files, in: window) }
+        }
         // Assigning isHidden/constraints unconditionally fires KVO even when unchanged,
         // which re-enters updateNSView and spins the main thread on macOS 26 (#4931).
         var changed = false
