@@ -203,6 +203,7 @@ extension GitDiffService {
                 files: snapshotFiles,
                 truncated: numstat.capped
                     || nameStatus.capped
+                    || !unmergedData.isEmpty
                     || untracked.capped
                     || initialListing.raw.capped
                     || reachedFileLimit

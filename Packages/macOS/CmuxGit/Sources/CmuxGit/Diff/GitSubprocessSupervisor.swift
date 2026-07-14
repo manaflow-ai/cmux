@@ -36,8 +36,11 @@ struct GitSubprocessSupervisor {
     let environment: [String: String]
     let deadlineSeconds: Double
     let maxOutputBytes: Int?
+    let lifecycleOwner: GitProcessLifecycleOwner
+    let lifecyclePermit: GitProcessLifecyclePermit
 
     func run() -> GitProcessResult {
+        defer { lifecycleOwner.finishProcess(lifecyclePermit) }
         var outputPipe: [Int32] = [-1, -1]
         guard pipe(&outputPipe) == 0 else {
             return GitProcessResult(output: nil, failure: .launchFailed)
@@ -212,7 +215,10 @@ struct GitSubprocessSupervisor {
                 // SIGKILL. Transfer its eventual waitpid to a detached owner
                 // so the request deadline remains real without leaking a
                 // zombie when the kernel finally releases the child.
-                reapProcessDetached(processIdentifier)
+                lifecycleOwner.transferToDetachedReaper(
+                    lifecyclePermit,
+                    processIdentifier: processIdentifier
+                )
                 return GitProcessResult(
                     rawOutput: output,
                     output: nil,
@@ -235,7 +241,10 @@ struct GitSubprocessSupervisor {
                 finalReapDeadline: finalReapDeadline
             )
             guard let deadline = waitPlan.deadline else {
-                reapProcessDetached(processIdentifier)
+                lifecycleOwner.transferToDetachedReaper(
+                    lifecyclePermit,
+                    processIdentifier: processIdentifier
+                )
                 return GitProcessResult(
                     rawOutput: output,
                     output: nil,
@@ -256,7 +265,10 @@ struct GitSubprocessSupervisor {
                     close(outputDescriptor)
                     outputDescriptor = -1
                 }
-                reapProcessDetached(processIdentifier)
+                lifecycleOwner.transferToDetachedReaper(
+                    lifecyclePermit,
+                    processIdentifier: processIdentifier
+                )
                 return GitProcessResult(
                     rawOutput: output,
                     output: nil,
@@ -379,15 +391,5 @@ struct GitSubprocessSupervisor {
         return pointers.withUnsafeMutableBufferPointer { buffer in
             body(buffer.baseAddress!)
         }
-    }
-}
-
-/// Owns the one remaining blocking wait after request supervision gives up.
-/// One detached thread corresponds to one kernel-live child and exits as soon
-/// as that child can be reaped.
-private func reapProcessDetached(_ processIdentifier: pid_t) {
-    Thread.detachNewThread {
-        var status: Int32 = 0
-        while waitpid(processIdentifier, &status, 0) < 0, errno == EINTR {}
     }
 }

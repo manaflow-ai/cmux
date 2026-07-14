@@ -15,17 +15,20 @@ struct GitProcessRunner: Sendable {
     private let fileSystemStatExecutableURL: URL
     private let environment: [String: String]
     private let processDeadlineSeconds: Double
+    private let lifecycleOwner: GitProcessLifecycleOwner
 
     init(
         gitExecutableURL: URL,
         fileSystemStatExecutableURL: URL,
         environment: [String: String],
-        processDeadlineSeconds: Double
+        processDeadlineSeconds: Double,
+        lifecycleOwner: GitProcessLifecycleOwner = .shared
     ) {
         self.gitExecutableURL = gitExecutableURL
         self.fileSystemStatExecutableURL = fileSystemStatExecutableURL
         self.environment = environment
         self.processDeadlineSeconds = processDeadlineSeconds
+        self.lifecycleOwner = lifecycleOwner
     }
 
     func run(
@@ -235,12 +238,17 @@ struct GitProcessRunner: Sendable {
         guard !Task.isCancelled else {
             return GitProcessResult(output: nil, failure: .cancelled)
         }
+        guard let lifecyclePermit = lifecycleOwner.beginProcess() else {
+            return GitProcessResult(output: nil, failure: .launchFailed)
+        }
         let supervised = GitSubprocessSupervisor(
             executableURL: executableURL,
             arguments: arguments,
             environment: nonLockingGitEnvironment(),
             deadlineSeconds: effectiveDeadlineSeconds(deadlineSeconds),
-            maxOutputBytes: maxOutputBytes
+            maxOutputBytes: maxOutputBytes,
+            lifecycleOwner: lifecycleOwner,
+            lifecyclePermit: lifecyclePermit
         ).run()
         return Self.translateSupervisedResult(
             supervised,

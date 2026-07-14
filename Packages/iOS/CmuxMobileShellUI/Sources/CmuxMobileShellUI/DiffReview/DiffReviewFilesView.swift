@@ -18,7 +18,10 @@ struct DiffReviewFilesView: View {
 
     var body: some View {
         List {
-            if session.files.isEmpty, !isLoading, errorMessage == nil {
+            if session.files.isEmpty,
+               !isListTruncated,
+               !isLoading,
+               errorMessage == nil {
                 ContentUnavailableView(
                     L10n.string("mobile.diff.empty", defaultValue: "No changes"),
                     systemImage: "checkmark.circle"

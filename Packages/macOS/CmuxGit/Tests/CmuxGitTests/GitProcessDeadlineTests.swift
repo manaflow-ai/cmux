@@ -233,20 +233,24 @@ import Testing
         #expect(!isExecutingProcess(childPID))
     }
 
-    @Test func outstandingDetachedReapBlocksNewLaunchesWithinBound() {
+    @Test func outstandingDetachedReapBlocksNewLaunchesWithinBound() throws {
         var state = GitProcessLifecycleState(maxProcesses: 2)
-        #expect(state.tryBeginProcess())
-        #expect(state.tryBeginProcess())
+        let maybeFirstPermit = state.beginProcess()
+        let maybeSecondPermit = state.beginProcess()
+        let firstPermit = try #require(maybeFirstPermit)
+        let secondPermit = try #require(maybeSecondPermit)
 
-        state.transferToReaper(processIdentifier: 101)
-        #expect(!state.tryBeginProcess())
-        state.transferToReaper(processIdentifier: 102)
+        let transferredFirst = state.transferToReaper(firstPermit, processIdentifier: 101)
+        #expect(transferredFirst)
+        #expect(state.beginProcess() == nil)
+        let transferredSecond = state.transferToReaper(secondPermit, processIdentifier: 102)
+        #expect(transferredSecond)
         #expect(state.reapingProcessCount == 2)
 
-        state.didReap(processIdentifier: 101)
-        #expect(!state.tryBeginProcess())
-        state.didReap(processIdentifier: 102)
-        #expect(state.tryBeginProcess())
+        state.didReap(firstPermit)
+        #expect(state.beginProcess() == nil)
+        state.didReap(secondPermit)
+        #expect(state.beginProcess() != nil)
     }
 
     private func makeTempRepo() throws -> URL {
