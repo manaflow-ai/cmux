@@ -782,6 +782,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalReplayBarrierTokensInFlightBySurfaceID: [String: UUID]
     var terminalReplayBarrierTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierAckStreamTokensBySurfaceID: [String: UUID]
+    var terminalRenderGridEventPreparationTokensBySurfaceID: [String: Set<UUID>]
+    var terminalReplayBarrierPendingPreparationAckTokensBySurfaceID: [String: UUID]
     var terminalReplayBarrierDroppedOutputSurfaceIDs: Set<String>
     var terminalReplayBarrierDroppedOutputCountsBySurfaceID: [String: UInt64]
     var terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID: [String: UInt64]
@@ -1005,6 +1007,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplayBarrierTokensInFlightBySurfaceID = [:]
         self.terminalReplayBarrierTokensBySurfaceID = [:]
         self.terminalReplayBarrierAckStreamTokensBySurfaceID = [:]
+        self.terminalRenderGridEventPreparationTokensBySurfaceID = [:]
+        self.terminalReplayBarrierPendingPreparationAckTokensBySurfaceID = [:]
         self.terminalReplayBarrierDroppedOutputSurfaceIDs = []
         self.terminalReplayBarrierDroppedOutputCountsBySurfaceID = [:]
         self.terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
@@ -5227,6 +5231,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalReplayBarrierTokensInFlightBySurfaceID = [:]
         terminalReplayBarrierTokensBySurfaceID = [:]
         terminalReplayBarrierAckStreamTokensBySurfaceID = [:]
+        terminalRenderGridEventPreparationTokensBySurfaceID = [:]
+        terminalReplayBarrierPendingPreparationAckTokensBySurfaceID = [:]
         terminalReplayBarrierDroppedOutputSurfaceIDs = []
         terminalReplayBarrierDroppedOutputCountsBySurfaceID = [:]
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID = [:]
@@ -7007,10 +7013,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func handleTerminalRenderGridEvent(_ event: MobileEventEnvelope) async {
-        guard let json = event.payloadJSON else {
+        guard let json = event.payloadJSON,
+              let routedSurfaceID = event.surfaceID else {
             return
         }
+        let preparationToken = beginTerminalRenderGridEventPreparation(surfaceID: routedSurfaceID)
+        defer {
+            finishTerminalRenderGridEventPreparation(
+                surfaceID: routedSurfaceID,
+                token: preparationToken
+            )
+        }
         guard let preparedRenderGrid = await terminalRenderGridProcessor.processRenderGridEvent(data: json),
+              preparedRenderGrid.frame.surfaceID == routedSurfaceID,
               hasTerminalOutputSink(surfaceID: preparedRenderGrid.frame.surfaceID) else {
             return
         }

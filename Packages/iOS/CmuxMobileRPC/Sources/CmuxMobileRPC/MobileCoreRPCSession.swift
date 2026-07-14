@@ -422,14 +422,11 @@ actor MobileCoreRPCSession {
         guard let envelope = parsed else { return }
         if (envelope["kind"] as? String) == "event" {
             guard let topic = envelope["topic"] as? String else { return }
-            let payloadData: Data?
-            if let payload = envelope["payload"] {
-                payloadData = try? JSONSerialization.data(withJSONObject: payload)
-            } else {
-                payloadData = nil
-            }
-            let streamID = envelope["stream_id"] as? String
-            let event = MobileEventEnvelope(topic: topic, payloadJSON: payloadData, streamID: streamID)
+            let event = MobileEventEnvelope.parsing(
+                topic: topic,
+                payload: envelope["payload"],
+                streamID: envelope["stream_id"] as? String
+            )
             for (_, listener) in listeners where listener.topics.contains(topic) {
                 listener.continuation.yield(event)
             }

@@ -367,6 +367,12 @@ extension MobileShellComposite {
             }
             return
         }
+        if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken,
+           terminalRenderGridEventPreparationTokensBySurfaceID[surfaceID]?.isEmpty == false {
+            terminalReplayBarrierPendingPreparationAckTokensBySurfaceID[surfaceID] = streamToken
+            return
+        }
+        terminalReplayBarrierPendingPreparationAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         let completedDelivery = queue.currentInFlight
         let next = queue.completeInFlight()
         let superseded = queue.takeScrollReconciliationSupersessions()
