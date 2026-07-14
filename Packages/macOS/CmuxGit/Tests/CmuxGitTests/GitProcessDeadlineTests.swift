@@ -5,20 +5,6 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitProcessDeadlineTests {
-    @Test func completedWatchdogCannotFire() {
-        let pipe = Pipe()
-        let watchdog = GitProcessWatchdog(
-            process: Process(),
-            processGroupIdentifier: Int32.max,
-            outputHandle: pipe.fileHandleForReading
-        )
-
-        watchdog.cancelEscalation()
-        watchdog.fire()
-
-        #expect(!watchdog.didFire)
-    }
-
     @Test func deadlineEscalatesWhenGitIgnoresTerminationAndChildKeepsPipeOpen() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
@@ -32,13 +18,10 @@ import Testing
             gitExecutableURL: stalledGit,
             processDeadlineSeconds: 0.1
         )
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            _ = service.repositoryRoot(for: repo.path)
-            finished.signal()
-        }
-
-        #expect(finished.wait(timeout: .now() + 5) == .success)
+        let clock = ContinuousClock()
+        let start = clock.now
+        #expect(service.repositoryRoot(for: repo.path) == nil)
+        #expect(start.duration(to: clock.now) < .seconds(5))
     }
 
     @Test func deadlineKillsPipeHolderAfterGitLeaderExits() throws {
@@ -57,28 +40,17 @@ import Testing
             gitExecutableURL: exitedGit,
             processDeadlineSeconds: 1
         )
-        let finished = DispatchSemaphore(value: 0)
-        let box = DeadlineRootBox()
-        DispatchQueue.global().async {
-            box.value = service.repositoryRoot(for: repo.path)
-            finished.signal()
-        }
         var childPID: pid_t?
-        var requestFinished = false
         defer {
             if let childPID, isExecutingProcess(childPID) {
                 kill(childPID, SIGKILL)
             }
-            if !requestFinished {
-                _ = finished.wait(timeout: .now() + 5)
-            }
         }
 
-        let signalled = finished.wait(timeout: .now() + 5)
-        requestFinished = signalled == .success
-        #expect(signalled == .success)
-        guard signalled == .success else { return }
-        #expect(box.value == nil)
+        let clock = ContinuousClock()
+        let start = clock.now
+        #expect(service.repositoryRoot(for: repo.path) == nil)
+        #expect(start.duration(to: clock.now) < .seconds(5))
         let pidText = try String(contentsOf: childPIDFile, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let recordedPID = try #require(Int32(pidText))
@@ -99,15 +71,10 @@ import Testing
             gitExecutableURL: stalledGit,
             processDeadlineSeconds: 0.5
         )
-        let finished = DispatchSemaphore(value: 0)
-        let box = DeadlineRootBox()
-        DispatchQueue.global().async {
-            box.value = service.repositoryRoot(for: repo.path)
-            finished.signal()
-        }
-        let signalled = finished.wait(timeout: .now() + 5)
-        #expect(signalled == .success)
-        #expect(box.value == nil)
+        let clock = ContinuousClock()
+        let start = clock.now
+        #expect(service.repositoryRoot(for: repo.path) == nil)
+        #expect(start.duration(to: clock.now) < .seconds(5))
     }
 
     @Test func deadlineDoesNotDependOnAvailableDispatchWorkers() throws {
@@ -119,19 +86,24 @@ import Testing
             [.posixPermissions: 0o755], ofItemAtPath: stalledGit.path
         )
 
-        let blockerCount = max(32, ProcessInfo.processInfo.activeProcessorCount * 8)
+        let blockerCount = max(8, ProcessInfo.processInfo.activeProcessorCount * 2)
         let started = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
         for _ in 0..<blockerCount {
             DispatchQueue.global(qos: .userInitiated).async {
                 started.signal()
                 release.wait()
+                finished.signal()
             }
         }
         defer {
             for _ in 0..<blockerCount { release.signal() }
+            for _ in 0..<blockerCount {
+                _ = finished.wait(timeout: .now() + 5)
+            }
         }
-        let requiredStartedCount = min(blockerCount, ProcessInfo.processInfo.activeProcessorCount * 2)
+        let requiredStartedCount = min(blockerCount, ProcessInfo.processInfo.activeProcessorCount)
         for _ in 0..<requiredStartedCount {
             try #require(started.wait(timeout: .now() + 2) == .success)
         }

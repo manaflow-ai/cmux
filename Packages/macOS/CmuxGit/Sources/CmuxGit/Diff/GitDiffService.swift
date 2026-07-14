@@ -49,7 +49,7 @@ public struct GitDiffService: Sendable {
     }
 
     /// Reads one file diff while distinguishing absence, command failure, and
-    /// watchdog timeout for callers that present actionable errors.
+    /// subprocess timeout for callers that present actionable errors.
     public func fileDiffResult(
         repoRoot: String,
         path: String,
@@ -85,10 +85,9 @@ public struct GitDiffService: Sendable {
         maxOutputBytes: Int
     ) -> GitDiffQueryResult<GitFileDiff> {
         guard maxOutputBytes > 0 else { return .notFound }
-        // Validate on a trimmed copy only; the pathspec passed to git must stay
-        // byte-exact because repository paths may legitimately start or end
-        // with whitespace (`changedFiles` reports them verbatim).
-        guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .notFound }
+        // Repository paths are byte identities. Git permits nonempty names made
+        // entirely of whitespace, and `changedFiles` reports them verbatim.
+        guard !path.isEmpty else { return .notFound }
         let baseline: String
         switch diffBaselineResult(in: repoRoot) {
         case .success(let value):
@@ -171,7 +170,7 @@ public struct GitDiffService: Sendable {
         }
         var oldBaselineEntry: BaselineEntryKind?
         if let oldPath {
-            guard !oldPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            guard !oldPath.isEmpty else {
                 return .notFound
             }
             switch baselineEntryKind(repoRoot: repoRoot, baseline: baseline, path: oldPath) {

@@ -54,7 +54,7 @@ extension TerminalController {
 
     func v2MobileWorkspaceDiffFile(params: [String: Any]) async -> V2CallResult {
         guard let rawPath = params["path"] as? String,
-              !rawPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !rawPath.isEmpty,
               let expectedRepoRoot = params["repo_root"] as? String,
               !expectedRepoRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .err(code: "invalid_params", message: "Missing or invalid path", data: nil)
@@ -66,7 +66,7 @@ extension TerminalController {
         let oldPath: String?
         if v2HasNonNullParam(params, "old_path") {
             guard let rawOldPath = params["old_path"] as? String,
-                  !rawOldPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                  !rawOldPath.isEmpty else {
                 return .err(code: "invalid_params", message: "Missing or invalid old_path", data: nil)
             }
             oldPath = rawOldPath
@@ -184,7 +184,7 @@ extension TerminalController {
     /// subprocess invocations when its task is cancelled, so a timed-out
     /// request stops at the next process boundary instead of running the full
     /// sequence (each process is separately deadline-bounded by the service's
-    /// watchdog).
+    /// kernel-event supervisor).
     private nonisolated static func detachedCancellable<Result: Sendable>(
         _ work: @escaping @Sendable () -> Result
     ) async -> Result {

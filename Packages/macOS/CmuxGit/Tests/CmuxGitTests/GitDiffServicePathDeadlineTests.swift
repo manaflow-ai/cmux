@@ -18,13 +18,13 @@ import Testing
         #expect(URL(fileURLWithPath: root).standardizedFileURL == repo.standardizedFileURL)
     }
 
-    @Test func gitWrapperLaunchesOutsideRepositoryAndPassesExactDirectoryWithDashC() throws {
+    @Test func gitProcessLaunchesOutsideRepositoryAndPassesExactDirectoryWithDashC() throws {
         let repo = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-safe-launch-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: repo) }
         try initializeRepository(at: repo)
-        let marker = repo.appendingPathComponent("wrapper-pwd.txt")
+        let marker = repo.appendingPathComponent("process-pwd.txt")
         let checkingGit = repo.appendingPathComponent("checking-launch-git.sh")
         let script = """
         #!/bin/sh
@@ -38,11 +38,11 @@ import Testing
         )
 
         let root = GitDiffService(gitExecutableURL: checkingGit).repositoryRoot(for: repo.path)
-        let wrapperDirectory = try String(contentsOf: marker, encoding: .utf8)
+        let processDirectory = try String(contentsOf: marker, encoding: .utf8)
             .trimmingCharacters(in: .newlines)
 
         #expect(root == repo.path)
-        #expect(wrapperDirectory == "/")
+        #expect(processDirectory == "/")
     }
 
     private func initializeRepository(at repo: URL) throws {

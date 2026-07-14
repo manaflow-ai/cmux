@@ -1,4 +1,3 @@
-import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -8,15 +7,8 @@ struct GitProcessRunner: Sendable {
     private static let nonLockingGitEnvironmentKey = "GIT_OPTIONAL_LOCKS"
     private static let nonLockingGitEnvironmentValue = "0"
     private static let fileSystemStatFormat = "%d|%i|%p|%z|%Fm|%Fc"
-    /// Deadline delivery must not share the utility pool with callers that are
-    /// synchronously draining subprocess pipes. Under concurrent repository
-    /// scans, that pool can be occupied until after the process deadline.
-    private static let watchdogTimerQueue = DispatchQueue(
-        label: "com.cmuxterm.CmuxGit.process-deadline",
-        qos: .userInitiated
-    )
     /// Leaves ample headroom below macOS `ARG_MAX` for the environment and
-    /// process-group wrapper arguments.
+    /// supervised process arguments.
     private static let fileSystemArgumentBytesPerBatch = 64 * 1024
 
     private let gitExecutableURL: URL
@@ -217,128 +209,46 @@ struct GitProcessRunner: Sendable {
         guard !Task.isCancelled else {
             return GitProcessResult(output: nil, failure: .cancelled)
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = [
-            "-c",
-            "set -m; /usr/bin/env -u SHELLOPTS -u BASHOPTS \"$@\" 2>/dev/null & child=$!; printf '%s\\n' \"$child\" >&2; exec 2>&-; wait \"$child\"; exit $?",
-            "cmux-git",
-            executableURL.path,
-        ] + arguments
-        // Launch only from a local, stable directory. Git receives `-C` and
-        // filesystem helpers receive absolute paths after entering the
-        // supervised process group, so remote filesystem access is watched.
-        process.currentDirectoryURL = URL(fileURLWithPath: "/", isDirectory: true)
-        process.environment = nonLockingGitEnvironment()
-        let pipe = Pipe()
-        let processGroupPipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = processGroupPipe
-        do {
-            try process.run()
-            guard let processGroupIdentifier = readProcessGroupIdentifier(
-                processGroupPipe.fileHandleForReading
-            ) else {
-                process.terminate()
-                process.waitUntilExit()
-                return GitProcessResult(output: nil, failure: .launchFailed)
-            }
-            // Wall-clock watchdog: terminate the helper at the deadline so a stalled
-            // subprocess never outlives the request that spawned it. The
-            // cancellable timer source is the sanctioned bounded-delay shape
-            // here (no async context exists for a Clock sleep, and the read
-            // below blocks this thread).
-            let watchdog = GitProcessWatchdog(
-                process: process,
-                processGroupIdentifier: processGroupIdentifier,
-                outputHandle: pipe.fileHandleForReading
-            )
-            let timer = DispatchSource.makeTimerSource(queue: Self.watchdogTimerQueue)
-            timer.schedule(deadline: .now() + effectiveDeadlineSeconds(deadlineSeconds))
-            timer.setEventHandler { watchdog.fire() }
-            timer.activate()
-            defer { timer.cancel() }
-            let read = readOutput(
-                pipe.fileHandleForReading,
-                maxOutputBytes: maxOutputBytes,
-                watchdog: watchdog
-            )
-            process.waitUntilExit()
-            watchdog.cancelEscalation()
-            if read.capped {
-                // We terminated the helper after reaching the output bound;
-                // its exit status reflects our signal. Return
-                // the bounded partial output and mark it cut off.
-                return GitProcessResult(
-                    rawOutput: read.data,
-                    output: decodeUTF8Lossy(read.data, maxOutputBytes: maxOutputBytes),
-                    capped: true,
-                    terminationStatus: process.terminationStatus
-                )
-            }
-            if watchdog.didFire {
-                return GitProcessResult(
-                    output: nil,
-                    failure: .timedOut,
-                    terminationStatus: process.terminationStatus
-                )
-            }
-            guard acceptedTerminationStatuses.contains(process.terminationStatus) else {
-                return GitProcessResult(
-                    output: nil,
-                    failure: .unsuccessfulExit,
-                    terminationStatus: process.terminationStatus
-                )
-            }
+        let supervised = GitSubprocessSupervisor(
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: nonLockingGitEnvironment(),
+            deadlineSeconds: effectiveDeadlineSeconds(deadlineSeconds),
+            maxOutputBytes: maxOutputBytes
+        ).run()
+        if supervised.capped, let output = supervised.rawOutput {
             return GitProcessResult(
-                rawOutput: read.data,
-                output: decodeUTF8Lossy(read.data, maxOutputBytes: nil),
-                terminationStatus: process.terminationStatus
+                rawOutput: output,
+                output: decodeUTF8Lossy(output, maxOutputBytes: maxOutputBytes),
+                capped: true,
+                terminationStatus: supervised.terminationStatus
             )
-        } catch {
-            return GitProcessResult(output: nil, failure: .launchFailed)
         }
+        if let failure = supervised.failure {
+            return GitProcessResult(
+                output: nil,
+                failure: failure,
+                terminationStatus: supervised.terminationStatus
+            )
+        }
+        guard let terminationStatus = supervised.terminationStatus,
+              acceptedTerminationStatuses.contains(terminationStatus),
+              let output = supervised.rawOutput else {
+            return GitProcessResult(
+                output: nil,
+                failure: .unsuccessfulExit,
+                terminationStatus: supervised.terminationStatus
+            )
+        }
+        return GitProcessResult(
+            rawOutput: output,
+            output: decodeUTF8Lossy(output, maxOutputBytes: nil),
+            terminationStatus: terminationStatus
+        )
     }
 
     private func effectiveDeadlineSeconds(_ requested: Double?) -> Double {
         max(0, min(processDeadlineSeconds, requested ?? processDeadlineSeconds))
-    }
-
-    /// The wrapper shell starts the helper as a monitored background job, which
-    /// gives it a dedicated process group, then reports that leader here over
-    /// its otherwise-discarded stderr. Keeping the wrapper outside the group
-    /// lets it reap the helper after the watchdog signals its descendant group.
-    private func readProcessGroupIdentifier(_ handle: FileHandle) -> pid_t? {
-        guard let data = try? handle.read(upToCount: 64),
-              let text = String(data: data, encoding: .utf8),
-              let firstLine = text.split(separator: "\n", maxSplits: 1).first,
-              let identifier = pid_t(firstLine),
-              identifier > 0 else { return nil }
-        return identifier
-    }
-
-    /// Drains process stdout, stopping (and terminating the process) once
-    /// `maxOutputBytes` is reached so a huge diff never accumulates unbounded
-    /// memory before response-level capping.
-    private func readOutput(
-        _ handle: FileHandle,
-        maxOutputBytes: Int?,
-        watchdog: GitProcessWatchdog
-    ) -> (data: Data, capped: Bool) {
-        guard let maxOutputBytes else {
-            return (handle.readDataToEndOfFileOrEmpty(), false)
-        }
-        var data = Data()
-        while true {
-            guard let chunk = try? handle.read(upToCount: 65536), !chunk.isEmpty else {
-                return (data, false)
-            }
-            data.append(chunk)
-            if data.count >= maxOutputBytes {
-                watchdog.fire()
-                return (Data(data.prefix(maxOutputBytes)), true)
-            }
-        }
     }
 
     /// Git emits raw bytes. Replace invalid UTF-8 instead of turning a valid
@@ -377,8 +287,8 @@ struct GitProcessRunner: Sendable {
         "GIT_GLOB_PATHSPECS",
         "GIT_NOGLOB_PATHSPECS",
         "GIT_ICASE_PATHSPECS",
-        // These variables can execute startup files or mutate shell behavior
-        // before the wrapper reaches its child-level `env -u` boundary.
+        // These variables can execute startup files or mutate the interpreter
+        // behavior of a configured Git executable before it handles arguments.
         "SHELLOPTS",
         "BASHOPTS",
         "BASH_ENV",

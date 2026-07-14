@@ -85,7 +85,7 @@ import Testing
         #expect(service.fileDiff(repoRoot: repo.path, path: ".") == nil)
     }
 
-    @Test func ambientShellStartupEnvironmentIsScrubbedBeforeWrapperLaunch() throws {
+    @Test func ambientShellStartupEnvironmentIsScrubbedBeforeProcessLaunch() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
         let checkingGit = repo.appendingPathComponent("checking-git.sh")
