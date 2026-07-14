@@ -1339,6 +1339,82 @@ import Testing
         withExtendedLifetime(connection) {}
     }
 
+    /// INVARIANT plan(w) ≤ w (live seed 1, iters 20/21). A reconnect racing
+    /// a resize can leave claimed and layout permanently disagreeing: tmux
+    /// holds a 198-column assignment while the banked region fits ~168, so
+    /// the assigned tree's exact size (about 1584pt at 8pt cells) exceeds
+    /// the region (about 1345pt). The render frame AND the divider plan
+    /// must both degrade to the region and never demand past it — geometry
+    /// demanded beyond the container is satisfied by AppKit growing the
+    /// non-movable window, the next pass reads the growth back, and the
+    /// window ratchets a point per pass to the display cap.
+    @Test func oversizedAssignedTreeDegradesToTheRegionInsteadOfDemandingPastIt() throws {
+        let layout = node(.horizontal([
+            node(.pane(1), w: 98, h: 42, x: 0, y: 0),
+            node(.pane(2), w: 99, h: 42, x: 99, y: 0),
+        ]), w: 198, h: 42, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "ratchet-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        let region = CGSize(width: 1345, height: 873)
+        mirror.containerSizePt = region
+        mirror.containerScale = 2
+
+        mirror.updateRenderFrameSize()
+        let renderFrame = try #require(mirror.renderFrameSize)
+        #expect(
+            renderFrame.width <= region.width + 0.5,
+            "the render frame demanded past the region: \(renderFrame.width) > \(region.width)"
+        )
+        #expect(renderFrame.height <= region.height + 0.5)
+
+        mirror.imposeDividerPlan(retryImposedExtents: false)
+        try #require(
+            !mirror.lastPlannedOuterSizes.isEmpty,
+            "fixture: the plan must model outer sizes"
+        )
+        let metrics = try #require(mirror.nativeLayoutMetrics())
+        for (paneId, outer) in mirror.lastPlannedOuterSizes {
+            #expect(
+                outer.width <= region.width + 0.5,
+                "%\(paneId) planned wider than the region: \(outer.width) > \(region.width)"
+            )
+            #expect(
+                outer.height <= region.height + 0.5,
+                "%\(paneId) planned taller than the region: \(outer.height) > \(region.height)"
+            )
+        }
+        let plannedWidthSum = mirror.lastPlannedOuterSizes.values.reduce(0) { $0 + $1.width }
+        #expect(
+            plannedWidthSum + metrics.dividerThickness <= region.width + 0.5,
+            "the plan's row demands past the region: \(plannedWidthSum) + divider > \(region.width)"
+        )
+        // The invariant's pure form: a render frame computed past the region
+        // (a stale or disagreeing exact fit) is bounded before planning.
+        let bounded = try #require(RemoteTmuxWindowMirror.regionBoundedPlanParent(
+            renderFrame: CGSize(width: 1584, height: 873), region: region
+        ))
+        #expect(bounded.width == region.width)
+        #expect(bounded.height <= region.height)
+        withExtendedLifetime(connection) {}
+    }
+
     /// A tab re-show races two host probes: SwiftUI mounts the NEW probe
     /// (which registers the mirror's window handle) before AppKit finishes
     /// tearing the OLD one out of its window, so the dying probe's final

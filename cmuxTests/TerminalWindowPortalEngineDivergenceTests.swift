@@ -191,4 +191,86 @@ extension TerminalWindowPortalLifecycleTests {
         )
         withExtendedLifetime(hosted) {}
     }
+
+    /// The self-echo half of the hierarchy-sync storm (live seed 1, iter 21:
+    /// full_hierarchy_sync 2520 in one settle window at a stationary
+    /// layout). The portal's own frame writes post frame/bounds
+    /// notifications synchronously, and the geometry observers re-armed the
+    /// sync on them. The single-signature guard stops an echo whose
+    /// geometry matches the last completed pass, but a stationary two-state
+    /// disagreement alternates A,B,A,B — the guard can never latch, and the
+    /// portal feeds its own loop forever. The structural rule: a write the
+    /// portal itself makes schedules nothing; only genuinely external
+    /// geometry re-arms. Observable: an external stomp of the host frame
+    /// costs exactly ONE sync request — the pass that restores the frame
+    /// must buy zero more with its own write.
+    @MainActor
+    func testPortalSelfFrameWritesDoNotRearmTheSync() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        let portal = WindowTerminalPortal(window: window)
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        contentView.addSubview(anchor)
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        )
+        portal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+        realizeWindowLayout(window)
+        portal.synchronizeHostedViewForAnchor(anchor)
+
+        // Quiesce: drain until a full drain adds no new sync requests, so
+        // the stomp below is measured from a genuinely idle portal.
+        var stableDrains = 0
+        var lastCount = portal.externalGeometrySyncRequestCountForTesting
+        for _ in 0..<40 {
+            drainMainQueue()
+            let now = portal.externalGeometrySyncRequestCountForTesting
+            if now == lastCount {
+                stableDrains += 1
+                if stableDrains >= 3 { break }
+            } else {
+                stableDrains = 0
+                lastCount = now
+            }
+        }
+        XCTAssertGreaterThanOrEqual(
+            stableDrains, 3,
+            "fixture never quiesced: sync requests kept arriving with static geometry"
+        )
+        let settledHost = portal.hostView.frame
+        XCTAssertGreaterThan(settledHost.width, 1, "fixture: the host must be installed")
+        let baseline = portal.externalGeometrySyncRequestCountForTesting
+
+        // The stomp: an external writer moves the host off portal truth.
+        portal.hostView.frame = NSRect(
+            x: settledHost.origin.x, y: settledHost.origin.y,
+            width: settledHost.width + 175, height: settledHost.height
+        )
+        for _ in 0..<6 {
+            drainMainQueue()
+        }
+        XCTAssertEqual(
+            portal.hostView.frame.width, settledHost.width, accuracy: 0.5,
+            "the sync pass must restore the stomped host frame from the reference"
+        )
+        XCTAssertEqual(
+            portal.externalGeometrySyncRequestCountForTesting - baseline, 1,
+            "an external stomp costs exactly one sync request; every request past it was "
+                + "re-armed by the portal's own restoring write — the self-echo the "
+                + "signature guard cannot stop when geometry alternates"
+        )
+        withExtendedLifetime(hosted) {}
+    }
 }

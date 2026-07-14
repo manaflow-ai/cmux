@@ -674,9 +674,23 @@ final class WindowTerminalPortal: NSObject {
     private var pendingExternalGeometrySyncHasDeferredRequest = false
     private var externalGeometrySyncGeneration: UInt64 = 0
     private var geometryObservers: [NSObjectProtocol] = []
+    /// Nonzero while the portal itself writes a frame it owns (the host
+    /// view, a hosted view's seed or target frame). NSView posts its
+    /// frame/bounds notifications synchronously on the posting thread, so a
+    /// geometry notification observed while this is held is the echo of the
+    /// portal's own write — it must not re-arm the sync. The signature
+    /// guard alone cannot end a stationary two-state disagreement (A,B,A,B
+    /// never matches the last signature), so without this token the
+    /// portal's own writes kept the sync loop fed forever.
+    private var selfFrameWriteDepth = 0
 #if DEBUG
     private var lastLoggedBonsplitContainerSignature: String?
     private var lastObservedWindowSize: NSSize?
+    /// Every sync request this portal receives (including in-pass marks and
+    /// follow-up re-schedules) — the re-arm observable for the self-write
+    /// echo test: an external stomp must cost exactly one request, with the
+    /// restoring write's own notifications buying zero more.
+    var externalGeometrySyncRequestCountForTesting = 0
 #endif
 
     struct Entry {
@@ -711,6 +725,17 @@ final class WindowTerminalPortal: NSObject {
         _ = ensureInstalled(syncLayout: syncLayout)
     }
 
+    /// Runs `body` with the self-write token held, so the frame/bounds
+    /// notifications the write posts (synchronously, same thread) cannot
+    /// re-arm the portal's own sync. Only genuinely external geometry —
+    /// notifications arriving with no portal write on the stack — schedules
+    /// a pass.
+    private func performSelfFrameWrite<T>(_ body: () -> T) -> T {
+        selfFrameWriteDepth += 1
+        defer { selfFrameWriteDepth -= 1 }
+        return body()
+    }
+
     private func installGeometryObservers(for window: NSWindow) {
         guard geometryObservers.isEmpty else { return }
 
@@ -742,7 +767,8 @@ final class WindowTerminalPortal: NSObject {
                     }
                 }
 #endif
-                self?.scheduleExternalGeometrySynchronize()
+                guard let self, self.selfFrameWriteDepth == 0 else { return }
+                self.scheduleExternalGeometrySynchronize()
             }
         })
         geometryObservers.append(center.addObserver(
@@ -751,7 +777,8 @@ final class WindowTerminalPortal: NSObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.scheduleExternalGeometrySynchronize()
+                guard let self, self.selfFrameWriteDepth == 0 else { return }
+                self.scheduleExternalGeometrySynchronize()
             }
         })
         geometryObservers.append(center.addObserver(
@@ -761,6 +788,7 @@ final class WindowTerminalPortal: NSObject {
         ) { [weak self] notification in
             MainActor.assumeIsolated {
                 guard let self,
+                      self.selfFrameWriteDepth == 0,
                       let splitView = notification.object as? NSSplitView,
                       let window = self.window,
                       splitView.window === window else { return }
@@ -773,7 +801,8 @@ final class WindowTerminalPortal: NSObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.scheduleExternalGeometrySynchronize()
+                guard let self, self.selfFrameWriteDepth == 0 else { return }
+                self.scheduleExternalGeometrySynchronize()
             }
         })
         geometryObservers.append(center.addObserver(
@@ -782,7 +811,8 @@ final class WindowTerminalPortal: NSObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.scheduleExternalGeometrySynchronize()
+                guard let self, self.selfFrameWriteDepth == 0 else { return }
+                self.scheduleExternalGeometrySynchronize()
             }
         })
     }
@@ -810,7 +840,8 @@ final class WindowTerminalPortal: NSObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                guard let self, self.selfFrameWriteDepth == 0 else { return }
+                self.scheduleExternalGeometrySynchronize(forceImmediate: false)
             }
         })
     }
@@ -851,6 +882,9 @@ final class WindowTerminalPortal: NSObject {
     private var resyncRequestedDuringPass = false
 
     fileprivate func scheduleExternalGeometrySynchronize(forceImmediate: Bool) {
+#if DEBUG
+        externalGeometrySyncRequestCountForTesting += 1
+#endif
         if Self.currentlySynchronizingPortalId == ObjectIdentifier(self) {
             resyncRequestedDuringPass = true
             return
@@ -970,10 +1004,12 @@ final class WindowTerminalPortal: NSObject {
         guard hasFiniteFrame else { return false }
 
         if !Self.rectApproximatelyEqual(hostView.frame, frameInContainer) {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            hostView.frame = frameInContainer
-            CATransaction.commit()
+            performSelfFrameWrite {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                hostView.frame = frameInContainer
+                CATransaction.commit()
+            }
 #if DEBUG
             cmuxDebugLog(
                 "portal.hostFrame.update host=\(portalDebugToken(hostView)) " +
@@ -1444,19 +1480,23 @@ final class WindowTerminalPortal: NSObject {
         if let seededFrame = seededFrameInHost(for: anchorView),
            seededFrame.width > 0,
            seededFrame.height > 0 {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            hostedView.frame = seededFrame
-            hostedView.bounds = NSRect(origin: .zero, size: seededFrame.size)
-            CATransaction.commit()
+            performSelfFrameWrite {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                hostedView.frame = seededFrame
+                hostedView.bounds = NSRect(origin: .zero, size: seededFrame.size)
+                CATransaction.commit()
+            }
         } else {
             // If anchor geometry is still unsettled, keep this hidden/zero-sized until
             // synchronizeHostedView resolves a valid target frame on the next layout tick.
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            hostedView.frame = .zero
-            hostedView.bounds = .zero
-            CATransaction.commit()
+            performSelfFrameWrite {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                hostedView.frame = .zero
+                hostedView.bounds = .zero
+                CATransaction.commit()
+            }
             hostedView.isHidden = true
         }
         // Keep inner scroll/surface geometry in sync with the seeded outer frame
@@ -1894,17 +1934,19 @@ final class WindowTerminalPortal: NSObject {
         if hasFiniteFrame {
             let expectedBounds = NSRect(origin: .zero, size: targetFrame.size)
             var geometryChanged = false
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
-                hostedView.frame = targetFrame
-                geometryChanged = true
+            performSelfFrameWrite {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
+                    hostedView.frame = targetFrame
+                    geometryChanged = true
+                }
+                if !Self.rectApproximatelyEqual(hostedView.bounds, expectedBounds) {
+                    hostedView.bounds = expectedBounds
+                    geometryChanged = true
+                }
+                CATransaction.commit()
             }
-            if !Self.rectApproximatelyEqual(hostedView.bounds, expectedBounds) {
-                hostedView.bounds = expectedBounds
-                geometryChanged = true
-            }
-            CATransaction.commit()
             if geometryChanged {
                 _ = hostedView.reconcileGeometryNow()
                 // Hidden surfaces keep geometry bookkeeping and redraw on reveal.

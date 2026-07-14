@@ -126,12 +126,26 @@ extension RemoteTmuxWindowMirror {
             // ideals, so no pane absorbs the region's sub-cell remainder
             // along a split axis (the remainder sits outside the tree as
             // trailing margin — see renderFrameSize).
+            //
+            // INVARIANT plan(w) ≤ w: the parent the plan divides may never
+            // exceed the banked region. A claimed≠layout disagreement (a
+            // reconnect racing a resize can leave one permanently) makes the
+            // assigned tree's exact size larger than the region; a plan
+            // derived past the region demands geometry the container cannot
+            // hold, the hosting window grows a point to satisfy it, the next
+            // pass reads the growth back, and the window ratchets +1 per
+            // pass to the display cap. Under disagreement the plan degrades
+            // to the region — never past it — and the mismatch heals through
+            // the claim/layout channel, not through window growth.
+            let planParent = Self.regionBoundedPlanParent(
+                renderFrame: renderFrameSize, region: containerSizePt
+            )
             let plan = planner.plan(
                 tree: RemoteTmuxNativeMeasuredSplitTree(
                     tree: splitTree,
                     metrics: metrics
                 ),
-                parentSize: renderFrameSize ?? containerSizePt
+                parentSize: planParent
             )
             let plannedOuterSizes = planner.outerSizes(of: plan)
             #if DEBUG
@@ -144,7 +158,7 @@ extension RemoteTmuxWindowMirror {
                     .map { "%\($0.key)=\(Int($0.value.width))x\(Int($0.value.height))" }
                     .joined(separator: " ")
                 cmuxDebugLog(
-                    "remote.divider.plan @\(windowId) parent=\(Int((renderFrameSize ?? containerSizePt ?? .zero).width))x\(Int((renderFrameSize ?? containerSizePt ?? .zero).height)) titleRow=\(Int(metrics.paneTitleRowHeight)) outers[\(planSummary)]"
+                    "remote.divider.plan @\(windowId) parent=\(Int((planParent ?? .zero).width))x\(Int((planParent ?? .zero).height)) titleRow=\(Int(metrics.paneTitleRowHeight)) outers[\(planSummary)]"
                 )
             }
             #endif
@@ -162,6 +176,18 @@ extension RemoteTmuxWindowMirror {
                 tmuxTree: splitTree, treeNode: treeNode, skippingSubtree: heldSplitId
             )
         }
+    }
+
+    /// The parent size a divider plan may divide: the exact-fit render frame
+    /// when one exists, bounded by the banked region on both axes. Pure and
+    /// static so the plan(w) ≤ w invariant is testable without views.
+    static func regionBoundedPlanParent(renderFrame: CGSize?, region: CGSize?) -> CGSize? {
+        guard let parent = renderFrame ?? region else { return nil }
+        guard let region else { return parent }
+        return CGSize(
+            width: min(parent.width, region.width),
+            height: min(parent.height, region.height)
+        )
     }
 
     /// The in-flight divider send's verdict against the CURRENT tmux tree:
