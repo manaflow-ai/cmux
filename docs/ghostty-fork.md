@@ -124,7 +124,7 @@ build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
 and clearing.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fa64f7ac4443853d9ba8de72e394ecd87cf6fec9-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-a6305908a39646ed87764aadd4ec8364c1d939a0-crashsubdir-cmux-crash-v1
 
 ### Previous pin
 
