@@ -22,11 +22,11 @@ struct TaskComposerSheet: View {
     @State var selectedMacDeviceID: String
     @State var directory: String
     @State var didEditDirectory = false
-    @State private var submissionPhase: TaskComposerSubmissionPhase = .idle
+    @State var submissionPhase: TaskComposerSubmissionPhase = .idle
     @State private var submitTask: Task<Void, Never>?
-    @State private var failureText: String?
+    @State var failureText: String?
     @State private var isEditorPresented = false
-    @State private var isDirectoryPickerPresented = false
+    @State var isDirectoryPickerPresented = false
     @State private var selectedDetent: PresentationDetent = .medium
     @State private var shouldPersistDraftOnDisappear = true
     @State var submissionIdentity: MobileTaskSubmissionIdentity
@@ -290,59 +290,6 @@ struct TaskComposerSheet: View {
         }
         .contentMargins(.horizontal, 20, for: .scrollContent)
         .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 0))
-    }
-
-    private var directorySection: some View {
-        Section(L10n.string("mobile.taskComposer.directory", defaultValue: "Directory")) {
-            Button {
-                isDirectoryPickerPresented = true
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "folder")
-                        .foregroundStyle(.tint)
-                        .accessibilityHidden(true)
-                    Text(directory)
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(submissionPhase.disablesRequestEditing)
-            .accessibilityLabel(L10n.string("mobile.taskComposer.directory", defaultValue: "Directory"))
-            .accessibilityValue(directory)
-            .accessibilityHint(
-                L10n.string(
-                    "mobile.taskComposer.directoryPicker.hint",
-                    defaultValue: "Opens a searchable list of folders from this Mac."
-                )
-            )
-            .accessibilityIdentifier("MobileTaskComposerDirectory")
-        }
-    }
-
-    private var directoryCandidates: [MobileTaskDirectoryCandidate] {
-        TaskComposerDirectoryCandidates(
-            store: store,
-            selectedMacDeviceID: selectedMacDeviceID,
-            selectedTemplate: selectedTemplate
-        ).make()
-    }
-
-    private func selectDirectory(_ path: String) {
-        guard !submissionPhase.disablesRequestEditing else { return }
-        updateSubmissionRequest {
-            directory = path
-            didEditDirectory = true
-        }
-        failureText = nil
     }
 
     @ViewBuilder

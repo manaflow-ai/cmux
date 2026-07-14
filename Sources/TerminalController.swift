@@ -119,8 +119,7 @@ class TerminalController {
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     var tabManager: TabManager?
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
-    /// The shared auth coordinator + browser sign-in flow, injected once via `attachAuth`
-    /// before the socket listener starts. Socket auth commands read these on the main actor.
+    /// Auth coordinator and browser flow are injected by `attachAuth` before socket startup.
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?

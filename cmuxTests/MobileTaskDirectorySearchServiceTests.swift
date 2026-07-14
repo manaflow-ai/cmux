@@ -8,6 +8,22 @@ import Testing
 #endif
 
 @Suite struct MobileTaskDirectorySearchServiceTests {
+    @Test func advertisesAndDispatchesDirectorySearch() async {
+        #expect(MobileHostService.mobileHostCapabilities.contains("workspace.directory_search.v1"))
+
+        let request = MobileHostRPCRequest(
+            id: "directory-search",
+            method: "mobile.directory.search",
+            params: ["query": ""],
+            auth: nil
+        )
+        let result = await TerminalController.shared.mobileHostHandleRPC(request)
+        guard case let .failure(error) = result else {
+            return #expect(Bool(false), "An empty directory query must be rejected")
+        }
+        #expect(error.code == "invalid_params")
+    }
+
     @Test func ranksStrictAndComponentMatchesBeforeLenientMatches() {
         let paths = [
             "/Users/test/Dev/Manaflow/cmuxterm-hq",
