@@ -117,6 +117,16 @@ struct UnifiedFileExplorerTests {
         #expect(store.expandedPaths == [directory.path])
         #expect(store.selectedPath == directory.path)
 
+        let searchCountBeforeFindActivation = searchController.searchRequests.count
+        state.mode = .find
+        container.updatePresentation(.unified)
+        #expect(!container.searchResultsView.isHidden)
+        #expect(searchController.searchRequests.count == searchCountBeforeFindActivation + 1)
+
+        state.mode = .files
+        container.updatePresentation(.unified)
+        #expect(container.searchResultsView.isHidden)
+
         let searchCountBeforeHiddenRevision = searchController.searchRequests.count
         store.reload()
         container.updateHeader(store: store)
@@ -134,6 +144,16 @@ struct UnifiedFileExplorerTests {
         #expect(store.selectedPath == directory.path)
         let restoredSearchResponder = try #require(window.firstResponder)
         #expect(container.ownsKeyboardFocus(restoredSearchResponder))
+
+        state.mode = .files
+        focusController.noteRightSidebarInteraction(mode: .find)
+        #expect(state.mode == .find)
+
+#if DEBUG
+        let outlineView = try #require(Self.outlineView(in: container))
+        focusController.debugSyncAfterResponderChange(responder: outlineView)
+        #expect(state.mode == .files)
+#endif
     }
 
     private static func searchField(in root: NSView) -> NSSearchField? {
@@ -143,6 +163,14 @@ struct UnifiedFileExplorerTests {
         }
         for subview in root.subviews {
             if let field = searchField(in: subview) { return field }
+        }
+        return nil
+    }
+
+    private static func outlineView(in root: NSView) -> FileExplorerNSOutlineView? {
+        if let outlineView = root as? FileExplorerNSOutlineView { return outlineView }
+        for subview in root.subviews {
+            if let outlineView = outlineView(in: subview) { return outlineView }
         }
         return nil
     }
