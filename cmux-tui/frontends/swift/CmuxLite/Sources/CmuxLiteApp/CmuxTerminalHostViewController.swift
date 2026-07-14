@@ -5,6 +5,8 @@ import GhosttyTerminal
 @MainActor
 final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGridResizeDelegate {
     private let frontend: CmuxFrontendSession
+    private let ghosttyViewConfiguration: CmuxGhosttyViewConfiguration
+    private let ghosttyConfigPath: String?
     private var terminalView: TerminalView?
     private var terminalSession: InMemoryTerminalSession?
     private var terminalController: TerminalController?
@@ -17,8 +19,14 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
     private var pendingInitialClaim = false
     private var lastMeasurement: CmuxTerminalMeasurement?
 
-    init(frontend: CmuxFrontendSession) {
+    init(
+        frontend: CmuxFrontendSession,
+        ghosttyViewConfiguration: CmuxGhosttyViewConfiguration,
+        ghosttyConfigPath: String?
+    ) {
         self.frontend = frontend
+        self.ghosttyViewConfiguration = ghosttyViewConfiguration
+        self.ghosttyConfigPath = ghosttyConfigPath
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -42,7 +50,7 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
                 replaceTerminal(for: surface)
             } else {
                 _ = terminalController?.setTerminalConfiguration(
-                    colors?.ghosttyConfiguration ?? TerminalConfiguration()
+                    effectiveTerminalConfiguration
                 )
             }
             applyReplay(bytes, claimAfterReplay: true)
@@ -59,7 +67,7 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
         case let .colorsChanged(surface, colors):
             guard surface == nil || surface == attachedSurface else { return }
             self.colors = colors
-            _ = terminalController?.setTerminalConfiguration(colors.ghosttyConfiguration)
+            _ = terminalController?.setTerminalConfiguration(effectiveTerminalConfiguration)
         case let .detached(surface):
             guard attachedSurface == surface else { return }
         case .other:
@@ -118,14 +126,21 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
             // resize echoes while real container changes still claim sizing.
             resize: { _ in }
         )
+        let configSource: TerminalController.ConfigSource = if let ghosttyConfigPath {
+            .file(ghosttyConfigPath)
+        } else {
+            .none
+        }
         let controller = TerminalController(
-            terminalConfiguration: colors?.ghosttyConfiguration ?? TerminalConfiguration()
+            configSource: configSource,
+            theme: TerminalTheme(),
+            terminalConfiguration: effectiveTerminalConfiguration
         )
         let terminal = TerminalView(frame: view.bounds)
         terminal.delegate = self
         terminal.configuration = TerminalSurfaceOptions(
             backend: .inMemory(session),
-            fontSize: 13
+            fontSize: ghosttyViewConfiguration.fontSize
         )
         terminal.controller = controller
         terminal.setAccessibilityElement(true)
@@ -150,6 +165,11 @@ final class CmuxTerminalHostViewController: NSViewController, TerminalSurfaceGri
             terminal.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         view.window?.makeFirstResponder(terminal)
+    }
+
+    private var effectiveTerminalConfiguration: TerminalConfiguration {
+        let base = ghosttyViewConfiguration.ghosttyConfiguration
+        return colors?.ghosttyConfiguration(startingFrom: base) ?? base
     }
 
     private func applyReplay(_ replay: Data, claimAfterReplay: Bool) {

@@ -27,9 +27,17 @@ final class CmuxLiteWindowController: NSWindowController,
     private var navigationTask: Task<Void, Never>?
     private var applyingSelection = false
 
-    init(frontend: CmuxFrontendSession) {
+    init(
+        frontend: CmuxFrontendSession,
+        ghosttyViewConfiguration: CmuxGhosttyViewConfiguration,
+        ghosttyConfigPath: String?
+    ) {
         self.frontend = frontend
-        terminalHost = CmuxTerminalHostViewController(frontend: frontend)
+        terminalHost = CmuxTerminalHostViewController(
+            frontend: frontend,
+            ghosttyViewConfiguration: ghosttyViewConfiguration,
+            ghosttyConfigPath: ghosttyConfigPath
+        )
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1040, height: 680),
@@ -262,7 +270,7 @@ final class CmuxLiteWindowController: NSWindowController,
             normalForeground: CmuxPalette.tui.dim
         )
         newTab.translatesAutoresizingMaskIntoConstraints = false
-        newTab.widthAnchor.constraint(equalToConstant: 30).isActive = true
+        newTab.widthAnchor.constraint(equalToConstant: 34).isActive = true
         tabsStack.addArrangedSubview(newTab)
     }
 

@@ -2,8 +2,10 @@ import CmuxLiteCore
 import GhosttyTerminal
 
 extension CmuxTerminalColors {
-    var ghosttyConfiguration: TerminalConfiguration {
-        TerminalConfiguration { builder in
+    func ghosttyConfiguration(
+        startingFrom base: TerminalConfiguration
+    ) -> TerminalConfiguration {
+        TerminalConfiguration(startingFrom: base) { builder in
             if let foreground { builder.withForeground(foreground) }
             if let background { builder.withBackground(background) }
             if let cursor { builder.withCursorColor(cursor) }
