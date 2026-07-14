@@ -319,6 +319,15 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
                 // viewDidMoveToWindow() retries once it actually attaches.
                 return
             }
+            let popover = popover ?? makePopover()
+            // Everything below happens ONLY on the hidden-to-shown
+            // transition: `present()` is re-entered on every parent update
+            // tick while shown, and a window-wide layout flush (or an
+            // identity bump) on those ticks would widen row-scoped checklist
+            // churn into an app-wide synchronous layout pass per update.
+            // While shown, content and size updates flow through
+            // `update(model:builder:)` -> `refreshContent()` instead.
+            guard !popover.isShown else { return }
             // Lay out from the window's root, not just the anchor's
             // immediate superview: `layoutSubtreeIfNeeded()` only resolves
             // the subtree it's called on, not ancestors above it. A
@@ -332,15 +341,9 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
             // immediate superview anchors the popover to the wrong spot.
             window.contentView?.layoutSubtreeIfNeeded()
             anchorView.superview?.layoutSubtreeIfNeeded()
-            let popover = popover ?? makePopover()
-            // Only bump identity on a hidden-to-shown transition; bumping on
-            // every updateNSView would reset view-local state on every tick.
-            if !popover.isShown {
-                presentationCount += 1
-                refreshContent()
-            }
+            presentationCount += 1
+            refreshContent()
             updateContentSize()
-            guard !popover.isShown else { return }
             popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: preferredEdge)
         }
 
