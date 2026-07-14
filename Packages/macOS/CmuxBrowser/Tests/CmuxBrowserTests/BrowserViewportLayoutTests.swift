@@ -80,6 +80,52 @@ struct BrowserViewportLayoutTests {
         #expect(layout.scale == 1)
     }
 
+    @Test func nativeLayoutReportsZoomAdjustedCSSViewport() {
+        let container = CGRect(x: 4, y: 8, width: 800, height: 600)
+        let layout = BrowserViewportLayout(
+            containerBounds: container,
+            viewport: nil,
+            pageZoom: 2
+        )
+
+        #expect(layout.frame == container)
+        #expect(layout.bounds == CGRect(x: 0, y: 0, width: 400, height: 300))
+        #expect(layout.webViewBounds == CGRect(x: 0, y: 0, width: 800, height: 600))
+        #expect(layout.scale == 2)
+    }
+
+    @Test func renderLimitsBoundCombinedViewportAndZoomGeometry() throws {
+        let limits = BrowserViewportRenderLimits.standard
+        let commonViewport = try #require(BrowserViewport(width: 1_280, height: 720))
+        let maximumViewport = try #require(BrowserViewport(width: 4_096, height: 4_096))
+
+        #expect(limits.supports(viewport: commonViewport, pageZoom: 5))
+        #expect(limits.supports(viewport: maximumViewport, pageZoom: 1))
+        #expect(!limits.supports(viewport: maximumViewport, pageZoom: 5))
+        #expect(abs(limits.maximumPageZoom(for: maximumViewport) - 2.0.squareRoot()) < 0.000_001)
+    }
+
+    @Test func retinaSnapshotPlanRequestsExactCSSPixelOutput() throws {
+        let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
+        let plan = BrowserViewportSnapshotPlan(viewport: viewport, backingScaleFactor: 2)
+
+        #expect(plan.snapshotPointWidth == 640)
+        #expect(plan.outputPixelSize == CGSize(width: 1_280, height: 720))
+        #expect(plan.outputPixelCount == 921_600)
+    }
+
+    @Test func contentMetricsKeepReportedCSSViewportAtPageZoom() {
+        let metrics = BrowserViewportContentMetrics(
+            contentSize: CGSize(width: 2_560, height: 2_160),
+            reportedViewportSize: CGSize(width: 1_280, height: 720),
+            fallbackViewportSize: CGSize(width: 1_600, height: 900),
+            scrollOffset: CGPoint(x: 10, y: 20)
+        )
+
+        #expect(metrics?.viewportSize == CGSize(width: 1_280, height: 720))
+        #expect(metrics?.scrollOffset == CGPoint(x: 10, y: 20))
+    }
+
     @Test func temporaryReparentingRestoresOnlyWhileItOwnsTheWebView() {
         let temporaryHost = BrowserViewportRestorationPolicy(
             hasCurrentHost: true,
