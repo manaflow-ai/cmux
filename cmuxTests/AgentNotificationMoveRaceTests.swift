@@ -138,8 +138,7 @@ struct AgentNotificationRegressionTests {
                 surfaceId: surfaceId,
                 title: "Claude Code",
                 subtitle: "Completed",
-                body: "Queued \(index)",
-                coalesces: false
+                body: "Queued \(index)"
             )
         }
 

@@ -6,7 +6,7 @@ import UserNotifications
 import Bonsplit
 import CmuxSettings
 
-nonisolated private let terminalNotificationLogger = Logger(
+nonisolated let terminalNotificationLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "notification"
 )
@@ -376,7 +376,7 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
-    private enum AuthorizationRequestOrigin: String {
+    enum AuthorizationRequestOrigin: String {
         case notificationDelivery = "notification_delivery"
         case settingsButton = "settings_button"
         case settingsTest = "settings_test"
