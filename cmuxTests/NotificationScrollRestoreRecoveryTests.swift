@@ -62,6 +62,9 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
         hostedView.expireNotificationScrollRestoreFrameDeadline()
 
+        #expect(surfaceView.performedBindingActions.isEmpty)
+        #expect(hostedView.hasPendingNotificationScrollRestore)
+        postScrollbar(scrollbar(total: 1_200, offset: 1_156, len: 44), to: surfaceView)
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:1056"])
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }

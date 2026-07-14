@@ -103,6 +103,11 @@ extension GhosttySurfaceScrollView {
             return false
         }
         let capturedTotalRows = position.totalRows ?? Int(clamping: scrollbar.total)
+        if isPostReplayGeometry,
+           !isAuthoritativePostReplayFrame,
+           Int(clamping: scrollbar.total) < capturedTotalRows {
+            return false
+        }
         let anchor = TerminalScrollbackViewportAnchor(
             rowsBelowViewport: position.row,
             capturedTotalRows: capturedTotalRows
@@ -318,12 +323,7 @@ extension GhosttySurfaceScrollView {
             return
         }
         cancelNotificationScrollRestoreFrameWait()
-        if notificationScrollRestoreState.pendingPosition != nil {
-            _ = restorePendingNotificationScrollPositionIfReady(
-                isPostReplayGeometryUpdate: true,
-                isAuthoritativePostReplayFrame: true
-            )
-        } else {
+        if notificationScrollRestoreState.pendingPosition == nil {
             notificationScrollRestoreState = .inactive
         }
     }

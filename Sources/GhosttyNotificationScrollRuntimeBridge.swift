@@ -4,7 +4,7 @@ import CmuxTerminal
 extension TerminalPanel {
     func performInternalBindingAction(_ action: String) -> Bool {
         guard !isAgentHibernated else { return false }
-        return surface.performBindingAction(action)
+        return surface.performInternalBindingAction(action)
     }
 }
 
