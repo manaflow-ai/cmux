@@ -76,6 +76,30 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
         }
     }
 
+    func testHookScriptsAreImmutableAcrossConcurrentCmuxVersions() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-content-address-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let currentBody = "current-owner-gated-body"
+        let olderBody = "older-path-fallback-body"
+        let currentPath = try XCTUnwrap(CMUXCLI.writeCodexHookScript(
+            subcommand: "session-start",
+            body: currentBody,
+            in: root
+        ))
+        let olderPath = try XCTUnwrap(CMUXCLI.writeCodexHookScript(
+            subcommand: "session-start",
+            body: olderBody,
+            in: root
+        ))
+
+        XCTAssertNotEqual(currentPath, olderPath)
+        XCTAssertEqual(try String(contentsOfFile: currentPath, encoding: .utf8), "#!/bin/sh\n\(currentBody)\n")
+        XCTAssertEqual(try String(contentsOfFile: olderPath, encoding: .utf8), "#!/bin/sh\n\(olderBody)\n")
+    }
+
     func testSetupPrunesLegacyProjectDispatcherButPreservesUserHook() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
