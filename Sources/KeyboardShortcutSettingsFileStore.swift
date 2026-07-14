@@ -295,8 +295,8 @@ final class CmuxSettingsFileStore {
 
     private func resolveSettings() -> ResolvedSettingsSnapshot {
         // A transient missing or malformed file must not restore a potentially broader unmanaged policy.
-        let preservedSocketMode = synchronized { activeManagedUserDefaults[SocketControlSettings.appStorageKey] }
-            ?? .string(SocketControlMode.cmuxOnly.rawValue)
+        let priorSocketMode = synchronized { activeManagedUserDefaults[SocketControlSettings.appStorageKey] }
+        let preservedSocketMode = priorSocketMode ?? .string(SocketControlMode.cmuxOnly.rawValue)
         switch loadSettings(at: primaryPath) {
         case .parsed(var snapshot):
             mergeFallbackSettings(into: &snapshot)
@@ -309,7 +309,7 @@ final class CmuxSettingsFileStore {
         var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
         mergeFallbackSettings(into: &fallbackSnapshot)
         fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey] =
-            fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey] ?? preservedSocketMode
+            priorSocketMode ?? fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey] ?? preservedSocketMode
         return fallbackSnapshot
     }
 
@@ -847,11 +847,10 @@ final class CmuxSettingsFileStore {
             let raw = jsonString(section["socketControlMode"])
             let knownModes = Set(["off", "cmuxonly", "automation", "password", "allowall", "openaccess", "fullopenaccess", "notifications", "full"])
             let normalizedRaw = raw?.replacingOccurrences(of: "-", with: "").lowercased()
-            if raw == nil || !knownModes.contains(normalizedRaw ?? "") {
-                logInvalid("automation.socketControlMode", sourcePath: sourcePath)
-            }
+            let mode = raw.flatMap { knownModes.contains(normalizedRaw ?? "") ? SocketControlSettings.migrateMode($0) : nil }
+            if mode == nil { logInvalid("automation.socketControlMode", sourcePath: sourcePath) }
             snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = .string(
-                raw.map(SocketControlSettings.migrateMode(_:))?.rawValue ?? SocketControlMode.cmuxOnly.rawValue
+                (mode ?? SocketControlMode.cmuxOnly).rawValue
             )
         }
         if section.keys.contains("socketPassword") {
