@@ -36,6 +36,31 @@ import Testing
         return nil
     }
 
+    private static func ancestorChain(_ view: NSView) -> String {
+        var names: [String] = []
+        var current: NSView? = view.superview
+        while let v = current {
+            names.append(String(describing: type(of: v)))
+            current = v.superview
+        }
+        return names.joined(separator: "<")
+    }
+
+    /// Split views that are visible at the APPKIT level: not hidden
+    /// themselves and under no hidden ancestor. SwiftUI opacity does not
+    /// register here — that is the point of the census.
+    private func effectivelyVisibleSplitViews(
+        in root: NSView, ancestorHidden: Bool = false
+    ) -> [NSSplitView] {
+        let hidden = ancestorHidden || root.isHidden
+        var found: [NSSplitView] = []
+        if let split = root as? NSSplitView, !hidden { found.append(split) }
+        for sub in root.subviews {
+            found.append(contentsOf: effectivelyVisibleSplitViews(in: sub, ancestorHidden: hidden))
+        }
+        return found
+    }
+
     /// Builds a horizontal two-pane controller with the real embedded config,
     /// hosts it in a fixed-size window, and returns the live NSSplitView plus
     /// the split's UUID and the available (post-divider) width.
@@ -643,6 +668,139 @@ import Testing
         defer { window.orderOut(nil) }
         try #require(window.contentView).addSubview(old)
         #expect(mirror.hostProbeView === old)
+    }
+
+    /// A deselected mirror tab's split tree must be hidden at the APPKIT
+    /// level, not just faded out. The workspace bonsplit keeps every tab's
+    /// content alive (`contentViewLifecycle: .keepAllAlive`) and hides
+    /// deselected tabs with SwiftUI opacity 0, which never sets `isHidden`
+    /// on the AppKit split trees the embedded mirrors render — a live lldb
+    /// census found 21 split-view instances stacked in one window whose
+    /// visible layout has two dividers. The unhidden foreign trees painted
+    /// their dividers over the visible panes (the phantom interior divider),
+    /// registered resize-cursor rects under the pointer, and their alpha-0
+    /// drop zones sat above the selected tab and rejected pane drops (the
+    /// embedded config forbids cross-pane tab moves). Bonsplit's
+    /// `isInteractive` switch hides the split tree at the AppKit level; the
+    /// mirror view must drive it at the same visibility edges that drive
+    /// `isVisibleForSizing`. The divider-region census below is the same
+    /// collection the portal uses to paint dividers, so an inflated count
+    /// here IS the phantom divider.
+    @Test func deselectedMirrorTabsHideTheirSplitTreesFromAppKit() async throws {
+        func makeSplitMirror() -> (mirror: RemoteTmuxWindowMirror, connection: RemoteTmuxControlConnection) {
+            let layout = node(.horizontal([
+                node(.pane(1), w: 61, h: 35, x: 0, y: 0),
+                node(.pane(2), w: 61, h: 35, x: 62, y: 0),
+            ]), w: 123, h: 35, x: 0, y: 0)
+            let connection = RemoteTmuxControlConnection(
+                host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
+            )
+            let mirror = RemoteTmuxWindowMirror(
+                windowId: 0,
+                panelId: UUID(),
+                connection: connection,
+                layout: layout,
+                makePanel: { _ in nil }
+            )
+            return (mirror, connection)
+        }
+        let (mirrorA, connectionA) = makeSplitMirror()
+        let (mirrorB, connectionB) = makeSplitMirror()
+
+        let appearance = PanelAppearance(
+            backgroundColor: .black, foregroundColor: .white,
+            dividerColor: .gray, unfocusedOverlayNSColor: .black,
+            unfocusedOverlayOpacity: 0, usesClearContentBackground: false
+        )
+        // The workspace-style outer chain: one bonsplit pane holding both
+        // mirror tabs, all content kept alive like the real workspace.
+        var outerConfiguration = BonsplitConfiguration()
+        outerConfiguration.contentViewLifecycle = .keepAllAlive
+        let outer = BonsplitController(configuration: outerConfiguration)
+        let rootPane = try #require(outer.allPaneIds.first)
+        let tabA = try #require(outer.createTab(
+            title: "A", icon: "terminal", kind: "terminal", inPane: rootPane
+        ))
+        let tabB = try #require(outer.createTab(
+            title: "B", icon: "terminal", kind: "terminal", inPane: rootPane
+        ))
+        let root = BonsplitView(controller: outer) { tab, paneId in
+            // A fresh controller carries a default welcome tab; only the two
+            // mirror tabs render mirror views, so the census counts exactly
+            // the trees the mirrors own.
+            if tab.id == tabA || tab.id == tabB {
+                RemoteTmuxWindowMirrorSplitView(
+                    mirror: tab.id == tabA ? mirrorA : mirrorB,
+                    appearance: appearance,
+                    isOuterFocused: false,
+                    isVisibleInUI: outer.selectedTab(inPane: paneId)?.id == tab.id,
+                    portalPriority: 0,
+                    onOuterFocus: {}
+                )
+            } else {
+                Color.clear
+            }
+        } emptyPane: { _ in
+            Color.clear
+        }
+        let hostingView = MainWindowHostingView(rootView: AnyView(root))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        let contentView = try #require(window.contentView)
+
+        // Async suspensions, not RunLoop.run: a nested runloop would pump
+        // layout while starving the main queue (see the stale-bank test).
+        func settle() async throws {
+            for _ in 0..<10 {
+                window.displayIfNeeded()
+                contentView.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(50))
+            }
+        }
+
+        outer.selectTab(tabA)
+        try await settle()
+
+        let visibleWithASelected = effectivelyVisibleSplitViews(in: contentView)
+        #expect(
+            visibleWithASelected.count == 1,
+            "with tab A selected, exactly its own split tree may be visible to AppKit — found \(visibleWithASelected.count) unhidden split views: \(visibleWithASelected.map { "\($0.frame) sub=\($0.arrangedSubviews.count) chain=\(Self.ancestorChain($0))" })"
+        )
+        let regionsWithASelected = PortalSplitDividerRegion.collect(in: contentView).regions
+        #expect(
+            regionsWithASelected.count == 1,
+            "the divider census must see A's single divider, not the deselected tab's too — found \(regionsWithASelected.count)"
+        )
+
+        // The other direction exercises the visibility-change edge: B's tree
+        // un-hides, A's hides.
+        outer.selectTab(tabB)
+        try await settle()
+
+        let visibleWithBSelected = effectivelyVisibleSplitViews(in: contentView)
+        #expect(
+            visibleWithBSelected.count == 1,
+            "with tab B selected, exactly its own split tree may be visible to AppKit — found \(visibleWithBSelected.count) unhidden split views"
+        )
+        #expect(
+            PortalSplitDividerRegion.collect(in: contentView).regions.count == 1,
+            "the divider census must see B's single divider after the switch"
+        )
+        if let before = visibleWithASelected.first, let after = visibleWithBSelected.first {
+            #expect(
+                before !== after,
+                "selection moved from A to B, so the surviving visible tree must be the OTHER mirror's"
+            )
+        }
+        withExtendedLifetime((connectionA, connectionB)) {}
     }
 }
 
