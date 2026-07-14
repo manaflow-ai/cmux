@@ -61,6 +61,12 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "closeWindow", combos: [["⌃", "⌘", "W"]], description: { en: "Close window", ja: "ウインドウを閉じる" } },
       { id: "toggleFullScreen", combos: [["⌃", "⌘", "F"]], description: { en: "Toggle full screen", ja: "フルスクリーンを切り替え" } },
       {
+        id: "toggleVoiceDictation",
+        combos: [["⌃", "⌘", "V"]],
+        description: { en: "Toggle voice dictation", ja: "音声入力を切り替え" },
+        note: { en: "speech stays on-device", ja: "音声認識はデバイス上で処理" },
+      },
+      {
         id: "sendFeedback",
         combos: [],
         description: { en: "Send feedback", ja: "フィードバックを送信" },
