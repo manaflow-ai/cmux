@@ -139,7 +139,10 @@ import Testing
     let first = try #require(firstValue)
     #expect(String(decoding: first.data, as: UTF8.self) == "abc")
     await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 52, text: "cde"))
-    #expect(store.terminalSemanticScheduledEndSeqBySurfaceID["live-terminal"] == 55)
+    let overlapScheduled = try await pollUntil {
+        store.terminalSemanticScheduledEndSeqBySurfaceID["live-terminal"] == 55
+    }
+    #expect(overlapScheduled)
     store.terminalSemanticOutputDidProcess(
         surfaceID: "live-terminal",
         streamToken: first.streamToken,
@@ -198,6 +201,46 @@ import Testing
     #expect(store.terminalByteContinuationsBySurfaceID[surfaceID] != nil)
     #expect(store.terminalSemanticByteContinuationsBySurfaceID[surfaceID] != nil)
     _ = replacement
+}
+
+@MainActor
+@Test func newerPixelFrameCannotMakeOlderSemanticReplayBaselineStale() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let baseline = try authoritativeSemanticFrame(seq: 100, revision: 1, text: "semantic-baseline")
+    await router.enqueueReplayRenderGrid(baseline)
+    await router.holdNextReplayResponses()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let streams = store.authoritativeTerminalOutputStreams(surfaceID: "live-terminal")
+    var visual = streams.visual.makeAsyncIterator()
+    var semantic = streams.semantic.makeAsyncIterator()
+    let replayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 1
+    }
+    #expect(replayRequested)
+
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 110,
+        text: "newer-pixels"
+    ))
+    let pixelValue = await visual.next()
+    let pixel = try #require(pixelValue)
+    #expect(pixel.renderGrid?.stateSeq == 110)
+    store.terminalOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: pixel.streamToken,
+        disposition: .applied
+    )
+
+    await router.releaseAllHeld()
+    let semanticValue = await semantic.next()
+    let semanticBaseline = try #require(semanticValue)
+    #expect(semanticBaseline.kind == .baseline)
+    #expect(semanticBaseline.endSeq == 100)
+    #expect(semanticBaseline.data == baseline.vtReplacementBytes())
 }
 
 private func authoritativeSemanticFrame(
