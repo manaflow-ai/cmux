@@ -95,10 +95,10 @@ extension SocketControlServer {
         accessMode: SocketControlMode,
         preserveAcceptFailureStreak: Bool = false
     ) -> Bool {
+        configureConnectionAuthorization(accessMode: accessMode)
         let existing = withListenerState { state in
             if state.accessMode != accessMode {
                 state.accessMode = accessMode
-                state.connectionAuthorizationGeneration &+= 1
             }
             return (
                 isRunning: state.isRunning,
@@ -320,6 +320,7 @@ extension SocketControlServer {
             state.listenerStartInProgress = false
             return generation
         }
+        activateConnectionAuthorizations()
         acceptRecovery.withLock { recovery in
             recovery = AcceptRecoveryState(
                 generation: generation,

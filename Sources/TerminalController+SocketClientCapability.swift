@@ -1,11 +1,8 @@
 import CmuxControlSocket
 import CmuxSettings
-import Dispatch
 import Foundation
 
 extension TerminalController {
-    private nonisolated static let socketCredentialRefreshIntervalNanoseconds: UInt64 = 1_000_000_000
-
     private nonisolated static var socketClientPreauthorizationLimits: ControlClientLineReadLimits {
         ControlClientLineReadLimits(
             maximumBytes: 4 * 1024 * 1024,
@@ -166,15 +163,9 @@ extension TerminalController {
         passwordAuthorization: inout SocketPasswordAuthorization
     ) -> Bool {
         guard socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) else { return false }
-        let accessMode = socketServer.accessMode
         return passwordAuthorization.permitsConnectionContinuation(
-            accessMode: accessMode,
-            monotonicNowNanoseconds: DispatchTime.now().uptimeNanoseconds,
-            minimumCredentialRefreshIntervalNanoseconds:
-                Self.socketCredentialRefreshIntervalNanoseconds,
-            currentPassword: {
-                passwordStore.configuredPassword(allowLazyKeychainFallback: true)
-            }
+            accessMode: socketServer.accessMode,
+            currentPassword: passwordStore.configuredPassword(allowLazyKeychainFallback: true)
         )
     }
 

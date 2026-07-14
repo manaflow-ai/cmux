@@ -61,48 +61,6 @@ struct SocketPasswordAuthorizationTests {
         ))
     }
 
-    @Test func credentialChecksAreCoalescedAndDetectTheNextRevision() {
-        var authorization = SocketPasswordAuthorization()
-        authorization.authenticate(password: "stream-secret")
-        var passwordReads = 0
-
-        let initialContinuation = authorization.permitsConnectionContinuation(
-            accessMode: .password,
-            monotonicNowNanoseconds: 100,
-            minimumCredentialRefreshIntervalNanoseconds: 10,
-            currentPassword: {
-                passwordReads += 1
-                return "stream-secret"
-            }
-        )
-        #expect(initialContinuation)
-        #expect(passwordReads == 1)
-
-        let coalescedContinuation = authorization.permitsConnectionContinuation(
-            accessMode: .password,
-            monotonicNowNanoseconds: 109,
-            minimumCredentialRefreshIntervalNanoseconds: 10,
-            currentPassword: {
-                passwordReads += 1
-                return "rotated-secret"
-            }
-        )
-        #expect(coalescedContinuation)
-        #expect(passwordReads == 1)
-
-        let rotatedContinuation = authorization.permitsConnectionContinuation(
-            accessMode: .password,
-            monotonicNowNanoseconds: 110,
-            minimumCredentialRefreshIntervalNanoseconds: 10,
-            currentPassword: {
-                passwordReads += 1
-                return "rotated-secret"
-            }
-        )
-        #expect(!rotatedContinuation)
-        #expect(passwordReads == 2)
-    }
-
     @Test func unauthenticatedCapabilityMayAttemptLogin() {
         let authorization = SocketPasswordAuthorization()
 

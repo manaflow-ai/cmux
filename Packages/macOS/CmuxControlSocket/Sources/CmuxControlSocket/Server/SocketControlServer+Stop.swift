@@ -11,6 +11,7 @@ extension SocketControlServer {
     /// app's termination and updater-relaunch paths call it directly, so the
     /// unlink and lock release complete before the process exits.
     public func stop() {
+        deactivateConnectionAuthorizations()
         acceptResumeTask?.cancel()
         acceptResumeTask = nil
         let (
@@ -31,7 +32,6 @@ extension SocketControlServer {
             state.listenerStartInProgress = false
             state.nextAcceptLoopGeneration &+= 1
             state.activeAcceptLoopGeneration = 0
-            state.connectionAuthorizationGeneration &+= 1
             let sourceToCancel = state.listenerReadSource
             let sourceWasSuspended = state.listenerReadSourceSuspended
             state.listenerReadSource = nil

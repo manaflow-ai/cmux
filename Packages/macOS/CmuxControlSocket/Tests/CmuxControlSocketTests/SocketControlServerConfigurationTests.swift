@@ -2,6 +2,7 @@
 import CmuxSettings
 import Darwin
 import Foundation
+import os
 import Testing
 
 @MainActor
@@ -113,7 +114,7 @@ struct SocketControlServerConfigurationTests {
     }
 
     @Test func passwordChangeNotificationInvalidatesAcceptedConnections() async throws {
-        let fixture = try SocketConfigurationFixture()
+        let fixture = try SocketConfigurationFixture(effectivePassword: "original-secret")
         defer { fixture.shutdown() }
 
         #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .password))
@@ -123,6 +124,7 @@ struct SocketControlServerConfigurationTests {
         defer { close(connection.socket) }
         #expect(fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
 
+        fixture.setEffectivePassword("rotated-secret")
         fixture.notificationCenter.post(
             name: SecretFileStore.didChangeNotification,
             object: nil,
@@ -151,8 +153,8 @@ struct SocketControlServerConfigurationTests {
         #expect(fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
     }
 
-    @Test func passwordStoreNotificationInvalidatesAcceptedConnections() async throws {
-        let fixture = try SocketConfigurationFixture()
+    @Test func unchangedPasswordStoreNotificationPreservesAcceptedConnections() async throws {
+        let fixture = try SocketConfigurationFixture(effectivePassword: "stable-secret")
         defer { fixture.shutdown() }
 
         #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .password))
@@ -165,6 +167,40 @@ struct SocketControlServerConfigurationTests {
             name: SocketControlPasswordStore.didChangeNotification,
             object: nil
         )
+
+        #expect(fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
+    }
+
+    @Test func passwordNotificationOutsidePasswordModePreservesAcceptedConnections() async throws {
+        let fixture = try SocketConfigurationFixture(effectivePassword: "original-secret")
+        defer { fixture.shutdown() }
+
+        #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .automation))
+        let client = try UnixSocketFixture.connectClient(to: fixture.socketPath)
+        defer { close(client) }
+        let connection = try #require(await nextConnection(from: fixture.server.connections))
+        defer { close(connection.socket) }
+
+        fixture.setEffectivePassword("rotated-secret")
+        fixture.notificationCenter.post(
+            name: SocketControlPasswordStore.didChangeNotification,
+            object: nil
+        )
+
+        #expect(fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
+    }
+
+    @Test func authorizationBoundaryDetectsExternalPasswordReplacementImmediately() async throws {
+        let fixture = try SocketConfigurationFixture(effectivePassword: "original-secret")
+        defer { fixture.shutdown() }
+
+        #expect(fixture.server.start(socketPath: fixture.socketPath, accessMode: .password))
+        let client = try UnixSocketFixture.connectClient(to: fixture.socketPath)
+        defer { close(client) }
+        let connection = try #require(await nextConnection(from: fixture.server.connections))
+        defer { close(connection.socket) }
+
+        fixture.setEffectivePassword("rotated-secret")
 
         #expect(!fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
     }
@@ -200,17 +236,21 @@ private struct SocketConfigurationFixture: ~Copyable {
     let socketPath: String
     let notificationCenter: NotificationCenter
     let server: SocketControlServer
+    private let password: OSAllocatedUnfairLock<String?>
 
-    init() throws {
+    init(effectivePassword: String? = nil) throws {
         let identifier = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("scr-\(identifier)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         socketPath = directory.appendingPathComponent("cmux.sock").path
         notificationCenter = NotificationCenter()
+        let password = OSAllocatedUnfairLock(initialState: effectivePassword)
+        self.password = password
         server = SocketControlServer(
             initialSocketPath: socketPath,
             notificationCenter: notificationCenter,
+            effectivePasswordProvider: { password.withLock { $0 } },
             events: SocketControlServerEvents(
                 breadcrumb: { _, _ in },
                 failure: { _, _, _, _ in },
@@ -220,6 +260,10 @@ private struct SocketConfigurationFixture: ~Copyable {
                 rearmRequested: { _, _, _, _ in }
             )
         )
+    }
+
+    func setEffectivePassword(_ value: String?) {
+        password.withLock { $0 = value }
     }
 
     func shutdown() {

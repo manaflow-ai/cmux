@@ -117,11 +117,13 @@ extension SocketControlServer {
                 close(clientSocket)
                 return
             }
+            let authorization = acceptedConnectionAuthorization()
             let yielded = connectionsContinuation.yield(
                 ControlConnection(
                     socket: clientSocket,
                     peerProcessID: peerPid,
-                    authorizationGeneration: snapshot.connectionAuthorizationGeneration
+                    authorizationGeneration: authorization.generation,
+                    authorizationRevocationSignal: authorization.revocationSignal
                 )
             )
             switch yielded {

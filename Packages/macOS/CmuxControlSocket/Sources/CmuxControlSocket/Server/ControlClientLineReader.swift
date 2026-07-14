@@ -17,9 +17,10 @@ internal import Foundation
 /// - Lines are split on bare `\n` only. To preserve legacy framing, `\r\n`
 ///   does not terminate a line (clients must frame with bare `\n`). Returned
 ///   lines may be empty or whitespace-only.
-/// - `shouldContinueReading` is consulted before each blocking `read(2)` and
-///   periodically while an authorized connection is idle. It is never polled
-///   between lines already buffered.
+/// - `shouldContinueReading` is consulted before each blocking `read(2)`. It
+///   is never polled between lines already buffered.
+/// - Authorization revocation wakes idle readers through a pollable signal;
+///   readers do not periodically wake just to recheck authorization.
 /// - The socket's configured `SO_RCVTIMEO` remains the maximum time spent
 ///   waiting for each next read even though readiness polling precedes `read(2)`.
 /// - EOF, a read error, or a `false` poll ends the stream (`nil`); buffered
@@ -38,7 +39,7 @@ public final class ControlClientLineReader {
     private var deadlineUptimeNanoseconds: UInt64?
     private let idleReadTimeoutNanoseconds: UInt64?
     private var idleReadDeadlineUptimeNanoseconds: UInt64?
-    private let continuationPollIntervalMilliseconds: Int32
+    private let authorizationRevocationSignal: SocketAuthorizationRevocationSignal?
     private let monotonicNowNanoseconds: @Sendable () -> UInt64
 
     /// Creates a reader for `socket`.
@@ -47,19 +48,19 @@ public final class ControlClientLineReader {
     ///   - bufferSize: Read buffer size; the legacy loop read at most
     ///     `bufferSize - 1` bytes per call.
     ///   - initialLimits: Optional resource bounds removed after authorization.
-    ///   - continuationPollIntervalMilliseconds: Maximum idle time before
-    ///     rechecking whether the connection remains authorized.
+    ///   - authorizationRevocationSignal: Signal that wakes an idle reader
+    ///     when its accepted authorization generation is revoked.
     ///   - monotonicNowNanoseconds: Monotonic time source used for deadlines.
     public init(
         socket: Int32,
         bufferSize: Int = 4096,
         initialLimits: ControlClientLineReadLimits? = nil,
-        continuationPollIntervalMilliseconds: Int32 = 250,
+        authorizationRevocationSignal: SocketAuthorizationRevocationSignal? = nil,
         monotonicNowNanoseconds: (@Sendable () -> UInt64)? = nil
     ) {
         self.socket = socket
         self.buffer = [UInt8](repeating: 0, count: bufferSize)
-        self.continuationPollIntervalMilliseconds = max(1, continuationPollIntervalMilliseconds)
+        self.authorizationRevocationSignal = authorizationRevocationSignal
         self.monotonicNowNanoseconds = monotonicNowNanoseconds ?? {
             DispatchTime.now().uptimeNanoseconds
         }
@@ -100,8 +101,7 @@ public final class ControlClientLineReader {
     /// Returns the next newline-terminated line (without the newline), or
     /// `nil` when the connection ended or `shouldContinueReading` returned
     /// `false` before a blocking read.
-    /// - Parameter shouldContinueReading: Polled before each `read(2)` and at
-    ///   the configured continuation interval while the client is idle.
+    /// - Parameter shouldContinueReading: Polled before each `read(2)`.
     public func nextLine(shouldContinueReading: () -> Bool) -> String? {
         var startedReadWait = false
         while true {
@@ -181,14 +181,25 @@ public final class ControlClientLineReader {
                   let timeoutMilliseconds = nextReadinessPollTimeoutMilliseconds() else {
                 return false
             }
-            var descriptor = pollfd(fd: socket, events: Int16(POLLIN), revents: 0)
-            let result = poll(
-                &descriptor,
-                1,
-                timeoutMilliseconds
-            )
+            var descriptors = [pollfd(fd: socket, events: Int16(POLLIN), revents: 0)]
+            if let authorizationRevocationSignal,
+               authorizationRevocationSignal.readFileDescriptor >= 0 {
+                descriptors.append(
+                    pollfd(
+                        fd: authorizationRevocationSignal.readFileDescriptor,
+                        events: Int16(POLLIN),
+                        revents: 0
+                    )
+                )
+            }
+            let result = descriptors.withUnsafeMutableBufferPointer { buffer in
+                poll(buffer.baseAddress, nfds_t(buffer.count), timeoutMilliseconds)
+            }
             if result > 0 {
-                return descriptor.revents & Int16(POLLIN | POLLHUP) != 0
+                if descriptors.count == 2, descriptors[1].revents != 0 {
+                    return false
+                }
+                return descriptors[0].revents & Int16(POLLIN | POLLHUP) != 0
             }
             if result == 0 { continue }
             guard errno == EINTR else { return false }
@@ -206,13 +217,13 @@ public final class ControlClientLineReader {
             nextDeadline = min(preauthorizationDeadline, idleReadDeadline)
         }
         guard let nextDeadline else {
-            return continuationPollIntervalMilliseconds
+            return -1
         }
         let now = monotonicNowNanoseconds()
         guard now < nextDeadline else { return nil }
         let remaining = nextDeadline - now
         let milliseconds = remaining / 1_000_000 + (remaining % 1_000_000 == 0 ? 0 : 1)
-        return Int32(min(milliseconds, UInt64(continuationPollIntervalMilliseconds)))
+        return Int32(min(milliseconds, UInt64(Int32.max)))
     }
 
     private func resetIdleReadDeadline() {

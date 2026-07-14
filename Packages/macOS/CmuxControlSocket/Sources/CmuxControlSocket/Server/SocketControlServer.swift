@@ -73,7 +73,6 @@ public final class SocketControlServer {
         var listenerReadSourceSuspended = false
         var socketPathMonitorSource: (any DispatchSourceFileSystemObject)?
         var accessMode: SocketControlMode = .cmuxOnly
-        var connectionAuthorizationGeneration: UInt64 = 0
         var configuredPreferredSocketPath: String?
     }
 
@@ -91,7 +90,6 @@ public final class SocketControlServer {
         let listenerStartInProgress: Bool
         let socketPathLockHeld: Bool
         let accessMode: SocketControlMode
-        let connectionAuthorizationGeneration: UInt64
         let configuredPreferredSocketPath: String?
     }
 
@@ -134,6 +132,8 @@ public final class SocketControlServer {
     /// Recovery-delay clock (accept-source resume backoff).
     public nonisolated let recoveryClock: any SocketRecoveryClock
     private let authorizationObserverBag: SocketAuthorizationObserverBag
+    private nonisolated let connectionAuthorizationState: SocketConnectionAuthorizationState
+    private nonisolated let effectivePasswordProvider: @Sendable () -> String?
 
     /// Accepted, configured client connections, in accept order.
     ///
@@ -166,6 +166,8 @@ public final class SocketControlServer {
     ///   - notificationCenter: Source of authorization-secret change
     ///     notifications. The composition root supplies the process-wide
     ///     center; tests can inject an isolated center.
+    ///   - effectivePasswordProvider: Reads the password currently enforced by
+    ///     password mode. Called outside authorization-state lock sections.
     ///   - events: Host callback seam.
     public init(
         initialSocketPath: String = SocketControlSettings.stableDefaultSocketPath,
@@ -174,6 +176,7 @@ public final class SocketControlServer {
         recoveryClock: any SocketRecoveryClock = SystemSocketRecoveryClock(),
         maximumBufferedConnections: Int = 32,
         notificationCenter: NotificationCenter,
+        effectivePasswordProvider: @escaping @Sendable () -> String? = { nil },
         events: SocketControlServerEvents
     ) {
         let initialState = ListenerState(socketPath: initialSocketPath)
@@ -186,6 +189,8 @@ public final class SocketControlServer {
         self.authorizationObserverBag = SocketAuthorizationObserverBag(
             notificationCenter: notificationCenter
         )
+        self.connectionAuthorizationState = SocketConnectionAuthorizationState()
+        self.effectivePasswordProvider = effectivePasswordProvider
         self.events = events
         (self.connections, self.connectionsContinuation) =
             AsyncStream<ControlConnection>.makeStream(
@@ -204,7 +209,7 @@ public final class SocketControlServer {
                 queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.invalidateConnectionAuthorizations(source: "password_store")
+                    self?.refreshConnectionAuthorizations(source: "password_store")
                 }
             },
             notificationCenter.addObserver(
@@ -215,23 +220,23 @@ public final class SocketControlServer {
                 guard notification.userInfo?[SecretFileStore.changedKeyIDKey] as? String
                     == socketPasswordKeyID else { return }
                 MainActor.assumeIsolated {
-                    self?.invalidateConnectionAuthorizations(source: "secret_store")
+                    self?.refreshConnectionAuthorizations(source: "secret_store")
                 }
             },
         ])
     }
 
-    /// Invalidates every accepted connection after an authorization secret changes.
-    public func invalidateConnectionAuthorizations(source: String) {
-        let generation = withListenerState { state in
-            state.connectionAuthorizationGeneration &+= 1
-            return state.connectionAuthorizationGeneration
-        }
+    /// Refreshes the effective password and invalidates accepted connections
+    /// only when password mode's authoritative credential actually changed.
+    nonisolated func refreshConnectionAuthorizations(source: String) {
+        guard let generation = connectionAuthorizationState.refreshEffectivePassword(
+            effectivePasswordProvider()
+        ) else { return }
         events.breadcrumb(
             "socket.listener.authorization.invalidated",
             socketListenerEventData(
                 stage: "authorization",
-                extra: ["generation": generation, "source": source]
+                extra: ["generation": generation.number, "source": source]
             )
         )
     }
@@ -260,7 +265,6 @@ public final class SocketControlServer {
             listenerStartInProgress: state.listenerStartInProgress,
             socketPathLockHeld: state.socketPathLockFD >= 0,
             accessMode: state.accessMode,
-            connectionAuthorizationGeneration: state.connectionAuthorizationGeneration,
             configuredPreferredSocketPath: state.configuredPreferredSocketPath
         )
     }
@@ -275,18 +279,18 @@ public final class SocketControlServer {
 
     /// The access mode of the current (or most recently started) listener.
     public nonisolated var accessMode: SocketControlMode {
-        listenerStateSnapshot().accessMode
+        connectionAuthorizationState.accessMode
     }
 
     /// Generation attached to newly accepted clients for policy revocation.
     public nonisolated var connectionAuthorizationGeneration: UInt64 {
-        listenerStateSnapshot().connectionAuthorizationGeneration
+        connectionAuthorizationState.currentGeneration.number
     }
 
     /// Whether an accepted connection still belongs to the live access policy.
     public nonisolated func isConnectionAuthorizationCurrent(_ generation: UInt64) -> Bool {
-        let snapshot = listenerStateSnapshot()
-        return snapshot.isRunning && snapshot.connectionAuthorizationGeneration == generation
+        refreshConnectionAuthorizations(source: "authorization_boundary")
+        return connectionAuthorizationState.isCurrent(generation)
     }
 
     /// The listener's current socket path, regardless of lifecycle phase.
@@ -349,6 +353,29 @@ public final class SocketControlServer {
 
     nonisolated func listenerStateSnapshot() -> ListenerStateSnapshot {
         stateMirror.withLock { $0 }
+    }
+
+    nonisolated func configureConnectionAuthorization(accessMode: SocketControlMode) {
+        connectionAuthorizationState.configure(
+            accessMode: accessMode,
+            effectivePassword: effectivePasswordProvider()
+        )
+    }
+
+    nonisolated func activateConnectionAuthorizations() {
+        connectionAuthorizationState.setRunning(true)
+    }
+
+    nonisolated func deactivateConnectionAuthorizations() {
+        connectionAuthorizationState.setRunning(false)
+    }
+
+    nonisolated func acceptedConnectionAuthorization() -> (
+        generation: UInt64,
+        revocationSignal: SocketAuthorizationRevocationSignal
+    ) {
+        let generation = connectionAuthorizationState.currentGeneration
+        return (generation.number, generation.revocationSignal)
     }
 
     // MARK: - Telemetry helpers

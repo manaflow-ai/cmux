@@ -367,6 +367,9 @@ class TerminalController {
         let socketServer = SocketControlServer(
             transport: transport,
             listenerPolicy: listenerPolicy, notificationCenter: .default,
+            effectivePasswordProvider: {
+                passwordStore.configuredPassword(allowLazyKeychainFallback: true)
+            },
             events: Self.makeSocketServerEvents(target: serverEventTarget)
         )
         self.socketServer = socketServer
@@ -383,7 +386,8 @@ class TerminalController {
                 await controller.spawnClientHandler(
                     socket: connection.socket,
                     peerPid: connection.peerProcessID,
-                    authorizationGeneration: connection.authorizationGeneration
+                    authorizationGeneration: connection.authorizationGeneration,
+                    authorizationRevocationSignal: connection.authorizationRevocationSignal
                 )
             }
         }
@@ -1340,7 +1344,8 @@ class TerminalController {
     private nonisolated func spawnClientHandler(
         socket clientSocket: Int32,
         peerPid: pid_t?,
-        authorizationGeneration: UInt64
+        authorizationGeneration: UInt64,
+        authorizationRevocationSignal: SocketAuthorizationRevocationSignal
     ) async {
         let initialReadLimits = socketClientInitialReadLimits(peerProcessID: peerPid)
         let claimedPreauthorizationSlot = if initialReadLimits != nil {
@@ -1361,6 +1366,7 @@ class TerminalController {
                 clientSocket,
                 peerPid: peerPid,
                 authorizationGeneration: authorizationGeneration,
+                authorizationRevocationSignal: authorizationRevocationSignal,
                 initialReadLimits: initialReadLimits,
                 holdsPreauthorizationSlot: claimedPreauthorizationSlot
             )
@@ -1371,6 +1377,7 @@ class TerminalController {
         _ socket: Int32,
         peerPid: pid_t? = nil,
         authorizationGeneration: UInt64,
+        authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
         initialReadLimits: ControlClientLineReadLimits? = nil,
         holdsPreauthorizationSlot initialSlotHeld: Bool = false
     ) {
@@ -1385,7 +1392,11 @@ class TerminalController {
             }
         }
         var passwordAuthorization = SocketPasswordAuthorization()
-        let lineReader = ControlClientLineReader(socket: socket, initialLimits: initialReadLimits)
+        let lineReader = ControlClientLineReader(
+            socket: socket,
+            initialLimits: initialReadLimits,
+            authorizationRevocationSignal: authorizationRevocationSignal
+        )
         while let line = lineReader.nextLine(shouldContinueReading: {
             socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
         }) {

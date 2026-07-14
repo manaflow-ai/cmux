@@ -132,23 +132,25 @@ struct ControlClientLineReaderTests {
 
     @Test func authorizationRevocationStopsIdleReaderWithoutPeerTraffic() throws {
         let pair = try SocketPairFixture()
-        let shouldContinue = OSAllocatedUnfairLock(initialState: true)
+        let revocationSignal = SocketAuthorizationRevocationSignal()
         let enteredBlockingRead = DispatchSemaphore(value: 0)
         let finished = DispatchSemaphore(value: 0)
         let readEnd = pair.readEnd
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let reader = ControlClientLineReader(socket: readEnd)
+            let reader = ControlClientLineReader(
+                socket: readEnd,
+                authorizationRevocationSignal: revocationSignal
+            )
             _ = reader.nextLine {
-                let allowed = shouldContinue.withLock { $0 }
-                if allowed { enteredBlockingRead.signal() }
-                return allowed
+                enteredBlockingRead.signal()
+                return true
             }
             finished.signal()
         }
 
         #expect(enteredBlockingRead.wait(timeout: .now() + 1.0) == .success)
-        shouldContinue.withLock { $0 = false }
+        revocationSignal.revoke()
 
         let stoppedAfterRevocation = finished.wait(timeout: .now() + 1.0)
         if stoppedAfterRevocation != .success {
@@ -158,7 +160,7 @@ struct ControlClientLineReaderTests {
         #expect(stoppedAfterRevocation == .success)
     }
 
-    @Test func configuredReceiveTimeoutStillStopsIdlePollingReader() throws {
+    @Test func configuredReceiveTimeoutStillStopsIdleReader() throws {
         let pair = try SocketPairFixture()
         var timeout = timeval(tv_sec: 0, tv_usec: 50_000)
         let configured = withUnsafePointer(to: &timeout) { pointer in

@@ -34,10 +34,10 @@ extension SocketControlServer {
             let previousMode = state.accessMode
             if accessMode != previousMode {
                 state.accessMode = accessMode
-                state.connectionAuthorizationGeneration &+= 1
             }
             return previousMode
         }
+        configureConnectionAuthorization(accessMode: accessMode)
 
         if accessMode == .off {
             stop()
