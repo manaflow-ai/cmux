@@ -1,6 +1,7 @@
 @preconcurrency import XCTest
 import AppKit
 import Bonsplit
+import CmuxRemoteSession
 import CmuxTerminal
 
 #if canImport(cmux_DEV)
