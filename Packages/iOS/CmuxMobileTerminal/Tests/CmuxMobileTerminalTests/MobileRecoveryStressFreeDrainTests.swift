@@ -32,16 +32,64 @@ struct MobileRecoveryStressFreeDrainTests {
         }
     }
 
-    @Test("forced recovery drains the old surface free")
-    func forcedRecoveryDrainsOldSurfaceFree() async throws {
+    @Test("forced recovery drains the old surface and accepts replacement output")
+    func forcedRecoveryDrainsOldSurfaceAndAcceptsReplacementOutput() async throws {
         let harness = try makeHarness()
         defer { harness.tearDown() }
 
         try await waitForMountedSurface(harness.view)
         try await pumpRecoveryTraffic(on: harness.view)
 
-        let drained = await waitForFreeDrain(afterForcingRecoveryOn: harness.view)
-        #expect(drained, "the old surface free should drain after forced render-pipeline recovery")
+        let result = await exerciseRecovery(on: harness.view)
+        #expect(result.generationAdvanced, "forced recovery should replace the render surface")
+        #expect(result.outputApplied, "the replacement surface should acknowledge post-recovery output")
+        #expect(result.containsSentinel, "the replacement surface should retain the post-recovery sentinel")
+        #expect(result.freeDrained, "the old surface free should drain after forced render-pipeline recovery")
+    }
+
+    @Test("two hundred recoveries converge to the current container geometry")
+    func twoHundredRecoveriesConvergeToCurrentContainerGeometry() async throws {
+        let runtime = try GhosttyRuntime.shared()
+        let coordinator = MobileRecoveryStressCoordinator(
+            configuration: MobileRecoveryStressConfiguration(cycles: 200)
+        )
+        let view = GhosttySurfaceView(runtime: runtime, delegate: coordinator, fontSize: 10)
+        view.autoFocusOnWindowAttach = false
+        coordinator.surfaceView = view
+
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        view.frame = window.bounds
+        window.addSubview(view)
+        window.isHidden = false
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        defer {
+            coordinator.stop()
+            view.prepareForDismantle()
+            view.removeFromSuperview()
+            window.isHidden = true
+        }
+
+        try await waitForMountedSurface(view)
+        coordinator.start()
+
+        let converged = await waitUntil(timeout: .seconds(15)) {
+            guard view.recoveryStressSnapshot().generation >= 200 else { return false }
+            let geometry = view.debugGeometrySnapshotForTesting()
+            let cellWidth = geometry.cellPixelSize.width / max(1, geometry.screenScale)
+            let cellHeight = geometry.cellPixelSize.height / max(1, geometry.screenScale)
+            return geometry.effectiveGrid == nil
+                && abs(geometry.boundsSize.width - window.bounds.width) < 0.5
+                && abs(geometry.boundsSize.height - window.bounds.height) < 0.5
+                && geometry.renderRect.width > 0
+                && geometry.renderRect.height > 0
+                && geometry.viewportRect.width - geometry.renderRect.width <= cellWidth + 1
+                && geometry.viewportRect.height - geometry.renderRect.height <= cellHeight + 1
+        }
+        #expect(
+            converged,
+            "PASS must wait until synthetic viewport pins are released and the renderer fills the current viewport"
+        )
     }
 
     private func makeHarness() throws -> Harness {
@@ -78,45 +126,64 @@ struct MobileRecoveryStressFreeDrainTests {
         }
     }
 
-    private func waitForFreeDrain(afterForcingRecoveryOn view: GhosttySurfaceView) async -> Bool {
-        let stream = AsyncStream<GhosttySurfaceView.RecoveryStressSnapshot> { continuation in
-            Task { @MainActor in
-                GhosttySurfaceView.RecoveryStressObservers.set({ snapshot in
-                    continuation.yield(snapshot)
-                }, for: view)
-            }
-        }
+    private func exerciseRecovery(on view: GhosttySurfaceView) async -> (
+        generationAdvanced: Bool,
+        outputApplied: Bool,
+        containsSentinel: Bool,
+        freeDrained: Bool
+    ) {
+        let (stream, continuation) = AsyncStream<GhosttySurfaceView.RecoveryStressSnapshot>.makeStream()
+        GhosttySurfaceView.RecoveryStressObservers.set({ snapshot in
+            continuation.yield(snapshot)
+        }, for: view)
 
+        let before = view.recoveryStressSnapshot()
         let after = view.forceRecoveryForStress()
-        if after.pendingSurfaceFreeCount == 0 {
-            return true
+        let outputApplied = await view.processOutputAndWait(Self.postRecoverySentinel)
+        let replacementText: String?
+        if let replacementSurface = view.surface {
+            replacementText = await view.copyableTextForCurrentSurface(surface: replacementSurface)
+        } else {
+            replacementText = nil
         }
+        let containsSentinel = replacementText?.contains("RECOVERY-STRESS-TEST-RECOVERED") == true
 
-        return await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                for await snapshot in stream {
-                    if snapshot.pendingSurfaceFreeCount == 0 {
-                        return true
+        let freeDrained: Bool
+        if after.pendingSurfaceFreeCount == 0 {
+            freeDrained = true
+        } else {
+            freeDrained = await withTaskGroup(of: Bool.self) { group in
+                group.addTask {
+                    for await snapshot in stream {
+                        if snapshot.pendingSurfaceFreeCount == 0 {
+                            return true
+                        }
                     }
-                }
-                return false
-            }
-            group.addTask {
-                let clock = ContinuousClock()
-                do {
-                    // Genuine test deadline for the teardown drain signal.
-                    try await clock.sleep(for: .seconds(15))
-                } catch {
                     return false
                 }
-                return false
-            }
+                group.addTask {
+                    let clock = ContinuousClock()
+                    do {
+                        // Genuine test deadline for the teardown drain signal.
+                        try await clock.sleep(for: .seconds(15))
+                    } catch {
+                        return false
+                    }
+                    return false
+                }
 
-            let result = await group.next() ?? false
-            group.cancelAll()
-            GhosttySurfaceView.RecoveryStressObservers.set(nil, for: view)
-            return result
+                let result = await group.next() ?? false
+                group.cancelAll()
+                return result
+            }
         }
+        GhosttySurfaceView.RecoveryStressObservers.set(nil, for: view)
+        return (
+            generationAdvanced: after.generation != before.generation,
+            outputApplied: outputApplied,
+            containsSentinel: containsSentinel,
+            freeDrained: freeDrained
+        )
     }
 
     private func waitUntil(
@@ -151,5 +218,9 @@ struct MobileRecoveryStressFreeDrainTests {
         text += "\u{1b}]133;B\u{07}\u{1b}[?2004l\r\n"
         return Data(text.utf8)
     }
+
+    private static let postRecoverySentinel = Data(
+        "\u{1b}[2J\u{1b}[HRECOVERY-STRESS-TEST-RECOVERED".utf8
+    )
 }
 #endif

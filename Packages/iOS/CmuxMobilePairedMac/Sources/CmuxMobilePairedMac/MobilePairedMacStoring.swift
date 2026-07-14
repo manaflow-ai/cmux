@@ -119,11 +119,70 @@ public protocol MobilePairedMacStoring: Sendable {
     ///   - teamID: Stack team this pairing belongs to, if any.
     func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws
 
+    /// Restore the exact state that preceded an upsert which lost authority.
+    /// Scope decorators must forward the captured scopes without substituting
+    /// their current live scope.
+    func rollbackRejectedUpsert(
+        _ rollback: MobilePairedMacUpsertRollback
+    ) async throws
+
     /// Remove all paired Macs.
     func removeAll() async throws
 }
 
 extension MobilePairedMacStoring {
+    /// Restore a rejected upsert using the protocol's sequential fallback.
+    ///
+    /// Production stores and scope decorators override this with one atomic
+    /// mutation. Test stores use this implementation to preserve equivalent
+    /// state semantics without exposing storage-specific transactions.
+    public func rollbackRejectedUpsert(
+        _ rollback: MobilePairedMacUpsertRollback
+    ) async throws {
+        let previousMatchesRejectedScope = rollback.previousMac.map {
+            $0.stackUserID == rollback.rejectedStackUserID
+                && $0.teamID == rollback.rejectedTeamID
+        } ?? false
+        if !previousMatchesRejectedScope {
+            try await remove(
+                macDeviceID: rollback.rejectedMacDeviceID,
+                stackUserID: rollback.rejectedStackUserID,
+                teamID: rollback.rejectedTeamID
+            )
+        }
+        if let previousMac = rollback.previousMac {
+            try await upsert(
+                macDeviceID: previousMac.macDeviceID,
+                displayName: previousMac.displayName,
+                routes: previousMac.routes,
+                instanceTag: previousMac.instanceTag,
+                markActive: previousMac.isActive,
+                stackUserID: previousMac.stackUserID,
+                teamID: previousMac.teamID,
+                now: rollback.compensatingTimestamp
+            )
+            try await setCustomization(
+                macDeviceID: previousMac.macDeviceID,
+                customName: previousMac.customName,
+                customColor: previousMac.customColor,
+                customIcon: previousMac.customIcon,
+                stackUserID: previousMac.stackUserID,
+                teamID: previousMac.teamID,
+                now: rollback.compensatingTimestamp
+            )
+        }
+        if let previousActiveMac = rollback.previousActiveMac,
+           previousActiveMac.macDeviceID != rollback.previousMac?.macDeviceID
+            || previousActiveMac.stackUserID != rollback.previousMac?.stackUserID
+            || previousActiveMac.teamID != rollback.previousMac?.teamID {
+            try await setActive(
+                macDeviceID: previousActiveMac.macDeviceID,
+                stackUserID: previousActiveMac.stackUserID,
+                teamID: previousActiveMac.teamID
+            )
+        }
+    }
+
     /// In-memory/test fallback. Production SQLite and scope decorators override
     /// this with one atomic storage operation.
     @discardableResult

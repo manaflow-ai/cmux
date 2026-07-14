@@ -4,11 +4,13 @@ import Foundation
 
 actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var recordsByTeam: [String: [MobilePairedMac]]
-    private let blockedTeams: Set<String>
+    private var blockedTeams: Set<String>
     private var startedTeams: Set<String> = []
+    private var loadStartCounts: [String: Int] = [:]
     private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
-    private var blockers: [String: CheckedContinuation<Void, Never>] = [:]
+    private var blockers: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var upsertCount = 0
+    private var upsertedMacDeviceIDs: [String] = []
     private var loadAllCount = 0
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var gatedUpsertIDs: Set<String> = []
@@ -36,7 +38,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
-        if gatedUpsertIDs.contains(macDeviceID) {
+        if gatedUpsertIDs.remove(macDeviceID) != nil {
             markUpsertStarted(macDeviceID)
             await withCheckedContinuation { continuation in
                 upsertBlockers[macDeviceID] = continuation
@@ -70,6 +72,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
             ))
         }
         upsertCount += 1
+        upsertedMacDeviceIDs.append(macDeviceID)
         resumeUpsertWaiters()
     }
 
@@ -129,6 +132,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
             ))
         }
         upsertCount += 1
+        upsertedMacDeviceIDs.append(macDeviceID)
         resumeUpsertWaiters()
         return true
     }
@@ -139,7 +143,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         markStarted(key)
         if blockedTeams.contains(key) {
             await withCheckedContinuation { continuation in
-                blockers[key] = continuation
+                blockers[key, default: []].append(continuation)
             }
         }
         let scoped = recordsByTeam[key] ?? []
@@ -150,7 +154,15 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         return scoped + legacyTeamless
     }
 
-    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
+        let key = teamID ?? ""
+        let scoped = recordsByTeam[key] ?? []
+        guard !key.isEmpty else { return scoped.first(where: \.isActive) }
+        let legacyTeamless = (recordsByTeam[""] ?? []).filter { mac in
+            mac.stackUserID == nil || mac.stackUserID == stackUserID
+        }
+        return (scoped + legacyTeamless).first(where: \.isActive)
+    }
     func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let key = teamID ?? ""
         recordsByTeam[key] = recordsByTeam[key]?.map { mac in
@@ -201,7 +213,22 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func release(teamID: String?) {
         let key = teamID ?? ""
-        blockers.removeValue(forKey: key)?.resume()
+        let continuations = blockers.removeValue(forKey: key) ?? []
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
+    func blockLoads(teamID: String?) {
+        blockedTeams.insert(teamID ?? "")
+    }
+
+    func unblockLoads(teamID: String?) {
+        blockedTeams.remove(teamID ?? "")
+    }
+
+    func currentLoadStartCount(teamID: String?) -> Int {
+        loadStartCounts[teamID ?? "", default: 0]
     }
 
     func waitUntilUpsertCount(_ count: Int) async {
@@ -213,6 +240,10 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func currentUpsertCount() -> Int {
         upsertCount
+    }
+
+    func currentUpsertedMacDeviceIDs() -> [String] {
+        upsertedMacDeviceIDs
     }
 
     func resetLoadAllCount() {
@@ -258,6 +289,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     }
 
     private func markStarted(_ key: String) {
+        loadStartCounts[key, default: 0] += 1
         startedTeams.insert(key)
         let waiters = startWaiters.removeValue(forKey: key) ?? []
         for waiter in waiters { waiter.resume() }

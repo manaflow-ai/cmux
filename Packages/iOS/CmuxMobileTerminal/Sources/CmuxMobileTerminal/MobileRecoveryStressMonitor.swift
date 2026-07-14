@@ -44,8 +44,16 @@ actor MobileRecoveryStressMonitor {
         state.recordFreeDrain(pendingFrees: pendingFrees, atMilliseconds: milliseconds(at: now))
     }
 
+    func recordRecoveryOutputApplied(generation: UInt64) {
+        state.recordRecoveryOutputApplied(generation: generation)
+    }
+
     func activeCycleDrained() -> Bool {
         state.activeCycleDrained
+    }
+
+    func activeCycleCompleted() -> Bool {
+        state.activeCycleCompleted
     }
 
     func activeCycleRecord() -> MobileRecoveryStressCycleRecord? {

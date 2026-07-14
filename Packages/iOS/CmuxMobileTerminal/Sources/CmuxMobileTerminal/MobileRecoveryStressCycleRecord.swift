@@ -10,5 +10,6 @@ struct MobileRecoveryStressCycleRecord: Equatable, Sendable {
     var pendingFreesAfter: Int?
     var freeDrained: Bool
     var drainedMilliseconds: Int64?
+    var recoveryOutputGeneration: UInt64?
 }
 #endif

@@ -10,6 +10,16 @@ private let forgottenMacLog = Logger(
 
 @MainActor
 extension MobileShellComposite {
+    func pendingForgottenMacDeviceIDs(scope: MobileShellScopeSnapshot) -> Set<String> {
+        let scopedKey = pairedMacScopeKey(scope)
+        var pending = forgottenMacIntentDeviceIDsByScope[scopedKey] ?? []
+        if scope.teamID != nil {
+            let userWideKey = pairedMacScopeKey(userWideScope(from: scope))
+            pending.formUnion(forgottenMacIntentDeviceIDsByScope[userWideKey] ?? [])
+        }
+        return pending
+    }
+
     func storedForgottenMacDeviceIDs(scopeKey key: String) async -> Set<String> {
         if let cached = forgottenMacDeviceIDsByScope[key] { return cached }
         let loaded = await forgottenMacStore.load(scope: key)
@@ -23,8 +33,11 @@ extension MobileShellComposite {
     func forgottenMacDeviceIDs(scope: MobileShellScopeSnapshot) async -> Set<String> {
         let key = pairedMacScopeKey(scope)
         let scoped = await storedForgottenMacDeviceIDs(scopeKey: key)
+            .union(forgottenMacIntentDeviceIDsByScope[key] ?? [])
         guard scope.teamID != nil else { return scoped }
-        let userWide = await storedForgottenMacDeviceIDs(scopeKey: pairedMacScopeKey(userWideScope(from: scope)))
+        let userWideKey = pairedMacScopeKey(userWideScope(from: scope))
+        let userWide = await storedForgottenMacDeviceIDs(scopeKey: userWideKey)
+            .union(forgottenMacIntentDeviceIDsByScope[userWideKey] ?? [])
         return scoped.union(userWide)
     }
 
@@ -37,7 +50,17 @@ extension MobileShellComposite {
     }
 
     func isForgottenMacDeviceID(_ macDeviceID: String, scope: MobileShellScopeSnapshot) async -> Bool {
-        await forgottenMacDeviceIDs(scope: scope).contains(macDeviceID)
+        let scopedKey = pairedMacScopeKey(scope)
+        if forgottenMacIntentDeviceIDsByScope[scopedKey]?.contains(macDeviceID) == true {
+            return true
+        }
+        if scope.teamID != nil {
+            let userWideKey = pairedMacScopeKey(userWideScope(from: scope))
+            if forgottenMacIntentDeviceIDsByScope[userWideKey]?.contains(macDeviceID) == true {
+                return true
+            }
+        }
+        return await forgottenMacDeviceIDs(scope: scope).contains(macDeviceID)
     }
 
     func removeStoredPairedMacIfForgotten(
@@ -73,7 +96,13 @@ extension MobileShellComposite {
     }
 
     func rememberForgottenMacDeviceID(_ macDeviceID: String, scopeKey key: String) async {
+        var intents = forgottenMacIntentDeviceIDsByScope[key] ?? []
+        intents.insert(macDeviceID)
+        forgottenMacIntentDeviceIDsByScope[key] = intents
         var ids = await storedForgottenMacDeviceIDs(scopeKey: key)
+        guard forgottenMacIntentDeviceIDsByScope[key]?.contains(macDeviceID) == true else {
+            return
+        }
         ids.insert(macDeviceID)
         forgottenMacDeviceIDsByScope[key] = ids
         await forgottenMacStore.save(ids, scope: key)
@@ -88,6 +117,9 @@ extension MobileShellComposite {
     }
 
     func clearForgottenMacDeviceID(_ macDeviceID: String, scopeKey key: String) async {
+        var intents = forgottenMacIntentDeviceIDsByScope[key] ?? []
+        intents.remove(macDeviceID)
+        forgottenMacIntentDeviceIDsByScope[key] = intents.isEmpty ? nil : intents
         var ids = await storedForgottenMacDeviceIDs(scopeKey: key)
         guard ids.remove(macDeviceID) != nil else { return }
         forgottenMacDeviceIDsByScope[key] = ids
@@ -126,6 +158,27 @@ extension MobileShellComposite {
     ) async {
         guard !macDeviceIDs.isEmpty else { return }
         let targetIDSet = Set(macDeviceIDs)
+        invalidateDeferredCachedReconnectPersistence(forgetting: targetIDSet)
+        let forgetsReconnectTarget = connectionLifecycle.activeEpisode?.kind == .reconnect
+            && storedMacReconnectTargetDeviceID.map(targetIDSet.contains) == true
+        let forgetsKnownMac = pairedMacsForIdentityMatching.contains {
+            targetIDSet.contains($0.macDeviceID)
+        }
+        if forgetsReconnectTarget {
+            connectionLifecycleTaskOwnership.activeReconnectProgress?.markForgotten(targetIDSet)
+            // Revoke reconnect ownership before the first suspension. A store or
+            // tombstone write may ignore task cancellation, so generation checks
+            // must already fail when that stale work resumes.
+            resetConnectionLifecycle()
+        } else if forgetsKnownMac {
+            invalidateStoredMacReconnectAttempt()
+        }
+        connectionLifecycleTaskOwnership.clearRetiredReconnectDemand(
+            forgetting: targetIDSet
+        )
+        if !connectionLifecycleTaskOwnership.retiredCarriesReconnectDemand {
+            connectionLifecycleReconnectPendingAfterRetirement = false
+        }
         let teamlessLegacyIDs = Set(pairedMacsForIdentityMatching
             .filter { targetIDSet.contains($0.macDeviceID) && $0.teamID == nil }
             .map(\.macDeviceID))
@@ -147,10 +200,9 @@ extension MobileShellComposite {
         let isActiveMac = pairedMacsForIdentityMatching.contains {
             targetIDSet.contains($0.macDeviceID) && $0.isActive
         }
-        if pairedMacsForIdentityMatching.contains(where: { targetIDSet.contains($0.macDeviceID) }) {
-            invalidateStoredMacReconnectAttempt()
-        }
-        if isActiveMac {
+        let isLiveForegroundMac = connectionState == .connected
+            && foregroundMacDeviceID.map(targetIDSet.contains) == true
+        if isActiveMac || isLiveForegroundMac {
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         }
         for id in macDeviceIDs {

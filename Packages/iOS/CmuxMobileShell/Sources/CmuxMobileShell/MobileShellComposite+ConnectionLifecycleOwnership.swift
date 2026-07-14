@@ -1,0 +1,476 @@
+import Foundation
+
+@MainActor
+extension MobileShellComposite {
+    /// One boundary for explicit user intent to supersede automatic reconnect.
+    func supersedeAutomaticReconnectOwnership(clearPairingState: Bool) {
+        invalidateDeferredCachedReconnectPersistence()
+        if connectionLifecycle.isRecovering || connectionLifecycle.hasStoredMacReconnectDemand {
+            resetConnectionLifecycle()
+        }
+        connectionLifecycleTaskOwnership.clearRetiredReconnectDemand()
+        connectionLifecycleReconnectPendingAfterRetirement = false
+        guard clearPairingState else { return }
+        invalidatePairingAttempt()
+        clearPairingError()
+    }
+
+    func requestConnectionLifecycleRecovery(
+        _ trigger: MobileConnectionLifecycleTrigger
+    ) {
+        guard remoteClient != nil || pairedMacStore != nil else { return }
+        if trigger == .eventStreamLost {
+            scheduleWorkspaceListRefreshFromEvent()
+        }
+        let effect = connectionLifecycle.request(
+            trigger,
+            health: connectionLifecycleHealth(at: runtime?.now() ?? Date()),
+            reconnectStackUserID: identityProvider?.currentUserID
+        )
+        applyConnectionLifecycleEffect(effect)
+    }
+
+    func resetConnectionLifecycle() {
+        let canceledKind = connectionLifecycle.activeEpisode?.kind
+        let canceledStreamRepair = canceledKind == .streamRepair
+        let canceledOperation = connectionLifecycleTask
+        let canceledCachedReconnect = connectionLifecycleTaskOwnership.activeUsesCachedReconnect
+        let canceledReconnectMacDeviceID = storedMacReconnectTargetDeviceID
+        connectionLifecycle.reset()
+        resumeCompletedConnectionLifecycleRequests()
+        connectionLifecycleStreamRepairListenerID = nil
+        connectionLifecycleReconnectPendingAfterRetirement = false
+        invalidateStoredMacReconnectAttempt()
+        connectionLifecycleTask = nil
+        connectionLifecycleTaskOwnership.activeUsesCachedReconnect = false
+        if canceledKind == .reconnect {
+            if canceledCachedReconnect {
+                retireCachedConnectionLifecycleTask(
+                    canceledOperation,
+                    reconnectMacDeviceID: canceledReconnectMacDeviceID
+                )
+            } else {
+                retireConnectionLifecycleTask(
+                    canceledOperation,
+                    reconnectMacDeviceID: canceledReconnectMacDeviceID
+                )
+            }
+        } else {
+            canceledOperation?.cancel()
+        }
+        connectionLifecycleDeadlineTask?.cancel()
+        connectionLifecycleDeadlineTask = nil
+        reconcileMacConnectionStatusAfterLifecycleReset(
+            canceledStreamRepair: canceledStreamRepair
+        )
+    }
+
+    func restartStoredMacReconnectAfterScopeChange() {
+        guard isSignedIn,
+              connectionState != .connected,
+              pairedMacStore != nil else { return }
+        guard connectionLifecycleTaskOwnership.primaryRetiredTask == nil,
+              connectionLifecycleTaskOwnership.cachedRetiredTask == nil else {
+            connectionLifecycleReconnectPendingAfterRetirement = true
+            return
+        }
+        let request = connectionLifecycle.requestStoredMacReconnect(
+            stackUserID: identityProvider?.currentUserID,
+            health: connectionLifecycleHealth(at: runtime?.now() ?? Date())
+        )
+        applyConnectionLifecycleEffect(request.effect)
+    }
+
+    func completeStreamRepairLifecycleEpisodeIfNeeded() {
+        guard let episode = connectionLifecycle.activeEpisode,
+              episode.kind == .streamRepair else { return }
+        finishConnectionLifecycleEpisode(id: episode.id)
+    }
+
+    func completeStreamRepairLifecycleEpisodeIfReplacementIsHealthy(listenerID: UUID?) {
+        guard let listenerID,
+              listenerID == connectionLifecycleStreamRepairListenerID,
+              let episode = connectionLifecycle.activeEpisode,
+              episode.kind == .streamRepair else { return }
+        finishConnectionLifecycleEpisode(id: episode.id)
+    }
+
+    func failConnectionLifecycleEpisodeIfNeeded() {
+        guard let episode = connectionLifecycle.activeEpisode else { return }
+        finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
+    }
+
+    func connectionLifecycleHealth(at now: Date) -> MobileConnectionLifecycleHealthSnapshot {
+        let lastEvent = lastTerminalEventAt ?? now
+        return MobileConnectionLifecycleHealthSnapshot(
+            connected: connectionState == .connected,
+            hasClient: remoteClient != nil,
+            hasListener: terminalEventListenerTask != nil,
+            eventStreamFresh: now.timeIntervalSince(lastEvent) < Self.renderGridLivenessSilenceThreshold,
+            canReconnectPersistedMac: pairedMacStore != nil
+        )
+    }
+
+    func makeStoredMacReconnectOperation(
+        stackUserID: String?,
+        usesCachedReconnect: Bool
+    ) async -> StoredMacReconnectOperation? {
+        guard let pairedMacStore,
+              isSignedIn else {
+            return nil
+        }
+        startObservingNetworkPathChanges()
+        storedMacReconnectGeneration &+= 1
+        let generation = storedMacReconnectGeneration
+        storedMacReconnectTargetDeviceID = nil
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        let cachedMacs = pairedMacsForIdentityMatching
+        storedMacReconnectTargetDeviceID = cachedMacs.first(where: {
+            $0.isActive && !Self.reconnectHostPortRoutes(
+                $0.routes,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            ).isEmpty
+        })?.macDeviceID ?? cachedMacs.first(where: {
+            !Self.reconnectHostPortRoutes(
+                $0.routes,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            ).isEmpty
+        })?.macDeviceID
+        guard let scope = await currentScopeSnapshot(userID: stackUserID),
+              generation == storedMacReconnectGeneration else {
+            return nil
+        }
+        let scopedKey = pairedMacScopeKey(scope)
+        var pendingForgottenIDs = forgottenMacIntentDeviceIDsByScope[scopedKey] ?? []
+        var forgottenScopeKeys = [scopedKey]
+        if scope.teamID != nil {
+            let userWideKey = pairedMacScopeKey(userWideScope(from: scope))
+            pendingForgottenIDs.formUnion(
+                forgottenMacIntentDeviceIDsByScope[userWideKey] ?? []
+            )
+            forgottenScopeKeys.append(userWideKey)
+        }
+        let fence = SynchronousGenerationBoundary()
+        let fenceGeneration = fence.generation
+        let progress = StoredMacReconnectProgress()
+        connectionLifecycleTaskOwnership.activeReconnectFence?.invalidate()
+        connectionLifecycleTaskOwnership.activeReconnectFence = fence
+        connectionLifecycleTaskOwnership.activeReconnectProgress = progress
+        let persistPairedMac: @MainActor @Sendable (StoredMacReconnectPersistenceRequest) async -> Bool = {
+            [weak self] request in
+            guard let self else { return false }
+            let preservesUnclaimedAuthority = request.reportedInstanceTag == nil
+                && request.storedAuthorityMac?.instanceTag == nil
+            let instanceTagUpdate: PairedMacInstanceTagUpdate = preservesUnclaimedAuthority
+                ? .preserveOnlyIfUnclaimed
+                : .replace(request.resolvedInstanceTag)
+            return await self.persistPairedMacFromTicket(
+                request.ticket,
+                instanceTagUpdate: instanceTagUpdate,
+                displayNameOverride: request.displayName,
+                clearsForgottenMac: false,
+                reconnectSourceMacDeviceID: request.sourceMacDeviceID,
+                ifStillCurrent: {
+                    fence.isCurrent(fenceGeneration)
+                }
+            )
+        }
+        return StoredMacReconnectOperation(
+            runtime: runtime,
+            store: pairedMacStore,
+            forgottenStore: forgottenMacStore,
+            scope: scope,
+            generation: generation,
+            fence: fence,
+            fenceGeneration: fenceGeneration,
+            progress: progress,
+            connectAttemptRegistry: connectAttemptRegistry,
+            stackTokenGate: stackTokenGate,
+            stackTokenForceRefreshGate: stackTokenForceRefreshGate,
+            deviceRegistry: deviceRegistry,
+            supportedKinds: supportedKinds,
+            prefersNonLoopbackRoutes: Self.prefersNonLoopbackRoutes,
+            cachedMacs: cachedMacs,
+            pendingForgottenIDs: pendingForgottenIDs,
+            forgottenScopeKeys: usesCachedReconnect ? [] : forgottenScopeKeys,
+            loadsStoreSnapshot: !usesCachedReconnect,
+            persistsPairedMac: !usesCachedReconnect,
+            persistPairedMac: persistPairedMac
+        )
+    }
+
+    func applyConnectionLifecycleEffect(
+        _ effect: MobileConnectionLifecycleEffect?
+    ) {
+        guard let effect else { return }
+        if case .updateStreamRepair(
+            let episode,
+            let restartEventStream,
+            let refreshSecondaries
+        ) = effect {
+            guard connectionLifecycle.ownsEpisode(episode.id) else { return }
+            if restartEventStream {
+                performConnectionLifecycleStreamRepair(episode)
+            } else if refreshSecondaries,
+                      connectionState == .connected,
+                      multiMacAggregationEnabled {
+                scheduleSecondaryAggregation()
+            }
+            return
+        }
+        guard case .start(let episode) = effect else { return }
+        let usesCachedReconnect = episode.kind == .reconnect
+            && connectionLifecycleTaskOwnership.primaryRetiredTask != nil
+            && connectionLifecycleTaskOwnership.cachedRetiredTask == nil
+            && episode.triggers.contains(.manualRetry)
+        let hasRetiredReconnect = connectionLifecycleTaskOwnership.primaryRetiredTask != nil
+            || connectionLifecycleTaskOwnership.cachedRetiredTask != nil
+        if episode.kind == .reconnect,
+           hasRetiredReconnect,
+           !usesCachedReconnect {
+            connectionLifecycleReconnectPendingAfterRetirement = true
+            finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
+            return
+        }
+        connectionLifecycleTask?.cancel()
+        connectionLifecycleDeadlineTask?.cancel()
+        connectionLifecycleTaskOwnership.activeUsesCachedReconnect = usesCachedReconnect
+        connectionLifecycleTask = Task { @MainActor [weak self] in
+            guard self?.connectionLifecycle.ownsEpisode(episode.id) == true else { return }
+            switch episode.kind {
+            case .streamRepair:
+                guard let self else { return }
+                self.performConnectionLifecycleStreamRepair(episode)
+            case .reconnect:
+                guard let operation = await self?.makeStoredMacReconnectOperation(
+                    stackUserID: episode.reconnectStackUserID,
+                    usesCachedReconnect: usesCachedReconnect
+                ) else {
+                    self?.finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
+                    return
+                }
+                let operationOutcome = await operation.run()
+                guard let self,
+                      !Task.isCancelled,
+                      self.connectionLifecycle.ownsEpisode(episode.id) else { return }
+                if usesCachedReconnect,
+                   case .connected(let success) = operationOutcome {
+                    let request = StoredMacReconnectPersistenceRequest(
+                        ticket: success.ticket,
+                        sourceMacDeviceID: success.sourceMacDeviceID,
+                        storedAuthorityMac: success.registryMac,
+                        displayName: success.hostStatus?.macDisplayName,
+                        reportedInstanceTag: success.hostStatus?.macInstanceTag,
+                        resolvedInstanceTag: success.resolvedInstanceTag
+                    )
+                    let scopedKey = self.pairedMacScopeKey(success.scope)
+                    var forgottenScopeKeys = [scopedKey]
+                    if success.scope.teamID != nil {
+                        forgottenScopeKeys.append(self.pairedMacScopeKey(
+                            self.userWideScope(from: success.scope)
+                        ))
+                    }
+                    let persistence = DeferredStoredMacReconnectPersistence(
+                        request: request,
+                        store: operation.store,
+                        forgottenStore: operation.forgottenStore,
+                        forgottenScopeKeys: forgottenScopeKeys,
+                        scope: success.scope,
+                        fence: operation.fence,
+                        fenceGeneration: operation.fenceGeneration,
+                        progress: operation.progress
+                    )
+                    if self.connectionLifecycleTaskOwnership.primaryRetiredTask == nil {
+                        self.startDeferredCachedReconnectPersistence(persistence)
+                        guard !Task.isCancelled,
+                              self.connectionLifecycle.ownsEpisode(episode.id) else { return }
+                    } else {
+                        self.connectionLifecycleTaskOwnership.pendingCachedReconnectPersistence = persistence
+                    }
+                }
+                let outcome = self.applyStoredMacReconnectOperationOutcome(
+                    operationOutcome,
+                    generation: operation.generation
+                )
+                let cachedSnapshotWasUnavailable = usesCachedReconnect && outcome == .unavailable
+                if cachedSnapshotWasUnavailable {
+                    self.connectionLifecycleReconnectPendingAfterRetirement = true
+                }
+                self.finishConnectionLifecycleEpisode(
+                    id: episode.id,
+                    succeeded: outcome != .failed && !cachedSnapshotWasUnavailable
+                )
+                if cachedSnapshotWasUnavailable {
+                    self.replayReconnectPendingAfterRetirementIfPossible()
+                }
+            }
+            if self?.connectionLifecycle.ownsEpisode(episode.id) == true,
+               episode.kind == .streamRepair {
+                self?.connectionLifecycleTask = nil
+            }
+        }
+        if episode.kind == .reconnect {
+            armStoredMacReconnectDeadline(id: episode.id)
+        } else {
+            connectionLifecycleDeadlineTask = nil
+        }
+    }
+
+    private func armStoredMacReconnectDeadline(id: UInt64) {
+        guard connectionLifecycle.ownsEpisode(id),
+              connectionLifecycle.activeEpisode?.kind == .reconnect else { return }
+        connectionLifecycleDeadlineTask?.cancel()
+        let deadline = storedMacReconnectDeadline
+        connectionLifecycleDeadlineTask = Task { @MainActor [weak self] in
+            await deadline()
+            guard !Task.isCancelled else { return }
+            self?.expireStoredMacReconnectEpisode(id: id)
+        }
+    }
+
+    private func performConnectionLifecycleStreamRepair(
+        _ episode: MobileConnectionLifecycleEpisode
+    ) {
+        guard connectionLifecycle.ownsEpisode(episode.id) else { return }
+        guard connectionState == .connected,
+              remoteClient != nil else {
+            finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
+            return
+        }
+        markMacConnectionReconnecting()
+        resyncTerminalOutput(
+            reason: "lifecycle.\(episode.id)",
+            restartEventStream: true
+        )
+        connectionLifecycleStreamRepairListenerID = terminalEventListenerID
+        let refreshesSecondaries = episode.triggers.contains(.networkPathChanged)
+            || episode.triggers.contains(.presenceRoutesChanged)
+            || episode.triggers.contains(.manualRetry)
+        if multiMacAggregationEnabled, refreshesSecondaries {
+            scheduleSecondaryAggregation()
+        }
+        if terminalEventListenerTask == nil {
+            if runtime?.supportsServerPushEvents ?? true {
+                finishConnectionLifecycleEpisode(id: episode.id, succeeded: false)
+            } else {
+                markMacConnectionHealthy()
+                finishConnectionLifecycleEpisode(id: episode.id)
+            }
+        }
+    }
+
+    private func expireStoredMacReconnectEpisode(id: UInt64) {
+        guard connectionLifecycle.ownsEpisode(id),
+              connectionLifecycle.activeEpisode?.kind == .reconnect else { return }
+        let operation = connectionLifecycleTask
+        let usesCachedReconnect = connectionLifecycleTaskOwnership.activeUsesCachedReconnect
+        let reconnectMacDeviceID = storedMacReconnectTargetDeviceID
+        connectionLifecycleTask = nil
+        connectionLifecycleTaskOwnership.activeUsesCachedReconnect = false
+        connectionLifecycleDeadlineTask = nil
+        if usesCachedReconnect {
+            retireCachedConnectionLifecycleTask(
+                operation,
+                reconnectMacDeviceID: reconnectMacDeviceID
+            )
+        } else {
+            retireConnectionLifecycleTask(
+                operation,
+                reconnectMacDeviceID: reconnectMacDeviceID
+            )
+        }
+        invalidateStoredMacReconnectAttempt()
+        applyStoredMacReconnectDeadlineFailure()
+        finishConnectionLifecycleEpisode(id: id, succeeded: false)
+    }
+
+    private func retireConnectionLifecycleTask(
+        _ operation: Task<Void, Never>?,
+        reconnectMacDeviceID: String?
+    ) {
+        guard let operation else { return }
+        operation.cancel()
+        guard connectionLifecycleTaskOwnership.primaryRetiredTask == nil else { return }
+        connectionLifecycleTaskOwnership.primaryRetiredGeneration &+= 1
+        let generation = connectionLifecycleTaskOwnership.primaryRetiredGeneration
+        connectionLifecycleTaskOwnership.primaryRetiredReconnectDemand = reconnectMacDeviceID
+            .map(RetiredStoredMacReconnectDemand.macDeviceID) ?? .unresolvedTarget
+        connectionLifecycleTaskOwnership.primaryRetiredTask = Task { @MainActor [weak self] in
+            await operation.value
+            guard let self,
+                  self.connectionLifecycleTaskOwnership.primaryRetiredGeneration == generation else { return }
+            self.connectionLifecycleTaskOwnership.primaryRetiredTask = nil
+            self.connectionLifecycleTaskOwnership.primaryRetiredReconnectDemand = nil
+            if let persistence = self.connectionLifecycleTaskOwnership.pendingCachedReconnectPersistence {
+                self.connectionLifecycleTaskOwnership.pendingCachedReconnectPersistence = nil
+                self.startDeferredCachedReconnectPersistence(persistence)
+            } else if self.connectionLifecycleReconnectPendingAfterRetirement {
+                self.replayReconnectPendingAfterRetirementIfPossible()
+            } else if self.connectionLifecycleTaskOwnership.cachedRetiredTask == nil,
+                      self.connectionState == .connected,
+                      self.multiMacAggregationEnabled {
+                self.scheduleSecondaryAggregation()
+            }
+        }
+    }
+
+    /// Tracks a canceled cached transport attempt separately from the primary
+    /// cancellation-insensitive store operation that made the cached lane necessary.
+    private func retireCachedConnectionLifecycleTask(
+        _ operation: Task<Void, Never>?,
+        reconnectMacDeviceID: String?
+    ) {
+        guard let operation else { return }
+        operation.cancel()
+        guard connectionLifecycleTaskOwnership.cachedRetiredTask == nil else { return }
+        connectionLifecycleTaskOwnership.cachedRetiredGeneration &+= 1
+        let generation = connectionLifecycleTaskOwnership.cachedRetiredGeneration
+        connectionLifecycleTaskOwnership.cachedRetiredReconnectDemand = reconnectMacDeviceID
+            .map(RetiredStoredMacReconnectDemand.macDeviceID) ?? .unresolvedTarget
+        connectionLifecycleTaskOwnership.cachedRetiredTask = Task { @MainActor [weak self] in
+            await operation.value
+            guard let self,
+                  self.connectionLifecycleTaskOwnership.cachedRetiredGeneration == generation else { return }
+            self.connectionLifecycleTaskOwnership.cachedRetiredTask = nil
+            self.connectionLifecycleTaskOwnership.cachedRetiredReconnectDemand = nil
+            self.replayReconnectPendingAfterRetirementIfPossible()
+        }
+    }
+
+    func finishConnectionLifecycleEpisode(id: UInt64, succeeded: Bool = true) {
+        guard connectionLifecycle.ownsEpisode(id) else { return }
+        connectionLifecycleTaskOwnership.activeReconnectFence = nil
+        connectionLifecycleTaskOwnership.activeReconnectProgress = nil
+        connectionLifecycleStreamRepairListenerID = nil
+        connectionLifecycleDeadlineTask?.cancel()
+        connectionLifecycleDeadlineTask = nil
+        let recoveryWasFailed = connectionLifecycle.recoveryFailed
+        let effect = connectionLifecycle.complete(
+            id: id,
+            health: connectionLifecycleHealth(at: runtime?.now() ?? Date()),
+            succeeded: succeeded
+        )
+        captureConnectionRecoveryFailureIfNeeded(wasFailed: recoveryWasFailed)
+        resumeCompletedConnectionLifecycleRequests()
+        if connectionLifecycleTask != nil,
+           connectionLifecycle.activeEpisode?.id != id {
+            connectionLifecycleTask = nil
+            connectionLifecycleTaskOwnership.activeUsesCachedReconnect = false
+        }
+        applyConnectionLifecycleEffect(effect)
+    }
+
+    func recordConnectionRecoveryFailureWithoutEpisode() {
+        let recoveryWasFailed = connectionLifecycle.recoveryFailed
+        connectionLifecycle.markRecoveryFailed()
+        captureConnectionRecoveryFailureIfNeeded(wasFailed: recoveryWasFailed)
+    }
+
+    private func resumeCompletedConnectionLifecycleRequests() {
+        for requestID in connectionLifecycle.drainCompletedRequestIDs() {
+            connectionLifecycleRequestWaiters.removeValue(forKey: requestID)?.resume()
+        }
+    }
+}

@@ -6,14 +6,12 @@ import Testing
 @Test func terminalOutputQueueDeliversFirstChunkImmediately() {
     var queue = TerminalOutputDeliveryQueue()
     let first = TerminalOutputDelivery(bytes: Data("first".utf8), replaceable: false)
-
     #expect(queue.enqueue(first) == first)
     #expect(queue.pendingCount == 0)
 }
 
 @Test func terminalOutputQueueIgnoresCompletionWhenNothingIsInFlight() {
     var queue = TerminalOutputDeliveryQueue()
-
     #expect(queue.completeInFlight() == nil)
     #expect(queue.isIdle)
 }
@@ -22,20 +20,15 @@ import Testing
 @Test func staleStreamAckDoesNotAdvanceReplacementOutputQueue() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
-
     var oldIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     store.deliverTerminalBytes(Data("old-first".utf8), surfaceID: surfaceID)
     let oldChunk = try #require(await oldIterator.next())
-
     var currentIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     store.deliverTerminalBytes(Data("new-first".utf8), surfaceID: surfaceID)
     let currentChunk = try #require(await currentIterator.next())
     store.deliverTerminalBytes(Data("new-second".utf8), surfaceID: surfaceID)
-
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: oldChunk.streamToken)
-
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 1)
-
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: currentChunk.streamToken)
     let secondChunk = try #require(await currentIterator.next())
     #expect(String(data: secondChunk.data, encoding: .utf8) == "new-second")
@@ -45,28 +38,21 @@ import Testing
 @Test func terminalReplayBarrierDropsStalledBacklogAndInvalidatesOldAcks() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
-
     var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
     store.deliverTerminalBytes(Data("stalled-first".utf8), surfaceID: surfaceID)
     let stalledChunk = try #require(await iterator.next())
     store.deliverTerminalBytes(Data("stale-second".utf8), surfaceID: surfaceID)
-
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 1)
-
     let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
-
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierToken)
-
     let liveBeforeReplayAccepted = store.deliverTerminalBytes(
         Data("live-before-replay".utf8),
         surfaceID: surfaceID
     )
     #expect(liveBeforeReplayAccepted == false)
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
-
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
-
     store.deliverTerminalBytes(
         Data("authoritative-replay".utf8),
         surfaceID: surfaceID,
@@ -75,7 +61,6 @@ import Testing
     let replayChunk = try #require(await iterator.next())
     #expect(String(data: replayChunk.data, encoding: .utf8) == "authoritative-replay")
     #expect(replayChunk.streamToken != stalledChunk.streamToken)
-
     let liveBeforeReplayAckAccepted = store.deliverTerminalBytes(
         Data("live-before-replay-ack".utf8),
         surfaceID: surfaceID
@@ -415,6 +400,21 @@ import Testing
     }
     #expect(unregistered)
     #expect(!store.terminalReplaySurfaceIDsInFlight.contains(surfaceID))
+    let resourcesAfterUnmount = store.connectionResourceSnapshotForTesting()
+    #expect(resourcesAfterUnmount.activeEpisodeCount == 0)
+    #expect(resourcesAfterUnmount.pendingRequestCount == 0)
+    #expect(resourcesAfterUnmount.lifecycleTaskCount == 0)
+    #expect(resourcesAfterUnmount.lifecycleWaiterCount == 0)
+    #expect(resourcesAfterUnmount.networkObserverCount <= 1)
+    #expect(resourcesAfterUnmount.primaryTransportCount == 1)
+    #expect(resourcesAfterUnmount.secondaryTransportCount == 0)
+    #expect(resourcesAfterUnmount.listenerTaskCount == 1)
+    #expect(resourcesAfterUnmount.subscriptionTaskCount <= 1)
+    #expect(resourcesAfterUnmount.livenessProbeCount == 0)
+    #expect(resourcesAfterUnmount.livenessTimerCount == 1)
+    #expect(resourcesAfterUnmount.replayTaskCount == 0)
+    #expect(resourcesAfterUnmount.byteContinuationCount == 0)
+    #expect(resourcesAfterUnmount.liveFontContinuationCount == 0)
 
     let replayCountAfterUnmount = await router.count(of: "mobile.terminal.replay")
     await router.enqueueReplayTexts(["remount-replay"])

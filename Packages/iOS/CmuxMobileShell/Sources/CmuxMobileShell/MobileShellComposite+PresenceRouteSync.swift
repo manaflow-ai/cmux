@@ -69,7 +69,7 @@ extension MobileShellComposite {
                         ) != nil
                     }
                     if hasOnlineAuthority {
-                        self.recoverMobileConnection(trigger: .presencePush)
+                        self.requestConnectionLifecycleRecovery(.presenceRoutesChanged)
                     }
                 }
             }

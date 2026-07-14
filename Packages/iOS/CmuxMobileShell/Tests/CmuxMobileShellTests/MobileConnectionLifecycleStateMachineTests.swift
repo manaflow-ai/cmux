@@ -1,0 +1,484 @@
+import Foundation
+import Testing
+@testable import CmuxMobileShell
+
+@Suite struct MobileConnectionLifecycleStateMachineTests {
+    @Test func mixedBackgroundTriggersBecomeOneEpisode() {
+        let now = Date()
+        var reducer = MobileConnectionLifecycleStateMachine()
+        reducer.becameInactive(at: now)
+        for _ in 0..<200 {
+            #expect(reducer.request(.networkPathChanged, health: .healthy) == nil)
+            #expect(reducer.request(.presenceRoutesChanged, health: .healthy) == nil)
+        }
+
+        let effect = reducer.becameActive(
+            at: now.addingTimeInterval(31),
+            shortDwellThreshold: 30,
+            health: .healthy
+        )
+        guard case .start(let episode) = effect else {
+            Issue.record("one foreground episode must own every deferred trigger")
+            return
+        }
+        #expect(episode.kind == .streamRepair)
+        #expect(reducer.activeEpisode?.id == episode.id)
+        #expect(reducer.request(.networkPathChanged, health: .healthy) == nil)
+    }
+
+    @Test func shortForegroundResumeDefersSilentAttachedStreamToLivenessOwner() {
+        let now = Date()
+        var shortAttached = MobileConnectionLifecycleStateMachine()
+        shortAttached.becameInactive(at: now)
+
+        #expect(shortAttached.becameActive(
+            at: now.addingTimeInterval(20),
+            shortDwellThreshold: 30,
+            health: .attachedButSilent
+        ) == nil)
+        #expect(shortAttached.activeEpisode == nil)
+        #expect(shortAttached.resourceSnapshot.activeEpisodeCount == 0)
+        #expect(shortAttached.resourceSnapshot.pendingRequestCount == 0)
+
+        var missingTopology = MobileConnectionLifecycleStateMachine()
+        missingTopology.becameInactive(at: now)
+        guard case .start(let missingTopologyEpisode) = missingTopology.becameActive(
+            at: now.addingTimeInterval(20),
+            shortDwellThreshold: 30,
+            health: .missingListener
+        ) else {
+            Issue.record("short foreground resume must recover missing stream topology")
+            return
+        }
+        #expect(missingTopologyEpisode.triggers == [.foregroundResume])
+
+        var longAttached = MobileConnectionLifecycleStateMachine()
+        longAttached.becameInactive(at: now)
+        guard case .start(let longDwellEpisode) = longAttached.becameActive(
+            at: now.addingTimeInterval(31),
+            shortDwellThreshold: 30,
+            health: .attachedButSilent
+        ) else {
+            Issue.record("long foreground resume must recover an attached stream")
+            return
+        }
+        #expect(longDwellEpisode.triggers == [.foregroundResume])
+    }
+
+    @Test func foregroundActivationCannotReplaceOwnedReconnectWithQueuedRecovery() {
+        let now = Date()
+        var reducer = MobileConnectionLifecycleStateMachine()
+        let reconnect = reducer.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+        guard case .start(let reconnectEpisode) = reconnect.effect else {
+            Issue.record("stored Mac reconnect must start one owned episode")
+            return
+        }
+
+        reducer.becameInactive(at: now)
+        #expect(reducer.request(.networkPathChanged, health: .healthy) == nil)
+        #expect(reducer.request(.presenceRoutesChanged, health: .healthy) == nil)
+        #expect(reducer.resourceSnapshot.pendingRequestCount == 2)
+
+        let foregroundEffect = reducer.becameActive(
+            at: now.addingTimeInterval(31),
+            shortDwellThreshold: 30,
+            health: .healthy,
+            reconnectStackUserID: "user-1"
+        )
+        #expect(foregroundEffect == nil)
+        #expect(reducer.activeEpisode?.id == reconnectEpisode.id)
+        #expect(reducer.activeEpisode?.requestIDs == [reconnect.id])
+        #expect(reducer.resourceSnapshot.pendingRequestCount == 3)
+
+        guard case .start(let repairEpisode) = reducer.complete(
+            id: reconnectEpisode.id,
+            health: .healthy
+        ) else {
+            Issue.record("completing the reconnect must start all deferred foreground repair")
+            return
+        }
+        #expect(reducer.drainCompletedRequestIDs() == [reconnect.id])
+        #expect(repairEpisode.kind == .streamRepair)
+        #expect(repairEpisode.triggers == [
+            .networkPathChanged,
+            .presenceRoutesChanged,
+            .foregroundResume,
+        ])
+        #expect(reducer.complete(id: repairEpisode.id, health: .healthy) == nil)
+        #expect(reducer.drainCompletedRequestIDs().isEmpty)
+        #expect(reducer.activeEpisode == nil)
+        #expect(reducer.resourceSnapshot.activeEpisodeCount == 0)
+        #expect(reducer.resourceSnapshot.pendingRequestCount == 0)
+    }
+
+    @Test func staleCompletionAndResetCannotCommit() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+        guard case .start(let episode) = reducer.request(.manualRetry, health: .healthy) else {
+            Issue.record("manual retry must start one episode")
+            return
+        }
+
+        #expect(reducer.complete(id: episode.id &+ 1, health: .healthy) == nil)
+        #expect(reducer.ownsEpisode(episode.id))
+        reducer.reset()
+        #expect(!reducer.ownsEpisode(episode.id))
+        #expect(reducer.activeEpisode == nil)
+    }
+
+    @Test func recoveryPresentationStateBelongsToTheLifecycleOwner() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+        #expect(!reducer.isRecovering)
+        #expect(!reducer.recoveryFailed)
+
+        guard case .start(let failedEpisode) = reducer.request(
+            .networkPathChanged,
+            health: .disconnected
+        ) else {
+            Issue.record("network recovery must start one episode")
+            return
+        }
+        #expect(reducer.isRecovering)
+        #expect(!reducer.recoveryFailed)
+
+        #expect(reducer.complete(
+            id: failedEpisode.id,
+            health: .disconnected,
+            succeeded: false
+        ) == nil)
+        #expect(!reducer.isRecovering)
+        #expect(reducer.recoveryFailed)
+
+        guard case .start(let retryEpisode) = reducer.request(
+            .manualRetry,
+            health: .disconnected
+        ) else {
+            Issue.record("manual retry must replace failure with an owned episode")
+            return
+        }
+        #expect(reducer.isRecovering)
+        #expect(!reducer.recoveryFailed)
+
+        #expect(reducer.complete(
+            id: retryEpisode.id,
+            health: .healthy,
+            succeeded: true
+        ) == nil)
+        #expect(!reducer.isRecovering)
+        #expect(!reducer.recoveryFailed)
+    }
+
+    @Test func twoHundredMixedCyclesKeepLifecycleResourcesBounded() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+
+        for cycle in 0..<200 {
+            let health: MobileConnectionLifecycleHealthSnapshot = cycle.isMultiple(of: 2)
+                ? .healthy
+                : .disconnected
+            guard case .start(let episode) = reducer.request(
+                .networkPathChanged,
+                health: health
+            ) else {
+                Issue.record("cycle \(cycle) must start one episode")
+                return
+            }
+            let joinedEffect = reducer.request(.presenceRoutesChanged, health: health)
+            if cycle.isMultiple(of: 2) {
+                guard case .updateStreamRepair(
+                    let updatedEpisode,
+                    restartEventStream: false,
+                    refreshSecondaries: true
+                ) = joinedEffect else {
+                    Issue.record("connected cycle \(cycle) must refresh secondary routes")
+                    return
+                }
+                #expect(updatedEpisode.id == episode.id)
+            } else {
+                #expect(joinedEffect == nil)
+            }
+
+            let active = reducer.resourceSnapshot
+            #expect(active.activeEpisodeCount == 1)
+            #expect(active.pendingRequestCount == (cycle.isMultiple(of: 2) ? 0 : 1))
+
+            let completion = reducer.complete(
+                id: episode.id,
+                health: health,
+                succeeded: true
+            )
+            if cycle.isMultiple(of: 2) {
+                #expect(completion == nil)
+            } else if case .start(let replayEpisode) = completion {
+                #expect(replayEpisode.kind == .reconnect)
+                #expect(replayEpisode.triggers == [.presenceRoutesChanged])
+                #expect(reducer.complete(
+                    id: replayEpisode.id,
+                    health: health,
+                    succeeded: true
+                ) == nil)
+            } else {
+                Issue.record("disconnected cycle \(cycle) must replay fresh route demand")
+            }
+            let idle = reducer.resourceSnapshot
+            #expect(idle.activeEpisodeCount == 0)
+            #expect(idle.pendingRequestCount == 0)
+        }
+    }
+
+    @Test func connectedRecoveryTriggersRepairTheStreamWithoutReplacingTheClient() {
+        for trigger in [
+            MobileConnectionLifecycleTrigger.networkPathChanged,
+            .presenceRoutesChanged,
+            .manualRetry,
+        ] {
+            var reducer = MobileConnectionLifecycleStateMachine()
+            guard case .start(let episode) = reducer.request(trigger, health: .healthy) else {
+                Issue.record("connected recovery must start one episode for \(trigger)")
+                continue
+            }
+
+            #expect(episode.kind == .streamRepair)
+        }
+    }
+
+    @Test func joinedStreamRepairRequestsAccumulateTheirTriggers() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+        guard case .start(let episode) = reducer.request(
+            .networkPathChanged,
+            health: .healthy
+        ) else {
+            Issue.record("network path recovery must start one episode")
+            return
+        }
+
+        let effect = reducer.request(.eventStreamLost, health: .healthy)
+        guard case .updateStreamRepair(
+            let restartedEpisode,
+            restartEventStream: true,
+            refreshSecondaries: false
+        ) = effect else {
+            Issue.record("stream loss must restart an absorbed stream repair")
+            return
+        }
+        #expect(restartedEpisode.id == episode.id)
+        #expect(reducer.activeEpisode?.id == episode.id)
+        #expect(reducer.activeEpisode?.triggers == [.networkPathChanged, .eventStreamLost])
+    }
+
+    @Test func connectedStreamRepairWaitsBehindAnInFlightReconnect() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+        let reconnect = reducer.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+        guard case .start(let reconnectEpisode) = reconnect.effect else {
+            Issue.record("stored Mac reconnect must start")
+            return
+        }
+
+        #expect(reducer.request(.networkPathChanged, health: .healthy) == nil)
+        #expect(reducer.activeEpisode?.triggers == [.storedMacReconnect])
+        #expect(reducer.resourceSnapshot.pendingRequestCount == 1)
+
+        guard case .start(let repairEpisode) = reducer.complete(
+            id: reconnectEpisode.id,
+            health: .healthy
+        ) else {
+            Issue.record("the post-connect stream repair must run as a follow-up episode")
+            return
+        }
+        #expect(repairEpisode.kind == .streamRepair)
+        #expect(repairEpisode.triggers == [.networkPathChanged])
+    }
+
+    @Test func deferredReconnectRetainsItsIdentityAndCompletionOwnership() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+        guard case .start(let streamEpisode) = reducer.request(
+            .networkPathChanged,
+            health: .healthy
+        ) else {
+            Issue.record("stream repair must start")
+            return
+        }
+        let reconnect = reducer.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .healthy
+        )
+        #expect(reconnect.effect == nil)
+
+        guard case .start(let reconnectEpisode) = reducer.complete(
+            id: streamEpisode.id,
+            health: .healthy
+        ) else {
+            Issue.record("deferred reconnect must start after stream repair")
+            return
+        }
+        #expect(reducer.drainCompletedRequestIDs().isEmpty)
+        #expect(reconnectEpisode.kind == .reconnect)
+        #expect(reconnectEpisode.reconnectStackUserID == "user-1")
+        #expect(reconnectEpisode.requestIDs == [reconnect.id])
+
+        #expect(reducer.complete(id: reconnectEpisode.id, health: .healthy) == nil)
+        #expect(reducer.drainCompletedRequestIDs() == [reconnect.id])
+    }
+
+    @Test func reconnectRequestsOnlyJoinAnEpisodeWithTheSameIdentity() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+        let first = reducer.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+        guard case .start(let firstEpisode) = first.effect else {
+            Issue.record("first reconnect must start")
+            return
+        }
+        let joined = reducer.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+        let deferred = reducer.requestStoredMacReconnect(
+            stackUserID: "user-2",
+            health: .disconnected
+        )
+        #expect(joined.effect == nil)
+        #expect(deferred.effect == nil)
+        #expect(reducer.activeEpisode?.requestIDs == [first.id, joined.id])
+
+        guard case .start(let secondEpisode) = reducer.complete(
+            id: firstEpisode.id,
+            health: .disconnected
+        ) else {
+            Issue.record("different identity must receive a separate episode")
+            return
+        }
+        #expect(reducer.drainCompletedRequestIDs() == [first.id, joined.id])
+        #expect(secondEpisode.reconnectStackUserID == "user-2")
+        #expect(secondEpisode.requestIDs == [deferred.id])
+    }
+
+    @Test func freshRouteDemandReplaysAfterAnInFlightReconnectSnapshot() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+        let reconnect = reducer.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+        guard case .start(let firstEpisode) = reconnect.effect else {
+            Issue.record("stored Mac reconnect must start")
+            return
+        }
+
+        #expect(reducer.request(
+            .presenceRoutesChanged,
+            health: .disconnected,
+            reconnectStackUserID: "user-1"
+        ) == nil)
+        #expect(reducer.resourceSnapshot.pendingRequestCount == 1)
+
+        guard case .start(let replayEpisode) = reducer.complete(
+            id: firstEpisode.id,
+            health: .disconnected,
+            succeeded: false
+        ) else {
+            Issue.record("fresh route demand must replay with a new reconnect snapshot")
+            return
+        }
+        #expect(replayEpisode.id != firstEpisode.id)
+        #expect(replayEpisode.kind == .reconnect)
+        #expect(replayEpisode.triggers == [.presenceRoutesChanged])
+    }
+
+    @Test func completingAnEpisodeWhileInactiveLeavesPendingRecoveryDeferred() {
+        let now = Date()
+        var reducer = MobileConnectionLifecycleStateMachine()
+        guard case .start(let activeEpisode) = reducer.request(
+            .manualRetry,
+            health: .disconnected
+        ) else {
+            Issue.record("initial reconnect must start")
+            return
+        }
+        reducer.becameInactive(at: now)
+        #expect(reducer.request(.networkPathChanged, health: .disconnected) == nil)
+
+        #expect(reducer.complete(id: activeEpisode.id, health: .disconnected) == nil)
+        #expect(reducer.activeEpisode == nil)
+
+        guard case .start(let resumedEpisode) = reducer.becameActive(
+            at: now.addingTimeInterval(31),
+            shortDwellThreshold: 30,
+            health: .disconnected
+        ) else {
+            Issue.record("foreground activation must start the deferred recovery")
+            return
+        }
+        #expect(resumedEpisode.triggers == [.networkPathChanged])
+    }
+
+    @Test func foregroundReconnectCanJoinARequestForTheCurrentIdentity() {
+        let now = Date()
+        var reducer = MobileConnectionLifecycleStateMachine()
+        reducer.becameInactive(at: now)
+        guard case .start(let foregroundEpisode) = reducer.becameActive(
+            at: now.addingTimeInterval(31),
+            shortDwellThreshold: 30,
+            health: .disconnected,
+            reconnectStackUserID: "user-1"
+        ) else {
+            Issue.record("foreground reconnect must start")
+            return
+        }
+        let reconnect = reducer.requestStoredMacReconnect(
+            stackUserID: "user-1",
+            health: .disconnected
+        )
+
+        #expect(reconnect.effect == nil)
+        #expect(reducer.activeEpisode?.id == foregroundEpisode.id)
+        #expect(reducer.activeEpisode?.requestIDs.contains(reconnect.id) == true)
+    }
+
+}
+
+private extension MobileConnectionLifecycleHealthSnapshot {
+    static var healthy: Self {
+        Self(
+            connected: true,
+            hasClient: true,
+            hasListener: true,
+            eventStreamFresh: true,
+            canReconnectPersistedMac: true
+        )
+    }
+
+    static var disconnected: Self {
+        Self(
+            connected: false,
+            hasClient: false,
+            hasListener: false,
+            eventStreamFresh: false,
+            canReconnectPersistedMac: true
+        )
+    }
+
+    static var attachedButSilent: Self {
+        Self(
+            connected: true,
+            hasClient: true,
+            hasListener: true,
+            eventStreamFresh: false,
+            canReconnectPersistedMac: true
+        )
+    }
+
+    static var missingListener: Self {
+        Self(
+            connected: true,
+            hasClient: true,
+            hasListener: false,
+            eventStreamFresh: false,
+            canReconnectPersistedMac: true
+        )
+    }
+}

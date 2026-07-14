@@ -2,7 +2,7 @@ import CMUXMobileCore
 import Foundation
 
 extension LivenessHostRouter {
-    static func attachTicketObject() throws -> Any {
+    static func attachTicketObject(macDeviceID: String = "test-mac") throws -> Any {
         let route = try CmxAttachRoute(
             id: "debug_loopback",
             kind: .debugLoopback,
@@ -11,7 +11,7 @@ extension LivenessHostRouter {
         let ticket = try CmxAttachTicket(
             workspaceID: "live-workspace",
             terminalID: "live-terminal",
-            macDeviceID: "test-mac",
+            macDeviceID: macDeviceID,
             macDisplayName: "Test Mac",
             macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
             routes: [route],

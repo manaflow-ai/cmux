@@ -21,6 +21,25 @@ struct MobileRecoveryStressMonitorStateTests {
         #expect(state.activeCycle?.drainedMilliseconds == 250)
     }
 
+    @Test("cycle completes only after replacement surface accepts output")
+    func requiresPostRecoveryOutputAcknowledgement() {
+        var state = MobileRecoveryStressMonitorState(
+            startMilliseconds: 0,
+            heartbeatTimeoutMilliseconds: 2_000,
+            freeDrainDeadlineMilliseconds: 10_000
+        )
+        state.beginCycle(6, generation: 40, pendingFreesBefore: 0, atMilliseconds: 100)
+        state.recordRecoveryResult(pendingFreesAfter: 0)
+
+        #expect(state.activeCycleDrained)
+        #expect(state.activeCycleCompleted == false)
+
+        state.recordRecoveryOutputApplied(generation: 41)
+
+        #expect(state.activeCycleCompleted)
+        #expect(state.activeCycle?.recoveryOutputGeneration == 41)
+    }
+
     @Test("detects free drain deadline")
     func detectsFreeDrainDeadline() {
         var state = MobileRecoveryStressMonitorState(

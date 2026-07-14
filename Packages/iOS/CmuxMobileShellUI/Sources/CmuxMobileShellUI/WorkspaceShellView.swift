@@ -12,9 +12,7 @@ import AppKit
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
-    var isInitialConnectionLoading = false
-    var initialConnectionTimedOut = false
-    var retryInitialConnection: (() -> Void)?
+    var isRestoringStoredMac = false
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
@@ -46,7 +44,7 @@ struct WorkspaceShellView: View {
     }
 
     private var listConnectionStatus: MobileMacConnectionStatus {
-        if isInitialConnectionLoading || initialConnectionTimedOut {
+        if isRestoringStoredMac {
             return .reconnecting
         }
         return store.workspaceListConnectionStatus
@@ -147,9 +145,7 @@ struct WorkspaceShellView: View {
                 ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
                 deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
                 toggleGroupCollapsed: toggleGroupCollapsedClosure,
-                isInitialConnectionLoading: isInitialConnectionLoading,
-                initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection
+                isRestoringStoredMac: isRestoringStoredMac
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
@@ -254,9 +250,7 @@ struct WorkspaceShellView: View {
                 ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
                 deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
                 toggleGroupCollapsed: toggleGroupCollapsedClosure,
-                isInitialConnectionLoading: isInitialConnectionLoading,
-                initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection
+                isRestoringStoredMac: isRestoringStoredMac
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {

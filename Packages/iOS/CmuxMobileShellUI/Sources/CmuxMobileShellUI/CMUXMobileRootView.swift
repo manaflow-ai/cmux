@@ -41,7 +41,6 @@ struct CMUXMobileRootView: View {
     /// foreground returns. `nil` when unwired (previews), which shows no
     /// Tailscale guidance.
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
-
     #if os(iOS)
     init(store: CMUXMobileShellStore, onboardingStore: MobileOnboardingStore) {
         self.store = store
@@ -53,7 +52,6 @@ struct CMUXMobileRootView: View {
         self.store = store
     }
     #endif
-
     private var shouldShowTerminalLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.terminalLayoutPreviewEnabled
@@ -61,7 +59,6 @@ struct CMUXMobileRootView: View {
         return false
         #endif
     }
-
     private var shouldShowWorkspaceListLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.workspaceListLayoutPreviewEnabled
@@ -69,7 +66,6 @@ struct CMUXMobileRootView: View {
         return false
         #endif
     }
-
     private var shouldShowStreamingChatPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.streamingChatPreviewEnabled
@@ -77,7 +73,6 @@ struct CMUXMobileRootView: View {
         return false
         #endif
     }
-
     @ViewBuilder private var streamingChatPreview: some View {
         #if os(iOS) && DEBUG
         StreamingChatPreviewView()
@@ -85,7 +80,6 @@ struct CMUXMobileRootView: View {
         EmptyView()
         #endif
     }
-
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
@@ -118,8 +112,7 @@ struct CMUXMobileRootView: View {
             // If the view mounts already authenticated (cached session, or a
             // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,
             // so kick off the stored-Mac reconnect here too. Without this the
-            // workspace list's initial-connection status could never resolve
-            // because nothing updates `didFinishStoredMacReconnectAttempt`.
+            // lifecycle owner's initial reconnect episode would never resolve.
             reconnectStoredMacIfNeeded()
         }
         #if os(iOS)
@@ -208,19 +201,12 @@ struct CMUXMobileRootView: View {
             streamingChatPreview
         } else if !isAuthenticated {
             SignInView()
-        } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
-            RestoringStoredMacWorkspaceShell(
-                store: store,
-                signOut: signOut,
-                showAddDevice: showAddDevice,
-                reconnectStoredMac: reconnectStoredMacIfNeeded
-            )
-        } else if shouldShowOnboarding {
+        } else if shouldShowOnboarding && !shouldShowRestoringStoredMac {
             // Show the one-time explainer before the add-device flow. This is
             // keyed only by onboarding completion so auto-pairing cannot defer
             // onboarding until the user later removes every computer.
             onboardingFlow
-        } else if store.connectionState != .connected && !store.hasKnownPairedMac {
+        } else if !keepsWorkspaceShellMounted {
             // ONLY when there are no saved Macs at all: the add-device flow (it
             // auto-presents the pairing sheet since there is nothing to list).
             DisconnectedWorkspaceShellView(
@@ -237,7 +223,12 @@ struct CMUXMobileRootView: View {
             // whatever workspaces have aggregated (foreground + live secondary
             // subscriptions); the foreground connection is established without any
             // tap. Opening a workspace attaches its Mac on demand.
-            WorkspaceShellView(store: store, signOut: signOut, showAddDevice: showAddDevice)
+            WorkspaceShellView(
+                store: store,
+                signOut: signOut,
+                isRestoringStoredMac: shouldShowRestoringStoredMac,
+                showAddDevice: showAddDevice
+            )
         }
     }
 
@@ -348,6 +339,14 @@ struct CMUXMobileRootView: View {
         )
     }
 
+    private var keepsWorkspaceShellMounted: Bool {
+        MobileRootWorkspaceShellPolicy(
+            isConnected: store.connectionState == .connected,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            isRestoringStoredMac: shouldShowRestoringStoredMac
+        ).keepsWorkspaceShellMounted
+    }
+
     private var hasActiveAttachTicketAuthentication: Bool {
         didAuthenticateWithAttachTicket && store.hasActiveUnexpiredAttachTicket
     }
@@ -384,6 +383,7 @@ struct CMUXMobileRootView: View {
     }
 
     private func showAddDevice() {
+        store.prepareForManualPairing()
         #if os(iOS)
         addDeviceSheetDetent = .large
         #endif

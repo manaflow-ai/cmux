@@ -65,7 +65,6 @@ struct WorkspaceListView: View {
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
-
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
@@ -97,9 +96,7 @@ struct WorkspaceListView: View {
     /// disclosure indicator. Grouped rendering itself is gated on `groups`, not
     /// on this closure.
     var toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
-    var isInitialConnectionLoading = false
-    var initialConnectionTimedOut = false
-    var retryInitialConnection: (() -> Void)?
+    var isRestoringStoredMac = false
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
@@ -134,11 +131,9 @@ struct WorkspaceListView: View {
     /// Bumped when a supersede or failure invalidates the pending chain, so
     /// queued moves computed against overruled predictions abort unsent.
     @State var workspaceMoveEpoch: UInt64 = 0
-
     var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
     private var deferredWorkspaceSelectionIdentity: [String] {
         var identity = [
             "host:\(host)",
@@ -221,6 +216,7 @@ struct WorkspaceListView: View {
     }
 
     var body: some View {
+        let storedMacRecovery = storedMacRecoveryPresentation
         let currentMachineSnapshots = liveMachineSnapshots
         let currentVisibleMacSelection = visibleMacSelection
         let currentFilterMenuPresentMachineIDs = filterMenuPresentMachineIDs
@@ -252,18 +248,13 @@ struct WorkspaceListView: View {
                     MobileMacConnectionStatusRow(
                         host: host,
                         status: connectionStatus,
-                        showsSpinner: isInitialConnectionLoading,
-                        titleOverride: initialConnectionTimedOut
-                            ? L10n.string("mobile.loading.timeout.title", defaultValue: "Still loading")
+                        showsSpinner: storedMacRecovery.showsSpinner,
+                        titleOverride: storedMacRecovery.title,
+                        descriptionOverride: storedMacRecovery.description,
+                        retry: storedMacRecovery.showsRetry && store != nil
+                            ? { store?.retryMobileConnection() }
                             : nil,
-                        descriptionOverride: initialConnectionTimedOut
-                            ? L10n.string(
-                                "mobile.loading.timeout.message",
-                                defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
-                            )
-                            : nil,
-                        retry: initialConnectionTimedOut ? retryInitialConnection : nil,
-                        addDevice: initialConnectionTimedOut ? showAddDevice : nil,
+                        addDevice: storedMacRecovery.showsAddDevice ? showAddDevice : nil,
                         reconnect: reconnect
                     )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
@@ -490,6 +481,15 @@ struct WorkspaceListView: View {
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
             connectionStatus: connectionStatus
+        )
+    }
+
+    var storedMacRecoveryPresentation: WorkspaceListStoredMacRecoveryPresentation {
+        WorkspaceListStoredMacRecoveryPresentation(
+            isRestoring: isRestoringStoredMac,
+            recoveryFailed: store?.connectionRecoveryFailed ?? false,
+            error: store?.connectionError,
+            guidance: store?.connectionErrorGuidance
         )
     }
 

@@ -1,87 +1,18 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import Foundation
-import os
-
-private let reconnectRouteLog = Logger(
-    subsystem: "com.cmuxterm.app",
-    category: "MobileReconnectRoutes"
-)
 
 @MainActor
 extension MobileShellComposite {
-    /// Refresh the active row only while its account, device, and authenticated
-    /// instance authority still match the values captured before the network call.
-    func refreshRoutesFromRegistry(
-        for mac: MobilePairedMac,
-        scope: MobileShellScopeSnapshot
-    ) {
-        guard let deviceRegistry, let pairedMacStore else { return }
-        let macDeviceID = mac.macDeviceID
-        let localRoutes = mac.routes
-        let displayName = mac.displayName
-        let capturedInstanceTag = mac.instanceTag
-        let task = Task { [weak self] in
-            let registryRoutes = await deviceRegistry.freshRoutes(
-                forMacDeviceID: macDeviceID,
-                instanceTag: capturedInstanceTag
-            )
-            guard let updated = DeviceRegistryService.selectReconnectRoutes(
-                local: localRoutes,
-                registry: registryRoutes
-            ), let self else { return }
-            await self.performSerializedPairedMacWrite(ifStillCurrent: nil) {
-                guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
-                let activeMac: MobilePairedMac?
-                do {
-                    activeMac = try await pairedMacStore.activeMac(
-                        stackUserID: scope.userID,
-                        teamID: scope.teamID
-                    )
-                } catch {
-                    reconnectRouteLog.debug("registry refresh recheck failed: \(String(describing: error), privacy: .public)")
-                    return
-                }
-                guard await self.isScopeCurrent(scope),
-                      await !self.isForgottenMacDeviceID(macDeviceID, scope: scope),
-                      DeviceRegistryService.shouldApplyRegistryRefresh(
-                        isSignedIn: self.isSignedIn,
-                        capturedUserID: scope.userID,
-                        currentUserID: self.identityProvider?.currentUserID ?? scope.userID,
-                        activeMacID: activeMac?.macDeviceID,
-                        activeMacInstanceTag: activeMac?.instanceTag,
-                        targetMacID: macDeviceID,
-                        targetInstanceTag: capturedInstanceTag
-                ) else { return }
-                do {
-                    let wrote = try await pairedMacStore.upsertRoutesIfAuthorized(
-                        macDeviceID: macDeviceID,
-                        displayName: displayName,
-                        routes: updated,
-                        condition: .matchingInstanceTag(capturedInstanceTag),
-                        markActive: nil,
-                        stackUserID: scope.userID,
-                        teamID: scope.teamID,
-                        now: Date()
-                    )
-                    guard wrote else { return }
-                } catch {
-                    reconnectRouteLog.debug("registry refresh upsert failed: \(String(describing: error), privacy: .public)")
-                    return
-                }
-                if await self.isForgottenMacDeviceID(macDeviceID, scope: scope) {
-                    try? await pairedMacStore.remove(
-                        macDeviceID: macDeviceID,
-                        stackUserID: scope.userID,
-                        teamID: scope.teamID
-                    )
-                    return
-                }
-                if await self.isScopeCurrent(scope) { await self.loadPairedMacs() }
-            }
-        }
-        registryRouteRefreshTask = task
+    var hasStoredMacReconnectDemand: Bool {
+        connectionLifecycle.hasStoredMacReconnectDemand
+            || connectionLifecycleReconnectPendingAfterRetirement
+            || connectionLifecycleTaskOwnership.retiredCarriesReconnectDemand
+    }
+
+    /// Yield automatic recovery ownership before the user enters manual pairing.
+    public func prepareForManualPairing() {
+        supersedeAutomaticReconnectOwnership(clearPairingState: true)
     }
 
     /// The first reachable host/port route to a Mac, in priority order.
@@ -111,11 +42,14 @@ extension MobileShellComposite {
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()
-        let shouldResync = shouldResyncTerminalOutputOnForeground()
-        lastBackgroundedAt = nil
-        if shouldResync {
-            resyncTerminalOutput(reason: "foreground", restartEventStream: true)
-        }
+        let now = runtime?.now() ?? Date()
+        let effect = connectionLifecycle.becameActive(
+            at: now,
+            shortDwellThreshold: Self.foregroundResyncShortBackgroundThreshold,
+            health: connectionLifecycleHealth(at: now),
+            reconnectStackUserID: identityProvider?.currentUserID
+        )
+        applyConnectionLifecycleEffect(effect)
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
@@ -127,8 +61,27 @@ extension MobileShellComposite {
 
     /// Record that the app left the active scene phase.
     public func suspendForegroundRefresh() {
-        guard lastBackgroundedAt == nil else { return }
-        lastBackgroundedAt = runtime?.now() ?? Date()
+        connectionLifecycle.becameInactive(at: runtime?.now() ?? Date())
+    }
+
+    /// Coalesces direct launch/auth callers onto the same reconnect episode as network and presence.
+    @discardableResult
+    public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
+        guard remoteClient != nil || pairedMacStore != nil else {
+            let recoveryWasFailed = connectionLifecycle.recoveryFailed
+            connectionLifecycle.completeUnavailableStoredMacReconnect()
+            captureConnectionRecoveryFailureIfNeeded(wasFailed: recoveryWasFailed)
+            return connectionState == .connected
+        }
+        let request = connectionLifecycle.requestStoredMacReconnect(
+            stackUserID: stackUserID,
+            health: connectionLifecycleHealth(at: runtime?.now() ?? Date())
+        )
+        await withCheckedContinuation { continuation in
+            connectionLifecycleRequestWaiters[request.id] = continuation
+            applyConnectionLifecycleEffect(request.effect)
+        }
+        return connectionState == .connected
     }
 
     func freshReconnectRoutesAfterLocalFailure(
@@ -169,32 +122,10 @@ extension MobileShellComposite {
         return refreshed
     }
 
-    func shouldResyncTerminalOutputOnForeground() -> Bool {
-        guard connectionState == .connected,
-              remoteClient != nil,
-              terminalEventListenerTask != nil,
-              let lastBackgroundedAt else {
-            return true
-        }
-        let now = runtime?.now() ?? Date()
-        guard now.timeIntervalSince(lastBackgroundedAt) < Self.foregroundResyncShortBackgroundThreshold else {
-            return true
-        }
-        let last = lastTerminalEventAt ?? now
-        return now.timeIntervalSince(last) >= Self.renderGridLivenessSilenceThreshold
-    }
-
     /// Writes the persisted paired-Mac hint only when `generation` is current.
     func setHasKnownPairedMac(_ value: Bool, generation: Int) {
         guard generation == storedMacReconnectGeneration else { return }
         hasKnownPairedMac = value
-    }
-
-    /// Mark the stored-Mac reconnect attempt resolved only for the current generation.
-    func finishStoredMacReconnectAttempt(generation: Int) {
-        guard generation == storedMacReconnectGeneration else { return }
-        isReconnectingStoredMac = false
-        didFinishStoredMacReconnectAttempt = true
     }
 
     /// Ordered host/port reconnect candidates for a Mac, preserving the single-route

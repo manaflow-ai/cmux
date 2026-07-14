@@ -12,8 +12,8 @@
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7968	CLI/cmux_open.swift
 7809	Sources/Panels/BrowserPanelView.swift
-7583	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7489	cmuxTests/WorkspaceUnitTests.swift
+7478	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7310	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
 6255	cmuxTests/GhosttyConfigTests.swift

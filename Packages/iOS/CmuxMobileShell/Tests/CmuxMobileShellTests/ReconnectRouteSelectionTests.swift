@@ -206,7 +206,34 @@ import Testing
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
     }
 
-    @Test func supersededReconnectGenerationAbortsRouteIteration() async throws {
+    @Test func reconnectActiveMacFallsBackToFreshRegistryRoute() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = RouteRecordingTransportFactory(
+            router: router,
+            box: box,
+            failingPorts: [51000]
+        )
+        let registryRoute = try loopbackRoute(id: "fresh", port: 51002)
+        let store = try await makeReconnectStore(
+            routes: [try loopbackRoute(id: "stale", port: 51000)],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.debugLoopback]
+            ),
+            deviceRegistry: StaticReconnectDeviceRegistry(routes: [registryRoute])
+        )
+
+        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+
+        #expect(connected)
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedPorts() == [51000, 51002, 51002])
+    }
+
+    @Test func overlappingReconnectRequestsJoinOneOwnedEpisode() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
         let box = TransportBox()
@@ -239,89 +266,65 @@ import Testing
         let second = Task { @MainActor in
             await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
         }
-        let secondConnected = await second.value
         factory.releaseHeldConnect()
+        let secondConnected = await second.value
         let firstConnected = await first.value
 
-        #expect(!firstConnected)
+        #expect(firstConnected)
         #expect(secondConnected)
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
     }
 
-    @Test func sameDeviceTagSwitchFailureRestoresLiveInstanceRoute() async throws {
+    @Test func forgettingFallbackReconnectTargetCancelsOwnedEpisodeBeforeRouteReturns() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
-        await router.setHostIdentity(
-            deviceID: "test-mac", instanceTag: "feature-a", displayName: "Test Mac"
-        )
+        let box = TransportBox()
         let factory = RouteRecordingTransportFactory(
             router: router,
-            box: TransportBox(),
-            failingPorts: [51000]
+            box: box,
+            failingPorts: [51000],
+            holdFirstFailingPort: 51000
         )
-        let (pairedStore, directory) = try makePairedMacStore()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let routeA = try loopbackRoute(id: "live-a", port: 51001)
-        let staleRouteB = try loopbackRoute(id: "stale-b", port: 51000)
-        try await pairedStore.upsert(
-            macDeviceID: "test-mac",
-            displayName: "Test Mac",
-            routes: [staleRouteB],
-            instanceTag: "feature-b",
-            markActive: true,
-            stackUserID: "user-1",
-            teamID: nil,
-            now: clock.now.addingTimeInterval(1)
+        let store = try await makeReconnectStore(
+            routes: [try loopbackRoute(id: "held", port: 51000)],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.debugLoopback]
+            ),
+            markActive: false
         )
-        let runtime = LivenessTestRuntime(
-            transportFactory: factory,
-            now: { clock.now },
-            supportedRouteKinds: [.debugLoopback]
-        )
-        let ticketA = try CmxAttachTicket(
-            workspaceID: "live-workspace",
-            terminalID: "live-terminal",
-            macDeviceID: "test-mac",
-            macDisplayName: "Test Mac",
-            routes: [routeA],
-            expiresAt: clock.now.addingTimeInterval(3_600)
-        )
-        let liveClientA = MobileCoreRPCClient(
-            runtime: runtime,
-            route: routeA,
-            ticket: ticketA,
-            allowsStackAuthFallback: true
-        )
-        let store = MobileShellComposite(
-            runtime: runtime,
-            isSignedIn: true,
-            connectionState: .connected,
-            pairedMacStore: pairedStore,
-            identityProvider: StaticIdentityProvider(userID: "user-1"),
-            reachability: AlwaysOnlineReachability(),
-            pairingHintDefaults: UserDefaults(
-                suiteName: "same-device-tag-rollback-\(UUID().uuidString)"
-            )!
-        )
-        store.activeTicket = ticketA
-        store.activeRoute = routeA
-        store.activeMacInstanceTag = "feature-a"
-        store.foregroundMacDeviceID = "test-mac"
-        store.replaceRemoteClient(with: liveClientA)
-        await store.loadPairedMacs()
+        let resultProbe = ReconnectResultProbe()
+        let reconnect = Task { @MainActor in
+            let result = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+            await resultProbe.record(result)
+            return result
+        }
+        let routeReached = try await pollUntil {
+            factory.attemptedPorts() == [51000]
+                && store.connectionLifecycleRequestWaiters.count == 1
+        }
+        #expect(routeReached)
 
-        let switched = await store.switchToMac(macDeviceID: "test-mac")
-        #expect(!switched)
-        #expect(store.connectionState == .connected)
-        #expect(store.foregroundMacDeviceID == "test-mac")
-        #expect(store.activeMacInstanceTag == "feature-a")
-        #expect(factory.attemptedPorts().contains(51000))
-        let restored = try #require(await pairedStore.activeMac(
-            stackUserID: "user-1", teamID: nil
-        ))
-        #expect(restored.instanceTag == "feature-a")
-        #expect(restored.routes.first?.endpoint == routeA.endpoint)
-        #expect(!restored.routes.contains(where: { $0.endpoint == staleRouteB.endpoint }))
+        await store.forgetMac(macDeviceID: "test-mac")
+
+        let resolvedBeforeRouteReturned = try await pollUntil(attempts: 30) {
+            await resultProbe.value() != nil
+        }
+        #expect(resolvedBeforeRouteReturned)
+        #expect(await resultProbe.value() == false)
+        #expect(store.connectionLifecycle.activeEpisode == nil)
+        #expect(store.connectionLifecycle.resourceSnapshot.activeEpisodeCount == 0)
+        #expect(store.connectionLifecycle.resourceSnapshot.pendingRequestCount == 0)
+        #expect(store.connectionLifecycleTask == nil)
+        #expect(store.connectionLifecycleRequestWaiters.isEmpty)
+
+        factory.releaseHeldConnect()
+        #expect(await reconnect.value == false)
+        #expect(store.connectionState == .disconnected)
+        #expect(store.connectionLifecycle.activeEpisode == nil)
+        #expect(store.connectionLifecycleTask == nil)
+        #expect(store.connectionLifecycleRequestWaiters.isEmpty)
     }
 
     private func loopbackRoute(id: String, port: Int) throws -> CmxAttachRoute {
@@ -335,14 +338,16 @@ import Testing
 
     private func makeReconnectStore(
         routes: [CmxAttachRoute],
-        runtime: any MobileSyncRuntime
+        runtime: any MobileSyncRuntime,
+        markActive: Bool = true,
+        deviceRegistry: (any DeviceRegistryRefreshing)? = nil
     ) async throws -> MobileShellComposite {
         let (pairedStore, _) = try makePairedMacStore()
         try await pairedStore.upsert(
             macDeviceID: "test-mac",
             displayName: "Test Mac",
             routes: routes,
-            markActive: true,
+            markActive: markActive,
             stackUserID: "user-1",
             teamID: nil,
             now: Date()
@@ -351,6 +356,7 @@ import Testing
             runtime: runtime,
             isSignedIn: true,
             pairedMacStore: pairedStore,
+            deviceRegistry: deviceRegistry,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(suiteName: "reconnect-routes-\(UUID().uuidString)")!
@@ -374,7 +380,7 @@ private enum RouteRecordingTransportError: Error {
     case routeFailed
 }
 
-private final class RouteRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
+final class RouteRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
     private let router: LivenessHostRouter
     private let box: TransportBox
     private let failingPorts: Set<Int>
