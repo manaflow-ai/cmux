@@ -669,11 +669,13 @@ dependency can answer.
    -----                        ------------          --------------
    1  desired function          nothing (pure)        plan(w) <= w, clamp
                                                       equality, determinism
-   2  reconcile loop            simulated tmux +      convergence, bounded
-      (snapshot->diff->commit)  simulated view layer  passes, no lost edges
-   3  dependency assumptions    real AppKit, real     they obey our writes:
-                                bonsplit, real        clamp matches, applies
-                                ghostty               land, layout defers
+   2  reconcile loop (small)    scripted ports        loop skeleton only:
+      (snapshot->diff->commit)                        convergence, bounded
+                                                      passes
+   3  dependency assumptions    real AppKit, real     THE WEIGHT GOES HERE:
+                                bonsplit, real        the components handle
+                                ghostty               our instructions and
+                                                      layout as modeled
    4  protocol layer            real tmux, no app     FIFO, acks, barrier,
                                                       claim semantics
    5  the whole app             everything real       the fuzz marathon
@@ -686,33 +688,36 @@ states — and check the invariants on every one: output never exceeds the
 measured region, the clamp is idempotent, the same snapshot always produces
 the same plan.
 
-Layer 2 is where the algorithm itself gets stress-tested, and it must not
-depend on tmux or AppKit at all. The pass already consumes a snapshot value
-and emits writes and sends; formalizing that as ports (a world source, a
-view writer, a command transport) lets a test drive the loop against a
-simulated tmux and a simulated view layer. The simulation is turn-based —
-no wall clock, matching the no-timers rule — so a seeded harness can replay
-thousands of adversarial interleavings deterministically: replies arriving
-late, out of order with container changes, layout events faster than round
-trips, refusals, mid-commit marks. The assertions are the model's own
-invariants: events stopped implies convergence in bounded passes, one pass
-per generation change, zero writes after convergence, nothing lost.
+Layer 2 is deliberately small. It checks the loop's skeleton — events
+stopped implies convergence in bounded passes, one pass per generation
+change, zero writes after convergence — by driving the pass through ports
+(a world source, a view writer, a command transport) with scripted replies
+and marks, turn-based and seeded so a failing interleaving replays exactly.
+That is worth having because it is nearly free once the ports exist. It is
+not where the weight goes, and the bug ledger says why: not one of the
+day's bugs was the algorithm mis-stepping on its own state. Every one was a
+divergence between our model of the world and what a downstream component
+actually did — AppKit refused an apply we assumed would land, the layout
+engine stomped a frame we assumed was ours, ghostty's draw blocked on a
+transaction we assumed was closed, tmux clamped a claim we assumed it would
+grant. A simulator encodes our model, so it inherits exactly those blind
+spots. It can regress the loop; it cannot discover where the model is
+wrong.
 
-Layer 3 is the one the simulation cannot replace, because the reconciler's
-assumptions about AppKit, SwiftUI, bonsplit, and ghostty are exactly where
-the real bugs lived. Every behavior the layer-2 simulator encodes must be
-pinned by a test against the real dependency, or the stress harness is
-proving theorems about a world that does not exist. The dependency
-harness already started this (the bonsplit clamp test, the ghostty floor,
-the measured tmux facts); under reconcile it grows to cover each assumption
-by name: the exported clamp equals what bonsplit's coordinator actually
-applies to a real NSSplitView; a synchronous imposition lands and the frame
-read back matches; a portal write to a real window sticks; a ghostty
-surface accepts a size push and schedules its own repaint; and no path
-displays a surface synchronously from inside a layout pass (the layout-pass
-refresh tests). When a real-dependency test discovers a new behavior — the
-32pt floor was found exactly this way — the simulator gains it, and layer 2
-replays the stress suite against the corrected world.
+Layer 3 is where the weight goes, for that reason. The real components —
+AppKit, SwiftUI, bonsplit, ghostty — stay in play, we drive them with the
+same instructions the commit phase emits, and we assert they handled them
+the way the model says: the exported clamp equals what bonsplit's
+coordinator actually applies to a real NSSplitView; a synchronous
+imposition lands and the frame read back matches; a portal write to a real
+window sticks; a ghostty surface accepts a size push and schedules its own
+repaint; no path displays a surface synchronously from inside a layout
+pass (the layout-pass refresh tests). The dependency harness already
+started this (the bonsplit clamp test, the ghostty floor, the measured
+tmux facts); under reconcile every assumption the model makes gets a
+real-dependency test by name. When one of these tests discovers a new
+behavior — the 32pt floor was found exactly this way — the model is
+corrected first, and layer 2 just replays against the corrected model.
 
 Layer 4 drives the protocol layer against a real tmux server with no app
 attached: FIFO correlation, ack barriers, per-window claim semantics,
