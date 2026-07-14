@@ -233,6 +233,217 @@ extension MobileShellComposite {
             && foregroundMacDeviceID == pairedMacDeviceID
     }
 
+    func connectStoredMacHost(
+        name: String,
+        host: String,
+        port: Int,
+        pairedMacDeviceID: String,
+        instanceTag: String? = nil,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async {
+        await connectManualHost(
+            name: name,
+            host: host,
+            port: port,
+            pairedMacDeviceID: pairedMacDeviceID,
+            instanceTagExpectation: MobileMacInstanceTagAuthority.expectation(
+                storedInstanceTag: instanceTag
+            ),
+            recordsPairingAttempt: false,
+            ifStillCurrent: ifStillCurrent
+        )
+    }
+
+    /// Reconnects a stored Mac through its Iroh-pinned route set while also
+    /// enforcing the authenticated app-instance authority captured by storage.
+    @discardableResult
+    func connectStoredMac(
+        name: String,
+        routes: [CmxAttachRoute],
+        pairedMacDeviceID: String,
+        instanceTag: String?,
+        recordsPairingAttempt: Bool = false,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async -> Bool {
+        await connectStoredMac(
+            name: name,
+            routes: routes,
+            pairedMacDeviceID: pairedMacDeviceID,
+            instanceTagExpectation: MobileMacInstanceTagAuthority.expectation(
+                storedInstanceTag: instanceTag
+            ),
+            recordsPairingAttempt: recordsPairingAttempt,
+            ifStillCurrent: ifStillCurrent
+        )
+    }
+
+    /// Connects through a stored route set while enforcing the caller's exact
+    /// authenticated instance-authority requirement.
+    @discardableResult
+    private func connectStoredMac(
+        name: String,
+        routes: [CmxAttachRoute],
+        pairedMacDeviceID: String,
+        instanceTagExpectation: MobileMacInstanceTagExpectation,
+        recordsPairingAttempt: Bool = false,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async -> Bool {
+        guard ifStillCurrent?() ?? true else { return false }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        let pinnedRoutes = Self.storedReconnectRoutes(
+            routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
+        guard let firstRoute = pinnedRoutes.first else { return false }
+
+        if firstRoute.kind == .iroh {
+            do {
+                let ticket = try Self.storedMacTicket(
+                    name: name,
+                    routes: pinnedRoutes,
+                    pairedMacDeviceID: pairedMacDeviceID
+                )
+                _ = try await connect(
+                    ticket: ticket,
+                    pairedMacDeviceID: pairedMacDeviceID,
+                    instanceTagExpectation: instanceTagExpectation,
+                    ifStillCurrent: ifStillCurrent
+                )
+            } catch {
+                guard ifStillCurrent?() ?? true else { return false }
+                if !disconnectForAuthorizationFailureIfNeeded(error) {
+                    connectionState = .disconnected
+                    macConnectionStatus = .unavailable
+                    clearRemoteConnectionContext()
+                }
+            }
+        } else {
+            let candidates = Self.reconnectHostPortRoutes(
+                pinnedRoutes,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            )
+            for route in candidates {
+                guard ifStillCurrent?() ?? true else { return false }
+                await connectManualHost(
+                    name: name,
+                    host: route.host,
+                    port: route.port,
+                    pairedMacDeviceID: pairedMacDeviceID,
+                    instanceTagExpectation: instanceTagExpectation,
+                    recordsPairingAttempt: recordsPairingAttempt,
+                    ifStillCurrent: ifStillCurrent
+                )
+                if connectionState == .connected,
+                   remoteClient != nil,
+                   foregroundMacDeviceID == pairedMacDeviceID {
+                    break
+                }
+            }
+        }
+
+        return (ifStillCurrent?() ?? true)
+            && connectionState == .connected
+            && remoteClient != nil
+            && foregroundMacDeviceID == pairedMacDeviceID
+    }
+
+    /// Connect the live session to a specific registry app instance (a tag on a
+    /// device) using that instance's advertised routes.
+    ///
+    /// This is the device tree's tap-to-open for a tag that is not the currently
+    /// connected one: it routes through the same destructive ``connectManualHost``
+    /// path the multi-Mac switcher uses, then persists the device as the active
+    /// paired Mac on success (so a later relaunch reconnects to it) and refreshes
+    /// the paired-Mac list. A no-op when the instance advertises no reachable
+    /// route. Failure surfaces through ``connectionError`` like any other connect.
+    ///
+    /// Like ``switchToMac(macDeviceID:)``, the connect is destructive (it replaces
+    /// the live client), so tapping a stale/offline tag while connected would drop
+    /// a healthy session. To avoid stranding the user, on a failed connect the
+    /// previously-active Mac is reconnected, so a bad target leaves the user where
+    /// they were rather than disconnected.
+    /// - Parameters:
+    ///   - device: The registry device the instance belongs to.
+    ///   - instance: The tag/app-instance to connect to.
+    public func connectToRegistryInstance(
+        device: RegistryDevice,
+        instance: RegistryAppInstance
+    ) async {
+        let scope = await currentScopeSnapshot()
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        let candidateRoutes = Self.storedReconnectRoutes(
+            instance.routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
+        guard !candidateRoutes.isEmpty else {
+            mobileShellLog.error(
+                "connectToRegistryInstance: no reconnectable route device=\(device.deviceId, privacy: .public) tag=\(instance.tag, privacy: .public)"
+            )
+            return
+        }
+        if connectionState == .connected,
+           connectedMacDeviceID == device.deviceId,
+           activeMacInstanceTag == instance.tag,
+           let liveRoute = activeRoute,
+           candidateRoutes.contains(where: {
+               $0.id == liveRoute.id || $0.endpoint == liveRoute.endpoint
+           }) {
+            return
+        }
+        let previousActive = pairedMacs.first { $0.isActive }
+        let connectedRoute = await connectStoredMac(
+            name: device.displayName ?? device.deviceId,
+            routes: candidateRoutes,
+            pairedMacDeviceID: device.deviceId,
+            instanceTagExpectation: .require(instance.tag),
+            recordsPairingAttempt: true
+        )
+        guard connectedRoute else {
+            if previousActive != nil, connectionState != .connected {
+                _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+            }
+            return
+        }
+        if let scope, await !isScopeCurrent(scope) { return }
+        await loadPairedMacs()
+        await loadRegistryDevices()
+    }
+
+    /// Re-fetch the authoritative workspace list from the connected Mac and apply
+    /// it, awaiting the round-trip to completion.
+    @discardableResult
+    func reloadWorkspaceListFromMac(
+        timeoutNanoseconds: UInt64? = nil
+    ) async -> Bool {
+        guard let client = remoteClient else { return false }
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.workspace.list",
+                params: [:]
+            )
+            let data = try await client.sendRequest(
+                request,
+                timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
+            )
+            let response = try MobileSyncWorkspaceListResponse.decode(data)
+            guard remoteClient === client, connectionState == .connected else { return false }
+            applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
+            syncSelectedTerminalForWorkspace()
+            return true
+        } catch {
+            mobileShellLog.error(
+                "workspace list event refresh failed: \(String(describing: error), privacy: .private)"
+            )
+            if remoteClient === client {
+                _ = disconnectForAuthorizationFailureIfNeeded(error)
+            }
+            return false
+        }
+    }
+
     /// - Parameter pairedMacDeviceID: the REAL paired-Mac device id when the caller
     ///   knows it (switch/reconnect/device-row paths). A manual host whose Mac lacks
     ///   `mobile.attach_ticket.create` connects via a synthetic `manual-…` ticket;

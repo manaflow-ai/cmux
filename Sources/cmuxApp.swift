@@ -511,9 +511,7 @@ struct cmuxApp: App {
                     appDelegate.openDebugScrollbackTab(nil)
                 }
 
-                IrohTransportDebugMenuButtons()
-
-                AgentSessionDebugMenuButtons(
+                IrohAndAgentSessionDebugMenuButtons(
                     openReact: { appDelegate.openDebugAgentSessionReact(nil) },
                     openSolid: { appDelegate.openDebugAgentSessionSolid(nil) }
                 )

@@ -1,6 +1,7 @@
+import CmuxFoundation
+import CmuxTerminal
 import Foundation
 import OSLog
-import CmuxTerminal
 import os
 
 private let mobileTerminalByteTeeLog = Logger(
@@ -52,6 +53,7 @@ final class MobileTerminalByteTee {
         UUID: [UUID: AsyncStream<OutputChunk>.Continuation]
     ] = [:]
     nonisolated private let laneSubscriberCount = OSAllocatedUnfairLock(initialState: 0)
+    nonisolated private let laneDemand = AtomicBooleanGate(false)
     private let replayBudget: Int = 256 * 1024
     /// Serial queue so fan-out preserves byte order even though the
     /// upstream callback runs off the main thread.
@@ -71,19 +73,13 @@ final class MobileTerminalByteTee {
         // Hot path: this runs on the Ghostty PTY/IO read thread for *every*
         // surface, including normal desktop use with no phone attached. Bail
         // before any allocation or main-actor hop when no mobile client wants
-        // these bytes. The check is an O(1) dictionary read of the single
-        // subscription source of truth (`MobileHostEventSubscriptionTracker`),
-        // the same accessor `MobileTerminalRenderObserver` already uses; it is
-        // not a new lock, and its only writers are the rare subscribe /
-        // unsubscribe RPCs, so the IO thread never meaningfully contends. We
-        // gate on both topics because `publishFromMain` is load-bearing for
-        // the render-grid stream too: it advances `seq` (read as `stateSeq`)
-        // and calls `noteTerminalBytes` to schedule the post-parse tick.
-        guard
-            MobileHostService.hasEventSubscribers(topic: "terminal.bytes")
-                || MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
-                || laneSubscriberCount.withLock({ $0 > 0 })
-        else {
+        // these bytes. Subscription mutations publish one process-wide atomic
+        // aggregate for both terminal-output topics. An acquire load pairs
+        // with subscription mutation's release store, so the first chunk
+        // after activation cannot use the relaxed disabled-path semantics.
+        // Iroh application-lane demand uses the same lock-free gate, so the
+        // per-chunk path never acquires either subscriber-count lock.
+        guard MobileHostService.hasTerminalOutputSubscribers() || laneDemand.loadAcquire() else {
             return
         }
         guard let base = bytes.baseAddress, bytes.count > 0 else { return }
@@ -115,6 +111,7 @@ final class MobileTerminalByteTee {
         return AsyncStream(bufferingPolicy: .bufferingOldest(64)) { continuation in
             laneContinuationsBySurfaceID[surfaceID, default: [:]][id] = continuation
             laneSubscriberCount.withLock { $0 += 1 }
+            laneDemand.storeRelease(true)
             continuation.onTermination = { @Sendable [weak self] _ in
                 Task { @MainActor in
                     self?.removeLaneContinuation(id: id, surfaceID: surfaceID)
@@ -129,9 +126,11 @@ final class MobileTerminalByteTee {
         let continuations = laneContinuationsBySurfaceID.removeValue(forKey: surfaceID)
             .map { Array($0.values) } ?? []
         if !continuations.isEmpty {
-            laneSubscriberCount.withLock { count in
+            let remainingCount = laneSubscriberCount.withLock { count in
                 count = max(0, count - continuations.count)
+                return count
             }
+            laneDemand.storeRelease(remainingCount > 0)
             for continuation in continuations {
                 continuation.finish()
             }
@@ -191,6 +190,10 @@ final class MobileTerminalByteTee {
         if laneContinuationsBySurfaceID[surfaceID]?.isEmpty == true {
             laneContinuationsBySurfaceID[surfaceID] = nil
         }
-        laneSubscriberCount.withLock { $0 = max(0, $0 - 1) }
+        let remainingCount = laneSubscriberCount.withLock { count in
+            count = max(0, count - 1)
+            return count
+        }
+        laneDemand.storeRelease(remainingCount > 0)
     }
 }

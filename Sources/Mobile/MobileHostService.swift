@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxMobileTransport
+import CmuxFoundation
 import CmuxSettings
 import CmuxTerminalCore
 import CryptoKit
@@ -29,13 +30,25 @@ extension Notification.Name {
 }
 
 private enum MobileHostEventSubscriptionTracker {
+    private static let terminalOutputTopics: Set<String> = [
+        "terminal.bytes",
+        "terminal.render_grid",
+    ]
     private static let lock = NSLock()
     private nonisolated(unsafe) static var topicCounts: [String: Int] = [:]
+    /// Mirrors whether either terminal-output topic has subscribers so Ghostty's
+    /// per-chunk output callback never needs to acquire the tracker lock.
+    private static let terminalOutputDemand = AtomicBooleanGate(false)
 
     static func hasSubscribers(topic: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         return (topicCounts[topic] ?? 0) > 0
+    }
+
+    @inline(__always)
+    static func hasTerminalOutputSubscribers() -> Bool {
+        terminalOutputDemand.loadAcquire()
     }
 
     static func replace(previousTopics: Set<String>?, nextTopics: Set<String>?) {
@@ -68,6 +81,10 @@ private enum MobileHostEventSubscriptionTracker {
             topicCounts[topic] = (topicCounts[topic] ?? 0) + 1
         }
 
+        terminalOutputDemand.storeRelease(
+            terminalOutputTopics.contains { (topicCounts[$0] ?? 0) > 0 }
+        )
+
         for topic in allTopics {
             let wasActive = (before[topic] ?? 0) > 0
             let isActive = (topicCounts[topic] ?? 0) > 0
@@ -81,6 +98,7 @@ private enum MobileHostEventSubscriptionTracker {
     static func reset() {
         lock.lock()
         topicCounts.removeAll()
+        terminalOutputDemand.storeRelease(false)
         lock.unlock()
         NotificationCenter.default.post(
             name: .mobileHostEventSubscriptionsDidChange,
@@ -411,6 +429,11 @@ final class MobileHostService {
 
     nonisolated static func hasEventSubscribers(topic: String) -> Bool {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
+    }
+
+    /// Lock-free aggregate demand check for Ghostty's terminal-output hot path.
+    nonisolated static func hasTerminalOutputSubscribers() -> Bool {
+        MobileHostEventSubscriptionTracker.hasTerminalOutputSubscribers()
     }
 
     /// User-default key for the opt-in Mac-side iOS pairing listener.
@@ -1566,6 +1589,10 @@ extension MobileHostService {
 
     nonisolated static func debugHasEventSubscribersForTesting(topic: String) -> Bool {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
+    }
+
+    nonisolated static func debugHasTerminalOutputSubscribersForTesting() -> Bool {
+        MobileHostEventSubscriptionTracker.hasTerminalOutputSubscribers()
     }
 
     nonisolated static func debugResetEventSubscriptionsForTesting() {

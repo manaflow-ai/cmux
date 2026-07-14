@@ -2,6 +2,19 @@ import CmuxIrohTransport
 import SwiftUI
 
 #if DEBUG
+struct IrohAndAgentSessionDebugMenuButtons: View {
+    let openReact: () -> Void
+    let openSolid: () -> Void
+
+    var body: some View {
+        IrohTransportDebugMenuButtons()
+        AgentSessionDebugMenuButtons(
+            openReact: openReact,
+            openSolid: openSolid
+        )
+    }
+}
+
 struct IrohTransportDebugMenuButtons: View {
     @AppStorage(CmxIrohTransportVerificationMode.debugDefaultsKey)
     private var transportModeRaw = CmxIrohTransportVerificationMode.automatic.rawValue

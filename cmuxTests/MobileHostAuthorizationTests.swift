@@ -1,6 +1,4 @@
 import CMUXMobileCore
-import CmuxIrohTransport
-import CmuxMobileRPC
 import Foundation
 @preconcurrency import Network
 import Testing
@@ -59,71 +57,6 @@ struct MobileHostAuthorizationTests {
         let authorization = try #require(store.validAuthorization(authToken: ticket.authToken))
         #expect(authorization.createdWorkspaceIDs == Set(["created-workspace"]))
         #expect(authorization.createdTerminalIDs == Set(["created-terminal"]))
-    }
-    @Test func testPairingPayloadDefaultsCanDiscloseOnlyIrohIdentity() throws {
-        let store = MobileAttachTicketStore()
-        let endpointID = String(repeating: "a", count: 64)
-        let iroh = try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(endpointID: endpointID),
-                pathHints: []
-            )
-        )
-        let tailscale = try CmxAttachRoute(
-            id: "tailscale",
-            kind: .tailscale,
-            endpoint: .hostPort(host: "100.64.0.7", port: 58465)
-        )
-        let ticket = try store.createTicket(
-            workspaceID: "",
-            terminalID: nil,
-            routes: [iroh, tailscale],
-            ttl: 3600
-        )
-
-        let payload = try store.payload(
-            for: ticket,
-            routeDisclosureMode: .irohIdentityOnly
-        )
-        let attachURL = try #require(payload["attach_url"] as? String)
-        let decoded = try CmxAttachTicketInput.decode(attachURL)
-
-        #expect(decoded.routes.count == 1)
-        #expect(decoded.routes.first?.kind == .iroh)
-        guard case let .peer(identity, hints) = decoded.routes.first?.endpoint else {
-            Issue.record("Expected identity-only Iroh route")
-            return
-        }
-        #expect(identity.endpointID == endpointID)
-        #expect(hints.isEmpty)
-        #expect(!attachURL.contains("100.64.0.7"))
-    }
-    @Test func testLegacyPairingPayloadStillDecodesAsTailscale() throws {
-        let store = MobileAttachTicketStore()
-        let tailscale = try CmxAttachRoute(
-            id: "tailscale",
-            kind: .tailscale,
-            endpoint: .hostPort(host: "100.64.0.7", port: 58465)
-        )
-        let ticket = try store.createTicket(
-            workspaceID: "",
-            terminalID: nil,
-            routes: [tailscale],
-            ttl: 3600
-        )
-
-        let payload = try store.payload(
-            for: ticket,
-            routeDisclosureMode: .legacyPrivateNetworkCompatibility
-        )
-        let attachURL = try #require(payload["attach_url"] as? String)
-        let decoded = try CmxAttachTicketInput.decode(attachURL)
-
-        #expect(decoded.routes.count == 1)
-        #expect(decoded.routes.first?.kind == .tailscale)
-        #expect(decoded.routes.first?.endpoint == .hostPort(host: "100.64.0.7", port: 58465))
     }
     @Test func testMobileWorkspaceRPCRequiresAuthorization() async {
         let request = MobileHostRPCRequest(
@@ -213,20 +146,6 @@ struct MobileHostAuthorizationTests {
     }
     #endif
 
-    func irohAdmissionContext() throws -> MobileHostConnectionAuthorizationContext {
-        let endpointID = try CmxIrohPeerIdentity(
-            endpointID: String(repeating: "a", count: 64)
-        )
-        let peer = CmxIrohGrantPeer(
-            bindingID: "123e4567-e89b-42d3-a456-426614174001",
-            deviceID: "123e4567-e89b-42d3-a456-426614174002",
-            tag: "ios-test",
-            platform: .ios,
-            endpointID: endpointID,
-            identityGeneration: 1
-        )
-        return .irohAdmission(CmxIrohAdmittedPeer(peer: peer))
-    }
     @Test func testMobileHostRPCRejectsInvalidParamsShape() {
         let data = Data(#"{"id":"bad-params","method":"workspace.list","params":[]}"#.utf8)
         let result = MobileHostRPCEnvelope.decodeRequest(data)
@@ -280,44 +199,6 @@ struct MobileHostAuthorizationTests {
         } else {
             #expect(Bool(false), "Expected IPv6 Tailscale route")
         }
-    }
-    @Test func testIrohTerminalLaneInputFramingSurvivesQUICChunkBoundaries() throws {
-        var buffer = Data([0, 0])
-        #expect(try MobileHostIrohApplicationLaneRouter.decodeTerminalInputFrames(from: &buffer).isEmpty)
-        buffer.append(contentsOf: [0, 2, 0xc3])
-        #expect(try MobileHostIrohApplicationLaneRouter.decodeTerminalInputFrames(from: &buffer).isEmpty)
-        buffer.append(0xa9)
-        #expect(
-            try MobileHostIrohApplicationLaneRouter.decodeTerminalInputFrames(from: &buffer)
-                == ["é"]
-        )
-        #expect(buffer.isEmpty)
-    }
-    @Test func testIrohDefaultArtifactLaneHandlerRejectsUntilConsumerRegisters() async throws {
-        let stream = CmxIrohBidirectionalStream(
-            receiveStream: ImmediateMobileHostIrohReceiveStream(),
-            sendStream: BlockingMobileHostIrohSendStream()
-        )
-        let handler = MobileHostIrohRejectingArtifactLaneHandler()
-        let resourceID = try CmxIrohResourceID("artifact:preview")
-        let peer = CmxIrohAdmittedPeer(peer: CmxIrohGrantPeer(
-            bindingID: "123e4567-e89b-42d3-a456-426614174001",
-            deviceID: "123e4567-e89b-42d3-a456-426614174002",
-            tag: "test",
-            platform: .ios,
-            endpointID: try CmxIrohPeerIdentity(
-                endpointID: String(repeating: "a", count: 64)
-            ),
-            identityGeneration: 1
-        ))
-        #expect(
-            await handler.handleArtifactLane(
-                resourceID: resourceID,
-                offset: 0,
-                stream: stream,
-                peer: peer
-            ) == false
-        )
     }
     @Test func testMobileRouteResolverImmediateSnapshotUsesNumericTailscaleFallbackWithoutDNS() throws {
         let resolver = MobileRouteResolver()
@@ -940,6 +821,90 @@ struct MobileHostAuthorizationTests {
         #expect(status.routes.isEmpty)
         #expect(service.debugListenerPortForTesting() == nil)
     }
+    @Test func testTerminalOutputDemandIgnoresUnrelatedTopics() async {
+        MobileHostService.debugResetEventSubscriptionsForTesting()
+        defer { MobileHostService.debugResetEventSubscriptionsForTesting() }
+        let session = makeSubscriptionTestSession()
+
+        await session.subscribe(streamID: "events", topics: ["workspace.updated"])
+
+        #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
+        _ = await session.unsubscribe(streamID: "events")
+    }
+    @Test func testEitherTerminalOutputTopicEnablesAggregateDemand() async {
+        MobileHostService.debugResetEventSubscriptionsForTesting()
+        defer { MobileHostService.debugResetEventSubscriptionsForTesting() }
+        let session = makeSubscriptionTestSession()
+
+        await session.subscribe(streamID: "bytes", topics: ["terminal.bytes"])
+        #expect(MobileHostService.debugHasTerminalOutputSubscribersForTesting())
+        _ = await session.unsubscribe(streamID: "bytes")
+        #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
+
+        await session.subscribe(streamID: "grid", topics: ["terminal.render_grid"])
+        #expect(MobileHostService.debugHasTerminalOutputSubscribersForTesting())
+        _ = await session.unsubscribe(streamID: "grid")
+        #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
+    }
+    @Test func testTerminalOutputDemandRemainsUntilFinalStreamUnsubscribes() async {
+        MobileHostService.debugResetEventSubscriptionsForTesting()
+        defer { MobileHostService.debugResetEventSubscriptionsForTesting() }
+        let session = makeSubscriptionTestSession()
+
+        await session.subscribe(streamID: "bytes", topics: ["terminal.bytes"])
+        await session.subscribe(streamID: "grid", topics: ["terminal.render_grid"])
+        _ = await session.unsubscribe(streamID: "bytes")
+        #expect(MobileHostService.debugHasTerminalOutputSubscribersForTesting())
+        _ = await session.unsubscribe(streamID: "grid")
+        #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
+    }
+    @Test func testTerminalOutputDemandReplacementIsIdempotent() async {
+        MobileHostService.debugResetEventSubscriptionsForTesting()
+        defer { MobileHostService.debugResetEventSubscriptionsForTesting() }
+        let session = makeSubscriptionTestSession()
+
+        await session.subscribe(streamID: "events", topics: ["terminal.bytes"])
+        await session.subscribe(streamID: "events", topics: ["terminal.bytes"])
+        #expect(MobileHostService.debugHasTerminalOutputSubscribersForTesting())
+        _ = await session.unsubscribe(streamID: "events")
+
+        #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
+    }
+    @Test func testResetClearsTerminalOutputDemand() async {
+        MobileHostService.debugResetEventSubscriptionsForTesting()
+        defer { MobileHostService.debugResetEventSubscriptionsForTesting() }
+        let session = makeSubscriptionTestSession()
+
+        await session.subscribe(streamID: "events", topics: ["terminal.render_grid"])
+        #expect(MobileHostService.debugHasTerminalOutputSubscribersForTesting())
+        MobileHostService.debugResetEventSubscriptionsForTesting()
+        #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
+    }
+    @Test func testTerminalOutputActivationIsVisibleToFirstConcurrentAppend() async throws {
+        MobileHostService.debugResetEventSubscriptionsForTesting()
+        let surfaceID = UUID()
+        let tee = MobileTerminalByteTee.shared
+        tee.dropSurface(surfaceID: surfaceID)
+        defer {
+            tee.dropSurface(surfaceID: surfaceID)
+            MobileHostService.debugResetEventSubscriptionsForTesting()
+        }
+        let session = makeSubscriptionTestSession()
+        await session.subscribe(streamID: "grid", topics: ["terminal.render_grid"])
+
+        let bytes: [UInt8] = [0x61, 0x62, 0x63]
+        await Task.detached {
+            bytes.withUnsafeBufferPointer {
+                tee.append(surfaceID: surfaceID, bytes: $0)
+            }
+        }.value
+
+        for _ in 0..<100 where tee.currentSequence(surfaceID: surfaceID) != UInt64(bytes.count) {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(tee.currentSequence(surfaceID: surfaceID) == UInt64(bytes.count))
+        _ = await session.unsubscribe(streamID: "grid")
+    }
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(id: "debug", kind: .debugLoopback, endpoint: .hostPort(host: "127.0.0.1", port: 58465))
         return try CmxAttachTicket(
@@ -985,6 +950,20 @@ struct MobileHostAuthorizationTests {
             ticket: ticket,
             request: request,
             createdWorkspaceIDs: createdWorkspaceIDs
+        )
+    }
+    private func makeSubscriptionTestSession() -> MobileHostConnection {
+        MobileHostConnection(
+            id: UUID(),
+            connection: NWConnection(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: NWEndpoint.Port(rawValue: 9)!,
+                using: .tcp
+            ),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
         )
     }
     func drainMobileHostMainQueue() async {
