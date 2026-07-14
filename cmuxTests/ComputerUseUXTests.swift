@@ -95,6 +95,21 @@ struct ComputerUseUXTests {
         }
     }
 
+    @Test func onboardingSurfacesWhenPermissionsMissingEvenAfterSeen() {
+        // Missing permission must surface regardless of `seen` — a dev rebuild
+        // drops the TCC grant, and gating on `seen` left the user with no prompt.
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: true, featureEnabled: true, accessibilityGranted: false, screenRecordingGranted: true))
+        #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: true, featureEnabled: true, accessibilityGranted: true, screenRecordingGranted: false))
+        // Both granted -> never surfaced (no nag for a set-up user).
+        #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: false, featureEnabled: true, accessibilityGranted: true, screenRecordingGranted: true))
+        // Feature off -> never surfaced.
+        #expect(!ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+            seen: false, featureEnabled: false, accessibilityGranted: false, screenRecordingGranted: false))
+    }
+
     @Test func parsesRealDriverStateFileShape() throws {
         // Byte shape captured from a live cua-driver 0.7.1 state file: driver_pid
         // (not pid), null session, RFC3339 last_action_at with 6-digit fraction.

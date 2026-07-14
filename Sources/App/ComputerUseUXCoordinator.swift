@@ -117,14 +117,17 @@ final class ComputerUseUXCoordinator {
     }
 
     private func presentOnboardingAutomaticallyIfNeeded() {
-        guard ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+        let feature = featureEnabled()
+        let ax = permissionService.accessibilityGranted()
+        let screen = permissionService.screenRecordingGranted()
+        let should = ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: userDefaults.bool(forKey: ComputerUseOnboardingWindowController.seenDefaultsKey),
-            featureEnabled: featureEnabled(),
-            accessibilityGranted: permissionService.accessibilityGranted(),
-            screenRecordingGranted: permissionService.screenRecordingGranted()
-        ) else {
-            return
-        }
+            featureEnabled: feature,
+            accessibilityGranted: ax,
+            screenRecordingGranted: screen
+        )
+        NSLog("[cmux-computer-use] onboarding gate: feature=\(feature) accessibility=\(ax) screenRecording=\(screen) present=\(should)")
+        guard should else { return }
         presentOnboarding()
     }
 }
