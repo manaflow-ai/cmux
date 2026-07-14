@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import AppKit
 import Bonsplit
 import CmuxTerminal
@@ -17,24 +18,35 @@ import Observation
 ///
 /// SIZING IS FEED-FORWARD. The size pushed to tmux (``updateClientSize()``) is
 /// a pure function of the container's pixel size, the BASE layout tree's
-/// STRUCTURE, and measured render constants (``RemoteTmuxMirrorGeometry``) —
-/// never of tmux-assigned geometry or rendered grids. The render
-/// (``framesForRender(containerPt:)``) imposes tmux's assigned cells verbatim.
-/// Neither direction measures the other back, so tmux's `%layout-change` echo
-/// of our own push recomputes to the identical size and dedups to silence:
-/// there is no feedback loop to gate, budget, or pin against. Pane ratios are
-/// user state and are never written.
+/// STRUCTURE, and measured render constants — never of tmux-assigned geometry
+/// or rendered grids. The render side sets bonsplit divider fractions from
+/// tmux's assigned cells (``RemoteTmuxNativeSplitLayoutPlanner`` via
+/// ``imposeDividerPlan()``, driven by the sizing pass). Neither
+/// direction measures the other back,
+/// so tmux's `%layout-change` echo of our own push recomputes to the identical
+/// size and dedups to silence: there is no feedback loop to gate, budget, or
+/// pin against. Pane ratios are user state and are never written.
 @MainActor
 @Observable
-final class RemoteTmuxWindowMirror {
+final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
+    typealias AdoptedPane = (tmuxPaneId: Int, panel: TerminalPanel)
+
     /// tmux window id (the `@N` without the sigil).
     let windowId: Int
     /// The bonsplit tab's panel id this window renders into.
     let panelId: UUID
 
-    @ObservationIgnored private weak var connection: RemoteTmuxControlConnection?
+    /// Native cmux split/tab chrome for this mirrored tmux window.
+    var bonsplitController: BonsplitController
+
+    @ObservationIgnored weak var connection: RemoteTmuxControlConnection?
+    @ObservationIgnored weak var workspaceBonsplitController: BonsplitController?
     /// Creates a configured manual-I/O pane panel whose input goes to `tmuxPaneId`.
-    @ObservationIgnored private let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
+    @ObservationIgnored let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
+    @ObservationIgnored var onClosePaneRequest: ((Int) -> Void)?
+    /// Session-owned control identity lookup. Render nodes are replaceable.
+    @ObservationIgnored private let controlPaneID: (Int) -> PaneID?
+    @ObservationIgnored private let onControlSurfaceChanged: ((Int, UUID?) -> Void)?
 
     /// The window's BASE pane layout (tmux's full tree even while a pane is
     /// zoomed). Drives panel lifecycle and the sizing structure fold.
@@ -56,27 +68,69 @@ final class RemoteTmuxWindowMirror {
     private(set) var layoutStructureVersion = 0
     /// The tmux pane the user last focused (drives the focus overlay + splits).
     private(set) var activePaneId: Int?
+    /// Display title for this mirrored tmux window; every inner surface/tab title
+    /// derives from this tmux window name, never from pane-border labels.
+    private(set) var windowTitle = String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
 
     /// Only the visible tab's mirror writes after its initial claim. Hidden
     /// tabs stay mounted and still receive geometry callbacks, so default-hidden
     /// prevents early surface callbacks from treating an unselected mirror as visible.
     @ObservationIgnored var isVisibleForSizing = false
+    /// Terminal teardown is final. Run-loop-coalesced sizing callbacks may
+    /// still hold this mirror until the next turn, so they must observe an
+    /// explicit lifecycle edge before touching the shared connection again.
+    @ObservationIgnored var isTornDown = false
+
+    /// The flag above, cross-checked against what is actually on screen —
+    /// for the settled/mismatch JUDGE, not the sizing gates. The flag alone
+    /// goes stale in one direction: tab content is recreated on switch, so a
+    /// hidden tab's view can be dismantled without its visibility callback
+    /// ever firing, leaving the flag stuck true. Judging that mirror
+    /// compares tmux's live assignments against grids nothing renders (its
+    /// panes sit in the offscreen parking window) and reports phantom
+    /// mismatches. A pane view in a window that is ordered in is the ground
+    /// truth for "this mirror's grids are on screen". The sizing gates keep
+    /// the plain flag: a stale-true mirror re-claims only its own frozen,
+    /// sane size (per-window, deduped), while gating them on view state
+    /// would break headless callers that never put panes in a window.
+    var isEffectivelyVisibleForSizing: Bool {
+        guard !isTornDown, isVisibleForSizing else { return false }
+        return panelsByPaneId.values.contains { panel in
+            let hostedView = panel.hostedView
+            return hostedView.isVisibleInUI
+                && !hostedView.isHidden
+                && hostedView.superview != nil
+                && hostedView.window?.isVisible == true
+        }
+    }
 
     /// ``TerminalPanel`` per tmux pane id. Not observation-tracked: the view
     /// re-reads it whenever ``layout`` (which IS tracked) changes, and the two
     /// are always updated together in ``reconcile(layout:)``.
-    @ObservationIgnored private var panelsByPaneId: [Int: TerminalPanel] = [:]
-    /// Stable synthetic bonsplit pane id per tmux pane (for portal hosting),
-    /// minted at panel-creation time so the view body is a pure read.
-    @ObservationIgnored private var syntheticPaneIds: [Int: PaneID] = [:]
+    @ObservationIgnored var panelsByPaneId: [Int: TerminalPanel] = [:]
+    @ObservationIgnored var tabIdByPaneId: [Int: TabID] = [:]
+    @ObservationIgnored var paneIdByPaneId: [Int: PaneID] = [:]
+    @ObservationIgnored var paneIdByBonsplitPane: [PaneID: Int] = [:]
+    @ObservationIgnored var paneIdByTabId: [TabID: Int] = [:]
+    @ObservationIgnored var paneIndexByPaneId: [Int: Int] = [:]
+    @ObservationIgnored var cwdByPaneId: [Int: String] = [:]
+    @ObservationIgnored var isApplyingRemoteLayout = false
+    @ObservationIgnored var isApplyingTmuxFocus = false
+    @ObservationIgnored var lastDividerPositions: [UUID: CGFloat] = [:]
+    /// Last grid each pane's surface reported (from sizing samples) — the
+    /// live half of the settled/mismatch probe.
+    @ObservationIgnored var lastRenderedGrids: [Int: (cols: Int, rows: Int)] = [:]
 
     // MARK: Sizing inputs (locally owned; never tmux-derived)
 
-    /// The mirror container's last-known size in points (from the view's
-    /// GeometryReader) — one of f's two variable inputs.
-    @ObservationIgnored private var containerSizePt: CGSize?
+    /// The mirror container's last-known size in points from `onGeometryChange`.
+    @ObservationIgnored var containerSizePt: CGSize?
     /// The hosting window's backing scale, delivered with the container size.
-    @ObservationIgnored private var containerScale: CGFloat?
+    @ObservationIgnored var containerScale: CGFloat?
+    /// Latest post-claim geometry received before any pane has a visible host.
+    /// It is not sizing truth until a hosting window bounds it.
+    @ObservationIgnored var pendingContainerSizePt: CGSize?
+    @ObservationIgnored var pendingContainerScale: CGFloat?
     /// Monotone minimum of `surface_px − cols·cell_px` observed per axis: the
     /// ghostty padding estimate, KEYED BY BACKING SCALE. A single sample
     /// overestimates padding by the quantization remainder (< one cell),
@@ -85,14 +139,11 @@ final class RemoteTmuxWindowMirror {
     /// grows. Padding is a device-pixel constant PER SCALE (8px at 2×, ~4px
     /// at 1×): mixing samples across a 1×↔2× display move would drag the 2×
     /// minimum permanently below truth and overshoot f by a column.
-    @ObservationIgnored private var minNonGridWidthPxByScale: [CGFloat: Int] = [:]
-    @ObservationIgnored private var minNonGridHeightPxByScale: [CGFloat: Int] = [:]
+    @ObservationIgnored var minNonGridWidthPxByScale: [CGFloat: Int] = [:]
+    @ObservationIgnored var minNonGridHeightPxByScale: [CGFloat: Int] = [:]
 
-    /// Whether tmux itself is drawing header rows for this window
-    /// (`pane-border-status top`). The strips show label text ONLY then —
-    /// a stock tmux displays no titles anywhere, and faithful means matching
-    /// that; the active-pane dot is cmux's one addition in both modes.
-    private(set) var tmuxTitleRowsVisible = false
+    /// The edge where tmux draws pane-title rows, or nil when they are off.
+    private(set) var tmuxTitleRowPlacement: RemoteTmuxPaneTitleRowPlacement?
     /// Header-strip labels per pane (the expanded `pane-border-format`,
     /// style tokens stripped), copied from the
     /// connection on every reconcile so the view reads stored state, never
@@ -105,26 +156,81 @@ final class RemoteTmuxWindowMirror {
     /// of querying live surfaces during body evaluation — means view updates
     /// can never observe half-applied surface state, and a snapshot change is
     /// itself the (observable, equality-guarded) signal to re-derive frames.
-    private(set) var geometrySnapshot: RemoteTmuxMirrorGeometry?
+    var geometrySnapshot: RemoteTmuxMirrorGeometry?
 
     /// Injected source of render constants; `nil` measures live surfaces.
     /// Unit tests inject fixed constants here (no live surfaces exist there).
-    @ObservationIgnored private let geometrySource: (() -> RemoteTmuxMirrorGeometry?)?
+    @ObservationIgnored let geometrySource: (() -> RemoteTmuxMirrorGeometry?)?
+    /// Injected hosting-window bound; `nil` resolves it from live pane views.
+    @ObservationIgnored let hostingContentSizeSource: (() -> CGSize?)?
+
+    /// Everything a sizing pass depends on, snapshotted for the fixed-point
+    /// check. When a completed pass's inputs equal the current inputs, the
+    /// mirror is settled and a pass would be a no-op.
+    struct SizingInputs: Equatable {
+        /// Base and visible trees are fingerprinted SEPARATELY: the claim
+        /// reads the BASE tree (its residual depends on the full tree even
+        /// while zoomed), and the plan reads the visible one. Fingerprinting
+        /// only their merge let a base-tree change hide behind an unchanged
+        /// visible tree — the pass skipped, the claim went stale, and tmux
+        /// kept an old size through a whole settle window.
+        var baseLayout: RemoteTmuxLayoutNode
+        var visibleLayout: RemoteTmuxLayoutNode?
+        var container: CGSize?
+        var scale: CGFloat?
+        var geometry: RemoteTmuxMirrorGeometry?
+        var titleRowPlacement: RemoteTmuxPaneTitleRowPlacement?
+        var visible: Bool
+    }
+
+    /// Identifies whether a sizing pass follows new inputs or must reapply refused constraints.
+    enum SizingPassIntent {
+        case inputChange
+        case constraintRecovery
+    }
+
+    @ObservationIgnored var sizingPassScheduled = false
+    @ObservationIgnored var lastCompletedSizingInputs: SizingInputs?
+    @ObservationIgnored var pendingSizingPassIntent = SizingPassIntent.inputChange
+
+    #if DEBUG
+    static var dumpedAncestorChains = Set<Int>()
+    #endif
 
     init(
         windowId: Int,
         panelId: UUID,
         connection: RemoteTmuxControlConnection,
         layout: RemoteTmuxLayoutNode,
+        appearance: BonsplitConfiguration.Appearance = .init(),
+        workspaceBonsplitController: BonsplitController? = nil,
         geometrySource: (() -> RemoteTmuxMirrorGeometry?)? = nil,
+        hostingContentSizeSource: (() -> CGSize?)? = nil,
+        controlPaneID: @escaping (Int) -> PaneID? = { _ in nil },
+        onControlSurfaceChanged: ((Int, UUID?) -> Void)? = nil,
+        adoptedPanes: [AdoptedPane] = [],
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
         self.panelId = panelId
         self.connection = connection
+        self.workspaceBonsplitController = workspaceBonsplitController
         self.makePanel = makePanel
         self.geometrySource = geometrySource
+        self.hostingContentSizeSource = hostingContentSizeSource
+        self.controlPaneID = controlPaneID
+        self.onControlSurfaceChanged = onControlSurfaceChanged
         self.layout = layout
+        let initialConfiguration = workspaceBonsplitController?.configuration
+            ?? BonsplitConfiguration(appearance: appearance)
+        self.bonsplitController = Self.makeController(configuration: initialConfiguration)
+        configureBonsplitController()
+        observeWorkspaceBonsplitConfiguration()
+        for pane in adoptedPanes where layout.paneIDsInOrder.contains(pane.tmuxPaneId) {
+            panelsByPaneId[pane.tmuxPaneId] = pane.panel
+            onControlSurfaceChanged?(pane.tmuxPaneId, pane.panel.id)
+            configurePanePanel(pane.panel, paneId: pane.tmuxPaneId, needsSeed: false)
+        }
         reconcile(layout: layout)
     }
 
@@ -137,44 +243,46 @@ final class RemoteTmuxWindowMirror {
     /// The surface rendering `tmuxPaneId`, if it exists.
     func surface(forPane tmuxPaneId: Int) -> TerminalSurface? { panelsByPaneId[tmuxPaneId]?.surface }
 
-    /// The stable synthetic bonsplit pane id for `tmuxPaneId`, or `nil` if no panel
-    /// exists for it (minted in ``reconcile(layout:)``; a pure read here so it's
-    /// body-safe). Returns `nil` rather than minting a throwaway `PaneID()` on a miss,
-    /// which would churn the portal-host lease keyed off this id.
+    /// The session-owned stable control pane id for `tmuxPaneId`.
     func syntheticPaneID(forPane tmuxPaneId: Int) -> PaneID? {
-        syntheticPaneIds[tmuxPaneId]
+        controlPaneID(tmuxPaneId)
     }
 
     /// Applies a full window update: panel lifecycle + sizing structure from
     /// the BASE tree, rendering tree from the VISIBLE one. Zoom therefore
     /// never creates or closes panels, and f's output is zoom-invariant.
     func apply(window: RemoteTmuxWindow) {
-        reconcile(layout: window.layout)
+        let previousRenderedLayout = renderedLayout
+        let nextTitle = RemoteTmuxSessionMirror.tabTitle(for: window)
+        if windowTitle != nextTitle { windowTitle = nextTitle }
         let newVisible = window.zoomed ? window.visibleLayout : nil
         if visibleLayout != newVisible { visibleLayout = newVisible }
         if zoomed != window.zoomed { zoomed = window.zoomed }
+        reconcile(layout: window.layout, previousRenderedLayout: previousRenderedLayout)
     }
 
     /// Updates the base layout, creating panels for new panes and tearing down
     /// panels for panes tmux removed (surviving panes keep their panel and
     /// scrollback).
     func reconcile(layout newLayout: RemoteTmuxLayoutNode) {
-        let livePaneIds = Set(newLayout.paneIDsInOrder)
-        for paneId in newLayout.paneIDsInOrder where panelsByPaneId[paneId] == nil {
+        reconcile(layout: newLayout, previousRenderedLayout: renderedLayout)
+    }
+
+    private func reconcile(
+        layout newLayout: RemoteTmuxLayoutNode,
+        previousRenderedLayout: RemoteTmuxLayoutNode
+    ) {
+        let livePaneIDsInOrder = newLayout.paneIDsInOrder
+        let livePaneIds = Set(livePaneIDsInOrder)
+        paneIndexByPaneId = Dictionary(
+            livePaneIDsInOrder.enumerated().map { ($0.element, $0.offset) },
+            uniquingKeysWith: { firstIndex, _ in firstIndex }
+        )
+        for paneId in livePaneIDsInOrder where panelsByPaneId[paneId] == nil {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
-            syntheticPaneIds[paneId] = PaneID()
-            let surface = panel.surface
-            surface.onManualSizeApplied = { [weak self] in self?.handleSizingSample($0) }
-            surface.onRuntimeReady = { [weak self, weak surface] in
-                guard let sample = surface?.rawSizingSample() else { return }
-                self?.handleSizingSample(sample)
-            }
-            surface.flushPendingManualSizeReportIfAttached()
-            if let sample = surface.rawSizingSample() { handleSizingSample(sample) }
-            // Canonical seed (reflow classification → capture → cwd). The session
-            // mirror's cwd observer maps the pane back to this window's tab.
-            connection?.seedPane(paneId: paneId)
+            onControlSurfaceChanged?(paneId, panel.id)
+            configurePanePanel(panel, paneId: paneId, needsSeed: true)
         }
         for (paneId, panel) in panelsByPaneId where !livePaneIds.contains(paneId) {
             // Use the full panel close (detaches the portal from the registry
@@ -182,14 +290,16 @@ final class RemoteTmuxWindowMirror {
             // dereferenced by a later Core Animation commit.
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
+            onControlSurfaceChanged?(paneId, nil)
             panel.close()
             connection?.unsubscribePanePath(paneId: paneId)
             connection?.unsubscribePaneReflow(paneId: paneId)
             connection?.unsubscribePaneHeader(paneId: paneId)
             panelsByPaneId[paneId] = nil
-            syntheticPaneIds[paneId] = nil
+            cwdByPaneId[paneId] = nil
             if activePaneId == paneId { activePaneId = nil }
         }
+        lastRenderedGrids = lastRenderedGrids.filter { livePaneIds.contains($0.key) }
         // Structural change (split/close/re-nest) vs geometry-only reflow: only
         // the former re-arms client sizing (the chrome fold's output changed).
         // `init` reconciles the layout it just stored, so the first pass never
@@ -200,8 +310,12 @@ final class RemoteTmuxWindowMirror {
         if layout != newLayout { layout = newLayout }
         let labels = (connection?.paneHeaderLabels ?? [:]).filter { livePaneIds.contains($0.key) }
         if labels != paneHeaderLabels { paneHeaderLabels = labels }
-        let titleRows = connection?.windowTitleRowsVisible[windowId] ?? false
-        if tmuxTitleRowsVisible != titleRows { tmuxTitleRowsVisible = titleRows }
+        let titleRowPlacement = connection?.windowTitleRowPlacements[windowId]
+        if tmuxTitleRowPlacement != titleRowPlacement {
+            tmuxTitleRowPlacement = titleRowPlacement
+        }
+        reconcileBonsplitTree(from: previousRenderedLayout, to: renderedLayout)
+        setNeedsSizingPass()
         // Adopt tmux's known active pane when this mirror has none yet: on
         // first attach the rects reply emits the active-pane event BEFORE the
         // topology publish creates this mirror, so the event-driven path
@@ -209,8 +323,11 @@ final class RemoteTmuxWindowMirror {
         if activePaneId == nil,
            let remoteActive = connection?.activePaneByWindow[windowId],
            livePaneIds.contains(remoteActive) {
-            activePaneId = remoteActive
+            setActivePane(remoteActive, fromTmux: true)
+        } else {
+            seedActivePaneIfNeeded()
         }
+        refreshPaneTitles()
         // Drive the ONE-TIME claim from topology publishes too, not just view
         // geometry and surface reports. Without this a hidden window can
         // deadlock unclaimed: the claim needs a calibration sample, a sample
@@ -225,163 +342,56 @@ final class RemoteTmuxWindowMirror {
         }
     }
 
+    private func configurePanePanel(_ panel: TerminalPanel, paneId: Int, needsSeed: Bool) {
+        let surface = panel.surface
+        surface.onManualSizeApplied = { [weak self] in
+            self?.handleSizingSample($0, paneId: paneId)
+        }
+        surface.onRuntimeReady = { [weak self, weak surface] in
+            guard let sample = surface?.rawSizingSample() else { return }
+            self?.handleSizingSample(sample, paneId: paneId)
+        }
+        surface.flushPendingManualSizeReportIfAttached()
+        if let sample = surface.rawSizingSample() {
+            handleSizingSample(sample, paneId: paneId)
+        }
+        if needsSeed { connection?.seedPane(paneId: paneId) }
+    }
+
     /// Routes a tmux `%output` to the surface for `paneId` (no-op if unknown).
     func routeOutput(paneId: Int, data: Data) {
         panelsByPaneId[paneId]?.surface.processRemoteOutput(data)
     }
 
-    /// Records the container's size (points) and backing scale — f's variable
-    /// inputs, delivered by the view on mount and every geometry change.
-    func noteContainerSize(pointSize: CGSize, scale: CGFloat) {
-        containerSizePt = pointSize
-        containerScale = scale
-    }
-
-    /// Ingests one sizing sample into the min-tracked pad constants.
-    private func ingest(sample: TerminalSurfaceRawSizingSample) {
-        guard sample.cellWidthPx > 0, sample.cellHeightPx > 0,
-              sample.columns > 1, sample.rows > 1,
-              let scale = sample.backingScale ?? containerScale, scale > 0
-        else { return }
-        let nonGridW = sample.surfaceWidthPx - sample.columns * sample.cellWidthPx
-        let nonGridH = sample.surfaceHeightPx - sample.rows * sample.cellHeightPx
-        if nonGridW >= 0 {
-            minNonGridWidthPxByScale[scale] = min(minNonGridWidthPxByScale[scale] ?? nonGridW, nonGridW)
-        }
-        if nonGridH >= 0 {
-            minNonGridHeightPxByScale[scale] = min(minNonGridHeightPxByScale[scale] ?? nonGridH, nonGridH)
-        }
-        let geometry = RemoteTmuxMirrorGeometry(
-            cellWidthPx: sample.cellWidthPx,
-            cellHeightPx: sample.cellHeightPx,
-            surfacePadWidthPx: minNonGridWidthPxByScale[scale] ?? max(0, nonGridW),
-            surfacePadHeightPx: minNonGridHeightPxByScale[scale] ?? max(0, nonGridH),
-            scale: scale
-        )
-        if geometrySnapshot != geometry { geometrySnapshot = geometry }
-    }
-
-    private func handleSizingSample(_ sample: TerminalSurfaceRawSizingSample) {
-        ingest(sample: sample)
-        _ = updateClientSize()
-    }
-
-    /// Sweeps every pane's current sizing sample through ``ingest(sample:)``
-    /// — the push path's calibration refresh for triggers that don't carry a
-    /// sample of their own (container changes, structure changes).
-    private func refreshGeometryConstants() {
-        for panel in panelsByPaneId.values {
-            guard let sample = panel.surface.rawSizingSample() else { continue }
-            ingest(sample: sample)
-        }
-    }
-
-    /// The measured render constants, or nil while no sample has arrived
-    /// yet. A pure read of the stored snapshot (or the injected test
-    /// source), safe from view-body projection (`framesForRender`): the
-    /// render never touches live surfaces, so it can't observe half-applied
-    /// resize state.
-    func currentGeometry() -> RemoteTmuxMirrorGeometry? {
-        if let geometrySource { return geometrySource() }
-        return geometrySnapshot
-    }
-
-    /// Pushes this window's client size to tmux: f(container pixels, base
-    /// structure, measured constants) via the connection's per-window form
-    /// (dedup and reconnect reseed live there). Feed-forward by construction —
-    /// reads no tmux-assigned geometry and no rendered grids, so echo events recompute
-    /// to the identical size. Returns `false` while the constants or the
-    /// container size are still unknown, so the caller retries; hidden mirrors
-    /// return `true` without sending (they push on becoming visible).
-    @discardableResult
-    func updateClientSize() -> Bool {
-        guard let connection else { return true }
-        // Hidden mirrors write exactly ONCE — the initial claim. The first
-        // per-window size on a connection drops every window WITHOUT one to
-        // tmux's 80×24 default, so each mirrored window must claim its size
-        // at attach even if its tab isn't selected yet. After that claim,
-        // only the visible tab's mirror writes (hidden geometry callbacks
-        // report collapsed sizes and must not resize the remote window
-        // underneath the visible state).
-        guard isVisibleForSizing || connection.lastWindowSizes[windowId] == nil else {
-            return true
-        }
-        refreshGeometryConstants()
-        #if DEBUG
-        cmuxDebugLog(
-            "remote.rects.push @\(windowId) container="
-                + (containerSizePt.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil")
-                + " scale=\(containerScale ?? 0) geom=\(currentGeometry() != nil ? 1 : 0)"
-                + " visible=\(isVisibleForSizing ? 1 : 0) panels=\(panelsByPaneId.count)"
-        )
-        #endif
-        guard let containerSizePt, let containerScale,
-              containerSizePt.width > 1, containerSizePt.height > 1,
-              let geometry = currentGeometry()
-        else { return false }
-        let cells = geometry.clientCells(
-            pixelWidth: Int(containerSizePt.width * containerScale),
-            pixelHeight: Int(containerSizePt.height * containerScale),
-            structure: layout
-        )
-        connection.setWindowSize(windowId: windowId, columns: cells.cols, rows: cells.rows)
-        return true
-    }
-
-    /// The exact frames to impose for the current tmux layout, or `nil` when the
-    /// render should fall back to the proportional TRANSIENT mode: constants
-    /// still unknown, or tmux's layout doesn't match what f wants for the current
-    /// pixels (a push is in flight — drag mid-motion, attach settling, or a
-    /// co-attached client constraining the size). The transient mode always
-    /// fits by construction; imposition resumes on tmux's layout that matches.
-    func framesForRender(containerPt: CGSize) -> RemoteTmuxMirrorFrames? {
-        guard let geometry = currentGeometry(), let containerScale else { return nil }
-        let cells = geometry.clientCells(
-            pixelWidth: Int(containerPt.width * containerScale),
-            pixelHeight: Int(containerPt.height * containerScale),
-            structure: layout
-        )
-        guard layout.width == cells.cols, layout.height == cells.rows else { return nil }
-        return geometry.frames(layout: visibleLayout ?? layout, containerPt: containerPt)
-    }
-
-    /// The split-tree SHAPE (node kinds + pane ids, geometry stripped). Two layouts
-    /// with the same signature differ only in cell extents — the fingerprint of a
-    /// tmux-side reflow: the echo of our own push, or a co-attached client's
-    /// `resize-pane`. Those must not re-arm client sizing (f recomputes to the
-    /// same value; only structure changes its output). A split, close, or
-    /// re-nest changes the signature, and those MUST re-push: each split adds
-    /// a pane's chrome to the fold. Pure over the node — `nonisolated` and
-    /// unit-testable.
-
-    /// Records tmux's active pane as reported by the remote
     /// (`%window-pane-changed` or the rects fetch) — the strip dot follows
     /// tmux truth, not local focus alone. Tolerates unknown panes: the
     /// matching layout may still be pending its rects publication.
     func noteRemoteActivePane(_ paneId: Int) {
         if activePaneId != paneId { activePaneId = paneId }
+        focusBonsplitPane(forTmuxPane: paneId)
+    }
+
+    func setActivePane(_ paneId: Int, fromTmux: Bool) {
+        guard layout.paneIDsInOrder.contains(paneId) else { return }
+        if activePaneId != paneId { activePaneId = paneId }
+        focusBonsplitPane(forTmuxPane: paneId)
+        if !fromTmux {
+            connection?.send("select-pane -t @\(windowId).%\(paneId)")
+        }
     }
 
     /// Records the user-focused pane and asks tmux to make it active.
     func focus(pane tmuxPaneId: Int) {
-        if activePaneId != tmuxPaneId { activePaneId = tmuxPaneId }
-        connection?.send("select-pane -t @\(windowId).%\(tmuxPaneId)")
+        setActivePane(tmuxPaneId, fromTmux: false)
     }
 
-    /// Propagates a user split of `tmuxPaneId` to tmux `split-window`
-    /// (`-h` = side-by-side, `-v` = stacked). The new pane arrives via the
-    /// resulting `%layout-change` → ``reconcile(layout:)``.
-    @discardableResult
-    func requestSplit(fromPane tmuxPaneId: Int, vertical: Bool) -> Bool {
-        guard let connection, connection.connectionState == .connected else { return false }
-        return connection.send("split-window \(vertical ? "-v" : "-h") -t @\(windowId).%\(tmuxPaneId)")
+    /// Routes an accepted control-plane mutation through the owned connection.
+    func sendControlCommand(_ command: String) -> Bool {
+        connection?.send(command) ?? false
     }
 
-    /// Propagates a user close of `tmuxPaneId` to tmux `kill-pane`. The pane is
-    /// removed via the resulting `%layout-change` (or `%window-close` if it was
-    /// the window's last pane).
-    func requestKillPane(_ tmuxPaneId: Int) {
-        connection?.send("kill-pane -t @\(windowId).%\(tmuxPaneId)")
+    func connectionSendKeys(paneID: Int, data: Data) -> Bool {
+        connection?.sendKeys(paneId: paneID, data: data) ?? false
     }
 
     /// The pane's last-known foreground classification (alt-screen flag +
@@ -406,93 +416,41 @@ final class RemoteTmuxWindowMirror {
         connection.queryPaneActivity(paneId: tmuxPaneId, completion: completion)
     }
 
-    /// Read-only sizing introspection for the `remote.tmux.pane_grids` socket
-    /// command (see ``RemoteTmuxWindowMirrorSizingSnapshot``). A harness can
-    /// assert renders match the assigned sizes directly instead of reading pixels off a
-    /// screenshot.
-    typealias SizingSnapshot = RemoteTmuxWindowMirrorSizingSnapshot
-
-    func sizingSnapshot() -> SizingSnapshot {
-        var panes: [SizingSnapshot.Pane] = []
-        // exactCols/exactRows encode the render contract per axis: a leaf is
-        // exact on its IMMEDIATE parent split's axis and FILLS the other axis
-        // (g's split-axis-exact / cross-axis-fill rule). Exactness does not
-        // inherit from grandparents: a v-child's width fills a column frame
-        // whose rails carry the +1 device-px boundary bias, so it may
-        // legitimately render one column past the assignment — background
-        // beyond the PTY, never content loss.
-        func walk(_ n: RemoteTmuxLayoutNode, exactCols: Bool, exactRows: Bool) {
-            switch n.content {
-            case let .pane(id):
-                let surface = panelsByPaneId[id]?.surface
-                let rendered = surface?.renderedGridCells()
-                let diagnostics = surface?.renderedGridDiagnostics()
-                panes.append(SizingSnapshot.Pane(
-                    paneId: id,
-                    assignedCols: n.width,
-                    assignedRows: n.height,
-                    renderedCols: rendered?.columns,
-                    renderedRows: rendered?.rows,
-                    exactCols: exactCols,
-                    exactRows: exactRows,
-                    hasPanel: surface != nil,
-                    viewInWindow: diagnostics?.viewInWindow,
-                    surfaceLive: diagnostics?.surfaceLive,
-                    calibration: surface?.rawSizingSample()
-                ))
-            case let .horizontal(children):
-                children.forEach { walk($0, exactCols: true, exactRows: false) }
-            case let .vertical(children):
-                children.forEach { walk($0, exactCols: false, exactRows: true) }
-            }
-        }
-        walk(layout, exactCols: false, exactRows: false)
-        let pushed = connection?.lastWindowSizes[windowId]
-        // Diagnostics are READ-ONLY: report f from the constants sizing is
-        // actually using right now. Recalibrating here would let a socket
-        // inspection alter future pushes — an observer that changes the
-        // system it observes.
-        var fCells: (cols: Int, rows: Int)?
-        if let containerSizePt, let containerScale, let geometry = currentGeometry() {
-            fCells = geometry.clientCells(
-                pixelWidth: Int(containerSizePt.width * containerScale),
-                pixelHeight: Int(containerSizePt.height * containerScale),
-                structure: layout
-            )
-        }
-        return SizingSnapshot(
-            windowId: windowId,
-            panes: panes,
-            baseCols: layout.width,
-            baseRows: layout.height,
-            pushedColumns: pushed?.0,
-            pushedRows: pushed?.1,
-            zoomed: zoomed,
-            structureVersion: layoutStructureVersion,
-            visibleForSizing: isVisibleForSizing,
-            containerPt: containerSizePt,
-            currentFCols: fCells?.cols,
-            currentFRows: fCells?.rows
-        )
-    }
-
     /// Tears down every pane panel (called when the window-tab is removed).
     func teardown() {
+        guard !isTornDown else { return }
+        isTornDown = true
+        isVisibleForSizing = false
+        sizingPassScheduled = false
+        lastCompletedSizingInputs = nil
+        pendingSizingPassIntent = .inputChange
+        pendingContainerSizePt = nil
+        pendingContainerScale = nil
+        let activeConnection = connection
+        activeConnection?.removeWindowSizeClaim(windowId: windowId)
+        workspaceBonsplitController = nil
         // Unsubscribe each pane's cwd subscription first — matching reconcile(layout:),
         // which unsubscribes per removed pane. Without this, a control connection that
         // outlives the tab keeps streaming pane_current_path updates into a dead mirror.
         for paneId in panelsByPaneId.keys {
-            connection?.unsubscribePanePath(paneId: paneId)
-            connection?.unsubscribePaneReflow(paneId: paneId)
-            connection?.unsubscribePaneHeader(paneId: paneId)
+            activeConnection?.unsubscribePanePath(paneId: paneId)
+            activeConnection?.unsubscribePaneReflow(paneId: paneId)
+            activeConnection?.unsubscribePaneHeader(paneId: paneId)
         }
-        for panel in panelsByPaneId.values {
+        for (paneId, panel) in panelsByPaneId {
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
+            onControlSurfaceChanged?(paneId, nil)
             panel.close()
         }
         panelsByPaneId.removeAll()
-        syntheticPaneIds.removeAll()
+        tabIdByPaneId.removeAll()
+        paneIdByPaneId.removeAll()
+        paneIdByBonsplitPane.removeAll()
+        paneIdByTabId.removeAll()
+        cwdByPaneId.removeAll()
+        lastRenderedGrids.removeAll()
         activePaneId = nil
+        connection = nil
     }
 }

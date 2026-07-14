@@ -1297,16 +1297,17 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-a"
         )
-
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertNil(workspace.activeRemoteSessionControllerID)
         workspace.configureRemoteConnection(config, autoConnect: false)
-
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNotNil(workspace.activeRemoteSessionControllerID)
         workspace.disconnectRemoteConnection(clearConfiguration: true)
     }
 
     @MainActor
-    func testForegroundSSHAuthReadyReconnectsConfiguredDisconnectedRemoteWorkspace() {
+    func testForegroundSSHAuthReadyReconnectsConfiguredConnectingRemoteWorkspace() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -1321,13 +1322,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-a"
         )
-
         workspace.configureRemoteConnection(config, autoConnect: false)
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-
-        workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
-
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNil(workspace.activeRemoteSessionControllerID)
+        workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNotNil(workspace.activeRemoteSessionControllerID)
         workspace.disconnectRemoteConnection(clearConfiguration: true)
     }
 
@@ -1347,11 +1347,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-b"
         )
-
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
         workspace.configureRemoteConnection(config, autoConnect: false)
-
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNil(workspace.activeRemoteSessionControllerID)
     }
 
     @MainActor
@@ -1397,11 +1396,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-a"
         )
-
         workspace.configureRemoteConnection(config, autoConnect: false)
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-b")
-
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNil(workspace.activeRemoteSessionControllerID)
     }
 
     @MainActor
@@ -5655,11 +5653,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-short-lived",
-            attachmentID: "attachment-short-lived",
+            lifecycleID: "attachment-short-lived", attachmentID: "attachment-short-lived",
             command: "printf done",
             requireExisting: true,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5702,11 +5700,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-early-output",
-            attachmentID: "attachment-early-output",
+            lifecycleID: "attachment-early-output", attachmentID: "attachment-early-output",
             command: nil,
             requireExisting: true,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5743,11 +5741,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-input-completion",
-            attachmentID: "attachment-input-completion",
+            lifecycleID: "attachment-input-completion", attachmentID: "attachment-input-completion",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {}
+        ) { _ in }
         let endpoint = try server.start()
         let fd = try connectLoopbackTCP(port: endpoint.port)
         defer {
@@ -5786,11 +5784,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         var server: RemotePTYBridgeServer? = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-stop-retain",
-            attachmentID: "attachment-stop-retain",
+            lifecycleID: "attachment-stop-retain", attachmentID: "attachment-stop-retain",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         guard let endpoint = try server?.start() else {
@@ -5810,11 +5808,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close",
-            attachmentID: "attachment-half-close",
+            lifecycleID: "attachment-half-close", attachmentID: "attachment-half-close",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5849,11 +5847,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close-no-pid",
-            attachmentID: "attachment-half-close-no-pid",
+            lifecycleID: "attachment-half-close-no-pid", attachmentID: "attachment-half-close-no-pid",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5890,11 +5888,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close-before-attach",
-            attachmentID: "attachment-half-close-before-attach",
+            lifecycleID: "attachment-half-close-before-attach", attachmentID: "attachment-half-close-before-attach",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5933,11 +5931,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-client-close",
-            attachmentID: "attachment-client-close",
+            lifecycleID: "attachment-client-close", attachmentID: "attachment-client-close",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5971,11 +5969,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-output-flood",
-            attachmentID: "attachment-output-flood",
+            lifecycleID: "attachment-output-flood", attachmentID: "attachment-output-flood",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -6672,7 +6670,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                         "workspace_ref": workspaceRef,
                         "remote": [
                             "enabled": true,
-                            "state": autoConnect ? "connecting" : "disconnected",
+                            "state": autoConnect || params["foreground_auth_token"] != nil ? "connecting" : "disconnected",
                         ],
                     ]
                 )
@@ -6712,7 +6710,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=disconnected\n")
+        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=connecting\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
 
         let requests = try state.commands.map { line -> [String: Any] in

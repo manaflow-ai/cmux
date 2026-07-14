@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Ваш особистий план",
+        "free": "Безкоштовно",
+        "pro": "Pro",
+        "loading": "Завантаження…"
+      }
     }
   },
   "community": {
@@ -931,6 +939,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Максимальна кількість рядків останнього сповіщення, що відображаються під заголовком кожного робочого простору.",
           "rightMaxWidth": "Максимальна ширина правої бічної панелі в пунктах. Якщо пропущено, застосовується вбудоване динамічне обмеження."
         },
         "fileExplorer": {
@@ -1394,7 +1403,7 @@
     "ohMyOpenCode": {
       "title": "oh-my-opencode",
       "metaTitle": "oh-my-opencode: мультиагентний OpenCode у cmux",
-      "metaDescription": "oh-my-opencode (cmux omo) запускає OpenCode CLI з плагіном oh-my-openagent усередині cmux. Оркеструйте Claude, GPT, Gemini і Grok як паралельних агентів, кожного в нативному розділенні cmux.",
+      "metaDescription": "cmux omo запускає OpenCode з плагіном oh-my-openagent. Claude, GPT, Gemini й Grok працюють паралельно як агенти в нативних розділеннях cmux.",
       "nightlyWarning": "Доступно лише в <nightly>нічних збірках</nightly>.",
       "intro": "cmux omo запускає OpenCode з плагіном oh-my-openagent у середовищі, сумісному з cmux. oh-my-openagent оркеструє кілька AI-моделей (Claude, GPT, Gemini, Grok) як спеціалізованих агентів, що працюють паралельно. Коли він створює панелі агентів, вони стають нативними розділеннями cmux.",
       "usage": "Використання",
@@ -1543,6 +1552,7 @@
       "title": "SSH",
       "metaTitle": "SSH",
       "metaDescription": "Підключайтеся до віддалених машин за допомогою cmux ssh. Панелі браузера маршрутизуються через віддалену мережу, зображення перетягуються через scp, а сповіщення агента надходять додому.",
+      "metaDescriptionShort": "Підключайтеся через cmux ssh до віддалених машин, маршрутизуйте браузер віддалено, передавайте файли через scp і отримуйте сповіщення агентів.",
       "intro": "cmux ssh створює робочий простір для віддаленої машини. Панелі веб-переглядача маршрутизуються через віддалену мережу, файли перетягуються через scp, агенти кодування надсилають сповіщення на вашу локальну бічну панель, а сеанси повторно з’єднуються після розриву.",
       "usage": "Використання",
       "usageDesc": "cmux ssh читає ваш ~/.ssh/config для псевдонімів хостів, файлів ідентифікації та налаштувань проксі. Усі прапори відображають свої еквіваленти ssh.",
@@ -1613,6 +1623,7 @@
     "ios": {
       "metaTitle": "Застосунок для iOS",
       "metaDescription": "Налаштуйте застосунок-компаньйон cmux для iOS: доступ через TestFlight, власна мережа з Tailscale або WireGuard, сполучення, сповіщення та які дані зберігає cmux.",
+      "metaDescriptionShort": "Налаштуйте cmux для iOS: TestFlight, мережу Tailscale або WireGuard, сполучення з Mac, сповіщення та контроль збережених даних.",
       "title": "Застосунок для iOS",
       "intro": "Застосунок cmux для iOS — компаньйон для вашого Mac. Сполучіть iPhone або iPad з Mac, на якому запущено cmux, і під'єднуйтеся до своїх терміналів із телефона, з опційним пересиланням сповіщень терміналу.",
       "betaNote": "Застосунок для iOS перебуває в бета-версії. Він поширюється через TestFlight як cmux BETA.",

@@ -23,23 +23,24 @@ extension RemotePTYBridgeServer {
         private static let maxPendingInputWrites = 256
         private static let maxPendingInputBytes = 4 * 1024 * 1024
 
-        private let connection: NWConnection
+        let connection: NWConnection
         let rpcClient: any RemotePTYBridgeRPCClient
         let sessionID: String
         private let attachmentID: String
         private let command: String?
         private let requireExisting: Bool
         private let token: String
+        private let onAuthenticated: () -> Void
         let queue: DispatchQueue
         let rpcQueue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.rpc.\(UUID().uuidString)", qos: .userInitiated)
         let strings: any RemotePTYBridgeStrings
         private let clock: any RemoteProxyRetryClock
-        private let onClose: () -> Void
+        let onClose: () -> Void
         let inputFlow: RemotePTYBridgeInputFlow
         private let inputSeqAckEnabled: Bool
 
         var isClosed = false
-        private var isAttaching = false
+        var isAttaching = false
         private var isAttached = false
         private var handshakeBuffer = Data()
         private var pendingInputBeforeAttach = Data()
@@ -53,6 +54,7 @@ extension RemotePTYBridgeServer {
         var remoteAttachment: RemotePTYBridgeAttachment?
         private var clientPID: pid_t?
         private var clientProcessExitSource: (any DispatchSourceProcess)?
+        var didNotifyClose = false
 
         init(
             connection: NWConnection,
@@ -65,6 +67,7 @@ extension RemotePTYBridgeServer {
             queue: DispatchQueue,
             strings: any RemotePTYBridgeStrings,
             clock: any RemoteProxyRetryClock,
+            onAuthenticated: @escaping () -> Void,
             onClose: @escaping () -> Void
         ) {
             self.connection = connection
@@ -77,6 +80,7 @@ extension RemotePTYBridgeServer {
             self.queue = queue
             self.strings = strings
             self.clock = clock
+            self.onAuthenticated = onAuthenticated
             self.onClose = onClose
             // One-time seq-ack decision: the attach opt-in and the input
             // window accounting must read the same value, or the daemon and
@@ -106,7 +110,11 @@ extension RemotePTYBridgeServer {
         }
 
         func stop() {
-            close(detach: true)
+            if isClosed {
+                forceClosePendingShutdown()
+            } else {
+                close(detach: true)
+            }
         }
 
         func receiveNext() {
@@ -169,6 +177,7 @@ extension RemotePTYBridgeServer {
                 close(detach: false)
                 return
             }
+            onAuthenticated()
             let cols = Self.strictInt(payload["cols"]) ?? 80
             let rows = Self.strictInt(payload["rows"]) ?? 24
             clientPID = Self.strictPositivePID(payload["client_pid"])
@@ -206,13 +215,14 @@ extension RemotePTYBridgeServer {
         }
 
         private func finishAttach(_ result: Result<RemotePTYBridgeAttachment, any Error>) {
+            isAttaching = false
             guard !isClosed else {
                 if case .success(let remoteAttachment) = result {
                     detachRemoteAttachment(remoteAttachment)
                 }
+                notifyCloseOnce()
                 return
             }
-            isAttaching = false
             do {
                 let remoteAttachment = try result.get()
                 self.remoteAttachment = remoteAttachment
@@ -392,7 +402,7 @@ extension RemotePTYBridgeServer {
                 guard let self else { return }
                 self.queue.async {
                     self.connection.cancel()
-                    self.onClose()
+                    self.notifyCloseOnce()
                 }
             })
         }
@@ -402,7 +412,6 @@ extension RemotePTYBridgeServer {
             isClosed = true
             handshakeTimeoutTask?.cancel()
             handshakeTimeoutTask = nil
-            isAttaching = false
             pendingInputBeforeAttach.removeAll(keepingCapacity: false)
             inputFlow.reset()
             pendingPTYEventsBeforeReady.removeAll(keepingCapacity: false)
@@ -421,14 +430,17 @@ extension RemotePTYBridgeServer {
                         guard let self else { return }
                         self.queue.async {
                             self.connection.cancel()
-                            self.onClose()
+                            self.notifyCloseOnce()
                         }
                     }
                 )
                 return
             }
             connection.cancel()
-            onClose()
+            if isAttaching {
+                return
+            }
+            notifyCloseOnce()
         }
 
         private static func strictInt(_ value: Any?) -> Int? {

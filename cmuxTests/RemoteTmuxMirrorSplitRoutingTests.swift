@@ -1,4 +1,6 @@
+import CmuxRemoteSession
 import AppKit
+import Bonsplit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -57,10 +59,53 @@ import Testing
             panelId: UUID(),
             connection: connection,
             layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(7)),
+            appearance: .default,
             makePanel: { _ in nil }
         )
 
         #expect(!mirror.requestSplit(fromPane: 7, vertical: true))
+    }
+
+    @Test func windowMirrorConfigurationTracksWorkspaceAppearanceAndEmbeddedPolicy() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 1,
+            panelId: UUID(),
+            connection: connection,
+            layout: RemoteTmuxLayoutNode(
+                width: 80,
+                height: 24,
+                x: 0,
+                y: 0,
+                content: .pane(7)
+            ),
+            makePanel: { _ in nil }
+        )
+        var appearance = BonsplitConfiguration.Appearance.default
+        appearance.tabBarHeight = 36
+        appearance.tabTitleFontSize = 14
+        appearance.tabBarLeadingInset = 72
+        var workspaceConfiguration = BonsplitConfiguration(
+            allowCloseTabs: false,
+            appearance: appearance
+        )
+
+        mirror.applyWorkspaceBonsplitConfiguration(workspaceConfiguration)
+        #expect(mirror.bonsplitController.configuration.appearance.tabBarHeight == 36)
+        #expect(mirror.bonsplitController.configuration.appearance.tabTitleFontSize == 14)
+        #expect(mirror.bonsplitController.configuration.appearance.tabBarLeadingInset == 0)
+        #expect(!mirror.bonsplitController.configuration.allowCloseTabs)
+        #expect(!mirror.bonsplitController.configuration.allowsTabContextMenu)
+        #expect(!mirror.bonsplitController.tabShortcutHintsEnabled)
+
+        workspaceConfiguration.appearance.tabBarHeight = 42
+        workspaceConfiguration.appearance.tabTitleFontSize = 16
+        mirror.applyWorkspaceBonsplitConfiguration(workspaceConfiguration)
+        #expect(mirror.bonsplitController.configuration.appearance.tabBarHeight == 42)
+        #expect(mirror.bonsplitController.configuration.appearance.tabTitleFontSize == 16)
     }
 
     @MainActor

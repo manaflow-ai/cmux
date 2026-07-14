@@ -20,6 +20,16 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// Creates the process's teardown coordinator.
     public init() {}
 
+    /// Reads a bounded screen tail away from the main actor and before any
+    /// subsequently enqueued native free for the same surface.
+    ///
+    /// The request performs no suspension while it holds the borrowed pointer;
+    /// actor serialization therefore makes the read and a later free mutually
+    /// exclusive.
+    func readScreenTailVT(_ request: TerminalSurfaceRuntimeScreenTailRequest) -> String? {
+        request.read()
+    }
+
     /// Queues a native-surface free from any isolation (the surface model's
     /// `deinit` is nonisolated and cannot await).
     ///

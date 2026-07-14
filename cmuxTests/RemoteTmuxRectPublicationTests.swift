@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 import Testing
 
@@ -96,7 +97,90 @@ import Testing
         #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (61, 0, 59, 40))
         #expect(connection.paneHeaderLabels[0] == "0 \"left pane\"")
         #expect(connection.paneHeaderLabels[2] == "1 \"right\"")
-        #expect(connection.windowTitleRowsVisible[1] == false)
+        #expect(connection.windowTitleRowPlacements[1] == nil)
+    }
+
+    @Test func windowRenameWhileLayoutIsPendingPublishesTheNewName() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishSinglePaneWindow(connection)
+
+        connection.handleMessageForTesting(.layoutChange(
+            windowId: 2,
+            layout: "e5d1,90x30,0,0,5",
+            visibleLayout: nil,
+            zoomed: false
+        ))
+        connection.handleMessageForTesting(.windowRenamed(windowId: 2, name: "renamed"))
+        reply(connection, lines: ["%5 0 0 90 30 1 off :zsh"])
+
+        #expect(connection.windowsByID[2]?.name == "renamed")
+    }
+
+    @Test func windowRenameWhileInitialTopologyIsStagedPublishesTheNewName() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+
+        reply(connection, lines: [
+            "@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one",
+            "@2 e5d1,90x30,0,0,5 e5d1,90x30,0,0,5 [] two",
+        ])
+        let kinds = connection.pendingCommandKindsForTesting
+        guard case let .paneRects(firstWindow, _) = kinds.first else {
+            Issue.record("expected a paneRects fetch at the FIFO head, got \(kinds)")
+            return
+        }
+        let firstPane = firstWindow == 1 ? 0 : 5
+        let secondWindow = firstWindow == 1 ? 2 : 1
+        let secondPane = secondWindow == 1 ? 0 : 5
+        let firstSize = firstWindow == 1 ? "80 24" : "90 30"
+        let secondSize = secondWindow == 1 ? "80 24" : "90 30"
+
+        reply(connection, lines: ["%\(firstPane) 0 0 \(firstSize) 1 off :zsh"])
+        connection.handleMessageForTesting(.windowRenamed(
+            windowId: firstWindow,
+            name: "renamed while staged"
+        ))
+        reply(connection, lines: ["%\(secondPane) 0 0 \(secondSize) 1 off :zsh"])
+
+        #expect(connection.windowsByID[firstWindow]?.name == "renamed while staged")
+    }
+
+    @Test func stagedWindowRenameSurvivesAFollowUpLayoutChange() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+
+        reply(connection, lines: [
+            "@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one",
+            "@2 e5d1,90x30,0,0,5 e5d1,90x30,0,0,5 [] two",
+        ])
+        let kinds = connection.pendingCommandKindsForTesting
+        guard case let .paneRects(firstWindow, _) = kinds.first else {
+            Issue.record("expected a paneRects fetch at the FIFO head, got \(kinds)")
+            return
+        }
+        let firstPane = firstWindow == 1 ? 0 : 5
+        let secondWindow = firstWindow == 1 ? 2 : 1
+        let secondPane = secondWindow == 1 ? 0 : 5
+        let firstSize = firstWindow == 1 ? "80 24" : "90 30"
+        let secondSize = secondWindow == 1 ? "80 24" : "90 30"
+
+        reply(connection, lines: ["%\(firstPane) 0 0 \(firstSize) 1 off :zsh"])
+        connection.handleMessageForTesting(.windowRenamed(
+            windowId: firstWindow,
+            name: "renamed before restage"
+        ))
+        connection.handleMessageForTesting(.layoutChange(
+            windowId: firstWindow,
+            layout: firstWindow == 1 ? "f92f,80x24,0,0,0" : "e5d1,90x30,0,0,5",
+            visibleLayout: nil,
+            zoomed: false
+        ))
+
+        reply(connection, lines: ["%\(secondPane) 0 0 \(secondSize) 1 off :zsh"])
+        reply(connection, lines: ["%\(firstPane) 0 0 \(firstSize) 1 off :zsh"])
+
+        #expect(connection.windowsByID[firstWindow]?.name == "renamed before restage")
     }
 
     @Test func rectsErrorRetriesOnceThenKeepsLastVerifiedTree() {
@@ -247,7 +331,7 @@ import Testing
         // The strip labels ride reconcile from the connection's fetch results,
         // as does whether tmux is drawing header rows (labels render only then).
         #expect(mirror.paneHeaderLabels == [0: "0 \"left\"", 2: "1 \"right\""])
-        #expect(mirror.tmuxTitleRowsVisible)
+        #expect(mirror.tmuxTitleRowPlacement == .top)
         // On first attach the active-pane event fires BEFORE this mirror
         // exists, so reconcile must adopt the connection's known active pane
         // — otherwise the dot is missing until the next pane switch.
@@ -330,7 +414,7 @@ import Testing
         reply(connection, lines: ["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one"])
         reply(connection, lines: ["%0 0 1 80 23 1 top :#[reverse]0#[default] \"ejc3-mac\""])
         #expect(connection.paneHeaderLabels[0] == "0 \"ejc3-mac\"")
-        #expect(connection.windowTitleRowsVisible[1] == true)
+        #expect(connection.windowTitleRowPlacements[1] == .top)
     }
 
     @Test func headerSubscriptionKeepsLabelsLiveBetweenLayoutEvents() {
@@ -381,4 +465,33 @@ import Testing
         #expect(connection.activePaneByWindow[1] == 2)
         #expect(observed! == (1, 2))
     }
+
+    @Test func rectsVerifiedPublishPrunesRemovedPaneDiagnosticState() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        // Publish the two-pane window through the verified path: list-windows
+        // reply, then its rects reply.
+        reply(connection, lines: [
+            "@1 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} [] main"
+        ])
+        reply(connection, lines: ["%4 0 0 60 40 1 off :4 \"left\"", "%5 61 0 59 40 0 off :5 \"right\""])
+
+        connection.handleMessageForTesting(.output(paneId: 4, data: Data("left".utf8)))
+        connection.handleMessageForTesting(.output(paneId: 5, data: Data("right".utf8)))
+        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_4", value: "0|zsh"))
+        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_5", value: "1|vim"))
+
+        // Removing pane 5 publishes through the layout's verified rects reply,
+        // which prunes the dead pane's diagnostic state.
+        connection.handleMessageForTesting(.layoutChange(
+            windowId: 1, layout: "f92f,80x24,0,0,4", visibleLayout: nil, zoomed: false
+        ))
+        reply(connection, lines: ["%4 0 0 80 24 1 off :4 \"left\""])
+
+        #expect(connection.snapshot().paneOutputByteCounts[4] == 4)
+        #expect(connection.snapshot().paneOutputByteCounts[5] == nil)
+        #expect(connection.paneForegroundStates[4] != nil)
+        #expect(connection.paneForegroundStates[5] == nil)
+    }
+
 }

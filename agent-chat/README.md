@@ -1,6 +1,6 @@
 # cmux-agent-ui
 
-MVP of the "UI mode" for cmux: a web chat surface (initial composer + chat view) rendered in cmux's existing browser surface, backed by any coding agent CLI. No Swift changes; the app side is just `cmux browser open http://127.0.0.1:7739`.
+MVP of the "UI mode" for cmux: a web chat surface (initial composer + chat view) rendered in cmux's existing browser surface, backed by any coding agent CLI. In production cmux launches the sidecar on a discovered loopback port and opens the unguessable token-prefixed URL it reports.
 
 ## Run
 
@@ -8,9 +8,15 @@ Three entrypoints, all landing on the same server:
 
 - **CLI** (`cmux-chat`, symlinked into `~/.local/bin`): `cmux-chat` opens a composer as a new workspace tab; `cmux-chat -p codex fix the tests` starts the chat immediately; `--split` opens in the current workspace instead; `--no-open` prints the URL. It auto-starts the server if needed.
 - **Command palette**: `Cmd+Shift+P` → "New Agent Chat". Wired via `~/.config/cmux/cmux.json` (`actions.agent-chat` → `workspaceCommand` "Agent Chat" with a browser-surface layout), cmux's designed extension point, so no app build. When this productizes it becomes a built-in palette command in the cmux repo.
-- **Server** runs under launchd (`~/Library/LaunchAgents/com.cmux.agent-ui.plist`, KeepAlive) on http://127.0.0.1:7739. Remove with `launchctl bootout gui/501/com.cmux.agent-ui && rm ~/Library/LaunchAgents/com.cmux.agent-ui.plist`. Manual run: `bun server.ts`.
+- **Server** runs as a cmux sidecar. Manual dev run: `bun server.ts` (defaults to `http://127.0.0.1:7739` with no token). Production launchers set `CMUX_AGENT_CHAT_PORT=0`, `CMUX_AGENT_CHAT_TOKEN=<unguessable>`, and `CMUX_AGENT_CHAT_STATE_FILE=<path>`; after bind the server atomically writes `{"port":..., "pid":..., "protocolVersion":1}` so cmux can open `http://127.0.0.1:<port>/<token>/`.
 
-One page = one session: `/` is the composer, `/s/<id>` a chat. There is deliberately no in-page session list or header; each chat is its own cmux workspace tab (page title = first prompt), so cmux's sidebar is the session list.
+One page = one session: `/` is the composer, `/s/<id>` a chat. When `CMUX_AGENT_CHAT_TOKEN` or `--token` is configured, every HTTP route, static asset, API route, and WebSocket upgrade except `/healthz` must be under `/<token>/...`; missing or wrong tokens return 404. There is deliberately no in-page session list or header; each chat is its own cmux workspace tab (page title = first prompt), so cmux's sidebar is the session list.
+
+## Model catalog
+
+The sidecar fetches the model catalog from `https://cmux.dev/api/agent-models` (`CMUX_AGENT_MODELS_URL` overrides it for development), revalidates it with ETags after a one-hour TTL, and caches the last-good response at `~/.cache/cmux-agent-chat/models.json` for offline startup. Refreshes happen in the background; changed catalogs are pushed to open pages so model pickers update without reloading.
+
+Remote entries define the offered model order, labels, descriptions, defaults, context metadata, fast-mode support, and Claude minimum-version gates. Models reported only by the installed binary are appended. The built-in Claude and Gemini lists are used only until a remote payload has been fetched or loaded from disk. Model IDs are passed to provider CLIs verbatim, including remote-only IDs, so newly released models work without a sidecar update.
 
 ## Theming
 
@@ -49,7 +55,7 @@ picker and `Popover` for the working-directory editor and overflow menus.
 Base UI ships unstyled, so every part is themed with the resolved Ghostty
 colors. The server bundles `src/main.tsx` with `Bun.build` on startup and
 serves it as `/app.js`; the HTML shell injects the theme CSS variables and
-loads `/app.css`.
+loads `app.css` relative to the current sidecar prefix.
 
 ```
 browser surface (React app: src/*.tsx + Base UI)

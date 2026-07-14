@@ -558,7 +558,6 @@ describe("VM REST auth", () => {
         clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
       },
       listTeams,
-      listProducts: async () => Object.assign([], { nextCursor: null }),
     });
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-body-team",
