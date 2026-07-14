@@ -109,23 +109,30 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
         try BrowserScreenshotCaptureBounds.validateFullPageSize(contentSize)
 
-        let xPositions = tileOrigins(contentLength: contentSize.width, viewportLength: viewportSize.width)
-        let yPositions = tileOrigins(contentLength: contentSize.height, viewportLength: viewportSize.height)
+        guard let tilePlan = BrowserFullPageTilePlan(
+            contentSize: contentSize,
+            viewportSize: viewportSize
+        ) else {
+            throw BrowserScreenshotError.captureAreaTooLarge
+        }
         var captureError: Error?
         var didCaptureTile = false
         let output = blankImage(size: contentSize)
 
         do {
-            for y in yPositions {
-                for x in xPositions {
-                    try await scroll(webView, to: NSPoint(x: x, y: y))
+            for row in 0..<tilePlan.rowCount {
+                for column in 0..<tilePlan.columnCount {
+                    guard let origin = tilePlan.origin(column: column, row: row) else {
+                        throw BrowserScreenshotError.webContentMetricsUnavailable
+                    }
+                    try await scroll(webView, to: origin)
                     let tile = try await captureVisibleViewport(
                         from: webView,
                         afterScreenUpdates: afterScreenUpdates
                     )
                     drawTile(
                         tile,
-                        at: NSPoint(x: x, y: y),
+                        at: origin,
                         into: output,
                         contentSize: contentSize,
                         viewportSize: viewportSize
@@ -371,23 +378,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         let widthMatches = image.size.width >= contentSize.width * 0.95
         let heightMatches = image.size.height >= contentSize.height * 0.95
         return widthMatches && heightMatches
-    }
-
-    private static func tileOrigins(contentLength: CGFloat, viewportLength: CGFloat) -> [CGFloat] {
-        guard contentLength > 0, viewportLength > 0 else { return [0] }
-        guard contentLength > viewportLength else { return [0] }
-
-        var origins: [CGFloat] = []
-        var next: CGFloat = 0
-        let last = max(0, contentLength - viewportLength)
-        while next < last {
-            origins.append(next)
-            next += viewportLength
-        }
-        if origins.last.map({ abs($0 - last) > 0.5 }) ?? true {
-            origins.append(last)
-        }
-        return origins
     }
 
     private static func blankImage(size: NSSize) -> NSImage {

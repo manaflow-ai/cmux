@@ -113,7 +113,8 @@ bounded; unsupported combinations leave the viewport unchanged and return
 `invalid_params` with `reason: viewport_zoom_render_geometry_too_large` and
 `maximum_page_zoom`. Close or detach an attached browser inspector before setting
 or resetting the viewport; the command otherwise returns `invalid_state` with
-`reason: attached_browser_inspector`.
+`reason: attached_browser_inspector`. Opening or redocking an attached inspector
+while emulation is active resets the viewport to native sizing.
 
 ## Known WKWebView Gaps (`not_supported`)
 

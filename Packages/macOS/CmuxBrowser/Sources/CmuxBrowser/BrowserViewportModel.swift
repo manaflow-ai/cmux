@@ -24,4 +24,12 @@ public final class BrowserViewportModel {
         self.viewport = viewport
         return true
     }
+
+    /// Resets emulation when WebKit adopts an incompatible attached inspector layout.
+    ///
+    /// - Returns: `true` when an emulated viewport was reset.
+    @discardableResult
+    public func resetForAttachedInspector() -> Bool {
+        setViewport(nil)
+    }
 }

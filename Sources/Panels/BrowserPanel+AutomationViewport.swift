@@ -61,6 +61,16 @@ extension BrowserPanel {
         }
     }
 
+    @discardableResult
+    func resetAutomationViewportForAttachedBrowserInspector() -> Bool {
+        guard viewportModel.resetForAttachedInspector() else { return false }
+        BrowserWindowPortalRegistry.refresh(
+            webView: webView,
+            reason: "attachedInspectorResetAutomationViewport"
+        )
+        return true
+    }
+
     func visualAutomationViewportSize() -> NSSize {
         if let viewport = viewportModel.viewport {
             return viewport.size

@@ -356,7 +356,9 @@ returns `invalid_params` with
 `maximum_page_zoom`. While emulation is active, browser zoom commands also stop
 at that maximum. A visible attached browser inspector owns the same layout;
 close or detach it before changing the viewport. In that state the v2 method
-returns `invalid_state` with `reason: attached_browser_inspector`.
+returns `invalid_state` with `reason: attached_browser_inspector`. Opening or
+redocking an attached inspector while emulation is active resets the viewport to
+native sizing before WebKit takes ownership of the split geometry.
 
 Hook subcommands:
 

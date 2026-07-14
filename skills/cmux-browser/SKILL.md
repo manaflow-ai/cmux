@@ -122,6 +122,8 @@ inspector-managed split layout cannot be combined with viewport emulation.
 Large viewport and page-zoom combinations are bounded; the viewport command
 returns structured `maximum_page_zoom` details without changing the current
 viewport when the combination exceeds the WKWebView render limits.
+Opening or redocking an attached browser inspector resets emulation to native
+sizing because WebKit owns the attached split geometry.
 
 ## Limits (WKWebView)
 

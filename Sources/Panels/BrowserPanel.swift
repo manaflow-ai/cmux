@@ -6486,6 +6486,7 @@ extension BrowserPanel {
             // (`consumeAttachedDeveloperToolsManualCloseIfNeeded`) refuses to
             // run and preserved visible intent can resurrect an inspector the
             // user explicitly closed.
+            resetAutomationViewportForAttachedBrowserInspector()
             setPreferredDeveloperToolsPresentation(.attached)
             developerToolsDetachedOpenGraceDeadline = nil
             if developerToolsLastAttachedHostAt == nil {
