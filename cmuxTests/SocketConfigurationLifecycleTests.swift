@@ -40,11 +40,17 @@ extension SocketACLReloadRegressionTests {
     func malformedAutomationSectionPreservesManagedPassword(section: String) throws {
         let defaults = UserDefaults.standard
         let originalDefaults = capturedSocketDefaults(defaults)
+        let originalAppearance = defaults.object(forKey: AppearanceSettings.appearanceModeKey)
         let directory = lifecycleTemporaryDirectory(prefix: "scfa")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appendingPathComponent("cmux.json")
         defer {
             restoreSocketDefaults(originalDefaults, in: defaults)
+            if let originalAppearance {
+                defaults.set(originalAppearance, forKey: AppearanceSettings.appearanceModeKey)
+            } else {
+                defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
+            }
             try? FileManager.default.removeItem(at: directory)
         }
 
@@ -58,10 +64,13 @@ extension SocketACLReloadRegressionTests {
         )
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.password.rawValue)
 
-        try "{\"automation\":\(section)}".write(to: configURL, atomically: true, encoding: .utf8)
+        defaults.set("system", forKey: AppearanceSettings.appearanceModeKey)
+        try "{\"app\":{\"appearance\":\"dark\"},\"automation\":\(section)}"
+            .write(to: configURL, atomically: true, encoding: .utf8)
         store.reload()
 
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.password.rawValue)
+        #expect(defaults.string(forKey: AppearanceSettings.appearanceModeKey) == "dark")
     }
 
     @Test(arguments: [SocketControlMode.cmuxOnly, .off])
@@ -95,6 +104,55 @@ extension SocketACLReloadRegressionTests {
         )
 
         #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == mode.rawValue)
+
+        _ = CmuxSettingsFileStore(
+            primaryPath: configURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == mode.rawValue)
+    }
+
+    @Test func missingPrimaryColdStartPreservesPasswordCredentialAcrossRelaunches() throws {
+        let defaults = UserDefaults.standard
+        let originalDefaults = capturedSocketDefaults(defaults)
+        let directory = lifecycleTemporaryDirectory(prefix: "scfpw")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let configURL = directory.appendingPathComponent("cmux.json")
+        let passwordStore = SocketControlPasswordStore(
+            environment: [:],
+            fileURL: directory.appendingPathComponent("socket-password")
+        )
+        defer {
+            restoreSocketDefaults(originalDefaults, in: defaults)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        resetSocketDefaults(defaults, unmanagedMode: .allowAll)
+        try passwordStore.savePassword("preserved-secret")
+        try writeConfig(mode: SocketControlMode.password.rawValue, to: configURL)
+        _ = CmuxSettingsFileStore(
+            primaryPath: configURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            passwordStore: passwordStore,
+            startWatching: false
+        )
+
+        try FileManager.default.removeItem(at: configURL)
+        for _ in 0..<2 {
+            _ = CmuxSettingsFileStore(
+                primaryPath: configURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                passwordStore: passwordStore,
+                startWatching: false
+            )
+            #expect(defaults.string(forKey: SocketControlSettings.appStorageKey) == SocketControlMode.password.rawValue)
+            #expect(try passwordStore.loadPassword() == "preserved-secret")
+        }
     }
 
     @Test func malformedReloadPreservesLastValidRestrictiveMode() throws {
