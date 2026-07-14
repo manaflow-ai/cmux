@@ -36,8 +36,10 @@ struct UnifiedFileExplorerSearchScopeTests {
         root.children = [unloadedDirectory, matchingFile]
         var filter = FileExplorerTreeFilter()
 
-        #expect(filter.update(query: "needle", nodes: [root]))
-        #expect(!filter.update(query: " needle ", nodes: [root]))
+        let activatedFilter = filter.update(query: "needle", nodes: [root])
+        let unchangedFilter = filter.update(query: " needle ", nodes: [root])
+        #expect(activatedFilter)
+        #expect(!unchangedFilter)
 
         #expect(filter.visibleNodes(in: [root]).map(\.path) == [root.path])
         #expect(filter.visibleNodes(in: root.sortedChildren ?? []).map(\.path) == [matchingFile.path])
@@ -158,6 +160,55 @@ struct UnifiedFileExplorerSearchScopeTests {
         #expect(container.focusSearchField())
         #expect(field.stringValue == "TODO")
         #expect(container.searchSnapshot.results == [result])
+    }
+
+    @Test("Clearing a name filter restores nested expansion")
+    func clearingNameFilterRestoresNestedExpansion() throws {
+        let previousMode = UserDefaults.standard.object(forKey: "rightSidebar.mode")
+        defer { Self.restore(previousMode, forKey: "rightSidebar.mode") }
+
+        let state = FileExplorerState()
+        state.mode = .files
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        let root = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
+        let nested = FileExplorerNode(name: "Nested", path: "/repo/Sources/Nested", isDirectory: true)
+        let match = FileExplorerNode(
+            name: "Needle.swift",
+            path: "/repo/Sources/Nested/Needle.swift",
+            isDirectory: false
+        )
+        nested.children = [match]
+        root.children = [nested]
+        store.rootNodes = [root]
+        store.expand(node: root)
+        store.expand(node: nested)
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: UnifiedSearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+        let field = try #require(Self.searchField(in: container))
+        let outline = try #require(Self.outlineView(in: container))
+        outline.expandItem(root)
+        outline.expandItem(nested)
+
+        field.stringValue = "needle"
+        container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        field.stringValue = ""
+        container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+
+        #expect(outline.isItemExpanded(root))
+        #expect(outline.isItemExpanded(nested))
     }
 
     private static func globValues(in arguments: [String]) -> [String] {
