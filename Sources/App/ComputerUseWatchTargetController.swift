@@ -124,6 +124,11 @@ final class ComputerUseWatchTargetController {
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     private let directoryWatchQueue = DispatchQueue(label: "com.cmuxterm.app.computerUseWatchTarget")
+    /// The untrusted state directory is scanned here, never on the main thread.
+    private let scanQueue = DispatchQueue(label: "com.cmuxterm.app.computerUseWatchTargetScan", qos: .utility)
+    /// At most one background scan is outstanding; further ticks are dropped until
+    /// it lands, which collapses a burst of watcher/timer events into one scan.
+    private var scanInFlight = false
     private var pollTimer: Timer?
     private var cancellables: Set<AnyCancellable> = []
     private var refreshCoalesceScheduled = false
@@ -186,6 +191,7 @@ final class ComputerUseWatchTargetController {
 
     func stop() {
         started = false
+        scanInFlight = false
         cancellables.removeAll()
         directoryWatchSource?.cancel()
         directoryWatchSource = nil
@@ -199,7 +205,31 @@ final class ComputerUseWatchTargetController {
         // untouched so toggling off/on does not re-front the same live target.
         guard featureEnabled() else { return }
 
-        let current = currentActiveTargetPID(now: Date())
+        // Never scan the untrusted state directory on the main thread. The driver
+        // rewrites its state files many times per second while driving, so doing
+        // the directory enumeration + JSON reads inline here floods the main
+        // thread with synchronous filesystem I/O and beachballs the app during
+        // active computer use. Run the I/O on a utility queue and validate +
+        // activate back on the main actor with the small `Sendable` snapshot;
+        // `scanInFlight` collapses a burst of watcher/timer events into one scan.
+        guard !scanInFlight else { return }
+        scanInFlight = true
+        let feed = self.feed
+        let directoryURL = self.stateDirectoryURL
+        scanQueue.async { [weak self] in
+            let state = feed.scan(directoryURL: directoryURL, now: Date())
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.scanInFlight = false
+                self.applyScannedState(state)
+            }
+        }
+    }
+
+    private func applyScannedState(_ state: ComputerUseDriverState?) {
+        guard featureEnabled() else { return }
+
+        let current = validatedTargetPID(from: state)
         guard
             let pidToActivate = ComputerUseWatchTargetDecision.activation(
                 current: current,
@@ -217,12 +247,12 @@ final class ComputerUseWatchTargetController {
         lastActivatedTargetPID = pidToActivate
     }
 
-    /// Resolves the pid of the app that is actively being driven right now, after
-    /// validating liveness + identity to reject reused/stale pids. Returns `nil`
-    /// when nothing is driving or the target fails validation.
-    private func currentActiveTargetPID(now: Date) -> Int? {
+    /// Validates the scanned driver state's target against liveness + identity to
+    /// reject reused/stale pids. Returns `nil` when nothing is driving or the
+    /// target fails validation. Runs on the main actor (touches `NSRunningApplication`).
+    private func validatedTargetPID(from state: ComputerUseDriverState?) -> Int? {
         guard
-            let state = feed.scan(directoryURL: stateDirectoryURL, now: now),
+            let state,
             let pid = pid_t(exactly: state.targetPID),
             // Never front cmux itself — only the external app under automation.
             pid != ProcessInfo.processInfo.processIdentifier,

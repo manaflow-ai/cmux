@@ -2,7 +2,6 @@ import AppKit
 import Combine
 import Darwin
 import Foundation
-import SwiftUI
 
 // MARK: - Untrusted cursor feed model
 
@@ -207,11 +206,10 @@ struct ComputerUseCursorFeed: Sendable {
 /// Converts feed coordinates (global, top-left origin) into AppKit global
 /// coordinates (bottom-left origin) and the overlay window origin.
 enum ComputerUseCursorOverlayGeometry {
-    /// Overlay window size. Roomy enough for the arrow, its bloom, and the pill.
-    static let windowSize = CGSize(width: 176, height: 66)
-    /// Distance from the window's top-left corner to the cursor hotspot (the tip
-    /// of the arrow tip). Kept in sync with `ComputerUseCursorGlyph.hotspotInset`.
-    static let hotspotInset: CGFloat = 22
+    /// Exact window size used by Lawrence's browser-agent pointer view.
+    static let windowSize = CGSize(width: 24, height: 30)
+    /// Distance from the window's top-left corner to the pointer tip.
+    static let hotspotInset: CGFloat = 0.5
 
     /// Flip a global top-left-origin feed point to a global AppKit bottom-left
     /// point. `primaryScreenMaxY` is `NSScreen.screens[0].frame.maxY` (the primary
@@ -231,7 +229,7 @@ enum ComputerUseCursorOverlayGeometry {
     }
 }
 
-// MARK: - Color parsing / presentation
+// MARK: - Color parsing
 
 enum ComputerUseCursorColorParsing {
     /// Validates and normalizes a `#rrggbb` / `#rrggbbaa` hex string (with or
@@ -243,126 +241,6 @@ enum ComputerUseCursorColorParsing {
         guard value.count == 6 || value.count == 8 else { return nil }
         guard value.allSatisfy(\.isHexDigit) else { return nil }
         return "#" + value.uppercased()
-    }
-}
-
-/// Immutable render inputs for the branded cursor glyph. Resolving defaults here
-/// keeps the SwiftUI view a pure function of value data.
-struct ComputerUseCursorPresentation: Equatable {
-    var gradientHexes: [String]
-    var bloomHex: String
-    var label: String
-
-    static let defaultGradientHexes = ["#12C7F5", "#2D8CFF", "#6C5CFF"]
-    static let defaultBloomHex = "#2D8CFF"
-    static let defaultLabel = "cmux"
-
-    static func make(from state: ComputerUseCursorState) -> ComputerUseCursorPresentation {
-        ComputerUseCursorPresentation(
-            gradientHexes: resolvedGradientHexes(state.gradient),
-            bloomHex: state.bloom ?? defaultBloomHex,
-            label: state.label ?? defaultLabel
-        )
-    }
-
-    /// Falls back to the branded cmux gradient when the feed omits stops.
-    static func resolvedGradientHexes(_ input: [String]) -> [String] {
-        let normalized = input.compactMap(ComputerUseCursorColorParsing.normalizedHex)
-        return normalized.isEmpty ? defaultGradientHexes : normalized
-    }
-
-    var gradientColors: [Color] {
-        gradientHexes.compactMap(Color.init(cmuxCursorHex:))
-    }
-
-    var bloomColor: Color {
-        Color(cmuxCursorHex: bloomHex) ?? Color(cmuxCursorHex: Self.defaultBloomHex) ?? .blue
-    }
-}
-
-extension Color {
-    init?(cmuxCursorHex hex: String) {
-        guard let normalized = ComputerUseCursorColorParsing.normalizedHex(hex) else { return nil }
-        let digits = normalized.dropFirst()
-        guard let value = UInt64(digits, radix: 16) else { return nil }
-        let r, g, b, a: Double
-        if digits.count == 8 {
-            r = Double((value & 0xFF00_0000) >> 24) / 255
-            g = Double((value & 0x00FF_0000) >> 16) / 255
-            b = Double((value & 0x0000_FF00) >> 8) / 255
-            a = Double(value & 0x0000_00FF) / 255
-        } else {
-            r = Double((value & 0xFF0000) >> 16) / 255
-            g = Double((value & 0x00FF00) >> 8) / 255
-            b = Double(value & 0x0000FF) / 255
-            a = 1
-        }
-        self.init(.sRGB, red: r, green: g, blue: b, opacity: a)
-    }
-}
-
-// MARK: - Branded cursor glyph
-
-/// The macOS-style arrow pointer silhouette (adapted from the browser agent
-/// cursor in PR #4494), with its tip at the top-left origin so it lands exactly
-/// on the reported hotspot. A single `Path` so one gradient fills it seamlessly.
-private struct CursorArrowShape: Shape {
-    /// Design-space points (top-left origin, y-down), tip normalized to (0,0).
-    private static let points: [CGPoint] = [
-        CGPoint(x: 0.0, y: 0.0),
-        CGPoint(x: 0.0, y: 22.0),
-        CGPoint(x: 6.0, y: 16.5),
-        CGPoint(x: 9.5, y: 26.5),
-        CGPoint(x: 14.5, y: 24.7),
-        CGPoint(x: 11.0, y: 14.5),
-        CGPoint(x: 18.0, y: 14.5),
-    ]
-    private static let designSize = CGSize(width: 18, height: 26.5)
-
-    func path(in rect: CGRect) -> Path {
-        let scale = min(rect.width / Self.designSize.width, rect.height / Self.designSize.height)
-        var path = Path()
-        for (index, point) in Self.points.enumerated() {
-            let scaled = CGPoint(x: rect.minX + point.x * scale, y: rect.minY + point.y * scale)
-            if index == 0 { path.move(to: scaled) } else { path.addLine(to: scaled) }
-        }
-        path.closeSubpath()
-        return path
-    }
-}
-
-/// A crisp macOS-style arrow pointer (silhouette from PR #4494) filled with the
-/// cmux logo gradient, with a white rim + soft shadow for contrast on any
-/// background. No label — just the clean pointer. Pure function of `presentation`.
-struct ComputerUseCursorGlyph: View {
-    /// Distance from the view's top-left to the arrow tip. Mirrors
-    /// `ComputerUseCursorOverlayGeometry.hotspotInset`.
-    static let hotspotInset: CGFloat = 22
-    private static let pointerSize = CGSize(width: 15, height: 22)
-
-    let presentation: ComputerUseCursorPresentation
-
-    var body: some View {
-        pointer
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(EdgeInsets(top: Self.hotspotInset, leading: Self.hotspotInset, bottom: 0, trailing: 0))
-    }
-
-    private var pointer: some View {
-        CursorArrowShape()
-            .fill(
-                LinearGradient(
-                    colors: presentation.gradientColors,
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .overlay(
-                CursorArrowShape()
-                    .stroke(Color.white.opacity(0.95), lineWidth: 1.2)
-            )
-            .frame(width: Self.pointerSize.width, height: Self.pointerSize.height)
-            .shadow(color: Color.black.opacity(0.35), radius: 2, x: 0, y: 1)
     }
 }
 
@@ -380,10 +258,14 @@ final class ComputerUseCursorOverlayController {
     private let glideDuration: TimeInterval
 
     private var panel: NSPanel?
-    private var hostingView: NSHostingView<ComputerUseCursorGlyph>?
-    private var currentPresentation: ComputerUseCursorPresentation?
+    private var pointerView: AgentCursorPointerView?
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     private let directoryWatchQueue = DispatchQueue(label: "com.cmuxterm.app.computerUseCursorWatch")
+    /// The untrusted feed directory is scanned here, never on the main thread.
+    private let scanQueue = DispatchQueue(label: "com.cmuxterm.app.computerUseCursorScan", qos: .utility)
+    /// At most one background scan is outstanding; further ticks are dropped until
+    /// it lands, which collapses a burst of watcher/timer events into one scan.
+    private var scanInFlight = false
     private var pollTimer: Timer?
     private var cancellables: Set<AnyCancellable> = []
     private var refreshCoalesceScheduled = false
@@ -432,6 +314,7 @@ final class ComputerUseCursorOverlayController {
 
     func stop() {
         started = false
+        scanInFlight = false
         cancellables.removeAll()
         directoryWatchSource?.cancel()
         directoryWatchSource = nil
@@ -445,7 +328,33 @@ final class ComputerUseCursorOverlayController {
             hide(animated: false)
             return
         }
-        guard let state = feed.scan(directoryURL: stateDirectoryURL, now: Date()) else {
+        // Never scan the untrusted feed directory on the main thread. The driver
+        // rewrites its state files many times per second while driving, so doing
+        // the directory enumeration + JSON reads inline here floods the main
+        // thread with synchronous filesystem I/O and beachballs the app during
+        // active computer use. Run the I/O on a utility queue and apply only the
+        // small `Sendable` snapshot back on the main actor; `scanInFlight`
+        // collapses a burst of poll ticks and filesystem events into one scan.
+        guard !scanInFlight else { return }
+        scanInFlight = true
+        let feed = self.feed
+        let directoryURL = self.stateDirectoryURL
+        scanQueue.async { [weak self] in
+            let state = feed.scan(directoryURL: directoryURL, now: Date())
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.scanInFlight = false
+                self.applyScannedState(state)
+            }
+        }
+    }
+
+    private func applyScannedState(_ state: ComputerUseCursorState?) {
+        guard featureEnabled() else {
+            hide(animated: false)
+            return
+        }
+        guard let state else {
             hide(animated: true)
             return
         }
@@ -454,12 +363,7 @@ final class ComputerUseCursorOverlayController {
 
     private func present(_ state: ComputerUseCursorState) {
         guard let primaryMaxY = NSScreen.screens.first?.frame.maxY else { return }
-        let presentation = ComputerUseCursorPresentation.make(from: state)
         let panel = ensurePanel()
-        if currentPresentation != presentation {
-            currentPresentation = presentation
-            hostingView?.rootView = ComputerUseCursorGlyph(presentation: presentation)
-        }
 
         let appKitPoint = ComputerUseCursorOverlayGeometry.appKitPoint(
             feedX: state.x,
@@ -476,6 +380,8 @@ final class ComputerUseCursorOverlayController {
             panel.setFrameOrigin(origin)
             panel.alphaValue = 0
             panel.orderFrontRegardless()
+            pointerView?.needsDisplay = true
+            pointerView?.displayIfNeeded()
             fade(panel, to: 1, animated: !reduceMotion)
             return
         }
@@ -561,13 +467,6 @@ final class ComputerUseCursorOverlayController {
     private func ensurePanel() -> NSPanel {
         if let panel { return panel }
 
-        let presentation = currentPresentation ?? ComputerUseCursorPresentation(
-            gradientHexes: ComputerUseCursorPresentation.defaultGradientHexes,
-            bloomHex: ComputerUseCursorPresentation.defaultBloomHex,
-            label: ComputerUseCursorPresentation.defaultLabel
-        )
-        currentPresentation = presentation
-
         let panel = NSPanel(
             contentRect: CGRect(origin: .zero, size: ComputerUseCursorOverlayGeometry.windowSize),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -587,19 +486,20 @@ final class ComputerUseCursorOverlayController {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.alphaValue = 0
 
-        let hosting = NSHostingView(rootView: ComputerUseCursorGlyph(presentation: presentation))
-        hosting.frame = CGRect(origin: .zero, size: ComputerUseCursorOverlayGeometry.windowSize)
-        hosting.autoresizingMask = [.width, .height]
-        hosting.setAccessibilityLabel(
+        let pointer = AgentCursorPointerView(
+            frame: CGRect(origin: .zero, size: ComputerUseCursorOverlayGeometry.windowSize)
+        )
+        pointer.autoresizingMask = [.width, .height]
+        pointer.setAccessibilityLabel(
             String(
                 localized: "computerUse.cursorOverlay.accessibilityLabel",
                 defaultValue: "Computer-use cursor"
             )
         )
-        panel.contentView = hosting
+        panel.contentView = pointer
 
         self.panel = panel
-        self.hostingView = hosting
+        self.pointerView = pointer
         return panel
     }
 }

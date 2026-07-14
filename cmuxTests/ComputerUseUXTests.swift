@@ -95,6 +95,7 @@ struct ComputerUseUXTests {
         }
     }
 
+    @MainActor
     @Test func onboardingSurfacesWhenPermissionsMissingEvenAfterSeen() {
         // Missing permission must surface regardless of `seen` — a dev rebuild
         // drops the TCC grant, and gating on `seen` left the user with no prompt.
@@ -417,24 +418,11 @@ struct ComputerUseUXTests {
         #expect(state.bloom == "#2D8CFF")
     }
 
-    @Test func cursorPresentationFallsBackToBrandedDefaults() {
-        // Empty gradient in the feed -> the branded cmux gradient.
-        #expect(
-            ComputerUseCursorPresentation.resolvedGradientHexes([])
-                == ComputerUseCursorPresentation.defaultGradientHexes
-        )
-        // Junk hex values are dropped; if none survive, defaults apply.
-        #expect(
-            ComputerUseCursorPresentation.resolvedGradientHexes(["not-a-color", "#zzzzzz"])
-                == ComputerUseCursorPresentation.defaultGradientHexes
-        )
-        let state = try? #require(ComputerUseCursorState(data: Data("""
-        {"driver_pid":7,"visible":true,"x":0,"y":0,"updated_at":"2026-07-14T01:09:37Z"}
-        """.utf8)))
-        let presentation = ComputerUseCursorPresentation.make(from: state!)
-        #expect(presentation.label == "cmux")
-        #expect(presentation.bloomHex == ComputerUseCursorPresentation.defaultBloomHex)
-        #expect(presentation.gradientHexes == ComputerUseCursorPresentation.defaultGradientHexes)
+    @Test func cursorColorParsingNormalizesFeedColors() {
+        #expect(ComputerUseCursorColorParsing.normalizedHex("12c7f5") == "#12C7F5")
+        #expect(ComputerUseCursorColorParsing.normalizedHex(" #2d8cff ") == "#2D8CFF")
+        #expect(ComputerUseCursorColorParsing.normalizedHex("#6c5cffcc") == "#6C5CFFCC")
+        #expect(ComputerUseCursorColorParsing.normalizedHex("not-a-color") == nil)
     }
 
     private func writeCursorState(
