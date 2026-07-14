@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 use ghostty_vt::{
     ATTR_BLINK, ATTR_BOLD, ATTR_FAINT, ATTR_INVERSE, ATTR_INVISIBLE, ATTR_ITALIC,
     ATTR_STRIKETHROUGH, Callbacks, Cell, CellWidth, Dirty, RenderFrame, RenderState, Rgb, Terminal,
@@ -142,16 +144,40 @@ fn styled_history_reads_oldest_rows_without_mutating_viewport_or_damage() {
 
 #[test]
 fn history_eviction_is_byte_capped_and_oldest_index_advances() {
-    // Ghostty's cap is bytes and eviction is page-granular, so the retained
-    // row count is deliberately not asserted exactly.
-    let mut term = Terminal::new(20, 4, 1_000_000, Callbacks::default()).unwrap();
-    for index in 0..2000 {
+    const COLS: usize = 20;
+    const VIEWPORT_ROWS: usize = 4;
+    const SCROLLBACK_CAP_BYTES: usize = 1_000_000;
+    const TERMINAL_PAGE_BYTES: usize = 512 * 1024;
+    const WRITTEN_ROWS: usize = 20_000;
+
+    // Ghostty stores each row descriptor and cell in packed u64s. Its cap is
+    // bytes and eviction is terminal-page-granular, so allow one standard
+    // page of slack instead of asserting an allocator-dependent row count.
+    const MIN_BACKING_BYTES_PER_ROW: usize = (COLS + 1) * size_of::<u64>();
+
+    let mut term = Terminal::new(
+        COLS as u16,
+        VIEWPORT_ROWS as u16,
+        SCROLLBACK_CAP_BYTES,
+        Callbacks::default(),
+    )
+    .unwrap();
+    for index in 0..WRITTEN_ROWS {
         term.vt_write(format!("line{index:04}\r\n").as_bytes());
     }
 
     let retained = term.history_rows();
     assert!(retained > 0);
-    assert!(retained < 1997, "cap did not evict history: retained {retained}");
+    let written_history = WRITTEN_ROWS - (VIEWPORT_ROWS - 1);
+    assert!(
+        (retained as usize) < written_history,
+        "cap did not evict history: retained {retained} of {written_history}"
+    );
+    let retained_backing_bytes = retained as usize * MIN_BACKING_BYTES_PER_ROW;
+    assert!(
+        retained_backing_bytes <= SCROLLBACK_CAP_BYTES + TERMINAL_PAGE_BYTES,
+        "retained history exceeds cap plus one page: {retained_backing_bytes} bytes"
+    );
 
     let oldest = term.styled_history_rows(0, 1).unwrap();
     let newest = term.styled_history_rows(retained - 1, 1).unwrap();
