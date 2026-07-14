@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import Testing
 
@@ -32,16 +33,17 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(try #require(updated.first).cmuxRuntime == currentRuntime)
     }
 
-    @Test func completedGenerationRejectsNotificationResolution() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-rejected-approval-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+    @Test func completedGenerationRejectsApprovalResponseVisibleMutations() throws {
+        let harness = ClaudeHookSurfaceResolutionSwiftTests()
+        let context = try harness.makeClaudeHookContext(name: "ended-approval")
+        defer { context.cleanup() }
+        let stateURL = context.root.appendingPathComponent("hermes-agent-hook-sessions.json")
         try JSONSerialization.data(withJSONObject: [
             "version": 2,
             "sessions": ["completed-session": [
-                "sessionId": "completed-session", "workspaceId": "workspace", "surfaceId": "surface",
+                "sessionId": "completed-session",
+                "workspaceId": context.workspaceId,
+                "surfaceId": context.surfaceId,
                 "completedAt": 200.0, "sessionState": "ended", "startedAt": 100.0, "updatedAt": 200.0,
                 "runs": [[
                     "runId": "completed-run", "restoreAuthority": false,
@@ -49,18 +51,39 @@ extension CMUXCLIErrorOutputRegressionTests {
                 ]],
             ]],
         ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
-        let store = ClaudeHookSessionStore(
-            processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path], agentName: "codex"
+        let ttyName = "ttys-ended-approval"
+        let handled = harness.startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: ttyName,
+            ttySurfaceId: context.surfaceId
+        )
+        var environment = harness.claudeHookEnvironment(
+            context: context,
+            surfaceId: context.surfaceId,
+            ttyName: ttyName,
+            storeURL: stateURL
+        )
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+
+        let result = harness.runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "hermes-agent", "approval-response"],
+            environment: environment,
+            standardInput: #"{"session_id":"completed-session","hook_event_name":"post_approval_response"}"#,
+            timeout: 5
         )
 
-        let accepted = try store.markNotificationResolved(
-            sessionId: "completed-session", workspaceId: "workspace", surfaceId: "surface", cwd: root.path
-        )
-
-        #expect(!accepted)
-        let saved = try #require(store.lookup(sessionId: "completed-session"))
-        #expect(saved.completedAt == 200)
-        #expect(saved.sessionState == .ended)
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut)
+        #expect(result.status == 0)
+        let commands = context.state.snapshot()
+        #expect(!commands.contains { command in
+            command.contains("set_status hermes-agent ")
+                || command.contains("set_agent_pid hermes-agent ")
+                || command.contains("clear_notifications")
+                || command.contains(#""method":"surface.resume.set""#)
+        })
     }
 
     @Test func codexTeamsThreadIdentityDoesNotLeakAcrossProviders() {
@@ -109,41 +132,26 @@ extension CMUXCLIErrorOutputRegressionTests {
         ))
     }
 
-    @Test func rejectedCompletedGenerationIsReportedByStore() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-rejected-upsert-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
-        let pid = Int(getpid())
-        let environment = ["CMUX_CLAUDE_HOOK_STATE_PATH": stateURL.path]
-        let lineage = AgentHookSessionLineageResolver().resolve(
-            agentName: "codex", sessionId: "completed-session", pid: pid, environment: environment
+    @Test func completedGenerationCannotReactivateThroughSameProcessLineage() {
+        let completedRun = AgentSessionRunRecord(
+            runId: "completed-run", pid: 123, processStartedAt: 100,
+            parentRunId: nil, parentSessionId: nil, relationship: nil,
+            restoreAuthority: false, startedAt: 100, updatedAt: 200, endedAt: 200
         )
-        let processStartedAt = try #require(lineage.processStartedAt)
-        try JSONSerialization.data(withJSONObject: [
-            "version": 2,
-            "sessions": ["completed-session": [
-                "sessionId": "completed-session", "workspaceId": "workspace", "surfaceId": "surface",
-                "completedAt": 200.0, "sessionState": "ended", "startedAt": 100.0, "updatedAt": 200.0,
-                "runs": [[
-                    "runId": lineage.runId, "pid": pid, "processStartedAt": processStartedAt,
-                    "restoreAuthority": false, "startedAt": 100.0, "updatedAt": 200.0, "endedAt": 200.0,
-                ]],
-            ]],
-        ], options: [.sortedKeys]).write(to: stateURL, options: .atomic)
-        let store = ClaudeHookSessionStore(processEnv: environment, agentName: "codex")
-
-        let accepted = try store.upsert(
+        let record = ClaudeHookSessionRecord(
             sessionId: "completed-session", workspaceId: "workspace", surfaceId: "surface",
-            cwd: root.path, pid: pid
+            startedAt: 100, updatedAt: 200, sessionState: .ended,
+            runs: [completedRun], completedAt: 200
+        )
+        let sameProcess = AgentHookSessionLineage(
+            runId: completedRun.runId, pid: completedRun.pid,
+            processStartedAt: completedRun.processStartedAt,
+            parentRunId: nil, parentSessionId: nil, relationship: nil, restoreAuthority: true
         )
 
-        #expect(!accepted)
-        let saved = try #require(store.lookup(sessionId: "completed-session"))
-        #expect(saved.completedAt == 200)
-        #expect(saved.sessionState == .ended)
-        #expect(saved.activeRunId == nil)
+        #expect(!AgentHookSessionActivationPolicy().canActivate(
+            record: record, lineage: sameProcess, hasIncomingPID: true
+        ))
     }
 
     @Test func queuedLifecycleCannotOverwriteNewerRecordGeneration() throws {

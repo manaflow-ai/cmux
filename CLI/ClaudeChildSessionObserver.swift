@@ -29,7 +29,7 @@ struct ClaudeChildSessionObserver: Sendable {
             runtimeStatus: .running,
             updateRuntimeStatus: true
         )
-        try? store.reconcileSemanticState(
+        _ = try? store.reconcileSemanticState(
             sessionId: sessionId,
             foregroundState: .working,
             attentionState: AgentAttentionState.none
@@ -64,7 +64,7 @@ struct ClaudeChildSessionObserver: Sendable {
             runtimeStatus: busy ? .running : .idle,
             updateRuntimeStatus: true
         )
-        try? store.reconcileSemanticState(
+        _ = try? store.reconcileSemanticState(
             sessionId: sessionId,
             foregroundState: AgentStopStateAdapter().isInterrupted(
                 provider: "claude",

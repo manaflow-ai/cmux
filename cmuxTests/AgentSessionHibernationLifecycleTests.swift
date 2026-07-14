@@ -237,11 +237,13 @@ extension AgentHibernationTests {
             now: 3
         )
         var attributes = try FileManager.default.attributesOfItem(atPath: storeURL.path)
-        expectEqual(try #require(attributes[.posixPermissions] as? NSNumber).intValue & 0o777, 0o600)
+        var permissions = try #require(attributes[.posixPermissions] as? NSNumber)
+        expectEqual(permissions.intValue & 0o777, 0o600)
 
         writer.completeSynchronously(kind: .codex, sessionId: sessionId, now: 4)
         attributes = try FileManager.default.attributesOfItem(atPath: storeURL.path)
-        expectEqual(try #require(attributes[.posixPermissions] as? NSNumber).intValue & 0o777, 0o600)
+        permissions = try #require(attributes[.posixPermissions] as? NSNumber)
+        expectEqual(permissions.intValue & 0o777, 0o600)
     }
 
 }
