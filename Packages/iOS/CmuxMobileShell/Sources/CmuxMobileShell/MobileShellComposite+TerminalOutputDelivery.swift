@@ -330,7 +330,7 @@ extension MobileShellComposite {
                     terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
                     let replayBarrierToken = beginTerminalReplayBarrier(
                         surfaceID: surfaceID,
-                        preservingFollowUpCount: true
+                        continuingReplayEpisode: true
                     )
                     if coldAttachReplayBarrier {
                         terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken

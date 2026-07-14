@@ -70,7 +70,13 @@ nonisolated struct MobileViewportFontFitState: Equatable {
             return
         }
         baseFontPointSize = liveFont.pointSize
-        baseWasUserAdjusted = liveFont.isAdjusted
+        // Ghostty's adjusted bit does not identify inherited per-surface
+        // template fonts. If reset would land on a different configured font,
+        // this surface owns an exact baseline that must be reapplied after it.
+        baseWasUserAdjusted = liveFont.isAdjusted || !mobileViewportFontSizesApproximatelyEqual(
+            liveFont.pointSize,
+            configuredFontPointSize
+        )
     }
 
     mutating func begin(
