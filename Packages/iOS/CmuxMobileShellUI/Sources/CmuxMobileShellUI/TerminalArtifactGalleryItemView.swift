@@ -162,16 +162,34 @@ struct TerminalArtifactGalleryItemView: View {
 
     private var metadataText: String? {
         var components: [String] = []
+        if artifact.kind == .directory, let childCount = artifact.childCount {
+            components.append(childCountText(childCount))
+        }
         if let modifiedAt = artifact.modifiedAt {
             components.append(modifiedAt.formatted(date: .abbreviated, time: .omitted))
         }
-        if let size = artifact.size {
+        if artifact.kind != .directory, let size = artifact.size {
             components.append(ByteCountFormatter.string(
                 fromByteCount: max(0, size),
                 countStyle: .file
             ))
         }
         return components.isEmpty ? nil : components.joined(separator: " · ")
+    }
+
+    private func childCountText(_ childCount: Int) -> String {
+        if artifact.childCountIsCapped {
+            return String(
+                localized: "terminal.artifact.gallery.child_count_capped",
+                defaultValue: "\(childCount)+ items",
+                bundle: .module
+            )
+        }
+        return String(
+            localized: "terminal.artifact.gallery.child_count",
+            defaultValue: "^[\(childCount) item](inflect: true)",
+            bundle: .module
+        )
     }
 
     private var detailText: String? {

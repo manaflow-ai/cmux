@@ -341,10 +341,14 @@ public actor MobileChatEventSource: ChatEventSource {
         if let query, !query.isEmpty {
             params["query"] = query
         }
-        return try await artifactCall(
+        if supportsArtifactFolders {
+            params["include_directories"] = true
+        }
+        let page: ChatArtifactGalleryPage = try await artifactCall(
             method: "mobile.chat.artifact.gallery",
             params: params
         )
+        return supportsArtifactFolders ? page : page.excludingDirectories()
     }
 
     /// Scans file references rendered by one terminal surface.
@@ -372,6 +376,9 @@ public actor MobileChatEventSource: ChatEventSource {
         }
         if countOnly {
             params["count_only"] = true
+        }
+        if supportsTerminalArtifactList {
+            params["include_directories"] = true
         }
         return try await artifactCall(
             method: "mobile.terminal.artifact.scan",

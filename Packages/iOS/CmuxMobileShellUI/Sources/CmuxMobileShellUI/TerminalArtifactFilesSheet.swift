@@ -106,7 +106,9 @@ struct TerminalArtifactFilesSheet: View {
                 visibleOnly: true
             )
             guard !Task.isCancelled else { return }
-            let files = response.artifacts.filter { $0.kind != .directory }
+            let files = source.supportsTerminalArtifactList
+                ? response.artifacts
+                : response.artifacts.filter { $0.kind != .directory }
             inViewState = .loaded(files)
             guard source.supportsArtifactGallery,
                   let resolvedSessionID = response.sessionID?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -139,7 +141,10 @@ struct TerminalArtifactFilesSheet: View {
                 visibleOnly: true
             )
             guard !Task.isCancelled else { return }
-            inViewState = .loaded(response.artifacts.filter { $0.kind != .directory })
+            let files = source.supportsTerminalArtifactList
+                ? response.artifacts
+                : response.artifacts.filter { $0.kind != .directory }
+            inViewState = .loaded(files)
         } catch is CancellationError {
             return
         } catch {

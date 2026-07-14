@@ -43,6 +43,7 @@ extension TerminalController {
     func v2MobileTerminalArtifactScan(params: [String: Any]) async -> V2CallResult {
         let visibleOnly = v2Bool(params, "visible_only") ?? false
         let countOnly = v2Bool(params, "count_only") ?? false
+        let includeDirectories = v2Bool(params, "include_directories") ?? false
         let resolution = mobileTerminalArtifactContext(
             params: params,
             requiresPath: false,
@@ -76,7 +77,7 @@ extension TerminalController {
             }
         }
         let response = await Task.detached(priority: .utility) {
-            context.scan()
+            context.scan(includeDirectories: includeDirectories)
         }.value
         return TerminalArtifactWire.result(response)
     }
@@ -324,7 +325,7 @@ private struct TerminalArtifactReadContext: Sendable {
         self.directoryAccessMode = directoryAccessMode
     }
 
-    func scan() -> TerminalArtifactScanResponse {
+    func scan(includeDirectories: Bool) -> TerminalArtifactScanResponse {
         let reader = ArtifactByteReader()
         let scope = TerminalArtifactScope(
             terminalText: terminalText,
@@ -334,9 +335,7 @@ private struct TerminalArtifactReadContext: Sendable {
         )
         let artifacts = scope.artifactPaths(limit: 200).compactMap { path -> TerminalArtifactReference? in
             guard let stat = try? reader.stat(path: path) else { return nil }
-            // Terminal gallery v1 is file-only. Tap-to-path bypasses scan, so
-            // folder navigation and a smarter high-count strategy can be deferred.
-            guard !stat.isDirectory else { return nil }
+            guard includeDirectories || !stat.isDirectory else { return nil }
             return TerminalArtifactReference(
                 path: path,
                 kind: stat.kind,

@@ -54,4 +54,23 @@ public struct ChatArtifactGalleryPage: Sendable, Equatable, Codable {
         nextCursor = try? container.decode(String.self, forKey: .nextCursor)
         generation = (try? container.decode(String.self, forKey: .generation)) ?? ""
     }
+
+    /// Returns a compatibility view with directory rows removed.
+    ///
+    /// New clients use this when connected to a host that does not advertise
+    /// folder gallery support.
+    public func excludingDirectories() -> ChatArtifactGalleryPage {
+        let filteredCreated = created.filter { $0.kind != .directory }
+        let filteredAttached = attached.filter { $0.kind != .directory }
+        let filteredReferenced = referenced.filter { $0.kind != .directory }
+        return ChatArtifactGalleryPage(
+            sessionID: sessionID,
+            created: filteredCreated,
+            attached: filteredAttached,
+            referenced: filteredReferenced,
+            referencedTotal: max(0, referencedTotal - (referenced.count - filteredReferenced.count)),
+            nextCursor: nextCursor,
+            generation: generation
+        )
+    }
 }

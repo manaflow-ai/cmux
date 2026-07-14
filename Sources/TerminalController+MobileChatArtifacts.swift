@@ -42,6 +42,7 @@ extension TerminalController {
             }
             let pageSize = min(max(v2Int(params, "page_size") ?? 60, 1), 100)
             let query = v2RawString(params, "query")
+            let includeDirectories = v2Bool(params, "include_directories") ?? false
             let page = await Task.detached(priority: .utility) {
                 AgentChatArtifactGalleryBuilder().page(
                     sessionID: indexedSession.sessionID,
@@ -49,7 +50,8 @@ extension TerminalController {
                     generation: indexedSession.snapshot.generation,
                     cursor: cursor,
                     pageSize: pageSize,
-                    query: query
+                    query: query,
+                    includeDirectories: includeDirectories
                 )
             }.value
             var payload = ChatArtifactWire.payload(page) ?? [:]
