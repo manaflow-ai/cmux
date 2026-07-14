@@ -55,16 +55,15 @@ struct TextBoxSubmitActionMemoryTests {
     @Test
     func testConfiguredDefaultChangeClearsRememberedMode() throws {
         let defaults = try makeIsolatedDefaults()
-        defaults.set(TextBoxSubmitAction.textEntryAction.id, forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
         let panelState = TerminalPanelTextBoxState(defaults: defaults)
 
         panelState.selectSubmitAction("codex", defaults: defaults)
-        defaults.set("claude", forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
+        defaults.set(TextBoxSubmitAction.textEntryAction.id, forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
 
         #expect(TerminalPanelTextBoxState(defaults: defaults).selectedSubmitActionID == nil)
-        #expect(TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults) == "claude")
+        #expect(TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults) == TextBoxSubmitAction.textEntryAction.id)
 
-        defaults.set(TextBoxSubmitAction.textEntryAction.id, forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
+        defaults.removeObject(forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)
         #expect(TerminalPanelTextBoxState(defaults: defaults).selectedSubmitActionID == nil)
     }
 
