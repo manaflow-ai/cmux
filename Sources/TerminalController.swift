@@ -13708,7 +13708,7 @@ class TerminalController {
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.close", "terminal.close":
-            result = v2MobileTerminalClose(params: request.params)
+            result = await v2MobileTerminalClose(params: request.params)
         case "mobile.terminal.reorder", "terminal.reorder":
             result = v2MobileTerminalReorder(params: request.params)
         case "mobile.terminal.input", "terminal.input":

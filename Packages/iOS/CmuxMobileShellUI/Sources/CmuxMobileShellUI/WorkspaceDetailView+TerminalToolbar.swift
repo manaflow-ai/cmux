@@ -100,8 +100,44 @@ extension WorkspaceDetailView {
     private func presentTerminalCreationOutcome(
         _ result: Result<Void, MobileWorkspaceMutationFailure>
     ) {
-        guard case .failure(.resultUnknownRefreshed) = result else { return }
-        terminalCreationResultUnknownRefreshed = true
+        switch TerminalHierarchyCreationResultPresentation(result) {
+        case .created:
+            break
+        case .appliedNeedsRefresh:
+            terminalCreationRefreshResultIsUnknown = false
+            terminalCreationNeedsRefresh = true
+        case .resultUnknownNeedsRefresh:
+            terminalCreationRefreshResultIsUnknown = true
+            terminalCreationNeedsRefresh = true
+        case .resultUnknownRefreshed:
+            terminalCreationResultUnknownRefreshed = true
+        case .failed:
+            terminalCreationFailed = true
+        }
+    }
+
+    var terminalCreationRefreshAlertTitle: String {
+        terminalCreationRefreshResultIsUnknown
+            ? L10n.string(
+                "mobile.terminal.hierarchy.resultUnknownTitle",
+                defaultValue: "Terminal State Unknown"
+            )
+            : L10n.string(
+                "mobile.terminal.hierarchy.refreshTitle",
+                defaultValue: "Change Applied"
+            )
+    }
+
+    var terminalCreationRefreshAlertMessage: String {
+        terminalCreationRefreshResultIsUnknown
+            ? L10n.string(
+                "mobile.terminal.hierarchy.resultUnknownMessage",
+                defaultValue: "The Mac may have applied the change. Refresh before making another change."
+            )
+            : L10n.string(
+                "mobile.terminal.hierarchy.refreshMessage",
+                defaultValue: "The Mac applied the change, but this list could not refresh. Refresh before making another change."
+            )
     }
 
     private var canCreateTerminalFromHierarchy: Bool {

@@ -518,6 +518,23 @@ final class RemoteTmuxController {
         return mirrorTabActivityFromCache(target: target)
     }
 
+    /// Returns a fresh close-time answer, or `nil` when tmux cannot answer.
+    /// Destructive callers use the optional result to fail closed instead of
+    /// treating a stale cached idle sample as permission to kill the window.
+    func queryLiveMirrorTabActivity(
+        workspaceId: UUID,
+        panelId: UUID
+    ) async -> MirrorTabActivity? {
+        await withCheckedContinuation { continuation in
+            queryLiveMirrorTabActivity(
+                workspaceId: workspaceId,
+                panelId: panelId
+            ) { activity in
+                continuation.resume(returning: activity)
+            }
+        }
+    }
+
     /// Live, close-time variant of ``cachedMirrorTabActivity(workspaceId:panelId:)``:
     /// asks tmux NOW (one round trip) instead of trusting the subscription cache,
     /// which tmux only refreshes about once a second — so a command started right
@@ -528,24 +545,38 @@ final class RemoteTmuxController {
     func queryMirrorTabActivity(
         workspaceId: UUID, panelId: UUID, completion: @escaping (MirrorTabActivity) -> Void
     ) {
+        let cached = cachedMirrorTabActivity(workspaceId: workspaceId, panelId: panelId)
+        queryLiveMirrorTabActivity(workspaceId: workspaceId, panelId: panelId) { activity in
+            completion(activity ?? cached ?? MirrorTabActivity(
+                hasActiveCommand: false,
+                activeCommandName: nil
+            ))
+        }
+    }
+
+    private func queryLiveMirrorTabActivity(
+        workspaceId: UUID,
+        panelId: UUID,
+        completion: @escaping (MirrorTabActivity?) -> Void
+    ) {
         guard let target = mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId) else {
-            completion(MirrorTabActivity(hasActiveCommand: false, activeCommandName: nil))
+            completion(nil)
             return
         }
         // Strong captures: the controller is app-lifetime and the completion
         // fires exactly once (flushed on stream resets), so nothing can leak.
         target.mirror.connection.queryWindowActivity(windowId: target.windowId) { states in
-            if let states {
-                let connection = target.mirror.connection
-                completion(Self.mirrorTabActivity(
-                    states: states,
-                    paneOrder: connection.windowsByID[target.windowId]?.paneIDsInOrder
-                        ?? Array(states.keys).sorted(),
-                    activePaneId: connection.activePaneByWindow[target.windowId]
-                ))
-            } else {
-                completion(self.mirrorTabActivityFromCache(target: target))
+            guard let states else {
+                completion(nil)
+                return
             }
+            let connection = target.mirror.connection
+            completion(Self.mirrorTabActivity(
+                states: states,
+                paneOrder: connection.windowsByID[target.windowId]?.paneIDsInOrder
+                    ?? Array(states.keys).sorted(),
+                activePaneId: connection.activePaneByWindow[target.windowId]
+            ))
         }
     }
 

@@ -42,7 +42,7 @@ extension TerminalController {
     }
 
     /// Closes one exact terminal after the iOS consequence UI has confirmed it.
-    func v2MobileTerminalClose(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalClose(params: [String: Any]) async -> V2CallResult {
         guard v2UUID(params, "workspace_id") != nil else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
@@ -60,12 +60,46 @@ extension TerminalController {
         guard !resolved.workspace.pinnedPanelIds.contains(surfaceID) else {
             return .err(code: "protected", message: "Pinned terminals cannot be closed", data: nil)
         }
-        if resolved.workspace.panelNeedsConfirmClose(panelId: surfaceID), v2Bool(params, "confirmed") != true {
+        let confirmed = v2Bool(params, "confirmed") == true
+        let needsConfirmation: Bool
+        if resolved.workspace.isRemoteTmuxMirror {
+            let remoteTmuxController = AppDelegate.shared?.remoteTmuxController
+            let cachedHasActiveCommand = remoteTmuxController?
+                .cachedMirrorTabActivity(
+                    workspaceId: resolved.workspace.id,
+                    panelId: surfaceID
+                )?
+                .hasActiveCommand
+            let liveHasActiveCommand = await remoteTmuxController?
+                .queryLiveMirrorTabActivity(
+                    workspaceId: resolved.workspace.id,
+                    panelId: surfaceID
+                )?
+                .hasActiveCommand
+            needsConfirmation = Workspace.resolveMobileRemoteCloseConfirmation(
+                cachedHasActiveCommand: cachedHasActiveCommand,
+                liveHasActiveCommand: liveHasActiveCommand
+            )
+        } else {
+            needsConfirmation = resolved.workspace.panelNeedsConfirmClose(panelId: surfaceID)
+        }
+        if needsConfirmation, !confirmed {
             return .err(
                 code: "confirmation_required",
                 message: "Closing this terminal ends its running processes",
                 data: ["requires_confirmation": true]
             )
+        }
+        // A live tmux query suspends this handler. Revalidate the destructive
+        // target and its policy constraints before applying the close.
+        guard resolved.workspace.terminalPanel(for: surfaceID) != nil else {
+            return .err(code: "not_found", message: "Terminal not found", data: nil)
+        }
+        guard resolved.workspace.panels.count > 1 else {
+            return .err(code: "invalid_state", message: "The workspace must keep at least one item", data: nil)
+        }
+        guard !resolved.workspace.pinnedPanelIds.contains(surfaceID) else {
+            return .err(code: "protected", message: "Pinned terminals cannot be closed", data: nil)
         }
         guard closeSurfaceRecordingHistory(in: resolved.workspace, surfaceId: surfaceID, force: true) else {
             return .err(code: "internal_error", message: "Failed to close terminal", data: nil)

@@ -39,6 +39,16 @@ struct CloseOtherTabsConfirmationPrompt: Sendable {
 }
 
 extension Workspace {
+    /// Mobile remote-tmux closes require the live close-time answer. The cache
+    /// is diagnostic context only: a missing live answer must keep the terminal
+    /// until the user explicitly confirms the destructive close.
+    nonisolated static func resolveMobileRemoteCloseConfirmation(
+        cachedHasActiveCommand _: Bool?,
+        liveHasActiveCommand: Bool?
+    ) -> Bool {
+        liveHasActiveCommand ?? true
+    }
+
     /// Closure overload for hot paths that already have a terminal fallback.
     /// Known shell activity resolves without touching Ghostty process state.
     func panelNeedsConfirmClose(

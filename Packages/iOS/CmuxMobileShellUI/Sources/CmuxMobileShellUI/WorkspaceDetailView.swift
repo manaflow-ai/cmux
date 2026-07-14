@@ -65,6 +65,9 @@ struct WorkspaceDetailView: View {
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     @State var isTerminalHierarchyPresented = false
     @State var terminalCreationResultUnknownRefreshed = false
+    @State var terminalCreationFailed = false
+    @State var terminalCreationNeedsRefresh = false
+    @State var terminalCreationRefreshResultIsUnknown = false
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -160,6 +163,31 @@ struct WorkspaceDetailView: View {
             .terminalHierarchyResultUnknownRefreshedAlert(
                 isPresented: $terminalCreationResultUnknownRefreshed
             )
+            .alert(
+                L10n.string(
+                    "mobile.terminal.hierarchy.errorTitle",
+                    defaultValue: "Couldn't Update Terminals"
+                ),
+                isPresented: $terminalCreationFailed
+            ) {
+                Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+            } message: {
+                Text(L10n.string(
+                    "mobile.terminal.hierarchy.errorMessage",
+                    defaultValue: "The Mac kept the previous terminal state. Check the connection and try again."
+                ))
+            }
+            .alert(
+                terminalCreationRefreshAlertTitle,
+                isPresented: $terminalCreationNeedsRefresh
+            ) {
+                Button(L10n.string("mobile.common.refresh", defaultValue: "Refresh")) {
+                    createTerminalFromToolbar()
+                }
+                Button(L10n.string("mobile.common.later", defaultValue: "Later"), role: .cancel) {}
+            } message: {
+                Text(terminalCreationRefreshAlertMessage)
+            }
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #else
         content
