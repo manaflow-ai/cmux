@@ -50,6 +50,20 @@ extension GhosttySurfaceView {
             pending.cancel()
             pending.continuation.resume(returning: nil)
         }
+
+        if let pending = pendingVerifiedReplayPresentation,
+           now - pending.startedAt >= effectiveOutputApplyTimeout {
+            pendingVerifiedReplayPresentation = nil
+            let elapsedMs = Int((now - pending.startedAt) * 1000)
+            MobileDebugLog.anchormux("verified_replay.TIMEOUT elapsedMs=\(elapsedMs)")
+            let recovered = recoverRenderPipeline(
+                reason: "verified_replay_timeout",
+                stalledMs: elapsedMs,
+                replay: .callerWillRequestReplay
+            )
+            pending.continuation.resume(returning: nil)
+            return recovered
+        }
         return false
     }
 

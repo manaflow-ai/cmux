@@ -174,8 +174,13 @@ final class MobileTerminalRenderObserver {
 
     private func emitRenderGrid(surfaceID: UUID) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
+        let renderRevision = MobileTerminalByteTee.shared.nextRenderRevision(surfaceID: surfaceID)
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
-              let snapshot = surface.mobileRenderGridFrame(stateSeq: stateSeq, full: true) else {
+              let snapshot = surface.mobileRenderGridFrame(
+                stateSeq: stateSeq,
+                renderRevision: renderRevision,
+                full: true
+              ) else {
             renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
             return
         }
@@ -190,7 +195,8 @@ final class MobileTerminalRenderObserver {
         #if DEBUG
         cmuxDebugLog(
             "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) full=\(frame.full) " +
-                "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) seq=\(frame.stateSeq)"
+                "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) " +
+                "seq=\(frame.stateSeq) revision=\(frame.renderRevision)"
         )
         #endif
     }

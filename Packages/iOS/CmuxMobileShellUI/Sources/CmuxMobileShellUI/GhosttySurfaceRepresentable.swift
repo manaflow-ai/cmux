@@ -195,6 +195,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// `updateUIView` for the same generation does not rebuild the config again.
         var lastAppliedThemeGeneration: UInt64 = 0
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
+        private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
         /// Serializes the natural-grid viewport reports and their echoes. One
         /// detached Task per report (the previous shape) let Task scheduling
         /// scramble the send order AND let the echo of an old keyboard-up
@@ -285,6 +286,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
                     guard let surfaceView else { return }
+                    if let frame = chunk.sourceRenderGridFrame,
+                       frame.renderRevision > 0 {
+                        await self.applyVerifiedRenderGrid(
+                            frame,
+                            chunk: chunk,
+                            surfaceView: surfaceView,
+                            store: store
+                        )
+                        continue
+                    }
                     switch chunk.viewportPolicy {
                     case .natural:
                         self.activeViewportPolicy = .natural
@@ -349,6 +360,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         func detach() {
             outputTask?.cancel()
             outputTask = nil
+            verifiedReplayState.invalidate()
             liveFontTask?.cancel()
             liveFontTask = nil
             artifactCountTask?.cancel()
@@ -357,6 +369,84 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             artifactCountState.reset()
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
+        }
+
+        private func applyVerifiedRenderGrid(
+            _ frame: MobileTerminalRenderGridFrame,
+            chunk: MobileTerminalOutputChunk,
+            surfaceView: GhosttySurfaceView,
+            store: CMUXMobileShellStore
+        ) async {
+            guard case .apply(let transaction) = verifiedReplayState.begin(frame: frame) else {
+                surfaceView.freezeVerifiedReplayPresentation(transactionID: frame.renderRevision)
+                store.terminalOutputDidReset(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken
+                )
+                return
+            }
+
+            surfaceView.freezeVerifiedReplayPresentation(transactionID: transaction.id)
+            activeViewportPolicy = .remoteGrid(columns: frame.columns, rows: frame.rows)
+            guard await surfaceView.applyViewSizeAndWait(
+                cols: frame.columns,
+                rows: frame.rows
+            ) else {
+                _ = verifiedReplayState.complete(
+                    transactionID: transaction.id,
+                    observedFrame: nil
+                )
+                store.terminalOutputDidReset(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken
+                )
+                return
+            }
+
+            if !chunk.data.isEmpty {
+                guard await surfaceView.processOutputAndWait(chunk.data) else {
+                    _ = verifiedReplayState.complete(
+                        transactionID: transaction.id,
+                        observedFrame: nil
+                    )
+                    store.terminalOutputDidReset(
+                        surfaceID: surfaceID,
+                        streamToken: chunk.streamToken
+                    )
+                    return
+                }
+            }
+
+            let observed = await surfaceView.presentVerifiedReplayAndReadBack(
+                surfaceID: frame.surfaceID,
+                stateSeq: frame.stateSeq,
+                renderRevision: frame.renderRevision
+            )
+            guard !Task.isCancelled else { return }
+            switch verifiedReplayState.complete(
+                transactionID: transaction.id,
+                observedFrame: observed
+            ) {
+            case .reveal:
+                guard surfaceView.revealVerifiedReplayPresentation(
+                    transactionID: transaction.id
+                ) else {
+                    store.terminalOutputDidReset(
+                        surfaceID: surfaceID,
+                        streamToken: chunk.streamToken
+                    )
+                    return
+                }
+                store.terminalOutputDidProcess(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken
+                )
+            case .keepFrozenAndRequestReplay, .ignoreStaleCompletion:
+                store.terminalOutputDidReset(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken
+                )
+            }
         }
 
 

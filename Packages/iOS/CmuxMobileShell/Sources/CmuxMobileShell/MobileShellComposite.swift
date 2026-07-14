@@ -85,6 +85,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let storedMacReconnectRestoringDeadlineSeconds: Double = 6
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
+    private static let terminalVerifiedReplayCapability = "terminal.render_grid.verified_replay.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
     static let terminalReplayCapability = "terminal.replay.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
@@ -6107,8 +6108,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let supportsRenderGrid = payload.capabilities.contains(Self.terminalRenderGridCapability) ||
                 payload.terminalFidelity == "render_grid"
             let supportsTerminalBytes = payload.capabilities.contains(Self.terminalBytesCapability)
+            let supportsVerifiedReplay = payload.capabilities.contains(Self.terminalVerifiedReplayCapability)
             let transport: TerminalOutputTransport
-            if supportsRenderGrid, supportsTerminalBytes {
+            if supportsVerifiedReplay {
+                // The verified presentation path needs the source grid for
+                // every primary-screen update. Prefer it over hybrid raw bytes
+                // only when the paired Mac advertises capture revisions.
+                transport = .renderGrid
+            } else if supportsRenderGrid, supportsTerminalBytes {
                 transport = .hybrid
             } else if supportsRenderGrid {
                 transport = .renderGrid

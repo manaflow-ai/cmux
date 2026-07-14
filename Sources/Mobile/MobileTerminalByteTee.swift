@@ -39,6 +39,9 @@ final class MobileTerminalByteTee {
         var seq: UInt64 = 0
         /// Tail-trimmed ring (~256 KB) for replay on cold attach.
         var replayBuffer: Data = Data()
+        /// Producer capture order, independent of byte sequence. Geometry-only
+        /// captures advance this even when `seq` is unchanged.
+        var renderRevision: UInt64 = 0
     }
 
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
@@ -94,6 +97,17 @@ final class MobileTerminalByteTee {
 
     func currentSequence(surfaceID: UUID) -> UInt64? {
         statesBySurfaceID[surfaceID]?.seq
+    }
+
+    /// Claims the next render-grid capture revision for one surface.
+    func nextRenderRevision(surfaceID: UUID) -> UInt64 {
+        var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+        state.renderRevision &+= 1
+        if state.renderRevision == 0 {
+            state.renderRevision = 1
+        }
+        statesBySurfaceID[surfaceID] = state
+        return state.renderRevision
     }
 
     /// Drop replay history for a surface (e.g. when the surface closes).
