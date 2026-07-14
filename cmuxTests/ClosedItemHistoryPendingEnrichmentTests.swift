@@ -147,6 +147,28 @@ struct ClosedItemHistoryPendingEnrichmentTests {
     }
 
     @Test
+    func laterPendingCandidateBlocksAfterNewestReadyCandidateFails() {
+        let olderPending = ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 1),
+            entry: Self.entry(workspaceId: UUID(), panelId: UUID())
+        )
+        let newestReady = ClosedItemHistoryRecord(
+            closedAt: Date(timeIntervalSince1970: 2),
+            entry: Self.entry(workspaceId: UUID(), panelId: UUID())
+        )
+        let store = ClosedItemHistoryStore()
+        store.pushPendingEnrichment(olderPending)
+        store.push(newestReady)
+
+        var attemptedPanelIDs: [UUID] = []
+        #expect(store.restoreFirstRestorableResult { entry in
+            attemptedPanelIDs.append(Self.panelID(from: entry))
+            return false
+        } == .blockedByPendingEnrichment)
+        #expect(attemptedPanelIDs == [Self.panelID(from: newestReady.entry)])
+    }
+
+    @Test
     func equalTimestampOrderingRestoresNewestCoreRecordWhileEnrichmentIsPending() {
         let timestamp = Date(timeIntervalSince1970: 42)
         let olderPending = ClosedItemHistoryRecord(
