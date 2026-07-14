@@ -57,7 +57,7 @@ nonisolated struct BrowserDesignModePageURL {
     private func redactingValues(in items: [URLQueryItem]) -> [URLQueryItem] {
         items.map { item in
             URLQueryItem(
-                name: item.name,
+                name: item.value == nil ? "<redacted>" : item.name,
                 value: item.value == nil ? nil : "<redacted>"
             )
         }

@@ -15,6 +15,7 @@ extension BrowserPanel {
         try await TerminalController.shared.sendDesignModePrompt(
             prompt,
             in: workspace,
+            browserPanelID: id,
             replacingUnknownDraft: replacingUnknownDraft,
             operationIsCurrent: operationIsCurrent
         )
