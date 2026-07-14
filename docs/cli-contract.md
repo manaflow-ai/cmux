@@ -344,9 +344,9 @@ requested logical size becomes `window.innerWidth`/`window.innerHeight` and the
 page is uniformly scaled to fit inside the existing pane. The pane layout and
 other surfaces do not move. JSON results report `mode`, effective `width` and
 `height`, displayed size, `scale`, `presentation`, and `pane_resized`. A visible
-attached Web Inspector owns the same WebKit layout; close or detach it before
+attached browser inspector owns the same layout; close or detach it before
 changing the viewport. In that state the v2 method returns `invalid_state` with
-`reason: attached_web_inspector`.
+`reason: attached_browser_inspector`.
 
 Hook subcommands:
 

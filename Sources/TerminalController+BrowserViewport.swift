@@ -42,11 +42,11 @@ extension TerminalController {
                 return .err(
                     code: "invalid_state",
                     message: String(
-                        localized: "browser.viewport.error.attachedWebInspector",
-                        defaultValue: "Close or detach Web Inspector before changing the browser viewport"
+                        localized: "browser.viewport.error.attachedBrowserInspector",
+                        defaultValue: "Close or detach the browser inspector before changing the browser viewport"
                     ),
                     data: [
-                        "reason": "attached_web_inspector",
+                        "reason": "attached_browser_inspector",
                         "supported_modes": ["native", "emulated"],
                     ]
                 )

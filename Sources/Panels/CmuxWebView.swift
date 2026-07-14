@@ -5,11 +5,10 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
-/// WKWebView tends to consume some app command equivalents,
-/// preventing the app menu/SwiftUI Commands from receiving them. Route app/menu
-/// shortcuts first by default, but allow browser content to try browser-local
-/// Find-family shortcuts. The configured Find shortcut stays app-owned so cmux can
-/// choose browser find or right-sidebar file search from the current focus owner.
+/// WKWebView can consume app command equivalents before app menu/SwiftUI Commands.
+/// Route app/menu shortcuts first, but allow browser content to try browser-local
+/// Find shortcuts. The configured shortcut stays app-owned so cmux can choose browser
+/// find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     // Some sites/WebKit paths report middle-click link activations as

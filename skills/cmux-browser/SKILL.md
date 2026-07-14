@@ -117,8 +117,8 @@ Use `cmux browser <surface> viewport <width> <height>` to set an exact logical
 viewport from 1...4096 CSS pixels. The page is aspect-fitted inside its existing
 pane, so pane layout and focus stay unchanged; screenshots use the requested
 logical dimensions. Run `cmux browser <surface> viewport reset` to follow native
-pane sizing again. Close or detach Web Inspector first because its WebKit-owned
-split layout cannot be combined with viewport emulation.
+pane sizing again. Close or detach the browser inspector first because its
+inspector-managed split layout cannot be combined with viewport emulation.
 
 ## Limits (WKWebView)
 

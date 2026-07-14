@@ -14620,37 +14620,8 @@ struct CMUXCLI {
         }
 
         if subcommand == "viewport" {
-            let sid = try requireSurface()
-            if subArgs.first?.lowercased() == "reset" {
-                guard subArgs.count == 1 else {
-                    throw CLIError(
-                        message: String(
-                            localized: "cli.browser.error.viewportResetAdditionalArguments",
-                            defaultValue: "browser viewport reset does not accept additional arguments"
-                        )
-                    )
-                }
-                let payload = try client.sendV2(
-                    method: "browser.viewport.set",
-                    params: ["surface_id": sid, "reset": true]
-                )
-                output(payload, fallback: "OK")
-                return
-            }
-            guard subArgs.count == 2,
-                  let width = Int(subArgs[0]),
-                  let height = Int(subArgs[1]) else {
-                throw CLIError(
-                    message: String(
-                        localized: "cli.browser.error.viewportRequiresSizeOrReset",
-                        defaultValue: "browser viewport requires: <width> <height> | reset"
-                    )
-                )
-            }
-            let payload = try client.sendV2(
-                method: "browser.viewport.set",
-                params: ["surface_id": sid, "width": width, "height": height]
-            )
+            let params = try Self.browserViewportSetParams(subArgs, surfaceID: requireSurface())
+            let payload = try client.sendV2(method: "browser.viewport.set", params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -16952,18 +16923,6 @@ struct CMUXCLI {
               uninstall-hooks   Remove cmux hooks from ~/.codex/hooks.json
             """
         case "browser":
-            let viewportUsage = String(
-                localized: "cli.browser.help.viewportUsage",
-                defaultValue: "viewport <width> <height> | reset"
-            )
-            let viewportEmulationDescription = String(
-                localized: "cli.browser.help.viewportEmulationDescription",
-                defaultValue: "Emulate an exact 1...4096 CSS-pixel viewport inside the pane without resizing it"
-            )
-            let viewportPresentationDescription = String(
-                localized: "cli.browser.help.viewportPresentationDescription",
-                defaultValue: "The page is aspect-fitted in the existing pane; reset restores native pane sizing"
-            )
             return """
             Usage: cmux browser [--surface <id|ref|index> | <surface>] <subcommand> [args]
 
@@ -17013,9 +16972,7 @@ struct CMUXCLI {
               state <save|load> <path>
               addinitscript|addscript [--script <js> | <js>]
               addstyle [--css <css> | <css>]
-              \(viewportUsage)
-                \(viewportEmulationDescription)
-                \(viewportPresentationDescription)
+              \(Self.browserViewportHelp)
               geolocation|geo <latitude> <longitude>
               offline <true|false>
               trace <start|stop> [path]
