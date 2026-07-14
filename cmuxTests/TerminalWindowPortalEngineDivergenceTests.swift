@@ -197,21 +197,14 @@ extension TerminalWindowPortalLifecycleTests {
     /// must buy zero more with its own write.
     @MainActor
     func testPortalSelfFrameWritesDoNotRearmTheSync() throws {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
         )
-        defer {
-            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
-            window.orderOut(nil)
-        }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
         }
-        let portal = WindowTerminalPortal(window: window)
+        let portal = makeTrackedPortal(window: window)
         let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
         contentView.addSubview(anchor)
         let hosted = GhosttySurfaceScrollView(
