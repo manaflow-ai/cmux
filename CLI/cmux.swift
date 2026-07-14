@@ -30538,7 +30538,7 @@ export default CMUXSessionRestore;
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped, currentPID: pid),
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -30551,7 +30551,7 @@ export default CMUXSessionRestore;
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
-                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped, currentPID: pid),
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations
@@ -30611,7 +30611,7 @@ export default CMUXSessionRestore;
                         displayName: def.displayName,
                         sessionId: sessionId,
                         cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
+                        launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped, currentPID: pid)
                     )
                 }
             }
@@ -30656,7 +30656,8 @@ export default CMUXSessionRestore;
                 kind: def.name,
                 current: launchCommand,
                 mapped: mapped,
-                transcriptPath: transcriptPathForStore
+                transcriptPath: transcriptPathForStore,
+                currentPID: pid
             )
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
@@ -31111,7 +31112,7 @@ export default CMUXSessionRestore;
                     turnId: input.turnId,
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
-                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped, currentPID: pid),
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
                     lastBody: nil,
@@ -31138,7 +31139,7 @@ export default CMUXSessionRestore;
                 try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                                   pid: pid,
-                                  launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
+                                  launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped, currentPID: pid),
                                   agentLifecycle: lifecycleAfterStop,
                                   lastSubtitle: subtitle,
                                   lastBody: body,
@@ -31154,7 +31155,7 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: cwd,
-                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped, currentPID: pid)
                 )
             }
             if let pid, !suppressVisibleMutations {
@@ -31342,7 +31343,7 @@ export default CMUXSessionRestore;
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
-                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped),
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped, currentPID: pid),
                     agentLifecycle: .running,
                     runtimeStatus: .running
                 )
@@ -31354,7 +31355,7 @@ export default CMUXSessionRestore;
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped),
-                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped)
+                    launchCommand: preferredAgentHookResumeLaunchCommand(kind: def.name, current: launchCommand, mapped: mapped, currentPID: pid)
                 )
             }
             if let pid, !suppressVisibleMutations {

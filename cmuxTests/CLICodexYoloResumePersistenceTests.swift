@@ -4,7 +4,7 @@ import Darwin
 
 extension CLINotifyProcessIntegrationRegressionTests {
     /// A bare Codex argv must persist the current turn's effective permissions, including when a
-    /// legacy record lacks a transcript path or an older policy falls outside the rollout tail.
+    /// legacy record lacks a transcript path or same-process evidence falls outside the rollout tail.
     func testCodexHookRepairsStoredPermissionsFromCurrentTurn() throws {
         let cliPath = try bundledCLIPath()
         let executable = "/Users/example/.bun/bin/codex"
@@ -14,15 +14,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
             approvalPolicy: String,
             sandboxMode: String,
             prefixBytes: Int,
+            suffixBytes: Int,
+            mappedPID: Int,
+            currentPID: Int,
             expectedArguments: [String]
         )] = [
             (
-                "legacy-bare", [executable], "never", "danger-full-access", 4 * 1024 * 1024 + 1,
+                "legacy-bare", [executable], "never", "danger-full-access",
+                4 * 1024 * 1024 + 1, 0, 4100, 4100,
                 [executable, "--yolo"]
             ),
             (
-                "current-plain", [executable, "--yolo"], "on-request", "workspace-write", 0,
+                "current-plain", [executable, "--yolo"], "on-request", "workspace-write",
+                0, 0, 4100, 4200,
                 [executable, "-a", "on-request", "-s", "workspace-write"]
+            ),
+            (
+                "same-process-large-tail", [executable, "--yolo"], "never", "danger-full-access",
+                0, 256 * 1024 + 1, 4300, 4300,
+                [executable, "--yolo"]
             ),
         ]
 
@@ -48,16 +58,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let timestamp = formatter.string(from: Date(timeIntervalSince1970: now - 120))
-            let padding = String(repeating: "x", count: scenario.prefixBytes)
+            let prefix = String(repeating: "x", count: scenario.prefixBytes)
+            let suffix = String(repeating: "x", count: scenario.suffixBytes)
             let line = #"{"timestamp":"\#(timestamp)","type":"turn_context","payload":{"approval_policy":"\#(scenario.approvalPolicy)","sandbox_policy":{"type":"\#(scenario.sandboxMode)"}}}"#
-            try (padding + "\n" + line + "\n").write(
+            try (prefix + "\n" + line + "\n" + suffix).write(
                 to: transcriptURL,
                 atomically: true,
                 encoding: .utf8
             )
             let record: [String: Any] = [
                 "sessionId": sessionId, "workspaceId": workspaceId, "surfaceId": surfaceId,
-                "cwd": root.path, "startedAt": now - 300, "updatedAt": now,
+                "cwd": root.path, "startedAt": now - 300, "updatedAt": now, "pid": scenario.mappedPID,
                 "launchCommand": [
                     "launcher": "codex", "executablePath": executable,
                     "arguments": scenario.storedArguments, "workingDirectory": root.path,
@@ -101,6 +112,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = executable
             environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([executable])
             environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+            environment["CMUX_CODEX_PID"] = String(scenario.currentPID)
             environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
             let result = runProcess(

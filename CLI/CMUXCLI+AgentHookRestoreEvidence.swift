@@ -78,8 +78,16 @@ extension CMUXCLI {
         kind: String,
         current: AgentHookLaunchCommandRecord?,
         mapped: ClaudeHookSessionRecord?,
-        transcriptPath: String? = nil
+        transcriptPath: String? = nil,
+        currentPID: Int? = nil
     ) -> AgentHookLaunchCommandRecord? {
+        if kind == "codex",
+           let currentPID,
+           currentPID == mapped?.pid,
+           !codexLaunchHasExplicitPermissions(current),
+           codexLaunchHasExplicitPermissions(mapped?.launchCommand) {
+            return mapped?.launchCommand
+        }
         let selected: AgentHookLaunchCommandRecord? = {
             if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
                 return current
