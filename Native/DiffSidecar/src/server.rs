@@ -82,6 +82,9 @@ const MAX_CONCURRENT_CHILD_PROCESSES: usize = 4;
 const BRANCH_LIST_CHILD_TIMEOUT: Duration = Duration::from_secs(30);
 const SESSION_GIT_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
+const ORPHAN_SESSION_TEMP_MIN_AGE: Duration = Duration::from_secs(2 * 60);
+const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
+const MAX_ORPHAN_REMOVALS: usize = 64;
 // Branch regeneration runs Git commands with 60-second deadlines, then writes
 // the page, patch, assets, and manifest. Keep the outer safety deadline above
 // that complete contract while still releasing a stuck child eventually.
@@ -104,6 +107,7 @@ struct ServerStateFile<'a> {
 /// Returns an error when root validation, listener setup, state persistence, or serving fails.
 pub async fn run(config: ServerConfig) -> Result<(), String> {
     validate_root(&config.root).await?;
+    prune_orphaned_session_temp_files(&config.root, ORPHAN_SESSION_TEMP_MIN_AGE).await;
     // Ring keeps the mandatory sidecar build self-contained. Reqwest's default
     // AWS-LC provider adds an undeclared CMake prerequisite to every Xcode build.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -154,6 +158,7 @@ fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
 /// is invalid.
 pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
     validate_root(&config.root).await?;
+    prune_orphaned_session_temp_files(&config.root, ORPHAN_SESSION_TEMP_MIN_AGE).await;
     let _ = rustls::crypto::ring::default_provider().install_default();
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -798,6 +803,42 @@ async fn append_manifest_file(
             tokio::fs::remove_file(cleanup_root.join(request_path.trim_start_matches('/'))).await;
     }
     Ok(())
+}
+
+async fn prune_orphaned_session_temp_files(root: &Path, minimum_age: Duration) {
+    let Ok(mut entries) = tokio::fs::read_dir(root).await else {
+        return;
+    };
+    let mut scanned = 0;
+    let mut removed = 0;
+    while scanned < MAX_ORPHAN_SCAN_ENTRIES && removed < MAX_ORPHAN_REMOVALS {
+        let Ok(Some(entry)) = entries.next_entry().await else {
+            break;
+        };
+        scanned += 1;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let Some(session_id) = name
+            .strip_prefix(".diff-session-")
+            .and_then(|value| value.strip_suffix(".patch.tmp"))
+        else {
+            continue;
+        };
+        if uuid::Uuid::parse_str(session_id).is_err() {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata().await else {
+            continue;
+        };
+        let old_enough = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+            .is_some_and(|age| age >= minimum_age);
+        if old_enough && tokio::fs::remove_file(entry.path()).await.is_ok() {
+            removed += 1;
+        }
+    }
 }
 
 fn session_patch_request_path(request_path: &str) -> bool {

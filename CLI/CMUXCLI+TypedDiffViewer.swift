@@ -148,7 +148,7 @@ extension CMUXCLI {
             )
         }
         let repoOptions: [DiffViewerSourceOption]
-        if repoCandidates.count > 1, selectedSource != .lastTurn {
+        if repoCandidates.count > 1 {
             repoOptions = repoCandidates.map { option in
                 DiffViewerSourceOption(
                     value: option.repoRoot,

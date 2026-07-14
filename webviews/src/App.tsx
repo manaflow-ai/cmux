@@ -895,17 +895,19 @@ function SourceControls({
       {/* The repo select is ALWAYS rendered (a native <select> has no "..." menu
           equivalent, so dropping it would strand multi-repo users). It shrinks
           and ellipsizes in place via field-sizing + the .toolbar-left clip. */}
-      <NavigationSelect
-        ariaLabel={label("repoPath")}
-        fallbackValue={payload.repoRoot ?? ""}
-        id="repo-select"
-        options={payload.repoOptions}
-        onNavigate={onNavigate}
-        onSelectSessionSource={(source) => onSelectSessionSource(
-          repoSelectionWithActiveSource(source, activeSessionSource),
-        )}
-        selectedValue={diffSourceRepoRoot(activeSessionSource)}
-      />
+      {activeSessionSource?.kind !== "patch" ? (
+        <NavigationSelect
+          ariaLabel={label("repoPath")}
+          fallbackValue={payload.repoRoot ?? ""}
+          id="repo-select"
+          options={payload.repoOptions}
+          onNavigate={onNavigate}
+          onSelectSessionSource={(source) => onSelectSessionSource(
+            repoSelectionWithActiveSource(source, activeSessionSource),
+          )}
+          selectedValue={diffSourceRepoRoot(activeSessionSource)}
+        />
+      ) : null}
       <BaseControl
         activeSessionSource={activeSessionSource}
         label={label}
