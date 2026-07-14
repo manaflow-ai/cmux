@@ -5,6 +5,23 @@ import Foundation
 /// Superseded callers finish immediately, while at most one Git operation and
 /// one pending request remain retained by the connection.
 actor MobileWorkspaceDiffRequestCoordinator {
+    /// Routes ordinary RPCs directly while serializing and replacing Git-backed
+    /// diff RPCs for one mobile connection.
+    nonisolated static func makeHandler(
+        _ handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
+    ) -> @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult {
+        let coordinator = MobileWorkspaceDiffRequestCoordinator()
+        return { request in
+            guard request.method == "mobile.workspace.diff_status"
+                || request.method == "mobile.workspace.diff_file" else {
+                return await handleRequest(request)
+            }
+            return await coordinator.perform {
+                await handleRequest(request)
+            }
+        }
+    }
+
     private var activeRequest: MobileWorkspaceDiffActiveRequest?
     private var pendingRequest: MobileWorkspaceDiffPendingRequest?
 

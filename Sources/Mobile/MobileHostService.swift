@@ -1810,7 +1810,6 @@ actor MobileHostConnection {
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
-    private let workspaceDiffCoordinator: MobileWorkspaceDiffRequestCoordinator
     private let onClose: @Sendable (UUID) async -> Void
     private var receiveBuffer = Data()
     private var firstFrameTimeoutTask: Task<Void, Never>?
@@ -1830,7 +1829,6 @@ actor MobileHostConnection {
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
-        workspaceDiffCoordinator: MobileWorkspaceDiffRequestCoordinator = MobileWorkspaceDiffRequestCoordinator(),
         onClose: @escaping @Sendable (UUID) async -> Void
     ) {
         self.id = id
@@ -1840,8 +1838,7 @@ actor MobileHostConnection {
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
-        self.handleRequest = handleRequest
-        self.workspaceDiffCoordinator = workspaceDiffCoordinator
+        self.handleRequest = MobileWorkspaceDiffRequestCoordinator.makeHandler(handleRequest)
         self.onClose = onClose
     }
 
@@ -2063,15 +2060,7 @@ actor MobileHostConnection {
             guard !isClosed, !Task.isCancelled else {
                 return
             }
-            let result: MobileHostRPCResult
-            if request.method == "mobile.workspace.diff_status"
-                || request.method == "mobile.workspace.diff_file" {
-                result = await workspaceDiffCoordinator.perform {
-                    await self.handleRequest(request)
-                }
-            } else {
-                result = await handleRequest(request)
-            }
+            let result = await handleRequest(request)
             guard !isClosed, !Task.isCancelled else {
                 return
             }
