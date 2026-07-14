@@ -13,6 +13,100 @@ import Testing
 @Suite("Shared live-agent hook-store invalidation", .serialized)
 struct SharedLiveAgentIndexHookStoreInvalidationTests {
     @Test
+    func debouncedHookChangeRetriesAfterPhysicalLoadCapacityReturns() async {
+        let timeoutWaiter = ManualGenerationTimeoutWaiter()
+        let firstStarted = DispatchSemaphore(value: 0)
+        let secondStarted = DispatchSemaphore(value: 0)
+        let successorStarted = DispatchSemaphore(value: 0)
+        let releaseFirst = DispatchSemaphore(value: 0)
+        let releaseSecond = DispatchSemaphore(value: 0)
+        let releaseSuccessor = DispatchSemaphore(value: 0)
+        defer {
+            releaseFirst.signal()
+            releaseSecond.signal()
+            releaseSuccessor.signal()
+        }
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        var now = Date(timeIntervalSince1970: 100)
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hook-change-capacity-\(UUID().uuidString)", isDirectory: true)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                switch invocation {
+                case 1:
+                    firstStarted.signal()
+                    releaseFirst.wait()
+                case 2:
+                    secondStarted.signal()
+                    releaseSecond.wait()
+                default:
+                    successorStarted.signal()
+                    releaseSuccessor.wait()
+                }
+                return (
+                    index: SharedLiveAgentIndexLoadCoalescingTests.index(
+                        workspaceId: UUID(),
+                        panelId: UUID(),
+                        sessionId: "debounced-capacity-\(invocation)"
+                    ),
+                    surfaceResumeBindingIndex: .empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            generationTimeoutWaiter: { await timeoutWaiter.wait() },
+            hookStoreDirectoryProvider: { hookDirectory.path },
+            dateProvider: { now }
+        )
+        sharedIndex.applyReloadedResult(
+            (
+                index: .empty,
+                surfaceResumeBindingIndex: .empty,
+                liveAgentProcessFingerprint: [],
+                processScopeFingerprint: [],
+                forkValidatedPanels: []
+            ),
+            validationPanelsByPanelID: [:],
+            generationID: UUID()
+        )
+
+        sharedIndex.handleHookStoreChange()
+        let first = Task { @MainActor in await sharedIndex.resumeIndexesCapturedAfterRequest() }
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: firstStarted))
+        await timeoutWaiter.waitUntilPendingCount(1)
+        await timeoutWaiter.fireNext()
+        #expect(await first.value == nil)
+
+        let second = Task { @MainActor in await sharedIndex.resumeIndexesCapturedAfterRequest() }
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: secondStarted))
+        await timeoutWaiter.waitUntilPendingCount(1)
+        await timeoutWaiter.fireNext()
+        #expect(await second.value == nil)
+
+        now.addTimeInterval(5)
+        sharedIndex.scheduleHookStoreRefresh()
+
+        #expect(
+            sharedIndex.changePending,
+            "A timer-fired hook refresh rejected at capacity must remain pending."
+        )
+        #expect(loadCount.withLock { $0 } == 2)
+        releaseSecond.signal()
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: successorStarted))
+        #expect(!sharedIndex.changePending)
+        #expect(loadCount.withLock { $0 } == 3)
+
+        releaseSuccessor.signal()
+        releaseFirst.signal()
+        await timeoutWaiter.cancelAll()
+    }
+
+    @Test
     func completedWorkspaceRefreshRateLimitsPendingHookChange() async {
         let firstStarted = DispatchSemaphore(value: 0)
         let firstPublished = DispatchSemaphore(value: 0)

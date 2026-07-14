@@ -204,7 +204,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
     }
 
     @Test
-    func explicitTerminalCloseTearsDownRuntimeWhileMetadataCaptureIsPending() async throws {
+    func explicitTerminalCloseWaitsForMetadataCaptureBeforeRuntimeTeardown() async throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.terminalPanel(for: panelId))
@@ -219,7 +219,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
         ))
 
         #expect(!panel.hostedView.debugPortalVisibleInUI)
-        #expect(panel.didTeardownRuntimeForClose)
+        #expect(!panel.didTeardownRuntimeForClose)
         await captureGate.open()
         await closeTask.value
         #expect(panel.didTeardownRuntimeForClose)
