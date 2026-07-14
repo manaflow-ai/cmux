@@ -295,6 +295,23 @@ describe("browser design-mode runtime", () => {
     expect(hero.textContent).toBe("Application update");
   });
 
+  test("restores injected text without removing application-added children", async () => {
+    const { dom, runtime } = fixture(`<main><h1 id="hero">Original</h1></main>`);
+    const hero = dom.window.document.querySelector("#hero") as HTMLElement;
+    runtime.select("#hero");
+    runtime.applyText("Design edit");
+
+    const badge = dom.window.document.createElement("span");
+    badge.textContent = "Application badge";
+    hero.append(badge);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(hero.firstChild?.nodeValue).toBe("Original");
+    expect(hero.querySelector("span")?.textContent).toBe("Application badge");
+    expect(runtime.snapshot().edits).toHaveLength(0);
+  });
+
   test("bounds page-controlled snapshot fields before crossing the bridge", () => {
     const { dom, runtime } = fixture(`<p id="notes"></p>`);
     const huge = "x".repeat(1_000_000);
@@ -403,6 +420,54 @@ describe("browser design-mode runtime", () => {
     expect(drafts.selection?.dom_snippet).toContain("&lt;redacted&gt;");
   });
 
+  test("redacts select and option form data", () => {
+    const { runtime } = fixture(`
+      <main id="account-form">
+        <select name="account">
+          <option value="opaque-account-token">Private account label</option>
+        </select>
+      </main>
+    `);
+
+    const select = runtime.select("select");
+    expect(select.selection?.text_content).toBe("<redacted>");
+    expect(select.selection?.text_editable).toBe(false);
+    expect(select.selection?.dom_snippet).not.toContain("opaque-account-token");
+
+    const form = runtime.select("#account-form");
+    expect(form.selection?.dom_snippet).not.toContain("opaque-account-token");
+    expect(form.selection?.dom_snippet).not.toContain("Private account label");
+    expect(form.selection?.text_content).not.toContain("Private account label");
+  });
+
+  test("bounds snippet traversal and builds a selection baseline once", () => {
+    const { dom, runtime } = fixture(`<main><p id="notes"></p></main>`);
+    const notes = dom.window.document.querySelector("#notes") as HTMLElement;
+    const nodes = Array.from({ length: 600 }, () => dom.window.document.createTextNode(""));
+    notes.append(...nodes);
+    let lateNodeReads = 0;
+    Object.defineProperty(nodes[550], "nodeValue", {
+      configurable: true,
+      get: () => {
+        lateNodeReads += 1;
+        return "";
+      },
+    });
+    const getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+    let computedStyleCalls = 0;
+    Object.defineProperty(dom.window, "getComputedStyle", {
+      value: (element: Element) => {
+        computedStyleCalls += 1;
+        return getComputedStyle(element);
+      },
+    });
+
+    runtime.select("#notes");
+
+    expect(lateNodeReads).toBe(0);
+    expect(computedStyleCalls).toBe(1);
+  });
+
   test("does not expose or edit form values or dispatch page input events", () => {
     const { dom, runtime } = fixture(`<main><input id="name" value="Original"></main>`);
     let inputEvents = 0;
@@ -435,6 +500,24 @@ describe("browser design-mode runtime", () => {
     const prepared = runtime.prepareCapture();
     expect(prepared.selection?.selector).toBe("#hero");
     expect(requestedFrames).toBe(0);
+    runtime.finishCapture();
+  });
+
+  test("revalidates selector uniqueness immediately before capture", () => {
+    const { dom, runtime } = fixture(`
+      <main><button data-testid="save">Save</button></main><aside></aside>
+    `);
+    const selected = runtime.select('[data-testid="save"]');
+    const duplicate = dom.window.document.createElement("button");
+    duplicate.dataset.testid = "save";
+    dom.window.document.querySelector("aside")?.append(duplicate);
+
+    const prepared = runtime.prepareCapture();
+    const captureSelector = prepared.selection?.selector;
+
+    expect(captureSelector).toBeDefined();
+    expect(captureSelector).not.toBe(selected.selection?.selector);
+    expect(dom.window.document.querySelectorAll(captureSelector || "")).toHaveLength(1);
     runtime.finishCapture();
   });
 
