@@ -43,7 +43,7 @@ extension TerminalTextBoxInputSettings {
               !remembered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        guard defaults.string(forKey: lastSelectedSubmitActionDefaultKey) == defaultSubmitActionIDValue(defaults: defaults),
+        guard defaults.string(forKey: lastSelectedSubmitActionDefaultKey) == defaultSubmitActionConfigurationSnapshot(defaults: defaults),
               submitActions(defaults: defaults).contains(where: { $0.id == remembered }) else {
             defaults.removeObject(forKey: lastSelectedSubmitActionKey)
             defaults.removeObject(forKey: lastSelectedSubmitActionDefaultKey)
@@ -58,7 +58,12 @@ extension TerminalTextBoxInputSettings {
             return false
         }
         defaults.set(id, forKey: lastSelectedSubmitActionKey)
-        defaults.set(defaultSubmitActionIDValue(defaults: defaults), forKey: lastSelectedSubmitActionDefaultKey)
+        defaults.set(defaultSubmitActionConfigurationSnapshot(defaults: defaults), forKey: lastSelectedSubmitActionDefaultKey)
         return true
+    }
+
+    private static func defaultSubmitActionConfigurationSnapshot(defaults: UserDefaults) -> String {
+        guard defaults.object(forKey: defaultSubmitActionKey) != nil else { return "unset" }
+        return "set:\(defaults.string(forKey: defaultSubmitActionKey) ?? "")"
     }
 }
