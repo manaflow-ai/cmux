@@ -51,7 +51,7 @@ final class BrowserDesignModeController {
         script: BrowserDesignModeScript,
         promptFormatter: BrowserDesignModePromptFormatter,
         screenshotStore: BrowserDesignModeScreenshotStore,
-        javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator = BrowserDesignModeJavaScriptEvaluator(),
+        javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator,
         canEnable: @escaping @MainActor @Sendable () -> Bool,
         promptSender: @escaping @MainActor @Sendable (String) throws -> Void,
         onActivityChanged: @escaping @MainActor @Sendable () -> Void

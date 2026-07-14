@@ -3003,6 +3003,7 @@ final class BrowserPanel: Panel, ObservableObject {
             directory: FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-browser-design-mode", isDirectory: true)
         ),
+        javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
         canEnable: { [weak self] in
             self?.shouldRenderWebView == true
                 && self?.isMainFrameProvisionalNavigationActive == false
