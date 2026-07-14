@@ -543,10 +543,10 @@ async fn open_session(
     let request_path = format!("/{file_name}");
     let final_path = state.config.root.join(&file_name);
     let temporary_path = state.config.root.join(format!(".{file_name}.tmp"));
-    let mut temporary_file =
-        TemporaryPatchFile::new(state.config.root.clone(), temporary_path.clone());
     register_session_temp(&state.config.root, &temporary_path)
         .map_err(|_| SessionOpenError::Failed)?;
+    let mut temporary_file =
+        TemporaryPatchFile::new(state.config.root.clone(), temporary_path.clone());
 
     let source = resolve_session_source(state, params.source, &canonical_repo).await?;
     run_git_patch(&source, &canonical_repo, &temporary_path).await?;
@@ -852,6 +852,9 @@ async fn prune_orphaned_session_temp_files(
                     .and_then(|modified| SystemTime::now().duration_since(modified).ok())
                     .is_some_and(|age| age >= minimum_age);
                 if old_enough {
+                    if !name.starts_with('.') && final_patch_is_manifest_owned(&root, &path) {
+                        return true;
+                    }
                     match std::fs::remove_file(path) {
                         Ok(()) => false,
                         Err(error) => error.kind() != std::io::ErrorKind::NotFound,
@@ -865,6 +868,48 @@ async fn prune_orphaned_session_temp_files(
         })
     })
     .await;
+}
+
+fn final_patch_is_manifest_owned(root: &Path, patch_path: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return true;
+    };
+    let mut manifest_count = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let Some(token) = name
+            .strip_prefix(".manifest-")
+            .and_then(|value| value.strip_suffix(".json"))
+            .filter(|token| valid_token(token))
+        else {
+            continue;
+        };
+        manifest_count += 1;
+        if manifest_count > MAX_ORPHAN_SCAN_ENTRIES {
+            return true;
+        }
+        let Ok(bytes) = std::fs::read(entry.path()) else {
+            return true;
+        };
+        if bytes.len() > MAX_RPC_REQUEST_BYTES {
+            return true;
+        }
+        let Ok(manifest) = serde_json::from_slice::<Manifest>(&bytes) else {
+            return true;
+        };
+        if manifest.token != token {
+            return true;
+        }
+        if manifest
+            .files
+            .iter()
+            .any(|file| file.remote_url.is_none() && Path::new(&file.file_path) == patch_path)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn valid_session_temp_name(name: &str) -> bool {
@@ -1622,9 +1667,9 @@ mod tests {
     use crate::protocol::{DiffCommand, DiffRequest, DiffResult};
 
     use super::{
-        DiffSource, RpcRequestRead, SessionOpenError, TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID,
-        handle_protocol_request, prune_orphaned_session_temp_files, read_rpc_request,
-        register_session_temp, run_git_patch_with_limit, valid_group_id,
+        AllowedFile, DiffSource, Manifest, RpcRequestRead, SessionOpenError, TemporaryPatchFile,
+        UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request, prune_orphaned_session_temp_files,
+        read_rpc_request, register_session_temp, run_git_patch_with_limit, valid_group_id,
     };
 
     #[tokio::test]
@@ -1716,6 +1761,8 @@ mod tests {
             .map(|_| root.join(format!(".diff-session-{}.patch.tmp", uuid::Uuid::new_v4())))
             .collect();
         let final_orphan = root.join(format!("diff-session-{}.patch", uuid::Uuid::new_v4()));
+        let active_final = root.join(format!("diff-session-{}.patch", uuid::Uuid::new_v4()));
+        let active_token = "a".repeat(64);
         let unrelated = root.join(".diff-session-invalid.patch.tmp");
         for orphan in &orphans {
             std::fs::write(orphan, b"private diff").expect("write orphan");
@@ -1723,6 +1770,22 @@ mod tests {
         }
         std::fs::write(&final_orphan, b"private final diff").expect("write final orphan");
         register_session_temp(&root, &final_orphan).expect("register final orphan");
+        std::fs::write(&active_final, b"active private diff").expect("write active patch");
+        register_session_temp(&root, &active_final).expect("register active patch");
+        let active_manifest = Manifest {
+            token: active_token.clone(),
+            files: vec![AllowedFile {
+                request_path: format!("/{}", active_final.file_name().unwrap().to_string_lossy()),
+                file_path: active_final.to_string_lossy().into_owned(),
+                mime_type: "text/x-diff".to_owned(),
+                remote_url: None,
+            }],
+        };
+        std::fs::write(
+            root.join(format!(".manifest-{active_token}.json")),
+            serde_json::to_vec(&active_manifest).expect("encode active manifest"),
+        )
+        .expect("write active manifest");
         std::fs::write(&unrelated, b"keep").expect("write unrelated file");
 
         for _ in 0..6 {
@@ -1731,6 +1794,7 @@ mod tests {
 
         assert!(orphans.iter().all(|orphan| !orphan.exists()));
         assert!(!final_orphan.exists());
+        assert!(active_final.exists());
         assert!(unrelated.exists());
         let _ = std::fs::remove_dir_all(root);
     }
