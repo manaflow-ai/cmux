@@ -119,10 +119,9 @@ struct UnifiedFileExplorerSearchScopeTests {
 
         let field = try #require(Self.searchField(in: container))
         let outline = try #require(Self.outlineView(in: container))
-        field.stringValue = "needle"
-        container.controlTextDidChange(
-            Notification(name: NSControl.textDidChangeNotification, object: field)
-        )
+        #expect(window.makeFirstResponder(outline))
+        outline.keyDown(with: try Self.keyEvent(characters: "/", keyCode: 44))
+        outline.keyDown(with: try Self.keyEvent(characters: "needle", keyCode: 0))
         container.applyPendingFileFilter()
         #expect(state.mode == .files)
         #expect(container.displayedSearchScope == .names)
@@ -147,14 +146,12 @@ struct UnifiedFileExplorerSearchScopeTests {
         )
 
         #expect(container.focusOutline())
-        #expect(field.stringValue == "needle")
+        #expect(field.stringValue == "TODO")
+        #expect(container.searchQuery(for: .names) == "needle")
         #expect(outline.numberOfRows == 2)
         #expect(container.searchSnapshot.results == [result])
 
-        field.stringValue = ""
-        container.controlTextDidChange(
-            Notification(name: NSControl.textDidChangeNotification, object: field)
-        )
+        outline.keyDown(with: try Self.keyEvent(characters: "\u{1b}", keyCode: 53))
         #expect(outline.numberOfRows == 4)
         #expect(store.expandedPaths == [sources.path])
 
@@ -198,16 +195,14 @@ struct UnifiedFileExplorerSearchScopeTests {
         container.updateHeader(store: store)
         container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
         coordinator.reloadIfNeeded()
-        let field = try #require(Self.searchField(in: container))
         let outline = try #require(Self.outlineView(in: container))
         outline.expandItem(root)
         outline.expandItem(nested)
 
-        field.stringValue = "needle"
-        container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        outline.keyDown(with: try Self.keyEvent(characters: "/", keyCode: 44))
+        outline.keyDown(with: try Self.keyEvent(characters: "needle", keyCode: 0))
         container.applyPendingFileFilter()
-        field.stringValue = ""
-        container.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        outline.keyDown(with: try Self.keyEvent(characters: "\u{1b}", keyCode: 53))
 
         #expect(outline.isItemExpanded(root))
         #expect(outline.isItemExpanded(nested))
@@ -234,6 +229,21 @@ struct UnifiedFileExplorerSearchScopeTests {
             if let outline = outlineView(in: subview) { return outline }
         }
         return nil
+    }
+
+    private static func keyEvent(characters: String, keyCode: UInt16) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        ))
     }
 
     private static func restore(_ value: Any?, forKey key: String) {

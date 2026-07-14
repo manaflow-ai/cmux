@@ -1,20 +1,16 @@
 import AppKit
 import CmuxFoundation
 
-/// Compact native chrome shared by filename filtering and full-text search.
+/// The original Finder-style search chrome used by full-text search.
 @MainActor
 final class FileExplorerSearchBarView: NSView {
     let searchField = FileExplorerSearchField()
     let statusLabel = NSTextField(labelWithString: "")
 
-    var onScopeChanged: ((FileExplorerSearchScope) -> Void)?
-
-    private let scopeMenu = NSMenu()
     private var searchHeightConstraint: NSLayoutConstraint!
-    private(set) var scope: FileExplorerSearchScope = .names
 
     var preferredHeight: CGFloat {
-        let baseHeight: CGFloat = scope == .contents ? 48 : 36
+        let baseHeight: CGFloat = 48
         return max(baseHeight, GlobalFontMagnification.scaled(baseHeight))
     }
 
@@ -23,26 +19,21 @@ final class FileExplorerSearchBarView: NSView {
         configureViews()
         configureLayout()
         applyFonts()
-        apply(scope: .names, queryState: FileExplorerSearchQueryState())
+        apply(query: "")
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func apply(scope: FileExplorerSearchScope, queryState: FileExplorerSearchQueryState) {
-        self.scope = scope
-        let query = queryState.query(for: scope)
+    func apply(query: String) {
         if searchField.stringValue != query {
             searchField.stringValue = query
         }
-        searchField.placeholderString = scope.placeholder
-        for item in scopeMenu.items {
-            item.state = item.tag == scope.rawValue ? .on : .off
-        }
-        if statusLabel.isHidden != (scope == .names) {
-            statusLabel.isHidden = scope == .names
-        }
+        searchField.placeholderString = String(
+            localized: "fileExplorer.search.placeholder",
+            defaultValue: "Search files"
+        )
     }
 
     func applyFonts() {
@@ -60,7 +51,6 @@ final class FileExplorerSearchBarView: NSView {
         searchField.cell?.lineBreakMode = .byClipping
         searchField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        configureScopeMenu()
 
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.textColor = .secondaryLabelColor
@@ -72,20 +62,6 @@ final class FileExplorerSearchBarView: NSView {
 
         addSubview(searchField)
         addSubview(statusLabel)
-    }
-
-    private func configureScopeMenu() {
-        for scope in FileExplorerSearchScope.allCases {
-            let item = NSMenuItem(
-                title: scope.title,
-                action: #selector(scopeMenuItemPressed(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.tag = scope.rawValue
-            scopeMenu.addItem(item)
-        }
-        (searchField.cell as? NSSearchFieldCell)?.searchMenuTemplate = scopeMenu
     }
 
     private func configureLayout() {
@@ -101,10 +77,5 @@ final class FileExplorerSearchBarView: NSView {
             statusLabel.leadingAnchor.constraint(equalTo: searchField.leadingAnchor, constant: 4),
             statusLabel.trailingAnchor.constraint(equalTo: searchField.trailingAnchor),
         ])
-    }
-
-    @objc private func scopeMenuItemPressed(_ sender: NSMenuItem) {
-        guard let scope = FileExplorerSearchScope(rawValue: sender.tag) else { return }
-        onScopeChanged?(scope)
     }
 }

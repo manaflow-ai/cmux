@@ -1,7 +1,7 @@
 import Foundation
 
-/// The two search projections available inside the unified file explorer.
-enum FileExplorerSearchScope: Int, CaseIterable, Sendable {
+/// The two projections available inside the unified file explorer host.
+enum FileExplorerSearchScope: Int, Sendable {
     case names
     case contents
 
@@ -16,21 +16,4 @@ enum FileExplorerSearchScope: Int, CaseIterable, Sendable {
         }
     }
 
-    var title: String {
-        switch self {
-        case .names:
-            String(localized: "fileExplorer.search.scope.names", defaultValue: "Names")
-        case .contents:
-            String(localized: "fileExplorer.search.scope.contents", defaultValue: "Contents")
-        }
-    }
-
-    var placeholder: String {
-        switch self {
-        case .names:
-            String(localized: "fileExplorer.search.placeholder.names", defaultValue: "Find files")
-        case .contents:
-            String(localized: "fileExplorer.search.placeholder.contents", defaultValue: "Search contents")
-        }
-    }
 }

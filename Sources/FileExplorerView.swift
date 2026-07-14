@@ -678,6 +678,7 @@ final class FileExplorerContainerView: NSView {
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private(set) var displayedSearchScope: FileExplorerSearchScope
     private var queryState = FileExplorerSearchQueryState()
+    private var fileQuickSearchQuery: String?
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
     private var currentWorkspaceRootIdentity: UUID?
@@ -727,7 +728,7 @@ final class FileExplorerContainerView: NSView {
         self.displayedSearchScope = FileExplorerSearchScope(mode: presentation.rightSidebarMode)
         self.coordinator = coordinator
         super.init(frame: .zero)
-        searchBarView.apply(scope: displayedSearchScope, queryState: queryState)
+        searchBarView.apply(query: queryState.contentsQuery)
         updateShortcutPlacement(coordinator.placement)
         configureSearchDebounce()
         configureFileFilterDebounce()
@@ -750,14 +751,9 @@ final class FileExplorerContainerView: NSView {
         }
         searchField.onFocus = { [weak self] in
             guard let self else { return }
-            self.coordinator.noteKeyboardFocus(mode: self.displayedSearchScope.activationMode, in: self.window)
+            self.coordinator.noteKeyboardFocus(mode: .find, in: self.window)
             self.updateSearchLayout()
-            if self.displayedSearchScope == .contents {
-                self.resumePreservedSearchIfNeeded()
-            }
-        }
-        searchBarView.onScopeChanged = { [weak self] scope in
-            self?.activateScopeFromControl(scope)
+            self.resumePreservedSearchIfNeeded()
         }
         // Empty state label
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -789,8 +785,18 @@ final class FileExplorerContainerView: NSView {
         outlineView.autoresizesOutlineColumn = true
         outlineView.floatsGroupRows = false
         outlineView.backgroundColor = .clear
-        outlineView.onFilterRequested = { [weak self] in
-            self?.focusNamesSearchField()
+        outlineView.onQuickSearchChanged = { [weak self] query in
+            guard let self else { return }
+            self.fileQuickSearchQuery = query
+            self.queryState.setQuery(query ?? "", for: .names)
+            if self.displayedSearchScope == .names {
+                self.headerView.updateQuickSearch(query: query)
+            }
+            if query?.isEmpty == false {
+                self.scheduleFileFilterRefresh()
+            } else {
+                self.applyPendingFileFilter()
+            }
         }
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
@@ -961,9 +967,12 @@ final class FileExplorerContainerView: NSView {
             cancelPendingFileFilterRefresh()
             pendingSearchRefreshAfterSettled = false
             searchController.cancel(clear: true)
+            outlineView.endQuickSearch()
+            fileQuickSearchQuery = nil
             queryState.clearQueries()
-            searchBarView.apply(scope: displayedSearchScope, queryState: queryState)
+            searchBarView.apply(query: queryState.contentsQuery)
             coordinator.setFileFilterQuery("", in: outlineView)
+            headerView.updateQuickSearch(query: nil)
             applySearchSnapshot(.empty)
         }
         if searchScopeChanged {
@@ -988,7 +997,8 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func captureDisplayedQuery() {
-        queryState.setQuery(searchField.stringValue, for: displayedSearchScope)
+        guard displayedSearchScope == .contents else { return }
+        queryState.setQuery(searchField.stringValue, for: .contents)
     }
 
     private func setDisplayedSearchScope(_ scope: FileExplorerSearchScope) {
@@ -999,7 +1009,10 @@ final class FileExplorerContainerView: NSView {
             pauseSearchPreservingState()
         }
         displayedSearchScope = scope
-        searchBarView.apply(scope: scope, queryState: queryState)
+        if scope == .contents {
+            searchBarView.apply(query: queryState.contentsQuery)
+        }
+        headerView.updateQuickSearch(query: scope == .names ? fileQuickSearchQuery : nil)
         if scope == .names, previousScope != .names {
             coordinator.setFileFilterQuery(queryState.namesQuery, in: outlineView)
         }
@@ -1013,18 +1026,11 @@ final class FileExplorerContainerView: NSView {
         }
     }
 
-    private func activateScopeFromControl(_ scope: FileExplorerSearchScope) {
-        setDisplayedSearchScope(scope)
-        coordinator.noteKeyboardFocus(mode: scope.activationMode, in: window)
-        guard let window else { return }
-        _ = window.makeFirstResponder(searchField)
-        searchField.selectText(nil)
-    }
-
     func searchFieldTextDidChange() {
-        queryState.setQuery(searchField.stringValue, for: displayedSearchScope)
-        if coordinator.state.mode != displayedSearchScope.activationMode {
-            coordinator.noteKeyboardFocus(mode: displayedSearchScope.activationMode, in: window)
+        guard displayedSearchScope == .contents else { return }
+        queryState.setQuery(searchField.stringValue, for: .contents)
+        if coordinator.state.mode != .find {
+            coordinator.noteKeyboardFocus(mode: .find, in: window)
         }
         scrollSearchFieldEditorToInsertionPoint()
         Task { @MainActor [weak self] in
@@ -1042,24 +1048,19 @@ final class FileExplorerContainerView: NSView {
             "status=\(debugSearchStatusName(searchSnapshot.status))"
         )
 #endif
-        switch displayedSearchScope {
-        case .names:
-            if queryState.namesQuery.isEmpty { applyPendingFileFilter() } else { scheduleFileFilterRefresh() }
-        case .contents:
-            if !hasContentsQuery {
-                cancelPendingSearchRefresh()
-                pendingSearchRefreshAfterSettled = false
-                searchController.cancel(clear: true)
-                applySearchSnapshot(.empty)
-                updateVisibility(
-                    hasContent: !currentRootPath.isEmpty,
-                    isLoading: currentIsLoading,
-                    statusMessage: currentStatusMessage
-                )
-                return
-            }
-            scheduleSearchRefresh()
+        if !hasContentsQuery {
+            cancelPendingSearchRefresh()
+            pendingSearchRefreshAfterSettled = false
+            searchController.cancel(clear: true)
+            applySearchSnapshot(.empty)
+            updateVisibility(
+                hasContent: !currentRootPath.isEmpty,
+                isLoading: currentIsLoading,
+                statusMessage: currentStatusMessage
+            )
+            return
         }
+        scheduleSearchRefresh()
     }
 
     func handleSearchFieldCommand(_ commandSelector: Selector, textView: NSTextView) -> Bool {
@@ -1083,32 +1084,11 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func moveSelectionFromSearchField(by delta: Int) {
-        switch displayedSearchScope {
-        case .names:
-            applyPendingFileFilter()
-            coordinator.moveSelection(in: outlineView, by: delta)
-            _ = window?.makeFirstResponder(outlineView)
-        case .contents:
-            moveSearchSelection(by: delta, focusResults: true)
-        }
+        moveSearchSelection(by: delta, focusResults: true)
     }
 
     private func commitSearchFieldSelection() {
-        switch displayedSearchScope {
-        case .names:
-            applyPendingFileFilter()
-            coordinator.openSelectedItem(in: outlineView)
-        case .contents:
-            openSelectedSearchResult()
-        }
-    }
-
-    private func focusNamesSearchField() {
-        setDisplayedSearchScope(.names)
-        coordinator.noteKeyboardFocus(mode: .files, in: window)
-        guard let window else { return }
-        _ = window.makeFirstResponder(searchField)
-        searchField.selectText(nil)
+        openSelectedSearchResult()
     }
 
     func updatePresentation(_ nextPresentation: FileExplorerPanelPresentation) {
@@ -1132,17 +1112,14 @@ final class FileExplorerContainerView: NSView {
         let canShowTree = hasContent && !hasStatus
         applyHidden(headerView, !hasContent && !hasStatus)
         updateSearchLayout(hasContent: canShowTree, isLoading: isLoading)
-        let showsContentsEmptyState = displayedSearchScope == .contents && !hasContentsQuery && canShowTree && !isLoading
+        let searchCanShow = displayedSearchScope == .contents && canShowTree && !isLoading
         let nextEmptyText = hasStatus
             ? normalizedStatus!
-            : showsContentsEmptyState
-                ? String(localized: "fileExplorer.search.empty", defaultValue: "Type to search")
-                : String(localized: "fileExplorer.empty", defaultValue: "No folder open")
+            : String(localized: "fileExplorer.empty", defaultValue: "No folder open")
         if emptyLabel.stringValue != nextEmptyText {
             emptyLabel.stringValue = nextEmptyText
         }
-        let shouldShowEmpty = hasStatus || showsContentsEmptyState || (!hasContent && !isLoading)
-        applyHidden(emptyLabel, !shouldShowEmpty)
+        applyHidden(emptyLabel, canShowTree || searchCanShow || isLoading)
         // Toggle the spinner only when the loading state actually changes.
         if applyHidden(loadingIndicator, !isLoading) {
             if isLoading {
@@ -1366,8 +1343,8 @@ final class FileExplorerContainerView: NSView {
     private func updateSearchLayout(hasContent: Bool? = nil, isLoading: Bool? = nil) {
         let effectiveHasContent = hasContent ?? !currentRootPath.isEmpty
         let effectiveIsLoading = isLoading ?? false
-        let showSearchField = effectiveHasContent && !effectiveIsLoading
-        let showSearchResults = displayedSearchScope == .contents && hasContentsQuery && showSearchField
+        let showSearchField = displayedSearchScope == .contents && effectiveHasContent && !effectiveIsLoading
+        let showSearchResults = showSearchField
         let showTree = displayedSearchScope == .names && effectiveHasContent && !effectiveIsLoading
         let nextSearchBarHeight = showSearchField ? activeBarVisibleHeight : 0
         // Assigning isHidden/constraints unconditionally fires KVO even when unchanged,
@@ -1582,20 +1559,8 @@ final class FileExplorerContainerView: NSView {
         captureDisplayedQuery()
         switch displayedSearchScope {
         case .names:
-            guard !queryState.namesQuery.isEmpty else {
-                _ = focusOutline()
-                return
-            }
-            cancelPendingFileFilterRefresh()
-            queryState.setQuery("", for: .names)
-            searchBarView.apply(scope: .names, queryState: queryState)
-            coordinator.setFileFilterQuery("", in: outlineView)
-            updateVisibility(
-                hasContent: !currentRootPath.isEmpty,
-                isLoading: currentIsLoading,
-                statusMessage: currentStatusMessage
-            )
-            _ = window?.makeFirstResponder(searchField)
+            outlineView.endQuickSearch()
+            _ = focusOutline()
         case .contents:
             guard hasContentsQuery else {
                 _ = focusOutline()
@@ -1605,7 +1570,7 @@ final class FileExplorerContainerView: NSView {
             pendingSearchRefreshAfterSettled = false
             searchController.cancel(clear: true)
             queryState.setQuery("", for: .contents)
-            searchBarView.apply(scope: .contents, queryState: queryState)
+            searchBarView.apply(query: queryState.contentsQuery)
             applySearchSnapshot(.empty)
             updateVisibility(
                 hasContent: !currentRootPath.isEmpty,

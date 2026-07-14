@@ -196,11 +196,11 @@ struct UnifiedFileExplorerTests {
         #expect(
             !container.subviews
                 .compactMap { $0 as? NSTextField }
-                .contains { !$0.isHidden && $0.stringValue == String(localized: "fileExplorer.search.empty", defaultValue: "Type to search") }
+                .contains { !$0.isHidden && $0.stringValue == "Type to search" }
         )
     }
 
-    @Test("Typing preserves the selected Names or Contents activation")
+    @Test("Typing preserves the selected Files or Contents projection")
     func typingPreservesSelectedSearchScope() throws {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: "rightSidebar.mode")
@@ -219,11 +219,10 @@ struct UnifiedFileExplorerTests {
             searchController: SearchControllerSpy()
         )
         let searchField = try #require(Self.searchField(in: container))
+        let outline = try #require(Self.outlineView(in: container))
 
-        searchField.stringValue = "needle"
-        container.controlTextDidChange(
-            Notification(name: NSControl.textDidChangeNotification, object: searchField)
-        )
+        outline.keyDown(with: try Self.keyEvent(characters: "/", keyCode: 44))
+        outline.keyDown(with: try Self.keyEvent(characters: "needle", keyCode: 0))
 
         #expect(state.mode == .files)
         #expect(container.displayedSearchScope == .names)
@@ -340,7 +339,7 @@ struct UnifiedFileExplorerTests {
         #expect(window.firstResponder is NSOutlineView)
         #expect(state.mode == .files)
         #expect(focusController.activeRightSidebarMode == .files)
-        #expect(searchField.stringValue.isEmpty)
+        #expect(searchField.stringValue == "needle")
         #expect(container.searchQuery(for: .contents) == "needle")
         #expect(container.searchSnapshot == snapshot)
         #expect(store.expandedPaths == [directory.path])
@@ -426,6 +425,14 @@ struct UnifiedFileExplorerTests {
             if let outlineView = outlineView(in: subview) { return outlineView }
         }
         return nil
+    }
+
+    private static func keyEvent(characters: String, keyCode: UInt16) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, characters: characters,
+            charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode
+        ))
     }
 
     private static func restore(_ value: Any?, forKey key: String) {

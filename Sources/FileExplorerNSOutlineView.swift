@@ -5,7 +5,9 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     /// Leading margin applied to disclosure triangles and content.
     static let leadingMargin: CGFloat = 8
     var fileExplorerPanelPlacement: FileExplorerPanelPlacement = .rightSidebar
-    var onFilterRequested: (() -> Void)?
+    var onQuickSearchChanged: ((String?) -> Void)?
+    private var quickSearchActive = false
+    private var quickSearchQuery = ""
 
     override func keyDown(with event: NSEvent) {
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
@@ -14,7 +16,17 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             }
         }
 
+        if quickSearchActive,
+           RightSidebarKeyboardNavigation.isPlainPrintableText(event),
+           handleQuickSearchKey(event) {
+            return
+        }
+
         if handleOpenSelectionShortcut(event) {
+            return
+        }
+
+        if quickSearchActive, handleQuickSearchKey(event) {
             return
         }
 
@@ -29,7 +41,7 @@ final class FileExplorerNSOutlineView: NSOutlineView {
         }
 
         if RightSidebarKeyboardNavigation.isPlainSlash(event) {
-            onFilterRequested?()
+            beginQuickSearch()
             return
         }
 
@@ -40,7 +52,15 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if quickSearchActive,
+           RightSidebarKeyboardNavigation.isPlainPrintableText(event),
+           handleQuickSearchKey(event) {
+            return true
+        }
         if handleOpenSelectionShortcut(event) {
+            return true
+        }
+        if quickSearchActive, handleQuickSearchKey(event) {
             return true
         }
         if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
@@ -52,7 +72,7 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             return true
         }
         if RightSidebarKeyboardNavigation.isPlainSlash(event) {
-            onFilterRequested?()
+            beginQuickSearch()
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -115,5 +135,41 @@ final class FileExplorerNSOutlineView: NSOutlineView {
 
     var fileExplorerCoordinator: FileExplorerPanelView.Coordinator? {
         dataSource as? FileExplorerPanelView.Coordinator
+    }
+
+    private func beginQuickSearch() {
+        quickSearchActive = true
+        quickSearchQuery = ""
+        onQuickSearchChanged?(quickSearchQuery)
+    }
+
+    func endQuickSearch() {
+        guard quickSearchActive || !quickSearchQuery.isEmpty else { return }
+        quickSearchActive = false
+        quickSearchQuery = ""
+        onQuickSearchChanged?(nil)
+    }
+
+    private func handleQuickSearchKey(_ event: NSEvent) -> Bool {
+        if event.keyCode == 53 {
+            endQuickSearch()
+            return true
+        }
+        if event.keyCode == 51 {
+            if !quickSearchQuery.isEmpty {
+                quickSearchQuery.removeLast()
+                onQuickSearchChanged?(quickSearchQuery)
+            }
+            return true
+        }
+        guard RightSidebarKeyboardNavigation.isPlainPrintableText(event) else {
+            return false
+        }
+        guard let text = event.charactersIgnoringModifiers, !text.isEmpty else {
+            return true
+        }
+        quickSearchQuery += text
+        onQuickSearchChanged?(quickSearchQuery)
+        return true
     }
 }
