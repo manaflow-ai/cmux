@@ -50,7 +50,7 @@ final class SharedLiveAgentIndex {
 
     /// Production loaders acquire the centralized process snapshot before moving
     /// synchronous parsing and file I/O to a detached utility task.
-    let indexLoader: @Sendable (@Sendable () -> Void) async -> LoadResult
+    let indexLoader: @Sendable (@escaping @Sendable () -> Void) async -> LoadResult
     let processScopeFingerprintProvider: @Sendable () async -> Set<String>
     let generationTimeoutWaiter: GenerationTimeoutWaiter
     private let hookStoreDirectoryProvider: @MainActor () -> String
@@ -58,7 +58,7 @@ final class SharedLiveAgentIndex {
 
     init(
         indexLoader: (@Sendable () -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
-        capturingIndexLoader: (@Sendable (@Sendable () -> Void) -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
+        capturingIndexLoader: (@Sendable (@escaping @Sendable () -> Void) -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
         processScopeFingerprintProvider: (@Sendable () -> Set<String>)? = nil,
         generationTimeoutWaiter: @escaping @Sendable () async -> Bool = {
             do {
