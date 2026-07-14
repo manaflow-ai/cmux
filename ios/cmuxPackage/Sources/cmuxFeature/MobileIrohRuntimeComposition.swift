@@ -51,12 +51,6 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     }
 
     private static let capabilities = ["mobile-rpc-v1", "multistream-v1"]
-    private static let protocolConfiguration = CmxIrohProtocolConfiguration(
-        alpn: CmxIrohProtocolConfiguration.cmuxMobileV1.alpn,
-        maximumHeaderByteCount: CmxIrohProtocolConfiguration.cmuxMobileV1.maximumHeaderByteCount,
-        maximumConcurrentClientApplicationLaneCount: 4
-    )
-
     /// The stable factory registered before debug-loopback and Tailscale fallbacks.
     public lazy var transportFactory = CmxIrohByteTransportFactory(
         deferredProvider: self
@@ -76,6 +70,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private let customRelayCredentials: CmxIrohCustomRelayCredentialStore
     private let relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot?
     private let endpointFactory: any CmxIrohEndpointFactory
+    private let transportVerificationMode: CmxIrohTransportVerificationMode
     private let brokerFactory: BrokerFactory
     private let deviceID: @Sendable () -> String
     private let tag: String
@@ -123,6 +118,13 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) {
+        #if DEBUG
+        let transportVerificationMode = Self.debugTransportVerificationMode(
+            defaults: defaults
+        )
+        #else
+        let transportVerificationMode = CmxIrohTransportVerificationMode.automatic
+        #endif
         let installState = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
         let baseURL = URL(string: apiBaseURL)
         let networkPathState = MobileIrohNetworkPathState()
@@ -197,7 +199,10 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             relayPolicyTrustRoot: Self.relayPolicyTrustRoot(
                 infoDictionary: infoDictionary
             ),
-            endpointFactory: CmxIrohLibEndpointFactory(),
+            endpointFactory: CmxIrohLibEndpointFactory(
+                transportVerificationMode: transportVerificationMode
+            ),
+            transportVerificationMode: transportVerificationMode,
             brokerFactory: { tokenSource in
                 guard let baseURL else {
                     throw CmxIrohTrustBrokerClientError.invalidBaseURL
@@ -238,6 +243,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         customRelayCredentials: CmxIrohCustomRelayCredentialStore = CmxIrohCustomRelayCredentialStore(),
         relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot? = nil,
         endpointFactory: any CmxIrohEndpointFactory,
+        transportVerificationMode: CmxIrohTransportVerificationMode = .automatic,
         brokerFactory: @escaping BrokerFactory,
         deviceID: @escaping @Sendable () -> String,
         tag: String,
@@ -260,6 +266,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         self.customRelayCredentials = customRelayCredentials
         self.relayPolicyTrustRoot = relayPolicyTrustRoot
         self.endpointFactory = endpointFactory
+        self.transportVerificationMode = transportVerificationMode
         self.brokerFactory = brokerFactory
         self.deviceID = deviceID
         self.tag = tag
@@ -1071,7 +1078,9 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             broker: broker,
             configuration: configuration,
             pendingRevocations: pendingRevocations,
-            protocolConfiguration: Self.protocolConfiguration,
+            protocolConfiguration: Self.protocolConfiguration(
+                for: transportVerificationMode
+            ),
             offlinePolicyCache: offlinePolicies,
             networkPathSnapshot: networkPathSnapshot,
             lanFallback: { target, bindings, rendezvous in
@@ -1329,6 +1338,15 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     }
 
     #if DEBUG
+    static func debugTransportVerificationMode(
+        defaults: UserDefaults
+    ) -> CmxIrohTransportVerificationMode {
+        guard let rawValue = defaults.string(
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        ) else { return .automatic }
+        return CmxIrohTransportVerificationMode(rawValue: rawValue) ?? .automatic
+    }
+
     private static func developmentStoreDirectory(
         service: String,
         bundleIdentifier: String?
@@ -1352,6 +1370,18 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             .appendingPathComponent(service, isDirectory: true)
     }
     #endif
+
+    static func protocolConfiguration(
+        for mode: CmxIrohTransportVerificationMode
+    ) -> CmxIrohProtocolConfiguration {
+        CmxIrohProtocolConfiguration(
+            alpn: CmxIrohProtocolConfiguration.cmuxMobileV1.alpn,
+            maximumHeaderByteCount: CmxIrohProtocolConfiguration.cmuxMobileV1
+                .maximumHeaderByteCount,
+            maximumConcurrentClientApplicationLaneCount: 4,
+            allowsNATTraversalAfterAdmission: mode.allowsNATTraversalAfterAdmission
+        )
+    }
 
     private static func currentTag(
         infoDictionary: [String: Any]?,

@@ -4,24 +4,46 @@ import CmuxIrohTransport
 import Foundation
 
 extension MobileHostIrohRuntime {
-    var protocolConfiguration: CmxIrohProtocolConfiguration {
+    var transportVerificationMode: CmxIrohTransportVerificationMode {
         #if DEBUG
-        let allowsNATTraversalAfterAdmission = !Self.isDebugRelayOnlyEnabled
+        Self.debugTransportVerificationMode(defaults: .standard)
         #else
-        let allowsNATTraversalAfterAdmission = true
+        .automatic
         #endif
-        return CmxIrohProtocolConfiguration(
+    }
+
+    var protocolConfiguration: CmxIrohProtocolConfiguration {
+        Self.protocolConfiguration(for: transportVerificationMode)
+    }
+
+    static func protocolConfiguration(
+        for mode: CmxIrohTransportVerificationMode
+    ) -> CmxIrohProtocolConfiguration {
+        CmxIrohProtocolConfiguration(
             alpn: CmxIrohProtocolConfiguration.cmuxMobileV1.alpn,
             maximumHeaderByteCount: CmxIrohProtocolConfiguration.cmuxMobileV1.maximumHeaderByteCount,
             maximumConcurrentClientApplicationLaneCount:
                 MobileHostIrohApplicationLaneRouter.maximumConcurrentLaneCount,
-            allowsNATTraversalAfterAdmission: allowsNATTraversalAfterAdmission
+            allowsNATTraversalAfterAdmission: mode.allowsNATTraversalAfterAdmission
         )
     }
 
     #if DEBUG
+    static func debugTransportVerificationMode(
+        defaults: UserDefaults
+    ) -> CmxIrohTransportVerificationMode {
+        if let rawValue = defaults.string(
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        ), let mode = CmxIrohTransportVerificationMode(rawValue: rawValue) {
+            return mode
+        }
+        return defaults.bool(forKey: debugRelayOnlyDefaultsKey)
+            ? .relayOnly
+            : .automatic
+    }
+
     static var isDebugRelayOnlyEnabled: Bool {
-        UserDefaults.standard.bool(forKey: debugRelayOnlyDefaultsKey)
+        debugTransportVerificationMode(defaults: .standard) == .relayOnly
     }
     #endif
 
@@ -386,8 +408,13 @@ extension MobileHostIrohRuntime {
 #if DEBUG
 extension MobileHostIrohRuntime: CmxIrohDebugSettingsControlling {
     func setIrohDebugRelayOnly(_ enabled: Bool) async throws {
-        guard Self.isDebugRelayOnlyEnabled != enabled else { return }
-        UserDefaults.standard.set(enabled, forKey: Self.debugRelayOnlyDefaultsKey)
+        let mode: CmxIrohTransportVerificationMode = enabled ? .relayOnly : .automatic
+        guard transportVerificationMode != mode else { return }
+        UserDefaults.standard.set(
+            mode.rawValue,
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        )
+        UserDefaults.standard.removeObject(forKey: Self.debugRelayOnlyDefaultsKey)
         publishIrohSettingsUpdate()
         await scheduleReconcile(
             eraseAccountState: false,

@@ -6,6 +6,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     private let driver: Endpoint
     private let peerIdentity: CmxIrohPeerIdentity
     private let alpns: Set<Data>
+    private let transportVerificationMode: CmxIrohTransportVerificationMode
     private var relayProfile: CmxIrohEndpointRelayProfile
     private var relayConfigurations: [String: CmxIrohEndpointRelayProfile.Relay]
     private var addressWatch: WatchHandle?
@@ -22,11 +23,13 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     init(
         driver: Endpoint,
         identity: CmxIrohPeerIdentity,
-        configuration: CmxIrohEndpointConfiguration
+        configuration: CmxIrohEndpointConfiguration,
+        transportVerificationMode: CmxIrohTransportVerificationMode = .automatic
     ) {
         self.driver = driver
         peerIdentity = identity
         alpns = Set(configuration.alpns)
+        self.transportVerificationMode = transportVerificationMode
         relayProfile = configuration.relayProfile
         relayConfigurations = Dictionary(
             uniqueKeysWithValues: configuration.relayProfile.activeRelays.map { ($0.url, $0) }
@@ -65,7 +68,9 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         let now = Date()
         let expiresAt = now.addingTimeInterval(CmxIrohPathHint.maximumPrivateHintTTL)
         var hints: [CmxIrohPathHint] = []
-        if let relayURL = address.relayUrl(), relayProfile.allowedRelayURLs.contains(relayURL),
+        if transportVerificationMode != .directOnly,
+           let relayURL = address.relayUrl(),
+           relayProfile.allowedRelayURLs.contains(relayURL),
            let hint = try? CmxIrohPathHint(
                kind: .relayURL,
                value: relayURL,
@@ -76,21 +81,25 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
            ) {
             hints.append(hint)
         }
-        hints.append(contentsOf: address.directAddresses().compactMap { value in
-            try? CmxIrohPathHint(
-                kind: .directAddress,
-                value: value,
-                source: .native,
-                privacyScope: .publicInternet,
-                observedAt: now,
-                expiresAt: expiresAt
-            )
-        })
+        if transportVerificationMode != .relayOnly {
+            hints.append(contentsOf: address.directAddresses().compactMap { value in
+                try? CmxIrohPathHint(
+                    kind: .directAddress,
+                    value: value,
+                    source: .native,
+                    privacyScope: .publicInternet,
+                    observedAt: now,
+                    expiresAt: expiresAt
+                )
+            })
+        }
         return CmxIrohEndpointAddress(identity: peerIdentity, pathHints: hints)
     }
 
     func localDirectAddresses() -> [String] {
-        driver.addr().directAddresses()
+        transportVerificationMode == .relayOnly
+            ? []
+            : driver.addr().directAddresses()
     }
 
     func connect(
@@ -134,6 +143,11 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     }
 
     func replaceRelayProfile(_ profile: CmxIrohEndpointRelayProfile) async throws {
+        if transportVerificationMode == .directOnly {
+            relayProfile = profile
+            relayConfigurations = [:]
+            return
+        }
         let next = Dictionary(
             uniqueKeysWithValues: profile.activeRelays.map { ($0.url, $0) }
         )
@@ -227,6 +241,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         for hint in usable {
             switch hint.kind {
             case .relayURL:
+                guard transportVerificationMode != .directOnly else { continue }
                 guard relayProfile.allowedRelayURLs.contains(hint.value) else {
                     throw CmxIrohLibError.unmanagedRelayURL(hint.value)
                 }
@@ -234,6 +249,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
                     relayURLs.append(hint.value)
                 }
             case .directAddress:
+                guard transportVerificationMode != .relayOnly else { continue }
                 if observedDirectAddresses.insert(hint.value).inserted {
                     directAddresses.append(hint.value)
                 }

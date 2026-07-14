@@ -421,7 +421,9 @@ final class MobileHostIrohRuntime {
         let lanPublisher = lanPublisher
         let activeRelayPolicyService = resolvedPolicyService
         let hostRuntime = CmxIrohHostRuntime(
-            factory: CmxIrohLibEndpointFactory(),
+            factory: CmxIrohLibEndpointFactory(
+                transportVerificationMode: transportVerificationMode
+            ),
             broker: broker,
             configuration: configuration,
             pendingRevocations: pendingRevocations,

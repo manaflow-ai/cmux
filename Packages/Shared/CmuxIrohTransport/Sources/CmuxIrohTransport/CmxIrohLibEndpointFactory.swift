@@ -3,7 +3,16 @@ import IrohLib
 
 /// Production endpoint factory using the forked Iroh Swift bindings.
 public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
-    public init() {}
+    private let transportVerificationMode: CmxIrohTransportVerificationMode
+
+    /// Creates an endpoint factory with an optional debug transport constraint.
+    ///
+    /// - Parameter transportVerificationMode: The path class the endpoint may use.
+    public init(
+        transportVerificationMode: CmxIrohTransportVerificationMode = .automatic
+    ) {
+        self.transportVerificationMode = transportVerificationMode
+    }
 
     public func bind(
         configuration: CmxIrohEndpointConfiguration
@@ -24,7 +33,8 @@ public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
         let endpoint = CmxIrohLibEndpoint(
             driver: driver,
             identity: identity,
-            configuration: configuration
+            configuration: configuration,
+            transportVerificationMode: transportVerificationMode
         )
         await endpoint.startMonitoring()
         return endpoint
@@ -35,17 +45,20 @@ public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
         socketAddress: String?
     ) async throws -> Endpoint {
         let relayMap = RelayMap.empty()
-        let now = Date()
-        for relay in configuration.relayProfile.activeRelays {
-            guard relay.isUsable(at: now) else {
-                throw CmxIrohLibError.expiredRelayCredential(relay.url)
+        if transportVerificationMode != .directOnly {
+            let now = Date()
+            for relay in configuration.relayProfile.activeRelays {
+                guard relay.isUsable(at: now) else {
+                    throw CmxIrohLibError.expiredRelayCredential(relay.url)
+                }
+                try relayMap.insert(config: CmxIrohLibEndpoint.relayConfig(relay))
             }
-            try relayMap.insert(config: CmxIrohLibEndpoint.relayConfig(relay))
         }
         let options = Self.endpointOptions(
             configuration: configuration,
             socketAddress: socketAddress,
-            relayMap: relayMap
+            relayMap: relayMap,
+            transportVerificationMode: transportVerificationMode
         )
         return try await Endpoint.bind(options: options)
     }
@@ -53,14 +66,17 @@ public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
     static func endpointOptions(
         configuration: CmxIrohEndpointConfiguration,
         socketAddress: String?,
-        relayMap: RelayMap
+        relayMap: RelayMap,
+        transportVerificationMode: CmxIrohTransportVerificationMode = .automatic
     ) -> EndpointOptions {
         EndpointOptions(
             preset: presetMinimal(),
             bindAddr: socketAddress,
             secretKey: configuration.secretKey.bytes,
             alpns: configuration.alpns,
-            relayMode: RelayMode.custom(map: relayMap),
+            relayMode: transportVerificationMode == .directOnly
+                ? RelayMode.disabled()
+                : RelayMode.custom(map: relayMap),
             portMappingEnabled: false,
             deferNatTraversalUntilAuthorized: true,
             initialMaxConcurrentBiStreams: 0,
