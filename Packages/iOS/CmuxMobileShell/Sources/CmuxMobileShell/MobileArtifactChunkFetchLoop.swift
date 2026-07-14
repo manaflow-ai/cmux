@@ -15,7 +15,7 @@ struct MobileArtifactChunkFetchLoop: Sendable {
         collectsData: Bool,
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?,
         fetchChunk: @Sendable (_ offset: Int64) async throws -> ChatArtifactChunk,
-        onChunk: (@Sendable (_ chunk: ChatArtifactChunk) async throws -> Void)?
+        onChunk: @Sendable (_ chunk: ChatArtifactChunk) async throws -> Void
     ) async throws -> Data {
         var offset: Int64 = 0
         var result = Data()
@@ -32,7 +32,7 @@ struct MobileArtifactChunkFetchLoop: Sendable {
             }
             offset = chunk.offset + Int64(chunk.data.count)
             progress?(offset, chunk.totalSize)
-            try await onChunk?(chunk)
+            try await onChunk(chunk)
             if chunk.eof {
                 return result
             }

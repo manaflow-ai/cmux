@@ -14,7 +14,8 @@ struct ChatArtifactViewerRouteView: View {
     let onDone: () -> Void
 
     @Environment(\.chatArtifactLoader) private var loader
-    @State private var state: LoadState = .loading(fetched: 0, total: nil)
+    @State private var model = ChatArtifactViewerModel()
+    @State private var retryGeneration = 0
 
     var body: some View {
         content
@@ -29,26 +30,36 @@ struct ChatArtifactViewerRouteView: View {
                     }
                 }
             }
-            .task(id: path) {
-                await load()
+            .task(id: "\(path)\u{0}\(retryGeneration)") {
+                await model.load(path: path, loader: loader)
             }
     }
 
     @ViewBuilder
     private var content: some View {
-        switch state {
-        case .loading(let fetched, let total):
+        switch model.state {
+        case .loading:
             VStack(spacing: 12) {
-                ProgressView(value: progressValue(fetched: fetched, total: total))
-                    .progressViewStyle(.linear)
-                    .frame(maxWidth: 220)
+                ProgressView(
+                    value: progressValue(
+                        fetched: model.fetchedBytes,
+                        total: model.totalBytes
+                    )
+                )
+                .progressViewStyle(.linear)
+                .frame(maxWidth: 220)
                 Text(String(localized: "chat.artifact.loading", defaultValue: "Loading preview", bundle: .module))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if fetched > 0 || total != nil {
-                    Text(verbatim: progressText(fetched: fetched, total: total))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.tertiary)
+                if model.fetchedBytes > 0 || model.totalBytes != nil {
+                    Text(
+                        verbatim: progressText(
+                            fetched: model.fetchedBytes,
+                            total: model.totalBytes
+                        )
+                    )
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -60,28 +71,33 @@ struct ChatArtifactViewerRouteView: View {
                 .scaledToFit()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
-        case .text(let text):
-            #if canImport(UIKit)
-            ChatArtifactTextView(text: text)
-            #else
-            ScrollView {
-                Text(text)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
+        case .text:
+            VStack(spacing: 0) {
+                if !model.textReachedEOF {
+                    streamingProgressHeader
+                }
+                #if canImport(UIKit)
+                ChatArtifactTextView(documentID: path, chunks: model.textChunks)
+                #else
+                ScrollView {
+                    Text(model.renderedText)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
+                #endif
             }
-            #endif
         case .binary(let stat):
             unavailableView(
                 title: String(localized: "chat.artifact.preview_unavailable.title", defaultValue: "Preview unavailable", bundle: .module),
                 message: String(localized: "chat.artifact.preview_unavailable.message", defaultValue: "This file can't be previewed.", bundle: .module),
                 detail: formattedSize(stat.size)
             )
-        case .tooLarge(let limit):
+        case .tooLarge(let actualSize, let limit):
             unavailableView(
                 title: String(localized: "chat.artifact.too_large.title", defaultValue: "File too large to preview", bundle: .module),
-                message: tooLargeMessage(limit: limit)
+                message: tooLargeMessage(actualSize: actualSize, limit: limit)
             )
         case .unsupportedMedia:
             unavailableView(
@@ -110,49 +126,23 @@ struct ChatArtifactViewerRouteView: View {
         }
     }
 
-    private func load() async {
-        await MainActor.run {
-            state = .loading(fetched: 0, total: nil)
+    private var streamingProgressHeader: some View {
+        HStack(spacing: 10) {
+            ProgressView(
+                value: progressValue(
+                    fetched: model.fetchedBytes,
+                    total: model.totalBytes
+                )
+            )
+            .progressViewStyle(.linear)
+            Text(verbatim: progressText(fetched: model.fetchedBytes, total: model.totalBytes))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .fixedSize()
         }
-        do {
-            let stat = try await loader.stat(path: path)
-            guard !stat.isDirectory else {
-                await MainActor.run {
-                    state = stat.showsFolder(
-                        supportsDirectoryBrowsing: loader.supportsDirectoryBrowsing
-                    ) ? .folder : .binary(stat: stat)
-                }
-                return
-            }
-            guard stat.size <= ChatArtifactTransferPolicy.defaultPolicy.maxPreviewBytes else {
-                await MainActor.run {
-                    state = .tooLarge(limit: ChatArtifactTransferPolicy.defaultPolicy.maxPreviewBytes)
-                }
-                return
-            }
-            let data = try await loader.fetch(path: path) { fetched, total in
-                Task { @MainActor in
-                    state = .loading(fetched: fetched, total: total)
-                }
-            }
-            guard !Task.isCancelled else { return }
-            switch stat.kind {
-            case .image:
-                await MainActor.run { state = .image(data: data) }
-            case .text:
-                if let text = String(data: data, encoding: .utf8) {
-                    await MainActor.run { state = .text(text: text) }
-                } else {
-                    await MainActor.run { state = .binary(stat: stat) }
-                }
-            case .binary, .directory:
-                await MainActor.run { state = .binary(stat: stat) }
-            }
-        } catch {
-            await MainActor.run {
-                state = LoadState(error: error)
-            }
-        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .background(.bar)
     }
 
     private func unavailableView(
@@ -175,7 +165,7 @@ struct ChatArtifactViewerRouteView: View {
             }
             if retry {
                 Button {
-                    Task { await load() }
+                    retryGeneration += 1
                 } label: {
                     Label(
                         String(localized: "chat.artifact.retry", defaultValue: "Retry", bundle: .module),
@@ -248,45 +238,25 @@ struct ChatArtifactViewerRouteView: View {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
-    private func tooLargeMessage(limit: Int64) -> String {
+    private func tooLargeMessage(actualSize: Int64?, limit: Int64) -> String {
+        guard let actualSize else {
+            let format = String(
+                localized: "chat.artifact.too_large.limit_message",
+                defaultValue: "This preview is limited to %@.",
+                bundle: .module
+            )
+            return String.localizedStringWithFormat(format, formattedSize(limit))
+        }
         let format = String(
             localized: "chat.artifact.too_large.message",
-            defaultValue: "This preview is limited to %@.",
+            defaultValue: "This file is %@; previews are limited to %@.",
             bundle: .module
         )
-        return String.localizedStringWithFormat(format, formattedSize(limit))
-    }
-
-    private enum LoadState: Equatable {
-        case loading(fetched: Int64, total: Int64?)
-        case folder
-        case image(data: Data)
-        case text(text: String)
-        case binary(stat: ChatArtifactStat)
-        case tooLarge(limit: Int64)
-        case unsupportedMedia
-        case fileMissing
-        case macUnreachable
-        case forbidden
-
-        init(error: any Error) {
-            guard let artifactError = error as? ChatArtifactError else {
-                self = .macUnreachable
-                return
-            }
-            switch artifactError {
-            case .fileNotFound:
-                self = .fileMissing
-            case .forbidden:
-                self = .forbidden
-            case .macUnreachable, .unavailable, .unsupported, .sessionNotFound, .invalidParams:
-                self = .macUnreachable
-            case .unsupportedMedia:
-                self = .unsupportedMedia
-            case .tooLarge(let limitBytes):
-                self = .tooLarge(limit: limitBytes)
-            }
-        }
+        return String.localizedStringWithFormat(
+            format,
+            formattedSize(actualSize),
+            formattedSize(limit)
+        )
     }
 }
 

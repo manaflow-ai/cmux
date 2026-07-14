@@ -310,6 +310,14 @@ struct WorkspaceDetailView: View {
                     progress: progress
                 )
             },
+            stream: { path, onChunk in
+                try await source.terminalArtifactFetch(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    onChunk: onChunk
+                )
+            },
             thumbnail: { path, maxDimension in
                 try await source.terminalArtifactThumbnail(
                     workspaceID: workspaceID,

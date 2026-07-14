@@ -97,7 +97,7 @@ public protocol ChatEventSource: Sendable {
     func artifactFetch(
         sessionID: String,
         path: String,
-        onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
+        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws
 
     /// Fetches a JPEG thumbnail for a referenced image artifact.
@@ -147,7 +147,7 @@ public extension ChatEventSource {
     func artifactFetch(
         sessionID: String,
         path: String,
-        onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
+        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
         let data = try await artifactFetch(sessionID: sessionID, path: path, progress: nil)
         try Task.checkCancellation()

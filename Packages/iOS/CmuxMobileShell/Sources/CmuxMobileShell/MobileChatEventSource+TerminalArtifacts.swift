@@ -69,7 +69,7 @@ extension MobileChatEventSource {
             ],
             collectsData: true,
             progress: progress,
-            onChunk: nil
+            onChunk: { _ in }
         )
     }
 
@@ -84,7 +84,7 @@ extension MobileChatEventSource {
         workspaceID: String,
         surfaceID: String,
         path: String,
-        onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
+        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
         _ = try await fetchArtifactChunks(
             method: "mobile.terminal.artifact.fetch",

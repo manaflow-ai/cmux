@@ -86,10 +86,27 @@ public struct ChatArtifactLoader: Sendable {
         _ path: String,
         _ progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
     ) async throws -> Data
+    private let streamHandler: @Sendable (
+        _ path: String,
+        _ onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws -> Void
     private let thumbnailHandler: @Sendable (_ path: String, _ maxDimension: Int) async throws -> ChatArtifactThumbnail
     private let listHandler: @Sendable (_ path: String) async throws -> ChatArtifactDirectoryListing
     private let thumbnailCache: ChatArtifactThumbnailCache
 
+    /// Creates a closure-backed artifact loader.
+    ///
+    /// - Parameters:
+    ///   - supportsArtifacts: Whether artifact operations are available.
+    ///   - supportsDirectoryBrowsing: Whether directory stat results may be listed.
+    ///   - scope: Cache and authorization namespace for this loader.
+    ///   - cache: Thumbnail cache shared by rows and viewers.
+    ///   - stat: Metadata operation for an absolute host path.
+    ///   - fetch: Whole-file operation retained for image and compatibility callers.
+    ///   - stream: Optional structured chunk operation; defaults to one callback
+    ///     containing the result of `fetch`.
+    ///   - thumbnail: Thumbnail operation for image artifacts.
+    ///   - list: Immediate-directory listing operation.
     public init(
         supportsArtifacts: Bool = false,
         supportsDirectoryBrowsing: Bool = false,
@@ -104,6 +121,10 @@ public struct ChatArtifactLoader: Sendable {
         ) async throws -> Data = { _, _ in
             throw ChatArtifactError.unsupported
         },
+        stream: (@Sendable (
+            _ path: String,
+            _ onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
+        ) async throws -> Void)? = nil,
         thumbnail: @escaping @Sendable (_ path: String, _ maxDimension: Int) async throws -> ChatArtifactThumbnail = { _, _ in
             throw ChatArtifactError.unsupported
         },
@@ -117,6 +138,18 @@ public struct ChatArtifactLoader: Sendable {
         self.thumbnailCache = cache
         statHandler = stat
         fetchHandler = fetch
+        streamHandler = stream ?? { path, onChunk in
+            let data = try await fetch(path, nil)
+            try Task.checkCancellation()
+            try await onChunk(
+                ChatArtifactChunk(
+                    data: data,
+                    offset: 0,
+                    totalSize: Int64(data.count),
+                    eof: true
+                )
+            )
+        }
         thumbnailHandler = thumbnail
         listHandler = list
     }
@@ -137,6 +170,9 @@ public struct ChatArtifactLoader: Sendable {
             fetch: { path, progress in
                 try await source.artifactFetch(sessionID: sessionID, path: path, progress: progress)
             },
+            stream: { path, onChunk in
+                try await source.artifactFetch(sessionID: sessionID, path: path, onChunk: onChunk)
+            },
             thumbnail: { path, maxDimension in
                 try await source.artifactThumbnail(
                     sessionID: sessionID,
@@ -150,6 +186,19 @@ public struct ChatArtifactLoader: Sendable {
         )
     }
 
+    /// Creates a terminal-scoped closure-backed artifact loader.
+    ///
+    /// - Parameters:
+    ///   - terminalWorkspaceID: Workspace containing the terminal surface.
+    ///   - terminalSurfaceID: Terminal surface authorizing visible paths.
+    ///   - supportsArtifacts: Whether terminal artifact operations are available.
+    ///   - supportsDirectoryBrowsing: Whether terminal directory listing is available.
+    ///   - cache: Thumbnail cache shared by rows and viewers.
+    ///   - stat: Metadata operation for an absolute host path.
+    ///   - fetch: Whole-file compatibility operation.
+    ///   - stream: Optional structured chunk operation.
+    ///   - thumbnail: Thumbnail operation for image artifacts.
+    ///   - list: Immediate-directory listing operation.
     public init(
         terminalWorkspaceID: String,
         terminalSurfaceID: String,
@@ -161,6 +210,10 @@ public struct ChatArtifactLoader: Sendable {
             _ path: String,
             _ progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
         ) async throws -> Data,
+        stream: (@Sendable (
+            _ path: String,
+            _ onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
+        ) async throws -> Void)? = nil,
         thumbnail: @escaping @Sendable (_ path: String, _ maxDimension: Int) async throws -> ChatArtifactThumbnail,
         list: @escaping @Sendable (_ path: String) async throws -> ChatArtifactDirectoryListing = { _ in
             throw ChatArtifactError.unsupported
@@ -173,6 +226,7 @@ public struct ChatArtifactLoader: Sendable {
             cache: cache,
             stat: stat,
             fetch: fetch,
+            stream: stream,
             thumbnail: thumbnail,
             list: list
         )
@@ -191,6 +245,18 @@ public struct ChatArtifactLoader: Sendable {
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)? = nil
     ) async throws -> Data {
         try await fetchHandler(path, progress)
+    }
+
+    /// Streams artifact chunks without requiring a contiguous whole-file copy.
+    ///
+    /// - Parameters:
+    ///   - path: Absolute Mac host path.
+    ///   - onChunk: Structured callback awaited for each chunk in byte order.
+    public func stream(
+        path: String,
+        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws {
+        try await streamHandler(path, onChunk)
     }
 
     public func thumbnail(

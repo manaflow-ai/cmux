@@ -267,14 +267,14 @@ public actor MobileChatEventSource: ChatEventSource {
             stringParams: ["session_id": sessionID, "path": path],
             collectsData: true,
             progress: progress,
-            onChunk: nil
+            onChunk: { _ in }
         )
     }
 
     public func artifactFetch(
         sessionID: String,
         path: String,
-        onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
+        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
         _ = try await fetchArtifactChunks(
             method: "mobile.chat.artifact.fetch",
@@ -365,7 +365,7 @@ public actor MobileChatEventSource: ChatEventSource {
         stringParams: [String: String],
         collectsData: Bool,
         progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?,
-        onChunk: (@Sendable (ChatArtifactChunk) async throws -> Void)?
+        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws -> Data {
         let loop = MobileArtifactChunkFetchLoop()
         return try await loop.run(
@@ -377,7 +377,7 @@ public actor MobileChatEventSource: ChatEventSource {
             params["length"] = ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes
             return try await self.artifactCall(method: method, params: params)
         } onChunk: { chunk in
-            try await onChunk?(chunk)
+            try await onChunk(chunk)
         }
     }
 

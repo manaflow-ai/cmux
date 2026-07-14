@@ -324,7 +324,7 @@
         }
       }
     },
-    "chat.artifact.too_large.message" : {
+    "chat.artifact.too_large.limit_message" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
@@ -337,6 +337,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このプレビューの上限は%@です。"
+          }
+        }
+      }
+    },
+    "chat.artifact.too_large.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This file is %@; previews are limited to %@."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このファイルのサイズは%@です。プレビューの上限は%@です。"
           }
         }
       }
