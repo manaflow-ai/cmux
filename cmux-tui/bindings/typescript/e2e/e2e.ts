@@ -28,13 +28,15 @@ async function main(): Promise<void> {
     const splitTree = await client.listWorkspaces();
     const layout = findLayoutForSurface(splitTree, created.surface);
     assert(layout?.type === "split", "split layout not found");
-    assert(layout.split !== undefined, "protocol v7 split id missing");
-    const splitId = layout.split;
-    await client.setSplitRatio(splitId, 0.65);
-    const resizedLayout = findLayoutForSurface(await client.listWorkspaces(), created.surface);
-    assert(resizedLayout?.type === "split", "resized split layout not found");
-    assert(resizedLayout.split === splitId, "split id changed after ratio update");
-    assert(Math.abs(resizedLayout.ratio - 0.65) < 0.0001, "split ratio did not update");
+    if (identify.protocol >= 7) {
+      assert(layout.split !== undefined, "protocol v7 split id missing");
+      const splitId = layout.split;
+      await client.setSplitRatio(splitId, 0.65);
+      const resizedLayout = findLayoutForSurface(await client.listWorkspaces(), created.surface);
+      assert(resizedLayout?.type === "split", "resized split layout not found");
+      assert(resizedLayout.split === splitId, "split id changed after ratio update");
+      assert(Math.abs(resizedLayout.ratio - 0.65) < 0.0001, "split ratio did not update");
+    }
     await client.setRatio(paneId, "right", 0.55);
 
     await client.renameSurface(created.surface, `${marker}-renamed`);
