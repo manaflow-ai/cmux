@@ -56,7 +56,9 @@ struct GitSubprocessSupervisor {
             return GitProcessResult(output: nil, failure: .launchFailed)
         }
         defer { posix_spawnattr_destroy(&attributes) }
-        let spawnFlags = POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_START_SUSPENDED
+        let spawnFlags = POSIX_SPAWN_SETPGROUP
+            | POSIX_SPAWN_START_SUSPENDED
+            | POSIX_SPAWN_CLOEXEC_DEFAULT
         guard posix_spawnattr_setflags(&attributes, Int16(spawnFlags)) == 0,
               posix_spawnattr_setpgroup(&attributes, 0) == 0 else {
             return GitProcessResult(output: nil, failure: .launchFailed)
@@ -135,6 +137,7 @@ struct GitSubprocessSupervisor {
             Self.terminateAndReap(processIdentifier)
             return GitProcessResult(output: nil, failure: .launchFailed)
         }
+        let processDeadline = Self.uptime + max(0, deadlineSeconds)
         // Registration must win the race with a fast command such as `true`.
         // Starting suspended makes NOTE_EXIT observable before the child can
         // exit, then this supervisor is the only owner that resumes it.
@@ -147,7 +150,6 @@ struct GitSubprocessSupervisor {
         var capped = false
         var failure: GitProcessFailure?
         var processExited = false
-        let processDeadline = Self.uptime + max(0, deadlineSeconds)
         var escalationDeadline: TimeInterval?
 
         func beginTermination(_ reason: GitProcessFailure?) {
