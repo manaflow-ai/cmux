@@ -1,6 +1,6 @@
 import Foundation
 
-enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
+nonisolated enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
     case revealInFinder(path: String)
 
     private static let kindUserInfoKey = "cmuxClickAction"

@@ -2228,6 +2228,10 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredUnreadPanelIds: Set<UUID> {
         Set(restoredUnreadPanelIndicators.keys)
     }
+
+    var hasAnyRestoredUnreadPanelIndicator: Bool {
+        !restoredUnreadPanelIndicators.isEmpty
+    }
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?

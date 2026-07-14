@@ -1,14 +1,193 @@
 import AppKit
+import Foundation
 import Testing
 @testable import cmux
+
+// SAFETY: every mutable field is accessed only while `lock` is held.
+private final class TitleScheduleRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var scheduledAction: (@Sendable () async -> Void)?
+    private var recordedScheduleCount = 0
+
+    var scheduleCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedScheduleCount
+    }
+
+    func schedule(
+        _ interval: Duration,
+        action: @escaping @Sendable () async -> Void
+    ) -> GhosttyTitleUpdateDispatcher.Cancellation {
+        _ = interval
+        lock.lock()
+        recordedScheduleCount += 1
+        scheduledAction = action
+        lock.unlock()
+        return { [weak self] in self?.cancel() }
+    }
+
+    func fire() async {
+        let action = takeScheduledAction()
+        await action?()
+    }
+
+    private func takeScheduledAction() -> (@Sendable () async -> Void)? {
+        lock.lock()
+        defer { lock.unlock() }
+        let action = scheduledAction
+        scheduledAction = nil
+        return action
+    }
+
+    private func cancel() {
+        lock.lock()
+        scheduledAction = nil
+        lock.unlock()
+    }
+}
+
+@Suite("Ghostty title update mailbox")
+struct GhosttyTitleUpdateMailboxTests {
+    @Test func updateThenRetireDropsPendingUpdate() throws {
+        var mailbox = GhosttyTitleUpdateMailbox()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let sourceIdentifier = ObjectIdentifier(NSObject())
+
+        #expect(mailbox.submit(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier,
+            title: "pending"
+        ))
+        _ = mailbox.retire(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier
+        )
+
+        let operations = mailbox.takePendingOperations()
+        #expect(operations.count == 1)
+        let operation = try #require(operations.first)
+        #expect(operation.retirement == GhosttyTitleUpdateMailbox.SurfaceKey(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier
+        ))
+        #expect(operation.update == nil)
+    }
+
+    @Test func retireThenUpdateResetsBeforeLatestValue() throws {
+        var mailbox = GhosttyTitleUpdateMailbox()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let sourceIdentifier = ObjectIdentifier(NSObject())
+        _ = mailbox.submit(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier,
+            title: "old"
+        )
+        _ = mailbox.takePendingOperations()
+        #expect(mailbox.retire(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier
+        ))
+        _ = mailbox.submit(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier,
+            title: "new-1"
+        )
+        _ = mailbox.submit(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier,
+            title: "new-2"
+        )
+
+        let operations = mailbox.takePendingOperations()
+        #expect(operations.count == 1)
+        let operation = try #require(operations.first)
+        #expect(operation.retirement == GhosttyTitleUpdateMailbox.SurfaceKey(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier
+        ))
+        #expect(operation.update == GhosttyTitleUpdate(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "new-2",
+            sourceSurfaceIdentifier: sourceIdentifier,
+            sequence: 3
+        ))
+    }
+}
+
+@Suite("Notification policy in-flight ordering")
+@MainActor
+struct TerminalNotificationPolicyInFlightStoreTests {
+    @Test func completedRequestsApplyInRegistrationOrder() {
+        let store = TerminalNotificationPolicyInFlightStore()
+        var applied: [String] = []
+        let first = store.register(makeRequest(title: "first"), generation: 1, onDiscard: {})
+        let second = store.register(makeRequest(title: "second"), generation: 1, onDiscard: {})
+
+        store.complete(second) { applied.append("second") }
+        #expect(applied.isEmpty)
+        store.complete(first) { applied.append("first") }
+
+        #expect(applied == ["first", "second"])
+    }
+
+    @Test func pendingIndexesCoverSurfaceAndPanelAliases() {
+        let store = TerminalNotificationPolicyInFlightStore()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let panelId = UUID()
+        let id = store.register(
+            makeRequest(tabId: tabId, surfaceId: surfaceId, panelId: panelId, title: "pending"),
+            generation: 1,
+            onDiscard: {}
+        )
+
+        #expect(store.hasPendingRequest(forTabId: tabId))
+        #expect(store.hasPendingRequest(forTabId: tabId, surfaceId: surfaceId))
+        #expect(store.hasPendingRequest(forTabId: tabId, surfaceId: panelId))
+        #expect(store.claim(id))
+        #expect(!store.hasPendingRequest(forTabId: tabId))
+    }
+
+    private func makeRequest(
+        tabId: UUID = UUID(),
+        surfaceId: UUID? = UUID(),
+        panelId: UUID? = nil,
+        title: String
+    ) -> TerminalNotificationPolicyRequest {
+        TerminalNotificationPolicyRequest(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            title: title,
+            subtitle: "",
+            body: "",
+            cwd: nil,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+    }
+}
 
 @Suite("Ghostty title update dispatcher")
 @MainActor
 struct GhosttyTitleUpdateDispatcherTests {
     @Test func burstPublishesOnlyLatestTitle() async {
         var published: [GhosttyTitleUpdate] = []
-        let dispatcher = GhosttyTitleUpdateDispatcher(schedule: { _, _ in
-            {}
+        let scheduler = TitleScheduleRecorder()
+        let dispatcher = GhosttyTitleUpdateDispatcher(schedule: { interval, action in
+            scheduler.schedule(interval, action: action)
         }) { updates in
             published.append(contentsOf: updates)
         }
@@ -26,7 +205,8 @@ struct GhosttyTitleUpdateDispatcherTests {
                 sequence: UInt64(sequence)
             ))
         }
-        await dispatcher.flushNow()
+        #expect(scheduler.scheduleCount == 1)
+        await scheduler.fire()
 
         #expect(published.count == 1)
         #expect(published.first?.title == "spinner-600")

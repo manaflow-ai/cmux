@@ -10,11 +10,14 @@ final class TerminalNotificationPolicyInFlightStore {
         let generation: UInt64
         let onDiscard: @MainActor @Sendable () -> Void
         var task: Task<Void, Never>?
+        var completion: (@MainActor () -> Void)?
     }
     private let maximumRequestCount = 1_024
     private var requests: [UUID: Entry] = [:]
     private var requestOrder: [UUID] = []
     private var requestOrderOffset = 0
+    private var requestCountByTabId: [UUID: Int] = [:]
+    private var requestCountByTabSurface: [UUID: [UUID?: Int]] = [:]
 
     func register(
         _ request: TerminalNotificationPolicyRequest,
@@ -26,8 +29,16 @@ final class TerminalNotificationPolicyInFlightStore {
             discardRequest(requestOrder[requestOrderOffset])
             requestOrderOffset += 1
         }
+        drainCompletedRequestsInOrder()
         let id = UUID()
-        requests[id] = Entry(request: request, generation: generation, onDiscard: onDiscard, task: nil)
+        requests[id] = Entry(
+            request: request,
+            generation: generation,
+            onDiscard: onDiscard,
+            task: nil,
+            completion: nil
+        )
+        incrementIndexes(for: request)
         requestOrder.append(id)
         return id
     }
@@ -40,7 +51,27 @@ final class TerminalNotificationPolicyInFlightStore {
 
     func claim(_ id: UUID?) -> Bool {
         guard let id else { return true }
-        return requests.removeValue(forKey: id) != nil
+        guard let entry = requests.removeValue(forKey: id) else { return false }
+        decrementIndexes(for: entry.request)
+        drainCompletedRequestsInOrder()
+        return true
+    }
+
+    /// Completes one asynchronous policy evaluation while preserving the
+    /// registration order observed by synchronous notification callers.
+    func complete(_ id: UUID, apply: @escaping @MainActor () -> Void) {
+        guard var entry = requests[id] else { return }
+        entry.completion = apply
+        requests[id] = entry
+        drainCompletedRequestsInOrder()
+    }
+
+    func hasPendingRequest(forTabId tabId: UUID) -> Bool {
+        (requestCountByTabId[tabId] ?? 0) > 0
+    }
+
+    func hasPendingRequest(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
+        (requestCountByTabSurface[tabId]?[surfaceId] ?? 0) > 0
     }
 
     func discardAll(through generation: UInt64? = nil) {
@@ -49,6 +80,7 @@ final class TerminalNotificationPolicyInFlightStore {
             return id
         }
         ids.forEach(discardRequest)
+        drainCompletedRequestsInOrder()
         if generation == nil {
             requestOrder.removeAll(keepingCapacity: true)
             requestOrderOffset = 0
@@ -95,12 +127,71 @@ final class TerminalNotificationPolicyInFlightStore {
             if liveTabId == tabId { idsToDiscard.append(id) }
         }
         idsToDiscard.forEach(discardRequest)
+        drainCompletedRequestsInOrder()
     }
 
     private func discardRequest(_ id: UUID) {
         guard let entry = requests.removeValue(forKey: id) else { return }
+        decrementIndexes(for: entry.request)
         entry.task?.cancel()
         entry.onDiscard()
+    }
+
+    private func drainCompletedRequestsInOrder() {
+        while requestOrderOffset < requestOrder.count {
+            let id = requestOrder[requestOrderOffset]
+            guard let entry = requests[id] else {
+                requestOrderOffset += 1
+                continue
+            }
+            guard let completion = entry.completion else { break }
+            requests.removeValue(forKey: id)
+            decrementIndexes(for: entry.request)
+            requestOrderOffset += 1
+            completion()
+        }
+        compactRequestOrderIfNeeded()
+    }
+
+    private func incrementIndexes(for request: TerminalNotificationPolicyRequest) {
+        requestCountByTabId[request.tabId, default: 0] += 1
+        let surfaceIds = Set([request.surfaceId, request.panelId].compactMap { $0 })
+        if surfaceIds.isEmpty {
+            requestCountByTabSurface[request.tabId, default: [:]][nil, default: 0] += 1
+        }
+        for surfaceId in surfaceIds {
+            requestCountByTabSurface[request.tabId, default: [:]][surfaceId, default: 0] += 1
+        }
+    }
+
+    private func decrementIndexes(for request: TerminalNotificationPolicyRequest) {
+        Self.decrement(&requestCountByTabId, key: request.tabId)
+        let surfaceIds = Set([request.surfaceId, request.panelId].compactMap { $0 })
+        if surfaceIds.isEmpty {
+            decrementSurfaceCount(tabId: request.tabId, surfaceId: nil)
+        }
+        for surfaceId in surfaceIds {
+            decrementSurfaceCount(tabId: request.tabId, surfaceId: surfaceId)
+        }
+    }
+
+    private func decrementSurfaceCount(tabId: UUID, surfaceId: UUID?) {
+        guard var counts = requestCountByTabSurface[tabId] else { return }
+        Self.decrement(&counts, key: surfaceId)
+        if counts.isEmpty {
+            requestCountByTabSurface.removeValue(forKey: tabId)
+        } else {
+            requestCountByTabSurface[tabId] = counts
+        }
+    }
+
+    private static func decrement<Key: Hashable>(_ counts: inout [Key: Int], key: Key) {
+        guard let count = counts[key] else { return }
+        if count <= 1 {
+            counts.removeValue(forKey: key)
+        } else {
+            counts[key] = count - 1
+        }
     }
 
     private func compactRequestOrderIfNeeded() {

@@ -30,6 +30,7 @@ actor GhosttyTitleUpdateDispatcher {
     private let schedule: Scheduler
     private let publish: Publisher
     private var states: [SurfaceKey: SurfaceState] = [:]
+    private var pendingKeys = Set<SurfaceKey>()
     private var cancelScheduledFlush: Cancellation?
 
     init(
@@ -66,6 +67,11 @@ actor GhosttyTitleUpdateDispatcher {
         state.lastReceivedTitle = update.title
         state.pendingUpdate = update.title == state.lastPublishedTitle ? nil : update
         states[key] = state
+        if state.pendingUpdate == nil {
+            pendingKeys.remove(key)
+        } else {
+            pendingKeys.insert(key)
+        }
         scheduleFlushIfNeeded()
     }
 
@@ -76,11 +82,13 @@ actor GhosttyTitleUpdateDispatcher {
     }
 
     func retire(tabId: UUID, surfaceId: UUID, sourceSurfaceIdentifier: ObjectIdentifier) {
-        states.removeValue(forKey: SurfaceKey(
+        let key = SurfaceKey(
             tabId: tabId,
             surfaceId: surfaceId,
             sourceSurfaceIdentifier: sourceSurfaceIdentifier
-        ))
+        )
+        states.removeValue(forKey: key)
+        pendingKeys.remove(key)
     }
 
     private func scheduleFlushIfNeeded() {
@@ -97,8 +105,10 @@ actor GhosttyTitleUpdateDispatcher {
 
     private func flush() async {
         var updates: [GhosttyTitleUpdate] = []
-        updates.reserveCapacity(states.count)
-        for key in Array(states.keys) {
+        let keys = pendingKeys
+        pendingKeys.removeAll(keepingCapacity: true)
+        updates.reserveCapacity(keys.count)
+        for key in keys {
             guard var state = states[key], let update = state.pendingUpdate else { continue }
             state.pendingUpdate = nil
             state.lastPublishedTitle = update.title

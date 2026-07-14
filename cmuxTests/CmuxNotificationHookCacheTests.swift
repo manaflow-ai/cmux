@@ -69,6 +69,35 @@ struct CmuxNotificationHookCacheTests {
         #expect(added.map(\.id) == ["global", "project", "child-updated-longeR"])
     }
 
+    @Test func leastRecentlyUsedDirectoryEntriesAreEvicted() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-notification-hook-cache-lru-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let globalConfig = root.appendingPathComponent("cmux.json")
+        try writeHook(id: "global", to: globalConfig)
+        let directories = (1...3).map { root.appendingPathComponent("project-\($0)", isDirectory: true) }
+        for directory in directories {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        let cache = CmuxNotificationHookCache(maximumEntryCount: 2)
+        _ = await cache.hooks(startingFrom: directories[0].path, globalConfigPath: globalConfig.path)
+        _ = await cache.hooks(startingFrom: directories[1].path, globalConfigPath: globalConfig.path)
+        _ = await cache.hooks(startingFrom: directories[0].path, globalConfigPath: globalConfig.path)
+        let hitsAfterTouchingFirst = await cache.hitCount
+        _ = await cache.hooks(startingFrom: directories[2].path, globalConfigPath: globalConfig.path)
+        _ = await cache.hooks(startingFrom: directories[0].path, globalConfigPath: globalConfig.path)
+        let hitsAfterReusingFirst = await cache.hitCount
+        _ = await cache.hooks(startingFrom: directories[1].path, globalConfigPath: globalConfig.path)
+        let finalHitCount = await cache.hitCount
+
+        #expect(hitsAfterReusingFirst == hitsAfterTouchingFirst + 1)
+        #expect(finalHitCount == hitsAfterReusingFirst)
+    }
+
     private func writeHook(id: String, to url: URL) throws {
         try """
         {

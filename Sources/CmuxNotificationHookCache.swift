@@ -21,6 +21,7 @@ actor CmuxNotificationHookCache {
     private struct Entry {
         let fingerprints: [FileFingerprint]
         let hooks: [CmuxResolvedNotificationHook]
+        var lastAccessSequence: UInt64
     }
 
     private struct ParsedConfig {
@@ -29,13 +30,16 @@ actor CmuxNotificationHookCache {
     }
 
     private let fileManager: FileManager
+    private let maximumEntryCount: Int
     private var entries: [Key: Entry] = [:]
     private var parsedConfigs: [String: ParsedConfig] = [:]
+    private var accessSequence: UInt64 = 0
     private(set) var parseCount = 0
     private(set) var hitCount = 0
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, maximumEntryCount: Int = 128) {
         self.fileManager = fileManager
+        self.maximumEntryCount = max(1, maximumEntryCount)
     }
 
     func hooks(
@@ -49,8 +53,11 @@ actor CmuxNotificationHookCache {
         let localPaths = normalizedDirectory.map { findConfigHierarchy(startingFrom: $0) } ?? []
         let paths = [normalizedGlobalPath] + localPaths
         let fingerprints = paths.map(fingerprint(for:))
-        if let entry = entries[key], entry.fingerprints == fingerprints {
+        let sequence = nextAccessSequence()
+        if var entry = entries[key], entry.fingerprints == fingerprints {
             hitCount += 1
+            entry.lastAccessSequence = sequence
+            entries[key] = entry
             return entry.hooks
         }
 
@@ -63,8 +70,31 @@ actor CmuxNotificationHookCache {
             globalConfigPath: normalizedGlobalPath,
             localConfigs: localConfigs
         )
-        entries[key] = Entry(fingerprints: fingerprints, hooks: hooks)
+        entries[key] = Entry(
+            fingerprints: fingerprints,
+            hooks: hooks,
+            lastAccessSequence: sequence
+        )
+        evictEntriesIfNeeded()
         return hooks
+    }
+
+    private func nextAccessSequence() -> UInt64 {
+        accessSequence &+= 1
+        return accessSequence
+    }
+
+    private func evictEntriesIfNeeded() {
+        while entries.count > maximumEntryCount,
+              let leastRecentlyUsedKey = entries.min(by: {
+                  $0.value.lastAccessSequence < $1.value.lastAccessSequence
+              })?.key {
+            entries.removeValue(forKey: leastRecentlyUsedKey)
+        }
+        let referencedPaths = Set(entries.values.flatMap { entry in
+            entry.fingerprints.lazy.filter(\.exists).map(\.path)
+        })
+        parsedConfigs = parsedConfigs.filter { referencedPaths.contains($0.key) }
     }
 
     private func normalizedDirectory(_ directory: String?) -> String? {
