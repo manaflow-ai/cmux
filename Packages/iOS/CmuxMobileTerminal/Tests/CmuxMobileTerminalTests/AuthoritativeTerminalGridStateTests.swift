@@ -70,6 +70,64 @@ struct AuthoritativeTerminalGridStateTests {
         #expect(state.frame == current)
     }
 
+    @Test("a replay generation resets ordering without clearing the visible frame")
+    func replayGenerationPreservesLastGoodFrame() throws {
+        var state = AuthoritativeTerminalGridState(surfaceID: "surface")
+        let current = try frame(
+            revision: 40,
+            columns: 12,
+            rows: ["last-good-one", "last-good-two"]
+        )
+        let replay = try frame(
+            revision: 1,
+            columns: 12,
+            rows: ["replayed-one", "replayed-two"]
+        )
+
+        #expect(state.apply(current) == .presented)
+        state.beginReplay(surfaceID: "surface")
+
+        #expect(state.frame == current)
+        #expect(state.classify(replay) == .presented)
+        #expect(state.commit(replay) == .presented)
+        #expect(state.frame == replay)
+    }
+
+    @Test("stale and invalid frames are rejected before viewport mutation")
+    func admissionPrecedesViewportPolicy() throws {
+        var state = AuthoritativeTerminalGridState(surfaceID: "surface")
+        let current = try frame(
+            revision: 50,
+            columns: 12,
+            rows: ["current-one", "current-two"]
+        )
+        let stale = try frame(
+            revision: 49,
+            columns: 8,
+            rows: ["stale-1", "stale-2"]
+        )
+        let wrongSurface = try MobileTerminalRenderGridFrame(
+            surfaceID: "replacement",
+            stateSeq: 51,
+            renderRevision: 51,
+            columns: 20,
+            rows: 1,
+            rowSpans: [.init(row: 0, column: 0, text: "wrong surface")]
+        )
+
+        #expect(state.apply(current) == .presented)
+
+        let staleAdmission = state.classify(stale)
+        #expect(staleAdmission == .ignoredStale)
+        #expect(!staleAdmission.allowsViewportMutation)
+        #expect(state.frame == current)
+
+        let invalidAdmission = state.classify(wrongSurface)
+        #expect(invalidAdmission == .needsFullSnapshot)
+        #expect(!invalidAdmission.allowsViewportMutation)
+        #expect(state.frame == current)
+    }
+
     private func frame(
         revision: UInt64,
         columns: Int,

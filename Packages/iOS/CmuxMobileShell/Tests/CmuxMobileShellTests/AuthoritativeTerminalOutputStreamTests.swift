@@ -29,9 +29,11 @@ import Testing
     ))
     let deliveredGrid = try await pollUntil { collector.renderGrids.count == 1 }
     #expect(deliveredGrid)
-    #expect(collector.renderGrids.first?.full == true)
-    #expect(collector.renderGrids.first?.plainRows().first == "authoritative-primary")
-    #expect(collector.typedGridData == [Data()])
+    let firstGrid = try #require(collector.renderGrids.first)
+    #expect(firstGrid.full == true)
+    #expect(firstGrid.plainRows().first == "authoritative-primary")
+    #expect(!collector.typedGridData[0].isEmpty)
+    #expect(collector.typedGridData == [firstGrid.vtReplacementBytes()])
 
     await transport.deliver(try terminalBytesEventFrame(
         surfaceID: "live-terminal",
