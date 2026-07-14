@@ -104,6 +104,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // Uses an isolated temporary Git repository and in-memory PR host. Git
         // scanning stays off-main; only the PR state machine hops to MainActor.
         "performance.metrics.exercise_git_pr",
+        // `simulator.list` shells out to `xcrun simctl list --json` (hundreds
+        // of ms), so it runs on the worker lane like the other blocking
+        // process/IO verbs. `simulator.open`/`simulator.close` only mutate
+        // workspace pane state and stay on the main-actor coordinator lane.
+        "simulator.list",
         // `surface.read_text` reads a terminal's visible or full-scrollback
         // text and formats it (line tailing, candidate scoring, base64
         // encoding). On the main actor that formatting stalls the run loop

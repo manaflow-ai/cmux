@@ -1360,6 +1360,8 @@ class TerminalController {
         case "system.memory": return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) { await self.v2SystemMemory(params: request.params) }
         case "performance.metrics.exercise_process": return v2AsyncResultCall(id: request.id, timeoutSeconds: 120) { await self.v2PerformanceMetricsExerciseProcess(params: request.params) }
         case "performance.metrics.exercise_git_pr": return v2AsyncResultCall(id: request.id, timeoutSeconds: 120) { await self.v2PerformanceMetricsExerciseGitPR(params: request.params) }
+        case "simulator.list":
+            return v2SimulatorList(id: request.id, params: request.params)
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.env":
