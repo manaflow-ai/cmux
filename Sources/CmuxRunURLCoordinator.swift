@@ -121,9 +121,17 @@ final class CmuxRunURLCoordinator {
                     )
                 )
             }
-            let selectedWorkspaceTitle = context.tabManager.selectedTabId.flatMap { workspaceId in
+            let workspaceFallback = String(
+                localized: "dialog.runURL.target.workspace",
+                defaultValue: "Workspace"
+            )
+            let rawSelectedWorkspaceTitle = context.tabManager.selectedTabId.flatMap { workspaceId in
                 context.tabManager.resolvedWorkspaceDisplayTitles(for: [workspaceId])[workspaceId]
-            } ?? String(localized: "dialog.runURL.target.workspace", defaultValue: "Workspace")
+            } ?? workspaceFallback
+            let selectedWorkspaceTitle = Self.sanitizedWorkspaceTitle(
+                rawSelectedWorkspaceTitle,
+                fallback: workspaceFallback
+            )
             return .success(
                 CmuxRunExecutionPlan(
                     command: request.command,
@@ -200,16 +208,26 @@ final class CmuxRunURLCoordinator {
                 return .failure(.targetNotFound)
             }
 
-            let workspaceTitle = manager.resolvedWorkspaceDisplayTitles(for: [runtimeWorkspaceId])[
+            let workspaceFallback = String(
+                localized: "dialog.runURL.target.workspace",
+                defaultValue: "Workspace"
+            )
+            let rawWorkspaceTitle = manager.resolvedWorkspaceDisplayTitles(for: [runtimeWorkspaceId])[
                 runtimeWorkspaceId
-            ] ?? String(localized: "dialog.runURL.target.workspace", defaultValue: "Workspace")
+            ] ?? workspaceFallback
+            let workspaceTitle = Self.sanitizedWorkspaceTitle(
+                rawWorkspaceTitle,
+                fallback: workspaceFallback
+            )
             let targetDescription = String(
                 format: String(
                     localized: "dialog.runURL.target.workspacePane",
-                    defaultValue: "%@, pane %@"
+                    defaultValue: "Window %@, workspace %@, pane %@: %@"
                 ),
-                workspaceTitle,
-                String(paneId.uuidString.prefix(8))
+                String(windowId.uuidString.prefix(8)),
+                String(runtimeWorkspaceId.uuidString.prefix(8)),
+                String(paneId.uuidString.prefix(8)),
+                workspaceTitle
             )
 
             if request.placement == .surface {
@@ -394,6 +412,25 @@ final class CmuxRunURLCoordinator {
             return nil
         }
         return (manager, workspace, pane, window)
+    }
+
+    private static func sanitizedWorkspaceTitle(_ title: String, fallback: String) -> String {
+        let dangerous: Set<Unicode.Scalar> = [
+            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
+            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
+            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
+            "\u{FEFF}",
+        ]
+        let visibleScalars = title.unicodeScalars.map { scalar -> Unicode.Scalar in
+            if dangerous.contains(scalar) || scalar.value < 0x20 || (0x7F...0x9F).contains(scalar.value) {
+                return " "
+            }
+            return scalar
+        }
+        let sanitized = String(String.UnicodeScalarView(visibleScalars))
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        return sanitized.isEmpty ? fallback : sanitized
     }
 
     private func window(for target: CmuxRunExecutionTarget) -> NSWindow? {

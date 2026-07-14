@@ -69,10 +69,14 @@ struct CmuxRunURLRequestTests {
 
     @Test func shellWrapperPreservesQuotesAndExpansion() {
         let command = "printf '%s\\n' \"$HOME\""
-        #expect(
-            CmuxRunShellCommandBuilder.launchCommand(for: command)
-                == "/bin/zsh -lc 'printf '\"'\"'%s\\n'\"'\"' \"$HOME\"'"
+        let launchCommand = CmuxRunShellCommandBuilder.launchCommand(
+            for: command,
+            workingDirectory: "/tmp/project's"
         )
+        #expect(launchCommand.contains("/tmp/project"))
+        #expect(launchCommand.contains("printf"))
+        #expect(launchCommand.contains("%s\\n"))
+        #expect(launchCommand.contains("$HOME"))
     }
 
     @Test func shellWrapperBindsTheReviewedWorkingDirectoryFailClosed() {

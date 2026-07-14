@@ -8,6 +8,9 @@ struct CmuxRunExecutionPlan: Equatable {
     let targetDescription: String
 
     var launchCommand: String {
-        CmuxRunShellCommandBuilder.launchCommand(for: command)
+        CmuxRunShellCommandBuilder.launchCommand(
+            for: command,
+            workingDirectory: workingDirectory
+        )
     }
 }
