@@ -111,7 +111,11 @@ describe("browser design-mode runtime", () => {
 
     expect(replacement.style.getPropertyValue("font-size")).toBe("44px");
     expect(replacement.textContent).toBe("Edited heading");
-    expect(runtime.snapshot().selection?.selector).toBe("#hero");
+    const recovered = runtime.snapshot();
+    expect(recovered.selection?.selector).toBe("#hero");
+    expect(recovered.selection?.text_content).toBe("Rerendered");
+    expect(recovered.selection?.dom_snippet).toContain("Rerendered");
+    expect(recovered.edits.find((edit) => edit.id === "text:text-content")?.original_value).toBe("Rerendered");
     expect(original.style.getPropertyValue("font-size")).toBe("");
     expect(original.textContent).toBe("Original");
   });
