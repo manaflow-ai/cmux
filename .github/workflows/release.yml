@@ -182,18 +182,23 @@ jobs:
 
       - name: Reject oversized release compilation cache
         if: steps.guard_release_assets.outputs.skip_all != 'true'
+        id: validate-release-compilation-cache
         run: |
           set -euo pipefail
           cache_path="build-universal/CompilationCache.noindex"
           max_cache_kib=$((3 * 1024 * 1024))
-          if [ -d "$cache_path" ]; then
+          cache_usable=false
+          if [ "${{ steps.restore-release-compilation-cache.outputs.cache-hit }}" = "true" ] && [ -d "$cache_path" ]; then
             cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
             echo "Restored release compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
             if [ "$cache_kib" -gt "$max_cache_kib" ]; then
               echo "Restored release compilation cache exceeds 3 GiB; rebuilding cold"
               rm -rf "$cache_path"
+            else
+              cache_usable=true
             fi
           fi
+          echo "cache_usable=$cache_usable" >> "$GITHUB_OUTPUT"
 
       # Same self-sufficiency as nightly: a self-hosted macOS runner may lack npm
       # on PATH, which breaks the pinned create-dmg install below. setup-node
@@ -273,13 +278,18 @@ jobs:
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
+          compilation_cache_enabled=NO
+          if [ "${{ steps.validate-release-compilation-cache.outputs.cache_usable }}" = "true" ]; then
+            compilation_cache_enabled=YES
+          fi
+          echo "Release compilation cache enabled: $compilation_cache_enabled"
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             -showBuildTimingSummary \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
-            COMPILATION_CACHE_ENABLE_CACHING=YES \
+            COMPILATION_CACHE_ENABLE_CACHING="$compilation_cache_enabled" \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO build
 
