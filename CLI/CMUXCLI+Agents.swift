@@ -32,7 +32,7 @@ extension CMUXCLI {
                cmux agents [options]
 
         Print saved agent state from ~/.cmuxterm/*-hook-sessions.json.
-        This command reads files directly and never waits on a cmux socket.
+        This command reads files directly. With --socket, it queries runtime identity once.
         Inside cmux, default output is scoped to that running app process.
         Pass --all to inspect cross-runtime history.
 

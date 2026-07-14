@@ -3130,7 +3130,32 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
-        if command == "agents" || command == "sessions" || command == "session-debug" { try runAgentsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
+        if command == "agents" || command == "sessions" || command == "session-debug" {
+            var queryEnvironment = processEnv
+            if let explicitSocketPath {
+                let client = SocketClient(path: explicitSocketPath)
+                defer { client.close() }
+                try authenticateClientIfNeeded(
+                    client,
+                    explicitPassword: socketPasswordArg,
+                    socketPath: explicitSocketPath
+                )
+                let capabilities = try client.sendV2(
+                    method: "system.capabilities",
+                    responseTimeout: 1
+                )
+                queryEnvironment = agentSessionQueryEnvironment(
+                    environment: queryEnvironment,
+                    socketCapabilities: capabilities
+                )
+            }
+            try runAgentsCommand(
+                commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs,
+                jsonOutput: jsonOutput,
+                processEnv: queryEnvironment
+            )
+            return
+        }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
