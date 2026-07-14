@@ -433,7 +433,12 @@ struct CmuxRunURLRequestTests {
         }
 
         #expect(await gate.requestTimeout())
-        #expect(await waiter.value == .timedOut)
+        switch await waiter.value {
+        case .timedOut:
+            break
+        case .completed:
+            Issue.record("Expected the deadline gate to return its timeout outcome")
+        }
     }
 
     @Test func concurrentResolutionDoesNotSpawnASecondProcess() async throws {
