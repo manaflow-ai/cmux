@@ -399,6 +399,75 @@ import Testing
     #expect(snapshot.data.range(of: Data("semantic-snapshot".utf8)) != nil)
 }
 
+@MainActor
+@Test func scrollPrefetchInstallsExpandedSemanticHistoryBehindRequestFence() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let baseline = try authoritativeSemanticFrame(seq: 10, revision: 1, text: "baseline")
+    await router.enqueueReplayRenderGrid(baseline)
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let streams = store.authoritativeTerminalOutputStreams(surfaceID: "live-terminal")
+    var visual = streams.visual.makeAsyncIterator()
+    var semantic = streams.semantic.makeAsyncIterator()
+    let visualBaselineValue = await visual.next()
+    let visualBaseline = try #require(visualBaselineValue)
+    let semanticBaselineValue = await semantic.next()
+    let semanticBaseline = try #require(semanticBaselineValue)
+    store.terminalOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: visualBaseline.streamToken,
+        disposition: .applied
+    )
+    store.terminalSemanticOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: semanticBaseline.streamToken,
+        disposition: .applied
+    )
+
+    let expanded = try MobileTerminalRenderGridFrame(
+        surfaceID: "live-terminal",
+        stateSeq: 10,
+        renderRevision: 2,
+        columns: 24,
+        rows: 2,
+        full: true,
+        rowSpans: [.init(row: 0, column: 0, text: "baseline")],
+        scrollbackRows: 3,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "oldest-prefetched"),
+            .init(row: 1, column: 0, text: "older-prefetched"),
+            .init(row: 2, column: 0, text: "history")
+        ]
+    )
+    await router.enqueueScrollRenderGrid(expanded)
+    await router.holdNextScrollResponses()
+    await store.scrollTerminal(surfaceID: "live-terminal", lines: -1, col: 0, row: 0)
+    let scrollStarted = try await pollUntil {
+        await router.count(of: "mobile.terminal.scroll") >= 1
+    }
+    #expect(scrollStarted)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID["live-terminal"] != nil)
+
+    let transport = try #require(box.get())
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 10,
+        text: "new"
+    ))
+    let rawWasFenced = try await pollUntil {
+        store.terminalReplayBarrierDroppedOutputSurfaceIDs.contains("live-terminal")
+    }
+    #expect(rawWasFenced)
+    await router.releaseAllHeld()
+
+    let expandedValue = await semantic.next()
+    let expandedBaseline = try #require(expandedValue)
+    #expect(expandedBaseline.kind == .baseline)
+    #expect(expandedBaseline.data.range(of: Data("oldest-prefetched".utf8)) != nil)
+    #expect(expandedBaseline.data.range(of: Data("new".utf8)) == nil)
+}
+
 private func authoritativeSemanticFrame(
     seq: UInt64,
     revision: UInt64,

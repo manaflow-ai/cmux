@@ -70,6 +70,8 @@ actor LivenessHostRouter {
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
+    private var scrollRenderGrids: [MobileTerminalRenderGridFrame] = []
+    private var heldScrollResponsesRemaining = 0
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -210,6 +212,14 @@ actor LivenessHostRouter {
         }
     }
 
+    func enqueueScrollRenderGrid(_ renderGrid: MobileTerminalRenderGridFrame) {
+        scrollRenderGrids.append(renderGrid)
+    }
+
+    func holdNextScrollResponses(count: Int = 1) {
+        heldScrollResponsesRemaining += count
+    }
+
     func failNextReplay(count: Int = 1) {
         replayFailuresRemaining += count
     }
@@ -278,6 +288,7 @@ actor LivenessHostRouter {
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
         heldViewportRequestNumbers = []
+        heldScrollResponsesRemaining = 0
         let continuations = heldContinuations
         heldContinuations = []
         for continuation in continuations { continuation.resume() }
@@ -400,6 +411,16 @@ actor LivenessHostRouter {
             var result: [String: Any] = [:]
             if let viewportReport = viewportEffectiveGridOverride ?? viewportReport { result["columns"] = viewportReport.columns; result["rows"] = viewportReport.rows }
             return try? Self.resultFrame(id: id, result: result)
+        case "mobile.terminal.scroll":
+            if heldScrollResponsesRemaining > 0 {
+                heldScrollResponsesRemaining -= 1
+                await park()
+            }
+            guard !scrollRenderGrids.isEmpty,
+                  let renderGridObject = try? scrollRenderGrids.removeFirst().jsonObject() else {
+                return try? Self.resultFrame(id: id, result: [:])
+            }
+            return try? Self.resultFrame(id: id, result: ["render_grid": renderGridObject])
         case "terminal.input":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_seq": 100,
