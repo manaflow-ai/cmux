@@ -117,6 +117,16 @@ test("switching repositories remounts the picker and ignores an older refs load"
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(document.body.textContent).toContain("second-ref");
   expect(document.body.textContent).not.toContain("stale-ref");
+
+  const changedBase = { ...second, currentRef: "new-base", refsURL: "/changed-base" };
+  render(changedBase);
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => completions.has("/changed-base"));
+  completions.get("/changed-base")?.(new Response(JSON.stringify({
+    groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "new-base-ref", label: "new-base-ref" }] }],
+  }), { status: 200 }));
+  await waitFor(() => document.body.textContent?.includes("new-base-ref") === true);
+  expect(document.body.textContent).not.toContain("second-ref");
 });
 
 test("button renders the head -> base comparison with the base as the bold ref", () => {
