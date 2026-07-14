@@ -129,17 +129,26 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
 
             if let armed {
                 if armed.accepts(string) {
+                    // Claim the one-shot slot atomically: only the write that
+                    // actually clears it may capture. A concurrent matching
+                    // write that loses this race falls through to the real
+                    // pasteboard instead of overwriting the captured value
+                    // and being swallowed.
                     standardClipboardWriteCaptureLock.lock()
-                    if standardClipboardWriteCapture === armed {
+                    let claimed = standardClipboardWriteCapture === armed
+                    if claimed {
                         standardClipboardWriteCapture = nil
                     }
                     standardClipboardWriteCaptureLock.unlock()
-                    armed.capture(string)
-                    return
+                    if claimed {
+                        armed.capture(string)
+                        return
+                    }
+                } else {
+                    Self.logger.info(
+                        "standard write passed through armed capture (length \(string.count, privacy: .public))"
+                    )
                 }
-                Self.logger.info(
-                    "standard write passed through armed capture (length \(string.count, privacy: .public))"
-                )
             }
         }
 
@@ -153,15 +162,19 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
         }
 
         guard let pasteboard = pasteboard(for: location) else { return }
-        pasteboard.clearContents()
+        let clearedChangeCount = pasteboard.clearContents()
         if !pasteboard.setString(string, forType: .string) {
             // A contended pasteboard can reject the write after clearContents,
-            // leaving the clipboard empty. Re-declare and retry once so the
-            // failure is at least not silent data loss.
-            pasteboard.clearContents()
-            let retried = pasteboard.setString(string, forType: .string)
+            // leaving the clipboard empty. Retry once so the failure is not
+            // silent data loss — but only while nothing else has written in
+            // the meantime, so the retry never clobbers a newer value.
+            var retried = false
+            if pasteboard.changeCount == clearedChangeCount {
+                pasteboard.clearContents()
+                retried = pasteboard.setString(string, forType: .string)
+            }
             Self.logger.error(
-                "pasteboard setString failed (length \(string.count, privacy: .public)), retry \(retried ? "succeeded" : "failed", privacy: .public)"
+                "pasteboard setString failed (length \(string.count, privacy: .public)), retry \(retried ? "succeeded" : "skipped-or-failed", privacy: .public)"
             )
         }
     }
