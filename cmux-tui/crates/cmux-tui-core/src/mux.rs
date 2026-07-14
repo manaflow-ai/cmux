@@ -300,6 +300,10 @@ impl Mux {
         self.subscribers.subscribe()
     }
 
+    pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
+        self.subscribers.subscribe_attached_surface(surface)
+    }
+
     pub fn emit(&self, event: MuxEvent) {
         self.subscribers.emit(event);
     }

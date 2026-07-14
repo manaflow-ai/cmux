@@ -1063,7 +1063,7 @@ fn spawn_attach_notification_stream(
     writer: MessageWriter,
     lifecycle: AttachLifecycle,
 ) -> std::io::Result<()> {
-    let events = mux.subscribe();
+    let events = mux.subscribe_attached_surface(surface_id);
     std::thread::Builder::new()
         .name("mux-attach-notifications".into())
         .spawn(move || {

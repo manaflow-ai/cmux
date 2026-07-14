@@ -12,7 +12,18 @@ const MAX_PENDING_EVENTS: usize = 4_096;
 
 #[derive(Default)]
 pub struct MuxEventBroadcaster {
-    subscribers: Mutex<Vec<Weak<MuxEventMailbox>>>,
+    subscribers: Mutex<Vec<MuxEventSubscriber>>,
+}
+
+struct MuxEventSubscriber {
+    mailbox: Weak<MuxEventMailbox>,
+    filter: MuxEventFilter,
+}
+
+#[derive(Clone, Copy)]
+enum MuxEventFilter {
+    All,
+    AttachedSurface(SurfaceId),
 }
 
 pub struct MuxEventReceiver {
@@ -39,24 +50,48 @@ struct MuxEventMailboxState {
 
 impl MuxEventBroadcaster {
     pub fn subscribe(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::All)
+    }
+
+    pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::AttachedSurface(surface))
+    }
+
+    fn subscribe_with_filter(&self, filter: MuxEventFilter) -> MuxEventReceiver {
         let mailbox = Arc::new(MuxEventMailbox::default());
-        self.subscribers.lock().unwrap().push(Arc::downgrade(&mailbox));
+        self.subscribers
+            .lock()
+            .unwrap()
+            .push(MuxEventSubscriber { mailbox: Arc::downgrade(&mailbox), filter });
         MuxEventReceiver { mailbox }
     }
 
     pub fn emit(&self, event: MuxEvent) {
         let mut subscribers = self.subscribers.lock().unwrap();
         subscribers.retain(|subscriber| {
-            let Some(mailbox) = subscriber.upgrade() else { return false };
-            mailbox.push(event.clone())
+            let Some(mailbox) = subscriber.mailbox.upgrade() else { return false };
+            !subscriber.filter.accepts(&event) || mailbox.push(event.clone())
         });
+    }
+}
+
+impl MuxEventFilter {
+    fn accepts(self, event: &MuxEvent) -> bool {
+        match self {
+            Self::All => true,
+            Self::AttachedSurface(surface) => match event {
+                MuxEvent::Notification(notification) => notification.surface == Some(surface),
+                MuxEvent::ScrollChanged { surface: event_surface, .. } => *event_surface == surface,
+                _ => false,
+            },
+        }
     }
 }
 
 impl Drop for MuxEventBroadcaster {
     fn drop(&mut self) {
         for subscriber in self.subscribers.get_mut().unwrap().drain(..) {
-            if let Some(mailbox) = subscriber.upgrade() {
+            if let Some(mailbox) = subscriber.mailbox.upgrade() {
                 mailbox.close();
             }
         }
@@ -359,6 +394,29 @@ mod tests {
 
         broadcaster.emit(MuxEvent::Bell(9_999));
         assert!(matches!(fast.recv().unwrap(), MuxEvent::Bell(9_999)));
+    }
+
+    #[test]
+    fn attached_surface_subscription_filters_before_bounded_mailbox() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe_attached_surface(7);
+
+        for index in 0..=MAX_PENDING_EVENTS {
+            broadcaster.emit(MuxEvent::Bell(index as SurfaceId));
+            broadcaster.emit(MuxEvent::ScrollChanged {
+                surface: 8,
+                offset: index as u64,
+                at_bottom: false,
+            });
+        }
+        broadcaster.emit(MuxEvent::ScrollChanged { surface: 7, offset: 42, at_bottom: false });
+
+        assert!(matches!(
+            events.recv().unwrap(),
+            MuxEvent::ScrollChanged { surface: 7, offset: 42, at_bottom: false }
+        ));
+        assert!(!events.overflowed());
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
 
     #[test]

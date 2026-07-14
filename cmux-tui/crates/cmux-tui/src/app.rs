@@ -3163,6 +3163,13 @@ impl App {
                         | MouseEventKind::Up(MouseButton::Left),
                     ..
                 }),
+                Some(Drag::Select { .. })
+            ) | (
+                Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::Drag(MouseButton::Left)
+                        | MouseEventKind::Up(MouseButton::Left),
+                    ..
+                }),
                 Some(Drag::Browser { .. })
             ) | (
                 Event::Mouse(MouseEvent {
@@ -4814,7 +4821,7 @@ impl App {
         &mut self,
         x: u16,
         y: u16,
-        _reported_button: MouseButton,
+        reported_button: MouseButton,
         modifiers: KeyModifiers,
     ) -> bool {
         let Some(Drag::PtyMouse {
@@ -4825,6 +4832,9 @@ impl App {
         };
         let (surface, reservation_id, fallback, content, button) =
             (*surface, *reservation_id, release_bytes.clone(), *content, *button);
+        if reported_button != button {
+            return true;
+        }
         let content = self.current_pty_content(surface).unwrap_or(content);
         let release = self.capture_pty_mouse_release(surface, content, x, y, button, modifiers);
         self.drag = None;
@@ -6176,9 +6186,10 @@ mod tests {
     use super::{
         App, AppEvent, DeferredInput, Drag, MuxTitleIngress, OrderedSession, PaneArea,
         PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress, RenderAction,
-        SessionCompletion, SessionCompletionAction, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SurfaceResizeDecision, browser_content_size_for_rect, browser_hover_forward_allowed,
-        forward_mux_events, pane_parts_for_rect, sidebar_plugin_status_settles_passive_claim,
+        Selection, SessionCompletion, SessionCompletionAction, SidebarPluginSyncClaim,
+        SidebarPluginSyncState, SurfaceResizeDecision, browser_content_size_for_rect,
+        browser_hover_forward_allowed, forward_mux_events, pane_parts_for_rect,
+        sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -6327,6 +6338,10 @@ mod tests {
         );
         assert!(app.encode_buf.is_empty());
         app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
+        assert!(app.encode_buf.is_empty());
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Right, .. })));
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right), KeyModifiers::NONE))
+            .unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
         assert!(app.drag.is_none());
 
@@ -8015,6 +8030,37 @@ mod tests {
     }
 
     #[test]
+    fn selection_drag_and_release_bypass_a_pending_focus_mutation() {
+        let mux = Mux::new("selection-release-barrier-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.selection = Some(Selection { surface: surface.id, anchor: (1, 1), head: (1, 1) });
+        app.drag = Some(Drag::Select { content, auto_scroll: None, col: 1 });
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 8,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(app.deferred_input.is_empty());
+        assert_eq!(app.selection.map(|selection| selection.head), Some((6, 3)));
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 8,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(app.deferred_input.is_empty());
+        assert!(app.drag.is_none());
+    }
+
+    #[test]
     fn pty_drag_motion_and_release_bypass_pending_mutation_with_pinned_surface() {
         let mux = Mux::new("pty-release-barrier-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -8040,7 +8086,7 @@ mod tests {
         assert!(matches!(app.drag, Some(Drag::PtyMouse { surface: 42, position: (8, 6), .. })));
 
         app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Up(MouseButton::Left),
+            kind: MouseEventKind::Up(MouseButton::Right),
             column: 8,
             row: 6,
             modifiers: KeyModifiers::NONE,
