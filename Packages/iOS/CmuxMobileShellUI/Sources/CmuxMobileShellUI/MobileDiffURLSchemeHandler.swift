@@ -1,6 +1,9 @@
 #if os(iOS)
 import Foundation
+import OSLog
 @preconcurrency import WebKit
+
+private let diffSchemeLog = Logger(subsystem: "com.cmuxterm.app", category: "DiffViewerScheme")
 
 /// Serves the bundled viewer assets and a streamed RPC-backed patch response.
 @MainActor
@@ -103,6 +106,8 @@ final class MobileDiffURLSchemeHandler: NSObject, WKURLSchemeHandler {
             textEncodingName: "utf-8"
         ))
         var deliveredPatchData = false
+        var deliveredByteCount = 0
+        diffSchemeLog.info("patch stream start: \(self.files.count, privacy: .public) files")
         do {
             for try await chunk in service.patchStream(files: files) {
                 try Task.checkCancellation()
@@ -113,15 +118,18 @@ final class MobileDiffURLSchemeHandler: NSObject, WKURLSchemeHandler {
                 if !chunk.data.isEmpty {
                     task.didReceive(chunk.data)
                     deliveredPatchData = true
+                    deliveredByteCount += chunk.data.count
                 }
             }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            diffSchemeLog.error("patch stream failed after \(deliveredByteCount, privacy: .public) bytes: \(String(describing: error), privacy: .public)")
             guard deliveredPatchData, isLive(identifier) else { throw error }
             onPartialFailure()
         }
         guard isLive(identifier) else { throw CancellationError() }
+        diffSchemeLog.info("patch stream finished: \(deliveredByteCount, privacy: .public) bytes")
         task.didFinish()
     }
 

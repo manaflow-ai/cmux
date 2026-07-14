@@ -9,7 +9,7 @@ import Testing
         ("styles.css", "text/css"),
         ("config.json", "application/json"),
         ("highlighter.wasm", "application/wasm"),
-        ("unknown.bin", "application/octet-stream"),
+        ("unknown.zzunknown", "application/octet-stream"),
     ])
     func mapsAssetExtension(path: String, expected: String) {
         #expect(MobileDiffMIMEType().value(forPath: path) == expected)

@@ -1,5 +1,8 @@
 import CmuxGit
 import Foundation
+import OSLog
+
+private let mobileGitLog = Logger(subsystem: "dev.cmux", category: "mobile-git")
 
 // MARK: - Mobile workspace Git
 
@@ -21,7 +24,9 @@ extension TerminalController {
         }
 
         do {
+            mobileGitLog.info("git.status request for \(directory, privacy: .public)")
             let status = try await WorkspaceGitService().status(forDirectory: directory)
+            mobileGitLog.info("git.status ok: \(status.files.count, privacy: .public) files")
             let files: [[String: Any]] = status.files.map { file in
                 var payload: [String: Any] = [
                     "path": file.path,
@@ -94,7 +99,9 @@ extension TerminalController {
         }
 
         do {
+            mobileGitLog.info("git.diff request: \(paths.count, privacy: .public) paths in \(directory, privacy: .public)")
             let diff = try await WorkspaceGitService().diff(forDirectory: directory, paths: paths)
+            mobileGitLog.info("git.diff ok: \(diff.patch.utf8.count, privacy: .public) bytes, truncated \(diff.truncated.count, privacy: .public), too_large \(diff.tooLarge.count, privacy: .public)")
             return .ok([
                 "baseline": diff.baseline,
                 "patch": diff.patch,
@@ -139,6 +146,7 @@ extension TerminalController {
     }
 
     private func mobileWorkspaceGitError(_ error: any Error) -> V2CallResult {
+        mobileGitLog.error("git rpc failed: \(String(describing: error), privacy: .public)")
         guard let gitError = error as? WorkspaceGitServiceError else {
             return .err(code: "git_error", message: "Git operation failed", data: nil)
         }

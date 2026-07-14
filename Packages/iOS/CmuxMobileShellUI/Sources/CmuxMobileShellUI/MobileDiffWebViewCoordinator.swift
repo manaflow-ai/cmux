@@ -1,7 +1,8 @@
 #if os(iOS)
 import CmuxMobileSupport
 import Foundation
-@preconcurrency import WebKit
+@preconcurrency import OSLog
+import WebKit
 
 /// Owns the WebKit scheme and message-handler seams for one viewer instance.
 @MainActor
@@ -52,6 +53,8 @@ final class MobileDiffWebViewCoordinator: NSObject, WKNavigationDelegate, WKScri
         case "error":
             let message = (body["message"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            Logger(subsystem: "com.cmuxterm.app", category: "DiffViewerWeb")
+                .error("web renderer error: \(message ?? "<empty>", privacy: .public)")
             controller.showError(message.flatMap { $0.isEmpty ? nil : $0 } ?? Self.renderError)
         default:
             break
