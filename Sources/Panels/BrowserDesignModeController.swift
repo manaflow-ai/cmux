@@ -81,7 +81,7 @@ final class BrowserDesignModeController {
     func install(on webView: WKWebView) {
         if let installed = self.webView, installed !== webView {
             invalidateOperation()
-            bestEffortDestroyRuntime(in: installed)
+            bestEffortRuntimeCleanup(in: installed)
             uninstall(from: installed)
             resetNativeState()
         }
@@ -105,7 +105,7 @@ final class BrowserDesignModeController {
     func webViewWillNavigate() {
         guard isActive || snapshot != nil else { return }
         invalidateOperation()
-        if let webView { bestEffortDestroyRuntime(in: webView) }
+        if let webView { bestEffortRuntimeCleanup(in: webView) }
         resetNativeState()
     }
 
@@ -116,7 +116,7 @@ final class BrowserDesignModeController {
 
     func webViewWillBeRemoved(_ webView: WKWebView) {
         invalidateOperation()
-        bestEffortDestroyRuntime(in: webView)
+        bestEffortRuntimeCleanup(in: webView)
         resetNativeState()
         uninstall(from: webView)
         if self.webView === webView { self.webView = nil }
@@ -171,7 +171,7 @@ final class BrowserDesignModeController {
                 guard operation == operationRevision else { return false }
                 if enableError is CancellationError || enableError as? BrowserDesignModeSendError == .operationTimedOut {
                     invalidateOperation()
-                    bestEffortDestroyRuntime(in: webView)
+                    bestEffortRuntimeCleanup(in: webView)
                     resetNativeState()
                     recordInternalFailure(enableError, operation: "enable")
                     errorMessage = String(
@@ -351,25 +351,21 @@ final class BrowserDesignModeController {
         beforeViewBounds: NSRect,
         afterViewBounds: NSRect
     ) {
-        let prepared = try await evaluate(
-            "return globalThis.__cmuxDesignMode?.prepareCapture();",
-            in: webView
-        )
-        do {
-            let before = try decodeSnapshot(prepared)
-            let beforeViewBounds = webView.bounds
-            let image = try await screenshotEvaluator.captureVisibleViewport(from: webView)
-            let after = try decodeSnapshot(
-                try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView)
-            )
-            let afterViewBounds = webView.bounds
-            try await finishCapture(in: webView)
-            return (before, after, image, beforeViewBounds, afterViewBounds)
-        } catch let captureError {
-            if captureError is CancellationError { throw captureError }
-            try? await finishCapture(in: webView)
-            throw captureError
+        var captureFinished = false
+        defer {
+            if !captureFinished {
+                bestEffortRuntimeCleanup("return globalThis.__cmuxDesignMode?.finishCapture();", in: webView)
+            }
         }
+        let prepared = try await evaluate("return globalThis.__cmuxDesignMode?.prepareCapture();", in: webView)
+        let before = try decodeSnapshot(prepared)
+        let beforeViewBounds = webView.bounds
+        let image = try await screenshotEvaluator.captureVisibleViewport(from: webView)
+        let after = try decodeSnapshot(try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView))
+        let afterViewBounds = webView.bounds
+        try await finishCapture(in: webView)
+        captureFinished = true
+        return (before, after, image, beforeViewBounds, afterViewBounds)
     }
 
     private static func captureMatches(
@@ -447,11 +443,14 @@ final class BrowserDesignModeController {
         messageHandler = nil
     }
 
-    private func bestEffortDestroyRuntime(in webView: WKWebView) {
+    private func bestEffortRuntimeCleanup(
+        _ body: String = "return globalThis.__cmuxDesignMode?.destroy();",
+        in webView: WKWebView
+    ) {
         Task { @MainActor [weak self, weak webView] in
             guard let self, let webView else { return }
             _ = try? await self.javaScriptEvaluator.call(
-                "return globalThis.__cmuxDesignMode?.destroy();",
+                body,
                 arguments: [:],
                 in: webView,
                 contentWorld: Self.contentWorld

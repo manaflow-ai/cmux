@@ -252,12 +252,24 @@
       childTags.push(child.localName || "");
       if (childTags.length === 16) break;
     }
+    const stableAttributes = [];
+    let visitedAttributes = 0;
+    for (const attribute of element.attributes || []) {
+      visitedAttributes += 1;
+      if (visitedAttributes > 64) break;
+      const name = String(attribute.name || "").toLowerCase();
+      if (["class", "style"].includes(name) || urlBearingAttributes.has(name) || hasSensitiveName(name)) continue;
+      stableAttributes.push(`${bounded(name, maxSelectorValueCharacters)}=${bounded(attribute.value, maxSelectorValueCharacters)}`);
+      if (stableAttributes.length === 16) break;
+    }
+    stableAttributes.sort();
     const parent = element.parentElement;
     return [
       element.namespaceURI || "",
       element.localName || "",
       bounded(element.getAttribute?.("role"), maxSelectorValueCharacters),
       bounded(element.getAttribute?.("type"), maxSelectorValueCharacters),
+      JSON.stringify(stableAttributes),
       String(element.childElementCount || 0),
       childTags.join(","),
       parent?.namespaceURI || "",
