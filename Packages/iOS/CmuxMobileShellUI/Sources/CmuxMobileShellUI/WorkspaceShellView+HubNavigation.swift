@@ -40,10 +40,11 @@ extension WorkspaceShellView {
                 )
             )
             .background(InteractiveSwipeBackEnabler())
-        case .pane(let workspaceID, let paneID, _):
+        case .pane(let workspaceID, let paneID, let surfaceID):
             paneDestination(
                 for: workspaceID,
                 paneID: paneID,
+                initialSurfaceID: surfaceID,
                 createWorkspace: createWorkspaceInCompactStack
             )
         }
@@ -54,10 +55,11 @@ extension WorkspaceShellView {
         switch route {
         case .hub(let workspaceID):
             workspaceHubDestination(for: workspaceID, backButtonConfiguration: nil)
-        case .pane(let workspaceID, let paneID, _):
+        case .pane(let workspaceID, let paneID, let surfaceID):
             paneDestination(
                 for: workspaceID,
                 paneID: paneID,
+                initialSurfaceID: surfaceID,
                 createWorkspace: createWorkspaceIfConnected,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
@@ -81,7 +83,9 @@ extension WorkspaceShellView {
     func openPane(_ pane: WorkspaceHubPaneSnapshot) {
         guard let workspaceID = store.selectedWorkspaceID,
               let surfaceID = pane.activeSurfaceID else { return }
-        store.selectTerminalFromChrome(MobileTerminalPreview.ID(rawValue: surfaceID))
+        if pane.activeKind == .terminal {
+            store.selectTerminalFromChrome(MobileTerminalPreview.ID(rawValue: surfaceID))
+        }
         let route = WorkspaceShellRoute.pane(
             workspaceID: workspaceID,
             paneID: pane.id,
@@ -101,6 +105,7 @@ extension WorkspaceShellView {
     func paneDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
         paneID: String,
+        initialSurfaceID: String,
         createWorkspace: @escaping () -> Void,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth
     ) -> some View {
@@ -108,6 +113,7 @@ extension WorkspaceShellView {
             store: store,
             workspaceID: workspaceID,
             paneID: paneID,
+            initialSurfaceID: initialSurfaceID,
             createWorkspace: createWorkspace,
             canCreateWorkspace: canCreateWorkspaceForMacSelection,
             renameWorkspace: renameWorkspaceClosure,

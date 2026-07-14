@@ -8,6 +8,9 @@ public struct PaneTabStripPreviewDemand: Equatable, Sendable {
     ///   - cards: Cards in the current strip projection.
     ///   - visibleCardIDs: Card identifiers currently intersecting the viewport.
     public init(cards: [PaneTabStripCardSnapshot], visibleCardIDs: Set<String>) {
-        surfaceIDs = Set(cards.lazy.map(\.id).filter(visibleCardIDs.contains))
+        surfaceIDs = Set(cards.lazy.compactMap { card in
+            guard card.kind == .terminal, visibleCardIDs.contains(card.id) else { return nil }
+            return card.sourceID
+        })
     }
 }

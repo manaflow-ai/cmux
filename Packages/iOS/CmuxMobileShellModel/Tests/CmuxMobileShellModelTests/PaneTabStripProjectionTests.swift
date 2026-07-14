@@ -85,6 +85,39 @@ import Testing
         #expect(PaneTabStripPreviewDemand(cards: cards, visibleCardIDs: []).surfaceIDs.isEmpty)
     }
 
+    @Test func chatCardsFollowBoundTerminalInInputOrderAndWaitingNeedsAttention() {
+        let chats = [
+            PaneChatCardSnapshot(id: "chat-b", terminalID: "terminal", title: "Second", agentStatus: .needsInput),
+            PaneChatCardSnapshot(id: "chat-a", terminalID: "terminal", title: "First", agentStatus: .running),
+        ]
+        let projection = PaneTabStripProjection(
+            layout: layout([tab("terminal"), tab("other")]),
+            paneID: "pane",
+            fallbackTerminals: [],
+            chatCards: chats,
+            attentionFirst: false
+        )
+
+        #expect(projection.cards.map(\.id) == ["terminal", "chat:chat-b", "chat:chat-a", "other"])
+        #expect(projection.cards[1].kind == .agentChat)
+        #expect(PaneTabAttentionPredicate.needsAttention(projection.cards[1]))
+    }
+
+    @Test func browserKindsRemainDistinctAndOnlyTerminalsRequestGridDemand() {
+        let projection = PaneTabStripProjection(
+            layout: layout([tab("terminal"), tab("mac-browser", kind: .browser)]),
+            paneID: "pane",
+            fallbackTerminals: [],
+            localBrowser: PaneLocalBrowserCardSnapshot(id: "phone-browser", title: "Phone"),
+            attentionFirst: false
+        )
+        #expect(projection.cards.map(\.kind) == [.terminal, .mirroredBrowser, .localBrowser])
+        #expect(PaneTabStripPreviewDemand(
+            cards: projection.cards,
+            visibleCardIDs: Set(projection.cards.map(\.id))
+        ).surfaceIDs == ["terminal"])
+    }
+
     @Test func visibilityReducerHandlesPaneInputScrollAndHandleEvents() {
         var state = PaneTabStripVisibilityState(isStripVisible: false)
         state.handle(.enteredPane)
@@ -116,13 +149,14 @@ import Testing
 
     private func tab(
         _ id: String,
+        kind: MobileWorkspaceTabKind = .terminal,
         agent: MobileWorkspaceAgentStatus? = nil,
         unread: Bool = false
     ) -> MobileWorkspaceTab {
         MobileWorkspaceTab(
             id: id,
             name: id,
-            kind: .terminal,
+            kind: kind,
             isActive: false,
             isReady: true,
             agentStatus: agent,

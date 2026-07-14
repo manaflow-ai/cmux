@@ -1,29 +1,40 @@
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// One snapshot-isolated live card in the in-pane tab strip.
 struct PaneTabStripCardView: View {
     let card: PaneTabStripCardSnapshot
     let isSelected: Bool
     let connectionStatus: MobileMacConnectionStatus
+    let supportsBrowserPreview: Bool
     let previewUpdates: (String) -> AsyncStream<PreviewGridSnapshot>
+    let browserPreviewUpdates: (String, MobileBrowserPreviewResolution) -> AsyncStream<MobileBrowserPreviewFrame>
     let select: () -> Void
     @State private var isVisible = false
     @State private var snapshot: PreviewGridSnapshot
+    @State private var browserFrame: MobileBrowserPreviewFrame?
 
     init(
         card: PaneTabStripCardSnapshot,
         isSelected: Bool,
         connectionStatus: MobileMacConnectionStatus,
+        supportsBrowserPreview: Bool,
         previewUpdates: @escaping (String) -> AsyncStream<PreviewGridSnapshot>,
+        browserPreviewUpdates: @escaping (String, MobileBrowserPreviewResolution) -> AsyncStream<MobileBrowserPreviewFrame>,
         select: @escaping () -> Void
     ) {
         self.card = card
         self.isSelected = isSelected
         self.connectionStatus = connectionStatus
+        self.supportsBrowserPreview = supportsBrowserPreview
         self.previewUpdates = previewUpdates
+        self.browserPreviewUpdates = browserPreviewUpdates
         self.select = select
         _snapshot = State(initialValue: .awaitingBaseline(surfaceID: card.id))
     }
@@ -70,12 +81,81 @@ struct PaneTabStripCardView: View {
         }
     }
 
+    @ViewBuilder
     private var thumbnail: some View {
-        TerminalGridThumbnailView(snapshot: snapshot)
+        Group {
+            switch card.kind {
+            case .terminal:
+                TerminalGridThumbnailView(snapshot: snapshot)
+            case .mirroredBrowser:
+                mirroredBrowserThumbnail
+            case .localBrowser:
+                kindPlaceholder(systemImage: "iphone.gen3", badge: localBrowserBadge)
+            case .agentChat:
+                kindPlaceholder(systemImage: "bubble.left.and.bubble.right.fill", badge: agentStateLabel)
+            }
+        }
             .frame(height: 56)
             .background(TerminalPalette.background)
             .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             .opacity(connectionStatus == .connected ? 1 : 0.35)
+    }
+
+    @ViewBuilder
+    private var mirroredBrowserThumbnail: some View {
+        #if canImport(UIKit)
+        if let browserFrame, let image = UIImage(data: browserFrame.imageData) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .overlay(alignment: .topTrailing) {
+                    Image(systemName: "safari.fill")
+                        .font(.caption2)
+                        .padding(4)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .padding(4)
+                }
+        } else {
+            kindPlaceholder(systemImage: "safari.fill", badge: mirroredBrowserBadge)
+        }
+        #else
+        kindPlaceholder(systemImage: "safari.fill", badge: mirroredBrowserBadge)
+        #endif
+    }
+
+    private func kindPlaceholder(systemImage: String, badge: String) -> some View {
+        ZStack {
+            Color(uiColor: .tertiarySystemBackground)
+            Image(systemName: systemImage)
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text(badge)
+                .font(.system(size: 8, weight: .bold))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(.thinMaterial, in: Capsule())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .padding(4)
+        }
+    }
+
+    private var localBrowserBadge: String {
+        L10n.string("mobile.browser.local.badge", defaultValue: "On this iPhone")
+    }
+
+    private var mirroredBrowserBadge: String {
+        L10n.string("mobile.browser.mirrored.badge", defaultValue: "Mac Browser")
+    }
+
+    private var agentStateLabel: String {
+        switch card.agentStatus {
+        case .needsInput:
+            L10n.string("mobile.agentChat.state.waiting", defaultValue: "Waiting")
+        case .idle, .unknown, nil:
+            L10n.string("mobile.agentChat.state.idle", defaultValue: "Idle")
+        case .running:
+            L10n.string("mobile.agentChat.state.running", defaultValue: "Running")
+        }
     }
 
     private var resolvedTitle: String {
@@ -119,13 +199,27 @@ struct PaneTabStripCardView: View {
 
     @MainActor
     private func consumePreviewIfNeeded() async {
+        guard card.kind == .terminal else {
+            await consumeBrowserPreviewIfNeeded()
+            return
+        }
         let visibleIDs = isVisible ? Set([card.id]) : []
         let demand = PaneTabStripPreviewDemand(cards: [card], visibleCardIDs: visibleIDs)
-        guard connectionStatus == .connected, demand.surfaceIDs.contains(card.id) else { return }
-        snapshot = .awaitingBaseline(surfaceID: card.id)
-        for await update in previewUpdates(card.id) {
+        guard connectionStatus == .connected, demand.surfaceIDs.contains(card.sourceID) else { return }
+        snapshot = .awaitingBaseline(surfaceID: card.sourceID)
+        for await update in previewUpdates(card.sourceID) {
             guard !Task.isCancelled else { return }
             snapshot = update
+        }
+    }
+
+    @MainActor
+    private func consumeBrowserPreviewIfNeeded() async {
+        guard card.kind == .mirroredBrowser, supportsBrowserPreview,
+              isVisible, connectionStatus == .connected else { return }
+        for await update in browserPreviewUpdates(card.sourceID, .preview) {
+            guard !Task.isCancelled else { return }
+            browserFrame = update
         }
     }
 }

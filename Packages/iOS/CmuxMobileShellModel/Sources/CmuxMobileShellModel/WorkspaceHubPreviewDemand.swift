@@ -9,7 +9,7 @@ public struct WorkspaceHubPreviewDemand: Equatable, Sendable {
     ///   - visiblePaneIDs: Pane identifiers currently intersecting the scroll viewport.
     public init(panes: [WorkspaceHubPaneSnapshot], visiblePaneIDs: Set<String>) {
         surfaceIDs = Set(panes.compactMap { pane in
-            guard visiblePaneIDs.contains(pane.id) else { return nil }
+            guard visiblePaneIDs.contains(pane.id), pane.activeKind == .terminal else { return nil }
             return pane.activeSurfaceID
         })
     }

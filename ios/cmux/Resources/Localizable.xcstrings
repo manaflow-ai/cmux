@@ -732,6 +732,69 @@
         }
       }
     },
+    "mobile.agentChat.state.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Idle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アイドル" } }
+      }
+    },
+    "mobile.agentChat.state.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Running" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中" } }
+      }
+    },
+    "mobile.agentChat.state.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Waiting" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "待機中" } }
+      }
+    },
+    "mobile.browser.local.badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "On this iPhone" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このiPhone上" } }
+      }
+    },
+    "mobile.browser.local.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iPhone Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneブラウザ" } }
+      }
+    },
+    "mobile.browser.mirrored.badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macブラウザ" } }
+      }
+    },
+    "mobile.browser.mirrored.viewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Viewing Mac browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macのブラウザを表示中" } }
+      }
+    },
+    "mobile.browser.mirrored.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser preview unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザプレビューを利用できません" } }
+      }
+    },
+    "mobile.browser.mirrored.unavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update cmux on this Mac to view its browser." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このMacのcmuxを更新するとブラウザを表示できます。" } }
+      }
+    },
     "mobile.browser.back": {
       "extractionState": "manual",
       "localizations": {

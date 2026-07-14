@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -6,11 +7,13 @@ import SwiftUI
 /// Bottom live-thumbnail strip for the currently entered pane.
 struct PaneTabStripView: View {
     let cards: [PaneTabStripCardSnapshot]
-    let selectedSurfaceID: String?
+    let selectedCardID: String?
     let attentionShelfEnabled: Bool
     let connectionStatus: MobileMacConnectionStatus
+    let supportsBrowserPreview: Bool
     let previewUpdates: (String) -> AsyncStream<PreviewGridSnapshot>
-    let select: (String) -> Void
+    let browserPreviewUpdates: (String, MobileBrowserPreviewResolution) -> AsyncStream<MobileBrowserPreviewFrame>
+    let select: (PaneTabStripCardSnapshot) -> Void
     let toggleAttentionShelf: () -> Void
     let createTerminal: () -> Void
     @State private var frozenCards: [PaneTabStripCardSnapshot]?
@@ -64,10 +67,12 @@ struct PaneTabStripView: View {
                     ForEach(displayedCards) { card in
                         PaneTabStripCardView(
                             card: card,
-                            isSelected: card.id == selectedSurfaceID,
+                            isSelected: card.id == selectedCardID,
                             connectionStatus: connectionStatus,
+                            supportsBrowserPreview: supportsBrowserPreview,
                             previewUpdates: previewUpdates,
-                            select: { select(card.id) }
+                            browserPreviewUpdates: browserPreviewUpdates,
+                            select: { select(card) }
                         )
                         .id(card.id)
                     }
@@ -78,7 +83,7 @@ struct PaneTabStripView: View {
             }
             .scrollIndicators(.hidden)
             .onAppear { keepSelectionVisible(proxy: proxy, animated: false) }
-            .onChange(of: selectedSurfaceID) { _, _ in
+            .onChange(of: selectedCardID) { _, _ in
                 keepSelectionVisible(proxy: proxy, animated: true)
             }
             .onChange(of: displayedCards.map(\.id)) { _, _ in
@@ -124,14 +129,14 @@ struct PaneTabStripView: View {
     }
 
     private func keepSelectionVisible(proxy: ScrollViewProxy, animated: Bool) {
-        guard let selectedSurfaceID,
-              displayedCards.contains(where: { $0.id == selectedSurfaceID }) else { return }
+        guard let selectedCardID,
+              displayedCards.contains(where: { $0.id == selectedCardID }) else { return }
         if animated {
             withAnimation(.snappy(duration: 0.25)) {
-                proxy.scrollTo(selectedSurfaceID, anchor: .center)
+                proxy.scrollTo(selectedCardID, anchor: .center)
             }
         } else {
-            proxy.scrollTo(selectedSurfaceID, anchor: .center)
+            proxy.scrollTo(selectedCardID, anchor: .center)
         }
     }
 }

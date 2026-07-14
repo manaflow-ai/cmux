@@ -1,3 +1,4 @@
+import CmuxAgentChat
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -11,6 +12,7 @@ struct WorkspaceHubContainer: View {
     let selectPane: (WorkspaceHubPaneSnapshot) -> Void
     let signOut: (() -> Void)?
     @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
+    @State private var chatCards: [PaneChatCardSnapshot] = []
 
     private var workspace: MobileWorkspacePreview? {
         if let workspaceID {
@@ -28,6 +30,8 @@ struct WorkspaceHubContainer: View {
                     layout: store.workspaceLayout(for: workspace.id),
                     connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
                     previewUpdates: store.previewGridUpdates,
+                    browserPreviewUpdates: store.browserPreviewUpdates,
+                    chatCards: chatCards,
                     selectPane: selectPane,
                     backButtonConfiguration: backButtonConfiguration
                 )
@@ -42,6 +46,7 @@ struct WorkspaceHubContainer: View {
                 }
                 .task(id: workspace.id) {
                     await store.openWorkspace(workspace.id)
+                    await refreshChatCards(workspaceID: workspace.id.rawValue)
                 }
             } else {
                 ContentUnavailableView(
@@ -56,5 +61,27 @@ struct WorkspaceHubContainer: View {
     private func rememberRouteWorkspace(_ workspace: MobileWorkspacePreview) {
         guard workspaceID == workspace.id else { return }
         routeWorkspaceSnapshot = workspace
+    }
+
+    private func refreshChatCards(workspaceID: String) async {
+        let title = L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat")
+        var sessions = store.cachedChatSessions(workspaceID: workspaceID)
+        chatCards = sessions.compactMap { $0.paneChatCard(defaultTitle: title) }
+        guard let source = store.makeChatEventSource() else { return }
+        var reducer = ChatSessionListReducer(workspaceID: workspaceID)
+        let stream = await source.sessionEvents()
+        if let refreshed = try? await source.sessions(workspaceID: workspaceID) {
+            sessions = refreshed
+            store.rememberChatSessions(sessions, workspaceID: workspaceID)
+            chatCards = sessions.compactMap { $0.paneChatCard(defaultTitle: title) }
+        }
+        for await frame in stream {
+            guard !Task.isCancelled else { return }
+            let next = reducer.applying(frame, to: sessions)
+            guard next != sessions else { continue }
+            sessions = next
+            store.rememberChatSessions(sessions, workspaceID: workspaceID)
+            chatCards = sessions.compactMap { $0.paneChatCard(defaultTitle: title) }
+        }
     }
 }

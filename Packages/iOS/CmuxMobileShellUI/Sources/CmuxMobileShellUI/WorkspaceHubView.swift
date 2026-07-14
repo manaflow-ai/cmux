@@ -10,6 +10,8 @@ struct WorkspaceHubView: View {
     let layout: MobileWorkspaceLayout?
     let connectionStatus: MobileMacConnectionStatus
     let previewUpdates: (String) -> AsyncStream<PreviewGridSnapshot>
+    let browserPreviewUpdates: (String, MobileBrowserPreviewResolution) -> AsyncStream<MobileBrowserPreviewFrame>
+    let chatCards: [PaneChatCardSnapshot]
     let selectPane: (WorkspaceHubPaneSnapshot) -> Void
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     @State private var topologyWidth: CGFloat = 360
@@ -18,7 +20,8 @@ struct WorkspaceHubView: View {
         WorkspaceHubProjection(
             layout: layout,
             fallbackTerminals: workspace.terminals,
-            supportsLayout: workspace.supportsWorkspaceLayout
+            supportsLayout: workspace.supportsWorkspaceLayout,
+            chatCards: chatCards
         )
     }
 
@@ -73,7 +76,9 @@ struct WorkspaceHubView: View {
                 WorkspaceHubPaneView(
                     pane: pane,
                     connectionStatus: connectionStatus,
+                    supportsBrowserPreview: workspace.supportsBrowserPreview,
                     previewUpdates: previewUpdates,
+                    browserPreviewUpdates: browserPreviewUpdates,
                     select: { selectPane(pane) }
                 )
                 .frame(width: paneWidth, height: paneHeight)
@@ -92,7 +97,9 @@ struct WorkspaceHubView: View {
                 WorkspaceHubPaneView(
                     pane: pane,
                     connectionStatus: connectionStatus,
+                    supportsBrowserPreview: workspace.supportsBrowserPreview,
                     previewUpdates: previewUpdates,
+                    browserPreviewUpdates: browserPreviewUpdates,
                     select: { selectPane(pane) }
                 )
                 .frame(maxWidth: .infinity)

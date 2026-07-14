@@ -20,6 +20,7 @@ struct WorkspaceDetailView: View {
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     let paneID: String
+    let initialSurfaceID: String
     let workspaceLayout: MobileWorkspaceLayout?
     @Bindable var store: CMUXMobileShellStore
     let createWorkspace: () -> Void
@@ -55,6 +56,8 @@ struct WorkspaceDetailView: View {
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State var paneTabStripVisibility = PaneTabStripVisibilityState()
+    @State var selectedBrowserSurface: WorkspaceSelectedBrowser?
+    @State var initialSurfaceSelectionApplied = false
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -74,16 +77,17 @@ struct WorkspaceDetailView: View {
     /// App lifecycle phase used to re-pull chat sessions on foreground.
     @Environment(\.scenePhase) var scenePhase
     #endif
-    /// The active browser surface for this workspace, when a browser pane is open.
+    /// The phone-local browser may remain alive while another card is selected.
     var activeBrowser: BrowserSurfaceState? {
-        browserStore.activeBrowser(for: workspace.id.rawValue)
+        guard selectedBrowserSurface == .local else { return nil }
+        return browserStore.activeBrowser(for: workspace.id.rawValue)
     }
     #if os(iOS)
     var activeSurface: WorkspaceActiveSurface {
         WorkspaceActiveSurface.derive(
             isChatMode: isChatMode,
             hasChosenChatSession: chosenChatSession != nil,
-            hasActiveBrowser: activeBrowser != nil
+            hasActiveBrowser: selectedBrowserSurface != nil
         )
     }
     #endif
@@ -102,6 +106,7 @@ struct WorkspaceDetailView: View {
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             .task(id: paneID) {
+                selectInitialSurfaceIfNeeded()
                 handlePaneTabStripEvent(.enteredPane)
             }
             .onChange(of: selectedTerminalID) { _, _ in
@@ -576,19 +581,18 @@ struct WorkspaceDetailView: View {
 
     func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
-        // Creating a terminal from the (shared) chrome must surface it. If a
-        // browser pane is up, close it so `body` leaves the browser branch and
-        // shows the new terminal instead of staying on the browser.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
+        selectedBrowserSurface = nil
+        isChatMode = false
+        pinnedChatSessionID = nil
         createTerminal()
     }
 
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
-        // Opens (or reveals the existing) browser pane for this workspace. The
-        // detail view flips to the browser because `activeBrowser` becomes
-        // non-nil; the picker shows a check next to "New Browser" while it is up.
         browserStore.openBrowser(for: workspace.id.rawValue)
+        selectedBrowserSurface = .local
+        isChatMode = false
+        pinnedChatSessionID = nil
     }
 
     func dismissTerminalKeyboardForChrome() {

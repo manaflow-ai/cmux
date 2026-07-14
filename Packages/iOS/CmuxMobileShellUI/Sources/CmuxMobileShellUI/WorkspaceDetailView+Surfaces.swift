@@ -1,4 +1,5 @@
 import CmuxMobileBrowser
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
 
@@ -25,9 +26,23 @@ extension WorkspaceDetailView {
             if surface == .chat, let session = chosenChatSession {
                 chatContent(session)
                     .background(TerminalPalette.background)
-            } else if surface == .browser, let browser = activeBrowser {
-                browserContent(browser)
-                    .background(TerminalPalette.background)
+            } else if surface == .browser {
+                switch selectedBrowserSurface {
+                case .local:
+                    if let browser = activeBrowser {
+                        browserContent(browser)
+                            .background(TerminalPalette.background)
+                    }
+                case .mirrored(let surfaceID):
+                    MirroredBrowserSurfaceView(
+                        surfaceID: surfaceID,
+                        fallbackTitle: mirroredBrowserTitle(surfaceID: surfaceID),
+                        isPreviewSupported: workspace.supportsBrowserPreview,
+                        previewUpdates: store.browserPreviewUpdates
+                    )
+                case nil:
+                    EmptyView()
+                }
             }
         }
         .onChange(of: surface) { _, newSurface in
@@ -51,10 +66,18 @@ extension WorkspaceDetailView {
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
         MobileBrowserPane(
             state: browser,
-            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) }
+            onClose: {
+                browserStore.closeBrowser(for: workspace.id.rawValue)
+                selectedBrowserSurface = nil
+            }
         )
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func mirroredBrowserTitle(surfaceID: String) -> String {
+        paneTabStripCards.first(where: { $0.sourceID == surfaceID })?.title
+            ?? L10n.string("mobile.browser.mirrored.badge", defaultValue: "Mac Browser")
     }
     #endif
 }

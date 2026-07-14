@@ -114,6 +114,50 @@ import Testing
         #expect(demand.surfaceIDs == ["surface-right"])
     }
 
+    @Test func projectsBrowserKindAndMostUrgentBoundChatPresence() throws {
+        let layout = MobileWorkspaceLayout(
+            workspaceID: "workspace",
+            root: .pane(MobileWorkspacePane(
+                id: "pane",
+                frame: .unit,
+                tabs: [
+                    MobileWorkspaceTab(
+                        id: "browser",
+                        name: "Docs",
+                        kind: .browser,
+                        isActive: true,
+                        isReady: true
+                    ),
+                    MobileWorkspaceTab(
+                        id: "terminal",
+                        name: "Agent",
+                        kind: .terminal,
+                        isActive: false,
+                        isReady: true
+                    ),
+                ]
+            )),
+            activePaneID: "pane"
+        )
+        let projection = WorkspaceHubProjection(
+            layout: layout,
+            fallbackTerminals: [],
+            supportsLayout: true,
+            chatCards: [
+                PaneChatCardSnapshot(
+                    id: "chat",
+                    terminalID: "terminal",
+                    title: "Agent",
+                    agentStatus: .needsInput
+                ),
+            ]
+        )
+        let pane = try #require(projection.panes.only)
+        #expect(pane.activeKind == .browser)
+        #expect(pane.chatAgentStatus == .needsInput)
+        #expect(WorkspaceHubPreviewDemand(panes: [pane], visiblePaneIDs: ["pane"]).surfaceIDs.isEmpty)
+    }
+
     private func paneNode(id: String, tabID: String) -> MobileWorkspaceLayoutNode {
         .pane(MobileWorkspacePane(
             id: id,

@@ -3,25 +3,35 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// One snapshot-isolated pane card in the live workspace hub.
 struct WorkspaceHubPaneView: View {
     let pane: WorkspaceHubPaneSnapshot
     let connectionStatus: MobileMacConnectionStatus
+    let supportsBrowserPreview: Bool
     let previewUpdates: (String) -> AsyncStream<PreviewGridSnapshot>
+    let browserPreviewUpdates: (String, MobileBrowserPreviewResolution) -> AsyncStream<MobileBrowserPreviewFrame>
     let select: () -> Void
     @State private var isVisible = false
     @State private var snapshot: PreviewGridSnapshot
+    @State private var browserFrame: MobileBrowserPreviewFrame?
 
     init(
         pane: WorkspaceHubPaneSnapshot,
         connectionStatus: MobileMacConnectionStatus,
+        supportsBrowserPreview: Bool,
         previewUpdates: @escaping (String) -> AsyncStream<PreviewGridSnapshot>,
+        browserPreviewUpdates: @escaping (String, MobileBrowserPreviewResolution) -> AsyncStream<MobileBrowserPreviewFrame>,
         select: @escaping () -> Void
     ) {
         self.pane = pane
         self.connectionStatus = connectionStatus
+        self.supportsBrowserPreview = supportsBrowserPreview
         self.previewUpdates = previewUpdates
+        self.browserPreviewUpdates = browserPreviewUpdates
         self.select = select
         _snapshot = State(initialValue: .awaitingBaseline(surfaceID: pane.activeSurfaceID ?? ""))
     }
@@ -46,7 +56,7 @@ struct WorkspaceHubPaneView: View {
 
     private var paneCard: some View {
         ZStack(alignment: .bottomLeading) {
-            TerminalGridThumbnailView(snapshot: snapshot)
+            paneThumbnail
                 .opacity(connectionStatus == .connected ? 1 : 0.3)
 
             LinearGradient(
@@ -81,6 +91,12 @@ struct WorkspaceHubPaneView: View {
                         .foregroundStyle(statusTint)
                         .accessibilityHidden(true)
                 }
+                if pane.chatAgentStatus != nil {
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(pane.chatAgentStatus == .needsInput ? .orange : .green)
+                        .accessibilityHidden(true)
+                }
             }
             .padding(8)
 
@@ -109,6 +125,34 @@ struct WorkspaceHubPaneView: View {
                     .accessibilityLabel(L10n.string("mobile.workspaceHub.focused", defaultValue: "Focused"))
                     .accessibilityIdentifier("MobileWorkspaceHubFocus-\(pane.id)")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var paneThumbnail: some View {
+        if pane.activeKind == .browser {
+            #if canImport(UIKit)
+            if let browserFrame, let image = UIImage(data: browserFrame.imageData) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                browserPlaceholder
+            }
+            #else
+            browserPlaceholder
+            #endif
+        } else {
+            TerminalGridThumbnailView(snapshot: snapshot)
+        }
+    }
+
+    private var browserPlaceholder: some View {
+        ZStack {
+            Color(uiColor: .secondarySystemBackground)
+            Image(systemName: "safari.fill")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -181,6 +225,10 @@ struct WorkspaceHubPaneView: View {
 
     @MainActor
     private func consumePreviewIfNeeded() async {
+        if pane.activeKind == .browser {
+            await consumeBrowserPreviewIfNeeded()
+            return
+        }
         let visibleIDs = isVisible ? Set([pane.id]) : []
         let demand = WorkspaceHubPreviewDemand(panes: [pane], visiblePaneIDs: visibleIDs)
         guard connectionStatus == .connected,
@@ -190,6 +238,16 @@ struct WorkspaceHubPaneView: View {
         for await update in previewUpdates(surfaceID) {
             guard !Task.isCancelled else { return }
             snapshot = update
+        }
+    }
+
+    @MainActor
+    private func consumeBrowserPreviewIfNeeded() async {
+        guard supportsBrowserPreview, isVisible, connectionStatus == .connected,
+              let surfaceID = pane.activeSurfaceID else { return }
+        for await update in browserPreviewUpdates(surfaceID, .preview) {
+            guard !Task.isCancelled else { return }
+            browserFrame = update
         }
     }
 }

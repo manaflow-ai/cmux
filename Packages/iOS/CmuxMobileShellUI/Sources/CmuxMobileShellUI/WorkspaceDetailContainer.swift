@@ -13,6 +13,7 @@ struct WorkspaceDetailContainer: View {
     @Bindable var store: CMUXMobileShellStore
     let workspaceID: MobileWorkspacePreview.ID?
     let paneID: String
+    let initialSurfaceID: String
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
@@ -44,6 +45,7 @@ struct WorkspaceDetailContainer: View {
                     connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
                     workspace: workspace,
                     paneID: paneID,
+                    initialSurfaceID: initialSurfaceID,
                     workspaceLayout: store.workspaceLayout(for: workspace.id),
                     store: store,
                     createWorkspace: createWorkspace,
