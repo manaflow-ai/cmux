@@ -173,6 +173,18 @@ public struct CanvasLayout: Hashable, Codable, Sendable {
         panes[destination].insert(panelId, at: index, select: select)
     }
 
+    /// Reorders a panel within its current pane while preserving selection.
+    ///
+    /// - Parameters:
+    ///   - panelId: The hosted panel to move.
+    ///   - targetIndex: Its zero-based destination within the current pane.
+    /// - Returns: Whether the order changed.
+    @discardableResult
+    public mutating func reorderPanel(_ panelId: CanvasPanelID, toIndex targetIndex: Int) -> Bool {
+        guard let paneIndex = panes.firstIndex(where: { $0.contains(panelId) }) else { return false }
+        return panes[paneIndex].reorderPanel(panelId, toIndex: targetIndex)
+    }
+
     /// Removes a panel from the pane hosting it. A pane that loses its last
     /// panel is removed from the canvas.
     ///

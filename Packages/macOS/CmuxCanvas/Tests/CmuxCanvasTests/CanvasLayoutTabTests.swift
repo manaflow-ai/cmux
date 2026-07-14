@@ -65,6 +65,24 @@ struct CanvasLayoutTabTests {
         #expect(layout.selectedPanelId(in: destination) == CanvasPanelID(rawValue: destination.rawValue))
     }
 
+    @Test func reorderPanelChangesTabOrderAndPreservesSelection() {
+        var layout = CanvasLayout(panes: [singleTabPane()])
+        let destination = layout.paneIDs[0]
+        let founding = CanvasPanelID(rawValue: destination.rawValue)
+        let a = panelID()
+        let b = panelID()
+        layout.add(CanvasPane(id: CanvasPaneID(rawValue: a.rawValue), frame: CanvasRect(x: 400, y: 0, width: 300, height: 200)))
+        layout.add(CanvasPane(id: CanvasPaneID(rawValue: b.rawValue), frame: CanvasRect(x: 800, y: 0, width: 300, height: 200)))
+        layout.addPanel(a, toPane: destination, select: true)
+        layout.addPanel(b, toPane: destination, select: false)
+
+        #expect(layout.reorderPanel(a, toIndex: 0))
+        #expect(layout.panelIds(in: destination) == [a, founding, b])
+        #expect(layout.selectedPanelId(in: destination) == a)
+        #expect(!layout.reorderPanel(a, toIndex: 99))
+        #expect(layout.panelIds(in: destination) == [a, founding, b])
+    }
+
     @Test func removingLastPanelRemovesPane() {
         var layout = CanvasLayout(panes: [singleTabPane()])
         let pane = layout.paneIDs[0]

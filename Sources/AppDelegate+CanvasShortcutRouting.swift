@@ -71,6 +71,32 @@ extension AppDelegate {
         }
     }
 
+    /// Returns nil when the event is not a reorder shortcut, false when a
+    /// reorder shortcut came from a non-main window, and true once consumed.
+    func performReorderShortcut(event: NSEvent) -> Bool? {
+        let move: (workspace: Bool, offset: Int)
+        if matchConfiguredShortcut(event: event, action: .moveSurfaceLeft) {
+            move = (false, -1)
+        } else if matchConfiguredShortcut(event: event, action: .moveSurfaceRight) {
+            move = (false, 1)
+        } else if matchConfiguredShortcut(event: event, action: .moveWorkspaceUp) {
+            move = (true, -1)
+        } else if matchConfiguredShortcut(event: event, action: .moveWorkspaceDown) {
+            move = (true, 1)
+        } else {
+            return nil
+        }
+
+        guard let manager = preferredMainWindowContextForShortcutRouting(
+            event: event,
+            allowAuxiliaryFallback: false
+        )?.tabManager else { return false }
+        _ = move.workspace
+            ? manager.moveSelectedWorkspace(by: move.offset)
+            : manager.moveSelectedSurface(by: move.offset)
+        return true
+    }
+
     func performBrowserOrTextPreviewZoomShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         let focusContext = shortcutEventFocusContext(event)
         if focusContext.filePreviewTextEditorFocused {

@@ -46,15 +46,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case triggerFlash
 
     // MARK: Navigation
-    case nextSurface
-    case prevSurface
-    case moveSurfaceLeft
-    case moveSurfaceRight
-    case moveWorkspaceUp
-    case moveWorkspaceDown
-    case selectSurfaceByNumber
-    case nextSidebarTab
-    case prevSidebarTab
+    case nextSurface, prevSurface
+    case moveSurfaceLeft, moveSurfaceRight
+    case moveWorkspaceUp, moveWorkspaceDown
+    case selectSurfaceByNumber, nextSidebarTab, prevSidebarTab
     case focusHistoryBack
     case focusHistoryForward
     case selectWorkspaceByNumber
@@ -374,14 +369,10 @@ extension ShortcutAction {
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
-        case .moveSurfaceLeft:
-            return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left")
-        case .moveSurfaceRight:
-            return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right")
-        case .moveWorkspaceUp:
-            return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
-        case .moveWorkspaceDown:
-            return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
+        case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left")
+        case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right")
+        case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
+        case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
         case .selectSurfaceByNumber: return "Select Surface 1…9"
         case .nextSidebarTab: return "Next Workspace"
         case .prevSidebarTab: return "Previous Workspace"

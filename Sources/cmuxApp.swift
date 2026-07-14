@@ -1198,7 +1198,12 @@ struct cmuxApp: App {
     }
 
     private func moveSelectedWorkspace(in manager: TabManager, by delta: Int) {
-        _ = manager.moveSelectedWorkspace(by: delta)
+        guard let workspace = manager.selectedWorkspace,
+              let currentIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
+        let targetIndex = currentIndex + delta
+        guard targetIndex >= 0, targetIndex < manager.tabs.count else { return }
+        _ = manager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
+        manager.selectWorkspace(workspace)
     }
 
     private func moveSelectedWorkspaceToTop(in manager: TabManager) {

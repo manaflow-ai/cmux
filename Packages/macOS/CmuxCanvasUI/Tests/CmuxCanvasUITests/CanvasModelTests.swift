@@ -114,6 +114,23 @@ struct CanvasModelTests {
         #expect(!model.breakOutPanel(b))
     }
 
+    @Test func reorderPanelAdvancesRevisionAndPreservesSelection() {
+        let model = makeModel()
+        let a = UUID()
+        let b = UUID()
+        model.restoreFrames([
+            (id: a, frame: CGRect(x: 0, y: 0, width: 300, height: 200)),
+            (id: b, frame: CGRect(x: 400, y: 0, width: 300, height: 200)),
+        ])
+        #expect(model.joinPanel(b, withPaneContaining: a))
+        let before = model.revision
+
+        #expect(model.reorderPanel(b, toIndex: 0))
+        #expect(model.panelIds(inPaneContaining: a) == [b, a])
+        #expect(model.layout.selectedPanelId(in: model.paneID(containing: a)!)?.rawValue == b)
+        #expect(model.revision == before + 1)
+    }
+
     @Test func syncRemovesOnlyDepartedTabFromJoinedPane() {
         let model = makeModel()
         let a = UUID()

@@ -210,6 +210,19 @@ extension Workspace {
         return true
     }
 
+    /// Moves the focused Canvas tab within its pane while preserving focus.
+    func moveSelectedCanvasSurface(by offset: Int) -> Bool {
+        guard offset != 0,
+              let focusedPanelId,
+              let panelIds = canvasModel.panelIds(inPaneContaining: focusedPanelId),
+              let currentIndex = panelIds.firstIndex(of: focusedPanelId) else { return false }
+        let targetIndex = currentIndex + offset
+        guard panelIds.indices.contains(targetIndex),
+              canvasModel.reorderPanel(focusedPanelId, toIndex: targetIndex) else { return false }
+        canvasModel.viewport?.modelDidChangeExternally(animated: false)
+        return true
+    }
+
     private func selectableCanvasSurfaceIds() -> [UUID] {
         let canvasPanelIds = Set(canvasModel.layout.allPanelIds.map(\.rawValue))
         return orderedPanelIds.filter { canvasPanelIds.contains($0) && panels[$0] != nil }

@@ -97,15 +97,10 @@ enum KeyboardShortcutSettings {
         case triggerFlash
 
         // Navigation
-        case nextSurface
-        case prevSurface
-        case moveSurfaceLeft
-        case moveSurfaceRight
-        case moveWorkspaceUp
-        case moveWorkspaceDown
-        case selectSurfaceByNumber
-        case nextSidebarTab
-        case prevSidebarTab
+        case nextSurface, prevSurface
+        case moveSurfaceLeft, moveSurfaceRight
+        case moveWorkspaceUp, moveWorkspaceDown
+        case selectSurfaceByNumber, nextSidebarTab, prevSidebarTab
         case focusHistoryBack
         case focusHistoryForward
         case selectWorkspaceByNumber
@@ -229,10 +224,8 @@ enum KeyboardShortcutSettings {
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
-            case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left")
-            case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right")
-            case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
-            case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
+            case .moveSurfaceLeft, .moveSurfaceRight, .moveWorkspaceUp, .moveWorkspaceDown:
+                return ShortcutAction(rawValue: rawValue)?.displayName ?? rawValue
             case .selectSurfaceByNumber: return String(localized: "shortcut.selectSurfaceByNumber.label", defaultValue: "Select Surface 1…9")
             case .nextSidebarTab: return String(localized: "shortcut.nextWorkspace.label", defaultValue: "Next Workspace")
             case .prevSidebarTab: return String(localized: "shortcut.previousWorkspace.label", defaultValue: "Previous Workspace")
@@ -486,14 +479,9 @@ enum KeyboardShortcutSettings {
                 // Unbound by default: reachable through the command palette and
                 // the canvas.* socket verbs; users opt into keys via Settings.
                 return .unbound
-            case .nextSurface:
-                return StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
-            case .prevSurface:
-                return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
-            case .moveSurfaceLeft, .moveSurfaceRight, .moveWorkspaceUp, .moveWorkspaceDown:
-                // Reordering is opt-in so these actions do not introduce new
-                // collisions with existing application or terminal shortcuts.
-                return .unbound
+            case .nextSurface: return StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
+            case .prevSurface: return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
+            case .moveSurfaceLeft, .moveSurfaceRight, .moveWorkspaceUp, .moveWorkspaceDown: return .unbound
             case .selectSurfaceByNumber:
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
             case .newSurface:

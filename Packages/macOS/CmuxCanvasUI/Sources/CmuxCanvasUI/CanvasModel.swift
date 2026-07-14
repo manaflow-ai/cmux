@@ -131,6 +131,20 @@ public final class CanvasModel {
         revision &+= 1
     }
 
+    /// The tab order of the Canvas pane hosting `panelId`.
+    public func panelIds(inPaneContaining panelId: UUID) -> [UUID]? {
+        guard let paneID = paneID(containing: panelId) else { return nil }
+        return layout.panelIds(in: paneID)?.map(\.rawValue)
+    }
+
+    /// Reorders a panel within its Canvas pane while preserving selection.
+    @discardableResult
+    public func reorderPanel(_ panelId: UUID, toIndex targetIndex: Int) -> Bool {
+        let reordered = layout.reorderPanel(CanvasPanelID(rawValue: panelId), toIndex: targetIndex)
+        if reordered { revision &+= 1 }
+        return reordered
+    }
+
     /// Moves `panelId` into the pane hosting `targetPanelId` (a join). The
     /// source pane disappears when it loses its last tab.
     /// - Returns: Whether the join happened.

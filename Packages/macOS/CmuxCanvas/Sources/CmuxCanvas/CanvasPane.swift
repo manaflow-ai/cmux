@@ -77,6 +77,17 @@ public struct CanvasPane: Hashable, Codable, Sendable, Identifiable {
         }
     }
 
+    /// Reorders an existing panel while preserving the selected panel.
+    @discardableResult
+    mutating func reorderPanel(_ panelId: CanvasPanelID, toIndex targetIndex: Int) -> Bool {
+        guard let currentIndex = panelIds.firstIndex(of: panelId),
+              panelIds.indices.contains(targetIndex),
+              currentIndex != targetIndex else { return false }
+        let panel = panelIds.remove(at: currentIndex)
+        panelIds.insert(panel, at: targetIndex)
+        return true
+    }
+
     /// Removes a panel, moving selection to the nearest remaining neighbor.
     /// Returns `false` when the panel was the last one (the caller must
     /// remove the whole pane instead).

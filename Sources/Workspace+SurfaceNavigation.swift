@@ -67,6 +67,9 @@ extension Workspace {
     /// Move the selected surface within its focused split pane while preserving focus.
     @discardableResult
     func moveSelectedSurface(by offset: Int) -> Bool {
+        if layoutMode == .canvas {
+            return moveSelectedCanvasSurface(by: offset)
+        }
         guard offset != 0,
               let paneId = bonsplitController.focusedPaneId,
               let selectedTab = bonsplitController.selectedTab(inPane: paneId),

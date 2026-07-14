@@ -8495,13 +8495,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    func preferredMainWindowContextForShortcutRouting(event: NSEvent) -> MainWindowContext? {
+    func preferredMainWindowContextForShortcutRouting(event: NSEvent, allowAuxiliaryFallback: Bool = true) -> MainWindowContext? {
         if let context = mainWindowContext(forShortcutEvent: event, debugSource: "shortcut.routing") {
             return context
         }
 
         if shortcutEventHasAddressableWindow(event) {
-            if let eventWindow = resolvedShortcutEventWindow(event),
+            if allowAuxiliaryFallback, let eventWindow = resolvedShortcutEventWindow(event),
                cmuxWindowShouldOwnCloseShortcut(eventWindow) {
                 // Auxiliary cmux windows do not own a terminal tab manager. Let them fall back
                 // to the active main terminal window so app shortcuts like Close Tab still route.
@@ -13568,27 +13568,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
             return true
         }
-        if matchConfiguredShortcut(event: event, action: .moveSurfaceLeft) {
-            _ = (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
-                .moveSelectedSurface(by: -1)
-            return true
-        }
-        if matchConfiguredShortcut(event: event, action: .moveSurfaceRight) {
-            _ = (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
-                .moveSelectedSurface(by: 1)
-            return true
-        }
-        if matchConfiguredShortcut(event: event, action: .moveWorkspaceUp) {
-            _ = (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
-                .moveSelectedWorkspace(by: -1)
-            return true
-        }
-        if matchConfiguredShortcut(event: event, action: .moveWorkspaceDown) {
-            _ = (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
-                .moveSelectedWorkspace(by: 1)
-            return true
-        }
-
+        if let handled = performReorderShortcut(event: event) { return handled }
         if matchConfiguredShortcut(event: event, action: .toggleTerminalCopyMode) {
             let handled = tabManager?.toggleFocusedTerminalCopyMode() ?? false
 #if DEBUG
