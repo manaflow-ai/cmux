@@ -208,6 +208,102 @@ struct UnifiedFileExplorerSearchScopeTests {
         #expect(outline.isItemExpanded(nested))
     }
 
+    @Test("Empty Escape in the dedicated Find presentation preserves content search")
+    func emptyEscapePreservesDedicatedFindPresentation() throws {
+        let state = FileExplorerState()
+        state.mode = .find
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        store.rootNodes = [
+            FileExplorerNode(name: "README.md", path: "/repo/README.md", isDirectory: false)
+        ]
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: UnifiedSearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+
+        let window = NSWindow(
+            contentRect: container.frame,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        window.contentView?.layoutSubtreeIfNeeded()
+        defer {
+            _ = window.makeFirstResponder(nil)
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        let outline = try #require(Self.outlineView(in: container))
+        #expect(container.focusSearchField())
+        #expect(container.displayedSearchScope == .contents)
+
+        let handled = container.handleSearchFieldCommand(
+            #selector(NSResponder.cancelOperation(_:)),
+            textView: NSTextView()
+        )
+
+        #expect(handled)
+        #expect(container.displayedSearchScope == .contents)
+        #expect(window.firstResponder !== outline)
+    }
+
+    @Test("Filtered disclosure moves into an auto-expanded directory")
+    func filteredDisclosureMovesToFirstVisibleChild() throws {
+        let state = FileExplorerState()
+        state.mode = .files
+        let store = FileExplorerStore()
+        store.rootPath = "/repo"
+        let root = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
+        let match = FileExplorerNode(
+            name: "Needle.swift",
+            path: "/repo/Sources/Needle.swift",
+            isDirectory: false
+        )
+        root.children = [match]
+        store.rootNodes = [root]
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .unified,
+            searchController: UnifiedSearchControllerSpy()
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 480)
+        container.updateHeader(store: store)
+        container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        coordinator.reloadIfNeeded()
+
+        let outline = try #require(Self.outlineView(in: container))
+        store.select(node: root)
+        coordinator.ensureSelection(in: outline, fallbackToFirstVisible: true, scroll: false)
+        coordinator.setFileFilterQuery("needle", in: outline)
+
+        #expect(outline.isItemExpanded(root))
+        #expect(!store.isExpanded(root))
+        #expect(outline.selectedRow == 0)
+
+        outline.keyDown(with: try Self.keyEvent(characters: "", keyCode: 124))
+
+        #expect(outline.selectedRow == 1)
+        #expect(store.selectedPath == match.path)
+    }
+
     private static func globValues(in arguments: [String]) -> [String] {
         arguments.indices.compactMap { index in
             guard arguments[index] == "--glob", arguments.indices.contains(index + 1) else { return nil }
