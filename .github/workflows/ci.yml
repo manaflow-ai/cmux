@@ -1650,6 +1650,10 @@ jobs:
         id: release-compilation-cache-key
         run: |
           set -euo pipefail
+          xcode_contents="${DEVELOPER_DIR%/Developer}"
+          swiftbuild_core="$xcode_contents/SharedFrameworks/SwiftBuild.framework/Versions/A/PlugIns/SWBBuildService.bundle/Contents/Frameworks/SWBCore.framework/Versions/A/SWBCore"
+          test -x "$swiftbuild_core"
+          /usr/bin/strings "$swiftbuild_core" | grep -Fx 'COMPILATION_CACHE_LIMIT_SIZE' >/dev/null
           echo "utc_week=$(date -u +%Y-W%W)" >> "$GITHUB_OUTPUT"
           echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
@@ -1707,6 +1711,7 @@ jobs:
       - name: Build universal app (Release)
         run: |
           set -euo pipefail
+          # SwiftBuild maps COMPILATION_CACHE_LIMIT_SIZE to its CAS maxSizeBytes strategy.
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \

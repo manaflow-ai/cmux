@@ -60,6 +60,10 @@ for job in "$CI_JOB" "$RELEASE_JOB"; do
     "release compilation cache keys must rotate weekly"
   require_contains "$key_step" "toolchain=\$(xcodebuild -version | shasum -a 256" \
     "release compilation cache keys must include the exact Xcode toolchain"
+  require_contains "$key_step" 'SWBCore.framework/Versions/A/SWBCore' \
+    "release builds must inspect the selected Xcode build system"
+  require_contains "$key_step" "/usr/bin/strings \"\$swiftbuild_core\" | grep -Fx 'COMPILATION_CACHE_LIMIT_SIZE'" \
+    "release builds must fail before restoring a cache when Xcode lacks native size-limit support"
 
   restore_step="$(step_section "$job" "Restore release compilation cache")"
   require_contains "$restore_step" "uses: actions/cache/restore@$CACHE_ACTION_SHA" \
@@ -78,6 +82,8 @@ for job in "$CI_JOB" "$RELEASE_JOB"; do
     "release builds must not generate an unused source index"
   require_contains "$build_step" 'COMPILATION_CACHE_LIMIT_SIZE=3G' \
     "release builds must bound compiler cache growth during compilation"
+  require_contains "$build_step" 'SwiftBuild maps COMPILATION_CACHE_LIMIT_SIZE to its CAS maxSizeBytes strategy' \
+    "release builds must document the native Xcode cache-limit contract"
   require_contains "$build_step" 'CODE_SIGNING_ALLOWED=NO' \
     "the cached compilation phase must remain unsigned"
 done
