@@ -97,8 +97,9 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
         )?.lowerBound)
         let currentPath = String(sessionStart[commandStart..<commandEnd])
         let currentBody = try String(contentsOfFile: currentPath, encoding: .utf8)
-        let legacyPath = root
-            .appendingPathComponent(".cmux/hooks/cmux-codex-hook-session-start.sh")
+        let legacyPath = URL(fileURLWithPath: currentPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("cmux-codex-hook-session-start.sh")
             .path
 
         XCTAssertNotEqual(currentPath, legacyPath)
@@ -157,6 +158,7 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
         process.arguments = ["hooks", "codex", "inject-args"]
         process.environment = [
             "HOME": homeDirectory,
+            "CFFIXED_USER_HOME": homeDirectory,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
