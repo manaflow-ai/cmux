@@ -7880,12 +7880,21 @@ struct WebViewRepresentable: NSViewRepresentable {
         // WebKit content-focus gate (shouldFocusWebView && current pane owner &&
         // attached) and honoring the same suppression flags. Never steals focus for
         // a background or non-selected tab.
+        //
+        // Blank surfaces are the omnibar's: `autoFocusOmnibarIfBlank` focuses the
+        // address bar on a fresh (about:blank) surface, but it runs from onAppear
+        // while this runs on the representable update, so without this guard the
+        // content view races it and wins, leaving the address bar unfocused on a
+        // newly opened browser. WebKit avoids this because omnibar autofocus flips
+        // `shouldFocusWebView` off first; mirror that by skipping content focus while
+        // the surface is still blank.
         let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
         if shouldFocusWebView,
            isPanelFocused,
            isCurrentPaneOwner,
            shouldAttachWebView,
            !panel.shouldSuppressWebViewFocus(),
+           panel.preferredURLStringForOmnibar() != nil,
            let chromiumView = panel.chromium?.webView,
            let window = chromiumView.window,
            !Self.responderChainContains(window.firstResponder, target: chromiumView) {

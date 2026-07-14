@@ -236,7 +236,9 @@ private struct ChromiumBrowserContentView: View {
         isDevToolsOpen = opening
         Task {
             if opening {
-                try? await session.openDevTools(mode: .bottom)
+                // Docked DevTools is a separate shell surface cmux never composites;
+                // open in its own window so the shell presents it. See BrowserPanel.
+                try? await session.openDevTools(mode: .window)
             } else {
                 try? await session.closeDevTools()
             }

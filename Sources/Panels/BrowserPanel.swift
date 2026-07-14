@@ -5910,7 +5910,17 @@ final class BrowserPanel: Panel, ObservableObject {
             hostView: state.webView
         )
         state.nativeSurfaceCoordinator = coordinator
-        state.webView.onSurfaceTree = { [weak coordinator] tree in
+        state.webView.onSurfaceTree = { [weak coordinator, weak self] tree in
+#if DEBUG
+            if let devTools = tree.surfaces.filter({ $0.kind == .devTools }).first {
+                cmuxDebugLog(
+                    "browser.chromium.devtools.surface panel=\(self?.id.uuidString.prefix(5) ?? "?????") " +
+                    "gen=\(tree.generation) visible=\(devTools.visible) " +
+                    "x=\(devTools.x) y=\(devTools.y) w=\(devTools.width) h=\(devTools.height) " +
+                    "surfaces=\(tree.surfaces.map { "\($0.kind)@\($0.width)x\($0.height)v\($0.visible ? 1 : 0)" }.joined(separator: ","))"
+                )
+            }
+#endif
             coordinator?.handle(tree)
         }
     }
@@ -7031,7 +7041,11 @@ extension BrowserPanel {
         Task {
             do {
                 if visible {
-                    try await session.openDevTools(mode: .bottom)
+                    // Docked (.bottom) DevTools renders as a separate shell surface
+                    // that cmux never composites (only the main web-view context gets
+                    // a CALayerHost), so it shows blank. Open in its own window so the
+                    // shell presents DevTools itself.
+                    try await session.openDevTools(mode: .window)
                 } else {
                     try await session.closeDevTools()
                 }
