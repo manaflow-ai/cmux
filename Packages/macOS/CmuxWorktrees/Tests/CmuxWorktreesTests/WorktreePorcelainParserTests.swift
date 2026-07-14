@@ -47,4 +47,20 @@ struct WorktreePorcelainParserTests {
         #expect(!bare.isMainWorktree)
         #expect(bare.headOID == nil)
     }
+
+    @Test
+    func parsesNULTerminatedPathContainingNewline() throws {
+        let fixture = "worktree /repo/line\nbreak\0HEAD 1111111111111111111111111111111111111111\0branch refs/heads/main\0\0"
+
+        let parsed = WorktreePorcelainParser().parse(
+            fixture,
+            host: WorktreeHostID(rawValue: "fixture-host"),
+            fallbackRepoPath: "/unused"
+        )
+
+        let worktree = try #require(parsed.first)
+        #expect(parsed.count == 1)
+        #expect(worktree.identity.worktreePath == "/repo/line\nbreak")
+        #expect(worktree.branch == "main")
+    }
 }
