@@ -178,6 +178,28 @@ import Testing
     await router.releaseAllHeld()
 }
 
+@MainActor
+@Test func authoritativeRemountFinishesBothOldLanesWithoutUnregisteringReplacement() async {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    let oldStreams = store.authoritativeTerminalOutputStreams(surfaceID: surfaceID)
+    var oldVisual = oldStreams.visual.makeAsyncIterator()
+    var oldSemantic = oldStreams.semantic.makeAsyncIterator()
+    let oldMountToken = store.terminalOutputMountTokensBySurfaceID[surfaceID]
+
+    let replacement = store.authoritativeTerminalOutputStreams(surfaceID: surfaceID)
+    let replacementMountToken = store.terminalOutputMountTokensBySurfaceID[surfaceID]
+
+    #expect(await oldVisual.next() == nil)
+    #expect(await oldSemantic.next() == nil)
+    await Task.yield()
+    #expect(replacementMountToken != oldMountToken)
+    #expect(store.terminalOutputMountTokensBySurfaceID[surfaceID] == replacementMountToken)
+    #expect(store.terminalByteContinuationsBySurfaceID[surfaceID] != nil)
+    #expect(store.terminalSemanticByteContinuationsBySurfaceID[surfaceID] != nil)
+    _ = replacement
+}
+
 private func authoritativeSemanticFrame(
     seq: UInt64,
     revision: UInt64,
