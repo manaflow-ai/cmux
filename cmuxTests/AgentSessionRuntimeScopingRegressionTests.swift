@@ -283,8 +283,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             timeout: 5
         )
 
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
         let output = try #require(
             JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
         )
