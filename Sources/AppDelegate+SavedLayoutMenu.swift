@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Foundation
 
 @MainActor
@@ -63,9 +64,13 @@ extension AppDelegate {
                 NSSound.beep()
                 return
             }
-            if context.tabManager.openWorkspace(fromSavedLayout: layout, cwdOverride: nil, focus: true) == nil {
-                NSSound.beep()
-            }
+            _ = try context.tabManager.openWorkspace(
+                fromSavedLayout: layout,
+                cwdOverride: nil,
+                focus: true
+            )
+        } catch let error as CmuxTemplateResolutionError {
+            WorkspaceTemplateErrorPresenter(presentingWindow: nil).present(error)
         } catch {
             NSSound.beep()
         }

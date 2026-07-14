@@ -18,6 +18,7 @@ extension ControlLayoutContext {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
+        templateParameters: [String: String],
         focusRequested: Bool
     ) -> ControlLayoutOpenResolution { .tabManagerUnavailable }
 

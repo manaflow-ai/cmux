@@ -10,6 +10,8 @@ struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
     /// Bootstrap command sent to the workspace's first terminal before that
     /// terminal's own surface `command`. Other panes do not wait for it.
     var setup: String?
+    /// Definition-level defaults for `{{variable}}` placeholders.
+    var params: [String: String]?
     var layout: CmuxLayoutNode?
 
     init(
@@ -18,6 +20,7 @@ struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
         color: String? = nil,
         env: [String: String]? = nil,
         setup: String? = nil,
+        params: [String: String]? = nil,
         layout: CmuxLayoutNode? = nil
     ) {
         self.name = name
@@ -25,6 +28,7 @@ struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
         self.color = color
         self.env = env
         self.setup = setup
+        self.params = params
         self.layout = layout
     }
 
@@ -39,6 +43,7 @@ struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
         } else {
             setup = nil
         }
+        params = try container.decodeIfPresent([String: String].self, forKey: .params)
         layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
 
         if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {

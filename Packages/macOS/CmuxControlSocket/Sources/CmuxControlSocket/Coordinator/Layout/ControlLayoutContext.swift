@@ -64,6 +64,8 @@ public enum ControlLayoutOpenResolution: Sendable {
     case tabManagerUnavailable
     /// The store file could not be decoded.
     case corruptFile(String)
+    /// Required workspace template parameters were not supplied.
+    case missingParameters([String])
     /// The workspace was opened.
     case opened(workspaceID: UUID)
     /// An unexpected store error occurred.
@@ -105,6 +107,7 @@ public protocol ControlLayoutContext: AnyObject {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
+        templateParameters: [String: String],
         focusRequested: Bool
     ) -> ControlLayoutOpenResolution
 

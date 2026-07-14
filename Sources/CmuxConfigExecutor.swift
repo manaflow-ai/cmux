@@ -18,7 +18,13 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
-        if let workspace = command.workspace {
+        if command.workspace != nil {
+            guard let resolvedCommand = resolvedWorkspaceCommandForLaunch(
+                command,
+                presentingWindow: presentingWindow
+            ), let resolvedWorkspace = resolvedCommand.workspace else {
+                return false
+            }
             return authorizeProjectActionIfNeeded(
                 descriptor: workspaceTrustDescriptor(
                     command: command,
@@ -31,13 +37,13 @@ struct CmuxConfigExecutor {
                 confirm: command.confirm ?? false,
                 configSourcePath: configSourcePath,
                 globalConfigPath: globalConfigPath,
-                displayCommand: workspaceShellDisclosure(command),
+                displayCommand: workspaceShellDisclosure(resolvedCommand),
                 displayTitle: displayTitle ?? command.name,
                 presentingWindow: presentingWindow
             ) {
                 guard executeWorkspaceCommand(
-                    command: command,
-                    workspace: workspace,
+                    command: resolvedCommand,
+                    workspace: resolvedWorkspace,
                     tabManager: tabManager,
                     baseCwd: baseCwd
                 ) else { return }

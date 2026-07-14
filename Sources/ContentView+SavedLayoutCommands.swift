@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxCommandPalette
 import Foundation
 
@@ -57,7 +58,13 @@ extension ContentView {
                         NSSound.beep()
                         return
                     }
-                    _ = tabManager.openWorkspace(fromSavedLayout: resolvedLayout, cwdOverride: nil, focus: true)
+                    _ = try tabManager.openWorkspace(
+                        fromSavedLayout: resolvedLayout,
+                        cwdOverride: nil,
+                        focus: true
+                    )
+                } catch let error as CmuxTemplateResolutionError {
+                    WorkspaceTemplateErrorPresenter(presentingWindow: nil).present(error)
                 } catch {
                     NSSound.beep()
                 }

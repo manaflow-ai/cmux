@@ -2,7 +2,7 @@ import Foundation
 
 extension CMUXCLI {
     static func layoutHelpText() -> String {
-        """
+        String(localized: "cli.layout.help", defaultValue: """
         Usage: cmux layout <subcommand> [flags]
 
         Save, list, export, open, and delete named workspace layouts.
@@ -11,15 +11,15 @@ extension CMUXCLI {
           save <name> [--workspace <ref>] [--overwrite] [--description <text>]
           list [--json]
           get <name>
-          open <name> [--cwd <dir>] [--focus <true|false>]
+          open <name> [--cwd <dir>] [--param KEY=VALUE]... [--focus <true|false>]
           delete <name>
 
         Examples:
           cmux layout save dev --overwrite
           cmux layout list
           cmux layout get dev
-          cmux layout open dev --cwd ~/projects/myapp
-        """
+          cmux layout open dev --cwd ~/projects/myapp --param port=4100
+        """)
     }
 
     func runLayoutNamespace(
@@ -136,9 +136,21 @@ extension CMUXCLI {
     ) throws {
         let (cwdOpt, rem0) = parseOption(commandArgs, name: "--cwd")
         let (focusOpt, rem1) = parseOption(rem0, name: "--focus")
-        let (windowOpt, remaining) = parseOption(rem1, name: "--window")
+        let (windowOpt, rem2) = parseOption(rem1, name: "--window")
+        let templateParameterOptions = try parseWorkspaceTemplateParameterOptions(
+            rem2,
+            commandName: "layout open"
+        )
+        let remaining = templateParameterOptions.remaining
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "layout open: unknown flag '\(unknown)'")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.layout.open.error.unknownFlag",
+                    defaultValue: "layout open: unknown flag '%@'"
+                ),
+                locale: .current,
+                unknown
+            ))
         }
         guard let name = remaining.first?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
             throw CLIError(message: "layout open requires <name>")
@@ -147,6 +159,9 @@ extension CMUXCLI {
         var params: [String: Any] = ["name": name]
         if let windowHandle { params["window_id"] = windowHandle }
         if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
+        if !templateParameterOptions.values.isEmpty {
+            params["template_params"] = templateParameterOptions.values
+        }
         try applyFocusOption(focusOpt, defaultValue: false, to: &params)
         let payload = try client.sendV2(method: "layout.open", params: params)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["workspace"]))

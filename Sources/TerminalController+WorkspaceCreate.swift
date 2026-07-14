@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import Foundation
 
@@ -17,10 +18,10 @@ extension TerminalController {
         let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
 
         let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let initialCommandTemplate = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
 
         let rawInitialEnv = v2StringMap(params, "initial_env") ?? [:]
-        let initialEnv = rawInitialEnv.reduce(into: [String: String]()) { result, pair in
+        let initialEnvTemplate = rawInitialEnv.reduce(into: [String: String]()) { result, pair in
             let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty else { return }
             result[key] = pair.value
@@ -28,24 +29,38 @@ extension TerminalController {
         // Persistent per-workspace environment (issue #5995): applied to the
         // initial shell and every later pane/surface/split, then round-tripped
         // through session restore.
-        let workspaceEnv = Workspace.sanitizedWorkspaceEnvironment(
-            v2StringMap(params, "workspace_env") ?? [:]
-        )
-        let cwd: String?
+        let workspaceEnvTemplate = v2StringMap(params, "workspace_env") ?? [:]
+        let cwdTemplate: String?
         if let workingDirectory {
-            cwd = workingDirectory
+            cwdTemplate = workingDirectory
         } else if let raw = params["cwd"] {
             guard let str = raw as? String else {
                 return .err(code: "invalid_params", message: "cwd must be a string", data: nil)
             }
-            cwd = str
+            cwdTemplate = str
         } else {
-            cwd = nil
+            cwdTemplate = nil
         }
 
         let requestedTitle = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = (requestedTitle?.isEmpty == false) ? requestedTitle : nil
-        let description = v2RawString(params, "description")
+        let titleTemplate = (requestedTitle?.isEmpty == false) ? requestedTitle : nil
+        let descriptionTemplate = v2RawString(params, "description")
+
+        let templateParameters: [String: String]
+        if v2HasNonNullParam(params, "template_params") {
+            guard let raw = params["template_params"] as? [String: Any],
+                  raw.values.allSatisfy({ $0 is String }),
+                  let parsed = v2StringMap(params, "template_params") else {
+                return .err(
+                    code: "invalid_params",
+                    message: "template_params must be an object with string values",
+                    data: nil
+                )
+            }
+            templateParameters = parsed
+        } else {
+            templateParameters = [:]
+        }
 
         let groupId = v2UUID(params, "group_id")
         if v2HasNonNullParam(params, "group_id"), groupId == nil {
@@ -99,6 +114,43 @@ extension TerminalController {
                 return .err(code: "invalid_params", message: "Invalid layout: \(error.localizedDescription)", data: nil)
             }
         }
+
+        let templateDefinition = CmuxWorkspaceDefinition(
+            name: titleTemplate,
+            cwd: cwdTemplate,
+            env: workspaceEnvTemplate,
+            layout: layoutNode
+        )
+        let resolver = templateDefinition.templateResolver(
+            explicitParameters: templateParameters,
+            processEnvironment: ProcessInfo.processInfo.environment
+        )
+        var additionalTemplates = [initialCommandTemplate, descriptionTemplate]
+            .compactMap { $0 }
+            .map(CmuxTemplate.init)
+        additionalTemplates.append(contentsOf: initialEnvTemplate.keys.sorted().compactMap { key in
+            initialEnvTemplate[key].map(CmuxTemplate.init)
+        })
+
+        let resolvedDefinition: CmuxWorkspaceDefinition
+        let initialCommand: String?
+        let initialEnv: [String: String]
+        let description: String?
+        do {
+            let values = try resolver.resolvedValues(
+                for: templateDefinition.templateStrings + additionalTemplates
+            )
+            resolvedDefinition = templateDefinition.substitutingTemplateValues(values)
+            initialCommand = initialCommandTemplate.map { CmuxTemplate($0).substituting(values) }
+            initialEnv = initialEnvTemplate.mapValues { CmuxTemplate($0).substituting(values) }
+            description = descriptionTemplate.map { CmuxTemplate($0).substituting(values) }
+        } catch {
+            return workspaceTemplateResolutionFailure(error)
+        }
+        let title = resolvedDefinition.name
+        let cwd = resolvedDefinition.cwd
+        let workspaceEnv = Workspace.sanitizedWorkspaceEnvironment(resolvedDefinition.env ?? [:])
+        layoutNode = resolvedDefinition.layout
 
         var newId: UUID?
         var initialSurfaceId: UUID?

@@ -102,10 +102,29 @@ extension ControlCommandCoordinator {
         guard let name = string(params, "name") else {
             return .err(code: "invalid_params", message: "Missing or blank name", data: nil)
         }
+        let templateParameters: [String: String]
+        if hasNonNull(params, "template_params") {
+            guard case .object(let raw)? = params["template_params"],
+                  raw.values.allSatisfy({ value in
+                      if case .string = value { return true }
+                      return false
+                  }),
+                  let parsed = stringMap(params, "template_params") else {
+                return .err(
+                    code: "invalid_params",
+                    message: "template_params must be an object with string values",
+                    data: nil
+                )
+            }
+            templateParameters = parsed
+        } else {
+            templateParameters = [:]
+        }
         let resolution = context?.controlLayoutOpen(
             routing: routingSelectors(params),
             name: name,
             cwd: optionalTrimmedRawString(params, "cwd"),
+            templateParameters: templateParameters,
             focusRequested: bool(params, "focus") ?? false
         ) ?? .tabManagerUnavailable
         switch resolution {
@@ -115,6 +134,12 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         case .corruptFile(let description):
             return .err(code: "invalid_state", message: "layouts.json is corrupt", data: .object(["description": .string(description)]))
+        case .missingParameters(let names):
+            return .err(
+                code: "missing_parameters",
+                message: "Missing workspace template parameters: \(names.joined(separator: ", "))",
+                data: .object(["missing_parameters": .array(names.map(JSONValue.string))])
+            )
         case .opened(let workspaceID):
             return .ok(.object([
                 "workspace_id": .string(workspaceID.uuidString),
