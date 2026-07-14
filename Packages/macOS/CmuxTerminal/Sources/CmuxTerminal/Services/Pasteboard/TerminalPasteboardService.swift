@@ -143,6 +143,15 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
             }
         }
 
+        // An empty payload (e.g. copy-on-select firing after a TUI redraw
+        // already invalidated the selection) must not clear the clipboard:
+        // clearContents-then-write-nothing silently destroys whatever the
+        // user last copied.
+        guard !string.isEmpty else {
+            Self.logger.info("ignored empty clipboard write")
+            return
+        }
+
         guard let pasteboard = pasteboard(for: location) else { return }
         pasteboard.clearContents()
         if !pasteboard.setString(string, forType: .string) {

@@ -147,6 +147,19 @@ struct ClipboardWriteCaptureTests {
         #expect(scratch.pasteboard.string(forType: .string) == userCopy)
     }
 
+    @Test func emptyStandardWriteDoesNotClearExistingClipboardContent() {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService(standardPasteboard: scratch.pasteboard)
+        let marker = "existing-content-\(UUID().uuidString)"
+        service.writeString(marker, to: GHOSTTY_CLIPBOARD_STANDARD)
+
+        // An empty payload (e.g. copy-on-select firing after the selection
+        // was already invalidated) must be a no-op, not a destructive clear.
+        service.writeString("", to: GHOSTTY_CLIPBOARD_STANDARD)
+
+        #expect(scratch.pasteboard.string(forType: .string) == marker)
+    }
+
     @Test func standardWritesLandOnInjectedPasteboardAfterCaptureDisarms() {
         let scratch = ScratchPasteboard()
         let service = TerminalPasteboardService(standardPasteboard: scratch.pasteboard)
