@@ -154,14 +154,16 @@ extension GhosttySurfaceScrollView {
             return false
         }
         let currentGeometry = surfaceView.authoritativeScrollbarGeometry()
-        guard let geometry = position.row == 0
+        guard let replayGeometry = position.row == 0
             ? currentGeometry
             : authoritativeGeometry ?? currentGeometry else {
             return false
         }
+        let geometry = currentGeometry ?? replayGeometry
         let anchorGeometry = replayContext.geometry
         if position.row != 0,
-           anchorGeometry.rowSpaceRevision != geometry.rowSpaceRevision {
+           (anchorGeometry.rowSpaceRevision != replayGeometry.rowSpaceRevision ||
+            anchorGeometry.rowSpaceRevision != geometry.rowSpaceRevision) {
             clearPendingNotificationScrollRestore()
             return false
         }
