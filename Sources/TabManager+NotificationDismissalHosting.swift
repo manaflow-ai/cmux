@@ -21,6 +21,10 @@ extension TabManager: NotificationDismissalHosting {
         AppDelegate.shared?.notificationStore != nil
     }
 
+    func storeHasDismissibleState(workspaceId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?.hasDismissibleState(forTabId: workspaceId) ?? false
+    }
+
     // focusedPanelId(in:) is already witnessed by the SidebarGitHosting
     // conformance (TabManager+SidebarGitHosting.swift); one declaration
     // satisfies both seams.

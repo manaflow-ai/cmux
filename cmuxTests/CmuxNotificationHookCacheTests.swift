@@ -1,8 +1,9 @@
-import XCTest
+import Testing
 @testable import cmux
 
-final class CmuxNotificationHookCacheTests: XCTestCase {
-    func testCachesLayeredHooksAndInvalidatesChangedAndNewConfigFiles() async throws {
+@Suite("Notification hook cache")
+struct CmuxNotificationHookCacheTests {
+    @Test func cachesLayeredHooksAndInvalidatesChangedAndNewConfigFiles() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-notification-hook-cache-\(UUID().uuidString)",
             isDirectory: true
@@ -26,31 +27,46 @@ final class CmuxNotificationHookCacheTests: XCTestCase {
             startingFrom: childDirectory.path,
             globalConfigPath: globalConfig.path
         )
-        let afterFirst = await cache.statistics()
+        let parseCountAfterFirst = await cache.parseCount
+        let hitCountAfterFirst = await cache.hitCount
         let repeated = await cache.hooks(
             startingFrom: childDirectory.path,
             globalConfigPath: globalConfig.path
         )
-        let afterRepeated = await cache.statistics()
+        let parseCountAfterRepeated = await cache.parseCount
+        let hitCountAfterRepeated = await cache.hitCount
 
-        XCTAssertEqual(first.map(\.id), ["global", "child"])
-        XCTAssertEqual(repeated, first)
-        XCTAssertEqual(afterRepeated.parseCount, afterFirst.parseCount)
-        XCTAssertEqual(afterRepeated.hitCount, afterFirst.hitCount + 1)
+        #expect(first.map(\.id) == ["global", "child"])
+        #expect(repeated == first)
+        #expect(parseCountAfterRepeated == parseCountAfterFirst)
+        #expect(hitCountAfterRepeated == hitCountAfterFirst + 1)
 
         try writeHook(id: "child-updated-longer", to: childConfig)
         let changed = await cache.hooks(
             startingFrom: childDirectory.path,
             globalConfigPath: globalConfig.path
         )
-        XCTAssertEqual(changed.map(\.id), ["global", "child-updated-longer"])
+        #expect(changed.map(\.id) == ["global", "child-updated-longer"])
+
+        let changedAttributes = try FileManager.default.attributesOfItem(atPath: childConfig.path)
+        let changedModificationDate = try #require(changedAttributes[.modificationDate] as? Date)
+        try writeHook(id: "child-updated-longeR", to: childConfig)
+        try FileManager.default.setAttributes(
+            [.modificationDate: changedModificationDate],
+            ofItemAtPath: childConfig.path
+        )
+        let atomicallyReplaced = await cache.hooks(
+            startingFrom: childDirectory.path,
+            globalConfigPath: globalConfig.path
+        )
+        #expect(atomicallyReplaced.map(\.id) == ["global", "child-updated-longeR"])
 
         try writeHook(id: "project", to: projectConfig)
         let added = await cache.hooks(
             startingFrom: childDirectory.path,
             globalConfigPath: globalConfig.path
         )
-        XCTAssertEqual(added.map(\.id), ["global", "project", "child-updated-longer"])
+        #expect(added.map(\.id) == ["global", "project", "child-updated-longeR"])
     }
 
     private func writeHook(id: String, to url: URL) throws {

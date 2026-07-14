@@ -1,17 +1,21 @@
 import AppKit
-import XCTest
+import Testing
 @testable import cmux
 
-final class GhosttyTitleUpdateDispatcherTests: XCTestCase {
-    @MainActor
-    func testBurstPublishesOnlyLatestTitle() async {
+@Suite("Ghostty title update dispatcher")
+@MainActor
+struct GhosttyTitleUpdateDispatcherTests {
+    @Test func burstPublishesOnlyLatestTitle() async {
         var published: [GhosttyTitleUpdate] = []
-        let dispatcher = GhosttyTitleUpdateDispatcher(automaticallySchedules: false) { updates in
+        let dispatcher = GhosttyTitleUpdateDispatcher(schedule: { _, _ in
+            {}
+        }) { updates in
             published.append(contentsOf: updates)
         }
         let tabId = UUID()
         let surfaceId = UUID()
-        let sourceIdentifier = ObjectIdentifier(NSObject())
+        let source = NSObject()
+        let sourceIdentifier = ObjectIdentifier(source)
 
         for sequence in 1...600 {
             await dispatcher.receive(GhosttyTitleUpdate(
@@ -24,17 +28,19 @@ final class GhosttyTitleUpdateDispatcherTests: XCTestCase {
         }
         await dispatcher.flushNow()
 
-        XCTAssertEqual(published.count, 1)
-        XCTAssertEqual(published.first?.title, "spinner-600")
+        #expect(published.count == 1)
+        #expect(published.first?.title == "spinner-600")
     }
 
-    @MainActor
-    func testDuplicatePublishedTitleDoesNotPublishAgain() async {
+    @Test func duplicatePublishedTitleDoesNotPublishAgain() async {
         var published: [GhosttyTitleUpdate] = []
-        let dispatcher = GhosttyTitleUpdateDispatcher(automaticallySchedules: false) { updates in
+        let dispatcher = GhosttyTitleUpdateDispatcher(schedule: { _, _ in
+            {}
+        }) { updates in
             published.append(contentsOf: updates)
         }
-        let sourceIdentifier = ObjectIdentifier(NSObject())
+        let source = NSObject()
+        let sourceIdentifier = ObjectIdentifier(source)
         let first = GhosttyTitleUpdate(
             tabId: UUID(),
             surfaceId: UUID(),
@@ -54,18 +60,20 @@ final class GhosttyTitleUpdateDispatcherTests: XCTestCase {
         ))
         await dispatcher.flushNow()
 
-        XCTAssertEqual(published.map(\.title), ["unchanged"])
+        #expect(published.map(\.title) == ["unchanged"])
     }
 
-    @MainActor
-    func testOutOfOrderSubmissionCannotRestoreStaleTitle() async {
+    @Test func outOfOrderSubmissionCannotRestoreStaleTitle() async {
         var published: [GhosttyTitleUpdate] = []
-        let dispatcher = GhosttyTitleUpdateDispatcher(automaticallySchedules: false) { updates in
+        let dispatcher = GhosttyTitleUpdateDispatcher(schedule: { _, _ in
+            {}
+        }) { updates in
             published.append(contentsOf: updates)
         }
         let tabId = UUID()
         let surfaceId = UUID()
-        let sourceIdentifier = ObjectIdentifier(NSObject())
+        let source = NSObject()
+        let sourceIdentifier = ObjectIdentifier(source)
 
         await dispatcher.receive(GhosttyTitleUpdate(
             tabId: tabId,
@@ -83,17 +91,17 @@ final class GhosttyTitleUpdateDispatcherTests: XCTestCase {
         ))
         await dispatcher.flushNow()
 
-        XCTAssertEqual(published.map(\.title), ["new"])
+        #expect(published.map(\.title) == ["new"])
     }
 }
 
+@Suite("Right-sidebar mode shortcut matcher")
 @MainActor
-final class RightSidebarModeShortcutMatcherTests: XCTestCase {
-    func testOrdinaryTypingUsesCachedModifierBucketWithoutLookupOrLayoutWork() {
+struct RightSidebarModeShortcutMatcherTests {
+    @Test func ordinaryTypingUsesCachedModifierBucketWithoutLookupOrLayoutWork() {
         var shortcutLookupCount = 0
         var layoutLookupCount = 0
         let matcher = RightSidebarModeShortcutMatcher(
-            notificationCenter: NotificationCenter(),
             shortcutProvider: { _ in
                 shortcutLookupCount += 1
                 return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
@@ -108,19 +116,17 @@ final class RightSidebarModeShortcutMatcherTests: XCTestCase {
         let initialLookupCount = shortcutLookupCount
 
         for _ in 0..<100 {
-            XCTAssertNil(matcher.modeShortcut(for: event, allowingAction: { _ in true }))
+            #expect(matcher.modeShortcut(for: event, allowingAction: { _ in true }) == nil)
         }
 
-        XCTAssertEqual(initialLookupCount, 5)
-        XCTAssertEqual(shortcutLookupCount, initialLookupCount)
-        XCTAssertEqual(layoutLookupCount, 0)
+        #expect(initialLookupCount == 5)
+        #expect(shortcutLookupCount == initialLookupCount)
+        #expect(layoutLookupCount == 0)
     }
 
-    func testSettingsChangeRebuildsShortcutSnapshotOnce() {
-        let center = NotificationCenter()
+    @Test func reloadRebuildsShortcutSnapshotOnce() {
         var shortcutLookupCount = 0
         let matcher = RightSidebarModeShortcutMatcher(
-            notificationCenter: center,
             shortcutProvider: { _ in
                 shortcutLookupCount += 1
                 return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
@@ -129,11 +135,11 @@ final class RightSidebarModeShortcutMatcherTests: XCTestCase {
             layoutCharacterProvider: { _, _ in nil }
         )
 
-        XCTAssertEqual(shortcutLookupCount, 5)
-        center.post(name: KeyboardShortcutSettings.didChangeNotification, object: nil)
-        XCTAssertEqual(shortcutLookupCount, 10)
+        #expect(shortcutLookupCount == 5)
+        matcher.reload()
+        #expect(shortcutLookupCount == 10)
         _ = matcher.modeShortcut(for: makeKeyEvent(characters: "x", modifiers: []), allowingAction: { _ in true })
-        XCTAssertEqual(shortcutLookupCount, 10)
+        #expect(shortcutLookupCount == 10)
     }
 
     private func makeKeyEvent(

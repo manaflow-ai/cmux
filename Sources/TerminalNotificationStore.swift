@@ -143,36 +143,6 @@ enum NotificationAuthorizationState: Equatable, Sendable {
     }
 }
 
-enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
-    case revealInFinder(path: String)
-
-    private static let kindUserInfoKey = "cmuxClickAction"
-    private static let revealInFinderPathUserInfoKey = "cmuxRevealInFinderPath"
-    private static let revealInFinderKind = "revealInFinder"
-
-    var userInfo: [String: String] {
-        switch self {
-        case .revealInFinder(let path):
-            return [
-                Self.kindUserInfoKey: Self.revealInFinderKind,
-                Self.revealInFinderPathUserInfoKey: path,
-            ]
-        }
-    }
-
-    init?(userInfo: [AnyHashable: Any]) {
-        guard let kind = userInfo[Self.kindUserInfoKey] as? String else { return nil }
-        switch kind {
-        case Self.revealInFinderKind:
-            guard let path = userInfo[Self.revealInFinderPathUserInfoKey] as? String,
-                  !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-            self = .revealInFinder(path: path)
-        default:
-            return nil
-        }
-    }
-}
-
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -189,6 +159,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     static let shared = TerminalNotificationStore()
+    private let notificationHookCache = CmuxNotificationHookCache()
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
@@ -739,16 +710,18 @@ final class TerminalNotificationStore: ObservableObject {
         restoredUnreadWorkspaceIds = []
     }
 
-    func hasManualUnread(forTabId tabId: UUID) -> Bool {
-        manualUnreadWorkspaceIds.contains(tabId)
-    }
+    func hasManualUnread(forTabId tabId: UUID) -> Bool { manualUnreadWorkspaceIds.contains(tabId) }
 
-    func hasPanelDerivedUnread(forTabId tabId: UUID) -> Bool {
-        panelDerivedUnreadWorkspaceIds.contains(tabId)
-    }
+    func hasPanelDerivedUnread(forTabId tabId: UUID) -> Bool { panelDerivedUnreadWorkspaceIds.contains(tabId) }
 
-    func hasRestoredUnreadIndicator(forTabId tabId: UUID) -> Bool {
-        restoredUnreadWorkspaceIds.contains(tabId)
+    func hasRestoredUnreadIndicator(forTabId tabId: UUID) -> Bool { restoredUnreadWorkspaceIds.contains(tabId) }
+
+    func hasDismissibleState(forTabId tabId: UUID) -> Bool {
+        (indexes.unreadCountByTabId[tabId] ?? 0) > 0 ||
+            focusedReadIndicatorByTabId[tabId] != nil ||
+            manualUnreadWorkspaceIds.contains(tabId) ||
+            panelDerivedUnreadWorkspaceIds.contains(tabId) ||
+            restoredUnreadWorkspaceIds.contains(tabId)
     }
 
     @discardableResult
@@ -875,22 +848,27 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
         )
-        guard !policyContext.hooks.isEmpty else {
-            applyNotification(
-                request: policyContext.request,
-                effects: TerminalNotificationPolicyEffects(),
-                now: now,
-                cooldownReservation: cooldownReservation,
-                scrollPosition: policyContext.scrollPosition,
-                clickAction: clickAction
-            )
-            return
-        }
         let policyRequestId = inFlightPolicyRequests.register(policyContext.request, generation: notificationGeneration ?? TerminalMutationBus.shared.notificationGenerationSnapshot(), onDiscard: { [weak self] in self?.restoreCooldownReservation(cooldownReservation) })
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
+            let hooks = await notificationHookCache.hooks(
+                startingFrom: policyContext.hookDirectory,
+                globalConfigPath: policyContext.globalConfigPath
+            )
+            guard !Task.isCancelled else { return }
+            guard !hooks.isEmpty else {
+                self.applyNotification(
+                    request: policyContext.request,
+                    effects: TerminalNotificationPolicyEffects(),
+                    now: Date(),
+                    cooldownReservation: cooldownReservation,
+                    scrollPosition: policyContext.scrollPosition,
+                    clickAction: clickAction, policyRequestId: policyRequestId
+                )
+                return
+            }
             let authorizedHooks = await NotificationPolicyHookAuthorizer.authorize(
-                policyContext.hooks,
+                hooks,
                 globalConfigPath: policyContext.globalConfigPath
             )
             guard !Task.isCancelled else { return }
@@ -941,7 +919,7 @@ final class TerminalNotificationStore: ObservableObject {
     private struct NotificationPolicyContext: Sendable {
         let request: TerminalNotificationPolicyRequest
         let scrollPosition: TerminalNotificationScrollPosition?
-        let hooks: [CmuxResolvedNotificationHook]
+        let hookDirectory: String?
         let globalConfigPath: String?
     }
     private func makeCooldownReservation(
@@ -982,7 +960,7 @@ final class TerminalNotificationStore: ObservableObject {
         let context = appDelegate?.contextContainingTabId(tabId)
         let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
         let cmuxConfigStore = context?.cmuxConfigStore
-        let workspace = tabManager?.tabs.first(where: { $0.id == tabId })
+        let workspace = tabManager?.workspacesById[tabId]
         let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
         let isActiveTab = tabManager?.selectedTabId == tabId
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
@@ -1022,7 +1000,7 @@ final class TerminalNotificationStore: ObservableObject {
                 isFocusedPanel: isFocusedPanel
             ),
             scrollPosition: scrollPosition,
-            hooks: cmuxConfigStore?.notificationHooks(startingFrom: workspace?.isRemoteWorkspace == true ? nil : cwd) ?? [],
+            hookDirectory: workspace?.isRemoteWorkspace == true ? nil : cwd,
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
     }

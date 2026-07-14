@@ -27,6 +27,8 @@ public protocol NotificationDismissalHosting: AnyObject {
     /// Whether the notification store exists yet (legacy
     /// `AppDelegate.shared?.notificationStore` nil check).
     var hasNotificationStore: Bool { get }
+    /// O(1) aggregate gate for any unread/visible state in a workspace.
+    func storeHasDismissibleState(workspaceId: UUID) -> Bool
     /// The workspace's focused panel id, if any.
     func focusedPanelId(in workspaceId: UUID) -> UUID?
     /// The workspace's focused surface id, if any. Mirrors the delivery gate's
