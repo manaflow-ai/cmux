@@ -312,15 +312,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     var surface: ghostty_surface_t?
     var surfaceGeneration: UInt64 = 0
-    private var lastReportedSize: TerminalGridSize?
+    var lastReportedSize: TerminalGridSize?
     /// Latest natural grid awaiting a debounced report to the Mac. The display
     /// link sends it only after the grid has held steady for
     /// `viewportReportSettleThreshold` frames. Reporting every intermediate
     /// size during the attach / keyboard / zoom settle resized the Mac PTY
     /// repeatedly, so the shell redrew its prompt on each SIGWINCH and the
     /// initial scrollback filled with the prompt duplicated at every width.
-    private var pendingViewportReport: TerminalGridSize?
-    private var viewportReportSettleFrames = 0
+    var pendingViewportReport: TerminalGridSize?
+    var viewportReportSettleFrames = 0
     /// Widest container this surface has actually rendered in the current
     /// window geometry. A phone split-view sidebar is an overlay, but UIKit can
     /// briefly size the detail view as a split column while it transitions.
@@ -333,8 +333,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// though the main thread is fine. On a no-effective result we re-arm the
     /// report (display-link driven, no timers) up to `maxViewportReportRetries`
     /// so a transient drop self-heals; a confirmed result resets the count.
-    private var viewportReportRetries = 0
-    private static let maxViewportReportRetries = 3
+    var viewportReportRetries = 0
+    static let maxViewportReportRetries = 3
     /// Monotonic stamp for each natural-grid report handed to the delegate.
     /// `applyConfirmedViewSize(cols:rows:reportID:)` applies an echo only when
     /// its ID is still the newest, so an out-of-order RPC reply for an older
@@ -2829,25 +2829,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// Re-arm the debounced viewport report after a round-trip returned no
-    /// effective grid, so a transient RPC drop does not leave the render pinned
-    /// to a stale effective grid (the "stuck letterbox" freeze). Bounded and
-    /// display-link driven (the existing settle machinery re-fires it); a
-    /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
-    public func retryViewportReport(reportID: UInt64) {
-        let canRetry = viewportReportRetries < Self.maxViewportReportRetries &&
-            lastReportedSize.map { $0.columns > 0 && $0.rows > 0 } == true
-        viewportFontGrantState.noteReportFailure(reportID: reportID, willRetry: canRetry)
-        guard canRetry, let pending = lastReportedSize else { return }
-        viewportReportRetries += 1
-        MobileDebugLog.anchormux(
-            "zoom.viewport.retry \(viewportReportRetries)/\(Self.maxViewportReportRetries) "
-            + "grid=\(pending.columns)x\(pending.rows)"
-        )
-        pendingViewportReport = pending
-        viewportReportSettleFrames = 0
-    }
-
     public func applyViewSize(cols: Int, rows: Int) {
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: false)
     }
@@ -2884,22 +2865,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
             return
         }
-        let awaitedFontGrant = viewportFontGrantState.isAwaitingAcknowledgement(reportID: reportID)
-        if let fontSize = viewportFontGrantState.consumeAcknowledgement(
-            reportID: reportID,
-            columns: cols,
-            rows: rows
-        ) {
-            MobileDebugLog.anchormux(
-                "zoom.viewport.fontGrant id=\(reportID) grid=\(cols)x\(rows) font=\(fontSize)"
-            )
-            applyAbsoluteFontSize(fontSize)
-        } else if awaitedFontGrant {
-            MobileDebugLog.anchormux(
-                "zoom.viewport.fontGrantRejected id=\(reportID) grid=\(cols)x\(rows)"
-            )
-            viewportFontGrantState.noteReportFailure(reportID: reportID, willRetry: false)
-        }
+        applyAcknowledgedViewportFontGrant(cols: cols, rows: rows, reportID: reportID)
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: true)
     }
 
