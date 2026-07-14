@@ -19,12 +19,6 @@ public final class BrowserAutomationWatchdog {
     /// Cancellable timing source used for the liveness deadline.
     public typealias Sleep = @Sendable (_ duration: Duration) async throws -> Void
 
-    private enum ProbeSignal: Sendable {
-        case responsive
-        case timedOut
-        case cancelled
-    }
-
     private let probeTimeout: Duration
     private let sleep: Sleep
 
@@ -63,7 +57,10 @@ public final class BrowserAutomationWatchdog {
         }
 
         let expectedProbeCount = probes.count
-        let signal = await withTaskGroup(of: ProbeSignal.self, returning: ProbeSignal.self) { group in
+        let signal = await withTaskGroup(
+            of: BrowserAutomationProbeSignal.self,
+            returning: BrowserAutomationProbeSignal.self
+        ) { group in
             group.addTask {
                 var iterator = signals.makeAsyncIterator()
                 var completedProbeIndexes = Set<Int>()
