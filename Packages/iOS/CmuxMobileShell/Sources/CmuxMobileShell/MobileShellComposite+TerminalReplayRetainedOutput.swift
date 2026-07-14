@@ -10,9 +10,9 @@ extension MobileShellComposite {
     }
 
     /// Releases output that arrived after the final bounded replay snapshot.
-    /// Render grids re-enter the authoritative delivery path so their sequence
-    /// is reconciled against the replay's delivered high-water mark; raw bytes
-    /// preserve arrival order through the regular backpressure queue.
+    /// Render grids and raw bytes re-enter their authoritative delivery paths
+    /// so each sequence is reconciled against the replay's delivered
+    /// high-water mark before entering the regular backpressure queue.
     func reconcileTerminalReplayBarrierRetainedOutput(surfaceID: String) {
         guard let retained = terminalReplayBarrierRetainedOutputBySurfaceID.removeValue(
             forKey: surfaceID
@@ -25,7 +25,11 @@ extension MobileShellComposite {
                     source: "replay_barrier_retained"
                 )
             } else {
-                _ = deliverRetainedTerminalOutput(delivery, surfaceID: surfaceID)
+                _ = reduceTerminalByteDelivery(
+                    delivery,
+                    surfaceID: surfaceID,
+                    bypassReplayBarrier: true
+                )
             }
         }
     }

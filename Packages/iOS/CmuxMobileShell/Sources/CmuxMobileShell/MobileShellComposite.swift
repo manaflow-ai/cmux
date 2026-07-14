@@ -7222,55 +7222,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             deliverTerminalBytes(bytes, surfaceID: surfaceID)
             return
         }
-        let endSeq = seq &+ UInt64(bytes.count)
-        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] {
-            if seq > deliveredSeq {
-                MobileDebugLog.anchormux("sync.byte_gap surface=\(surfaceID) delivered=\(deliveredSeq) next=\(seq)")
-                diagnosticLog?.record(DiagnosticEvent(
-                    .byteGap,
-                    surface: Self.diagnosticSurfaceHandle(surfaceID),
-                    a: Int(clamping: deliveredSeq),
-                    b: Int(clamping: seq)
-                ))
-                mobileShellLog.info("terminal byte gap surface=\(surfaceID, privacy: .public) deliveredSeq=\(deliveredSeq, privacy: .public) nextSeq=\(seq, privacy: .public)")
-                guard deliverTerminalBytes(bytes, surfaceID: surfaceID) else { return }
-                markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
-                if terminalReplaySurfaceIDsInFlight.contains(surfaceID) {
-                    cancelTerminalReplayInFlight(surfaceID: surfaceID)
-                }
-                resyncTerminalOutput(
-                    reason: "seq_gap",
-                    restartEventStream: false,
-                    surfaceIDs: [surfaceID]
-                )
-                return
-            }
-            if endSeq <= deliveredSeq {
-                return
-            }
-            let overlap = deliveredSeq - seq
-            let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
-            guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID) else { return }
-            markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
-            return
-        }
-        // With no live baseline, the pre-barrier floor is the effective
-        // delivered mark: pre-barrier chunks must not repaint or count.
-        if let floorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] {
-            if endSeq <= floorSeq {
-                MobileDebugLog.anchormux("sync.bytes_below_floor surface=\(surfaceID) floor=\(floorSeq) end=\(endSeq)")
-                return
-            }
-            if seq < floorSeq {
-                let overlap = floorSeq - seq
-                let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
-                guard deliverTerminalBytes(deliverBytes, surfaceID: surfaceID) else { return }
-                markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
-                return
-            }
-        }
-        guard deliverTerminalBytes(bytes, surfaceID: surfaceID) else { return }
-        markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
+        deliverSequencedTerminalBytes(bytes, startSeq: seq, surfaceID: surfaceID)
     }
 
     private func scheduleWorkspaceListRefreshFromEvent() {

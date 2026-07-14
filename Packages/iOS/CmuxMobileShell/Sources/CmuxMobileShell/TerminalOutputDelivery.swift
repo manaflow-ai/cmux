@@ -4,6 +4,31 @@ import Foundation
 
 /// One terminal-output chunk waiting to be applied by a mounted mobile surface.
 struct TerminalOutputDelivery: Equatable, Sendable {
+    struct ByteSequenceInterval: Equatable, Sendable {
+        let start: UInt64
+        let end: UInt64
+
+        init?(start: UInt64, byteCount: Int) {
+            guard byteCount >= 0 else { return nil }
+            let (end, overflow) = start.addingReportingOverflow(UInt64(byteCount))
+            guard !overflow else { return nil }
+            self.start = start
+            self.end = end
+        }
+
+        private init(start: UInt64, end: UInt64) {
+            self.start = start
+            self.end = end
+        }
+
+        func droppingPrefix(_ byteCount: Int) -> Self? {
+            guard byteCount >= 0 else { return nil }
+            let (trimmedStart, overflow) = start.addingReportingOverflow(UInt64(byteCount))
+            guard !overflow, trimmedStart <= end else { return nil }
+            return Self(start: trimmedStart, end: end)
+        }
+    }
+
     enum ReplacementScope: Equatable, Sendable {
         case byteViewport
         case renderGridViewport
@@ -15,9 +40,10 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         case renderGrid(MobileTerminalRenderGridFrame)
     }
 
-    private var payload: Payload
-    var replacementScope: ReplacementScope?
-    var viewportPolicy: MobileTerminalOutputViewportPolicy?
+    private let payload: Payload
+    let byteSequenceInterval: ByteSequenceInterval?
+    let replacementScope: ReplacementScope?
+    let viewportPolicy: MobileTerminalOutputViewportPolicy?
 
     var replaceable: Bool {
         replacementScope != nil
@@ -26,10 +52,12 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     init(
         bytes: Data,
         replaceable: Bool,
+        byteSequenceInterval: ByteSequenceInterval? = nil,
         replacementScope: ReplacementScope? = nil,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
     ) {
         self.payload = .bytes(bytes)
+        self.byteSequenceInterval = byteSequenceInterval
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
     }
@@ -41,6 +69,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
     ) {
         self.payload = .renderGrid(frame)
+        self.byteSequenceInterval = nil
         self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
     }
@@ -57,6 +86,23 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     var renderGridFrame: MobileTerminalRenderGridFrame? {
         guard case .renderGrid(let frame) = payload else { return nil }
         return frame
+    }
+
+    func droppingBytePrefix(_ byteCount: Int) -> Self? {
+        guard case .bytes(let bytes) = payload,
+              byteCount >= 0,
+              byteCount <= bytes.count,
+              let byteSequenceInterval,
+              let trimmedInterval = byteSequenceInterval.droppingPrefix(byteCount) else {
+            return nil
+        }
+        return Self(
+            bytes: Data(bytes.dropFirst(byteCount)),
+            replaceable: replaceable,
+            byteSequenceInterval: trimmedInterval,
+            replacementScope: replacementScope,
+            viewportPolicy: viewportPolicy
+        )
     }
 }
 

@@ -232,7 +232,7 @@ extension MobileShellComposite {
         )
     }
 
-    private func deliverTerminalOutput(
+    func deliverTerminalOutput(
         _ delivery: TerminalOutputDelivery,
         surfaceID: String,
         bypassReplayBarrier: Bool = false
@@ -293,10 +293,6 @@ extension MobileShellComposite {
             )
         }
         return true
-    }
-
-    func deliverRetainedTerminalOutput(_ delivery: TerminalOutputDelivery, surfaceID: String) -> Bool {
-        deliverTerminalOutput(delivery, surfaceID: surfaceID, bypassReplayBarrier: true)
     }
 
     /// Mark the current yielded terminal-output chunk as applied by the iOS surface.

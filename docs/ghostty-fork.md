@@ -12,10 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `fa64f7ac4`. It merges the notification replay
-viewport-authority history through `cbbddb292` (including the prior cmux pin
-`eb500e9f4`) with `3349567f6`, which adds the live surface font-adjustment
-ownership accessor used by mobile viewport fitting.
+Current cmux pinned fork head: `a6305908a`. It adds the embedded-surface
+scrollback cap and visibility/reveal recovery from Ghostty PR 114 on top of
+`fa64f7ac4`, the merge of Ghostty PR 113. That prior merge preserves the
+notification replay viewport-authority history through `cbbddb292` (including
+the prior cmux pin `eb500e9f4`) and `3349567f6`, which adds the live surface
+font-adjustment ownership accessor used by mobile viewport fitting.
 
 The combined compression, selection, scrollback, notification replay, and
 mobile font-ownership changes were published via
@@ -26,7 +28,8 @@ https://github.com/manaflow-ai/ghostty/pull/105 and
 https://github.com/manaflow-ai/ghostty/pull/106 and
 https://github.com/manaflow-ai/ghostty/pull/108 and
 https://github.com/manaflow-ai/ghostty/pull/112 and
-https://github.com/manaflow-ai/ghostty/pull/113.
+https://github.com/manaflow-ai/ghostty/pull/113 and
+https://github.com/manaflow-ai/ghostty/pull/114.
 
 ### Notification replay viewport authority
 

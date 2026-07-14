@@ -10,6 +10,13 @@ extension GhosttySurfaceView {
     ///
     /// - Parameter reportID: The identifier of the viewport report that failed.
     public func retryViewportReport(reportID: UInt64) {
+        guard viewportReportAuthority.owns(reportID) else {
+            let latest = viewportReportAuthority.currentID.map(String.init) ?? "none"
+            MobileDebugLog.anchormux(
+                "zoom.viewport.staleRetry id=\(reportID) latest=\(latest)"
+            )
+            return
+        }
         let canRetry = viewportReportRetries < Self.maxViewportReportRetries &&
             lastReportedSize.map { $0.columns > 0 && $0.rows > 0 } == true
         viewportFontGrantState.noteReportFailure(reportID: reportID, willRetry: canRetry)

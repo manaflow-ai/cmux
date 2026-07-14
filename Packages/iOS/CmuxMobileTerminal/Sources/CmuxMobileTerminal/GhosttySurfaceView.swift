@@ -11,6 +11,25 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
+struct TerminalViewportReportAuthority {
+    private var lastIssuedID: UInt64 = 0
+    private(set) var currentID: UInt64?
+
+    mutating func issue() -> UInt64 {
+        lastIssuedID &+= 1
+        currentID = lastIssuedID
+        return lastIssuedID
+    }
+
+    mutating func invalidate() {
+        currentID = nil
+    }
+
+    func owns(_ reportID: UInt64) -> Bool {
+        currentID.map { $0 == reportID } ?? false
+    }
+}
+
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// The surface whose hidden text input is currently first responder, if any.
     ///
@@ -367,7 +386,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// (e.g. keyboard-up) report cannot re-pin a grid the surface outgrew —
     /// the natural grid would be unchanged afterwards, nothing would ever
     /// re-report, and the letterbox gap above the terminal would be permanent.
-    private var viewportReportID: UInt64 = 0
+    var viewportReportAuthority = TerminalViewportReportAuthority()
     /// Holds a larger row-fit font behind the exact viewport report that makes
     /// it horizontally safe. Failed signatures remain blocked until geometry
     /// produces a different request.
@@ -1661,6 +1680,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// local or Mac choice. Any acknowledgement already in flight belongs to
     /// the previous baseline and must not replace the newly queued user target.
     private func claimUserFontOwnership(_ target: Float32) {
+        viewportReportAuthority.invalidate()
         viewportFontGrantState.reset()
         viewportFontGrantNeedsReport = false
         userBaseFontSize = target
@@ -2621,14 +2641,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 if viewportReportSettleFrames >= Self.viewportReportSettleThreshold {
                     pendingViewportReport = nil
                     viewportReportSettleFrames = 0
-                    viewportReportID &+= 1
+                    let reportID = viewportReportAuthority.issue()
                     viewportFontGrantState.bindPendingRequest(
-                        toReportID: viewportReportID,
+                        toReportID: reportID,
                         columns: pending.columns,
                         rows: pending.rows
                     )
-                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
-                    delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
+                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(reportID)")
+                    delegate?.ghosttySurfaceView(self, didResize: pending, reportID: reportID)
                 }
             }
         }
@@ -2922,9 +2942,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// echo; the in-flight newer report's own echo is the one that settles the
     /// grid.
     public func applyConfirmedViewSize(cols: Int, rows: Int, reportID: UInt64) {
-        guard reportID == viewportReportID else {
+        guard viewportReportAuthority.owns(reportID) else {
+            let latest = viewportReportAuthority.currentID.map(String.init) ?? "none"
             MobileDebugLog.anchormux(
-                "zoom.viewport.staleEcho id=\(reportID) latest=\(viewportReportID) grid=\(cols)x\(rows)"
+                "zoom.viewport.staleEcho id=\(reportID) latest=\(latest) grid=\(cols)x\(rows)"
             )
             return
         }
