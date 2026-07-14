@@ -66,6 +66,29 @@ import Testing
         #expect(await service.search(query: "hidden-project", seedPaths: []).isEmpty)
     }
 
+    @Test func filesystemInspectionStopsAtItsIndependentEntryBudget() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-directory-budget-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for index in 0..<32 {
+            try FileManager.default.createDirectory(
+                at: root.appendingPathComponent("candidate-\(index)", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        let service = MobileTaskDirectorySearchService(
+            homeDirectory: root,
+            configuration: .init(
+                maximumDirectories: 200,
+                maximumDepth: 6,
+                cacheLifetime: 30,
+                maximumFilesystemEntries: 1
+            )
+        )
+
+        #expect(await service.search(query: "candidate", seedPaths: []).isEmpty)
+    }
+
     @Test func removingAnExternalSeedDoesNotReuseItsCachedPaths() async throws {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-directory-roots-\(UUID().uuidString)", isDirectory: true)

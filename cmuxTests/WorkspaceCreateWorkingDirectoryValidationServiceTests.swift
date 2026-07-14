@@ -24,6 +24,33 @@ import Testing
         #expect(await second.value == .valid("/tmp/shared"))
     }
 
+    @Test func canonicallyEquivalentPathsUseDistinctByteExactProbes() async {
+        let composed = "/tmp/caf\u{00E9}"
+        let decomposed = "/tmp/cafe\u{0301}"
+        #expect(composed == decomposed)
+        #expect(!Data(composed.utf8).elementsEqual(Data(decomposed.utf8)))
+
+        let probe = ControlledDirectoryProbe()
+        let deadlines = ControlledValidationDeadlines()
+        let service = TerminalController.WorkspaceCreateWorkingDirectoryValidationService(
+            timeout: .seconds(1),
+            localCapacity: 2,
+            externalCapacity: 1,
+            maximumPendingWaiters: 64,
+            laneClassifier: { _ in .local },
+            probe: { path, lane in await probe.run(path: path, lane: lane) },
+            sleepUntilDeadline: { _ in await deadlines.suspendUntilFired() }
+        )
+        let first = Task { await service.validate(rawValue: composed, isProvided: true) }
+        let second = Task { await service.validate(rawValue: decomposed, isProvided: true) }
+        await probe.waitForCount(2)
+
+        await probe.complete(path: composed, isDirectory: true)
+        await probe.complete(path: decomposed, isDirectory: false)
+        #expect(await first.value == .valid(composed))
+        #expect(await second.value == .invalid)
+    }
+
     @Test func pendingLimitRejectsNewPathsAndRecoversAfterAWaiterFinishes() async {
         let probe = ControlledDirectoryProbe()
         let deadlines = ControlledValidationDeadlines()
@@ -389,8 +416,8 @@ import Testing
 
 private actor ControlledDirectoryProbe {
     private(set) var count = 0
-    private var lanesByPath: [String: TerminalController.WorkspaceCreateWorkingDirectoryValidationService.ProbeLane] = [:]
-    private var activeContinuations: [String: CheckedContinuation<Bool, Never>] = [:]
+    private var lanesByPath: [Data: TerminalController.WorkspaceCreateWorkingDirectoryValidationService.ProbeLane] = [:]
+    private var activeContinuations: [Data: CheckedContinuation<Bool, Never>] = [:]
     private var countWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     func run(
@@ -398,15 +425,16 @@ private actor ControlledDirectoryProbe {
         lane: TerminalController.WorkspaceCreateWorkingDirectoryValidationService.ProbeLane
     ) async -> Bool {
         count += 1
-        lanesByPath[path] = lane
+        let pathID = Data(path.utf8)
+        lanesByPath[pathID] = lane
         resumeCountWaiters()
-        return await withCheckedContinuation { activeContinuations[path] = $0 }
+        return await withCheckedContinuation { activeContinuations[pathID] = $0 }
     }
 
     func lane(
         for path: String
     ) -> TerminalController.WorkspaceCreateWorkingDirectoryValidationService.ProbeLane? {
-        lanesByPath[path]
+        lanesByPath[Data(path.utf8)]
     }
 
     func waitForCount(_ expected: Int) async {
@@ -415,7 +443,7 @@ private actor ControlledDirectoryProbe {
     }
 
     func complete(path: String, isDirectory: Bool) {
-        activeContinuations.removeValue(forKey: path)?.resume(returning: isDirectory)
+        activeContinuations.removeValue(forKey: Data(path.utf8))?.resume(returning: isDirectory)
     }
 
     private func resumeCountWaiters() {

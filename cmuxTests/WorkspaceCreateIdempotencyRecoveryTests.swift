@@ -34,6 +34,30 @@ import Testing
         #expect(try await cache.acceptAsynchronously(operationID: UUID()))
         #expect(persistence.saveWasOnMainThread == false)
     }
+
+    @Test func restoredRecordDuringPendingAcceptanceIsMergedAndRepersisted() async throws {
+        let acceptedOperationID = UUID()
+        let restoredOperationID = UUID()
+        let workspaceID = UUID()
+        let persistence = BlockingFirstSavePersistence()
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 8,
+            persistence: persistence
+        )
+
+        let acceptance = Task {
+            try await cache.acceptAsynchronously(operationID: acceptedOperationID)
+        }
+        await persistence.waitForFirstSaveToStart()
+        cache.record(operationID: restoredOperationID, workspaceID: workspaceID)
+        persistence.releaseFirstSave()
+
+        #expect(try await acceptance.value)
+        #expect(persistence.savedOperationIDs == [restoredOperationID, acceptedOperationID])
+        #expect(cache.containsCompletedOperation(restoredOperationID))
+        #expect(cache.containsCompletedOperation(acceptedOperationID))
+        #expect(cache.workspaceID(for: restoredOperationID) == workspaceID)
+    }
 }
 
 private final class TransientLoadFailurePersistence:
@@ -62,4 +86,44 @@ private final class TransientLoadFailurePersistence:
 
 private enum TransientLoadFailure: Error {
     case injected
+}
+
+private final class BlockingFirstSavePersistence:
+    TerminalController.WorkspaceCreateIdempotencyPersisting, @unchecked Sendable
+{
+    private let firstSaveStarted = DispatchSemaphore(value: 0)
+    private let releaseFirstSaveSemaphore = DispatchSemaphore(value: 0)
+    private let savedOperationIDsLock = NSLock()
+    private var storedOperationIDs: [UUID] = []
+    private var saveCount = 0
+
+    var savedOperationIDs: [UUID] {
+        savedOperationIDsLock.withLock { storedOperationIDs }
+    }
+
+    func loadOperationIDs() -> [UUID] { [] }
+
+    func saveOperationIDs(_ operationIDs: [UUID]) {
+        let shouldBlock = savedOperationIDsLock.withLock {
+            saveCount += 1
+            return saveCount == 1
+        }
+        if shouldBlock {
+            firstSaveStarted.signal()
+            releaseFirstSaveSemaphore.wait()
+        }
+        savedOperationIDsLock.withLock {
+            storedOperationIDs = operationIDs
+        }
+    }
+
+    func waitForFirstSaveToStart() async {
+        await Task.detached { [firstSaveStarted] in
+            firstSaveStarted.wait()
+        }.value
+    }
+
+    func releaseFirstSave() {
+        releaseFirstSaveSemaphore.signal()
+    }
 }
