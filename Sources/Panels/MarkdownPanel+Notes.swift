@@ -209,6 +209,18 @@ extension MarkdownPanel {
 
     func retryPendingFocus() {
         guard pendingTextViewFocus else { return }
+        // The pending claim is only valid while nothing else has taken the
+        // caret: the latch is set when focus() ran before the editor view
+        // attached, and view remounts (splits, tab switches, portal churn)
+        // retry it. If the user focused another surface in the meantime,
+        // claiming first responder now would steal the caret mid-typing —
+        // drop the claim instead.
+        if let responder = textView?.window?.firstResponder,
+           responder !== textView,
+           !(responder is NSWindow) {
+            pendingTextViewFocus = false
+            return
+        }
         focus()
     }
 
