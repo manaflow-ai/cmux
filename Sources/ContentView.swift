@@ -2075,16 +2075,6 @@ struct ContentView: View {
                         .padding(.leading, placement.leadingPadding)
                 }
             }
-            .overlay(alignment: .topTrailing) {
-                if !rightSidebarVisible {
-                    RightSidebarTitlebarToggleButton(
-                        foregroundColor: Color(nsColor: titlebarControlForegroundNSColor(opacity: 1))
-                    ) {
-                        _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
-                    }
-                    .environment(\.colorScheme, appearance.chromeColorScheme)
-                }
-            }
     }
 
     private func syncTrafficLightInset(isMinimalMode: Bool? = nil) {
@@ -2419,6 +2409,17 @@ struct ContentView: View {
                 WorkspaceTitlebarModeLayer {
                     workspaceTitlebarBand(appearance: appearance)
                         .zIndex(100)
+                }
+
+                if !rightSidebarVisible {
+                    RightSidebarTitlebarToggleButton(
+                        foregroundColor: Color(nsColor: titlebarControlForegroundNSColor(opacity: 1))
+                    ) {
+                        _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
+                    }
+                    .environment(\.colorScheme, appearance.chromeColorScheme)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .zIndex(101)
                 }
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

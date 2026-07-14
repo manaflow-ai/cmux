@@ -31,7 +31,9 @@ private struct TitlebarTrailingControls: View {
             ProBadgeView()
             MobileConnectTitlebarButton()
         }
-        .padding(.trailing, 8)
+        // The full-size content view owns the right-sidebar glyph / X lane.
+        // Keep the native controls left of that lane in standard mode.
+        .padding(.trailing, RightSidebarChromeMetrics.headerControlSize + 12)
     }
 }
 
