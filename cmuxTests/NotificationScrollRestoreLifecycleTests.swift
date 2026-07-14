@@ -334,6 +334,27 @@ struct NotificationScrollRestoreLifecycleTests {
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
+    @Test func liveBottomActivationSurvivesRowSpaceRevisionChange() {
+        let surfaceView = NotificationLifecycleRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = scrollbar(total: 400, offset: 356, len: 44)
+        surfaceView.authoritativeGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: scrollbar(total: 400, offset: 356, len: 44),
+            rowSpaceRevision: 2
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(
+                row: 0,
+                totalRows: 400,
+                rowSpaceRevision: 1
+            )
+        ))
+
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
+        #expect(!hostedView.hasPendingNotificationScrollRestore)
+    }
+
     @Test func internalBindingActionPreservesPendingRestore() {
         let panel = TerminalPanel(workspaceId: UUID())
         defer { panel.surface.releaseSurfaceForTesting() }
