@@ -54,6 +54,15 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
+    @Test func copyModeToggleNotifiesPaneHost() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        #expect(!fixture.surface.toggleKeyboardCopyMode())
+
+        #expect(fixture.paneHost.explicitInputCount == 1)
+    }
+
     @Test func emptyInputDoesNotNotifyThePaneHost() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }

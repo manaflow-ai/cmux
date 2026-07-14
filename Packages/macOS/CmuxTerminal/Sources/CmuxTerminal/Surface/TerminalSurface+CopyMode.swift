@@ -41,6 +41,7 @@ extension TerminalSurface {
     @discardableResult
     @MainActor
     public func toggleKeyboardCopyMode() -> Bool {
+        didReceiveExplicitInput()
         let handled = surfaceView.toggleKeyboardCopyMode()
         if handled {
             setKeyboardCopyModeActive(surfaceView.isKeyboardCopyModeActive)
