@@ -137,7 +137,8 @@ struct SocketACLReloadRegressionTests {
         #expect(!controller.socketServer.isRunning)
     }
 
-    @Test func deniedConnectionReceivesAccessDeniedResponse() throws {
+    @Test(arguments: [false, true])
+    func deniedConnectionReceivesAccessDeniedResponse(revokedBeforeHandling: Bool) throws {
         let controller = TerminalController.shared
         controller.stop()
 
@@ -161,11 +162,13 @@ struct SocketACLReloadRegressionTests {
         try configureReadTimeout(sockets.client)
         try writeLine("ping", to: sockets.client)
 
+        let authorizationGeneration = controller.socketServer.connectionAuthorizationGeneration
+        if revokedBeforeHandling { controller.socketServer.reconfigure(accessMode: .automation) }
         let yieldResult = controller.socketServer.connectionsContinuation.yield(
             ControlConnection(
                 socket: sockets.server,
-                peerProcessID: 1,
-                authorizationGeneration: controller.socketServer.connectionAuthorizationGeneration
+                peerProcessID: revokedBeforeHandling ? getpid() : 1,
+                authorizationGeneration: authorizationGeneration
             )
         )
         if case .enqueued = yieldResult {
