@@ -254,18 +254,18 @@ struct GitProcessRunner: Sendable {
         acceptedTerminationStatuses: Set<Int32>,
         maxOutputBytes: Int?
     ) -> GitProcessResult {
+        if let failure = supervised.failure {
+            return GitProcessResult(
+                output: nil,
+                failure: failure,
+                terminationStatus: supervised.terminationStatus
+            )
+        }
         if supervised.capped, let output = supervised.rawOutput {
             return GitProcessResult(
                 rawOutput: output,
                 output: decodeUTF8Lossy(output, maxOutputBytes: maxOutputBytes),
                 capped: true,
-                terminationStatus: supervised.terminationStatus
-            )
-        }
-        if let failure = supervised.failure {
-            return GitProcessResult(
-                output: nil,
-                failure: failure,
                 terminationStatus: supervised.terminationStatus
             )
         }
