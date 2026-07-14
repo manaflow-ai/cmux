@@ -15,6 +15,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.sleepyMode", defaultValue: "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night")
         case .mobile:
             return localized("settings.search.alias.section.mobile", defaultValue: "ios iphone ipad mobile pairing local network permission sync")
+        case .computers:
+            return localized("settings.search.alias.section.computers", defaultValue: "computers devices macs remote view control pair unpair presence online offline tailscale hive")
         case .sidebarAppearance:
             return localized("settings.search.alias.section.sidebarAppearance", defaultValue: "sidebar left rail navigation details branches badges material terminal background")
         case .customSidebars:

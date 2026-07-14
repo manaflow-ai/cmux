@@ -142,6 +142,38 @@ public protocol SettingsHostActions: AnyObject {
     /// is edited.
     func mobilePairingDefaultDisplayName() -> String
 
+    /// The current merged computer list (device registry + local pairings +
+    /// live presence) for the Computers section, or `nil` when the host has
+    /// no computers directory (previews/tests). See ``computersUpdates()``
+    /// for live refresh.
+    func computersSnapshot() -> ComputersSettingsSnapshot?
+
+    /// A stream that yields a fresh ``ComputersSettingsSnapshot`` whenever the
+    /// merged computer list changes (registry refresh, pairing change, or a
+    /// presence transition). The Computers section subscribes so rows stay
+    /// live without polling.
+    func computersUpdates() -> AsyncStream<ComputersSettingsSnapshot>
+
+    /// Kicks off an asynchronous registry refresh; results arrive through
+    /// ``computersUpdates()``.
+    func refreshComputers()
+
+    /// Pairs a computer from its registry row (persists its best advertised
+    /// routes locally).
+    func pairComputer(deviceID: String) async -> ComputersPairResult
+
+    /// Pairs a computer from a pasted `cmux-ios://attach?…` pairing link (the
+    /// payload another Mac's pairing window shows as a QR code).
+    func pairComputerWithLink(_ link: String) async -> ComputersPairResult
+
+    /// Removes the local pairing for a computer. The registry row remains.
+    func unpairComputer(deviceID: String) async
+
+    /// Mints this Mac's pairing link (the same payload the pairing window's
+    /// QR encodes) and puts it on the clipboard, so another Mac can pair by
+    /// pasting it — no camera involved.
+    func copyComputerPairingLink() async -> ComputersCopyLinkResult
+
     /// Applies an explicitly-requested iOS pairing port, checking availability
     /// first so a port already in use leaves the running listener untouched. The
     /// Mobile section calls this from its **Apply** button and renders the
@@ -207,6 +239,30 @@ public extension SettingsHostActions {
 
     /// Default: empty, for hosts that cannot resolve the Mac's system name.
     func mobilePairingDefaultDisplayName() -> String { "" }
+
+    /// Default: no computers directory, for previews/tests.
+    func computersSnapshot() -> ComputersSettingsSnapshot? { nil }
+
+    /// Default: an immediately-finished stream, for hosts without a
+    /// computers directory.
+    func computersUpdates() -> AsyncStream<ComputersSettingsSnapshot> {
+        AsyncStream { $0.finish() }
+    }
+
+    /// Default no-op refresh for previews/tests.
+    func refreshComputers() {}
+
+    /// Default failure for hosts without a computers directory.
+    func pairComputer(deviceID: String) async -> ComputersPairResult { .failed }
+
+    /// Default failure for hosts without a computers directory.
+    func pairComputerWithLink(_ link: String) async -> ComputersPairResult { .failed }
+
+    /// Default no-op unpair for previews/tests.
+    func unpairComputer(deviceID: String) async {}
+
+    /// Default failure for hosts without a pairing listener (previews/tests).
+    func copyComputerPairingLink() async -> ComputersCopyLinkResult { .failed }
 
     /// Default: save-for-later, for hosts without a live mobile service (previews/tests).
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult {
