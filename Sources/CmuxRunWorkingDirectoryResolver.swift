@@ -117,6 +117,10 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
 
         switch outcome {
         case .timedOut:
+            // The caller's deadline is independent of child cleanup, but the
+            // process-wide permit remains held until termination is observed.
+            // Releasing here could admit unbounded verifier processes stuck in
+            // uninterruptible filesystem I/O.
             return .failure(.workingDirectoryResolutionTimedOut)
         case .completed(let status, let output):
             guard status == EXIT_SUCCESS,

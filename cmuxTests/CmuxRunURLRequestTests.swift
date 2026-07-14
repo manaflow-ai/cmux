@@ -381,22 +381,18 @@ struct CmuxRunURLRequestTests {
         )
     }
 
-    @Test func timedOutResolutionAllowsOneBoundedRetry() async throws {
-        let resolver = CmuxRunWorkingDirectoryResolver { _ in
-            CmuxRunWorkingDirectoryCommand(
-                executableURL: URL(fileURLWithPath: "/usr/bin/yes"),
-                arguments: []
-            )
-        }
+    @Test func resolverPermitAdmitsRetryOnlyAfterRecordedProcessTermination() async {
+        let limiter = CmuxRunWorkingDirectoryProcessLimiter()
 
-        #expect(
-            await resolver.resolveWithDeadline("/tmp", timeout: .milliseconds(20))
-                == .failure(.workingDirectoryResolutionTimedOut)
-        )
-        #expect(
-            await resolver.resolveWithDeadline("/tmp", timeout: .milliseconds(20))
-                == .failure(.workingDirectoryResolutionTimedOut)
-        )
+        let firstAcquisition = await limiter.acquire()
+        let overlappingAcquisition = await limiter.acquire()
+        #expect(firstAcquisition)
+        #expect(!overlappingAcquisition)
+
+        await limiter.release()
+        let acquisitionAfterTermination = await limiter.acquire()
+        #expect(acquisitionAfterTermination)
+        await limiter.release()
     }
 
     @Test func resolutionDeadlineDoesNotWaitForProcessTermination() async {
