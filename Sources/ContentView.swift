@@ -1836,6 +1836,14 @@ struct ContentView: View {
             },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)
+            },
+            onClose: {
+                #if DEBUG
+                cmuxDebugLog("rightSidebar.closeButton")
+                #endif
+                _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(
+                    preferredWindow: observedWindow
+                )
             }
         )
         .frame(width: rightSidebarWidth)
@@ -2405,21 +2413,6 @@ struct ContentView: View {
                         .zIndex(100)
                 }
             }
-                .overlay(alignment: .topTrailing) {
-                    RightSidebarTitlebarToggleOverlay(
-                        isFullScreen: isFullScreen,
-                        config: TitlebarControlsStyle.stored(rawValue: titlebarControlsStyleRawValue).config,
-                        isVisible: rightSidebarVisible,
-                        colorScheme: rightSidebarVisible
-                            ? appearance.sidebarContentColorScheme
-                            : appearance.chromeColorScheme,
-                        action: {
-                            _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
-                                preferredWindow: observedWindow
-                            )
-                        }
-                    )
-                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)

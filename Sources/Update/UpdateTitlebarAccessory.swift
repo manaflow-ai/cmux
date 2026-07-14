@@ -2641,7 +2641,6 @@ final class UpdateTitlebarAccessoryController {
 
         let trailingControls = TitlebarTrailingAccessoryViewController(
             fileExplorerState: state,
-            settingsRuntime: settingsRuntime,
             onToggleRightSidebar: { [weak window] in
                 _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
                     preferredWindow: window

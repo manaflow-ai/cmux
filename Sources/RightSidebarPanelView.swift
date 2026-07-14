@@ -116,6 +116,7 @@ struct RightSidebarPanelView: View {
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
+    let onClose: () -> Void
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
@@ -241,6 +242,7 @@ struct RightSidebarPanelView: View {
                 if fileExplorerState.mode.canOpenAsPane {
                     openAsPaneButton(mode: fileExplorerState.mode)
                 }
+                RightSidebarHeaderCloseButton(action: onClose)
                 Spacer(minLength: 0)
                 trailingTitlebarControlReservation
             }

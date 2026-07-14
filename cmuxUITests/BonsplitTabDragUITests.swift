@@ -179,7 +179,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
     }
 
-    func testRightSidebarTitlebarToggleStaysAvailableAcrossVisibilityChanges() {
+    func testRightSidebarTitlebarToggleAndInternalCloseStayAvailable() {
         let (app, dataPath) = launchConfiguredApp(
             presentationMode: .standard,
             showRightSidebar: true,
@@ -212,14 +212,31 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected the trailing titlebar toggle to be hittable. button=\(titlebarToggle.debugDescription)"
         )
         XCTAssertTrue(titlebarToggle.isSelected, "Expected the toggle to reflect the visible sidebar state.")
+
+        let closeButton = app.buttons["RightSidebar.closeButton"]
+        XCTAssertTrue(closeButton.waitForExistence(timeout: 5.0), "Expected close button inside the right sidebar chrome.")
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) { closeButton.isHittable },
+            "Expected right sidebar close button to be hittable. button=\(closeButton.debugDescription)"
+        )
         let shortcutHint = app.staticTexts["rightSidebarCloseShortcutHint"]
-        XCTAssertTrue(shortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Option+B over the relocated toggle.")
+        XCTAssertTrue(shortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Option+B over the internal close button.")
+
         let openAsPaneButton = app.buttons["RightSidebar.openAsPaneButton"]
         XCTAssertTrue(openAsPaneButton.waitForExistence(timeout: 5.0), "Expected open-as-pane button inside the right sidebar chrome.")
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) { openAsPaneButton.isHittable },
             "Expected right sidebar open-as-pane button to be hittable. button=\(openAsPaneButton.debugDescription)"
         )
+        XCTAssertEqual(openAsPaneButton.frame.width, closeButton.frame.width, accuracy: 1)
+        XCTAssertEqual(openAsPaneButton.frame.height, closeButton.frame.height, accuracy: 1)
+        XCTAssertEqual(openAsPaneButton.frame.minY, closeButton.frame.minY, accuracy: 1)
+        XCTAssertLessThan(
+            openAsPaneButton.frame.maxX,
+            closeButton.frame.minX,
+            "Expected open-as-pane to remain immediately left of the internal close control."
+        )
+
         let mobileConnectButton = app.buttons["TitlebarMobileConnectButton"]
         XCTAssertTrue(
             mobileConnectButton.waitForExistence(timeout: 5.0),
@@ -230,9 +247,9 @@ final class BonsplitTabDragUITests: XCTestCase {
             ? proBadgeButton
             : mobileConnectButton
         XCTAssertLessThan(
-            openAsPaneButton.frame.maxX,
+            closeButton.frame.maxX,
             leftmostTrailingControl.frame.minX,
-            "Expected the sidebar header action to remain left of the native trailing controls."
+            "Expected the reserved sidebar-header slot to keep internal controls left of the native trailing cluster."
         )
         XCTAssertLessThan(
             mobileConnectButton.frame.maxX,
@@ -244,7 +261,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
                 titlebarToggle.exists && titlebarToggle.isHittable
-                    && !titlebarToggle.isSelected && !openAsPaneButton.isHittable
+                    && !titlebarToggle.isSelected && !closeButton.isHittable
             },
             "Expected the titlebar toggle to stay available after hiding the right sidebar."
         )
@@ -257,54 +274,29 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
                 titlebarToggle.exists && titlebarToggle.isHittable
-                    && titlebarToggle.isSelected && openAsPaneButton.isHittable
+                    && titlebarToggle.isSelected && closeButton.isHittable
+                    && shortcutHint.exists
             },
             "Expected Cmd+Option+B to reopen the right sidebar."
         )
 
-        titlebarToggle.click()
+        closeButton.click()
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
                 titlebarToggle.exists && titlebarToggle.isHittable
-                    && !titlebarToggle.isSelected && !openAsPaneButton.isHittable
+                    && !titlebarToggle.isSelected && !closeButton.isHittable
             },
-            "Expected the titlebar toggle to hide the reopened right sidebar."
+            "Expected the internal close control to hide the sidebar while the native toggle remains available."
         )
 
-        setMinimalMode(true, app: app)
+        app.typeKey("b", modifierFlags: [.command, .option])
         XCTAssertTrue(
-            waitForCondition(timeout: 5.0) {
+            waitForCondition(timeout: 3.0) {
                 titlebarToggle.exists && titlebarToggle.isHittable
-                    && !titlebarToggle.isSelected && shortcutHint.exists
+                    && titlebarToggle.isSelected && closeButton.isHittable
+                    && shortcutHint.exists
             },
-            "Expected the dynamic toggle query to follow the custom minimal-mode host."
-        )
-
-        setMinimalMode(false, app: app)
-        XCTAssertTrue(
-            waitForCondition(timeout: 5.0) {
-                titlebarToggle.exists && titlebarToggle.isHittable
-                    && !titlebarToggle.isSelected && shortcutHint.exists
-            },
-            "Expected the dynamic toggle query to return to the native standard-mode host."
-        )
-    }
-
-    private func setMinimalMode(_ enabled: Bool, app: XCUIApplication) {
-        app.typeKey("p", modifierFlags: [.command, .shift])
-        let searchField = app.textFields["CommandPaletteSearchField"].firstMatch
-        XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field.")
-        searchField.click()
-        searchField.typeText(enabled ? "Enable Minimal Mode" : "Disable Minimal Mode")
-
-        let firstResult = app.descendants(matching: .any)
-            .matching(identifier: "CommandPaletteResultRow.0")
-            .firstMatch
-        XCTAssertTrue(firstResult.waitForExistence(timeout: 5.0), "Expected minimal-mode command result.")
-        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
-        XCTAssertTrue(
-            waitForCondition(timeout: 5.0) { !searchField.exists },
-            "Expected the minimal-mode command to dismiss the command palette."
+            "Expected Cmd+Option+B to reopen the sidebar after using its internal close control."
         )
     }
 
