@@ -79,6 +79,39 @@ import Testing
         model.setVisible(false)
     }
 
+    @Test @MainActor func staleMergeConfirmationCannotMergeARefreshedHead() async throws {
+        let input = PullRequestWorkspaceInput(directory: "/repo", branchHint: "feature")
+        let context = PullRequestPanelContext(
+            repositoryRoot: "/repo",
+            branch: "feature",
+            repositorySlug: "example/repo"
+        )
+        let pullRequest = try PullRequestFixtureLoader().pullRequest()
+        let content = PullRequestPanelContent.pullRequest(PullRequestPanelSnapshot(
+            context: context,
+            pullRequest: pullRequest,
+            checks: [],
+            checksStatus: .success,
+            unresolvedReviewThreadCount: nil,
+            mergeMethods: [.squash]
+        ))
+        let service = StubPullRequestPanelService(cached: nil, refreshResult: .success(content))
+        let model = PullRequestPanelModel(service: service)
+        let staleConfirmation = PullRequestMergeConfirmation(
+            context: context,
+            number: pullRequest.number,
+            headRefOid: "previous-head-commit",
+            method: .squash
+        )
+        model.setVisible(true)
+        await model.activate(input)
+
+        await model.merge(confirmation: staleConfirmation, for: input)
+
+        #expect(await service.mergeCallCount == 0)
+        model.setVisible(false)
+    }
+
     @Test @MainActor func branchTransitionRejectsActionsFromOldContent() async throws {
         let oldInput = PullRequestWorkspaceInput(directory: "/repo", branchHint: "old")
         let visibleInput = PullRequestWorkspaceInput(directory: "/repo", branchHint: "new")

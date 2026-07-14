@@ -16,6 +16,11 @@ import Testing
         )
     }
 
+    @Test func behindStateRemainsDirectlyMergeable() throws {
+        let pullRequest = try PullRequestFixtureLoader().pullRequest(mergeStateStatus: "BEHIND")
+        #expect(PullRequestMergeAvailability.derive(pullRequest: pullRequest) == .allowed)
+    }
+
     @Test func optionalCheckFailureDoesNotOverrideCleanGitHubState() throws {
         let snapshot = PullRequestPanelSnapshot(
             context: PullRequestPanelContext(
