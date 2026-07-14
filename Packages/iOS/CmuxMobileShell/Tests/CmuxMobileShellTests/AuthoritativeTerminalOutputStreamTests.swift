@@ -25,7 +25,8 @@ import Testing
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
         seq: 8,
-        text: "authoritative-primary"
+        text: "authoritative-primary",
+        scrollback: ["retained-history"]
     ))
     let deliveredGrid = try await pollUntil { collector.renderGrids.count == 1 }
     #expect(deliveredGrid)
@@ -43,11 +44,18 @@ import Testing
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
         seq: 9,
-        text: "after-suppressed-raw"
+        text: "after-suppressed-raw",
+        scrollback: ["retained-history"]
     ))
     let deliveredFollowingGrid = try await pollUntil { collector.renderGrids.count == 2 }
     #expect(deliveredFollowingGrid)
     #expect(collector.rawChunks.isEmpty)
+    let semanticDelta = try #require(collector.typedGridData.last)
+    let scrollbackClear = Data("\u{1B}[3J".utf8)
+    #expect(semanticDelta.range(of: scrollbackClear) == nil)
+    #expect(semanticDelta.range(of: Data("after-suppressed-raw".utf8)) != nil)
+    #expect(semanticDelta.range(of: Data("retained-history".utf8)) == nil)
+    #expect(semanticDelta != collector.renderGrids[1].vtReplacementBytes())
 }
 
 @MainActor

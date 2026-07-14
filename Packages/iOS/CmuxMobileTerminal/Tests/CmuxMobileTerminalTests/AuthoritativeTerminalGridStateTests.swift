@@ -4,6 +4,22 @@ import Testing
 
 @Suite("Authoritative terminal grid state")
 struct AuthoritativeTerminalGridStateTests {
+    @Test("renderer suppression starts before the first authoritative frame commits")
+    func rendererSuppressionCoversPrecommitGeometry() {
+        #expect(GhosttyPresentationSuppression.shouldHideRenderer(
+            isRenderDispatchSuppressed: true,
+            isAuthoritativeGridPresented: false
+        ))
+        #expect(GhosttyPresentationSuppression.shouldHideRenderer(
+            isRenderDispatchSuppressed: false,
+            isAuthoritativeGridPresented: true
+        ))
+        #expect(!GhosttyPresentationSuppression.shouldHideRenderer(
+            isRenderDispatchSuppressed: false,
+            isAuthoritativeGridPresented: false
+        ))
+    }
+
     @Test("a resized full frame replaces every row from the previous width")
     func resizedFrameReplacesThePreviousGridAtomically() throws {
         var state = AuthoritativeTerminalGridState(surfaceID: "surface")
