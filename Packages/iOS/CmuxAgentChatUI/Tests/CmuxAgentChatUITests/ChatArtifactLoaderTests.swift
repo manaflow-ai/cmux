@@ -5,6 +5,20 @@ import Testing
 @testable import CmuxAgentChatUI
 
 struct ChatArtifactLoaderTests {
+    @Test func directoryRoutingRequiresTheNewFolderCapability() {
+        let directory = ChatArtifactStat(
+            exists: true,
+            isDirectory: true,
+            size: 0,
+            modifiedAt: Date(timeIntervalSince1970: 0),
+            kind: .directory,
+            mimeType: nil
+        )
+
+        #expect(ChatArtifactViewerRouting.showsFolder(stat: directory, supportsDirectoryBrowsing: true))
+        #expect(!ChatArtifactViewerRouting.showsFolder(stat: directory, supportsDirectoryBrowsing: false))
+    }
+
     @Test func thumbnailCacheReusesSamePathAndDimension() async throws {
         let source = CountingArtifactSource()
         let loader = ChatArtifactLoader(

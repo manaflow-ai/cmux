@@ -24,13 +24,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Referenced Files"
+            "value" : "Referenced Items"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "参照ファイル"
+            "value" : "参照項目"
           }
         }
       }
@@ -109,13 +109,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No files"
+            "value" : "No items"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ファイルがありません"
+            "value" : "項目がありません"
           }
         }
       }
@@ -133,6 +133,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このフォルダを読み込めませんでした"
+          }
+        }
+      }
+    },
+    "chat.artifact.folder.showing_first_500" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Showing first 500 items"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最初の 500 項目を表示しています"
           }
         }
       }
@@ -201,6 +218,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "プレビューを読み込み中"
+          }
+        }
+      }
+    },
+    "chat.artifact.open_item" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open item"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "項目を開く"
           }
         }
       }

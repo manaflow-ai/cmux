@@ -109,7 +109,7 @@ private struct ChatBlockDetailArtifactActions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "chat.artifact.actions.title", defaultValue: "Referenced Files", bundle: .module))
+            Text(String(localized: "chat.artifact.actions.title", defaultValue: "Referenced Items", bundle: .module))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             ForEach(deduplicatedPaths, id: \.self) { path in
@@ -131,10 +131,7 @@ private struct ChatBlockDetailArtifactActions: View {
 private struct ChatBlockDetailArtifactActionRow: View {
     let path: String
 
-    @Environment(\.chatArtifactLoader) private var loader
-    @State private var stat: ChatArtifactStat?
     @State private var selectedArtifact: ChatArtifactPathSelection?
-    @State private var selectedFolder: ChatArtifactPathSelection?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -150,38 +147,20 @@ private struct ChatBlockDetailArtifactActionRow: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 8)
-            if stat?.isDirectory == true {
-                Button {
-                    selectedFolder = ChatArtifactPathSelection(path: path)
-                } label: {
-                    Label(
-                        String(localized: "chat.artifact.browse_folder", defaultValue: "Browse folder", bundle: .module),
-                        systemImage: "folder"
-                    )
-                }
-                .labelStyle(.iconOnly)
-            } else {
-                Button {
-                    selectedArtifact = ChatArtifactPathSelection(path: path)
-                } label: {
-                    Label(
-                        String(localized: "chat.artifact.view_file", defaultValue: "View file", bundle: .module),
-                        systemImage: "doc.text.magnifyingglass"
-                    )
-                }
-                .labelStyle(.iconOnly)
+            Button {
+                selectedArtifact = ChatArtifactPathSelection(path: path)
+            } label: {
+                Label(
+                    String(localized: "chat.artifact.open_item", defaultValue: "Open item", bundle: .module),
+                    systemImage: "doc.text.magnifyingglass"
+                )
             }
+            .labelStyle(.iconOnly)
         }
         .padding(10)
         .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 8))
-        .task(id: path) {
-            stat = try? await loader.stat(path: path)
-        }
         .sheet(item: $selectedArtifact) { selection in
             ChatArtifactViewerSheet(path: selection.path)
-        }
-        .sheet(item: $selectedFolder) { selection in
-            ChatArtifactFolderView(path: selection.path)
         }
     }
 }
