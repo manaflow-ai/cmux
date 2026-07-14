@@ -12,7 +12,7 @@ extension GitHubPullRequestPanelService {
             directory: context.repositoryRoot,
             executable: "gh",
             arguments: [
-                "pr", "view", "--repo", context.repositorySlug, "--json",
+                "pr", "view", context.branch, "--repo", context.repositorySlug, "--json",
                 "number,title,state,url,statusCheckRollup,updatedAt,isDraft,mergeable,reviewDecision,mergeStateStatus,autoMergeRequest,baseRefName,headRefName,baseRefOid,headRefOid",
             ],
             timeout: 10
