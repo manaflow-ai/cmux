@@ -151,7 +151,10 @@ extension GhosttySurfaceScrollView {
             clearPendingNotificationScrollRestore()
             return false
         }
-        guard let geometry = authoritativeGeometry ?? surfaceView.authoritativeScrollbarGeometry() else {
+        let currentGeometry = surfaceView.authoritativeScrollbarGeometry()
+        guard let geometry = position.row == 0
+            ? currentGeometry
+            : authoritativeGeometry ?? currentGeometry else {
             return false
         }
         let effectiveReplayContext: NotificationReplayRestoreContext
