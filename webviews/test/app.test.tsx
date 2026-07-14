@@ -297,6 +297,66 @@ test("typed branch empty diffs keep the base picker available before base resolu
   expect(dom.window.document.querySelector(".base-picker-button")).toBeTruthy();
 });
 
+test("typed source switching preserves the last resolved branch base", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/branch.html");
+  const requests: any[] = [];
+  installDomGlobals(dom, () => new Response("diff --git a/a b/a\n", { status: 200 }));
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          requests.push(request);
+          if (request.method === "sessionClose") {
+            return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
+          }
+          const source = request.params.source.kind === "branch"
+            ? { ...request.params.source, baseRef: request.params.source.baseRef ?? "chosen-base" }
+            : request.params.source;
+          return {
+            id: request.id,
+            version: 1,
+            result: {
+              type: "sessionOpened",
+              value: {
+                sessionId: crypto.randomUUID(),
+                patch: { id: "/diff.patch", mediaType: "text/x-diff", byteLength: 23, revision: 1 },
+                source,
+              },
+            },
+            error: null,
+          };
+        },
+      },
+    },
+  };
+
+  renderApp(
+    <App
+      config={{ payload: {
+        capabilityToken: "0123456789abcdef",
+        sessionSource: { kind: "branch", repoRoot: "/tmp/repo" },
+        sourceOptions: [
+          { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo" }, value: "branch" },
+          { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
+        ],
+        transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+      } }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
+    />,
+  );
+
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
+  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
+  sourceSelect.value = "unstaged";
+  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
+  sourceSelect.value = "branch";
+  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
+  expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source)
+    .toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "chosen-base" });
+});
+
 test("pagehide cancels a typed session while its initial open is pending", async () => {
   dom = createDom("cmux-diff-viewer://0123456789abcdef/unstaged.html");
   const requests: any[] = [];
