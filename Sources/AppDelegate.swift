@@ -552,6 +552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
+        var browserWebExtensionInitialReconciliationTask: Task<Void, Never>?
 
         init(
             windowId: UUID,
@@ -3307,7 +3308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
+    func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
         guard !didAttemptStartupSessionRestore else { return false }
         didAttemptStartupSessionRestore = true
         // Flush deferred navigation links unless additional restored windows remain pending.
@@ -4260,7 +4261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
+    func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
         preserveManualRestoreBackupOnMissingPrimary: Bool = false
@@ -4660,14 +4661,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        let didApplyStartupSessionRestore = tabManager.allowsStartupSessionRestore && attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
-        if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
-            isTerminatingApp: isTerminatingApp,
-            didApplyStartupSessionRestore: didApplyStartupSessionRestore,
-            isApplyingSessionRestore: isApplyingSessionRestore, didAttemptStartupSessionRestore: didAttemptStartupSessionRestore
-        ) {
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
-        }
+        completeMainWindowRegistrationWhenBrowserExtensionsReady(tabManager: tabManager, window: window)
     }
 
 #if DEBUG

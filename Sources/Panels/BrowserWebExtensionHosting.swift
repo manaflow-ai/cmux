@@ -3,6 +3,8 @@ import WebKit
 
 @MainActor
 protocol BrowserWebExtensionHosting: AnyObject {
+    var isInitialReconciliationComplete: Bool { get }
+    func waitForInitialReconciliation() async
     func attach(to configuration: WKWebViewConfiguration)
     func webViewConfiguration(forNavigatingTo url: URL) -> BrowserWebExtensionNavigationConfiguration?
     func register(panel: BrowserPanel)
@@ -18,6 +20,10 @@ protocol BrowserWebExtensionHosting: AnyObject {
 }
 
 extension BrowserWebExtensionHosting {
+    var isInitialReconciliationComplete: Bool { true }
+
+    func waitForInitialReconciliation() async {}
+
     func noteWindowChanged(panelID: UUID) {
         noteWindowChanged(panelID: panelID, nativeWindow: nil)
     }

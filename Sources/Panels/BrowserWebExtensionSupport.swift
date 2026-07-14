@@ -48,6 +48,12 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     var settingsObservationTask: Task<Void, Never>?
     @ObservationIgnored
+    private let initialReconciliationStream: AsyncStream<Void>
+    @ObservationIgnored
+    private let initialReconciliationContinuation: AsyncStream<Void>.Continuation
+    @ObservationIgnored
+    private(set) var isInitialReconciliationComplete = false
+    @ObservationIgnored
     var settingsLoadGeneration = 0
     @ObservationIgnored
     var settingsStore: JSONConfigStore?
@@ -105,6 +111,9 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
 
     init(permissionConfirmation: ((String) -> Bool)?) {
         self.permissionConfirmation = permissionConfirmation
+        let initialReconciliation = AsyncStream<Void>.makeStream()
+        initialReconciliationStream = initialReconciliation.stream
+        initialReconciliationContinuation = initialReconciliation.continuation
         let configuration = WKWebExtensionController.Configuration(identifier: Self.controllerIdentifier)
         // Extension-owned web views (background page, action popup) get WebKit's
         // default user agent, which lacks the " Safari/" token. Extensions like
@@ -129,20 +138,17 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         }
     }
 
-    deinit {
+    isolated deinit {
         settingsObservationTask?.cancel()
         tabMetadataFlushTask?.cancel()
+        initialReconciliationContinuation.finish()
+        removeAllPermissionStateObservers()
         if let browserAvailabilityObserverToken {
             NotificationCenter.default.removeObserver(browserAvailabilityObserverToken)
         }
         if let windowFocusObserverToken {
             NotificationCenter.default.removeObserver(windowFocusObserverToken)
         }
-        // Permission-state observer tokens need no explicit removal here: the
-        // block-based NotificationCenter tokens auto-unregister when they
-        // deallocate, which happens as the dictionaries holding them release
-        // with self. (Calling the @MainActor removal helper from nonisolated
-        // deinit does not compile.)
     }
 
     // MARK: - Configuration attachment
@@ -161,6 +167,11 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
             contextIdentifier: ObjectIdentifier(context),
             webViewConfiguration: webViewConfiguration
         )
+    }
+
+    func waitForInitialReconciliation() async {
+        guard !isInitialReconciliationComplete else { return }
+        for await _ in initialReconciliationStream {}
     }
 
     // MARK: - Settings-driven loading
@@ -207,6 +218,7 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
             for await entries in jsonStore.values(for: key) {
                 guard let self else { return }
                 await self.apply(entries: entries, generation: self.settingsLoadGeneration)
+                self.completeInitialReconciliationIfNeeded()
             }
         }
     }
@@ -215,9 +227,16 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         settingsLoadGeneration &+= 1
         settingsObservationTask?.cancel()
         settingsObservationTask = nil
+        completeInitialReconciliationIfNeeded()
         if !unloadAllWebExtensions() {
             BrowserAvailabilitySettings.setDisabled(false)
         }
+    }
+
+    private func completeInitialReconciliationIfNeeded() {
+        guard !isInitialReconciliationComplete else { return }
+        isInitialReconciliationComplete = true
+        initialReconciliationContinuation.finish()
     }
 
     static func environmentExtensionPaths() -> [String] {

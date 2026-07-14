@@ -24,12 +24,11 @@ actor BrowserWebExtensionDiscoveryService {
         return Self.parse(pluginkitOutput: output)
     }
 
-    /// Parses `pluginkit -m -A -v` output. The tool is human-readable rather
+    /// Parses verbose `pluginkit -m` output. The tool is human-readable rather
     /// than a documented TSV format, so each line is parsed by extracting the
     /// `.appex` path first, then reading the leading identifier/version field.
     static func parse(pluginkitOutput: String) -> [BrowserWebExtensionCandidate] {
-        var seen = Set<String>()
-        var candidates: [BrowserWebExtensionCandidate] = []
+        var candidatesByID: [String: BrowserWebExtensionCandidate] = [:]
         for line in pluginkitOutput.split(separator: "\n") {
             let rawLine = String(line).trimmingCharacters(in: .whitespaces)
             guard let pathRange = Self.appexPathRange(in: rawLine) else { continue }
@@ -38,16 +37,39 @@ actor BrowserWebExtensionDiscoveryService {
             guard let parsed = Self.identifierAndVersion(from: prefix) else { continue }
             let identifier = parsed.identifier
             let version = parsed.version
-            guard !identifier.isEmpty, seen.insert(identifier).inserted else { continue }
-            candidates.append(BrowserWebExtensionCandidate(
+            guard !identifier.isEmpty else { continue }
+            let candidate = BrowserWebExtensionCandidate(
                 id: identifier,
                 kind: .safariAppExtension,
                 path: path,
                 version: version,
                 displayName: Self.displayName(forAppexAt: path)
-            ))
+            )
+            if let current = candidatesByID[identifier],
+               !candidateIsPreferred(candidate, over: current) {
+                continue
+            }
+            candidatesByID[identifier] = candidate
         }
-        return candidates.sorted { $0.id < $1.id }
+        return candidatesByID.values.sorted { $0.id < $1.id }
+    }
+
+    private static func candidateIsPreferred(
+        _ candidate: BrowserWebExtensionCandidate,
+        over current: BrowserWebExtensionCandidate
+    ) -> Bool {
+        switch (candidate.version, current.version) {
+        case let (candidateVersion?, currentVersion?):
+            let comparison = candidateVersion.compare(currentVersion, options: .numeric)
+            if comparison != .orderedSame { return comparison == .orderedDescending }
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        case (nil, nil):
+            break
+        }
+        return candidate.path < current.path
     }
 
     private static func appexPathRange(in line: String) -> Range<String.Index>? {
@@ -105,7 +127,9 @@ actor BrowserWebExtensionDiscoveryService {
     private func startPluginkitProcess() throws {
         let process = Process()
         process.executableURL = Self.pluginkitURL
-        process.arguments = ["-m", "-p", "com.apple.Safari.web-extension", "-A", "-v"]
+        // Without `-A`, PlugInKit reduces duplicate registrations to its elected
+        // highest version instead of returning stale copies in undefined order.
+        process.arguments = ["-m", "-p", "com.apple.Safari.web-extension", "-v"]
         let stdout = Pipe()
         process.standardOutput = stdout
         // Discard rather than pipe stderr: an undrained pipe could block the
