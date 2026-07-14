@@ -1,20 +1,14 @@
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 
 const redirect = mock((href: unknown) => {
   throw Object.assign(new Error("redirect"), { href });
 });
 
-// bun's mock.module replaces these modules process-wide, so each mock must
-// carry every export another test in the suite might import.
-mock.module("next/navigation", () => ({
-  redirect,
-  usePathname: () => "/",
-  notFound: () => {
-    throw new Error("notFound");
-  },
-  permanentRedirect: redirect,
-}));
+// bun's mock.module replaces these modules process-wide. Keep the shared
+// export set complete so this file cannot break an unrelated suite.
+mock.module("next/navigation", () => createNextNavigationMock(redirect));
 
 const { default: AppProWelcomePage } = await import("../app/app-pro-welcome/page");
 
