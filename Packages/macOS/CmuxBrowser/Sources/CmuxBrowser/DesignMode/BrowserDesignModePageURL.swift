@@ -1,6 +1,6 @@
 import Foundation
 
-/// Sanitizes one page URL before it enters a design-mode agent handoff.
+/// Keeps URL structure while redacting route and value content before agent handoff.
 nonisolated struct BrowserDesignModePageURL {
     private let rawValue: String
 
@@ -12,11 +12,12 @@ nonisolated struct BrowserDesignModePageURL {
         guard var components = URLComponents(string: rawValue) else { return "" }
         components.user = nil
         components.password = nil
+        components.percentEncodedPath = redactedRoute(components.percentEncodedPath)
         if let queryItems = components.queryItems {
             components.queryItems = redactingValues(in: queryItems)
         }
-        if let fragment = components.fragment {
-            components.fragment = sanitizedFragment(fragment)
+        if let fragment = components.percentEncodedFragment {
+            components.percentEncodedFragment = sanitizedFragment(fragment)
         }
         return components.string ?? ""
     }
@@ -34,7 +35,7 @@ nonisolated struct BrowserDesignModePageURL {
             encodedQuery = Substring(fragment)
             includesQuestionMark = false
         } else {
-            return fragment
+            return redactedRoute(fragment)
         }
 
         var query = URLComponents()
@@ -44,7 +45,13 @@ nonisolated struct BrowserDesignModePageURL {
         }
         query.queryItems = redactingValues(in: queryItems)
         let separator = includesQuestionMark ? "?" : ""
-        return "\(prefix)\(separator)\(query.percentEncodedQuery ?? "")"
+        return "\(redactedRoute(String(prefix)))\(separator)\(query.percentEncodedQuery ?? "")"
+    }
+
+    private func redactedRoute(_ encodedRoute: String) -> String {
+        encodedRoute.split(separator: "/", omittingEmptySubsequences: false)
+            .map { $0.isEmpty ? "" : "%3Credacted%3E" }
+            .joined(separator: "/")
     }
 
     private func redactingValues(in items: [URLQueryItem]) -> [URLQueryItem] {
