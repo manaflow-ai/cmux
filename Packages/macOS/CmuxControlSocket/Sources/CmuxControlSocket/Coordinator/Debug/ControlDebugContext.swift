@@ -38,6 +38,13 @@ public protocol ControlDebugContext: AnyObject {
     ///   unavailable (the legacy `unavailable` error).
     func controlDebugSessionSnapshotSeedScrollback(charactersPerTerminal: Int) -> JSONValue?
 
+    /// Reads the DEBUG-only process enumeration, filtering, apply, and lsof
+    /// counters without mutating app or focus state.
+    func controlDebugReadProcessPerformanceMetrics() -> JSONValue?
+
+    /// Resets the DEBUG-only process counters and returns the zeroed snapshot.
+    func controlDebugResetProcessPerformanceMetrics() -> JSONValue?
+
     // MARK: - v1-shared command forwards (raw v1 response strings)
 
     /// Runs the shared v1 `set_shortcut` body for `debug.shortcut.set`.
@@ -56,6 +63,13 @@ public protocol ControlDebugContext: AnyObject {
     ///
     /// - Returns: The raw v1 response.
     func controlDebugActivateApp() -> String
+
+    /// Requests the selected workspace's checklist add field for
+    /// `debug.workspace_todo.checklist_add_field`.
+    ///
+    /// - Returns: The selected workspace id, or `nil` when no workspace is
+    ///   selected.
+    func controlDebugRequestWorkspaceTodoChecklistAddField() -> UUID?
 
     /// Shows the Pro welcome checklist window for
     /// `debug.pro_welcome_checklist.show`.

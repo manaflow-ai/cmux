@@ -130,6 +130,8 @@ extension TerminalSurface {
               GhosttySurfaceRuntimeProbe.surfacePointerAppearsLive(surface) else {
             let callbackContext = surfaceCallbackContext
             surfaceCallbackContext = nil
+            let manualIOContext = manualIOContext
+            self.manualIOContext = nil
             let teeLease = mobileByteTeeLease
             mobileByteTeeLease = nil
             registry.unregisterRuntimeSurface(surface, ownerId: id)
@@ -147,6 +149,7 @@ extension TerminalSurface {
             )
 #endif
             callbackContext?.release()
+            manualIOContext?.release()
             teeLease?.release()
             return nil
         }
@@ -271,12 +274,11 @@ extension TerminalSurface {
                 reason: "teardown",
                 surface: surfaceToFree,
                 callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The teardown coordinator releases callbackContext; manualIOContext
-            // and teeLease are not transported through the request, so release them here.
-            manualIOContext?.release()
-            teeLease?.release()
+            // The coordinator releases every callback owner after free returns.
             return
         }
 #endif
@@ -318,6 +320,7 @@ extension TerminalSurface {
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
         desiredFocusState = false
+        noteRuntimeSurfaceRecreatedForOcclusion()
 
         guard let surfaceToFree else {
             callbackContext?.release()
@@ -341,12 +344,11 @@ extension TerminalSurface {
                 reason: reason,
                 surface: surfaceToFree,
                 callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
                 freeSurface: freeSurface
             )
-            // The teardown coordinator releases callbackContext; manualIOContext
-            // and teeLease are not transported through the request, so release them here.
-            manualIOContext?.release()
-            teeLease?.release()
+            // The coordinator releases every callback owner after free returns.
             return
         }
 #endif
@@ -617,7 +619,7 @@ extension TerminalSurface {
             }()
             if shouldReapply {
                 let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
-                _ = performBindingAction(action)
+                _ = performInternalBindingAction(action)
             }
         }
 
@@ -625,6 +627,7 @@ extension TerminalSurface {
         // surface converges with any focus changes that happened while the
         // surface was being initialized.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
+        applyRetainedOcclusionAfterRuntimeInstallation()
 
         flushPendingSocketInputIfNeeded()
 

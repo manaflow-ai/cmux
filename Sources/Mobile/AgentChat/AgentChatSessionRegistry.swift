@@ -190,7 +190,7 @@ final class AgentChatSessionRegistry {
         let kind = record.agentKind
         let expectedSessionIDs = Set([record.sessionID, record.hookStoreLookupSessionID])
         Task.detached { [weak self] in
-            let livePID = Self.liveAgentPID(
+            let livePID = await Self.liveAgentPID(
                 surfaceID: surfaceID,
                 kind: kind,
                 matchingSessionIDs: expectedSessionIDs,
@@ -249,6 +249,19 @@ final class AgentChatSessionRegistry {
             return record
         }
         return nil
+    }
+
+    /// The live session for a surface, or its most recently active historical session.
+    ///
+    /// - Parameter surfaceID: Terminal surface UUID string.
+    /// - Returns: The best transcript-backed gallery binding for the surface.
+    func currentOrMostRecentSession(surfaceID: String) -> AgentChatSessionRecord? {
+        if let live = liveSession(surfaceID: surfaceID) {
+            return live
+        }
+        return records.values
+            .filter { $0.surfaceID == surfaceID }
+            .max { $0.lastActivityAt < $1.lastActivityAt }
     }
 
     /// Re-reads the hook store for one session and adopts its bindings,

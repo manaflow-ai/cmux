@@ -48,8 +48,10 @@ final class SharedLiveAgentIndex {
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    let indexLoader: @Sendable (@Sendable () -> Void) -> SharedLiveAgentIndexLoader.LoadResult
-    let processScopeFingerprintProvider: @Sendable () -> Set<String>
+    /// Production loaders acquire the centralized process snapshot before moving
+    /// synchronous parsing and file I/O to a detached utility task.
+    let indexLoader: @Sendable (@Sendable () -> Void) async -> LoadResult
+    let processScopeFingerprintProvider: @Sendable () async -> Set<String>
     let generationTimeoutWaiter: GenerationTimeoutWaiter
     private let hookStoreDirectoryProvider: @MainActor () -> String
     let dateProvider: @MainActor () -> Date
@@ -57,9 +59,7 @@ final class SharedLiveAgentIndex {
     init(
         indexLoader: (@Sendable () -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
         capturingIndexLoader: (@Sendable (@Sendable () -> Void) -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
-        processScopeFingerprintProvider: @escaping @Sendable () -> Set<String> = {
-            SharedLiveAgentIndexLoader.currentCacheValidationFingerprint()
-        },
+        processScopeFingerprintProvider: (@Sendable () -> Set<String>)? = nil,
         generationTimeoutWaiter: @escaping @Sendable () async -> Bool = {
             do {
                 try await ContinuousClock().sleep(
@@ -72,6 +72,7 @@ final class SharedLiveAgentIndex {
                 return false
             }
         },
+        snapshotStore: CmuxTopProcessSnapshotStore = .shared,
         hookStoreDirectoryProvider: @escaping @MainActor () -> String = {
             RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path
         },
@@ -80,20 +81,57 @@ final class SharedLiveAgentIndex {
         }
     ) {
         if let capturingIndexLoader {
-            self.indexLoader = capturingIndexLoader
+            self.indexLoader = { didCaptureProcessMetadata in
+                await Task.detached(priority: .utility) {
+                    capturingIndexLoader(didCaptureProcessMetadata)
+                }.value
+            }
         } else if let indexLoader {
             self.indexLoader = { didCaptureProcessMetadata in
-                didCaptureProcessMetadata()
-                return indexLoader()
+                await Task.detached(priority: .utility) {
+                    didCaptureProcessMetadata()
+                    return indexLoader()
+                }.value
             }
         } else {
             self.indexLoader = { didCaptureProcessMetadata in
-                SharedLiveAgentIndexLoader().loadResultSynchronously(
-                    processMetadataCaptured: didCaptureProcessMetadata
+                let processSnapshot = await snapshotStore.snapshot(
+                    requirements: [.processDetails, .cmuxScope],
+                    maximumAge: 3,
+                    consumer: .sharedLiveAgentIndex
                 )
+                return await Task.detached(priority: .utility) {
+                    SharedLiveAgentIndexLoader(
+                        processSnapshotProvider: { processSnapshot },
+                        capturedAtProvider: { processSnapshot.sampledAt.timeIntervalSince1970 }
+                    ).loadResultSynchronously(
+                        processMetadataCaptured: didCaptureProcessMetadata
+                    )
+                }.value
             }
         }
-        self.processScopeFingerprintProvider = processScopeFingerprintProvider
+        if let processScopeFingerprintProvider {
+            self.processScopeFingerprintProvider = {
+                await Task.detached(priority: .utility) {
+                    processScopeFingerprintProvider()
+                }.value
+            }
+        } else {
+            self.processScopeFingerprintProvider = {
+                let processSnapshot = await snapshotStore.snapshot(
+                    requirements: [.processDetails, .cmuxScope],
+                    maximumAge: 0,
+                    consumer: .sharedLiveAgentIndex
+                )
+                return await Task.detached(priority: .utility) {
+                    SharedLiveAgentIndexLoader.cacheValidationFingerprint(
+                        from: processSnapshot,
+                        homeDirectory: NSHomeDirectory(),
+                        fileManager: .default
+                    )
+                }.value
+            }
+        }
         self.generationTimeoutWaiter = generationTimeoutWaiter
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
@@ -330,6 +368,12 @@ final class SharedLiveAgentIndex {
         processScopeFingerprint: Set<String>,
         forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
     ) {
+#if DEBUG
+        let applyMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+            .restorableApply,
+            inputCount: newIndex.forkValidationEntries().count
+        )
+#endif
         index = newIndex
         self.loadedAt = loadedAt
         validatedForkPanels = forkValidatedPanels
@@ -340,6 +384,12 @@ final class SharedLiveAgentIndex {
         validatedMissingForkPanels.removeAll()
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
+#if DEBUG
+        ProcessPerformanceMetrics.shared.operationCompleted(
+            applyMetricsToken,
+            outputCount: newIndex.forkValidationEntries().count
+        )
+#endif
     }
 
     private func applyForkValidations(
