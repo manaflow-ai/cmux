@@ -1,0 +1,6 @@
+{
+  "mergeCommitAllowed": true,
+  "rebaseMergeAllowed": true,
+  "squashMergeAllowed": true,
+  "viewerDefaultMergeMethod": "SQUASH"
+}

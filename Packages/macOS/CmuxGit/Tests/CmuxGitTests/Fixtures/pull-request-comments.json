@@ -1,0 +1,9 @@
+{
+  "comments": [
+    { "threadId": "thread-1", "isResolved": false },
+    { "threadId": "thread-1", "isResolved": false },
+    { "threadId": "thread-2", "isResolved": true },
+    { "threadId": 3, "isResolved": false },
+    { "body": "Issue comment without review thread metadata" }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "number": 7952,
+  "title": "Stabilize sidebar ports across transient scan misses",
+  "state": "OPEN",
+  "url": "https://github.com/manaflow-ai/cmux/pull/7952",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "name": "tests",
+      "status": "COMPLETED",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/manaflow-ai/cmux/actions/runs/1"
+    },
+    {
+      "__typename": "CheckRun",
+      "name": "lint",
+      "status": "IN_PROGRESS",
+      "conclusion": null,
+      "detailsUrl": "https://github.com/manaflow-ai/cmux/actions/runs/2"
+    },
+    {
+      "__typename": "StatusContext",
+      "context": "Vercel – cmux",
+      "state": "SUCCESS",
+      "targetUrl": "https://vercel.com/manaflow/cmux"
+    }
+  ],
+  "updatedAt": "2026-07-13T18:42:10Z",
+  "isDraft": false,
+  "mergeable": "UNKNOWN",
+  "reviewDecision": "REVIEW_REQUIRED",
+  "mergeStateStatus": "UNKNOWN",
+  "autoMergeRequest": {
+    "enabledAt": "2026-07-13T18:40:00Z"
+  },
+  "baseRefName": "main",
+  "headRefName": "feat-pr-sidebar",
+  "baseRefOid": "1111111111111111111111111111111111111111",
+  "headRefOid": "2222222222222222222222222222222222222222"
+}
