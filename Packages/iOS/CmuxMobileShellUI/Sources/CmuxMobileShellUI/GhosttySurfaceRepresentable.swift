@@ -81,13 +81,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // "View as Text" capture) resolve this exact terminal.
         view.hostSurfaceID = surfaceID
         context.coordinator.attach(surfaceView: view)
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_UITEST_THEME_PARITY_PREVIEW"] == "1" {
-            view.processOutput(
-                Data("cmux theme parity renderer\r\nvisible terminal content\r\n".utf8)
-            )
-        }
-        #endif
+        view.seedThemeParityPreviewIfRequested()
         // Mount the composer band immediately if the composer was already open when
         // this surface was (re)built (e.g. a terminal switch while composing), and
         // seed the surface's composerActive flag to match. SwiftUI does call
@@ -112,13 +106,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         surfaceView.terminalConfigTheme = terminalConfigTheme
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
-        // Live theme change: apply a config only to this surface so other mounted
-        // terminals keep their own palettes.
-        let scheduledConfigTheme = terminalConfigTheme
-        context.coordinator.themeApplicationScheduler.schedule(generation: configThemeGeneration) { [weak surfaceView] in
-            guard let surfaceView else { return }
-            surfaceView.applyTerminalConfigTheme(scheduledConfigTheme)
-        }
+        context.coordinator.scheduleTheme(terminalConfigTheme, generation: configThemeGeneration)
         // A width change (rotation) is not a text change, so the field-content trigger
         // misses it. Re-measure the open composer here so the band height tracks the new
         // width's wrapping. No-op when closed or when the height is unchanged.
