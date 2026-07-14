@@ -20,6 +20,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case closeWindow
     case toggleFullScreen
     case quit
+    /// Starts/stops voice dictation into the focused pane.
+    case toggleVoiceDictation
 
     // MARK: Workspace
     case toggleSidebar
@@ -186,7 +188,7 @@ extension ShortcutAction {
     public var group: Group {
         switch self {
         case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
-             .newWindow, .closeWindow, .toggleFullScreen, .quit:
+             .newWindow, .closeWindow, .toggleFullScreen, .quit, .toggleVoiceDictation:
             return .app
         case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
@@ -343,6 +345,7 @@ extension ShortcutAction {
         case .closeWindow: return "Close Window"
         case .toggleFullScreen: return "Toggle Full Screen"
         case .quit: return "Quit cmux"
+        case .toggleVoiceDictation: return String(localized: "shortcut.toggleVoiceDictation.label", defaultValue: "Toggle Voice Dictation")
         case .toggleSidebar: return "Toggle Left Sidebar"
         case .newTab: return "New Workspace"
         case .newBrowserWorkspace:
