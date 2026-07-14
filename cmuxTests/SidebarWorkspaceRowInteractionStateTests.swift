@@ -6,7 +6,8 @@ import Testing
 @testable import cmux
 #endif
 
-/// Sidebar row interaction tests extracted from the primary sidebar snapshot refresh test file, which sits at its file-length budget.@Suite struct SidebarWorkspaceRowInteractionStateTests {
+/// Sidebar row interaction tests extracted from the primary sidebar snapshot refresh test file, which sits at its file-length budget.
+@Suite struct SidebarWorkspaceRowInteractionStateTests {
     @Test func appKitMenuTrackingEndClearsStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()
 
