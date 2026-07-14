@@ -54,7 +54,6 @@ final class MainWindowFocusController {
     private weak var fileExplorerState: FileExplorerState?
     private weak var rightSidebarHost: RightSidebarKeyboardFocusView?
     private weak var fileExplorerHost: FileExplorerContainerView?
-    private weak var fileSearchHost: FileExplorerContainerView?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
 
@@ -121,14 +120,9 @@ final class MainWindowFocusController {
     }
 
     func registerFileExplorerHost(_ host: FileExplorerContainerView) {
-        let mode = host.representedRightSidebarMode()
-        switch mode {
-        case .files:
+        let mode = host.representedRightSidebarMode().registeredToolMode
+        if mode == .files {
             fileExplorerHost = host
-        case .find:
-            fileSearchHost = host
-        case .sessions, .feed, .dock, .customSidebar:
-            break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
     }
@@ -204,8 +198,7 @@ final class MainWindowFocusController {
         if responder is FeedKeyboardFocusResponder {
             return true
         }
-        if fileExplorerHost?.ownsKeyboardFocus(responder) == true ||
-            fileSearchHost?.ownsKeyboardFocus(responder) == true {
+        if fileExplorerHost?.ownsKeyboardFocus(responder) == true {
             return true
         }
         if feedHost?.ownsKeyboardFocus(responder) == true {
@@ -464,9 +457,8 @@ final class MainWindowFocusController {
             guard requestedMode == nil else { return false }
             return focusRightSidebar(mode: .files, focusFirstItem: focusFirstItem)
         }
-        let mode = desiredMode
-        let target = rightSidebarFocusTarget(mode: mode, focusFirstItem: focusFirstItem)
-        return focusRightSidebar(mode: mode, target: target, terminalYieldReason: "rightSidebarFocus")
+        let target = rightSidebarFocusTarget(mode: desiredMode, focusFirstItem: focusFirstItem)
+        return focusRightSidebar(mode: desiredMode, target: target, terminalYieldReason: "rightSidebarFocus")
     }
 
     @discardableResult
@@ -477,6 +469,7 @@ final class MainWindowFocusController {
     ) -> Bool {
         guard let state = fileExplorerState else { return false }
         guard mode.isAvailable() else { return false }
+        let toolMode = mode.registeredToolMode
         rememberedRightSidebarMode = mode
         beginRightSidebarFocusRequest(mode: mode, target: target)
         intent = .rightSidebar(mode: mode)
@@ -486,11 +479,11 @@ final class MainWindowFocusController {
         publishFeedFocusSnapshot()
         yieldCurrentTerminalSurfaceFocus(reason: terminalYieldReason)
         state.setVisible(true)
-        if state.mode != mode {
-            state.mode = mode
+        if state.mode != toolMode {
+            state.mode = toolMode
         }
 
-        let modeResult = focusRightSidebarEndpoint(mode: mode, target: target)
+        let modeResult = focusRightSidebarEndpoint(mode: toolMode, target: target)
         if modeResult {
             rightSidebarFocusState = .focused(mode: mode, target: target)
         }
@@ -505,11 +498,7 @@ final class MainWindowFocusController {
 
     @discardableResult
     func focusFileSearch() -> Bool {
-        return focusRightSidebar(
-            mode: .find,
-            target: .searchField,
-            terminalYieldReason: "fileSearchFocus"
-        )
+        focusRightSidebar(mode: .find, focusFirstItem: true)
     }
 
     @discardableResult
@@ -679,13 +668,13 @@ final class MainWindowFocusController {
             return
         }
         guard case .rightSidebar(let targetMode) = intent,
-              targetMode == mode,
-              request.mode == mode else {
+              targetMode.registeredToolMode == mode,
+              request.mode.registeredToolMode == mode else {
             return
         }
         let result = focusRightSidebarEndpoint(mode: mode, target: request.target)
         if result {
-            rightSidebarFocusState = .focused(mode: mode, target: request.target)
+            rightSidebarFocusState = .focused(mode: request.mode, target: request.target)
         } else if request.target == .host, focusFallbackRightSidebarHost() {
             rightSidebarFocusState = .focused(mode: mode, target: .host)
         }
@@ -726,10 +715,11 @@ final class MainWindowFocusController {
         target: RightSidebarFocusTarget
     ) -> Bool {
         switch mode {
-        case .files:
+        case .files, .find:
+            if target == .searchField {
+                return fileExplorerHost?.focusSearchField() == true
+            }
             return fileExplorerHost?.focusOutline() == true
-        case .find:
-            return fileSearchHost?.focusSearchField() == true
         case .sessions, .customSidebar:
             return mode == .customSidebar ? focusFallbackRightSidebarHost() : false
         case .feed:
@@ -800,11 +790,8 @@ final class MainWindowFocusController {
         if let host = rightSidebarHost, responder === host {
             return fileExplorerState?.mode ?? rememberedRightSidebarMode
         }
-        if fileExplorerHost?.ownsKeyboardFocus(responder) == true {
-            return .files
-        }
-        if fileSearchHost?.ownsKeyboardFocus(responder) == true {
-            return .find
+        if let mode = fileExplorerHost?.rightSidebarActivationMode(owning: responder) {
+            return mode
         }
         if feedHost?.ownsKeyboardFocus(responder) == true || responder is FeedKeyboardFocusResponder {
             return .feed

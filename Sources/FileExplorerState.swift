@@ -36,7 +36,7 @@ final class FileExplorerState: ObservableObject {
     /// persisted).
     @Published var rightSidebarOwnsInputFocus: Bool = false
 
-    /// Active mode for the right sidebar (file tree, search, sessions, or enabled beta modes).
+    /// Active registered tool for the right sidebar.
     var mode: RightSidebarMode {
         get { storedMode }
         set { setMode(newValue) }
@@ -115,9 +115,10 @@ final class FileExplorerState: ObservableObject {
         _ mode: RightSidebarMode,
         defaults: UserDefaults
     ) -> RightSidebarMode {
-        if mode == .customSidebar {
+        let registeredMode = mode.registeredToolMode
+        if registeredMode == .customSidebar {
             return .files
         }
-        return mode.isAvailable(defaults: defaults) ? mode : .files
+        return registeredMode.isAvailable(defaults: defaults) ? registeredMode : .files
     }
 }

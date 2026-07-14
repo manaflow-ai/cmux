@@ -34,7 +34,7 @@ extension TerminalControllerSocketSecurityTests {
         #expect(fileExplorerState.isVisible)
 
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set find") == "OK")
-        #expect(fileExplorerState.mode == .find)
+        #expect(fileExplorerState.mode == .files)
         #expect(fileExplorerState.isVisible)
 
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set vault --no-focus") == "OK")
@@ -252,7 +252,7 @@ extension TerminalControllerSocketSecurityTests {
             target: RightSidebarRemoteTarget(windowId: windowAId, workspaceId: nil)
         ) == .ok)
         #expect(stateA.isVisible)
-        #expect(stateA.mode == .find)
+        #expect(stateA.mode == .files)
         #expect(!stateB.isVisible)
         #expect(stateB.mode == .files)
 
@@ -262,7 +262,7 @@ extension TerminalControllerSocketSecurityTests {
         ) == .ok)
         #expect(stateB.isVisible)
         #expect(stateB.mode == .sessions)
-        #expect(stateA.mode == .find)
+        #expect(stateA.mode == .files)
 
         #expect(appDelegate.applyRightSidebarRemoteCommand(
             .hide,

@@ -2,6 +2,11 @@ import AppKit
 import Foundation
 
 extension RightSidebarMode {
+    /// The registered sidebar tool that owns this activation target.
+    var registeredToolMode: RightSidebarMode {
+        self == .find ? .files : self
+    }
+
     static func from(cliArgument rawValue: String) -> RightSidebarMode? {
         switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "files":
@@ -27,7 +32,21 @@ extension RightSidebarMode {
     }
 
     static func availableModes(feedEnabled: Bool, dockEnabled: Bool) -> [RightSidebarMode] {
-        allCases.filter { $0 != .customSidebar && $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled) }
+        availableActivationModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+            .filter { $0.registeredToolMode == $0 }
+    }
+
+    static func availableActivationModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
+        availableActivationModes(
+            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
+            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
+        )
+    }
+
+    static func availableActivationModes(feedEnabled: Bool, dockEnabled: Bool) -> [RightSidebarMode] {
+        allCases.filter {
+            $0 != .customSidebar && $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+        }
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
