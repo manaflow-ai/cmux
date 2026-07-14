@@ -48,6 +48,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     var settingsObservationTask: Task<Void, Never>?
     @ObservationIgnored
+    private var settingsReconciliationTask: Task<Void, Never>?
+    @ObservationIgnored
     private let initialReconciliationStream: AsyncStream<Void>
     @ObservationIgnored
     private let initialReconciliationContinuation: AsyncStream<Void>.Continuation
@@ -84,7 +86,7 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     @ObservationIgnored
     var actionSnapshotInvalidationsByPanelID: [UUID: BrowserWebExtensionActionSnapshotInvalidation] = [:]
     @ObservationIgnored
-    var permissionObserverTokensByEntryID: [String: [NSObjectProtocol]] = [:]
+    var permissionObserverTokensByEntryID: [String: [ObjectIdentifier: [NSObjectProtocol]]] = [:]
     @ObservationIgnored
     var orderedPanelIDs: [UUID] = []
     @ObservationIgnored
@@ -140,6 +142,7 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
 
     isolated deinit {
         settingsObservationTask?.cancel()
+        settingsReconciliationTask?.cancel()
         tabMetadataFlushTask?.cancel()
         initialReconciliationContinuation.finish()
         removeAllPermissionStateObservers()
@@ -236,9 +239,23 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         settingsLoadGeneration &+= 1
         settingsObservationTask = Task { @MainActor [weak self] in
             for await entries in jsonStore.values(for: key) {
-                guard let self else { return }
-                await self.apply(entries: entries, generation: self.settingsLoadGeneration)
-                self.completeInitialReconciliationIfNeeded()
+                guard let self, !Task.isCancelled else { return }
+                self.scheduleSettingsReconciliation(entries)
+            }
+        }
+    }
+
+    private func scheduleSettingsReconciliation(_ entries: [BrowserWebExtensionEntry]) {
+        settingsLoadGeneration &+= 1
+        let generation = settingsLoadGeneration
+        settingsReconciliationTask?.cancel()
+        settingsReconciliationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.apply(entries: entries, generation: generation)
+            guard self.canApplyWebExtensionLoad(generation: generation) else { return }
+            self.completeInitialReconciliationIfNeeded()
+            if self.settingsLoadGeneration == generation {
+                self.settingsReconciliationTask = nil
             }
         }
     }
@@ -247,6 +264,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         settingsLoadGeneration &+= 1
         settingsObservationTask?.cancel()
         settingsObservationTask = nil
+        settingsReconciliationTask?.cancel()
+        settingsReconciliationTask = nil
         completeInitialReconciliationIfNeeded()
         if !unloadAllWebExtensions() {
             BrowserAvailabilitySettings.setDisabled(false)

@@ -92,8 +92,9 @@ extension BrowserWebExtensionSupport {
         entryID: String,
         standardizedPath: String
     ) {
-        removePermissionStateObservers(entryID: entryID)
-        permissionObserverTokensByEntryID[entryID] = permissionStateNotificationNames.map { name in
+        let contextID = ObjectIdentifier(context)
+        removePermissionStateObservers(entryID: entryID, context: context)
+        permissionObserverTokensByEntryID[entryID, default: [:]][contextID] = permissionStateNotificationNames.map { name in
             NotificationCenter.default.addObserver(
                 forName: name,
                 object: context,
@@ -111,9 +112,22 @@ extension BrowserWebExtensionSupport {
         }
     }
 
-    func removePermissionStateObservers(entryID: String) {
-        guard let tokens = permissionObserverTokensByEntryID.removeValue(forKey: entryID) else { return }
+    func removePermissionStateObservers(entryID: String, context: WKWebExtensionContext) {
+        let contextID = ObjectIdentifier(context)
+        guard let tokens = permissionObserverTokensByEntryID[entryID]?.removeValue(forKey: contextID) else {
+            return
+        }
+        if permissionObserverTokensByEntryID[entryID]?.isEmpty == true {
+            permissionObserverTokensByEntryID.removeValue(forKey: entryID)
+        }
         for token in tokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+
+    func removePermissionStateObservers(entryID: String) {
+        guard let tokensByContext = permissionObserverTokensByEntryID.removeValue(forKey: entryID) else { return }
+        for token in tokensByContext.values.joined() {
             NotificationCenter.default.removeObserver(token)
         }
     }

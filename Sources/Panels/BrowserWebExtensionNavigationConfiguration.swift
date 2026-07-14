@@ -7,6 +7,24 @@ struct BrowserWebExtensionNavigationConfiguration {
 }
 
 extension BrowserPanel {
+    /// Retries an extension URL restored before its owning context finished loading.
+    func retryPendingWebExtensionNavigationIfNeeded() {
+        guard webExtensionPageContextIdentifier == nil,
+              let url = currentURL,
+              let targetConfiguration = browserWebExtensionHost?
+                  .webViewConfiguration(forNavigatingTo: url) else {
+            return
+        }
+        let shouldResumeNavigation = shouldRenderWebView
+        replaceWebViewForWebExtensionNavigation(
+            webViewConfiguration: targetConfiguration.webViewConfiguration,
+            contextIdentifier: targetConfiguration.contextIdentifier
+        )
+        if shouldResumeNavigation {
+            navigate(to: url)
+        }
+    }
+
     func shouldBlockWebExtensionNavigation(to url: URL, allowWebExtensionContext: Bool) -> Bool {
         guard !allowWebExtensionContext else { return false }
         if browserWebExtensionHost?.webViewConfiguration(forNavigatingTo: url) != nil {

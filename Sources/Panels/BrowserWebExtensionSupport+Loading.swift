@@ -16,6 +16,7 @@ extension BrowserWebExtensionSupport {
     }
 
     func apply(entries: [BrowserWebExtensionEntry]) async {
+        settingsLoadGeneration &+= 1
         await apply(entries: entries, generation: settingsLoadGeneration)
     }
 
@@ -209,7 +210,7 @@ extension BrowserWebExtensionSupport {
             return record.entry
         }
 
-        removePermissionStateObservers(entryID: entryID)
+        removePermissionStateObservers(entryID: entryID, context: record.context)
         if !preservePermissionState {
             removePermissionState(entryID: entryID, standardizedPath: record.standardizedPath)
         }
@@ -286,6 +287,9 @@ extension BrowserWebExtensionSupport {
             if !loadedEntryIDsInOrder.contains(entry.id) {
                 loadedEntryIDsInOrder.append(entry.id)
             }
+            for panel in tabAdapters.values.compactMap(\.panel) {
+                panel.retryPendingWebExtensionNavigationIfNeeded()
+            }
             loadErrorsByEntryID.removeValue(forKey: entry.id)
             refreshLoadErrors()
 #if DEBUG
@@ -311,7 +315,7 @@ extension BrowserWebExtensionSupport {
     ) -> Bool {
         do {
             try controller.unload(context)
-            removePermissionStateObservers(entryID: entry.id)
+            removePermissionStateObservers(entryID: entry.id, context: context)
             return true
         } catch {
             loadedByEntryID[entry.id] = BrowserWebExtensionLoadedRecord(
@@ -391,7 +395,7 @@ extension BrowserWebExtensionSupport {
         do {
             try controller.load(context)
         } catch {
-            removePermissionStateObservers(entryID: entryID)
+            removePermissionStateObservers(entryID: entryID, context: context)
             throw error
         }
         return context

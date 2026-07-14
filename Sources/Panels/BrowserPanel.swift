@@ -5762,7 +5762,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigate(to: url)
     }
 
-    private func replaceWebViewForWebExtensionNavigation(
+    func replaceWebViewForWebExtensionNavigation(
         webViewConfiguration: WKWebViewConfiguration?,
         contextIdentifier: ObjectIdentifier?
     ) {

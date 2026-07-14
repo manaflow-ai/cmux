@@ -105,6 +105,7 @@ struct BrowserWebExtensionSupportLifecycleTests {
 
         let loadedContext = try #require(support.context(forActionID: entry.id))
         #expect(panel.webExtensionPageContextIdentifier == ObjectIdentifier(loadedContext))
+        #expect(!panel.shouldRenderWebView)
     }
 
     @Test
@@ -124,7 +125,7 @@ struct BrowserWebExtensionSupportLifecycleTests {
 
         var support: BrowserWebExtensionSupport? = BrowserWebExtensionSupport()
         weak var weakSupport = support
-        support?.permissionObserverTokensByEntryID["test"] = [token]
+        support?.permissionObserverTokensByEntryID["test"] = [ObjectIdentifier(NSObject()): [token]]
         support = nil
 
         #expect(weakSupport == nil)
