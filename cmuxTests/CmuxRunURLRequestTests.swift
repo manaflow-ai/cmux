@@ -11,13 +11,13 @@ import Testing
 struct CmuxRunURLRequestTests {
     private let scheme = "cmux-test"
 
-    @Test func parsesMinimalWorkspaceRequest() throws {
+    @Test func parsesMinimalWorkspaceRequestWithoutRewritingCommand() throws {
         let request = try parsed([
             .init(name: "command", value: "  claude --resume  "),
             .init(name: "cwd", value: "/tmp/project")
         ])
 
-        #expect(request.command == "claude --resume")
+        #expect(request.command == "  claude --resume  ")
         #expect(request.workingDirectory == "/tmp/project")
         #expect(request.placement == .workspace)
         #expect(request.workspaceId == nil)
