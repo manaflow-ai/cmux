@@ -84,6 +84,17 @@ describe("browser design-mode runtime", () => {
     expect(runtime.snapshot().edits).toHaveLength(0);
   });
 
+  test("stores canonical CSS values before mutation reconciliation", () => {
+    const { dom, runtime } = fixture(`<main><h1 id="hero">Hero</h1></main>`);
+    const hero = dom.window.document.querySelector("#hero") as HTMLElement;
+    runtime.select("#hero");
+
+    const edited = runtime.applyStyle("color", "#fff");
+
+    expect(edited.edits[0]?.value).toBe(hero.style.getPropertyValue("color"));
+    expect(edited.css_diff).toContain(`+  color: ${hero.style.getPropertyValue("color")};`);
+  });
+
   test("reapplies edits when an SPA replaces the selected node", async () => {
     const { dom, runtime } = fixture(`<main><h1 id="hero">Original</h1></main>`);
     runtime.select("#hero");
@@ -136,6 +147,49 @@ describe("browser design-mode runtime", () => {
     expect(runtime.snapshot().selection?.selector).toBe("#hero");
     expect(replacement.style.getPropertyValue("font-size")).toBe("44px");
     expect(subtreeSelectorQueries).toBe(0);
+  });
+
+  test("bounds recovery work when an SPA never recreates the selected node", async () => {
+    const { dom, runtime } = fixture(`<main><h1 id="hero">Original</h1></main>`);
+    runtime.select("#hero");
+    dom.window.document.querySelector("#hero")?.remove();
+    await new Promise<void>((resolve) => dom.window.setTimeout(resolve, 0));
+
+    const originalQuerySelectorAll = dom.window.document.querySelectorAll.bind(dom.window.document);
+    let selectorQueries = 0;
+    Object.defineProperty(dom.window.document, "querySelectorAll", {
+      value: (selector: string) => {
+        selectorQueries += 1;
+        return originalQuerySelectorAll(selector);
+      },
+    });
+    for (let index = 0; index < 20; index += 1) {
+      const unrelated = dom.window.document.createElement("h1");
+      unrelated.textContent = `Unrelated ${index}`;
+      dom.window.document.querySelector("main")?.append(unrelated);
+      await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+      unrelated.remove();
+      await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+    }
+
+    expect(selectorQueries).toBeLessThanOrEqual(8);
+  });
+
+  test("fails closed when a selector is reused by a different element", async () => {
+    const { dom, runtime } = fixture(`<main><h1 id="hero">Original</h1></main>`);
+    runtime.select("#hero");
+    runtime.applyStyle("font-size", "44px");
+    dom.window.document.querySelector("#hero")?.remove();
+    await new Promise<void>((resolve) => dom.window.setTimeout(resolve, 0));
+
+    const unrelated = dom.window.document.createElement("button");
+    unrelated.id = "hero";
+    unrelated.textContent = "Different control";
+    dom.window.document.querySelector("main")?.append(unrelated);
+    await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
+
+    expect(runtime.snapshot().selection).toBeNull();
+    expect(unrelated.style.getPropertyValue("font-size")).toBe("");
   });
 
   test("fails closed when selection or SPA rebinding is ambiguous", async () => {
@@ -250,6 +304,24 @@ describe("browser design-mode runtime", () => {
     expect(selected.selection?.text_editable).toBe(false);
     expect(edited.edits).toHaveLength(0);
     expect(paragraph.textContent).toBe(huge);
+  });
+
+  test("rejects container text editing without materializing descendant text", () => {
+    const { dom, runtime } = fixture(`<main><section id="container"><span>Nested copy</span></section></main>`);
+    const container = dom.window.document.querySelector("#container") as HTMLElement;
+    let textContentReads = 0;
+    Object.defineProperty(container, "textContent", {
+      configurable: true,
+      get: () => {
+        textContentReads += 1;
+        return "x".repeat(1_000_000);
+      },
+    });
+
+    const selected = runtime.select("#container");
+
+    expect(selected.selection?.text_editable).toBe(false);
+    expect(textContentReads).toBe(0);
   });
 
   test("redacts sensitive form data before snapshots cross the bridge", () => {

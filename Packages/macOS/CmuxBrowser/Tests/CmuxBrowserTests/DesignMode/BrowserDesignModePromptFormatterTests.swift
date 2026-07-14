@@ -156,6 +156,19 @@ import Testing
         #expect(!sanitized.contains(fragmentSecret))
     }
 
+    @Test func redactsOpaqueQueryTokensWithoutValues() {
+        let querySecret = "opaque-query-token"
+        let fragmentSecret = "opaque-fragment-token"
+        let sanitized = BrowserDesignModePageURL(
+            rawValue: "https://example.com/callback?\(querySecret)#\(fragmentSecret)"
+        ).sanitizedValue
+
+        #expect(!sanitized.contains(querySecret))
+        #expect(!sanitized.contains(fragmentSecret))
+        #expect(sanitized.contains("?%3Credacted%3E"))
+        #expect(sanitized.hasSuffix("#%3Credacted%3E"))
+    }
+
     @Test func decodesRuntimeWireSnapshot() throws {
         let json = #"""
         {
