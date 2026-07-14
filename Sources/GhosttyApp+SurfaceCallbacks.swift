@@ -58,7 +58,7 @@ extension GhosttyApp {
     /// Completes a configuration reload only for its original surface generation.
     func completeMobileViewportFontFitConfigurationReload(
         callbackContext: GhosttySurfaceCallbackContext,
-        runtimeSurface: ghostty_surface_t,
+        runtimeSurface: ghostty_surface_t?,
         configuredFontPointSize: Float?
     ) {
         let reloadCompletion = performOnMain {

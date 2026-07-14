@@ -104,6 +104,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
             surfaceController: origin
         )
 
+        #expect(!context.isCurrentOrigin(runtimeSurface: nil))
         #expect(context.isCurrentOrigin(runtimeSurface: originPointer))
 
         host.attachedSurfaceController = replacement
