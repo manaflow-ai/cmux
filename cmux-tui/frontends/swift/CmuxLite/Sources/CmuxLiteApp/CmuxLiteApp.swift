@@ -17,9 +17,15 @@ final class CmuxLiteApp: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_: Notification) {
+        let environment = ProcessInfo.processInfo.environment
+        Task { [weak self] in
+            await self?.launch(environment: environment)
+        }
+    }
+
+    private func launch(environment: [String: String]) async {
         do {
             NSApp.appearance = NSAppearance(named: .darkAqua)
-            let environment = ProcessInfo.processInfo.environment
             let configuration = try CmuxConnectionConfiguration.parse(
                 arguments: Array(CommandLine.arguments.dropFirst()),
                 environment: environment,
@@ -49,16 +55,13 @@ final class CmuxLiteApp: NSObject, NSApplicationDelegate {
             let ghosttyConfigPath = CmuxGhosttyViewConfiguration.configPath(
                 homeDirectory: homeDirectory
             )
-            let ghosttyConfigText = (try? String(
-                contentsOfFile: ghosttyConfigPath,
-                encoding: .utf8
-            )) ?? ""
+            let ghosttyViewConfiguration = await CmuxGhosttyConfigurationResolver(
+                environment: environment,
+                homeDirectory: homeDirectory
+            ).resolve(configPath: ghosttyConfigPath)
             let controller = CmuxLiteWindowController(
                 frontend: frontend,
-                ghosttyViewConfiguration: .parse(ghosttyConfigText),
-                ghosttyConfigPath: FileManager.default.fileExists(atPath: ghosttyConfigPath)
-                    ? ghosttyConfigPath
-                    : nil
+                ghosttyViewConfiguration: ghosttyViewConfiguration
             )
             windowController = controller
             controller.showWindow(nil)

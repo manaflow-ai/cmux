@@ -5,8 +5,8 @@ import Foundation
 enum CmuxWindowMutation {
     case workspace(UInt64)
     case screen(UInt64)
-    case newWorkspace
-    case newScreen
+    case newWorkspace(pane: UInt64)
+    case newScreen(pane: UInt64)
     case selectTab(pane: UInt64, index: Int)
     case newTab(pane: UInt64)
     case split(pane: UInt64, direction: CmuxSplitDirection)

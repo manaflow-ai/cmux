@@ -14,6 +14,15 @@ public struct CmuxGhosttyViewConfiguration: Sendable, Equatable {
     /// The preferred font size in points.
     public let fontSize: Float
 
+    /// The resolved terminal background using Ghostty color syntax.
+    public let background: String?
+
+    /// The resolved terminal foreground using Ghostty color syntax.
+    public let foreground: String?
+
+    /// Resolved ANSI palette entries keyed by their 0...255 index.
+    public let palette: [Int: String]
+
     /// The preferred selection background using Ghostty color syntax.
     public let selectionBackground: String?
 
@@ -30,6 +39,9 @@ public struct CmuxGhosttyViewConfiguration: Sendable, Equatable {
     /// - Parameters:
     ///   - fontFamily: A non-empty font family.
     ///   - fontSize: A positive finite point size.
+    ///   - background: An optional terminal background.
+    ///   - foreground: An optional terminal foreground.
+    ///   - palette: Optional ANSI palette overrides.
     ///   - selectionBackground: An optional Ghostty selection background.
     ///   - selectionForeground: An optional Ghostty selection foreground.
     ///   - cursorStyle: An optional Ghostty cursor style.
@@ -37,6 +49,9 @@ public struct CmuxGhosttyViewConfiguration: Sendable, Equatable {
     public init(
         fontFamily: String = Self.fallbackFontFamily,
         fontSize: Float = Self.fallbackFontSize,
+        background: String? = nil,
+        foreground: String? = nil,
+        palette: [Int: String] = [:],
         selectionBackground: String? = nil,
         selectionForeground: String? = nil,
         cursorStyle: String? = nil,
@@ -44,6 +59,9 @@ public struct CmuxGhosttyViewConfiguration: Sendable, Equatable {
     ) {
         self.fontFamily = fontFamily
         self.fontSize = fontSize
+        self.background = background
+        self.foreground = foreground
+        self.palette = palette
         self.selectionBackground = selectionBackground
         self.selectionForeground = selectionForeground
         self.cursorStyle = cursorStyle
@@ -59,7 +77,7 @@ public struct CmuxGhosttyViewConfiguration: Sendable, Equatable {
             .path
     }
 
-    /// Parses the supported subset of Ghostty's `key = value` format.
+    /// Parses direct Ghostty settings without resolving theme references.
     ///
     /// Later valid entries win. Unknown keys and malformed values are ignored.
     /// Matching single or double quotes around values are removed.
@@ -67,90 +85,31 @@ public struct CmuxGhosttyViewConfiguration: Sendable, Equatable {
     /// - Parameter text: Ghostty configuration file contents.
     /// - Returns: Parsed values with stable font fallbacks.
     public static func parse(_ text: String) -> CmuxGhosttyViewConfiguration {
-        var fontFamily = fallbackFontFamily
-        var fontSize = fallbackFontSize
-        var selectionBackground: String?
-        var selectionForeground: String?
-        var cursorStyle: String?
-        var cursorBlink: Bool?
-
-        for rawLine in text.split(whereSeparator: \Character.isNewline) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty, !line.hasPrefix("#"),
-                  let separator = line.firstIndex(of: "=")
-            else { continue }
-
-            let key = line[..<separator].trimmingCharacters(in: .whitespaces)
-            let rawValue = line[line.index(after: separator)...]
-            guard let value = unquoted(rawValue) else { continue }
-
-            switch key {
-            case "font-family":
-                if !value.isEmpty { fontFamily = value }
-            case "font-size":
-                if let parsed = Float(value), parsed.isFinite, parsed > 0, parsed <= 512 {
-                    fontSize = parsed
-                }
-            case "selection-background":
-                if isGhosttyColor(value) { selectionBackground = value }
-            case "selection-foreground":
-                if isGhosttyColor(value) { selectionForeground = value }
-            case "cursor-style":
-                if ["block", "bar", "underline"].contains(value) {
-                    cursorStyle = value
-                }
-            case "cursor-style-blink":
-                if value == "true" {
-                    cursorBlink = true
-                } else if value == "false" {
-                    cursorBlink = false
-                }
-            default:
-                break
-            }
-        }
-
-        return CmuxGhosttyViewConfiguration(
-            fontFamily: fontFamily,
-            fontSize: fontSize,
-            selectionBackground: selectionBackground,
-            selectionForeground: selectionForeground,
-            cursorStyle: cursorStyle,
-            cursorBlink: cursorBlink
-        )
+        CmuxGhosttyViewConfigurationParser.parse(text)
     }
 
-    private static func unquoted(_ rawValue: Substring) -> String? {
-        let value = rawValue.trimmingCharacters(in: .whitespaces)
-        guard let first = value.first else { return "" }
-        if first == "\"" || first == "'" {
-            guard value.count >= 2, value.last == first else { return nil }
-            return String(value.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
-        }
-        guard value.last != "\"", value.last != "'" else { return nil }
-        return value
+    /// Parses the fully resolved text emitted by `ghostty +show-config`.
+    ///
+    /// - Parameter text: The command's resolved configuration output.
+    /// - Returns: A configuration when at least one supported resolved setting was present.
+    public static func parseResolvedOutput(_ text: String) -> CmuxGhosttyViewConfiguration? {
+        CmuxGhosttyViewConfigurationParser.parseResolvedOutput(text)
     }
 
-    private static func isGhosttyColor(_ value: String) -> Bool {
-        if value == "cell-foreground" || value == "cell-background" {
-            return true
-        }
-
-        let hex = value.hasPrefix("#") ? String(value.dropFirst()) : value
-        if [3, 6, 9, 12].contains(hex.count),
-           hex.unicodeScalars.allSatisfy({ scalar in
-               (48...57).contains(scalar.value)
-                   || (65...70).contains(scalar.value)
-                   || (97...102).contains(scalar.value)
-           })
-        {
-            return true
-        }
-
-        // Ghostty also accepts X11 color names. Their syntax is alphanumeric
-        // words with optional spaces; Ghostty performs the final name lookup.
-        return !value.isEmpty && value.unicodeScalars.allSatisfy {
-            CharacterSet.alphanumerics.contains($0) || $0 == " "
-        }
+    /// Parses a Ghostty config while resolving only loadable theme references.
+    ///
+    /// The loader lets the app supply Ghostty's theme search order without making
+    /// the core model depend on the filesystem. A missing theme is ignored so a
+    /// later invalid line cannot erase an earlier resolved theme.
+    ///
+    /// - Parameters:
+    ///   - text: The Ghostty configuration file contents.
+    ///   - loadTheme: Returns the theme file contents for a loadable theme name.
+    /// - Returns: Parsed values with stable font fallbacks.
+    public static func parseFallback(
+        _ text: String,
+        loadTheme: @escaping (String) -> String?
+    ) -> CmuxGhosttyViewConfiguration {
+        CmuxGhosttyViewConfigurationParser.parse(text, loadTheme: loadTheme).configuration
     }
 }

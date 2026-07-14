@@ -18,7 +18,6 @@ public actor CmuxFrontendSession {
     private var attachments: [UInt64: CmuxPaneAttachment] = [:]
     private var nextAttachmentGeneration: UInt64 = 1
     private var controlTask: Task<Void, Never>?
-    private var latestLocalSize: CmuxSurfaceSize?
 
     /// Creates a frontend session from injected protocol pieces.
     /// - Parameters:
@@ -111,22 +110,24 @@ public actor CmuxFrontendSession {
         return try await attachSelectionAndPublish()
     }
 
-    /// Creates a workspace, locates its returned surface, and follows it locally.
+    /// Creates a workspace at the active pane's current grid and follows its returned surface.
+    /// - Parameter pane: The active pane whose grid seeds the new surface.
     /// - Returns: The updated local navigation snapshot.
-    public func newWorkspace() async throws -> CmuxFrontendStartup {
-        let created = try await controlClient.newWorkspace(size: latestLocalSize)
+    public func newWorkspace(pane: UInt64) async throws -> CmuxFrontendStartup {
+        let created = try await controlClient.newWorkspace(size: try creationSize(for: pane))
         return try await followCreatedSurface(created.surface)
     }
 
-    /// Creates a screen in the locally selected workspace and follows it locally.
+    /// Creates a screen at the active pane's current grid and follows it locally.
+    /// - Parameter pane: The active pane whose grid seeds the new surface.
     /// - Returns: The updated local navigation snapshot.
-    public func newScreen() async throws -> CmuxFrontendStartup {
+    public func newScreen(pane: UInt64) async throws -> CmuxFrontendStartup {
         guard let selection else {
             throw CmuxProtocolError.transportState("no locally selected workspace")
         }
         let created = try await controlClient.newScreen(
             workspace: selection.workspaceID,
-            size: latestLocalSize
+            size: try creationSize(for: pane)
         )
         return try await followCreatedSurface(created.surface)
     }
@@ -170,7 +171,7 @@ public actor CmuxFrontendSession {
         }
         let created = try await controlClient.newTab(
             pane: pane,
-            size: attachments[pane]?.localSize ?? latestLocalSize
+            size: try creationSize(for: pane)
         )
         return try await followCreatedSurface(created.surface)
     }
@@ -197,7 +198,7 @@ public actor CmuxFrontendSession {
         let created = try await controlClient.split(
             pane: pane,
             direction: direction,
-            size: attachments[pane]?.localSize ?? latestLocalSize
+            size: try creationSize(for: pane)
         )
         return try await followCreatedSurface(created.surface)
     }
@@ -261,7 +262,6 @@ public actor CmuxFrontendSession {
         else { return }
         attachment.localSize = measured
         attachments[pane] = attachment
-        latestLocalSize = measured
     }
 
     /// Records a final grid for the server-active or first visible surface.
@@ -284,7 +284,6 @@ public actor CmuxFrontendSession {
               var attachment = attachments[pane]
         else { return }
         attachment.localSize = requested
-        latestLocalSize = requested
         if requested == attachment.remoteSize {
             attachment.sizeClaimed = true
         }
@@ -420,6 +419,43 @@ public actor CmuxFrontendSession {
     private func selectedSurfaceIsVisible(_ surface: UInt64) -> Bool {
         guard let tree, let selection else { return false }
         return tree.visiblePaneSurfaces(selection: selection).contains { $0.surface == surface }
+    }
+
+    private func creationSize(for pane: UInt64) throws -> CmuxSurfaceSize {
+        if let localSize = attachments[pane]?.localSize {
+            return localSize
+        }
+        guard let paneSnapshot = selectedPane(pane) else {
+            throw CmuxProtocolError.command(String(
+                format: String(
+                    localized: "frontend.error.pane_unavailable",
+                    defaultValue: "Pane %lld is unavailable",
+                    bundle: .module
+                ),
+                Int64(pane)
+            ))
+        }
+        let attachedSurface = attachments[pane]?.surface
+        let attachedTab = attachedSurface.flatMap { surface in
+            paneSnapshot.tabs.first(where: { $0.surface == surface })
+        }
+        let activeTab = paneSnapshot.tabs.indices.contains(paneSnapshot.activeTab)
+            ? paneSnapshot.tabs[paneSnapshot.activeTab]
+            : nil
+        let source = attachedTab ?? activeTab
+            .flatMap { $0.kind == "pty" && !$0.dead ? $0 : nil }
+            ?? paneSnapshot.tabs.first(where: { $0.kind == "pty" && !$0.dead })
+        guard let size = source?.size else {
+            throw CmuxProtocolError.command(String(
+                format: String(
+                    localized: "frontend.error.pane_size_unavailable",
+                    defaultValue: "Pane %lld has no terminal grid yet",
+                    bundle: .module
+                ),
+                Int64(pane)
+            ))
+        }
+        return size
     }
 
     private func startControlLoop(events: AsyncStream<CmuxAttachEvent>) {

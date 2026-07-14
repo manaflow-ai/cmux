@@ -89,28 +89,41 @@ struct CmuxFrontendSessionTests {
     }
 
     @Test
-    func creationFollowsReturnedSurfacesLocally() async throws {
+    func workspaceAndScreenCreationSendTheActivePaneGrid() async throws {
         let workspaceHarness = makeHarness(attachmentSurfaces: [11, 13])
         _ = try await workspaceHarness.session.connect(hostname: "test")
-        let workspace = try await workspaceHarness.session.newWorkspace()
+        await workspaceHarness.session.recordTerminalMeasurement(CmuxTerminalMeasurement(
+            widthPixels: 1_200,
+            heightPixels: 800,
+            cellWidthPixels: 10,
+            cellHeightPixels: 20
+        ))
+        let workspace = try await workspaceHarness.session.newWorkspace(pane: 201)
         #expect(workspace.selectedWorkspace == 8)
         #expect(workspace.selectedScreen == 103)
         #expect(workspace.surface == 13)
         #expect(await workspaceHarness.attachments[0].isClosed())
+        #expect(await workspaceHarness.control.commandSummaries().contains("new-workspace:120x40"))
         await workspaceHarness.session.close()
 
         let screenHarness = makeHarness(attachmentSurfaces: [11, 12])
         _ = try await screenHarness.session.connect(hostname: "test")
-        let screen = try await screenHarness.session.newScreen()
+        await screenHarness.session.recordTerminalMeasurement(CmuxTerminalMeasurement(
+            widthPixels: 1_110,
+            heightPixels: 760,
+            cellWidthPixels: 10,
+            cellHeightPixels: 20
+        ))
+        let screen = try await screenHarness.session.newScreen(pane: 201)
         #expect(screen.selectedWorkspace == 4)
         #expect(screen.selectedScreen == 102)
         #expect(screen.surface == 12)
-        #expect(await screenHarness.control.commandSummaries().contains("new-screen:4"))
+        #expect(await screenHarness.control.commandSummaries().contains("new-screen:4:111x38"))
         await screenHarness.session.close()
     }
 
     @Test
-    func sharedTabSelectionReattachesAndPublishesTheActiveTab() async throws {
+    func tabSelectionMapsThePaneAndIndexToSelectTab() async throws {
         let initialTree = tree(activeTab: 0, tabSurfaces: [11, 12])
         let selectedTree = tree(activeTab: 1, tabSurfaces: [11, 12])
         let control = ScriptedTransport(
@@ -160,6 +173,33 @@ struct CmuxFrontendSessionTests {
         #expect(created.workspaces[0].screens[0].activeTab == 1)
         #expect(await control.commandSummaries().contains("new-tab:201:120x40"))
         #expect(await attachments[0].isClosed())
+        await session.close()
+    }
+
+    @Test
+    func splitUsesTheMeasuredActivePaneGrid() async throws {
+        let initialTree = tree(activeTab: 0, tabSurfaces: [11])
+        let createdTree = tree(activeTab: 0, tabSurfaces: [11, 14])
+        let control = ScriptedTransport(
+            role: .control(tree: initialTree),
+            treeAfterSplit: createdTree,
+            splitSurface: 14
+        )
+        let attachments = [11, 14].map {
+            ScriptedTransport(role: .attachment(surface: $0))
+        }
+        let session = makeSession(control: control, attachments: attachments)
+
+        _ = try await session.connect(hostname: "test")
+        await session.recordTerminalMeasurement(CmuxTerminalMeasurement(
+            widthPixels: 1_000,
+            heightPixels: 600,
+            cellWidthPixels: 10,
+            cellHeightPixels: 20
+        ))
+        _ = try await session.split(pane: 201, direction: .right)
+
+        #expect(await control.commandSummaries().contains("split:201:right:100x30"))
         await session.close()
     }
 

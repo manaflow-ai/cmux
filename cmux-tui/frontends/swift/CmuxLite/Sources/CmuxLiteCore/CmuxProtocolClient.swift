@@ -73,35 +73,35 @@ public actor CmuxProtocolClient {
         )
     }
 
-    func newWorkspace(size: CmuxSurfaceSize?) async throws -> CmuxSurfaceResponse {
+    func newWorkspace(size: CmuxSurfaceSize) async throws -> CmuxSurfaceResponse {
         try await request(CmuxCommandRequest(
             id: 0,
             cmd: "new-workspace",
-            cols: size?.cols,
-            rows: size?.rows
+            cols: size.cols,
+            rows: size.rows
         ))
     }
 
-    func newScreen(workspace: UInt64, size: CmuxSurfaceSize?) async throws -> CmuxSurfaceResponse {
+    func newScreen(workspace: UInt64, size: CmuxSurfaceSize) async throws -> CmuxSurfaceResponse {
         try await request(
             CmuxCommandRequest(
                 id: 0,
                 cmd: "new-screen",
                 workspace: workspace,
-                cols: size?.cols,
-                rows: size?.rows
+                cols: size.cols,
+                rows: size.rows
             )
         )
     }
 
-    func newTab(pane: UInt64, size: CmuxSurfaceSize?) async throws -> CmuxSurfaceResponse {
+    func newTab(pane: UInt64, size: CmuxSurfaceSize) async throws -> CmuxSurfaceResponse {
         try await request(
             CmuxCommandRequest(
                 id: 0,
                 cmd: "new-tab",
                 pane: pane,
-                cols: size?.cols,
-                rows: size?.rows
+                cols: size.cols,
+                rows: size.rows
             )
         )
     }
@@ -109,7 +109,7 @@ public actor CmuxProtocolClient {
     func split(
         pane: UInt64,
         direction: CmuxSplitDirection,
-        size: CmuxSurfaceSize?
+        size: CmuxSurfaceSize
     ) async throws -> CmuxSurfaceResponse {
         try await request(
             CmuxCommandRequest(
@@ -117,8 +117,8 @@ public actor CmuxProtocolClient {
                 cmd: "split",
                 pane: pane,
                 direction: direction.rawValue,
-                cols: size?.cols,
-                rows: size?.rows
+                cols: size.cols,
+                rows: size.rows
             )
         )
     }

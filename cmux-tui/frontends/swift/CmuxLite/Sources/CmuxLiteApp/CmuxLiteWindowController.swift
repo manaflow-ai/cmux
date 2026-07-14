@@ -9,7 +9,6 @@ final class CmuxLiteWindowController: NSWindowController,
 {
     private let frontend: CmuxFrontendSession
     private let ghosttyViewConfiguration: CmuxGhosttyViewConfiguration
-    private let ghosttyConfigPath: String?
     private let shortcutTable = CmuxShortcutTable()
     private let workspaceTable = NSTableView()
     private let screensStack = NSStackView()
@@ -28,12 +27,10 @@ final class CmuxLiteWindowController: NSWindowController,
 
     init(
         frontend: CmuxFrontendSession,
-        ghosttyViewConfiguration: CmuxGhosttyViewConfiguration,
-        ghosttyConfigPath: String?
+        ghosttyViewConfiguration: CmuxGhosttyViewConfiguration
     ) {
         self.frontend = frontend
         self.ghosttyViewConfiguration = ghosttyViewConfiguration
-        self.ghosttyConfigPath = ghosttyConfigPath
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1040, height: 680),
@@ -151,7 +148,8 @@ final class CmuxLiteWindowController: NSWindowController,
 
     @objc
     private func newScreenPressed(_: NSButton) {
-        runMutation(.newScreen)
+        guard let activePane else { return }
+        runMutation(.newScreen(pane: activePane))
     }
 
     @objc
@@ -174,7 +172,8 @@ final class CmuxLiteWindowController: NSWindowController,
             guard let pane = activePaneSnapshot(), let surface = pane.activeSurface else { return }
             runMutation(.closeTab(surface: surface))
         case .newWorkspace:
-            runMutation(.newWorkspace)
+            guard let activePane else { return }
+            runMutation(.newWorkspace(pane: activePane))
         case let .selectTab(index):
             guard let pane = activePaneSnapshot(), pane.tabs.indices.contains(index) else { return }
             runMutation(.selectTab(pane: pane.id, index: index))
@@ -201,10 +200,10 @@ final class CmuxLiteWindowController: NSWindowController,
                     updated = try await frontend.selectWorkspace(id)
                 case let .screen(id):
                     updated = try await frontend.selectScreen(id)
-                case .newWorkspace:
-                    updated = try await frontend.newWorkspace()
-                case .newScreen:
-                    updated = try await frontend.newScreen()
+                case let .newWorkspace(pane):
+                    updated = try await frontend.newWorkspace(pane: pane)
+                case let .newScreen(pane):
+                    updated = try await frontend.newScreen(pane: pane)
                 case let .selectTab(pane, index):
                     updated = try await frontend.selectTab(pane: pane, index: index)
                 case let .newTab(pane):
@@ -282,8 +281,7 @@ final class CmuxLiteWindowController: NSWindowController,
                 controller = CmuxPaneViewController(
                     snapshot: pane,
                     frontend: frontend,
-                    ghosttyViewConfiguration: ghosttyViewConfiguration,
-                    ghosttyConfigPath: ghosttyConfigPath
+                    ghosttyViewConfiguration: ghosttyViewConfiguration
                 )
                 controller.onActivate = { [weak self] pane in
                     self?.activatePane(pane)
@@ -548,8 +546,7 @@ final class CmuxLiteWindowController: NSWindowController,
         ) { [weak self] event in
             guard let self, event.window === window else { return event }
             for (pane, controller) in paneControllers {
-                let point = controller.view.convert(event.locationInWindow, from: nil)
-                if controller.view.bounds.contains(point) {
+                if controller.containsTerminal(pointInWindow: event.locationInWindow) {
                     activatePane(pane, focus: false)
                     break
                 }

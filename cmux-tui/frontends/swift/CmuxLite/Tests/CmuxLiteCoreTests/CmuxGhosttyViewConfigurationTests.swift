@@ -25,6 +25,62 @@ struct CmuxGhosttyViewConfigurationTests {
     }
 
     @Test
+    func parsesResolvedShowConfigOutput() throws {
+        let configuration = try #require(CmuxGhosttyViewConfiguration.parseResolvedOutput(
+            """
+            font-family = Menlo
+            font-size = 12
+            background = #272822
+            foreground = #fdfff1
+            selection-foreground = #fdfff1
+            selection-background = #57584f
+            palette = 0=#272822
+            palette = 1=#f92672
+            palette = 255=#eeeeee
+            cursor-style = bar
+            cursor-style-blink = false
+            """
+        ))
+
+        #expect(configuration.fontFamily == "Menlo")
+        #expect(configuration.fontSize == 12)
+        #expect(configuration.background == "#272822")
+        #expect(configuration.foreground == "#fdfff1")
+        #expect(configuration.palette == [
+            0: "#272822",
+            1: "#f92672",
+            255: "#eeeeee",
+        ])
+        #expect(configuration.selectionBackground == "#57584f")
+        #expect(configuration.selectionForeground == "#fdfff1")
+        #expect(configuration.cursorStyle == "bar")
+        #expect(configuration.cursorBlink == false)
+    }
+
+    @Test
+    func fallbackKeepsTheLastLoadableThemeWhenALaterThemeIsMissing() {
+        let configuration = CmuxGhosttyViewConfiguration.parseFallback(
+            """
+            theme = "Monokai Classic"
+            theme = "Aizen Light"
+            cursor-style = bar
+            """
+        ) { name in
+            guard name == "Monokai Classic" else { return nil }
+            return """
+            background = #272822
+            foreground = #fdfff1
+            palette = 1=#f92672
+            """
+        }
+
+        #expect(configuration.background == "#272822")
+        #expect(configuration.foreground == "#fdfff1")
+        #expect(configuration.palette[1] == "#f92672")
+        #expect(configuration.cursorStyle == "bar")
+    }
+
+    @Test
     func laterValidEntriesWinAndLaterInvalidEntriesAreIgnored() {
         let configuration = CmuxGhosttyViewConfiguration.parse(
             """
