@@ -64,4 +64,20 @@ import Testing
         }
         #expect(reportedHover == true)
     }
+
+    @Test @MainActor func dismantlingDropsBufferedHoverEvents() async {
+        var reportedHover: Bool?
+        let view = SidebarWorkspaceRowHoverReconcilerView()
+        view.frame = NSRect(x: 0, y: 0, width: 120, height: 28)
+        view.onPointerHoverChanged = { reportedHover = $0 }
+
+        view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14))
+        SidebarWorkspaceRowHoverReconciler.dismantleNSView(view, coordinator: ())
+        await Task.yield()
+
+        #expect(
+            reportedHover == nil,
+            "Dismantling the representable must discard buffered hover events before row teardown state can be overwritten."
+        )
+    }
 }
