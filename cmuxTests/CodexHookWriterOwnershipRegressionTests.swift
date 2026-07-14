@@ -3,12 +3,13 @@ import Foundation
 import XCTest
 
 final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
-    func testWrapperSuppressesPersistentCmuxHooksAndOwnsInjectedHooks() throws {
+    func testWrapperPrefersTrustedPersistentHooksOverUntrustedSessionFlags() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-hook-owner-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
         let fakeCodex = root.appendingPathComponent("codex-real", isDirectory: false)
         let capturedEnvironment = root.appendingPathComponent("codex-environment.txt", isDirectory: false)
+        let capturedCLIInvocations = root.appendingPathComponent("cmux-invocations.txt", isDirectory: false)
         let socketPath = makeCodexHookSocketPath("owner")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -20,7 +21,9 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
 
         try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"$CMUX_TEST_CLI_CAPTURE\"",
             "case \" $* \" in",
+            "  *\" hooks codex install --yes \"*) exit 0 ;;",
             "  *\" hooks codex inject-args \"*) printf '%s\\0' --yolo ;;",
             "esac",
             "exit 0",
@@ -45,6 +48,7 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
                 "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
                 "CMUX_CUSTOM_CODEX_PATH": fakeCodex.path,
                 "CMUX_TEST_CAPTURE": capturedEnvironment.path,
+                "CMUX_TEST_CLI_CAPTURE": capturedCLIInvocations.path,
             ],
             timeout: 3
         )
@@ -52,9 +56,12 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         let captured = try String(contentsOf: capturedEnvironment, encoding: .utf8)
-        XCTAssertTrue(captured.contains("disabled=1"))
+        XCTAssertTrue(captured.contains("disabled=0"))
         XCTAssertTrue(captured.contains("owner=1"))
-        XCTAssertTrue(captured.contains("args=--yolo"))
+        XCTAssertTrue(captured.contains("args=\n"))
+        let invocations = try String(contentsOf: capturedCLIInvocations, encoding: .utf8)
+        XCTAssertTrue(invocations.contains("hooks codex install --yes"))
+        XCTAssertFalse(invocations.contains("hooks codex inject-args"))
     }
 
     func testInjectedHooksRequireWrapperOwnershipWhilePersistentHooksRespectDisable() throws {
