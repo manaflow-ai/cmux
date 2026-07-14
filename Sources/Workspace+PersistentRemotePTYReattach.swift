@@ -57,13 +57,16 @@ extension Workspace {
             let command: String
             let usesPersistentSSHPTY = configuration.transport == .ssh &&
                 !configuration.skipDaemonBootstrap && configuration.persistentDaemonSlot != nil
-            if sessionEnded || !usesPersistentSSHPTY {
+            if usesPersistentSSHPTY {
+                command = remotePTYAttachStartupCommand(
+                    sessionID: sessionID,
+                    requireExisting: !sessionEnded
+                )
+            } else {
                 guard let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration) else {
                     continue
                 }
                 command = startupCommand
-            } else {
-                command = remotePTYAttachStartupCommand(sessionID: sessionID)
             }
             guard respawnTerminalSurface(
                 panelId: panelId,

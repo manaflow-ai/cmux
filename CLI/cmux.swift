@@ -10149,7 +10149,9 @@ struct CMUXCLI {
         let scriptBody = [
             "command \(authCommand) <&0",
             "cmux_auth_status=$?",
-            "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
+            "if [ \"$cmux_auth_status\" -ne 0 ]; then",
+            "  case \"$cmux_auth_status\" in 254|255) exit 1 ;; *) exit \"$cmux_auth_status\" ;; esac",
+            "fi",
             attachScript,
         ]
             .joined(separator: "\n")
