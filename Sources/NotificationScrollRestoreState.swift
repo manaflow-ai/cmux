@@ -8,33 +8,3 @@ struct NotificationScrollRestoreState {
         request.position
     }
 }
-
-enum NotificationScrollReplayPhase {
-    case inactive
-    case armed(expectedStartBoundary: String, expectedEndBoundary: String)
-    case replaying(expectedEndBoundary: String)
-    case completedAwaitingGeometry
-    case completed(NotificationScrollRestoreGeometry)
-}
-
-enum NotificationScrollRequestPhase {
-    case idle
-    case waitingForReplay(position: TerminalNotificationScrollPosition, attemptsRemaining: Int)
-    case awaitingInitialGeometry(position: TerminalNotificationScrollPosition, attemptsRemaining: Int)
-    case awaitingPostReplayRestore(
-        position: TerminalNotificationScrollPosition,
-        attemptsRemaining: Int,
-        replayContext: NotificationReplayRestoreContext
-    )
-
-    var position: TerminalNotificationScrollPosition? {
-        switch self {
-        case .idle:
-            nil
-        case .waitingForReplay(let position, _),
-             .awaitingInitialGeometry(let position, _),
-             .awaitingPostReplayRestore(let position, _, _):
-            position
-        }
-    }
-}
