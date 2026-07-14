@@ -1,3 +1,5 @@
+import CmuxTerminal
+
 extension TerminalController {
     /// Clears the agent TUI's current prompt through the same line-editor path
     /// used by mobile chat before a composed prompt is pasted.
