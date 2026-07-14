@@ -4,9 +4,22 @@ import { renderToStaticMarkup } from "react-dom/server";
 const purchaseModule = await import("../services/billing/purchase");
 const stripeModule = await import("../services/billing/stripe");
 
+const redirect = mock((href: unknown) => {
+  throw Object.assign(new Error("redirect"), { href });
+});
+
 const retrieveSession = mock(async () => ({
   customer_details: { email: "buyer@example.com" },
   subscription: { status: "active" },
+}));
+
+mock.module("next/navigation", () => ({
+  redirect,
+  usePathname: () => "/",
+  notFound: () => {
+    throw new Error("notFound");
+  },
+  permanentRedirect: redirect,
 }));
 
 let acceptLanguage = "en";
@@ -86,6 +99,7 @@ describe("billing success page", () => {
     expect(html).toContain("Manage billing");
     expect(html).toContain("Open cmux");
     expect(html).toContain("Manage sign-in methods");
+    expect(redirect).not.toHaveBeenCalled();
     expect(retrieveSession).toHaveBeenCalledWith("cs_123", {
       expand: ["subscription", "customer"],
     });

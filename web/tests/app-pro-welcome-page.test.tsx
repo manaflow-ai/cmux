@@ -1,5 +1,20 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+
+const redirect = mock((href: unknown) => {
+  throw Object.assign(new Error("redirect"), { href });
+});
+
+// bun's mock.module replaces these modules process-wide, so each mock must
+// carry every export another test in the suite might import.
+mock.module("next/navigation", () => ({
+  redirect,
+  usePathname: () => "/",
+  notFound: () => {
+    throw new Error("notFound");
+  },
+  permanentRedirect: redirect,
+}));
 
 const { default: AppProWelcomePage } = await import("../app/app-pro-welcome/page");
 
@@ -7,9 +22,7 @@ describe("app pro welcome page", () => {
   test("redirects to the dashboard billing page outside the cmux app", async () => {
     await expect(
       AppProWelcomePage({ searchParams: Promise.resolve({}) }),
-    ).rejects.toMatchObject({
-      digest: expect.stringContaining(";/dashboard/billing;"),
-    });
+    ).rejects.toMatchObject({ href: "/dashboard/billing" });
   });
 
   test("renders the welcome checklist with dashboard links inside the cmux app", async () => {
