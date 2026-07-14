@@ -166,6 +166,35 @@ struct CmxIrohRelayPolicyTests {
     }
 
     @Test
+    func policyAcceptsOnlyBoundedNotBeforeClockSkew() throws {
+        let fixture = try Fixture()
+        let tolerated = try fixture.token(
+            sequence: 4,
+            notBefore: fixture.nowSeconds + 30
+        )
+
+        #expect(throws: Never.self) {
+            try CmxIrohRelayPolicyVerifier().verify(
+                tolerated,
+                trustRoot: fixture.trustRoot,
+                now: fixture.now
+            )
+        }
+
+        let excessive = try fixture.token(
+            sequence: 5,
+            notBefore: fixture.nowSeconds + 31
+        )
+        #expect(throws: CmxIrohRelayPolicyError.invalidClaims) {
+            try CmxIrohRelayPolicyVerifier().verify(
+                excessive,
+                trustRoot: fixture.trustRoot,
+                now: fixture.now
+            )
+        }
+    }
+
+    @Test
     func cacheRejectsPolicyRollbackAndReverifiesOnLoad() async throws {
         let fixture = try Fixture()
         let store = TestSecureCredentialStore()
@@ -415,6 +444,7 @@ struct CmxIrohRelayPolicyTests {
         func token(
             sequence: Int64,
             issuedAt: Int64? = nil,
+            notBefore: Int64? = nil,
             expiresAt: Int64? = nil,
             relayProtocol: String = "iroh-relay-v1",
             keyID: String = "policy-2026-1",
@@ -434,6 +464,7 @@ struct CmxIrohRelayPolicyTests {
                 relayURLs: relayURLs,
                 regions: regions,
                 issuedAt: issuedAt,
+                notBefore: notBefore,
                 expiresAt: expiresAt,
                 relayProtocol: relayProtocol
             )
@@ -447,6 +478,7 @@ struct CmxIrohRelayPolicyTests {
             relayURLs: [String]? = nil,
             regions: [String]? = nil,
             issuedAt: Int64? = nil,
+            notBefore: Int64? = nil,
             expiresAt: Int64? = nil,
             relayProtocol: String = "iroh-relay-v1"
         ) throws -> Data {
@@ -467,7 +499,7 @@ struct CmxIrohRelayPolicyTests {
                     "jti": "123e4567-e89b-42d3-a456-426614174000",
                     "sequence": sequence,
                     "iat": issuedAt ?? nowSeconds,
-                    "nbf": issuedAt ?? nowSeconds,
+                    "nbf": notBefore ?? issuedAt ?? nowSeconds,
                     "exp": expiresAt ?? nowSeconds + 3_600,
                     "aud": "cmux-iroh-relay-policy",
                     "relay_protocol": relayProtocol,
