@@ -678,6 +678,10 @@ extension Workspace {
             return nil
         case .cloudVMLoading:
             return nil
+        case .simulator:
+            // v1: simulator panes are session-transient (like cloudVMLoading);
+            // restoring one would re-boot a device without the user asking.
+            return nil
         }
         return SessionPanelSnapshot(
             id: panelId,
@@ -1672,6 +1676,10 @@ extension Workspace {
             return nil
         case .cloudVMLoading:
             return nil
+        case .simulator:
+            // Never captured (see sessionPanelSnapshot); restoring one would
+            // re-boot a simulator device without the user asking.
+            return nil
         }
     }
 
@@ -2509,20 +2517,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     var processTitle: String
-
-    nonisolated static func resolveCloseConfirmation(
-        shellActivityState: PanelShellActivityState?,
-        fallbackNeedsConfirmClose: Bool
-    ) -> Bool {
-        switch shellActivityState ?? .unknown {
-        case .promptIdle:
-            return false
-        case .commandRunning:
-            return true
-        case .unknown:
-            return fallbackNeedsConfirmClose
-        }
-    }
 
     nonisolated private static func makeSessionRestorePolicyService(
         temporaryDirectory: URL = FileManager.default.temporaryDirectory

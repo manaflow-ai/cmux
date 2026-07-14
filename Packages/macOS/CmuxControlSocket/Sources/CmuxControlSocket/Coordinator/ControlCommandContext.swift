@@ -21,6 +21,7 @@ public protocol ControlCommandContext:
     ControlLayoutContext,
     ControlWorkspaceGroupContext,
     ControlWorkspaceTodoContext,
+    ControlSimulatorContext,
     ControlPaneContext,
     ControlCanvasContext,
     ControlMobileHostContext,

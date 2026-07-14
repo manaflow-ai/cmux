@@ -11,6 +11,7 @@ public struct BetaFeaturesSection: View {
     @State private var dock: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
+    @State private var simulatorSurface: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
 
@@ -19,6 +20,7 @@ public struct BetaFeaturesSection: View {
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
+        _simulatorSurface = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.simulatorSurface))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
         _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
@@ -39,6 +41,8 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 customSidebarsRow
                 SettingsCardDivider()
+                simulatorSurfaceRow
+                SettingsCardDivider()
                 remoteTmuxRow
                 SettingsCardDivider()
                 workspaceTodosChecklistStyleRow
@@ -53,6 +57,7 @@ public struct BetaFeaturesSection: View {
             dock,
             extensions,
             customSidebars,
+            simulatorSurface,
             remoteTmux,
             workspaceTodosChecklistStyle,
         ]
@@ -148,6 +153,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaCustomSidebarsToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var simulatorSurfaceRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:simulatorSurface",
+            String(localized: "settings.betaFeatures.simulatorSurface", defaultValue: "iOS Simulator Panes"),
+            subtitle: simulatorSurface.current
+                ? String(localized: "settings.betaFeatures.simulatorSurface.subtitleOn", defaultValue: "Lets cmux simulator open a live iOS Simulator display as a pane next to your terminals. Closing the pane shuts down only devices cmux booted.")
+                : String(localized: "settings.betaFeatures.simulatorSurface.subtitleOff", defaultValue: "Disables the cmux simulator commands until you enable them here.")
+        ) {
+            Toggle("", isOn: Binding(get: { simulatorSurface.current }, set: { simulatorSurface.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaSimulatorSurfaceToggle")
         }
     }
 

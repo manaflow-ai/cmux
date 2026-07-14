@@ -56,6 +56,17 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarWorkspaceTodosChecklistStyle"
     )
 
+    /// Simulator surface: an experimental pane that embeds a live iOS
+    /// Simulator display inside a workspace split (opened via the
+    /// `cmux simulator` CLI namespace / `simulator.*` socket verbs). Defaults
+    /// off; while off, every simulator entry point refuses cleanly so no
+    /// simctl process is ever spawned.
+    public let simulatorSurface = DefaultsKey<Bool>(
+        id: "simulator.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "simulator.beta.enabled"
+    )
+
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as
     /// sidebar workspaces, tmux windows as tabs, and tmux panes as splits;
