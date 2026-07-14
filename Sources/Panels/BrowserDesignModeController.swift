@@ -38,13 +38,14 @@ final class BrowserDesignModeController {
     @ObservationIgnored private weak var webView: WKWebView?
     @ObservationIgnored private var messageHandler: BrowserDesignModeMessageHandler?
     @ObservationIgnored private var operationRevision: UInt = 0
-
+    @ObservationIgnored private var activePageURL: URL?
+    private(set) var isApplyingEdit = false
     var isActive: Bool {
         phase == .active || phase == .activating
     }
 
     var canSendToAgent: Bool {
-        phase == .active && snapshot?.selection != nil && snapshot?.edits.isEmpty == false
+        phase == .active && !isApplyingEdit && snapshot?.selection != nil && snapshot?.edits.isEmpty == false
     }
 
     var protectsFromDiscard: Bool {
@@ -108,6 +109,11 @@ final class BrowserDesignModeController {
         resetNativeState()
     }
 
+    func webViewURLDidChange(to url: URL?) {
+        guard (isActive || snapshot != nil), url != activePageURL else { return }
+        webViewWillNavigate()
+    }
+
     func webViewWillBeRemoved(_ webView: WKWebView) {
         invalidateOperation()
         bestEffortDestroyRuntime(in: webView)
@@ -142,6 +148,7 @@ final class BrowserDesignModeController {
                 return false
             }
             phase = .activating
+            activePageURL = webView.url
             let operation = beginOperation()
             errorMessage = nil
             handoffState = .idle
@@ -250,7 +257,7 @@ final class BrowserDesignModeController {
             guard operation == operationRevision else { return }
             apply(capture.snapshot)
 
-            guard let selection = capture.snapshot.selection else {
+            guard let selection = capture.snapshot.selection, !capture.snapshot.edits.isEmpty else {
                 throw BrowserScreenshotError.invalidSelection
             }
             let cropRect = Self.captureRect(
@@ -297,7 +304,11 @@ final class BrowserDesignModeController {
 
     private func updateRuntime(_ body: String, arguments: [String: Any] = [:]) async {
         guard phase == .active, let webView else { return }
+        invalidateOperation()
+        handoffState = .idle
         let operation = operationRevision
+        isApplyingEdit = true
+        defer { if operation == operationRevision { isApplyingEdit = false } }
         do {
             let value = try await evaluate(body, arguments: arguments, in: webView)
             guard operation == operationRevision, phase == .active else { return }
@@ -368,6 +379,7 @@ final class BrowserDesignModeController {
         afterViewBounds: NSRect
     ) -> Bool {
         before.enabled && after.enabled
+            && before.revision == after.revision
             && before.selection?.selector == after.selection?.selector
             && before.selection?.bounds == after.selection?.bounds
             && before.selection?.viewport == after.selection?.viewport
@@ -452,6 +464,8 @@ final class BrowserDesignModeController {
         snapshot = nil
         handoffState = .idle
         errorMessage = nil
+        activePageURL = nil
+        isApplyingEdit = false
     }
 
     private func beginOperation() -> UInt {

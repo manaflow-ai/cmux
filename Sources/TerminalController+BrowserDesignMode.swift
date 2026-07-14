@@ -16,10 +16,11 @@ extension TerminalController {
         let terminalSurfaceIDs = Set(workspace.panels.compactMap { panelID, panel in
             panel is TerminalPanel ? panelID : nil
         })
-        _ = await service.observeAgentProcessesForListing(
+        let observedBeforeDelivery = await service.observeAgentProcessesForListing(
             surfaceIDs: terminalSurfaceIDs,
             waitUpTo: .milliseconds(750)
         )
+        guard observedBeforeDelivery else { throw BrowserDesignModeSendError.agentBusy }
         guard operationIsCurrent() else { throw CancellationError() }
         guard let currentOwner = AppDelegate.shared?.workspaceForBrowserDesignModePanel(
             panelId: browserPanelID,
@@ -43,7 +44,7 @@ extension TerminalController {
                 ? BrowserDesignModeSendError.terminalUnavailable
                 : BrowserDesignModeSendError.multipleAgentTerminals
         }
-        guard target.record.state == .idle else {
+        guard target.record.hasHookLifecycleState, target.record.state == .idle else {
             throw BrowserDesignModeSendError.agentBusy
         }
         let terminal = target.terminal

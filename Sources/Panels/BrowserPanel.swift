@@ -4830,8 +4830,7 @@ final class BrowserPanel: Panel, ObservableObject {
         return nil
     }
 
-    /// Tears down every live web-view observer (Swift key-path KVO + Combine
-    /// subscriptions) and clears the derived
+    /// Tears down every live web-view observer and clears the derived
     /// media-activity flags. Invoked at each point a web view is released or
     /// replaced, so a discarded/closed pane never shows a stale
     /// speaker/mic/camera glyph; the next `setupObservers` re-seeds the flags
@@ -4852,6 +4851,7 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 guard !self.isMainFrameProvisionalNavigationActive else { return }
+                self.designModeController.webViewURLDidChange(to: observedURL)
                 self.currentURL = Self.remoteProxyDisplayURL(for: observedURL)
                 self.refreshBackgroundAppearance()
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)

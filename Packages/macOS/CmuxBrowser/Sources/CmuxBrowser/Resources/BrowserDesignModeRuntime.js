@@ -360,6 +360,22 @@
     };
   };
 
+  const rebaseEdits = (baseline) => {
+    for (const [id, edit] of edits) {
+      if (edit.kind === "style") {
+        edits.set(id, {
+          ...edit,
+          original_value: baseline.computed_styles?.[edit.property] || "",
+        });
+      } else if (edit.kind === "text" && baseline.text_editable) {
+        edits.set(id, { ...edit, original_value: baseline.text_content });
+      } else if (edit.kind === "text") {
+        edits.delete(id);
+        editStateNeedsEmit = true;
+      }
+    }
+  };
+
   const refreshSelectionForCapture = (element) => {
     const selectors = selectorsFor(element);
     captureSelectionValid = selectors.length > 0;
@@ -428,7 +444,12 @@
       try {
         const candidates = document.querySelectorAll(selector);
         if (candidates.length === 1 && identityFor(candidates[0]) === selectedIdentity) {
+          const recoveredBaseline = baselineFor(candidates[0]);
+          if (!recoveredBaseline) continue;
           selectedElement = candidates[0];
+          selectedBaseline = recoveredBaseline;
+          selectedIdentity = identityFor(candidates[0]);
+          rebaseEdits(recoveredBaseline);
           return candidates[0];
         }
       } catch (_) {}
@@ -753,7 +774,7 @@
     overlayFrame = requestAnimationFrame(refreshOverlay);
   };
 
-  const refreshAfterMutation = (emitRecoveredSelection = false) => {
+  const refreshAfterMutation = (emitRecoveredSelection = false, observedMutation = false) => {
     refreshScheduled = false;
     const editsChanged = editStateNeedsEmit;
     editStateNeedsEmit = false;
@@ -790,7 +811,7 @@
     } else if (previous) {
       selectionRecoveryAttemptsRemaining = maxSelectionRecoveryAttempts;
     }
-    if (previous !== current || identityChanged || editsChanged || (emitRecoveredSelection && current)) {
+    if (observedMutation || previous !== current || identityChanged || editsChanged || (emitRecoveredSelection && current)) {
       revision += 1;
       emit();
     }
@@ -801,7 +822,7 @@
     if (refreshScheduled) return;
     refreshScheduled = true;
     const enqueue = globalThis.queueMicrotask || ((work) => Promise.resolve().then(work));
-    enqueue(refreshAfterMutation);
+    enqueue(() => refreshAfterMutation(false, true));
   };
 
   const cancelSelectionRecovery = () => {
