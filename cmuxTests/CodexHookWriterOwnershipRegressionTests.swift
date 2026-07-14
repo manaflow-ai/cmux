@@ -1,10 +1,9 @@
 import Darwin
 import Foundation
-import Testing
+import XCTest
 
-@Suite(.serialized)
-struct CodexHookWriterOwnershipRegressionTests {
-    @Test func wrapperSuppressesPersistentCmuxHooksAndOwnsInjectedHooks() throws {
+final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
+    func testWrapperSuppressesPersistentCmuxHooksAndOwnsInjectedHooks() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-hook-owner-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux", isDirectory: false)
@@ -50,34 +49,34 @@ struct CodexHookWriterOwnershipRegressionTests {
             timeout: 3
         )
 
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
         let captured = try String(contentsOf: capturedEnvironment, encoding: .utf8)
-        #expect(captured.contains("disabled=1"))
-        #expect(captured.contains("owner=1"))
-        #expect(captured.contains("args=--yolo"))
+        XCTAssertTrue(captured.contains("disabled=1"))
+        XCTAssertTrue(captured.contains("owner=1"))
+        XCTAssertTrue(captured.contains("args=--yolo"))
     }
 
-    @Test func injectedHooksRequireWrapperOwnershipWhilePersistentHooksRespectDisable() throws {
+    func testInjectedHooksRequireWrapperOwnershipWhilePersistentHooksRespectDisable() throws {
         let cliPath = try bundledCLIPath()
         let result = runCodexInjectArgsProcess(executablePath: cliPath)
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        XCTAssertEqual(result.status, 0, result.stderr)
 
         let arguments = result.stdout.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
         let hookConfigurations = arguments.filter { $0.hasPrefix("hooks.") }
-        #expect(!hookConfigurations.isEmpty)
+        XCTAssertFalse(hookConfigurations.isEmpty)
         for configuration in hookConfigurations {
             let marker = "command='''"
-            let commandStart = try #require(configuration.range(of: marker)?.upperBound)
-            let commandEnd = try #require(configuration.range(of: "'''", range: commandStart..<configuration.endIndex)?.lowerBound)
+            let commandStart = try XCTUnwrap(configuration.range(of: marker)?.upperBound)
+            let commandEnd = try XCTUnwrap(configuration.range(of: "'''", range: commandStart..<configuration.endIndex)?.lowerBound)
             let scriptPath = String(configuration[commandStart..<commandEnd])
             let body = try String(contentsOfFile: scriptPath, encoding: .utf8)
-            #expect(body.contains("CMUX_CODEX_WRAPPER_HOOK_OWNER"))
-            #expect(body.contains("= \"1\""))
+            XCTAssertTrue(body.contains("CMUX_CODEX_WRAPPER_HOOK_OWNER"))
+            XCTAssertTrue(body.contains("= \"1\""))
         }
     }
 
-    @Test func setupPrunesLegacyProjectDispatcherButPreservesUserHook() throws {
+    func testSetupPrunesLegacyProjectDispatcherButPreservesUserHook() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-legacy-owner-\(UUID().uuidString)", isDirectory: true)
@@ -104,13 +103,13 @@ struct CodexHookWriterOwnershipRegressionTests {
             environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
             timeout: 5
         )
-        #expect(install.status == 0, Comment(rawValue: install.stderr))
+        XCTAssertEqual(install.status, 0, install.stderr)
 
         let promptHooks = try codexHookEntries(in: codexHome)
             .filter { $0.eventName == "UserPromptSubmit" }
-        #expect(!promptHooks.contains { $0.command == legacyCommand })
-        #expect(promptHooks.contains { $0.command == userCommand })
-        #expect(promptHooks.filter { $0.body.contains("hooks codex prompt-submit") }.count == 1)
+        XCTAssertFalse(promptHooks.contains { $0.command == legacyCommand })
+        XCTAssertTrue(promptHooks.contains { $0.command == userCommand })
+        XCTAssertEqual(promptHooks.filter { $0.body.contains("hooks codex prompt-submit") }.count, 1)
     }
 
     private func runCodexInjectArgsProcess(executablePath: String) -> (status: Int32, stdout: Data, stderr: String) {
