@@ -168,7 +168,7 @@ final class ComputerUseWatchTargetController {
         NotificationCenter.default.publisher(for: .cmuxFeatureFlagsDidChange)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh() }
+                Task { @MainActor in self?.refresh() }
             }
             .store(in: &cancellables)
 
@@ -176,7 +176,7 @@ final class ComputerUseWatchTargetController {
         // The watcher fires on writes, but the driver stops writing between actions;
         // a light poll picks up a new target promptly even without a write event.
         let timer = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            Task { @MainActor in self?.refresh() }
         }
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
@@ -262,12 +262,11 @@ final class ComputerUseWatchTargetController {
     private func scheduleCoalescedRefresh() {
         guard started, !refreshCoalesceScheduled else { return }
         refreshCoalesceScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.refreshCoalesceScheduled = false
-                self.refresh()
-            }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard let self else { return }
+            self.refreshCoalesceScheduled = false
+            self.refresh()
         }
     }
 }

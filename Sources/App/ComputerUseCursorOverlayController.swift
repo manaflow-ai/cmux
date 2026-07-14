@@ -414,7 +414,7 @@ final class ComputerUseCursorOverlayController {
         NotificationCenter.default.publisher(for: .cmuxFeatureFlagsDidChange)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh() }
+                Task { @MainActor in self?.refresh() }
             }
             .store(in: &cancellables)
 
@@ -422,7 +422,7 @@ final class ComputerUseCursorOverlayController {
         // The filesystem watcher fires on writes, but the driver stops writing when
         // idle; a light poll detects staleness and hides the overlay on time.
         let timer = Timer(timeInterval: pollInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            Task { @MainActor in self?.refresh() }
         }
         RunLoop.main.add(timer, forMode: .common)
         pollTimer = timer
@@ -550,12 +550,11 @@ final class ComputerUseCursorOverlayController {
     private func scheduleCoalescedRefresh() {
         guard started, !refreshCoalesceScheduled else { return }
         refreshCoalesceScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.refreshCoalesceScheduled = false
-                self.refresh()
-            }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 16_000_000)
+            guard let self else { return }
+            self.refreshCoalesceScheduled = false
+            self.refresh()
         }
     }
 

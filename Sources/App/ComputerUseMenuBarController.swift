@@ -46,7 +46,7 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         snapshotCancellable = snapshotStore.$snapshot
             .receive(on: DispatchQueue.main)
             .sink { [weak self] snapshot in
-                MainActor.assumeIsolated { self?.refreshUI(snapshot: snapshot) }
+                Task { @MainActor in self?.refreshUI(snapshot: snapshot) }
             }
         snapshotStore.start()
         refreshUI(snapshot: snapshotStore.snapshot)

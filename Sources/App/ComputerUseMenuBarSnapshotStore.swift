@@ -64,13 +64,13 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
         NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh() }
+                Task { @MainActor in self?.refresh() }
             }
             .store(in: &cancellables)
         NotificationCenter.default.publisher(for: .cmuxFeatureFlagsDidChange)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh() }
+                Task { @MainActor in self?.refresh() }
             }
             .store(in: &cancellables)
 
