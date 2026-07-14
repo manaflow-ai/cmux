@@ -1730,16 +1730,25 @@ final class TerminalNotificationStore: ObservableObject {
             )
         }
         if didMoveNotification {
-            let displacedOwner = externalBannerOwnership.rebind(
-                surfaceId: surfaceId,
-                fromTabId: sourceTabId,
-                toTabId: destinationTabId
-            )
-            supersededPhoneDismissBuffer.rebind(
-                surfaceId: surfaceId,
-                fromTabId: sourceTabId,
-                toTabId: destinationTabId
-            )
+            let bannerOwnerRetargets = externalBannerOwnership.owner(
+                tabId: sourceTabId,
+                surfaceId: surfaceId
+            )?.retargetsToLiveSurfaceOwner == true
+            let displacedOwner: TerminalNotification?
+            if bannerOwnerRetargets {
+                displacedOwner = externalBannerOwnership.rebind(
+                    surfaceId: surfaceId,
+                    fromTabId: sourceTabId,
+                    toTabId: destinationTabId
+                )
+                supersededPhoneDismissBuffer.rebind(
+                    surfaceId: surfaceId,
+                    fromTabId: sourceTabId,
+                    toTabId: destinationTabId
+                )
+            } else {
+                displacedOwner = nil
+            }
             dismissDisplacedExternalBannerOwners(displacedOwner.map { [$0] } ?? [])
             notifications = updated
         }

@@ -97,6 +97,7 @@ struct ExternalNotificationBannerOwnership {
     @discardableResult
     mutating func rebind(surfaceId: UUID, fromTabId: UUID, toTabId: UUID) -> TerminalNotification? {
         guard let owner = owner(tabId: fromTabId, surfaceId: surfaceId) else { return nil }
+        guard owner.retargetsToLiveSurfaceOwner else { return nil }
         clear(tabId: fromTabId, surfaceId: surfaceId)
         let moved = owner.replacingLocation(
             tabId: toTabId,

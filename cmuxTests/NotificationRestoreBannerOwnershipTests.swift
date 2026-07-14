@@ -176,7 +176,7 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(!moved.retargetsToLiveSurfaceOwner)
     }
 
-    @Test func rebindPreservesSourceConfinedBannerOwner() throws {
+    @Test func rebindKeepsSourceConfinedBannerOwnerAtSource() throws {
         let sourceTabId = UUID()
         let destinationTabId = UUID()
         let surfaceId = UUID()
@@ -194,8 +194,9 @@ struct NotificationRestoreBannerOwnershipTests {
             toTabId: destinationTabId
         ) == nil)
 
-        let moved = try #require(ownership.owner(tabId: destinationTabId, surfaceId: surfaceId))
-        #expect(!moved.retargetsToLiveSurfaceOwner)
+        let preserved = try #require(ownership.owner(tabId: sourceTabId, surfaceId: surfaceId))
+        #expect(!preserved.retargetsToLiveSurfaceOwner)
+        #expect(ownership.owner(tabId: destinationTabId, surfaceId: surfaceId) == nil)
     }
 
     @Test func sourceConfinedBannerOwnerStaysWithSourceWhenOtherRowsRebind() throws {
@@ -213,9 +214,17 @@ struct NotificationRestoreBannerOwnershipTests {
             id: UUID(), tabId: sourceTabId, surfaceId: surfaceId,
             title: "Retargeting row", createdAt: Date(timeIntervalSince1970: 10)
         )
-        defer { store.replaceNotificationsForTesting(previousNotifications) }
+        let supersededId = UUID().uuidString
+        defer {
+            _ = store.flushSupersededPhoneDismissIDsForTesting(tabId: sourceTabId, surfaceId: surfaceId)
+            _ = store.flushSupersededPhoneDismissIDsForTesting(tabId: destinationTabId, surfaceId: surfaceId)
+            store.replaceNotificationsForTesting(previousNotifications)
+        }
 
         store.replaceNotificationsForTesting([sourceConfinedOwner, retargetingRow])
+        store.stashSupersededPhoneDismissIDsForTesting(
+            [supersededId], tabId: sourceTabId, surfaceId: surfaceId
+        )
         store.rebindSurfaceNotifications(
             fromTabId: sourceTabId,
             toTabId: destinationTabId,
@@ -229,6 +238,14 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(store.externalBannerOwnerIDForTesting(tabId: destinationTabId, surfaceId: surfaceId) == nil)
         #expect(store.notifications.first(where: { $0.id == sourceConfinedOwner.id })?.tabId == sourceTabId)
         #expect(store.notifications.first(where: { $0.id == retargetingRow.id })?.tabId == destinationTabId)
+        #expect(
+            store.flushSupersededPhoneDismissIDsForTesting(tabId: sourceTabId, surfaceId: surfaceId)
+                == [supersededId]
+        )
+        #expect(
+            store.flushSupersededPhoneDismissIDsForTesting(tabId: destinationTabId, surfaceId: surfaceId)
+                == []
+        )
     }
 
     @Test func restoredNewerRowDoesNotOwnLiveBannerRowActions() {
