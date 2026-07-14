@@ -26,6 +26,7 @@ const redirect = mock((href: unknown) => {
 mock.module("next/navigation", () => createNextNavigationMock(redirect));
 
 mock.module("next-intl", () => ({
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
   useLocale: () => "en",
   useTranslations: (namespace?: string) => translator(namespace),
 }));
