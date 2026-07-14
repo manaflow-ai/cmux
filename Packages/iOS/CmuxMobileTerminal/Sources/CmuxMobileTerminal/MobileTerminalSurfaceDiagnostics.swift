@@ -85,11 +85,10 @@ extension MobileTerminalSurfaceDiagnosticsSnapshot {
             return
         }
 
-        let geometry = view.debugGeometrySnapshotForTesting()
-        let naturalColumns = geometry.renderedSize?.columns ?? 0
-        let naturalRows = geometry.renderedSize?.rows ?? 0
-        let effectiveColumns = geometry.effectiveGrid?.cols ?? naturalColumns
-        let effectiveRows = geometry.effectiveGrid?.rows ?? naturalRows
+        let naturalColumns = view.appliedNaturalSize?.columns ?? 0
+        let naturalRows = view.appliedNaturalSize?.rows ?? 0
+        let effectiveColumns = view.effectiveGrid?.cols ?? naturalColumns
+        let effectiveRows = view.effectiveGrid?.rows ?? naturalRows
         self.init(
             surfaceID: surfaceID,
             surfaceMounted: view.surface != nil,
@@ -100,21 +99,21 @@ extension MobileTerminalSurfaceDiagnosticsSnapshot {
             // generation, so the generation is also the exact per-view
             // recovery count without a mirrored counter.
             recoveryCount: view.surfaceGeneration,
-            viewportWidth: Double(geometry.viewportRect.width),
-            viewportHeight: Double(geometry.viewportRect.height),
-            renderMinX: Double(geometry.renderRect.minX),
-            renderMinY: Double(geometry.renderRect.minY),
-            renderWidth: Double(geometry.renderRect.width),
-            renderHeight: Double(geometry.renderRect.height),
-            backingScale: Double(geometry.screenScale),
-            cellPixelWidth: Double(geometry.cellPixelSize.width),
-            cellPixelHeight: Double(geometry.cellPixelSize.height),
+            viewportWidth: Double(view.terminalViewportRect.width),
+            viewportHeight: Double(view.terminalViewportRect.height),
+            renderMinX: Double(view.lastRenderRect.minX),
+            renderMinY: Double(view.lastRenderRect.minY),
+            renderWidth: Double(view.lastRenderRect.width),
+            renderHeight: Double(view.lastRenderRect.height),
+            backingScale: Double(view.preferredScreenScale),
+            cellPixelWidth: Double(view.cellPixelSize.width),
+            cellPixelHeight: Double(view.cellPixelSize.height),
             naturalColumns: naturalColumns,
             naturalRows: naturalRows,
             effectiveColumns: effectiveColumns,
             effectiveRows: effectiveRows,
-            baseFontPoints: Double(geometry.baseFontSize),
-            liveFontPoints: Double(geometry.liveFontSize)
+            baseFontPoints: Double(view.userBaseFontSize),
+            liveFontPoints: Double(view.liveFontSize)
         )
     }
 }

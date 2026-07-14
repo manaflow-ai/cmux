@@ -6,6 +6,42 @@ import UIKit
 
 @testable import CmuxMobileTerminal
 
+private struct ViewportSpacingGeometrySnapshot {
+    let renderRect: CGRect
+    let screenScale: CGFloat
+    let renderedSize: TerminalGridSize?
+    let isLetterboxBorderVisible: Bool
+    let viewportRect: CGRect
+    let effectiveGrid: (cols: Int, rows: Int)?
+    let cellPixelSize: CGSize
+    let liveFontSize: Float32
+    let baseFontSize: Float32
+}
+
+private extension GhosttySurfaceView {
+    func viewportSpacingSnapshot() -> ViewportSpacingGeometrySnapshot {
+        ViewportSpacingGeometrySnapshot(
+            renderRect: lastRenderRect,
+            screenScale: preferredScreenScale,
+            renderedSize: appliedNaturalSize,
+            isLetterboxBorderVisible: letterboxBorderLayer?.isHidden == false,
+            viewportRect: terminalViewportRect,
+            effectiveGrid: effectiveGrid,
+            cellPixelSize: cellPixelSize,
+            liveFontSize: liveFontSize,
+            baseFontSize: userBaseFontSize
+        )
+    }
+
+    func setViewportSpacingKeyboardHeight(_ height: CGFloat) {
+        stopKeyboardHeightAnimation()
+        keyboardHeight = max(0, height)
+        layoutRenderedTerminalForCurrentViewport()
+        layoutBottomDock()
+        syncSurfaceGeometry(shouldReassertNaturalSize: true)
+    }
+}
+
 /// In-simulator behavior coverage for the terminal's vertical spacing: the
 /// rendered grid must stretch to the full viewport (bounds minus keyboard /
 /// toolbar / safe-area reservation) whenever the daemon grid allows it, across
@@ -97,8 +133,8 @@ private final class ViewportSpacingHarness {
         window.isHidden = true
     }
 
-    var snapshot: GhosttySurfaceView.DebugGeometrySnapshot {
-        view.debugGeometrySnapshotForTesting()
+    var snapshot: ViewportSpacingGeometrySnapshot {
+        view.viewportSpacingSnapshot()
     }
 
     /// Measured cell height in points; the tolerance unit for "fills".
@@ -190,6 +226,8 @@ struct TerminalViewportSpacingTests {
         let initial = try #require(report, "view never reported its natural grid")
         #expect(initial.columns > 10)
         #expect(initial.rows > 10)
+        let applied = try #require(harness.snapshot.renderedSize)
+        #expect(harness.view.currentGridSize == applied)
 
         harness.echo(initial)
         #expect(await harness.waitForFill(), "top gap \(harness.topGap)pt, bottom gap \(harness.bottomGap)pt, cell \(harness.cellHeightPoints)pt")
@@ -208,7 +246,7 @@ struct TerminalViewportSpacingTests {
 
         // Keyboard opens: viewport shrinks, view reports a smaller grid.
         let beforeOpen = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
+        harness.view.setViewportSpacingKeyboardHeight(ViewportSpacingHarness.keyboardHeight)
         let openReport = try #require(
             await harness.waitForReport(after: beforeOpen),
             "no report after keyboard open"
@@ -219,7 +257,7 @@ struct TerminalViewportSpacingTests {
 
         // Keyboard closes: viewport grows back, view re-reports, echo restores.
         let beforeClose = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(0)
+        harness.view.setViewportSpacingKeyboardHeight(0)
         let closeReport = try #require(
             await harness.waitForReport(after: beforeClose),
             "no report after keyboard close"
@@ -246,14 +284,14 @@ struct TerminalViewportSpacingTests {
 
         // Keyboard opens; the report goes out but its echo is DELAYED.
         let beforeOpen = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
+        harness.view.setViewportSpacingKeyboardHeight(ViewportSpacingHarness.keyboardHeight)
         let openReport = try #require(await harness.waitForReport(after: beforeOpen))
         #expect(openReport.rows < initial.rows)
 
         // Keyboard closes before the open echo lands; the close report's echo
         // arrives FIRST.
         let beforeClose = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(0)
+        harness.view.setViewportSpacingKeyboardHeight(0)
         let closeReport = try #require(await harness.waitForReport(after: beforeClose))
         #expect(closeReport.rows > openReport.rows)
         harness.echo(closeReport)
@@ -347,12 +385,12 @@ struct TerminalViewportSpacingTests {
 
         // Open + echo so a real pin exists, then close with the echo DROPPED.
         let beforeOpen = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
+        harness.view.setViewportSpacingKeyboardHeight(ViewportSpacingHarness.keyboardHeight)
         let openReport = try #require(await harness.waitForReport(after: beforeOpen))
         harness.echo(openReport)
 
         let beforeClose = harness.delegate.reports.count
-        harness.view.setKeyboardHeightForTesting(0)
+        harness.view.setViewportSpacingKeyboardHeight(0)
         let closeReport = try #require(await harness.waitForReport(after: beforeClose))
         #expect(closeReport.rows > openReport.rows)
         let closeReportID = try #require(harness.delegate.reportIDs[closeReport])
@@ -407,7 +445,7 @@ struct TerminalViewportSpacingTests {
 
         // Keyboard opens: the phone itself becomes the row constraint, so the
         // font returns to base and the content still fills the viewport.
-        harness.view.setKeyboardHeightForTesting(ViewportSpacingHarness.keyboardHeight)
+        harness.view.setViewportSpacingKeyboardHeight(ViewportSpacingHarness.keyboardHeight)
         let keyboardFit = await harness.pump(timeout: 8) {
             let snap = harness.snapshot
             return harness.topGap <= harness.cellHeightPoints * 1.5
@@ -417,7 +455,7 @@ struct TerminalViewportSpacingTests {
         #expect(keyboardFit, "keyboard-up: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize)")
 
         // Keyboard closes: back to the mac-constrained state, stretched again.
-        harness.view.setKeyboardHeightForTesting(0)
+        harness.view.setViewportSpacingKeyboardHeight(0)
         let restretched = await harness.pump(timeout: 8) {
             let snap = harness.snapshot
             return harness.topGap <= harness.cellHeightPoints * 1.5

@@ -391,10 +391,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// cols×rows pin into a pixel box without re-round-tripping through
     /// Ghostty. Zero until the first layout has measured.
     var cellPixelSize: CGSize = .zero
+    /// Natural grid committed by the latest successful geometry transaction.
+    /// This is the production source of truth for the grid currently applied
+    /// to the renderer, independent of whether its viewport report has settled.
+    var appliedNaturalSize: TerminalGridSize?
     /// 1 px separator stroke drawn around the pinned surface rect when the
     /// container is larger than the render target (i.e., this device is
     /// not the smallest). Added lazily on first letterbox.
-    private var letterboxBorderLayer: CAShapeLayer?
+    var letterboxBorderLayer: CAShapeLayer?
     /// Last render rect used for the Ghostty surface inside the host view's
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
@@ -405,64 +409,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
     private var keyboardHeightAnimationID = 0
 
-    #if DEBUG
-    /// Natural grid from the latest geometry result applied by this surface.
-    /// Captured at the owning apply boundary so diagnostics never call into
-    /// libghostty from an accessibility read.
-    var debugAppliedNaturalSize: TerminalGridSize?
-
-    struct DebugGeometrySnapshot {
-        let boundsSize: CGSize
-        let renderRect: CGRect
-        let screenScale: CGFloat
-        let reportedSize: TerminalGridSize?
-        let renderedSize: TerminalGridSize?
-        let isLetterboxBorderVisible: Bool
-        let letterboxBorderPathBounds: CGRect?
-        /// The viewport the terminal content may occupy right now (bounds minus
-        /// the keyboard/safe-area + composer + toolbar reservation). The render
-        /// rect is bottom-pinned inside this; any `renderRect.minY -
-        /// viewportRect.minY` difference is user-visible empty space at the top.
-        let viewportRect: CGRect
-        /// The daemon-authoritative grid pin, nil when filling naturally.
-        let effectiveGrid: (cols: Int, rows: Int)?
-        /// Measured cell size in device pixels (zero before first measure).
-        let cellPixelSize: CGSize
-        let keyboardHeight: CGFloat
-        /// The font actually rendering right now (may be auto-fit adjusted).
-        let liveFontSize: Float32
-        /// The user's explicit font choice that capacity reports are based on.
-        let baseFontSize: Float32
-    }
-
-    func debugGeometrySnapshotForTesting() -> DebugGeometrySnapshot {
-        return DebugGeometrySnapshot(
-            boundsSize: bounds.size,
-            renderRect: lastRenderRect,
-            screenScale: preferredScreenScale,
-            reportedSize: lastReportedSize,
-            renderedSize: debugAppliedNaturalSize,
-            isLetterboxBorderVisible: letterboxBorderLayer?.isHidden == false,
-            letterboxBorderPathBounds: letterboxBorderLayer?.path?.boundingBoxOfPath,
-            viewportRect: terminalViewportRect,
-            effectiveGrid: effectiveGrid,
-            cellPixelSize: cellPixelSize,
-            keyboardHeight: keyboardHeight,
-            liveFontSize: liveFontSize,
-            baseFontSize: userBaseFontSize
-        )
-    }
-
-    func setKeyboardHeightForTesting(_ height: CGFloat) {
-        stopKeyboardHeightAnimation()
-        keyboardHeight = max(0, height)
-        layoutRenderedTerminalForCurrentViewport()
-        layoutBottomDock()
-        syncSurfaceGeometry(shouldReassertNaturalSize: true)
-    }
-
-    #endif
-
     /// Suppresses render dispatch while keeping the display link, geometry,
     /// and viewport reporting alive. Hosts where a Metal present can never
     /// complete (a scene-less xctest process) set this so a stalled present
@@ -472,7 +418,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var isRenderDispatchSuppressed = false
 
     var currentGridSize: TerminalGridSize {
-        lastReportedSize ?? TerminalGridSize(columns: 100, rows: 32, pixelWidth: 900, pixelHeight: 650)
+        appliedNaturalSize
+            ?? lastReportedSize
+            ?? TerminalGridSize(columns: 100, rows: 32, pixelWidth: 900, pixelHeight: 650)
     }
 
     #if DEBUG
@@ -731,7 +679,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         startDisplayLink()
     }
 
-    private var keyboardHeight: CGFloat = 0
+    var keyboardHeight: CGFloat = 0
     private var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
     /// toolbar is docked above the keyboard (when up) or the home indicator
@@ -872,7 +820,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func stopKeyboardHeightAnimation() {
+    func stopKeyboardHeightAnimation() {
         keyboardHeightAnimationID &+= 1
         keyboardHeightAnimation = nil
     }
@@ -1026,7 +974,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ).height
     }
 
-    private var terminalViewportRect: CGRect {
+    var terminalViewportRect: CGRect {
         viewportSnapshot().layoutViewportRect
     }
 
@@ -1051,7 +999,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return abs(height - snapshot.layoutViewportRect.height) <= 1
     }
 
-    private func layoutRenderedTerminalForCurrentViewport() {
+    func layoutRenderedTerminalForCurrentViewport() {
         layoutRenderedTerminalForCurrentViewport(using: viewportSnapshot())
     }
 
@@ -1457,7 +1405,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private static let composerReflowDuration: TimeInterval = 0.25
 
     /// Position the composer band and docked toolbar from one viewport snapshot.
-    private func layoutBottomDock() {
+    func layoutBottomDock() {
         layoutBottomDock(using: viewportSnapshot())
     }
 
@@ -2458,7 +2406,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private var preferredScreenScale: CGFloat {
+    var preferredScreenScale: CGFloat {
         if let screen = window?.windowScene?.screen {
             return screen.scale
         }
@@ -3085,7 +3033,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func syncSurfaceGeometry(
+    func syncSurfaceGeometry(
         shouldReassertNaturalSize: Bool = true,
         completion: (@MainActor @Sendable (Bool) -> Void)? = nil
     ) {
@@ -3214,9 +3162,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         containerH: CGFloat,
         shouldReassertNaturalSize: Bool
     ) {
-        #if DEBUG
-        debugAppliedNaturalSize = result.naturalSize
-        #endif
+        appliedNaturalSize = result.naturalSize
         if result.cellPixelSize.width > 0, result.cellPixelSize.height > 0 {
             cellPixelSize = result.cellPixelSize
         }
