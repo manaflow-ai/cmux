@@ -135,7 +135,8 @@ struct BrowserWebExtensionInitialPermissionTests {
           "manifest_version": 3,
           "name": "Stale Load Test Extension",
           "version": "1.0",
-          "permissions": ["tabs"]
+          "permissions": ["tabs"],
+          "host_permissions": ["https://*.stale-load.example/*"]
         }
         """
         try Data(manifest.utf8).write(
