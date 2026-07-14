@@ -8,30 +8,36 @@ struct WorktreeStatusTests {
     func computesAheadAndBehindAgainstUpstream() async throws {
         let fixture = try await GitTestRepository.make()
         defer { fixture.cleanup() }
+        let upstreamBranch = "status-upstream"
         let remote = fixture.path("remote.git")
         _ = try await fixture.git(["init", "--bare", remote.path])
         _ = try await fixture.git(["remote", "add", "origin", remote.path])
-        _ = try await fixture.git(["push", "-u", "origin", "main"])
+        _ = try await fixture.git(["push", "origin", "HEAD:refs/heads/\(upstreamBranch)"])
+        _ = try await fixture.git([
+            "fetch", "origin", "\(upstreamBranch):refs/remotes/origin/\(upstreamBranch)",
+        ])
 
         let path = fixture.path("worktrees/diverged")
         let worktree = try await WorktreeService().create(
             repoRoot: fixture.repository.path,
             name: "diverged",
-            baseRef: "main",
+            baseRef: "HEAD",
             options: WorktreeCreateOptions(worktreePath: path.path),
             on: fixture.host
         )
-        _ = try await fixture.git(["branch", "--set-upstream-to=origin/main", "diverged"])
+        _ = try await fixture.git([
+            "branch", "--set-upstream-to=origin/\(upstreamBranch)", "diverged",
+        ])
         try fixture.write("local\n", to: "local.txt", in: path)
         try await fixture.commit("local commit", in: path)
 
         let peer = fixture.path("peer")
-        _ = try await fixture.git(["clone", remote.path, peer.path])
+        _ = try await fixture.git(["clone", "--branch", upstreamBranch, remote.path, peer.path])
         _ = try await fixture.git(["config", "user.name", "cmux tests"], in: peer)
         _ = try await fixture.git(["config", "user.email", "cmux-tests@example.com"], in: peer)
         try fixture.write("remote\n", to: "remote.txt", in: peer)
         try await fixture.commit("remote commit", in: peer)
-        _ = try await fixture.git(["push", "origin", "main"], in: peer)
+        _ = try await fixture.git(["push", "origin", "HEAD:refs/heads/\(upstreamBranch)"], in: peer)
         _ = try await fixture.git(["fetch", "origin"])
 
         let status = try await WorktreeService().status(
@@ -39,7 +45,7 @@ struct WorktreeStatusTests {
             on: fixture.host
         )
         #expect(status.branch == "diverged")
-        #expect(status.upstream == "origin/main")
+        #expect(status.upstream == "origin/\(upstreamBranch)")
         #expect(status.aheadCount == 1)
         #expect(status.behindCount == 1)
         #expect(status.dirtyFileCount == 0)
