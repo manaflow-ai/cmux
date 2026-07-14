@@ -10,7 +10,8 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
     private let menu = NSMenu(title: String(localized: "computerUse.menu.title", defaultValue: "Computer Use"))
     private let snapshotStore: ComputerUseMenuBarSnapshotStore
     private let onFocusTerminal: (UUID, UUID) -> Void
-    private let onFocusTarget: (pid_t) -> Void
+    private let canFocusTarget: (ComputerUseTargetIdentity) -> Bool
+    private let onFocusTarget: (ComputerUseTargetIdentity) -> Void
     private var snapshotCancellable: AnyCancellable?
     private var terminalActions: [ObjectIdentifier: () -> Void] = [:]
     private var targetActions: [ObjectIdentifier: () -> Void] = [:]
@@ -18,10 +19,12 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
     init(
         snapshotStore: ComputerUseMenuBarSnapshotStore,
         onFocusTerminal: @escaping (UUID, UUID) -> Void,
-        onFocusTarget: @escaping (pid_t) -> Void
+        canFocusTarget: @escaping (ComputerUseTargetIdentity) -> Bool,
+        onFocusTarget: @escaping (ComputerUseTargetIdentity) -> Void
     ) {
         self.snapshotStore = snapshotStore
         self.onFocusTerminal = onFocusTerminal
+        self.canFocusTarget = canFocusTarget
         self.onFocusTarget = onFocusTarget
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
@@ -50,6 +53,7 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        rebuildMenu(rows: snapshotStore.snapshot.rows)
         snapshotStore.refresh()
     }
 
@@ -103,9 +107,9 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
                 keyEquivalent: ""
             )
             targetItem.target = self
-            if let targetPID = row.targetPID, let pid = pid_t(exactly: targetPID) {
+            if let identity = row.targetIdentity, canFocusTarget(identity) {
                 targetActions[ObjectIdentifier(targetItem)] = { [onFocusTarget] in
-                    onFocusTarget(pid)
+                    onFocusTarget(identity)
                 }
             } else {
                 targetItem.isEnabled = false

@@ -873,6 +873,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
+    /// App-owned computer-use graph; all runtime dependencies are injected here.
+    private lazy var computerUseUXCoordinator: ComputerUseUXCoordinator = {
+        let catalog = settingsRuntime?.catalog ?? SettingCatalog()
+        let configStore = settingsRuntime?.jsonStore
+            ?? JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+        return ComputerUseUXCoordinator(
+            liveAgentIndex: SharedLiveAgentIndex.shared,
+            stateRepository: ComputerUseStateRepository(),
+            stateDirectoryURL: ComputerUseStateRepository.defaultStateDirectory(),
+            configStore: configStore,
+            enabledKey: catalog.computerUse.enabled,
+            showInMenuBarKey: catalog.computerUse.showInMenuBar,
+            liveSettingRepository: ComputerUseLiveSettingRepository(
+                fileURL: TerminalSurface.computerUseLiveSettingFileURL(
+                    homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+                )
+            ),
+            permissionService: ComputerUsePermissionService(),
+            userDefaults: .standard,
+            workspaceTitle: { [weak self] workspaceID in
+                self?.tabTitle(for: workspaceID)
+            },
+            featureEnabled: {
+                CmuxFeatureFlags.shared.isComputerUseUXEnabled
+            }
+        )
+    }()
     private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
             isActivationSuppressed: {
@@ -2043,6 +2070,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
+        (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] in
+            self?.computerUseUXCoordinator.presentOnboarding()
+        }
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
@@ -9145,7 +9175,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MenuBarOnlySettings.normalizeLegacyStoredPreference(defaults: defaults)
         syncActivationPolicy(defaults: defaults)
         syncMenuBarExtraVisibility(defaults: defaults)
-        ComputerUseUXCoordinator.shared.install(appDelegate: self)
+        computerUseUXCoordinator.install { [weak self] workspaceID, surfaceID in
+            _ = self?.focusTerminal(tabId: workspaceID, surfaceId: surfaceID)
+        }
     }
 
     private func installMobileHostSettingsObserver() {

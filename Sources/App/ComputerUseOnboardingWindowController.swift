@@ -1,20 +1,26 @@
 import AppKit
 import SwiftUI
 
-/// Presents and reuses the nonmodal computer-use onboarding window.
+/// Presents a fresh nonmodal computer-use onboarding window for each run.
 @MainActor
 final class ComputerUseOnboardingWindowController {
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
 
     private var window: NSWindow?
     private let permissionService: ComputerUsePermissionService
+    private let agentSessionRequiresRestart: @MainActor () -> Bool
 
     init() {
         self.permissionService = ComputerUsePermissionService()
+        self.agentSessionRequiresRestart = { false }
     }
 
-    init(permissionService: ComputerUsePermissionService) {
+    init(
+        permissionService: ComputerUsePermissionService,
+        agentSessionRequiresRestart: @escaping @MainActor () -> Bool = { false }
+    ) {
         self.permissionService = permissionService
+        self.agentSessionRequiresRestart = agentSessionRequiresRestart
     }
 
     static func shouldPresentAutomatically(
@@ -27,16 +33,18 @@ final class ComputerUseOnboardingWindowController {
     }
 
     func present() {
-        let window = window ?? makeWindow()
+        window?.close()
+        let window = makeWindow()
         self.window = window
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
     }
 
-    private func makeWindow() -> NSWindow {
+    func makeWindow() -> NSWindow {
         let rootView = ComputerUseOnboardingView(
             permissionService: permissionService,
+            agentSessionRequiresRestart: agentSessionRequiresRestart,
             onClose: { [weak self] in self?.window?.close() }
         )
         let hostingController = NSHostingController(rootView: rootView)

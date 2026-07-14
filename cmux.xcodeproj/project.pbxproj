@@ -624,8 +624,11 @@
 		E5807290DBD44C26BFC5434E /* CompletedRestoredAgentGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A37946EDBC5645DCB867DE82 /* CompletedRestoredAgentGenerationTests.swift */; };
 		A91C0D100000000000000002 /* CompletedRestoredAgentInputRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91C0D100000000000000001 /* CompletedRestoredAgentInputRoutingTests.swift */; };
 		C0A710020000000000000002 /* ComputerUseDriverState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710020000000000000001 /* ComputerUseDriverState.swift */; };
+		C0A710FF0000000000000002 /* ComputerUseLiveSettingRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710FF0000000000000001 /* ComputerUseLiveSettingRepository.swift */; };
 		C0A710090000000000000002 /* ComputerUseMenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710090000000000000001 /* ComputerUseMenuBarController.swift */; };
+		C0A710180000000000000002 /* ComputerUseMenuBarRefreshPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710180000000000000001 /* ComputerUseMenuBarRefreshPolicy.swift */; };
 		C0A710060000000000000002 /* ComputerUseMenuBarRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710060000000000000001 /* ComputerUseMenuBarRow.swift */; };
+		C0A710170000000000000002 /* ComputerUseMenuBarScanResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710170000000000000001 /* ComputerUseMenuBarScanResult.swift */; };
 		C0A710070000000000000002 /* ComputerUseMenuBarSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710070000000000000001 /* ComputerUseMenuBarSnapshot.swift */; };
 		C0A710080000000000000002 /* ComputerUseMenuBarSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710080000000000000001 /* ComputerUseMenuBarSnapshotStore.swift */; };
 		C0A710100000000000000002 /* ComputerUseOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710100000000000000001 /* ComputerUseOnboardingView.swift */; };
@@ -634,6 +637,7 @@
 		C0A710030000000000000002 /* ComputerUseSessionProcessScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710030000000000000001 /* ComputerUseSessionProcessScope.swift */; };
 		C0A710050000000000000002 /* ComputerUseStateRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710050000000000000001 /* ComputerUseStateRepository.swift */; };
 		C0A710040000000000000002 /* ComputerUseStateScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710040000000000000001 /* ComputerUseStateScan.swift */; };
+		C0A710160000000000000002 /* ComputerUseTargetIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */; };
 		C0A710130000000000000002 /* ComputerUseUXCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */; };
 		C0A710120000000000000002 /* ComputerUseUXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710120000000000000001 /* ComputerUseUXTests.swift */; };
 		3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1013023B1013023B101 /* ConfigSettingsView.swift */; };
@@ -2431,8 +2435,11 @@
 		A37946EDBC5645DCB867DE82 /* CompletedRestoredAgentGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletedRestoredAgentGenerationTests.swift; sourceTree = "<group>"; };
 		A91C0D100000000000000001 /* CompletedRestoredAgentInputRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletedRestoredAgentInputRoutingTests.swift; sourceTree = "<group>"; };
 		C0A710020000000000000001 /* ComputerUseDriverState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseDriverState.swift; sourceTree = "<group>"; };
+		C0A710FF0000000000000001 /* ComputerUseLiveSettingRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseLiveSettingRepository.swift; sourceTree = "<group>"; };
 		C0A710090000000000000001 /* ComputerUseMenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarController.swift; sourceTree = "<group>"; };
+		C0A710180000000000000001 /* ComputerUseMenuBarRefreshPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarRefreshPolicy.swift; sourceTree = "<group>"; };
 		C0A710060000000000000001 /* ComputerUseMenuBarRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarRow.swift; sourceTree = "<group>"; };
+		C0A710170000000000000001 /* ComputerUseMenuBarScanResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarScanResult.swift; sourceTree = "<group>"; };
 		C0A710070000000000000001 /* ComputerUseMenuBarSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarSnapshot.swift; sourceTree = "<group>"; };
 		C0A710080000000000000001 /* ComputerUseMenuBarSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarSnapshotStore.swift; sourceTree = "<group>"; };
 		C0A710100000000000000001 /* ComputerUseOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingView.swift; sourceTree = "<group>"; };
@@ -2441,6 +2448,7 @@
 		C0A710030000000000000001 /* ComputerUseSessionProcessScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseSessionProcessScope.swift; sourceTree = "<group>"; };
 		C0A710050000000000000001 /* ComputerUseStateRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseStateRepository.swift; sourceTree = "<group>"; };
 		C0A710040000000000000001 /* ComputerUseStateScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseStateScan.swift; sourceTree = "<group>"; };
+		C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseTargetIdentity.swift; sourceTree = "<group>"; };
 		C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseUXCoordinator.swift; sourceTree = "<group>"; };
 		C0A710120000000000000001 /* ComputerUseUXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUseUXTests.swift; sourceTree = "<group>"; };
 		3023B1013023B1013023B101 /* ConfigSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSettingsView.swift; sourceTree = "<group>"; };
@@ -4083,7 +4091,10 @@
 					E5C0F1A1E5C0F1A1E5C0F1A1 /* TerminalFindEscapeRouting.swift */,
 					C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */,
 					C0A710090000000000000001 /* ComputerUseMenuBarController.swift */,
+					C0A710FF0000000000000001 /* ComputerUseLiveSettingRepository.swift */,
+					C0A710180000000000000001 /* ComputerUseMenuBarRefreshPolicy.swift */,
 					C0A710060000000000000001 /* ComputerUseMenuBarRow.swift */,
+					C0A710170000000000000001 /* ComputerUseMenuBarScanResult.swift */,
 					C0A710070000000000000001 /* ComputerUseMenuBarSnapshot.swift */,
 					C0A710080000000000000001 /* ComputerUseMenuBarSnapshotStore.swift */,
 					C0A710020000000000000001 /* ComputerUseDriverState.swift */,
@@ -4093,6 +4104,7 @@
 					C0A710030000000000000001 /* ComputerUseSessionProcessScope.swift */,
 					C0A710050000000000000001 /* ComputerUseStateRepository.swift */,
 					C0A710040000000000000001 /* ComputerUseStateScan.swift */,
+					C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */,
 					C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */,
 					C0A710140000000000000001 /* RestorableAgentSession+ComputerUse.swift */,
 					C0DE70510000000000000001 /* MenuBarProfilingLauncher.swift */,
@@ -6237,8 +6249,11 @@
 				C0DEF4110000000000000001 /* CommandPaletteSettingsToggle.swift in Sources */,
 				C1713002C1713002C1713002 /* CommandPaletteShortcutRouting.swift in Sources */,
 					C0A710020000000000000002 /* ComputerUseDriverState.swift in Sources */,
+					C0A710FF0000000000000002 /* ComputerUseLiveSettingRepository.swift in Sources */,
 					C0A710090000000000000002 /* ComputerUseMenuBarController.swift in Sources */,
+					C0A710180000000000000002 /* ComputerUseMenuBarRefreshPolicy.swift in Sources */,
 					C0A710060000000000000002 /* ComputerUseMenuBarRow.swift in Sources */,
+					C0A710170000000000000002 /* ComputerUseMenuBarScanResult.swift in Sources */,
 					C0A710070000000000000002 /* ComputerUseMenuBarSnapshot.swift in Sources */,
 					C0A710080000000000000002 /* ComputerUseMenuBarSnapshotStore.swift in Sources */,
 					C0A710100000000000000002 /* ComputerUseOnboardingView.swift in Sources */,
@@ -6247,6 +6262,7 @@
 					C0A710030000000000000002 /* ComputerUseSessionProcessScope.swift in Sources */,
 					C0A710050000000000000002 /* ComputerUseStateRepository.swift in Sources */,
 					C0A710040000000000000002 /* ComputerUseStateScan.swift in Sources */,
+					C0A710160000000000000002 /* ComputerUseTargetIdentity.swift in Sources */,
 					C0A710130000000000000002 /* ComputerUseUXCoordinator.swift in Sources */,
 				3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */,
 				3023A1003023A1003023A100 /* ConfigSource.swift in Sources */,

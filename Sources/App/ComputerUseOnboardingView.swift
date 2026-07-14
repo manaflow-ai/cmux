@@ -5,11 +5,13 @@ import SwiftUI
 @MainActor
 struct ComputerUseOnboardingView: View {
     let permissionService: ComputerUsePermissionService
+    let agentSessionRequiresRestart: @MainActor () -> Bool
     let onClose: () -> Void
 
     @State private var step = 0
     @State private var accessibilityGranted = false
     @State private var screenRecordingGranted = false
+    @State private var restartRequired = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -138,15 +140,22 @@ struct ComputerUseOnboardingView: View {
     }
 
     private var done: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Image(systemName: accessibilityGranted && screenRecordingGranted ? "checkmark.circle.fill" : "checklist")
+        let ready = accessibilityGranted && screenRecordingGranted && !restartRequired
+        return VStack(alignment: .leading, spacing: 18) {
+            Image(systemName: ready ? "checkmark.circle.fill" : (restartRequired ? "arrow.clockwise.circle.fill" : "checklist"))
                 .font(.system(size: 42, weight: .medium))
-                .foregroundStyle(accessibilityGranted && screenRecordingGranted ? Color.green : Color.accentColor)
+                .foregroundStyle(ready ? Color.green : Color.accentColor)
                 .accessibilityHidden(true)
-            Text(String(localized: "computerUse.onboarding.done.title", defaultValue: "Computer Use Is Ready"))
+            Text(
+                restartRequired
+                    ? String(localized: "computerUse.onboarding.done.titleRestartRequired", defaultValue: "Restart the Agent Session")
+                    : String(localized: "computerUse.onboarding.done.title", defaultValue: "Computer Use Is Ready")
+            )
                 .font(.title3.weight(.semibold))
             Text(
-                accessibilityGranted && screenRecordingGranted
+                restartRequired
+                    ? String(localized: "computerUse.onboarding.done.detailRestartRequired", defaultValue: "The running agent session started before these permissions were granted. Restart that agent session so its computer-use driver picks up the new permission.")
+                    : accessibilityGranted && screenRecordingGranted
                     ? String(localized: "computerUse.onboarding.done.detailReady", defaultValue: "Both permissions are granted. Supported agent sessions can now use local computer-use tools.")
                     : String(localized: "computerUse.onboarding.done.detailIncomplete", defaultValue: "You can finish now and grant any missing permission later from Computer Use settings.")
             )
@@ -197,7 +206,17 @@ struct ComputerUseOnboardingView: View {
     }
 
     private func refreshPermissions() {
-        accessibilityGranted = permissionService.accessibilityGranted()
-        screenRecordingGranted = permissionService.screenRecordingGranted()
+        let newAccessibilityGranted = permissionService.accessibilityGranted()
+        let newScreenRecordingGranted = permissionService.screenRecordingGranted()
+        // Derive directly each refresh rather than gating on a false->true
+        // transition observed in this window instance: a fresh onboarding window
+        // opened AFTER permissions were granted externally must still surface the
+        // restart guidance when a driver session predates the grant. Latched so it
+        // stays shown for the rest of this presentation.
+        if agentSessionRequiresRestart(), newAccessibilityGranted, newScreenRecordingGranted {
+            restartRequired = true
+        }
+        accessibilityGranted = newAccessibilityGranted
+        screenRecordingGranted = newScreenRecordingGranted
     }
 }

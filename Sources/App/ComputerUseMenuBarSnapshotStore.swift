@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Darwin
 import Foundation
@@ -16,6 +17,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     private let workspaceTitle: @MainActor (UUID) -> String?
     private let featureEnabled: @MainActor () -> Bool
     private let onCapableSessionStarted: @MainActor () -> Void
+    private let refreshPolicy: ComputerUseMenuBarRefreshPolicy
 
     private var showInMenuBar: Bool
     private var refreshTask: Task<Void, Never>?
@@ -35,7 +37,8 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
         showInMenuBarKey: JSONKey<Bool>,
         workspaceTitle: @escaping @MainActor (UUID) -> String?,
         featureEnabled: @escaping @MainActor () -> Bool,
-        onCapableSessionStarted: @escaping @MainActor () -> Void
+        onCapableSessionStarted: @escaping @MainActor () -> Void,
+        refreshPolicy: ComputerUseMenuBarRefreshPolicy = .live
     ) {
         self.liveAgentIndex = liveAgentIndex
         self.stateRepository = stateRepository
@@ -45,6 +48,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
         self.workspaceTitle = workspaceTitle
         self.featureEnabled = featureEnabled
         self.onCapableSessionStarted = onCapableSessionStarted
+        self.refreshPolicy = refreshPolicy
         self.showInMenuBar = configStore.snapshotValue(for: showInMenuBarKey)
     }
 
@@ -92,6 +96,28 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
     }
 
     func refresh() {
+        let currentShowInMenuBar = showInMenuBar
+        let currentFeatureEnabled = featureEnabled()
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        refreshTask?.cancel()
+
+        guard let reloadDeadline = refreshPolicy.reloadDeadline(
+            forEventAt: Date(),
+            featureEnabled: currentFeatureEnabled,
+            showInMenuBar: currentShowInMenuBar
+        ) else {
+            refreshTask = nil
+            previousCapableSessionIDs = []
+            snapshot = ComputerUseMenuBarSnapshot(
+                rows: [],
+                hasRecentStateFiles: false,
+                showInMenuBar: currentShowInMenuBar,
+                featureEnabled: currentFeatureEnabled
+            )
+            return
+        }
+
         let entries = liveAgentIndex.currentIndexSchedulingRefresh()?.liveEntries() ?? []
         let pending = entries.map { pair in
             let snapshot = pair.entry.snapshot
@@ -113,7 +139,7 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
                 sessionID: snapshot.sessionId,
                 workspaceID: pair.panelKey.workspaceId,
                 surfaceID: pair.panelKey.panelId,
-                targetPID: nil
+                targetIdentity: nil
             )
             return (
                 row: row,
@@ -122,43 +148,65 @@ final class ComputerUseMenuBarSnapshotStore: ObservableObject {
             )
         }
 
-        refreshGeneration += 1
-        let generation = refreshGeneration
         let repository = stateRepository
         let directoryURL = stateDirectoryURL
-        let currentShowInMenuBar = showInMenuBar
-        let currentFeatureEnabled = featureEnabled()
-        refreshTask?.cancel()
         refreshTask = Task { [weak self] in
-            let result = await Task.detached(priority: .utility) {
-                let processSnapshot = CmuxTopProcessSnapshot.capture(
-                    includeProcessDetails: false,
-                    includeCMUXScope: false
-                )
-                let scopes = pending.map { item in
-                    ComputerUseSessionProcessScope(
-                        id: item.row.id,
-                        sessionID: item.row.sessionID,
-                        processIDs: processSnapshot.expandedPIDs(rootPIDs: item.rootPIDs)
+            let delay = max(0, reloadDeadline.timeIntervalSinceNow)
+            do {
+                // A bounded, cancellable debounce is the intended behavior: one
+                // atomic state write can emit several filesystem events.
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+
+            let result = await withTaskGroup(of: ComputerUseMenuBarScanResult?.self) { group in
+                group.addTask(priority: .utility) {
+                    guard !Task.isCancelled else { return nil }
+                    let processSnapshot = CmuxTopProcessSnapshot.capture(
+                        includeProcessDetails: false,
+                        includeCMUXScope: false
+                    )
+                    guard !Task.isCancelled else { return nil }
+                    let scopes = pending.map { item in
+                        ComputerUseSessionProcessScope(
+                            id: item.row.id,
+                            sessionID: item.row.sessionID,
+                            processIDs: processSnapshot.expandedPIDs(rootPIDs: item.rootPIDs)
+                        )
+                    }
+                    let scan = repository.scan(
+                        directoryURL: directoryURL,
+                        sessions: scopes,
+                        now: Date()
+                    )
+                    guard !Task.isCancelled else { return nil }
+                    return ComputerUseMenuBarScanResult(
+                        rows: pending.map(\.row),
+                        scan: scan,
+                        capableSessionIDs: Set(
+                            pending.filter { $0.computerUseCapable }.map { $0.row.id }
+                        )
                     )
                 }
-                let scan = repository.scan(
-                    directoryURL: directoryURL,
-                    sessions: scopes,
-                    now: Date()
-                )
-                let rows = pending.map { item in
-                    item.row.withTargetPID(scan.newestStateByScopeID[item.row.id]?.targetPID)
-                }
-                let capableSessionIDs = Set(
-                    pending.filter { $0.computerUseCapable }.map { $0.row.id }
-                )
-                return (rows: rows, scan: scan, capableSessionIDs: capableSessionIDs)
-            }.value
+                return await group.next() ?? nil
+            }
 
-            guard let self, !Task.isCancelled, generation == self.refreshGeneration else { return }
+            guard let self, let result, !Task.isCancelled, generation == self.refreshGeneration else { return }
+            let rows = result.rows.map { row in
+                let identity = result.scan.newestStateByScopeID[row.id].flatMap { state -> ComputerUseTargetIdentity? in
+                    guard let pid = pid_t(exactly: state.targetPID),
+                          let application = NSRunningApplication(processIdentifier: pid)
+                    else {
+                        return nil
+                    }
+                    return ComputerUseTargetIdentity(state: state, runningApplication: application)
+                }
+                return row.withTargetIdentity(identity)
+            }
             self.snapshot = ComputerUseMenuBarSnapshot(
-                rows: result.rows.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending },
+                rows: rows.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending },
                 hasRecentStateFiles: result.scan.hasRecentStateFiles,
                 showInMenuBar: currentShowInMenuBar,
                 featureEnabled: currentFeatureEnabled

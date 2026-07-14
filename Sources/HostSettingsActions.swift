@@ -19,6 +19,7 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
     private let computerUsePermissionService = ComputerUsePermissionService()
+    private var runComputerUseOnboardingAction: @MainActor () -> Void = {}
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -121,7 +122,11 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func runComputerUseOnboarding() {
-        ComputerUseUXCoordinator.shared.presentOnboarding()
+        runComputerUseOnboardingAction()
+    }
+
+    func setRunComputerUseOnboardingAction(_ action: @escaping @MainActor () -> Void) {
+        runComputerUseOnboardingAction = action
     }
 
     func openConfigInExternalEditor() {

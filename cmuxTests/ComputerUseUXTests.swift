@@ -1,3 +1,5 @@
+import AppKit
+import CmuxTerminal
 import Foundation
 import Testing
 @testable import CmuxSettingsUI
@@ -113,6 +115,130 @@ struct ComputerUseUXTests {
         #expect(SettingsSectionID.computerUse.rawValue == SettingsNavigationTarget.computerUse.rawValue)
     }
 
+    @Test func targetIdentityFailsClosedWhenPIDIdentityChanges() {
+        let launchDate = Date(timeIntervalSince1970: 1_900_000_000)
+        let identity = ComputerUseTargetIdentity(
+            processIdentifier: 42,
+            bundleIdentifier: "com.example.Target",
+            launchDate: launchDate
+        )
+
+        #expect(identity.matches(
+            processIdentifier: 42,
+            bundleIdentifier: "com.example.Target",
+            launchDate: launchDate
+        ))
+        #expect(!identity.matches(
+            processIdentifier: 42,
+            bundleIdentifier: "com.example.Recycled",
+            launchDate: launchDate
+        ))
+        #expect(!identity.matches(
+            processIdentifier: 42,
+            bundleIdentifier: "com.example.Target",
+            launchDate: launchDate.addingTimeInterval(1)
+        ))
+        #expect(!identity.matches(
+            processIdentifier: 43,
+            bundleIdentifier: "com.example.Target",
+            launchDate: launchDate
+        ))
+    }
+
+    @Test @MainActor func onboardingCreatesFreshWindowAndRootForEveryRun() {
+        let controller = ComputerUseOnboardingWindowController(
+            permissionService: ComputerUsePermissionService()
+        )
+        let first = controller.makeWindow()
+        let second = controller.makeWindow()
+        defer {
+            first.close()
+            second.close()
+        }
+
+        #expect(first !== second)
+        #expect(first.contentViewController !== second.contentViewController)
+    }
+
+    @Test func menuRefreshPolicyDebouncesAndSkipsFullyInactiveFeature() throws {
+        let policy = ComputerUseMenuBarRefreshPolicy(minimumEventReloadInterval: 0.2)
+        let firstEvent = Date(timeIntervalSince1970: 1_900_000_000)
+        let secondEvent = firstEvent.addingTimeInterval(0.05)
+
+        #expect(policy.reloadDeadline(
+            forEventAt: firstEvent,
+            featureEnabled: false,
+            showInMenuBar: false
+        ) == nil)
+        let firstDeadline = try #require(policy.reloadDeadline(
+            forEventAt: firstEvent,
+            featureEnabled: true,
+            showInMenuBar: false
+        ))
+        let secondDeadline = try #require(policy.reloadDeadline(
+            forEventAt: secondEvent,
+            featureEnabled: true,
+            showInMenuBar: false
+        ))
+        #expect(firstDeadline == firstEvent.addingTimeInterval(0.2))
+        #expect(secondDeadline > firstDeadline)
+    }
+
+    @Test func computerUseSchemaDeclaresPersistedKeys() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let schemaURL = repositoryRoot.appendingPathComponent("web/data/cmux.schema.json")
+        let object = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: schemaURL)) as? [String: Any]
+        )
+        let properties = try #require(object["properties"] as? [String: Any])
+        let computerUse = try #require(properties["computerUse"] as? [String: Any])
+        #expect(computerUse["additionalProperties"] as? Bool == false)
+        let computerUseProperties = try #require(computerUse["properties"] as? [String: Any])
+        #expect((computerUseProperties["enabled"] as? [String: Any])?["type"] as? String == "boolean")
+        #expect((computerUseProperties["showInMenuBar"] as? [String: Any])?["type"] as? String == "boolean")
+    }
+
+    @Test func generatedAgentShimReadsComputerUseAuthorityOnEveryLaunch() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-computer-use-live-setting-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        let shimRoot = root.appendingPathComponent("shims", isDirectory: true)
+        let settingURL = root.appendingPathComponent("enabled")
+        let logURL = root.appendingPathComponent("disabled-value")
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        let wrapperURL = binDirectory.appendingPathComponent("cmux-claude-wrapper")
+        try """
+        #!/usr/bin/env bash
+        printf '%s' "${CMUX_COMPUTER_USE_MCP_DISABLED:-missing}" > "$CMUX_TEST_LOG"
+        """.write(to: wrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapperURL.path)
+        let shim = try #require(TerminalSurface.installClaudeCommandShimIfPossible(
+            wrapperURL: wrapperURL,
+            surfaceId: UUID(),
+            temporaryDirectory: shimRoot,
+            computerUseSettingFileURL: settingURL
+        ))
+
+        // Setting disabled -> shim forces the disable regardless of inherited env.
+        try "0\n".write(to: settingURL, atomically: true, encoding: .utf8)
+        try runShim(at: shim.executablePath, logURL: logURL, inheritedDisabled: "0")
+        #expect(try String(contentsOf: logURL, encoding: .utf8) == "1")
+
+        // Setting enabled + no inherited kill switch -> attachment stays enabled.
+        try "1\n".write(to: settingURL, atomically: true, encoding: .utf8)
+        try runShim(at: shim.executablePath, logURL: logURL, inheritedDisabled: "0")
+        #expect(try String(contentsOf: logURL, encoding: .utf8) == "0")
+
+        // Setting enabled but the user exported the documented kill switch
+        // (CMUX_COMPUTER_USE_MCP_DISABLED=1): the shim must NOT clobber it.
+        try "1\n".write(to: settingURL, atomically: true, encoding: .utf8)
+        try runShim(at: shim.executablePath, logURL: logURL, inheritedDisabled: "1")
+        #expect(try String(contentsOf: logURL, encoding: .utf8) == "1")
+    }
+
     private func withStateDirectory(_ body: (URL) throws -> Void) throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-computer-use-tests-\(UUID().uuidString)", isDirectory: true)
@@ -142,5 +268,17 @@ struct ComputerUseUXTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: object)
         try data.write(to: url, options: .atomic)
+    }
+
+    private func runShim(at path: String, logURL: URL, inheritedDisabled: String = "0") throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_TEST_LOG"] = logURL.path
+        environment["CMUX_COMPUTER_USE_MCP_DISABLED"] = inheritedDisabled
+        process.environment = environment
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
     }
 }

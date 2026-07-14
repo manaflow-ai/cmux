@@ -53,7 +53,7 @@ public struct ComputerUseSection: View {
                     String(localized: "settings.computerUse.enabled", defaultValue: "Enable Computer Use"),
                     subtitle: enabled.current
                         ? String(localized: "settings.computerUse.enabled.subtitleOn", defaultValue: "Supported agent sessions can see and drive apps on this Mac.")
-                        : String(localized: "settings.computerUse.enabled.subtitleOff", defaultValue: "New agent sessions start without the computer-use tools.")
+                        : String(localized: "settings.computerUse.enabled.subtitleOff", defaultValue: "New agent launches start without the computer-use tools, including in terminals that are already open.")
                 ) {
                     Toggle("", isOn: Binding(get: { enabled.current }, set: { enabled.set($0) }))
                         .labelsHidden()
