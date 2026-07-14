@@ -11,6 +11,8 @@ enum NotificationScrollRestoreState {
         expectedBoundary: String,
         pendingPosition: TerminalNotificationScrollPosition?
     )
+    /// Retains the row space produced by a completed replay for late notification activation.
+    case replayCompleted(geometry: NotificationScrollRestoreGeometry)
     case awaitingInitialGeometry(
         position: TerminalNotificationScrollPosition,
         attemptsRemaining: Int
@@ -18,12 +20,13 @@ enum NotificationScrollRestoreState {
     /// Waits for terminal-owned geometry after the replay boundary.
     case awaitingPostReplayGeometry(
         position: TerminalNotificationScrollPosition?,
-        attemptsRemaining: Int
+        attemptsRemaining: Int,
+        replayCompletionGeometry: NotificationScrollRestoreGeometry?
     )
 
     var pendingPosition: TerminalNotificationScrollPosition? {
         switch self {
-        case .inactive:
+        case .inactive, .replayCompleted:
             nil
         case .armed(_, _, let pendingPosition, _):
             pendingPosition
@@ -31,7 +34,7 @@ enum NotificationScrollRestoreState {
             pendingPosition
         case .awaitingInitialGeometry(let position, _):
             position
-        case .awaitingPostReplayGeometry(let position, _):
+        case .awaitingPostReplayGeometry(let position, _, _):
             position
         }
     }

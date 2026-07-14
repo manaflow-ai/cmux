@@ -35,10 +35,17 @@ extension GhosttySurfaceScrollView {
                 pendingPosition: position
             )
             return false
-        case .awaitingPostReplayGeometry:
+        case .awaitingPostReplayGeometry(_, _, let replayCompletionGeometry):
             notificationScrollRestoreState = .awaitingPostReplayGeometry(
                 position: position,
-                attemptsRemaining: 2
+                attemptsRemaining: 2,
+                replayCompletionGeometry: replayCompletionGeometry
+            )
+        case .replayCompleted(let geometry):
+            notificationScrollRestoreState = .awaitingPostReplayGeometry(
+                position: position,
+                attemptsRemaining: 2,
+                replayCompletionGeometry: geometry
             )
         case .inactive, .awaitingInitialGeometry:
             notificationScrollRestoreState = .awaitingInitialGeometry(
@@ -54,19 +61,30 @@ extension GhosttySurfaceScrollView {
         authoritativeGeometry: NotificationScrollRestoreGeometry? = nil
     ) -> Bool {
         switch notificationScrollRestoreState {
-        case .inactive, .armed, .replaying:
+        case .inactive, .armed, .replaying, .replayCompleted:
             return false
         case .awaitingInitialGeometry(let position, let attemptsRemaining):
             return restoreInitialNotificationScrollPosition(
                 position,
                 attemptsRemaining: attemptsRemaining
             )
-        case .awaitingPostReplayGeometry(let pendingPosition, let attemptsRemaining):
-            guard let pendingPosition else { return false }
+        case .awaitingPostReplayGeometry(
+            let pendingPosition,
+            let attemptsRemaining,
+            let replayCompletionGeometry
+        ):
+            guard let pendingPosition else {
+                guard let geometry = authoritativeGeometry ?? surfaceView.authoritativeScrollbarGeometry() else {
+                    return false
+                }
+                notificationScrollRestoreState = .replayCompleted(geometry: geometry)
+                return false
+            }
             return restorePostReplayNotificationScrollPosition(
                 pendingPosition,
                 attemptsRemaining: attemptsRemaining,
-                authoritativeGeometry: authoritativeGeometry
+                authoritativeGeometry: authoritativeGeometry,
+                replayCompletionGeometry: replayCompletionGeometry
             )
         }
     }
@@ -116,7 +134,8 @@ extension GhosttySurfaceScrollView {
     private func restorePostReplayNotificationScrollPosition(
         _ position: TerminalNotificationScrollPosition,
         attemptsRemaining: Int,
-        authoritativeGeometry: NotificationScrollRestoreGeometry?
+        authoritativeGeometry: NotificationScrollRestoreGeometry?,
+        replayCompletionGeometry: NotificationScrollRestoreGeometry?
     ) -> Bool {
         guard attemptsRemaining > 0 else {
             clearPendingNotificationScrollRestore()
@@ -125,12 +144,19 @@ extension GhosttySurfaceScrollView {
         guard let geometry = authoritativeGeometry ?? surfaceView.authoritativeScrollbarGeometry() else {
             return false
         }
+        let anchorGeometry = replayCompletionGeometry ?? geometry
+        if position.row != 0,
+           anchorGeometry.rowSpaceRevision != geometry.rowSpaceRevision {
+            clearPendingNotificationScrollRestore()
+            return false
+        }
+        let anchorScrollbar = position.row == 0 ? geometry.scrollbar : anchorGeometry.scrollbar
         let shouldRebase = position.totalRows.map {
-            Int(clamping: geometry.scrollbar.total) < $0
+            Int(clamping: anchorScrollbar.total) < $0
         } == true
         guard let targetTopRow = targetTopRow(
             for: position,
-            in: geometry.scrollbar,
+            in: anchorScrollbar,
             rebaseToCurrentRows: shouldRebase
         ) else {
             return false
@@ -147,7 +173,11 @@ extension GhosttySurfaceScrollView {
                 ) != nil
             },
             pendingState: { remaining in
-                .awaitingPostReplayGeometry(position: position, attemptsRemaining: remaining)
+                .awaitingPostReplayGeometry(
+                    position: position,
+                    attemptsRemaining: remaining,
+                    replayCompletionGeometry: anchorGeometry
+                )
             }
         )
     }
@@ -214,8 +244,21 @@ extension GhosttySurfaceScrollView {
     }
 
     func cancelPendingNotificationScrollRestoreForUserInput() {
-        if case .awaitingPostReplayGeometry = notificationScrollRestoreState {
-            notificationScrollRestoreState = .inactive
+        if case .awaitingPostReplayGeometry(
+            let pendingPosition,
+            _,
+            let replayCompletionGeometry
+        ) = notificationScrollRestoreState {
+            guard pendingPosition != nil else { return }
+            if let replayCompletionGeometry {
+                notificationScrollRestoreState = .replayCompleted(geometry: replayCompletionGeometry)
+            } else {
+                notificationScrollRestoreState = .awaitingPostReplayGeometry(
+                    position: nil,
+                    attemptsRemaining: 2,
+                    replayCompletionGeometry: nil
+                )
+            }
             return
         }
         guard notificationScrollRestoreState.pendingPosition != nil else { return }
@@ -257,16 +300,23 @@ extension GhosttySurfaceScrollView {
               boundary == expectedEndBoundary else {
             return false
         }
+        let replayCompletionGeometry = authoritativeGeometry ?? surfaceView.authoritativeScrollbarGeometry()
         guard let pendingPosition else {
-            notificationScrollRestoreState = .awaitingPostReplayGeometry(
-                position: nil,
-                attemptsRemaining: 2
-            )
+            if let replayCompletionGeometry {
+                notificationScrollRestoreState = .replayCompleted(geometry: replayCompletionGeometry)
+            } else {
+                notificationScrollRestoreState = .awaitingPostReplayGeometry(
+                    position: nil,
+                    attemptsRemaining: 2,
+                    replayCompletionGeometry: nil
+                )
+            }
             return true
         }
         notificationScrollRestoreState = .awaitingPostReplayGeometry(
             position: pendingPosition,
-            attemptsRemaining: 2
+            attemptsRemaining: 2,
+            replayCompletionGeometry: replayCompletionGeometry
         )
         _ = restorePendingNotificationScrollPositionIfReady(
             authoritativeGeometry: authoritativeGeometry

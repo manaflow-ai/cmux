@@ -239,6 +239,8 @@ struct NotificationScrollRestoreLifecycleTests {
 
         #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(boundary))
         #expect(!hostedView.hasPendingNotificationScrollRestore)
+        hostedView.terminalSurfaceDidReceiveExplicitInput()
+        postScrollbar(scrollbar(total: 4_100, offset: 4_056, len: 44), to: surfaceView)
         #expect(hostedView.restoreNotificationScrollPosition(
             TerminalNotificationScrollPosition(row: 100, totalRows: 10_000)
         ))
