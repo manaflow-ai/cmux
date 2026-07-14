@@ -139,6 +139,7 @@ final class MainWindowFocusController {
     }
 
     func noteRightSidebarInteraction(mode: RightSidebarMode) {
+        synchronizeRightSidebarMode(mode)
         rememberedRightSidebarMode = mode
         rightSidebarFocusState = .focused(mode: mode, target: .host)
         intent = .rightSidebar(mode: mode)
@@ -146,6 +147,11 @@ final class MainWindowFocusController {
             feedSelectedItemId = nil
         }
         publishFeedFocusSnapshot()
+    }
+
+    private func synchronizeRightSidebarMode(_ mode: RightSidebarMode) {
+        guard let fileExplorerState, fileExplorerState.mode != mode else { return }
+        fileExplorerState.mode = mode
     }
 
     func rememberRightSidebarMode(_ mode: RightSidebarMode) {
@@ -398,6 +404,7 @@ final class MainWindowFocusController {
                 publishFeedFocusSnapshot()
                 return
             }
+            synchronizeRightSidebarMode(mode)
             rememberedRightSidebarMode = mode
             completeRightSidebarFocusFromResponder(mode: mode, isFallbackSidebarHost: isFallbackSidebarHost)
             intent = .rightSidebar(mode: mode)

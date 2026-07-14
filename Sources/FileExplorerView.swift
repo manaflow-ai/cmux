@@ -943,27 +943,21 @@ final class FileExplorerContainerView: NSView {
     }
 
     func updatePresentation(_ nextPresentation: FileExplorerPanelPresentation) {
-        guard presentation != nextPresentation else {
-            if presentation == .find, !isSearchVisible {
-                isSearchVisible = true
-            }
-            updateSearchLayout()
-            return
-        }
+        let presentationChanged = presentation != nextPresentation
+        let wasSearchVisible = isSearchVisible
         presentation = nextPresentation
         switch presentation {
         case .unified:
-            isSearchVisible = hasSearchQuery
-            if isSearchVisible { refreshSearchIfNeeded() }
+            isSearchVisible = coordinator.state.mode == .find && hasSearchQuery
         case .files:
             isSearchVisible = false
-            searchController.cancel(clear: false)
+            if presentationChanged { searchController.cancel(clear: false) }
         case .find:
             isSearchVisible = true
-            refreshSearchIfNeeded()
         }
+        if !wasSearchVisible, isSearchVisible { refreshSearchIfNeeded() }
         updateSearchLayout()
-        registerWithKeyboardFocusCoordinatorIfNeeded()
+        if presentationChanged { registerWithKeyboardFocusCoordinatorIfNeeded() }
     }
 
     func updateVisibility(hasContent: Bool, isLoading: Bool, statusMessage: String?) {
