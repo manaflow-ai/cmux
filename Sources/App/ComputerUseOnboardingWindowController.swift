@@ -46,17 +46,15 @@ final class ComputerUseOnboardingWindowController {
         self.window = window
         // A dev/background-launched app does not reliably steal focus, so a
         // normal-level window opens buried behind whatever is frontmost and the
-        // user never sees the setup prompt. Float it above other apps and show
-        // it on the active Space so it is always visible when permissions are
-        // missing. Dropped back to normal level once it is key.
+        // user never sees the setup prompt. Keep it floating above other apps and
+        // on the active Space for the whole presentation so it is always visible
+        // when permissions are missing; it closes when the user finishes or skips.
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .moveToActiveSpace]
+        window.hidesOnDeactivate = false
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-        DispatchQueue.main.async { [weak window] in
-            window?.level = .normal
-        }
     }
 
     func makeWindow() -> NSWindow {
