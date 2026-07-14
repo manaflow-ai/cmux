@@ -140,6 +140,44 @@ import Testing
 }
 
 @MainActor
+@Test func outOfOrderHostFocusEventsCannotRewindPaneOrTerminalCreationTarget() throws {
+    let paneA = MobilePanePreview.ID(rawValue: "pane-a")
+    let paneB = MobilePanePreview.ID(rawValue: "pane-b")
+    var workspace = MobileWorkspacePreview(
+        id: "workspace-focus-order",
+        name: "Focus order",
+        terminals: [
+            MobileTerminalPreview(id: "terminal-a", name: "A", paneID: paneA, isFocused: true),
+            MobileTerminalPreview(id: "terminal-b", name: "B", paneID: paneB),
+        ],
+        panes: [
+            MobilePanePreview(id: paneA, spatialIndex: 0, isFocused: true, terminalIDs: ["terminal-a"]),
+            MobilePanePreview(id: paneB, spatialIndex: 1, terminalIDs: ["terminal-b"]),
+        ],
+        focusedPaneID: paneA,
+        selectedTerminalID: "terminal-a"
+    )
+    workspace.actionCapabilities.supportsTerminalCreateInPane = true
+    let store = MobileShellComposite(workspaces: [workspace])
+    let newer = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"workspace-focus-order","focused_pane_id":"pane-b","selected_terminal_id":"terminal-b","seq":42}
+    """.utf8)))
+    let delayedOlder = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"workspace-focus-order","focused_pane_id":"pane-a","selected_terminal_id":"terminal-a","seq":41}
+    """.utf8)))
+
+    store.applyWorkspaceFocusEvent(newer, macID: nil)
+    store.applyWorkspaceFocusEvent(delayedOlder, macID: nil)
+
+    let updated = try #require(store.workspaces.first)
+    #expect(updated.focusedPaneID == paneB)
+    #expect(updated.selectedTerminalID == "terminal-b")
+    #expect(updated.panes.first(where: { $0.id == paneB })?.isFocused == true)
+    #expect(updated.terminals.first(where: { $0.id == "terminal-b" })?.isFocused == true)
+    #expect(store.remoteTerminalCreationPaneID(in: updated, explicitPaneID: nil) == paneB)
+}
+
+@MainActor
 @Test func focusSnapshotDimensionsApplyNilAndValidValuesIndependently() throws {
     let workspace = MobileWorkspacePreview(
         id: "workspace-mixed-focus",
