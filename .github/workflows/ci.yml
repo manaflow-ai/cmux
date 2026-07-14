@@ -696,6 +696,7 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/SocketACLReloadRegressionTests \
+            -only-testing:cmuxTests/SocketConfigurationLifecycleTests \
             test
 
       - name: Run unit tests
