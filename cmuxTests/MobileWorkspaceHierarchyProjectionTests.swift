@@ -67,6 +67,30 @@ struct MobileWorkspaceHierarchyProjectionTests {
         #expect(evaluations == 1)
     }
 
+    @Test func remoteMirrorActivityOverridesLocalCloseConfirmationFallback() {
+        var fallbackEvaluations = 0
+        let idleMirrorNeedsConfirmation = Workspace.resolveCloseConfirmation(
+            remoteMirrorHasActiveCommand: false,
+            shellActivityState: .unknown,
+            fallbackNeedsConfirmClose: {
+                fallbackEvaluations += 1
+                return true
+            }
+        )
+        let activeMirrorNeedsConfirmation = Workspace.resolveCloseConfirmation(
+            remoteMirrorHasActiveCommand: true,
+            shellActivityState: .promptIdle,
+            fallbackNeedsConfirmClose: {
+                fallbackEvaluations += 1
+                return false
+            }
+        )
+
+        #expect(!idleMirrorNeedsConfirmation)
+        #expect(activeMirrorNeedsConfirmation)
+        #expect(fallbackEvaluations == 0)
+    }
+
     @Test func observerDigestIgnoresUnpublishedCloseConfirmationFallback() {
         let workspaceID = UUID()
         let terminalID = UUID()

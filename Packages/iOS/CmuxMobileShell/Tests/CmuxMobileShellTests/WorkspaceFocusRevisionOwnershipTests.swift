@@ -187,6 +187,71 @@ import Testing
 }
 
 @MainActor
+@Test func secondaryFocusPushUpdatesOnlyTheTargetWithoutPublishingTopologyChange() throws {
+    let foregroundMacID = "foreground-mac"
+    let secondaryMacID = "secondary-mac"
+    let foregroundWorkspace = MobileWorkspacePreview(
+        id: "foreground-workspace",
+        name: "Foreground",
+        terminals: [
+            MobileTerminalPreview(id: "foreground-terminal", name: "Foreground Terminal"),
+        ]
+    )
+    let secondaryWorkspace = MobileWorkspacePreview(
+        id: "secondary-workspace",
+        name: "Secondary",
+        terminals: [
+            MobileTerminalPreview(id: "secondary-a", name: "A", paneID: "secondary-pane", isFocused: true),
+            MobileTerminalPreview(id: "secondary-b", name: "B", paneID: "secondary-pane"),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "secondary-pane",
+                spatialIndex: 0,
+                isFocused: true,
+                terminalIDs: ["secondary-a", "secondary-b"]
+            ),
+        ],
+        focusedPaneID: "secondary-pane",
+        selectedTerminalID: "secondary-a"
+    )
+    let store = MobileShellComposite.preview()
+    store.setWorkspaceStatesForTesting(
+        [
+            foregroundMacID: MacWorkspaceState(
+                macDeviceID: foregroundMacID,
+                workspaces: [foregroundWorkspace]
+            ),
+            secondaryMacID: MacWorkspaceState(
+                macDeviceID: secondaryMacID,
+                workspaces: [secondaryWorkspace]
+            ),
+        ],
+        foregroundMacDeviceID: foregroundMacID
+    )
+    let foregroundBefore = try #require(store.workspaces.first(where: {
+        $0.rpcWorkspaceID == foregroundWorkspace.id
+    }))
+    let topologyVersionBefore = store.workspaceTopologyVersion
+    let event = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"secondary-workspace","focused_pane_id":"secondary-pane","selected_terminal_id":"secondary-b"}
+    """.utf8)))
+
+    store.applyWorkspaceFocusEvent(event, macID: secondaryMacID)
+
+    let foregroundAfter = try #require(store.workspaces.first(where: {
+        $0.rpcWorkspaceID == foregroundWorkspace.id
+    }))
+    let secondaryAfter = try #require(store.workspaces.first(where: {
+        $0.rpcWorkspaceID == secondaryWorkspace.id
+    }))
+    #expect(foregroundAfter == foregroundBefore)
+    #expect(secondaryAfter.selectedTerminalID == "secondary-b")
+    #expect(secondaryAfter.terminals.first(where: { $0.id == "secondary-b" })?.isFocused == true)
+    #expect(store.workspaceTopologyVersion == topologyVersionBefore)
+}
+
+@MainActor
 @Test func unknownFocusEventDimensionsDoNotOverrideAuthoritativeListFocus() throws {
     let oldPaneID = MobilePanePreview.ID(rawValue: "pane-old")
     let oldTerminalID = MobileTerminalPreview.ID(rawValue: "terminal-old")

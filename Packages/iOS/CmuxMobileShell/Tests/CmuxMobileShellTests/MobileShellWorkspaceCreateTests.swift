@@ -298,11 +298,12 @@ import Testing
         ))
         let owner = MobileTerminalCreationRequestOwner()
 
+        var createResult: Result<Void, MobileWorkspaceMutationFailure>?
         #expect(owner.startIfIdle(
             claim: .reserved(reservation),
             gate: store.terminalReorderGate
         ) {
-            await store.createRemoteTerminal(in: workspace.id)
+            createResult = await store.createRemoteTerminal(in: workspace.id)
         })
         for _ in 0..<300 where owner.isActive {
             try await Task.sleep(for: .milliseconds(1))
@@ -318,6 +319,10 @@ import Testing
         #expect(store.connectionError == nil)
         #expect(store.connectionErrorGuidance == nil)
         #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
+        guard case .failure(.resultUnknownRefreshed) = createResult else {
+            Issue.record("Expected reconciled unknown create result, got \(String(describing: createResult))")
+            return
+        }
     }
 
     @Test func ambiguousTerminalCreateFailureKeepsGateClosedWhenReconciliationFails() async throws {
