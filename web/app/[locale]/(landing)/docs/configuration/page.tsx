@@ -42,6 +42,7 @@ const sectionOrder = [
   "sidebar",
   "workspaceGroups",
   "workspaceColors",
+  "kanban",
   "sidebarAppearance",
   "automation",
   "actions",
@@ -130,6 +131,13 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
 
   // "workspaceGroups": {
   //   "newWorkspacePlacement": "afterCurrent"
+  // },
+
+  // "kanban": {
+  //   "columns": [
+  //     { "id": "todo", "title": "To Do", "order": 0 },
+  //     { "id": "review", "title": "Review", "order": 1 }
+  //   ]
   // },
 
   // "agentChat": {

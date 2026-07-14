@@ -95,6 +95,7 @@ enum KeyboardShortcutSettings {
         case switchRightSidebarToFeed
         case switchRightSidebarToDock
         case triggerFlash
+        case toggleBoardView
 
         // Navigation
         case nextSurface
@@ -223,6 +224,7 @@ enum KeyboardShortcutSettings {
             case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
             case .switchRightSidebarToDock: return String(localized: "shortcut.switchRightSidebarToDock.label", defaultValue: "Show Sidebar Dock")
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
+            case .toggleBoardView: return String(localized: "shortcut.toggleBoardView.label", defaultValue: "Toggle Board View")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
             case .selectSurfaceByNumber: return String(localized: "shortcut.selectSurfaceByNumber.label", defaultValue: "Select Surface 1…9")
@@ -398,6 +400,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
+            case .toggleBoardView:
+                return StoredShortcut(key: "b", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
             case .prevSidebarTab:

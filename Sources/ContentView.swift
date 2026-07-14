@@ -1685,6 +1685,11 @@ struct ContentView: View {
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
         let selectedWorkspaceId = tabManager.selectedTabId
         let retiringWorkspaceId = self.retiringWorkspaceId
+        // The terminal layer only owns the screen when `.tabs` is selected. On the
+        // board/notifications pages, force every workspace not-visible/not-input so
+        // the portal-hosted Ghostty surface (which draws above SwiftUI and ignores
+        // this layer's `.opacity`) is torn down instead of bleeding through.
+        let terminalLayerActive = sidebarSelectionState.selection == .tabs
 
         return ZStack {
             ZStack {
@@ -1699,11 +1704,12 @@ struct ContentView: View {
                     // Allowing both selected+retiring workspaces to be input-active lets the
                     // old workspace steal first responder (notably with WKWebView), which can
                     // delay handoff completion and make browser returns feel laggy.
-                    let isInputActive = isSelectedWorkspace
-                    let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
+                    let isInputActive = isSelectedWorkspace && terminalLayerActive
+                    let basePortalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
+                    let portalPriority = terminalLayerActive ? basePortalPriority : 0
                     WorkspaceContentView(
                         workspace: tab,
-                        isWorkspaceVisible: presentation.isPanelVisible,
+                        isWorkspaceVisible: presentation.isPanelVisible && terminalLayerActive,
                         isWorkspaceInputActive: isInputActive,
                         rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
                         isFullScreen: isFullScreen,
@@ -1733,6 +1739,11 @@ struct ContentView: View {
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
+
+            KanbanBoardView(selection: $sidebarSelectionState.selection)
+                .opacity(sidebarSelectionState.selection == .board ? 1 : 0)
+                .allowsHitTesting(sidebarSelectionState.selection == .board)
+                .accessibilityHidden(sidebarSelectionState.selection != .board)
         }
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,
@@ -16022,4 +16033,5 @@ private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
 enum SidebarSelection {
     case tabs
     case notifications
+    case board
 }

@@ -30,6 +30,8 @@ public struct SettingCatalog: SettingCatalogSection {
     /// Settings for cmux pane divider and focused-pane chrome.
     public let paneChrome = PaneChromeCatalogSection()
     public let workspaceColors = WorkspaceColorsCatalogSection()
+    /// Settings for the kanban board columns (the `kanban.*` keys).
+    public let kanban = KanbanCatalogSection()
     /// Settings for sidebar workspace groups (the `workspaceGroups.*` keys).
     public let workspaceGroups = WorkspaceGroupsCatalogSection()
     public let automation = AutomationCatalogSection()

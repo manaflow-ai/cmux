@@ -81,6 +81,7 @@ export const shortcutCategories: ShortcutCategory[] = [
     shortcuts: [
       { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle left sidebar", ja: "左サイドバーを切り替え" } },
       { id: "toggleFileExplorer", combos: [["⌘", "⌥", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
+      { id: "toggleBoardView", combos: [["⌘", "⇧", "B"]], description: { en: "Toggle kanban board view", ja: "カンバンボード表示を切り替え" } },
       { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
       {
         id: "newBrowserWorkspace",

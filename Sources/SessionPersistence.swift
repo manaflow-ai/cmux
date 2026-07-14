@@ -202,6 +202,7 @@ struct SessionRectSnapshot: Codable, Equatable, Sendable {
 enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
     case tabs
     case notifications
+    case board
 
     init(selection: SidebarSelection) {
         switch selection {
@@ -209,6 +210,8 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
             self = .tabs
         case .notifications:
             self = .notifications
+        case .board:
+            self = .board
         }
     }
 
@@ -218,6 +221,8 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
             return .tabs
         case .notifications:
             return .notifications
+        case .board:
+            return .board
         }
     }
 }
@@ -1772,6 +1777,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// User-defined per-workspace environment variables (issue #5995). Optional
     /// with a `nil` default so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
+    /// Kanban board column assignment. Optional with a `nil` default so
+    /// manifests written before the kanban board decode cleanly.
+    var kanbanColumnId: String? = nil
+    var kanbanOrder: Double? = nil
 }
 
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}

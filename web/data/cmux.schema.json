@@ -1151,6 +1151,58 @@
         }
       }
     },
+    "kanban": {
+      "title": "kanban",
+      "description": "Kanban board column definitions, shared across all windows. Per-tab card assignments are not stored here; they live with the session.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "type": "array",
+          "default": [
+            { "id": "todo", "title": "To Do", "order": 0, "isArchive": false, "isCollapsed": false },
+            { "id": "in-progress", "title": "In Progress", "order": 1, "isArchive": false, "isCollapsed": false },
+            { "id": "done", "title": "Done", "order": 2, "isArchive": false, "isCollapsed": false },
+            { "id": "archive", "title": "Archive", "order": 3, "isArchive": true, "isCollapsed": true }
+          ],
+          "description": "Board columns in declaration order (rendered sorted by order). id is a stable identifier that card assignments key off of, so renaming title never breaks existing cards. The archive column (isArchive: true) is non-deletable but renamable/recolorable/collapsible; at least one non-archive column must remain.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "title", "order"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Stable identifier. Never shown in the UI; a workspace's kanbanColumnId points at this, not the title."
+              },
+              "title": {
+                "type": "string",
+                "description": "Display text shown in the column header."
+              },
+              "order": {
+                "type": "integer",
+                "description": "Sort position among columns; lower sorts first."
+              },
+              "colorHex": {
+                "$ref": "#/$defs/colorHexOrNull",
+                "default": null,
+                "description": "Optional column header accent color."
+              },
+              "isArchive": {
+                "type": "boolean",
+                "default": false,
+                "description": "Marks the pinned Archive column. Non-deletable, but renamable/recolorable."
+              },
+              "isCollapsed": {
+                "type": "boolean",
+                "default": false,
+                "description": "Collapsed columns hide their cards, showing only the header."
+              }
+            }
+          }
+        }
+      }
+    },
     "sidebarAppearance": {
       "title": "sidebarAppearance",
       "description": "Sidebar tint settings from Settings > Sidebar Appearance.",
@@ -1549,6 +1601,7 @@
               "switchRightSidebarToFeed",
               "switchRightSidebarToDock",
               "triggerFlash",
+              "toggleBoardView",
               "nextSurface",
               "prevSurface",
               "selectSurfaceByNumber",

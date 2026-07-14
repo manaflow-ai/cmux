@@ -44,6 +44,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case switchRightSidebarToFeed
     case switchRightSidebarToDock
     case triggerFlash
+    /// Toggles the main content between the kanban board and the terminal view.
+    case toggleBoardView
 
     // MARK: Navigation
     case nextSurface
@@ -193,7 +195,7 @@ extension ShortcutAction {
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
-             .switchRightSidebarToDock, .triggerFlash:
+             .switchRightSidebarToDock, .triggerFlash, .toggleBoardView:
             return .workspace
         case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
              .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
@@ -367,6 +369,8 @@ extension ShortcutAction {
         case .switchRightSidebarToFeed: return "Show Sidebar Feed"
         case .switchRightSidebarToDock: return "Show Sidebar Dock"
         case .triggerFlash: return "Flash Focused Panel"
+        case .toggleBoardView:
+            return String(localized: "shortcut.toggleBoardView.label", defaultValue: "Toggle Board View")
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
         case .selectSurfaceByNumber: return "Select Surface 1…9"
