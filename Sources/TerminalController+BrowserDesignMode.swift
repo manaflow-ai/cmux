@@ -113,6 +113,21 @@ extension TerminalController {
                     data: nil
                 )
             }
+            if !statusOnly, !outcome.handled {
+                return .err(
+                    code: "design_mode_failed",
+                    message: outcome.error ?? String(
+                        localized: "cli.browser.designMode.updateFailed",
+                        defaultValue: "Browser design mode could not be updated"
+                    ),
+                    data: v2BrowserPanelFields(context, adding: [
+                        "enabled": outcome.enabled,
+                        "phase": outcome.phase,
+                        "selected": outcome.selected,
+                        "edit_count": outcome.editCount,
+                    ])
+                )
+            }
             return .ok(v2BrowserPanelFields(context, adding: [
                 "handled": outcome.handled,
                 "enabled": outcome.enabled,

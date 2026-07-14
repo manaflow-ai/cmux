@@ -1,6 +1,6 @@
 import Foundation
 
-enum BrowserDesignModeSendError: LocalizedError {
+enum BrowserDesignModeSendError: LocalizedError, Equatable {
     case invalidRuntimeResponse
     case terminalUnavailable
     case multipleAgentTerminals
@@ -9,6 +9,7 @@ enum BrowserDesignModeSendError: LocalizedError {
     case promptClearUnavailable
     case captureChanged
     case submitUnavailable
+    case operationTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -51,6 +52,11 @@ enum BrowserDesignModeSendError: LocalizedError {
             String(
                 localized: "browser.designMode.error.submitUnavailable",
                 defaultValue: "The design prompt was pasted into the agent terminal but could not be submitted."
+            )
+        case .operationTimedOut:
+            String(
+                localized: "browser.designMode.error.operationTimedOut",
+                defaultValue: "The page stopped responding. Reload it and try again."
             )
         }
     }

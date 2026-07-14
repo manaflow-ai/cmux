@@ -206,6 +206,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D35A00000000000000000005 /* BrowserDesignModeEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000005 /* BrowserDesignModeEditor.swift */; };
 		D35A00000000000000000004 /* BrowserDesignModeEditRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000004 /* BrowserDesignModeEditRow.swift */; };
 		D35A00000000000000000006 /* BrowserDesignModeHandoffState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000006 /* BrowserDesignModeHandoffState.swift */; };
+		D35A00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift */; };
 		D35A00000000000000000007 /* BrowserDesignModeMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000007 /* BrowserDesignModeMessageHandler.swift */; };
 		D35A00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift */; };
 		D35A00000000000000000008 /* BrowserDesignModePhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000008 /* BrowserDesignModePhase.swift */; };
@@ -2083,6 +2084,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D35B00000000000000000005 /* BrowserDesignModeEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeEditor.swift; sourceTree = "<group>"; };
 		D35B00000000000000000004 /* BrowserDesignModeEditRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeEditRow.swift; sourceTree = "<group>"; };
 		D35B00000000000000000006 /* BrowserDesignModeHandoffState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeHandoffState.swift; sourceTree = "<group>"; };
+		D35B00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeJavaScriptEvaluator.swift; sourceTree = "<group>"; };
 		D35B00000000000000000007 /* BrowserDesignModeMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeMessageHandler.swift; sourceTree = "<group>"; };
 		D35B00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeOverflowMenuButton.swift; sourceTree = "<group>"; };
 		D35B00000000000000000008 /* BrowserDesignModePhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModePhase.swift; sourceTree = "<group>"; };
@@ -4465,6 +4467,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D35B00000000000000000005 /* BrowserDesignModeEditor.swift */,
 				D35B00000000000000000006 /* BrowserDesignModeHandoffState.swift */,
 				D35B00000000000000000007 /* BrowserDesignModeMessageHandler.swift */,
+				D35B00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift */,
 				D35B00000000000000000008 /* BrowserDesignModePhase.swift */,
 				D35B00000000000000000009 /* BrowserDesignModeScreenshotStore.swift */,
 				D35B0000000000000000000A /* BrowserDesignModeSendError.swift */,
@@ -6116,6 +6119,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D35A00000000000000000005 /* BrowserDesignModeEditor.swift in Sources */,
 				D35A00000000000000000004 /* BrowserDesignModeEditRow.swift in Sources */,
 				D35A00000000000000000006 /* BrowserDesignModeHandoffState.swift in Sources */,
+				D35A00000000000000000015 /* BrowserDesignModeJavaScriptEvaluator.swift in Sources */,
 				D35A00000000000000000007 /* BrowserDesignModeMessageHandler.swift in Sources */,
 				D35A00000000000000000012 /* BrowserDesignModeOverflowMenuButton.swift in Sources */,
 				D35A00000000000000000008 /* BrowserDesignModePhase.swift in Sources */,

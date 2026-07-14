@@ -57,6 +57,10 @@
     return `${string.slice(0, Math.max(0, limit - 1))}…`;
   };
 
+  const hasSensitiveName = (value) => sensitiveNamePattern.test(
+    String(value || "").replace(/([a-z0-9])([A-Z])/g, "$1-$2"),
+  );
+
   const cssEscape = (value) => {
     if (globalThis.CSS && typeof globalThis.CSS.escape === "function") {
       return globalThis.CSS.escape(String(value));
@@ -155,14 +159,13 @@
     if (element instanceof HTMLInputElement && ["hidden", "password"].includes(type)) return true;
     const autocomplete = String(element.getAttribute?.("autocomplete") || "");
     if (sensitiveAutocompletePattern.test(autocomplete)) return true;
-    return sensitiveNamePattern.test(String(element.getAttribute?.("name") || ""))
-      || sensitiveNamePattern.test(String(element.id || ""));
+    return hasSensitiveName(element.getAttribute?.("name")) || hasSensitiveName(element.id);
   };
 
   const sanitizedAttributeValue = (element, attribute) => {
     const name = String(attribute.name || "");
     const value = String(attribute.value || "");
-    if (sensitiveNamePattern.test(name)
+    if (hasSensitiveName(name)
         || (isSensitiveElement(element)
           && !["id", "name", "type", "autocomplete", "class", "role", "aria-label"].includes(name.toLowerCase()))
         || /(?:token|secret|password|passwd|credential|authorization|api[-_]?key)\s*[:=]/i.test(value)) {
@@ -211,6 +214,7 @@
 
   const textIsEditable = (element) => {
     if (isSensitiveElement(element)) return false;
+    if (textValue(element).length > maxTextCharacters) return false;
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) return true;
     return element.childElementCount === 0 && !["html", "body", "script", "style"].includes(element.localName);
   };
@@ -379,9 +383,12 @@
   };
 
   const rememberTextOriginal = (element) => {
-    if (textOriginals.has(element)) return;
+    if (textOriginals.has(element)) return true;
     const input = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
-    textOriginals.set(element, { input, value: textValue(element) });
+    const value = textValue(element);
+    if (value.length > maxTextCharacters) return false;
+    textOriginals.set(element, { input, value });
+    return true;
   };
 
   const restoreText = () => {
@@ -417,14 +424,15 @@
   };
 
   const applyText = (element, value, notifyPage) => {
-    rememberTextOriginal(element);
+    if (!rememberTextOriginal(element)) return false;
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-      if (element.value === value) return;
+      if (element.value === value) return true;
       element.value = value;
       if (notifyPage) element.dispatchEvent(new Event("input", { bubbles: true }));
-      return;
+      return true;
     }
     if (element.textContent !== value) element.textContent = value;
+    return true;
   };
 
   const applyEditsTo = (element, notifyPage = true) => {
@@ -433,7 +441,7 @@
         rememberStyleOriginal(element, edit.property);
         element.style.setProperty(edit.property, edit.value, "important");
       } else if (edit.kind === "text") {
-        applyText(element, edit.value, notifyPage);
+        if (!applyText(element, edit.value, notifyPage)) edits.delete(edit.id);
       }
     }
   };
@@ -597,9 +605,10 @@
 
   const selectElement = (element) => {
     if (!element || element === overlayHost || overlayHost?.contains(element)) return snapshot();
+    const validatedBaseline = baselineFor(element);
+    if (!validatedBaseline) return snapshot();
     if (selectedElement !== element && edits.size) restoreAll();
-    const baseline = baselineFor(element);
-    if (!baseline) return snapshot();
+    const baseline = element.isConnected ? baselineFor(element) || validatedBaseline : validatedBaseline;
     selectedElement = element;
     selectedBaseline = baseline;
     hoveredElement = null;

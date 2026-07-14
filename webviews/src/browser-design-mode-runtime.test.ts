@@ -127,11 +127,25 @@ describe("browser design-mode runtime", () => {
     expect(replacements.every((element) => element.style.getPropertyValue("font-size") === "")).toBe(true);
   });
 
+  test("keeps accumulated edits when a new element cannot be selected uniquely", () => {
+    const nested = (label: string) => `<section><div><div><div><div><div><div><div><span class="target">${label}</span></div></div></div></div></div></div></div></section>`;
+    const { dom, runtime } = fixture(`<main><h1 id="hero">Hero</h1>${nested("First")}${nested("Second")}</main>`);
+    const hero = dom.window.document.querySelector("#hero") as HTMLElement;
+    runtime.select("#hero");
+    runtime.applyStyle("font-size", "44px");
+
+    const rejected = runtime.select(".target:first-of-type");
+
+    expect(rejected.selection?.selector).toBe("#hero");
+    expect(rejected.edits).toHaveLength(1);
+    expect(hero.style.getPropertyValue("font-size")).toBe("44px");
+  });
+
   test("bounds page-controlled snapshot fields before crossing the bridge", () => {
     const { dom, runtime } = fixture(`<textarea id="notes"></textarea>`);
     const huge = "x".repeat(1_000_000);
     const textarea = dom.window.document.querySelector("#notes") as HTMLTextAreaElement;
-    textarea.value = huge;
+    textarea.value = "Original";
 
     const selected = runtime.select("#notes");
     runtime.applyText(huge);
@@ -143,6 +157,20 @@ describe("browser design-mode runtime", () => {
     expect(JSON.stringify(edited).length).toBeLessThanOrEqual(128 * 1024);
   });
 
+  test("refuses text editing when the reversible original exceeds the text limit", () => {
+    const { dom, runtime } = fixture(`<textarea id="notes"></textarea>`);
+    const huge = "x".repeat(1_000_000);
+    const textarea = dom.window.document.querySelector("#notes") as HTMLTextAreaElement;
+    textarea.value = huge;
+
+    const selected = runtime.select("#notes");
+    const edited = runtime.applyText("Replacement");
+
+    expect(selected.selection?.text_editable).toBe(false);
+    expect(edited.edits).toHaveLength(0);
+    expect(textarea.value).toBe(huge);
+  });
+
   test("redacts sensitive form data before snapshots cross the bridge", () => {
     const { runtime } = fixture(`
       <main id="account">
@@ -150,6 +178,9 @@ describe("browser design-mode runtime", () => {
         <input type="hidden" name="csrf-token" value="secret-token">
         <meta name="csrf-token" content="meta-secret">
         <textarea name="api-token">nested-secret</textarea>
+        <textarea name="authToken">camel-auth-secret</textarea>
+        <span id="confirmPassword">camel-password-secret</span>
+        <span id="sessionId">camel-session-secret</span>
         <script>window.config = "script-secret";</script>
         <style>.style-secret { color: red; }</style>
         <p>Visible account copy</p>
@@ -167,6 +198,9 @@ describe("browser design-mode runtime", () => {
     expect(account.selection?.dom_snippet).toContain("&lt;redacted&gt;");
     expect(account.selection?.text_content).toContain("Visible account copy");
     expect(account.selection?.text_content).not.toContain("nested-secret");
+    expect(account.selection?.text_content).not.toContain("camel-auth-secret");
+    expect(account.selection?.text_content).not.toContain("camel-password-secret");
+    expect(account.selection?.text_content).not.toContain("camel-session-secret");
     expect(account.selection?.text_content).not.toContain("script-secret");
     expect(account.selection?.text_content).not.toContain("style-secret");
   });

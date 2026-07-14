@@ -26,6 +26,7 @@ final class BrowserDesignModeController {
     @ObservationIgnored private let script: BrowserDesignModeScript
     @ObservationIgnored private let promptFormatter: BrowserDesignModePromptFormatter
     @ObservationIgnored private let screenshotStore: BrowserDesignModeScreenshotStore
+    @ObservationIgnored private let javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator
     @ObservationIgnored private let canEnable: @MainActor @Sendable () -> Bool
     @ObservationIgnored private let promptSender: @MainActor @Sendable (String) throws -> Void
     @ObservationIgnored private let onActivityChanged: @MainActor @Sendable () -> Void
@@ -50,6 +51,7 @@ final class BrowserDesignModeController {
         script: BrowserDesignModeScript,
         promptFormatter: BrowserDesignModePromptFormatter,
         screenshotStore: BrowserDesignModeScreenshotStore,
+        javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator = BrowserDesignModeJavaScriptEvaluator(),
         canEnable: @escaping @MainActor @Sendable () -> Bool,
         promptSender: @escaping @MainActor @Sendable (String) throws -> Void,
         onActivityChanged: @escaping @MainActor @Sendable () -> Void
@@ -58,6 +60,7 @@ final class BrowserDesignModeController {
         self.script = script
         self.promptFormatter = promptFormatter
         self.screenshotStore = screenshotStore
+        self.javaScriptEvaluator = javaScriptEvaluator
         self.canEnable = canEnable
         self.promptSender = promptSender
         self.onActivityChanged = onActivityChanged
@@ -148,6 +151,17 @@ final class BrowserDesignModeController {
                 return true
             } catch let enableError {
                 guard operation == operationRevision else { return false }
+                if enableError as? BrowserDesignModeSendError == .operationTimedOut {
+                    invalidateOperation()
+                    bestEffortDestroyRuntime(in: webView)
+                    resetNativeState()
+                    recordInternalFailure(enableError, operation: "enable")
+                    errorMessage = String(
+                        localized: "browser.designMode.error.enable",
+                        defaultValue: "Design Mode could not start."
+                    )
+                    return false
+                }
                 let cleanupSucceeded: Bool
                 do {
                     try await destroyRuntime(in: webView)
@@ -370,10 +384,10 @@ final class BrowserDesignModeController {
         arguments: [String: Any] = [:],
         in webView: WKWebView
     ) async throws -> Any? {
-        try await webView.callAsyncJavaScript(
+        try await javaScriptEvaluator.call(
             body,
             arguments: arguments,
-            in: nil,
+            in: webView,
             contentWorld: Self.contentWorld
         )
     }
@@ -407,11 +421,12 @@ final class BrowserDesignModeController {
     }
 
     private func bestEffortDestroyRuntime(in webView: WKWebView) {
-        Task { @MainActor [weak webView] in
-            _ = try? await webView?.callAsyncJavaScript(
+        Task { @MainActor [weak self, weak webView] in
+            guard let self, let webView else { return }
+            _ = try? await self.javaScriptEvaluator.call(
                 "return globalThis.__cmuxDesignMode?.destroy();",
                 arguments: [:],
-                in: nil,
+                in: webView,
                 contentWorld: Self.contentWorld
             )
         }
@@ -431,6 +446,7 @@ final class BrowserDesignModeController {
 
     private func invalidateOperation() {
         operationRevision &+= 1
+        javaScriptEvaluator.cancelAll()
     }
 
     private static func captureRect(

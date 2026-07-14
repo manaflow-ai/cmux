@@ -105,6 +105,39 @@ import Testing
         #expect(payload.snapshot.edits.first?.originalValue == hostileValue)
     }
 
+    @Test func redactsCredentialsFromThePageURL() throws {
+        let selection = BrowserDesignModeSelection(
+            selector: "#hero",
+            selectors: ["#hero"],
+            tagName: "div",
+            domSnippet: "<div id=\"hero\"></div>",
+            textContent: "",
+            textEditable: true,
+            bounds: BrowserDesignModeRect(x: 0, y: 0, width: 10, height: 10),
+            viewport: BrowserDesignModeViewport(width: 100, height: 100),
+            computedStyles: [:]
+        )
+        let context = BrowserDesignModePromptContext(
+            pageURL: "https://user:password@example.com/callback?theme=dark&accessToken=query-secret#/done?idToken=fragment-secret&tab=design",
+            snapshot: BrowserDesignModeSnapshot(
+                revision: 1,
+                enabled: true,
+                selection: selection,
+                edits: [],
+                cssDiff: ""
+            ),
+            screenshotPath: nil
+        )
+
+        #expect(!context.pageURL.contains("user"))
+        #expect(!context.pageURL.contains("password"))
+        #expect(!context.pageURL.contains("query-secret"))
+        #expect(!context.pageURL.contains("fragment-secret"))
+        #expect(context.pageURL.contains("theme=dark"))
+        #expect(context.pageURL.contains("tab=design"))
+        #expect(context.pageURL.contains("%3Credacted%3E"))
+    }
+
     @Test func decodesRuntimeWireSnapshot() throws {
         let json = #"""
         {

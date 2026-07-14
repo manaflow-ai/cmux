@@ -3004,7 +3004,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 .appendingPathComponent("cmux-browser-design-mode", isDirectory: true)
         ),
         canEnable: { [weak self] in
-            self?.shouldRenderWebView == true && self?.webView.url != nil
+            self?.shouldRenderWebView == true
+                && self?.isMainFrameProvisionalNavigationActive == false
+                && self?.webView.url != nil
         },
         promptSender: { [weak self] prompt in
             guard let self else { throw BrowserDesignModeSendError.terminalUnavailable }
