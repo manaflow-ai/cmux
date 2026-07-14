@@ -15,4 +15,10 @@ final class KanbanFocusState: ObservableObject {
     /// The workspace id of the currently keyboard-focused card, or `nil` when
     /// nothing is focused (e.g. the board has no cards yet).
     @Published var focusedCardId: UUID?
+
+    /// `nonisolated` so it can be used as a default argument value
+    /// (`kanbanFocusState: KanbanFocusState = KanbanFocusState()`) in
+    /// `MainWindowContext.init` / `registerMainWindow`, which are called from
+    /// nonisolated contexts. Initializing the `nil` default needs no isolation.
+    nonisolated init() {}
 }
