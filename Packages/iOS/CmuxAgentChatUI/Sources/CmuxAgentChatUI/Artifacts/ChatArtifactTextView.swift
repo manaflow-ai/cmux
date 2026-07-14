@@ -6,6 +6,9 @@ import UIKit
 struct ChatArtifactTextView: UIViewRepresentable {
     let documentID: String
     let chunks: [String]
+    let reachedEOF: Bool
+    let highlightDecision: ChatArtifactHighlightDecision
+    let highlightTheme: ChatArtifactHighlightTheme
     let topRequestID: Int
     let bottomRequestID: Int
 
@@ -37,6 +40,7 @@ struct ChatArtifactTextView: UIViewRepresentable {
     func updateUIView(_ textView: UITextView, context: Context) {
         let isNewDocument = context.coordinator.documentID != documentID
         if isNewDocument {
+            context.coordinator.resetHighlighting()
             textView.textStorage.setAttributedString(NSAttributedString())
             textView.selectedRange = NSRange(location: 0, length: 0)
             context.coordinator.documentID = documentID
@@ -70,6 +74,15 @@ struct ChatArtifactTextView: UIViewRepresentable {
             textView.setContentOffset(contentOffset, animated: false)
             context.coordinator.appliedChunkCount += 1
         }
+
+        context.coordinator.updateHighlighting(
+            in: textView,
+            documentID: documentID,
+            text: textView.textStorage.string,
+            reachedEOF: reachedEOF,
+            decision: highlightDecision,
+            theme: highlightTheme
+        )
 
         if isNewDocument {
             Self.scrollToTop(textView)

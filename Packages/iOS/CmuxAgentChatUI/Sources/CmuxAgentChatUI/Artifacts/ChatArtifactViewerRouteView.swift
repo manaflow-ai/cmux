@@ -17,6 +17,7 @@ struct ChatArtifactViewerRouteView: View {
     let onDone: () -> Void
 
     @Environment(\.chatArtifactLoader) private var loader
+    @Environment(\.colorScheme) private var colorScheme
     @State private var model = ChatArtifactViewerModel()
     @State private var retryGeneration = 0
     @State private var topRequestID = 0
@@ -172,6 +173,7 @@ struct ChatArtifactViewerRouteView: View {
                 if !model.textReachedEOF {
                     streamingProgressHeader
                 }
+                highlightingStatusPill
                 rawTextView
             }
         case .markdown:
@@ -182,6 +184,7 @@ struct ChatArtifactViewerRouteView: View {
                 if model.markdownPresentation.mode == .rendered {
                     ChatArtifactMarkdownView(markdown: model.renderedText)
                 } else {
+                    highlightingStatusPill
                     rawTextView
                 }
             }
@@ -248,6 +251,9 @@ struct ChatArtifactViewerRouteView: View {
         ChatArtifactTextView(
             documentID: path,
             chunks: model.textChunks,
+            reachedEOF: model.textReachedEOF,
+            highlightDecision: model.textHighlightDecision,
+            highlightTheme: colorScheme == .dark ? .dark : .light,
             topRequestID: topRequestID,
             bottomRequestID: bottomRequestID
         )
@@ -260,6 +266,22 @@ struct ChatArtifactViewerRouteView: View {
                 .padding()
         }
         #endif
+    }
+
+    @ViewBuilder
+    private var highlightingStatusPill: some View {
+        if model.textHighlightDecision.showsHighlightingOffPill,
+           let totalBytes = model.totalBytes {
+            HStack {
+                Spacer(minLength: 16)
+                ChatArtifactHighlightingStatusPill(
+                    actualBytes: totalBytes,
+                    maximumBytes: ChatArtifactSyntaxHighlightPolicy.maxHighlightBytes
+                )
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
     }
 
     private func unavailableView(

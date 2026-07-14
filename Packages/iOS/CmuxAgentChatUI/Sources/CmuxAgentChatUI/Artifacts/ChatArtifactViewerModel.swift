@@ -13,6 +13,7 @@ final class ChatArtifactViewerModel {
     private(set) var textReachedEOF = false
     private(set) var activePath: String?
     private(set) var markdownPresentation = ChatArtifactMarkdownPresentation(byteCount: 0)
+    private(set) var textHighlightDecision: ChatArtifactHighlightDecision = .skippedNoLanguage
     private let temporaryFileStore: ChatArtifactTemporaryFileStore
     private var temporaryFileURL: URL?
 
@@ -40,6 +41,10 @@ final class ChatArtifactViewerModel {
             guard path == activePath else { return }
             stat = loadedStat
             totalBytes = loadedStat.size
+            textHighlightDecision = ChatArtifactSyntaxHighlightPolicy().decision(
+                path: path,
+                byteCount: loadedStat.size
+            )
 
             let route = ChatArtifactPreviewRouter().route(stat: loadedStat, path: path)
             guard route != .folder else {
@@ -136,6 +141,7 @@ final class ChatArtifactViewerModel {
         totalBytes = nil
         textReachedEOF = false
         markdownPresentation = ChatArtifactMarkdownPresentation(byteCount: 0)
+        textHighlightDecision = .skippedNoLanguage
     }
 
     private func streamText(

@@ -205,6 +205,40 @@
         }
       }
     },
+    "chat.artifact.highlighting.off" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Highlighting off"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ハイライトはオフ"
+          }
+        }
+      }
+    },
+    "chat.artifact.highlighting.off.explanation" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This file is %@. Syntax highlighting is off above %@ to keep scrolling smooth."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このファイルは%@です。スクロールを滑らかに保つため、%@を超えるファイルでは構文ハイライトがオフになります。"
+          }
+        }
+      }
+    },
     "chat.artifact.jump.bottom" : {
       "extractionState" : "manual",
       "localizations" : {
