@@ -122,7 +122,7 @@ extension GhosttySurfaceScrollView {
         guard let geometry = authoritativeGeometry ?? surfaceView.authoritativeScrollbarGeometry() else {
             return false
         }
-        let shouldRebase = attemptsRemaining < 2 || position.totalRows.map {
+        let shouldRebase = position.totalRows.map {
             Int(clamping: geometry.scrollbar.total) < $0
         } == true
         guard let targetTopRow = targetTopRow(
@@ -136,7 +136,7 @@ extension GhosttySurfaceScrollView {
         return applyNotificationScrollRestore(
             targetTopRow: targetTopRow,
             scrollbar: geometry.scrollbar,
-            attemptsRemaining: attemptsRemaining,
+            attemptsRemaining: 1,
             perform: {
                 self.surfaceView.scrollToRow(
                     targetTopRow,
@@ -249,6 +249,10 @@ extension GhosttySurfaceScrollView {
         guard case .replaying(let expectedEndBoundary, let pendingPosition) = notificationScrollRestoreState,
               boundary == expectedEndBoundary else {
             return false
+        }
+        guard let pendingPosition else {
+            notificationScrollRestoreState = .inactive
+            return true
         }
         notificationScrollRestoreState = .awaitingPostReplayGeometry(
             position: pendingPosition,

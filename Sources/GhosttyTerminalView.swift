@@ -2489,6 +2489,8 @@ class GhosttyApp {
         }
     }
 
+    func performNotificationScrollOnMain(_ work: @MainActor () -> Void) { performOnMain(work) }
+
     @MainActor
     private static func openEmbeddedBrowserLink(
         url: URL,
