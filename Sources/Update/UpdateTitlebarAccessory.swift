@@ -2161,7 +2161,7 @@ private struct NotificationsPopoverView: View {
             resizeHandle
         }
         .onAppear { refreshWorkspaceTitles() }
-        .onChange(of: notificationStore.notifications.map(\.tabId)) { _, _ in
+        .onChange(of: notificationStore.notificationWorkspaceIds) { _, _ in
             refreshWorkspaceTitles()
         }
         .onReceive(NotificationCenter.default.publisher(for: .workspaceTitleDidChange)) { notification in
@@ -2336,12 +2336,12 @@ private struct NotificationsPopoverView: View {
             // the list boundary, which is the same anti-pattern CLAUDE.md flags for the
             // sidebar/sessions panel (https://github.com/manaflow-ai/cmux/issues/2586).
             let snapshot = notificationStore.notifications
-            let lastIndex = snapshot.count - 1
+            let lastId = snapshot.last?.id
             // One tabId -> title index per render, not an O(tabs) scan per row (#5794).
             let titleSnapshot = loadedWorkspaceTitles ?? currentWorkspaceTitles()
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
+                    ForEach(snapshot) { notification in
                         NotificationPopoverRow(
                             notification: notification,
                             workspaceTitle: titleSnapshot[notification.tabId],
@@ -2373,7 +2373,7 @@ private struct NotificationsPopoverView: View {
                             }
                         )
                         .equatable()  // snapshot-boundary: skip unchanged rows (#5794)
-                        if index < lastIndex {
+                        if notification.id != lastId {
                             Divider()
                                 .opacity(0.4)
                                 .padding(.leading, 18)
@@ -2385,12 +2385,12 @@ private struct NotificationsPopoverView: View {
     }
 
     private func currentWorkspaceTitles() -> [UUID: String] {
-        let notificationWorkspaceIds = Set(notificationStore.notifications.map(\.tabId))
+        let notificationWorkspaceIds = notificationStore.notificationWorkspaceIds
         return AppDelegate.shared?.tabTitlesByTabId(for: notificationWorkspaceIds) ?? [:]
     }
 
     private func refreshWorkspaceTitles(ifRelevantTo notification: Notification? = nil) {
-        let notificationWorkspaceIds = Set(notificationStore.notifications.map(\.tabId))
+        let notificationWorkspaceIds = notificationStore.notificationWorkspaceIds
         guard let notification else {
             let nextTitles = currentWorkspaceTitles()
             guard loadedWorkspaceTitles != nextTitles else { return }

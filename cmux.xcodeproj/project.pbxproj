@@ -961,6 +961,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		7A1100017A1100017A110001 /* NotificationCooldownReservations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1100027A1100027A110002 /* NotificationCooldownReservations.swift */; };
 		D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */; };
 		E7A500020000000000000001 /* NotificationEffectsOnlyReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A500020000000000000002 /* NotificationEffectsOnlyReplayTests.swift */; };
+		E7A500040000000000000001 /* NotificationFeedScaleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A500040000000000000002 /* NotificationFeedScaleTests.swift */; };
 		D7769000000000000000000B /* NotificationPopoverHoverTrackingRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */; };
 		D7769000000000000000000D /* NotificationPopoverHoverTrackingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */; };
 		D77690000000000000000003 /* NotificationPopoverRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000004 /* NotificationPopoverRow.swift */; };
@@ -1527,6 +1528,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */; };
 		EE5000110000000000000011 /* TerminalNotificationStore+Indexes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE5000120000000000000012 /* TerminalNotificationStore+Indexes.swift */; };
 		7490C0107490C0107490C010 /* TerminalNotificationStore+MemoryPressure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */; };
+		E7A500030000000000000001 /* TerminalNotificationStore+Mutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A500030000000000000002 /* TerminalNotificationStore+Mutation.swift */; };
 		596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */; };
 		A5A5A509A1B2C3D4E5F60718 /* TerminalNotificationStore+QueuedDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A50AA1B2C3D4E5F60718 /* TerminalNotificationStore+QueuedDelivery.swift */; };
 		A5F10000000000000000000D /* TerminalNotificationStore+WorkspaceNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000E /* TerminalNotificationStore+WorkspaceNotifications.swift */; };
@@ -2721,6 +2723,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		7A1100027A1100027A110002 /* NotificationCooldownReservations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCooldownReservations.swift; sourceTree = "<group>"; };
 		D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationDismissSyncTests.swift"; sourceTree = "<group>"; };
 		E7A500020000000000000002 /* NotificationEffectsOnlyReplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationEffectsOnlyReplayTests.swift; sourceTree = "<group>"; };
+		E7A500040000000000000002 /* NotificationFeedScaleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationFeedScaleTests.swift; sourceTree = "<group>"; };
 		D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingRepresentable.swift; sourceTree = "<group>"; };
 		D7769000000000000000000E /* NotificationPopoverHoverTrackingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverHoverTrackingView.swift; sourceTree = "<group>"; };
 		D77690000000000000000004 /* NotificationPopoverRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationPopoverRow.swift; sourceTree = "<group>"; };
@@ -3272,6 +3275,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationSocketActionTests.swift; sourceTree = "<group>"; };
 		EE5000120000000000000012 /* TerminalNotificationStore+Indexes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+Indexes.swift"; sourceTree = "<group>"; };
 		7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+MemoryPressure.swift"; sourceTree = "<group>"; };
+		E7A500030000000000000002 /* TerminalNotificationStore+Mutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+Mutation.swift"; sourceTree = "<group>"; };
 		596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+NativeNotificationDeliveryTesting.swift"; sourceTree = "<group>"; };
 		A5A5A50AA1B2C3D4E5F60718 /* TerminalNotificationStore+QueuedDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+QueuedDelivery.swift"; sourceTree = "<group>"; };
 		A5F10000000000000000000E /* TerminalNotificationStore+WorkspaceNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+WorkspaceNotifications.swift"; sourceTree = "<group>"; };
@@ -4381,6 +4385,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001099 /* TerminalNotificationScrollPosition.swift */,
 				7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */,
 				EE5000120000000000000012 /* TerminalNotificationStore+Indexes.swift */,
+				E7A500030000000000000002 /* TerminalNotificationStore+Mutation.swift */,
 				596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */,
 				D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */,
 				EE5000100000000000000010 /* ExternalNotificationBannerOwnership.swift */,
@@ -5281,6 +5286,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A507000000000000005795 /* NotificationRowSnapshotBoundaryTests.swift */,
 				EE5000020000000000000002 /* NotificationChronologyTests.swift */,
 				E7A500020000000000000002 /* NotificationEffectsOnlyReplayTests.swift */,
+				E7A500040000000000000002 /* NotificationFeedScaleTests.swift */,
 				FA5000020000000000000002 /* NotificationSessionReplacementIdentityTests.swift */,
 				EE5000080000000000000008 /* NotificationRestoreBannerOwnershipTests.swift */,
 				EE5000040000000000000004 /* TerminalNotificationBackpressureTests.swift */,
@@ -6711,6 +6717,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001098 /* TerminalNotificationScrollPosition.swift in Sources */,
 				EE5000110000000000000011 /* TerminalNotificationStore+Indexes.swift in Sources */,
 				7490C0107490C0107490C010 /* TerminalNotificationStore+MemoryPressure.swift in Sources */,
+				E7A500030000000000000001 /* TerminalNotificationStore+Mutation.swift in Sources */,
 				A5A5A509A1B2C3D4E5F60718 /* TerminalNotificationStore+QueuedDelivery.swift in Sources */,
 				A5F10000000000000000000D /* TerminalNotificationStore+WorkspaceNotifications.swift in Sources */,
 				A5001095 /* TerminalNotificationStore.swift in Sources */,
@@ -7286,6 +7293,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				EE5000010000000000000001 /* NotificationChronologyTests.swift in Sources */,
 				D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */,
 				E7A500020000000000000001 /* NotificationEffectsOnlyReplayTests.swift in Sources */,
+				E7A500040000000000000001 /* NotificationFeedScaleTests.swift in Sources */,
 				EE5000070000000000000007 /* NotificationRestoreBannerOwnershipTests.swift in Sources */,
 				C7A507000000000000005794 /* NotificationRowSnapshotBoundaryTests.swift in Sources */,
 				FA5000010000000000000001 /* NotificationSessionReplacementIdentityTests.swift in Sources */,

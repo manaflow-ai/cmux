@@ -1,11 +1,24 @@
 import Foundation
 
 extension TerminalNotificationStore {
+#if DEBUG
+    private static var fullIndexRebuildCount = 0
+
+    static func resetFullIndexRebuildCountForTesting() {
+        fullIndexRebuildCount = 0
+    }
+
+    static var fullIndexRebuildCountForTesting: Int { fullIndexRebuildCount }
+#endif
+
     static func indexByIdPreservingFirst(_ notifications: [TerminalNotification]) -> [UUID: TerminalNotification] {
         Dictionary(notifications.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {
+#if DEBUG
+        fullIndexRebuildCount += 1
+#endif
         var indexes = NotificationIndexes()
         for notification in notifications {
             indexes.ids.insert(notification.id)

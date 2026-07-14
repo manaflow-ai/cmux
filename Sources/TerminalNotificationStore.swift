@@ -381,25 +381,38 @@ final class TerminalNotificationStore: ObservableObject {
         case settingsTest = "settings_test"
     }
 
+    private var insertionBeingCommitted: TerminalNotification?
+
     /// Every accepted notification, once per stable id, newest first. Equal
     /// timestamps use ascending UUID text as the deterministic tie break.
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
-            indexes = Self.buildIndexes(for: notifications)
-            deferredUnreadNavigationIds.removeAll { !indexes.ids.contains($0) }
-            rebuildUnreadNavigationNotifications()
+            if let inserted = insertionBeingCommitted {
+                Self.insertNotification(inserted, into: &indexes, notifications: notifications)
+            } else {
+                indexes = Self.buildIndexes(for: notifications)
+                deferredUnreadNavigationIds.removeAll { !indexes.ids.contains($0) }
+            }
+            unreadNavigationProjectionIsDirty = true
             refreshUnreadPresentation()
-            if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
+            if let inserted = insertionBeingCommitted {
+                CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
+            } else if !suppressNotificationDiffPublishing {
+                CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications)
+            }
         }
     }
     private var deferredUnreadNavigationIds: [UUID] = []
     private var unreadNavigationNotifications: [TerminalNotification] = []
+    private var unreadNavigationProjectionIsDirty = true
 
     var notificationsForUnreadNavigation: [TerminalNotification] {
-        unreadNavigationNotifications
+        if unreadNavigationProjectionIsDirty { rebuildUnreadNavigationNotifications() }
+        return unreadNavigationNotifications
     }
 
     private func rebuildUnreadNavigationNotifications() {
+        unreadNavigationProjectionIsDirty = false
         guard !deferredUnreadNavigationIds.isEmpty else {
             unreadNavigationNotifications = notifications
             return
@@ -511,25 +524,6 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    static func dockBadgeLabel(unreadCount: Int, isEnabled: Bool, runTag: String? = nil) -> String? {
-        let unreadLabel: String? = {
-            guard isEnabled, unreadCount > 0 else { return nil }
-            if unreadCount > 99 {
-                return "99+"
-            }
-            return String(unreadCount)
-        }()
-
-        if let tag = TaggedRunBadgeSettings.normalizedTag(runTag) {
-            if let unreadLabel {
-                return "\(tag):\(unreadLabel)"
-            }
-            return tag
-        }
-
-        return unreadLabel
-    }
-
     var unreadCount: Int {
         indexes.unreadCount + workspaceUnreadIndicatorCount
     }
@@ -547,7 +541,8 @@ final class TerminalNotificationStore: ObservableObject {
     private func refreshUnreadPresentation() {
         let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(
             notifications: notifications,
-            workspaceUnreadIndicatorCount: workspaceUnreadIndicatorCount
+            workspaceUnreadIndicatorCount: workspaceUnreadIndicatorCount,
+            cachedUnreadNotificationCount: indexes.unreadCount
         )
         if notificationMenuSnapshot != nextMenuSnapshot {
             notificationMenuSnapshot = nextMenuSnapshot
@@ -838,6 +833,8 @@ final class TerminalNotificationStore: ObservableObject {
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
         indexes.latestByTabId[tabId]
     }
+
+    var notificationWorkspaceIds: Set<UUID> { Set(indexes.latestByTabId.keys) }
 
     func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
         notifications.filter { $0.matches(tabId: tabId, surfaceId: surfaceId) }
@@ -1146,8 +1143,6 @@ final class TerminalNotificationStore: ObservableObject {
         acceptedAt: Date,
         cooldownReservation: NotificationCooldownReservations.Reservation?
     ) {
-        var updated = notifications
-
         if let existingIndicatorSurfaceId = focusedReadIndicatorByTabId[notification.tabId],
            existingIndicatorSurfaceId != notification.surfaceId {
             focusedReadIndicatorByTabId.removeValue(forKey: notification.tabId)
@@ -1163,9 +1158,7 @@ final class TerminalNotificationStore: ObservableObject {
                 .moveTabToTopForNotification(notification.tabId)
         }
 
-        let insertionIndex = updated.firstIndex {
-            Self.notificationSortPrecedes(notification, $0)
-        } ?? updated.endIndex
+        let insertionIndex = Self.insertionIndex(for: notification, in: notifications)
         let latestExisting = indexes.latestByTabSurface[
             TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
         ]
@@ -1181,9 +1174,8 @@ final class TerminalNotificationStore: ObservableObject {
             ? []
             : bannerOwner.map { [$0.id.uuidString] } ?? []
         let suppressExternalDelivery = shouldSuppressExternalDelivery || externalBannerTransition.suppressIncoming
-        updated.insert(notification, at: insertionIndex)
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
-        notifications = updated
+        commitInsertion(notification, at: insertionIndex)
         commitCooldownReservation(cooldownReservation, at: acceptedAt)
 #if DEBUG
         cmuxDebugLog(
@@ -1205,6 +1197,12 @@ final class TerminalNotificationStore: ObservableObject {
             shouldSuppressExternalDelivery: suppressExternalDelivery,
             effects: effects
         )
+    }
+
+    private func commitInsertion(_ notification: TerminalNotification, at index: Int) {
+        insertionBeingCommitted = notification
+        defer { insertionBeingCommitted = nil }
+        notifications.insert(notification, at: index)
     }
 
     private func supersedeExternalBanners(
@@ -1995,13 +1993,6 @@ final class TerminalNotificationStore: ObservableObject {
     ) -> Bool {
         guard origin == .notificationDelivery else { return false }
         return shouldDeferAutomaticAuthorizationRequest(status: status, isAppActive: isAppActive)
-    }
-
-    nonisolated static func notificationSortPrecedes(_ lhs: TerminalNotification, _ rhs: TerminalNotification) -> Bool {
-        if lhs.createdAt != rhs.createdAt {
-            return lhs.createdAt > rhs.createdAt
-        }
-        return lhs.id.uuidString < rhs.id.uuidString
     }
 
 #if DEBUG
