@@ -242,6 +242,32 @@ struct NotificationScrollRestoreRecoveryTests {
         #expect(!hostedView.hasPendingNotificationScrollRestore)
     }
 
+    @Test func retainedNotificationRebasesAcrossRespawnRowSpace() {
+        let boundary = "test-replay-boundary"
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(
+            scrollbar(total: 400, offset: 356, len: 44),
+            rowSpaceRevision: 2
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        beginReplay(on: hostedView, endBoundary: boundary)
+        #expect(hostedView.sessionScrollbackReplayDidReceiveBoundary(
+            boundary,
+            authoritativeGeometry: surfaceView.authoritativeGeometry
+        ))
+
+        #expect(hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(
+                row: 100,
+                totalRows: 400,
+                rowSpaceRevision: 1
+            )
+        ))
+
+        #expect(surfaceView.performedRows == [256])
+        #expect(surfaceView.acceptedRowSpaceRevisions == [2])
+    }
+
     @Test func liveNotificationAfterReplayUsesCurrentRowSpaceAndRetainsReplayBaseline() {
         let boundary = "test-replay-boundary"
         let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
