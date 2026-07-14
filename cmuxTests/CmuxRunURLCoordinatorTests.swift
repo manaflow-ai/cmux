@@ -13,14 +13,14 @@ import Testing
 struct CmuxRunURLCoordinatorTests {
     @Test func repeatedBusyFailuresReuseOneModelessWindow() throws {
         let presenter = CmuxRunURLConfirmationPresenter()
-        presenter.dismissNonModalFailureForTesting()
-        defer { presenter.dismissNonModalFailureForTesting() }
+        CmuxRunURLNonModalFailurePresenter.shared.dismiss()
+        defer { CmuxRunURLNonModalFailurePresenter.shared.dismiss() }
 
         presenter.showNonModalFailure(.busy)
-        let firstWindow = try #require(presenter.nonModalFailureWindowForTesting)
+        let firstWindow = try #require(CmuxRunURLNonModalFailurePresenter.shared.window)
         presenter.showNonModalFailure(.busy)
 
-        #expect(presenter.nonModalFailureWindowForTesting === firstWindow)
+        #expect(CmuxRunURLNonModalFailurePresenter.shared.window === firstWindow)
         #expect(NSApp.modalWindow == nil)
     }
 
@@ -349,10 +349,10 @@ struct CmuxRunURLCoordinatorTests {
     }
 
     private func targetRequest(
-        placement: CmuxRunURLRequest.Placement,
+        placement: CmuxRunURLPlacement,
         workspaceId: UUID,
-        anchor: CmuxRunURLRequest.Anchor,
-        direction: CmuxRunURLRequest.Direction?
+        anchor: CmuxRunURLAnchor,
+        direction: CmuxRunURLDirection?
     ) throws -> CmuxRunURLRequest {
         CmuxRunURLRequest(
             originalURL: try #require(URL(string: "cmux://run")),

@@ -1,44 +1,11 @@
 import Foundation
 
-enum CmuxRunURLParseError: Error, Equatable {
-    case unsupportedURLShape
-    case missingParameter(String)
-    case emptyParameter(String)
-    case valueTooLong(parameter: String, maxLength: Int)
-    case unsafeCharacters(String)
-    case duplicateParameter(String)
-    case unsupportedParameter(String)
-    case invalidPlacement(String)
-    case invalidDirection(String)
-    case invalidIdentifier(String)
-    case invalidTargetCombination
-    case multipleLinks
-}
-
 /// A strictly parsed request to run one reviewed shell command in a new terminal.
 ///
 /// The request cannot reuse an existing terminal, inject input, set environment
 /// variables, run in the background, or suppress focus. Those omissions keep the
 /// approval dialog's execution plan complete and reviewable.
 struct CmuxRunURLRequest: Equatable {
-    enum Placement: String, Equatable {
-        case workspace
-        case surface
-        case pane
-    }
-
-    enum Anchor: Equatable {
-        case pane(UUID)
-        case surface(UUID)
-    }
-
-    enum Direction: String, Equatable {
-        case left
-        case right
-        case up
-        case down
-    }
-
     static let maxCommandLength = 8_000
     static let maxWorkingDirectoryLength = 4_096
     static var activeSupportedSchemes: Set<String> {
@@ -48,10 +15,10 @@ struct CmuxRunURLRequest: Equatable {
     let originalURL: URL
     let command: String
     let workingDirectory: String
-    let placement: Placement
+    let placement: CmuxRunURLPlacement
     let workspaceId: UUID?
-    let anchor: Anchor?
-    let direction: Direction?
+    let anchor: CmuxRunURLAnchor?
+    let direction: CmuxRunURLDirection?
 
     static func parse(
         _ url: URL,
@@ -120,8 +87,8 @@ struct CmuxRunURLRequest: Equatable {
             return .failure(.unsafeCharacters("cwd"))
         }
 
-        let placementRaw = (values["placement"] ?? nil) ?? Placement.workspace.rawValue
-        guard let placement = Placement(rawValue: placementRaw.lowercased()) else {
+        let placementRaw = (values["placement"] ?? nil) ?? CmuxRunURLPlacement.workspace.rawValue
+        guard let placement = CmuxRunURLPlacement(rawValue: placementRaw.lowercased()) else {
             return .failure(.invalidPlacement("placement"))
         }
 
@@ -144,9 +111,9 @@ struct CmuxRunURLRequest: Equatable {
         case .failure(let error): return .failure(error)
         }
 
-        let direction: Direction?
+        let direction: CmuxRunURLDirection?
         if let rawDirection = values["direction"] ?? nil {
-            guard let parsed = Direction(rawValue: rawDirection.lowercased()) else {
+            guard let parsed = CmuxRunURLDirection(rawValue: rawDirection.lowercased()) else {
                 return .failure(.invalidDirection("direction"))
             }
             direction = parsed
@@ -181,7 +148,7 @@ struct CmuxRunURLRequest: Equatable {
             if placement == .pane, direction == nil {
                 return .failure(.missingParameter("direction"))
             }
-            let anchor = paneId.map(Anchor.pane) ?? surfaceId.map(Anchor.surface)
+            let anchor = paneId.map(CmuxRunURLAnchor.pane) ?? surfaceId.map(CmuxRunURLAnchor.surface)
             return .success(
                 CmuxRunURLRequest(
                     originalURL: url,

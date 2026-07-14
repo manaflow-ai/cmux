@@ -39,31 +39,6 @@ extension AppDelegate {
         return false
     }
 
-    struct CmuxExternalURLIntentCounts {
-        var run = 0
-        var ssh = 0
-        var navigation = 0
-        var text = 0
-
-        var total: Int {
-            run + ssh + navigation + text
-        }
-    }
-
-    enum CmuxExternalURLAdmission: Equatable {
-        case none
-        case multipleLinks
-        case busy
-        case route
-    }
-
-    private enum CmuxExternalURLIntent {
-        case run
-        case ssh
-        case navigation
-        case text
-    }
-
     static func cmuxExternalURLIntentCounts(
         in urls: [URL],
         supportedSchemes: Set<String> = CmuxRunURLRequest.activeSupportedSchemes
@@ -101,7 +76,7 @@ extension AppDelegate {
     private static func cmuxExternalURLIntent(
         for url: URL,
         supportedSchemes: Set<String>
-    ) -> CmuxExternalURLIntent? {
+    ) -> CmuxExternalURLIntentCounts.Intent? {
         guard let scheme = url.scheme?.lowercased() else { return nil }
         if scheme == "ssh" {
             return .ssh

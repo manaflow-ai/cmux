@@ -392,7 +392,7 @@ final class CmuxRunURLCoordinator {
         return (manager, workspace, pane, window)
     }
 
-    private func window(for target: CmuxRunExecutionPlan.Target) -> NSWindow? {
+    private func window(for target: CmuxRunExecutionTarget) -> NSWindow? {
         let windowId: UUID
         switch target {
         case .newWindow: return nil
@@ -408,7 +408,7 @@ final class CmuxRunURLCoordinator {
         _ = appDelegate.focusMainWindow(windowId: windowId)
     }
 
-    private func splitDirection(_ direction: CmuxRunURLRequest.Direction) -> SplitDirection {
+    private func splitDirection(_ direction: CmuxRunURLDirection) -> SplitDirection {
         switch direction {
         case .left: return .left
         case .right: return .right
@@ -417,7 +417,7 @@ final class CmuxRunURLCoordinator {
         }
     }
 
-    private func localizedDirection(_ direction: CmuxRunURLRequest.Direction) -> String {
+    private func localizedDirection(_ direction: CmuxRunURLDirection) -> String {
         switch direction {
         case .left:
             return String(localized: "dialog.runURL.direction.left", defaultValue: "left")
