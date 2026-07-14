@@ -1,10 +1,10 @@
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
-/// The built-in title-bar control for showing and hiding the right sidebar.
+/// The built-in title-bar control for showing the hidden right sidebar.
 struct RightSidebarTitlebarToggleButton: View {
-    let isVisible: Bool
     let foregroundColor: Color
     let action: () -> Void
     @AppStorage(TitlebarControlsStyle.storageKey)
@@ -22,8 +22,7 @@ struct RightSidebarTitlebarToggleButton: View {
                 localized: "shortcut.toggleRightSidebar.label",
                 defaultValue: "Toggle Right Sidebar"
             ),
-            action: action,
-            isSelected: isVisible
+            action: action
         ) {
             TitlebarSidebarGlyph(edge: .trailing, iconSize: config.iconSize)
             .frame(
@@ -44,6 +43,18 @@ struct RightSidebarTitlebarToggleButton: View {
                 )
             )
         )
-        .accessibilityAddTraits(isVisible ? .isSelected : [])
+        .frame(
+            width: RightSidebarChromeMetrics.headerControlSize + 12,
+            height: WindowChromeMetrics.appTitlebarHeight
+        )
+        .overlay(alignment: .leading) {
+            WindowChromeBorder(
+                orientation: .vertical,
+                ignoresSafeArea: false,
+                refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
+                backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
+            )
+            .allowsHitTesting(false)
+        }
     }
 }
