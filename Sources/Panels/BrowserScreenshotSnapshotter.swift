@@ -1,44 +1,6 @@
 import AppKit
+import CmuxBrowser
 import WebKit
-
-private struct BrowserScreenshotWebContentMetrics {
-    let contentSize: NSSize
-    let viewportSize: NSSize
-    let scrollOffset: NSPoint
-}
-
-struct BrowserScreenshotTileDrawRects: Equatable {
-    let source: NSRect
-    let destination: NSRect
-}
-
-enum BrowserScreenshotTilePlacement {
-    static func drawRects(
-        tileSize: NSSize,
-        origin: NSPoint,
-        contentSize: NSSize,
-        viewportSize: NSSize
-    ) -> BrowserScreenshotTileDrawRects? {
-        let drawWidth = min(viewportSize.width, tileSize.width, max(0, contentSize.width - origin.x))
-        let drawHeight = min(viewportSize.height, tileSize.height, max(0, contentSize.height - origin.y))
-        guard drawWidth > 0, drawHeight > 0 else { return nil }
-
-        return BrowserScreenshotTileDrawRects(
-            source: NSRect(
-                x: 0,
-                y: max(0, tileSize.height - drawHeight),
-                width: drawWidth,
-                height: drawHeight
-            ),
-            destination: NSRect(
-                x: origin.x,
-                y: contentSize.height - origin.y - drawHeight,
-                width: drawWidth,
-                height: drawHeight
-            )
-        )
-    }
-}
 
 enum BrowserScreenshotCaptureBounds {
     static let maximumFullPagePixels: CGFloat = 100_000_000
@@ -94,8 +56,13 @@ enum BrowserScreenshotWebViewSnapshotter {
     ) async throws -> NSImage {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = afterScreenUpdates
-        configuration.snapshotWidth = requestedViewportSnapshotWidth(for: webView)
-        return try await takeSnapshot(from: webView, configuration: configuration)
+        let renderer = viewportSnapshotRenderer(for: webView)
+        configuration.snapshotWidth = renderer?.snapshotWidth
+        return try await takeSnapshot(
+            from: webView,
+            configuration: configuration,
+            renderer: renderer
+        )
     }
 
     static func captureVisibleViewport(
@@ -105,13 +72,19 @@ enum BrowserScreenshotWebViewSnapshotter {
     ) {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = afterScreenUpdates
-        configuration.snapshotWidth = requestedViewportSnapshotWidth(for: webView)
-        takeSnapshot(from: webView, configuration: configuration, completion: completion)
+        let renderer = viewportSnapshotRenderer(for: webView)
+        configuration.snapshotWidth = renderer?.snapshotWidth
+        takeSnapshot(
+            from: webView,
+            configuration: configuration,
+            renderer: renderer,
+            completion: completion
+        )
     }
 
     private static func captureSingleFullContentSnapshot(
         from webView: WKWebView,
-        metrics: BrowserScreenshotWebContentMetrics,
+        metrics: BrowserViewportContentMetrics,
         afterScreenUpdates: Bool
     ) async throws -> NSImage {
         let configuration = WKSnapshotConfiguration()
@@ -123,7 +96,7 @@ enum BrowserScreenshotWebViewSnapshotter {
 
     private static func captureStitchedFullPage(
         from webView: WKWebView,
-        metrics: BrowserScreenshotWebContentMetrics,
+        metrics: BrowserViewportContentMetrics,
         afterScreenUpdates: Bool
     ) async throws -> NSImage {
         let contentSize = metrics.contentSize
@@ -391,7 +364,7 @@ enum BrowserScreenshotWebViewSnapshotter {
 
     private static func isAcceptableFullContentSnapshot(
         _ image: NSImage,
-        metrics: BrowserScreenshotWebContentMetrics
+        metrics: BrowserViewportContentMetrics
     ) -> Bool {
         let contentSize = metrics.contentSize
         guard contentSize.width > 0, contentSize.height > 0 else { return false }
@@ -452,7 +425,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         )
     }
 
-    private static func webContentMetrics(for webView: WKWebView) async throws -> BrowserScreenshotWebContentMetrics {
+    private static func webContentMetrics(for webView: WKWebView) async throws -> BrowserViewportContentMetrics {
         let script = """
         (() => {
           const doc = document.documentElement;
@@ -486,20 +459,25 @@ enum BrowserScreenshotWebViewSnapshotter {
 
         let contentWidth = numberValue(value["contentWidth"])
         let contentHeight = numberValue(value["contentHeight"])
-        let viewportWidth = max(numberValue(value["viewportWidth"]), webView.bounds.width)
-        let viewportHeight = max(numberValue(value["viewportHeight"]), webView.bounds.height)
-        guard contentWidth > 0, contentHeight > 0, viewportWidth > 0, viewportHeight > 0 else {
-            throw BrowserScreenshotError.webContentMetricsUnavailable
-        }
-
-        return BrowserScreenshotWebContentMetrics(
-            contentSize: NSSize(width: contentWidth, height: contentHeight),
-            viewportSize: NSSize(width: viewportWidth, height: viewportHeight),
-            scrollOffset: NSPoint(
+        let containerBounds = webView.superview?.bounds
+            ?? CGRect(origin: .zero, size: webView.bounds.size)
+        let fallbackViewportSize = webView.cmuxBrowserViewportLayout(in: containerBounds)?.bounds.size
+            ?? webView.bounds.size
+        guard let metrics = BrowserViewportContentMetrics(
+            contentSize: CGSize(width: contentWidth, height: contentHeight),
+            reportedViewportSize: CGSize(
+                width: numberValue(value["viewportWidth"]),
+                height: numberValue(value["viewportHeight"])
+            ),
+            fallbackViewportSize: fallbackViewportSize,
+            scrollOffset: CGPoint(
                 x: numberValue(value["scrollX"]),
                 y: numberValue(value["scrollY"])
             )
-        )
+        ) else {
+            throw BrowserScreenshotError.webContentMetricsUnavailable
+        }
+        return metrics
     }
 
     private static func scroll(_ webView: WKWebView, to point: NSPoint) async throws {
@@ -522,12 +500,21 @@ enum BrowserScreenshotWebViewSnapshotter {
 
     private static func takeSnapshot(
         from webView: WKWebView,
-        configuration: WKSnapshotConfiguration
+        configuration: WKSnapshotConfiguration,
+        renderer: BrowserViewportSnapshotRenderer? = nil
     ) async throws -> NSImage {
         try await withCheckedThrowingContinuation { continuation in
             webView.takeSnapshot(with: configuration) { image, error in
                 if let image {
-                    continuation.resume(returning: image)
+                    guard let renderer else {
+                        continuation.resume(returning: image)
+                        return
+                    }
+                    guard let normalized = renderer.normalizedImage(image) else {
+                        continuation.resume(throwing: BrowserScreenshotError.invalidImageRepresentation)
+                        return
+                    }
+                    continuation.resume(returning: normalized)
                     return
                 }
 
@@ -539,11 +526,20 @@ enum BrowserScreenshotWebViewSnapshotter {
     private static func takeSnapshot(
         from webView: WKWebView,
         configuration: WKSnapshotConfiguration,
+        renderer: BrowserViewportSnapshotRenderer? = nil,
         completion: @escaping (Result<NSImage, Error>) -> Void
     ) {
         webView.takeSnapshot(with: configuration) { image, error in
             if let image {
-                completion(.success(image))
+                guard let renderer else {
+                    completion(.success(image))
+                    return
+                }
+                guard let normalized = renderer.normalizedImage(image) else {
+                    completion(.failure(BrowserScreenshotError.invalidImageRepresentation))
+                    return
+                }
+                completion(.success(normalized))
                 return
             }
 
@@ -658,8 +654,19 @@ enum BrowserScreenshotWebViewSnapshotter {
         )
     }
 
-    private static func requestedViewportSnapshotWidth(for webView: WKWebView) -> NSNumber? {
-        (webView as? CmuxWebView)?.browserViewportModel?.viewport.map { NSNumber(value: $0.width) }
+    private static func viewportSnapshotRenderer(for webView: WKWebView) -> BrowserViewportSnapshotRenderer? {
+        guard let viewport = (webView as? CmuxWebView)?.browserViewportModel?.viewport else {
+            return nil
+        }
+        let backingScaleFactor = webView.window?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? 1
+        return BrowserViewportSnapshotRenderer(
+            plan: BrowserViewportSnapshotPlan(
+                viewport: viewport,
+                backingScaleFactor: Double(backingScaleFactor)
+            )
+        )
     }
 
     private static var visualCaptureLayoutFlushScript: String {

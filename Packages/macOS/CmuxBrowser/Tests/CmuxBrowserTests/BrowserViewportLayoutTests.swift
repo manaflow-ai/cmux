@@ -15,10 +15,10 @@ struct BrowserViewportLayoutTests {
 
     @Test func wideViewportAspectFitsWithoutChangingLogicalBounds() throws {
         let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
-        let layout = BrowserViewportLayout(
+        let layout = try #require(BrowserViewportLayout(
             containerBounds: CGRect(x: 0, y: 0, width: 800, height: 600),
             viewport: viewport
-        )
+        ))
 
         #expect(layout.mode == .emulated)
         #expect(layout.frame == CGRect(x: 0, y: 75, width: 800, height: 450))
@@ -29,11 +29,11 @@ struct BrowserViewportLayoutTests {
 
     @Test func pageZoomExpandsOnlyAppKitBounds() throws {
         let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
-        let layout = BrowserViewportLayout(
+        let layout = try #require(BrowserViewportLayout(
             containerBounds: CGRect(x: 0, y: 0, width: 800, height: 600),
             viewport: viewport,
             pageZoom: 1.25
-        )
+        ))
 
         #expect(layout.bounds == CGRect(x: 0, y: 0, width: 1_280, height: 720))
         #expect(layout.webViewBounds == CGRect(x: 0, y: 0, width: 1_600, height: 900))
@@ -44,21 +44,21 @@ struct BrowserViewportLayoutTests {
     @Test(arguments: [0.0, -Double.infinity, Double.infinity, Double.nan])
     func invalidPageZoomFallsBackToOne(pageZoom: Double) throws {
         let viewport = try #require(BrowserViewport(width: 375, height: 812))
-        let layout = BrowserViewportLayout(
+        let layout = try #require(BrowserViewportLayout(
             containerBounds: CGRect(x: 0, y: 0, width: 375, height: 812),
             viewport: viewport,
             pageZoom: pageZoom
-        )
+        ))
 
         #expect(layout.webViewBounds == layout.bounds)
     }
 
     @Test func tallViewportCentersInsideWidePane() throws {
         let viewport = try #require(BrowserViewport(width: 375, height: 812))
-        let layout = BrowserViewportLayout(
+        let layout = try #require(BrowserViewportLayout(
             containerBounds: CGRect(x: 20, y: 10, width: 1_000, height: 600),
             viewport: viewport
-        )
+        ))
 
         let expectedScale = 600.0 / 812.0
         #expect(layout.mode == .emulated)
@@ -69,9 +69,9 @@ struct BrowserViewportLayoutTests {
         #expect(layout.bounds.size == CGSize(width: 375, height: 812))
     }
 
-    @Test func nativeLayoutFillsContainerAtOneToOneScale() {
+    @Test func nativeLayoutFillsContainerAtOneToOneScale() throws {
         let container = CGRect(x: 4, y: 8, width: 798, height: 534)
-        let layout = BrowserViewportLayout(containerBounds: container, viewport: nil)
+        let layout = try #require(BrowserViewportLayout(containerBounds: container, viewport: nil))
 
         #expect(layout.mode == .native)
         #expect(layout.frame == container)
@@ -80,13 +80,13 @@ struct BrowserViewportLayoutTests {
         #expect(layout.scale == 1)
     }
 
-    @Test func nativeLayoutReportsZoomAdjustedCSSViewport() {
+    @Test func nativeLayoutReportsZoomAdjustedCSSViewport() throws {
         let container = CGRect(x: 4, y: 8, width: 800, height: 600)
-        let layout = BrowserViewportLayout(
+        let layout = try #require(BrowserViewportLayout(
             containerBounds: container,
             viewport: nil,
             pageZoom: 2
-        )
+        ))
 
         #expect(layout.frame == container)
         #expect(layout.bounds == CGRect(x: 0, y: 0, width: 400, height: 300))
@@ -103,6 +103,11 @@ struct BrowserViewportLayoutTests {
         #expect(limits.supports(viewport: maximumViewport, pageZoom: 1))
         #expect(!limits.supports(viewport: maximumViewport, pageZoom: 5))
         #expect(abs(limits.maximumPageZoom(for: maximumViewport) - 2.0.squareRoot()) < 0.000_001)
+        #expect(BrowserViewportLayout(
+            containerBounds: CGRect(x: 0, y: 0, width: 800, height: 600),
+            viewport: maximumViewport,
+            pageZoom: 5
+        ) == nil)
     }
 
     @Test func retinaSnapshotPlanRequestsExactCSSPixelOutput() throws {
@@ -112,6 +117,7 @@ struct BrowserViewportLayoutTests {
         #expect(plan.snapshotPointWidth == 640)
         #expect(plan.outputPixelSize == CGSize(width: 1_280, height: 720))
         #expect(plan.outputPixelCount == 921_600)
+        #expect(plan.outputPixelCount <= BrowserViewportSnapshotPlan.maximumOutputPixelCount)
     }
 
     @Test func contentMetricsKeepReportedCSSViewportAtPageZoom() {

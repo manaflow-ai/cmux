@@ -328,13 +328,21 @@ def main() -> int:
                 zoomed_screenshot_size == (1280, 720),
                 f"Expected zoomed screenshot to retain CSS viewport pixels, got {zoomed_screenshot_size}",
             )
+        reset_viewport = _run_cli_json(cli, ["browser", surface, "viewport", "reset"])
+        _must(reset_viewport.get("mode") == "native", f"Expected native viewport after reset: {reset_viewport}")
+        reset_metrics = _run_cli_json(
+            cli,
+            ["browser", surface, "eval", "({ width: innerWidth, height: innerHeight })"],
+        ).get("value") or {}
+        _must(
+            reset_viewport.get("width") == reset_metrics.get("width")
+            and reset_viewport.get("height") == reset_metrics.get("height"),
+            f"Expected native viewport result to match zoomed CSS dimensions: result={reset_viewport} metrics={reset_metrics}",
+        )
         _run_cli_json(cli, ["browser", surface, "zoom", "reset"])
 
         focus_after_viewport = (_run_cli_json(cli, ["identify"]).get("focused") or {})
         _must(focus_after_viewport == focus_before_viewport, "browser viewport must preserve workspace and surface focus")
-
-        reset_viewport = _run_cli_json(cli, ["browser", surface, "viewport", "reset"])
-        _must(reset_viewport.get("mode") == "native", f"Expected native viewport after reset: {reset_viewport}")
 
         legacy_new = _run_cli_text(cli, ["new-pane", "--type", "browser", "--direction", "right", "--url", page_url])
         _must("surface:" in legacy_new, f"Expected new-pane output to prefer short surface refs, got: {legacy_new!r}")

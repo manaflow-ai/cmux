@@ -3,35 +3,59 @@ import CmuxBrowser
 
 extension BrowserPanel {
     @discardableResult
-    func setAutomationViewport(_ viewport: BrowserViewport?) -> BrowserViewportLayout? {
+    func setAutomationViewport(
+        _ viewport: BrowserViewport?
+    ) -> Result<BrowserViewportLayout, BrowserAutomationViewportError> {
         let webView = webView
         if let host = webView.superview,
            host.browserPortalHasVisibleWebKitCompanionSubview(for: webView) {
-            return nil
+            return .failure(.attachedBrowserInspector)
+        }
+
+        let containerBounds = webView.superview?.bounds ?? fallbackAutomationViewportContainerBounds
+        guard let layout = BrowserViewportLayout(
+            containerBounds: containerBounds,
+            viewport: viewport,
+            pageZoom: Double(webView.pageZoom)
+        ) else {
+            let pageZoom = Double(webView.pageZoom)
+            let maximumPageZoom = viewport.map {
+                BrowserViewportRenderLimits.standard.maximumPageZoom(for: $0)
+            } ?? pageZoom
+            return .failure(.renderGeometryTooLarge(
+                requestedPageZoom: pageZoom,
+                maximumPageZoom: maximumPageZoom
+            ))
         }
 
         viewportModel.setViewport(viewport)
         if let webView = webView as? CmuxWebView {
             webView.browserViewportModel = viewportModel
         }
-
-        let containerBounds = webView.superview?.bounds ?? fallbackAutomationViewportContainerBounds
-        let layout = webView.cmuxApplyBrowserViewportLayout(in: containerBounds)
+        webView.cmuxApplyBrowserViewportLayout(layout)
         webView.needsLayout = true
         webView.superview?.needsLayout = true
         webView.superview?.layoutSubtreeIfNeeded()
         webView.layoutSubtreeIfNeeded()
         BrowserWindowPortalRegistry.refresh(webView: webView, reason: "automationViewport")
-        return layout
+        return .success(layout)
     }
 
     func reapplyAutomationViewportAfterPageZoom() {
-        guard viewportModel.viewport != nil,
+        guard let viewport = viewportModel.viewport,
               let host = webView.superview else {
             return
         }
+        guard BrowserViewportRenderLimits.standard.supports(
+            viewport: viewport,
+            pageZoom: Double(webView.pageZoom)
+        ) else {
+            return
+        }
         if host.browserPortalHasVisibleWebKitCompanionSubview(for: webView) {
-            webView.bounds = webView.cmuxBrowserViewportLayout(in: host.bounds).webViewBounds
+            if let layout = webView.cmuxBrowserViewportLayout(in: host.bounds) {
+                webView.bounds = layout.webViewBounds
+            }
         } else {
             webView.cmuxApplyBrowserViewportLayout(in: host.bounds)
         }

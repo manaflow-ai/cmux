@@ -32,19 +32,37 @@ public struct BrowserViewportLayout: Equatable, Sendable {
     ///   - containerBounds: Available pane bounds in the host view's coordinate system.
     ///   - viewport: Requested logical viewport, or `nil` for native pane sizing.
     ///   - pageZoom: Current WebKit page zoom. Invalid values fall back to `1`.
-    public init(containerBounds: CGRect, viewport: BrowserViewport?, pageZoom: Double = 1) {
+    ///   - renderLimits: Maximum WebKit geometry allowed for an emulated viewport.
+    public init?(
+        containerBounds: CGRect,
+        viewport: BrowserViewport?,
+        pageZoom: Double = 1,
+        renderLimits: BrowserViewportRenderLimits = .standard
+    ) {
+        let resolvedPageZoom = pageZoom.isFinite && pageZoom > 0 ? pageZoom : 1
+        if let viewport,
+           !renderLimits.supports(viewport: viewport, pageZoom: resolvedPageZoom) {
+            return nil
+        }
         guard let viewport else {
             mode = .native
             frame = containerBounds
-            bounds = CGRect(origin: .zero, size: containerBounds.size)
-            webViewBounds = bounds
-            scale = containerBounds.width > 0 && containerBounds.height > 0 ? 1 : 0
+            bounds = CGRect(
+                origin: .zero,
+                size: CGSize(
+                    width: containerBounds.width / resolvedPageZoom,
+                    height: containerBounds.height / resolvedPageZoom
+                )
+            )
+            webViewBounds = CGRect(origin: .zero, size: containerBounds.size)
+            scale = containerBounds.width > 0 && containerBounds.height > 0
+                ? resolvedPageZoom
+                : 0
             return
         }
 
         mode = .emulated
         bounds = CGRect(origin: .zero, size: viewport.size)
-        let resolvedPageZoom = pageZoom.isFinite && pageZoom > 0 ? pageZoom : 1
         webViewBounds = CGRect(
             origin: .zero,
             size: CGSize(

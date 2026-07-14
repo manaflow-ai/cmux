@@ -11,7 +11,7 @@ extension WKWebView {
         cmuxBrowserViewportLayoutMode == .native ? [.width, .height] : []
     }
 
-    func cmuxBrowserViewportLayout(in containerBounds: CGRect) -> BrowserViewportLayout {
+    func cmuxBrowserViewportLayout(in containerBounds: CGRect) -> BrowserViewportLayout? {
         BrowserViewportLayout(
             containerBounds: containerBounds,
             viewport: (self as? CmuxWebView)?.browserViewportModel?.viewport,
@@ -20,15 +20,24 @@ extension WKWebView {
     }
 
     func cmuxBrowserViewportLayoutMatches(_ containerBounds: CGRect, epsilon: Double = 0.5) -> Bool {
-        let layout = cmuxBrowserViewportLayout(in: containerBounds)
+        guard let layout = cmuxBrowserViewportLayout(in: containerBounds) else {
+            return false
+        }
         return Self.cmuxBrowserViewportRect(frame, matches: layout.frame, epsilon: epsilon) &&
             Self.cmuxBrowserViewportRect(bounds, matches: layout.webViewBounds, epsilon: epsilon) &&
             autoresizingMask == cmuxBrowserViewportAutoresizingMask
     }
 
     @discardableResult
-    func cmuxApplyBrowserViewportLayout(in containerBounds: CGRect) -> BrowserViewportLayout {
-        let layout = cmuxBrowserViewportLayout(in: containerBounds)
+    func cmuxApplyBrowserViewportLayout(in containerBounds: CGRect) -> BrowserViewportLayout? {
+        guard let layout = cmuxBrowserViewportLayout(in: containerBounds) else {
+            return nil
+        }
+        cmuxApplyBrowserViewportLayout(layout)
+        return layout
+    }
+
+    func cmuxApplyBrowserViewportLayout(_ layout: BrowserViewportLayout) {
         translatesAutoresizingMaskIntoConstraints = true
         autoresizingMask = cmuxBrowserViewportAutoresizingMask
 
@@ -41,7 +50,6 @@ extension WKWebView {
             bounds = layout.webViewBounds
         }
         CATransaction.commit()
-        return layout
     }
 
     func cmuxRestoreBrowserViewportAfterTemporaryReparenting(

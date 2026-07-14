@@ -38,7 +38,11 @@ extension TerminalController {
         }
 
         return v2BrowserWithPanel(params: params) { workspaceId, surfaceId, panel in
-            guard let layout = panel.setAutomationViewport(requestedViewport) else {
+            let layout: BrowserViewportLayout
+            switch panel.setAutomationViewport(requestedViewport) {
+            case .success(let appliedLayout):
+                layout = appliedLayout
+            case .failure(.attachedBrowserInspector):
                 return .err(
                     code: "invalid_state",
                     message: String(
@@ -50,6 +54,25 @@ extension TerminalController {
                         "supported_modes": ["native", "emulated"],
                     ]
                 )
+            case let .failure(.renderGeometryTooLarge(
+                requestedPageZoom,
+                maximumPageZoom
+            )):
+                let limits = BrowserViewportRenderLimits.standard
+                return .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "browser.viewport.error.renderGeometryTooLarge",
+                        defaultValue: "Viewport and page zoom exceed WKWebView render limits"
+                    ),
+                    data: [
+                        "reason": "viewport_zoom_render_geometry_too_large",
+                        "requested_page_zoom": requestedPageZoom,
+                        "maximum_page_zoom": maximumPageZoom,
+                        "maximum_render_dimension": limits.maximumDimension,
+                        "maximum_render_area": limits.maximumArea,
+                    ]
+                )
             }
 
             return .ok([
@@ -58,8 +81,8 @@ extension TerminalController {
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "mode": layout.mode.rawValue,
-                "width": Int(layout.bounds.width.rounded()),
-                "height": Int(layout.bounds.height.rounded()),
+                "width": Int(layout.bounds.width.rounded(.down)),
+                "height": Int(layout.bounds.height.rounded(.down)),
                 "display_width": layout.frame.width,
                 "display_height": layout.frame.height,
                 "scale": layout.scale,

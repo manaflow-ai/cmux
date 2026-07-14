@@ -7933,6 +7933,13 @@ private extension BrowserPanel {
         if abs(webView.pageZoom - clamped) < 0.0001 {
             return false
         }
+        if let viewport = viewportModel.viewport,
+           !BrowserViewportRenderLimits.standard.supports(
+               viewport: viewport,
+               pageZoom: Double(clamped)
+           ) {
+            return false
+        }
         webView.pageZoom = clamped
         reapplyAutomationViewportAfterPageZoom()
         return true

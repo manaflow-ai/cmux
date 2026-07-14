@@ -107,9 +107,13 @@ The requested dimensions are limited to 1...4096 CSS pixels. cmux changes
 the existing pane. It does not resize the pane, move other surfaces, or change
 focus. Visible-viewport screenshots use the emulated dimensions. The JSON result
 includes the logical and displayed dimensions, scale, presentation mode, and
-whether the pane was resized. Close or detach an attached browser inspector before
-setting or resetting the viewport; the command otherwise returns `invalid_state`
-with `reason: attached_browser_inspector`.
+whether the pane was resized. Screenshot PNG dimensions are exact CSS pixels on
+both Retina and non-Retina displays. Combined viewport/page-zoom geometry is
+bounded; unsupported combinations leave the viewport unchanged and return
+`invalid_params` with `reason: viewport_zoom_render_geometry_too_large` and
+`maximum_page_zoom`. Close or detach an attached browser inspector before setting
+or resetting the viewport; the command otherwise returns `invalid_state` with
+`reason: attached_browser_inspector`.
 
 ## Known WKWebView Gaps (`not_supported`)
 

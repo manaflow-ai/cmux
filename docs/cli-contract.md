@@ -342,11 +342,21 @@ Browser subcommands:
 `browser viewport` changes the selected browser surface only. On WKWebView, the
 requested logical size becomes `window.innerWidth`/`window.innerHeight` and the
 page is uniformly scaled to fit inside the existing pane. The pane layout and
-other surfaces do not move. JSON results report `mode`, effective `width` and
-`height`, displayed size, `scale`, `presentation`, and `pane_resized`. A visible
-attached browser inspector owns the same layout; close or detach it before
-changing the viewport. In that state the v2 method returns `invalid_state` with
-`reason: attached_browser_inspector`.
+other surfaces do not move. Visible screenshots are normalized to exactly those
+CSS-pixel dimensions, independent of the display backing scale. JSON results
+report `mode`, effective `width` and `height`, displayed size, `scale`,
+`presentation`, and `pane_resized`. `reset` reports the actual native CSS
+viewport, including the current page zoom.
+
+cmux bounds the combined viewport and page-zoom render geometry to 8192 points
+per dimension and 33,554,432 points of area. If the current zoom would exceed
+that bound, `browser.viewport.set` leaves the current viewport unchanged and
+returns `invalid_params` with
+`reason: viewport_zoom_render_geometry_too_large`, `requested_page_zoom`, and
+`maximum_page_zoom`. While emulation is active, browser zoom commands also stop
+at that maximum. A visible attached browser inspector owns the same layout;
+close or detach it before changing the viewport. In that state the v2 method
+returns `invalid_state` with `reason: attached_browser_inspector`.
 
 Hook subcommands:
 

@@ -119,6 +119,9 @@ pane, so pane layout and focus stay unchanged; screenshots use the requested
 logical dimensions. Run `cmux browser <surface> viewport reset` to follow native
 pane sizing again. Close or detach the browser inspector first because its
 inspector-managed split layout cannot be combined with viewport emulation.
+Large viewport and page-zoom combinations are bounded; the viewport command
+returns structured `maximum_page_zoom` details without changing the current
+viewport when the combination exceeds the WKWebView render limits.
 
 ## Limits (WKWebView)
 

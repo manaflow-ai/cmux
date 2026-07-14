@@ -45,7 +45,16 @@ extension CMUXCLI {
             localized: "cli.browser.help.viewportPresentationDescription",
             defaultValue: "The page is aspect-fitted in the existing pane; reset restores native pane sizing"
         )
-        return [usage, "  \(emulationDescription)", "  \(presentationDescription)"]
+        let renderLimitDescription = String(
+            localized: "cli.browser.help.viewportRenderLimitDescription",
+            defaultValue: "Oversized viewport and page-zoom combinations return structured render-limit details"
+        )
+        return [
+            usage,
+            "  \(emulationDescription)",
+            "  \(presentationDescription)",
+            "  \(renderLimitDescription)",
+        ]
             .joined(separator: "\n              ")
     }
 }
