@@ -30,4 +30,44 @@ extension ClosedItemHistoryStore {
         ), at: removed.index)
         return true
     }
+
+    /// Enriches terminal panels in a workspace record after the shared agent
+    /// index finishes its off-main cold load.
+    @discardableResult
+    func enrichClosedWorkspaceAgents(
+        recordId: UUID,
+        agentsByPanelId: [UUID: SessionRestorableAgentSnapshot]
+    ) -> Bool {
+        guard !agentsByPanelId.isEmpty,
+              let removed = removeRecord(id: recordId) else { return false }
+        guard case .workspace(let workspaceEntry) = removed.record.entry else {
+            insert(removed.record, at: removed.index)
+            return false
+        }
+        var snapshot = workspaceEntry.snapshot
+        var changed = false
+        for index in snapshot.panels.indices {
+            let panelId = snapshot.panels[index].id
+            guard snapshot.panels[index].terminal?.agent == nil,
+                  let agent = agentsByPanelId[panelId] else { continue }
+            snapshot.panels[index].terminal?.agent = agent
+            changed = true
+        }
+        guard changed else {
+            insert(removed.record, at: removed.index)
+            return false
+        }
+        let enriched = ClosedWorkspaceHistoryEntry(
+            workspaceId: workspaceEntry.workspaceId,
+            windowId: workspaceEntry.windowId,
+            workspaceIndex: workspaceEntry.workspaceIndex,
+            snapshot: snapshot
+        )
+        insert(ClosedItemHistoryRecord(
+            id: removed.record.id,
+            closedAt: removed.record.closedAt,
+            entry: .workspace(enriched)
+        ), at: removed.index)
+        return true
+    }
 }

@@ -2012,12 +2012,12 @@ class TabManager: ObservableObject {
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                     ?? .empty
             )
-            ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+            pushClosedWorkspaceHistoryEntryWithAgentEnrichment(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
                 windowId: AppDelegate.shared?.windowId(for: self),
                 workspaceIndex: index,
                 snapshot: snapshot
-            )))
+            ))
         }
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspace.id)
         pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspace.id)
