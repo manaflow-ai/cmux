@@ -868,13 +868,18 @@ async fn prune_orphaned_session_temp_files(
 }
 
 fn valid_session_temp_name(name: &str) -> bool {
+    session_temp_id(name).is_some()
+}
+
+fn session_temp_id(name: &str) -> Option<&str> {
     name.strip_prefix(".diff-session-")
         .and_then(|value| value.strip_suffix(".patch.tmp"))
-        .is_some_and(|session_id| uuid::Uuid::parse_str(session_id).is_ok())
-        || name
-            .strip_prefix("diff-session-")
-            .and_then(|value| value.strip_suffix(".patch"))
-            .is_some_and(|session_id| uuid::Uuid::parse_str(session_id).is_ok())
+        .filter(|session_id| uuid::Uuid::parse_str(session_id).is_ok())
+        .or_else(|| {
+            name.strip_prefix("diff-session-")
+                .and_then(|value| value.strip_suffix(".patch"))
+                .filter(|session_id| uuid::Uuid::parse_str(session_id).is_ok())
+        })
 }
 
 fn register_session_temp(root: &Path, path: &Path) -> Result<(), String> {
@@ -885,13 +890,18 @@ fn register_session_temp(root: &Path, path: &Path) -> Result<(), String> {
     if !valid_session_temp_name(name) {
         return Err("invalid temp name".to_owned());
     }
+    let session_id = session_temp_id(name).ok_or("invalid temp name")?;
     mutate_temp_index(root, |entries| {
         if entries.len() >= MAX_TEMP_INDEX_ENTRIES {
             return Err("temp index full".to_owned());
         }
-        if !entries.iter().any(|entry| entry == name) {
-            entries.push(name.to_owned());
+        if entries
+            .iter()
+            .any(|entry| session_temp_id(entry) == Some(session_id))
+        {
+            return Err("session id already reserved".to_owned());
         }
+        entries.push(name.to_owned());
         Ok(())
     })
 }
@@ -994,7 +1004,13 @@ async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
         }
         // The manifest commit is the logical close. Retain index ownership so
         // bounded cleanup can retry a transient filesystem deletion failure.
-        Err(_) => true,
+        Err(_) => {
+            if let Ok(file) = OpenOptions::new().write(true).open(&file_path) {
+                let _ = file.set_modified(SystemTime::UNIX_EPOCH);
+            }
+            remove_owned_patch_sync(&state.config.root, &file_path);
+            true
+        }
     }
 }
 
@@ -1666,6 +1682,25 @@ mod tests {
 
         assert!(!temporary.exists());
         assert!(!final_path.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn session_ids_are_reserved_across_temporary_and_final_names() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-reservation-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create root");
+        let session_id = uuid::Uuid::new_v4();
+        let temporary = root.join(format!(".diff-session-{session_id}.patch.tmp"));
+        let final_path = root.join(format!("diff-session-{session_id}.patch"));
+
+        register_session_temp(&root, &temporary).expect("reserve session id");
+        assert!(register_session_temp(&root, &temporary).is_err());
+        assert!(register_session_temp(&root, &final_path).is_err());
+
         let _ = std::fs::remove_dir_all(root);
     }
 
