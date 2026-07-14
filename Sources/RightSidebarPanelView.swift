@@ -244,11 +244,7 @@ struct RightSidebarPanelView: View {
                     openAsPaneButton(mode: fileExplorerState.mode)
                 }
                 RightSidebarHeaderCloseButton(action: onClose)
-                RightSidebarTitlebarToggleButton(isVisible: true, foregroundColor: .primary) {
-                    _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(
-                        preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                    )
-                }
+                RightSidebarTitlebarToggleReservation()
             }
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)

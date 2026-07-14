@@ -47,3 +47,17 @@ struct RightSidebarTitlebarToggleButton: View {
         .accessibilityAddTraits(isVisible ? .isSelected : [])
     }
 }
+
+/// Keeps the open-sidebar header clear for the window-owned toggle overlay.
+struct RightSidebarTitlebarToggleReservation: View {
+    @AppStorage(TitlebarControlsStyle.storageKey)
+    private var styleRawValue = TitlebarControlsStyle.defaultRawValue
+
+    var body: some View {
+        let config = TitlebarControlsStyle.stored(rawValue: styleRawValue).config
+        Color.clear
+            .frame(width: config.buttonSize, height: config.buttonSize)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}

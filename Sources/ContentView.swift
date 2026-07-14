@@ -2076,15 +2076,17 @@ struct ContentView: View {
                 }
             }
             .overlay(alignment: .topTrailing) {
-                if !rightSidebarVisible {
-                    RightSidebarTitlebarToggleButton(
-                        isVisible: false,
-                        foregroundColor: Color(nsColor: titlebarControlForegroundNSColor(opacity: 1))
-                    ) {
-                        _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
-                    }
-                    .padding(.trailing, 8)
+                RightSidebarTitlebarToggleButton(
+                    isVisible: rightSidebarVisible,
+                    foregroundColor: rightSidebarVisible
+                        ? .primary
+                        : Color(nsColor: titlebarControlForegroundNSColor(opacity: 1))
+                ) {
+                    _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
                 }
+                .environment(\.colorScheme, rightSidebarVisible ? appearance.sidebarContentColorScheme : appearance.chromeColorScheme)
+                .frame(height: WindowChromeMetrics.appTitlebarHeight, alignment: .center)
+                .padding(.trailing, 6)
             }
     }
 
