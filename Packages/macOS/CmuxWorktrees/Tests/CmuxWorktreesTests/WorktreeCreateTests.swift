@@ -126,4 +126,34 @@ struct WorktreeCreateTests {
         #expect(created.identity.worktreePath.hasSuffix("/real-worktrees/topic"))
         #expect(!created.identity.worktreePath.contains("/linked-worktrees/"))
     }
+
+    @Test
+    func createsFromInvokingLinkedWorktreeHead() async throws {
+        let fixture = try await GitTestRepository.make()
+        defer { fixture.cleanup() }
+        let service = WorktreeService()
+        let callerPath = fixture.path("worktrees/caller")
+        let caller = try await service.create(
+            repoRoot: fixture.repository.path,
+            name: "caller",
+            baseRef: "HEAD",
+            options: WorktreeCreateOptions(worktreePath: callerPath.path),
+            on: fixture.host
+        )
+        try fixture.write("caller\n", to: "caller.txt", in: callerPath)
+        try await fixture.commit("caller commit", in: callerPath)
+        let callerHead = try await fixture.git(["rev-parse", "HEAD"], in: callerPath)
+        let mainHead = try await fixture.git(["rev-parse", "HEAD"])
+
+        let child = try await service.create(
+            repoRoot: caller.identity.worktreePath,
+            name: "child",
+            baseRef: "HEAD",
+            options: WorktreeCreateOptions(worktreePath: fixture.path("worktrees/child").path),
+            on: fixture.host
+        )
+
+        #expect(child.headOID == callerHead.stdout?.trimmingCharacters(in: .whitespacesAndNewlines))
+        #expect(child.headOID != mainHead.stdout?.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
 }

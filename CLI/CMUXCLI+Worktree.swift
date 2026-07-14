@@ -139,7 +139,6 @@ extension CMUXCLI {
             print("\(marker) \(worktree.identity.worktreePath)\t\(state)\(suffix)")
         }
     }
-
     private func runWorktreeCreate(
         arguments: [String],
         service: WorktreeService,
@@ -190,7 +189,6 @@ extension CMUXCLI {
             }
         }
     }
-
     private func runWorktreeRemove(
         arguments: [String],
         service: WorktreeService,
@@ -201,10 +199,7 @@ extension CMUXCLI {
         let force = takeWorktreeFlag("--force", from: &remaining)
         let keepBranch = takeWorktreeFlag("--keep-branch", from: &remaining)
         guard remaining.count == 1 else {
-            throw CLIError(message: String(
-                localized: "cli.worktree.error.removeUsage",
-                defaultValue: "Usage: cmux worktree remove <path-or-name> [--force] [--keep-branch]"
-            ))
+            throw CLIError(message: String(localized: "cli.worktree.error.removeUsage", defaultValue: "Usage: cmux worktree remove <path-or-name> [--force] [--keep-branch]"))
         }
         let repoRoot = try await resolvedWorktreeRepository(nil, service: service, host: host)
         let listed = try await service.list(repoRoot: repoRoot, on: host)
@@ -238,7 +233,6 @@ extension CMUXCLI {
             }
         }
     }
-
     private func runWorktreePrune(
         arguments: [String],
         service: WorktreeService,
@@ -258,7 +252,6 @@ extension CMUXCLI {
                 : result.output)
         }
     }
-
     private func runWorktreeStatus(
         arguments: [String],
         service: WorktreeService,
@@ -266,10 +259,7 @@ extension CMUXCLI {
         jsonOutput: Bool
     ) async throws {
         guard arguments.count == 1 else {
-            throw CLIError(message: String(
-                localized: "cli.worktree.error.statusUsage",
-                defaultValue: "Usage: cmux worktree status <path-or-name>"
-            ))
+            throw CLIError(message: String(localized: "cli.worktree.error.statusUsage", defaultValue: "Usage: cmux worktree status <path-or-name>"))
         }
         let repoRoot = try await resolvedWorktreeRepository(nil, service: service, host: host)
         let listed = try await service.list(repoRoot: repoRoot, on: host)
@@ -329,15 +319,18 @@ extension CMUXCLI {
         currentDirectory: String
     ) throws -> WorktreeInfo {
         let candidates: [WorktreeInfo]
-        if raw.contains("/") || raw.hasPrefix("~") || raw == "." {
+        if isWorktreePathArgument(raw) {
             let expanded = expandedWorktreePath(raw)
             let absolute = expanded.hasPrefix("/")
                 ? expanded
                 : (currentDirectory as NSString).appendingPathComponent(expanded)
             let normalized = canonicalLocalWorktreePath(absolute)
-            candidates = worktrees.filter {
-                canonicalLocalWorktreePath($0.identity.worktreePath) == normalized
-            }
+            candidates = Array(worktrees.filter {
+                let root = canonicalLocalWorktreePath($0.identity.worktreePath)
+                return normalized == root || root == "/" || normalized.hasPrefix(root + "/")
+            }.sorted {
+                canonicalLocalWorktreePath($0.identity.worktreePath).count > canonicalLocalWorktreePath($1.identity.worktreePath).count
+            }.prefix(1))
         } else {
             candidates = worktrees.filter {
                 URL(fileURLWithPath: $0.identity.worktreePath).lastPathComponent == raw ||
@@ -415,6 +408,9 @@ extension CMUXCLI {
     }
     private func expandedWorktreePath(_ raw: String) -> String {
         (raw as NSString).expandingTildeInPath
+    }
+    private func isWorktreePathArgument(_ raw: String) -> Bool {
+        raw.contains("/") || raw.hasPrefix("~") || raw == "."
     }
     private func canonicalLocalWorktreePath(_ raw: String) -> String {
         URL(fileURLWithPath: raw).standardizedFileURL.resolvingSymlinksInPath().path

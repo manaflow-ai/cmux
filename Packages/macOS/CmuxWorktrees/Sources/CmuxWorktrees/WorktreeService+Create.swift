@@ -25,7 +25,8 @@ extension WorktreeService {
         on host: any WorktreeExecutionHost
     ) async throws -> WorktreeInfo {
         try await ensureAvailable(host)
-        let existingWorktrees = try await list(repoRoot: repoRoot, on: host)
+        let invokingRepoRoot = try await repositoryRoot(containing: repoRoot, on: host)
+        let existingWorktrees = try await list(repoRoot: invokingRepoRoot, on: host)
         let stableRepoRoot = existingWorktrees.first?.identity.repoPath ?? normalizedPath(repoRoot)
 
         let pathComponent = try sanitizedName(name)
@@ -33,7 +34,8 @@ extension WorktreeService {
         let branch = (options.branchPrefix ?? "") + branchSeed
         try await validateBranch(branch, repoRoot: stableRepoRoot, on: host)
         let worktreePath = try resolvedCreatePath(
-            repoRoot: stableRepoRoot,
+            repoRoot: invokingRepoRoot,
+            defaultRepoRoot: stableRepoRoot,
             pathComponent: pathComponent,
             override: options.worktreePath,
             homeDirectory: host.homeDirectory
@@ -41,7 +43,7 @@ extension WorktreeService {
 
         _ = try await runGit(
             on: host,
-            directory: stableRepoRoot,
+            directory: invokingRepoRoot,
             arguments: [
                 "worktree", "add", "--no-track", "-b", branch,
                 worktreePath, baseRef,
@@ -129,12 +131,13 @@ extension WorktreeService {
 
     func resolvedCreatePath(
         repoRoot: String,
+        defaultRepoRoot: String,
         pathComponent: String,
         override: String?,
         homeDirectory: String
     ) throws -> String {
         guard let override else {
-            let repoName = defaultRepositoryName(repoRoot)
+            let repoName = defaultRepositoryName(defaultRepoRoot)
             return normalizedPath(
                 (homeDirectory as NSString)
                     .appendingPathComponent(".cmux/worktrees/\(repoName)/\(pathComponent)")

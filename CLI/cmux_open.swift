@@ -2136,16 +2136,17 @@ extension CMUXCLI {
         }
 
         // Worktrees: sibling task branches, dir basename as worktreeDir. Skip the
-        // current worktree and any bare entry.
+        // current worktree and any bare or prunable entry.
         var worktreeRows: [DiffBranchRefRow] = []
-        if let porcelain = try? gitStdout(["worktree", "list", "--porcelain"], in: repoRoot) {
+        if let porcelain = (try? gitStdout(["worktree", "list", "--porcelain", "-z"], in: repoRoot))
+            ?? (try? gitStdout(["worktree", "list", "--porcelain"], in: repoRoot)) {
             let worktrees = WorktreePorcelainParser().parse(
                 porcelain,
                 host: .local,
                 fallbackRepoPath: repoRoot
             )
             for worktree in worktrees {
-                guard !worktree.isBare,
+                guard !worktree.isBare, !worktree.isPrunable,
                       let short = worktree.branch else { continue }
                 let dir = worktree.identity.worktreePath
                 let standardizedDir = URL(fileURLWithPath: dir).standardizedFileURL.resolvingSymlinksInPath().path
