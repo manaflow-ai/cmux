@@ -61,10 +61,10 @@ struct CmuxRunURLRequest: Equatable {
         guard let rawCommand = values["command"] ?? nil else {
             return .failure(.missingParameter("command"))
         }
-        let command = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !command.isEmpty else {
+        guard !rawCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .failure(.emptyParameter("command"))
         }
+        let command = rawCommand
         guard command.utf8.count <= maxCommandLength else {
             return .failure(.valueTooLong(parameter: "command", maxLength: maxCommandLength))
         }
