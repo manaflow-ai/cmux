@@ -11,6 +11,37 @@ import Testing
 @MainActor
 @Suite("Command deep-link execution planning", .serialized)
 struct CmuxRunURLCoordinatorTests {
+    @Test func coldStartWorkspaceRunBypassesRestoreDeferral() throws {
+        #expect(!CmuxRunURLCoordinator.shouldDeferForStartupRestore(
+            request: try workspaceRequest(),
+            didAttemptRestore: false,
+            isApplyingRestore: false
+        ))
+    }
+
+    @Test func targetedRunStillWaitsForStartupRestore() throws {
+        let request = CmuxRunURLRequest(
+            originalURL: try #require(URL(string: "cmux://run")),
+            command: "true",
+            workingDirectory: "/tmp",
+            placement: .surface,
+            workspaceId: UUID(),
+            anchor: .pane(UUID()),
+            direction: nil
+        )
+
+        #expect(CmuxRunURLCoordinator.shouldDeferForStartupRestore(
+            request: request,
+            didAttemptRestore: false,
+            isApplyingRestore: false
+        ))
+        #expect(CmuxRunURLCoordinator.shouldDeferForStartupRestore(
+            request: request,
+            didAttemptRestore: true,
+            isApplyingRestore: true
+        ))
+    }
+
     @Test func repeatedBusyFailuresReuseOneModelessWindow() throws {
         let presenter = CmuxRunURLConfirmationPresenter()
         CmuxRunURLNonModalFailurePresenter.shared.dismiss()
