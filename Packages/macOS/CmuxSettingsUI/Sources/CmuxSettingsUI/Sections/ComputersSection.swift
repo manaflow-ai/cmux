@@ -162,26 +162,16 @@ public struct ComputersSection: View {
             String(localized: "settings.computers.showPairingCode", defaultValue: "Pair This Mac"),
             subtitle: String(
                 localized: "settings.computers.showPairingCode.subtitle",
-                defaultValue: "Copy a pairing link to paste on another Mac, or show a QR code for an iPhone."
-            ),
-            controlWidth: 320
+                defaultValue: "Copy a pairing link and paste it into “Add by Pairing Link” on another Mac."
+            )
         ) {
-            HStack(spacing: 8) {
-                Button(String(localized: "settings.computers.copyLink.button", defaultValue: "Copy Pairing Link")) {
-                    copyPairingLink()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(isCopyingLink)
-                .accessibilityIdentifier("SettingsComputersCopyPairingLinkButton")
-
-                Button(String(localized: "settings.computers.showPairingCode.button", defaultValue: "Show Pairing Code…")) {
-                    hostActions.openMobilePairingWindow()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsComputersShowPairingCodeButton")
+            Button(String(localized: "settings.computers.copyLink.button", defaultValue: "Copy Pairing Link")) {
+                copyPairingLink()
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(isCopyingLink)
+            .accessibilityIdentifier("SettingsComputersCopyPairingLinkButton")
         }
     }
 
