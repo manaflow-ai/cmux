@@ -914,7 +914,7 @@ class TabManager: ObservableObject {
 
     func hideFind() {
         if let panel = selectedTerminalPanel {
-            panel.searchState = nil
+            panel.surface.closeSearchFromExplicitInput()
             return
         }
 
