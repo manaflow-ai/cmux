@@ -51,8 +51,7 @@ final class WorktreeSidebarModel {
     @ObservationIgnored private var listingRequestID: UInt64 = 0
     @ObservationIgnored private var listingTask: Task<Void, Never>?
     @ObservationIgnored private var listingWatcherInstallTask: Task<Void, Never>?
-    @ObservationIgnored private var listingWatcher: RecursivePathWatcher?
-    @ObservationIgnored private var listingWatcherTask: Task<Void, Never>?
+    @ObservationIgnored private let listingWatcher = WorktreeSidebarListingWatcher()
     @ObservationIgnored private var statusWatcherInstallTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var statusWatchPlans: [String: WorktreeSidebarStatusWatchPlan] = [:]
     @ObservationIgnored private var statusRecursiveWatchers: [String: RecursivePathWatcher] = [:]
@@ -111,12 +110,7 @@ final class WorktreeSidebarModel {
         listingTask = nil
         listingWatcherInstallTask?.cancel()
         listingWatcherInstallTask = nil
-        listingWatcherTask?.cancel()
-        listingWatcherTask = nil
-        if let listingWatcher {
-            Task { await listingWatcher.stop() }
-        }
-        listingWatcher = nil
+        listingWatcher.stop()
         for path in Array(visiblePaths) {
             stopStatusTracking(path: path)
         }
@@ -358,22 +352,10 @@ final class WorktreeSidebarModel {
         listingWatcherInstallTask?.cancel()
         listingWatcherInstallTask = Task { [weak self] in
             guard let self else { return }
-            let paths = await git.listingWatchPaths(projectRootPath: projectRootPath)
+            let plan = await git.listingWatchPlan(projectRootPath: projectRootPath)
             guard !Task.isCancelled, lifecyclePhase == .running else { return }
-            if listingWatcher?.watchedPaths == paths { return }
-            listingWatcherTask?.cancel()
-            listingWatcherTask = nil
-            let previousWatcher = listingWatcher
-            listingWatcher = nil
-            if let previousWatcher { await previousWatcher.stop() }
-            guard !Task.isCancelled, lifecyclePhase == .running else { return }
-            guard let watcher = RecursivePathWatcher(paths: paths) else { return }
-            listingWatcher = watcher
-            listingWatcherTask = Task { @MainActor [weak self] in
-                for await _ in watcher.events {
-                    guard let self else { break }
-                    refresh()
-                }
+            await listingWatcher.reconcile(plan: plan) { [weak self] in
+                self?.refresh()
             }
         }
     }

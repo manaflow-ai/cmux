@@ -156,6 +156,83 @@ struct WorktreeSidebarSchedulingTests {
         #expect(isolatedManager.extensionSidebarProjectRootResolver !== resolver)
     }
 
+    @Test("live panel directory replaces the terminal startup directory")
+    @MainActor
+    func livePanelDirectoryReplacesTerminalStartupDirectory() throws {
+        let startupDirectory = "/tmp/cmux-worktree-startup-\(UUID().uuidString)"
+        let liveDirectory = "/tmp/cmux-worktree-live-\(UUID().uuidString)"
+        let workspace = Workspace(workingDirectory: startupDirectory)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        #expect(workspace.currentDirectory == startupDirectory)
+        #expect(panel.requestedWorkingDirectory == startupDirectory)
+        workspace.panelDirectories[panel.id] = liveDirectory
+
+        let candidates = workspace.worktreeSidebarCandidateDirectories()
+
+        #expect(candidates.contains(liveDirectory))
+        #expect(!candidates.contains(startupDirectory))
+    }
+
+    @Test("listing watch plan stays shallow and includes exact linked metadata")
+    func listingWatchPlanStaysShallow() throws {
+        let container = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-listing-watch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: container) }
+        let worktrees = container.appendingPathComponent("worktrees", isDirectory: true)
+        let linked = worktrees.appendingPathComponent("linked", isDirectory: true)
+        try FileManager.default.createDirectory(at: linked, withIntermediateDirectories: true)
+
+        let plan = WorktreeSidebarListingWatchPathResolver().makePlan(
+            commonDirectory: container.path
+        )
+
+        #expect(plan.shallowPaths.contains(container.appendingPathComponent("HEAD").path))
+        #expect(plan.shallowPaths.contains(worktrees.path))
+        #expect(plan.shallowPaths.contains(linked.appendingPathComponent("HEAD").path))
+        #expect(plan.shallowPaths.contains(linked.appendingPathComponent("locked").path))
+        #expect(plan.shallowPaths.contains(linked.appendingPathComponent("gitdir").path))
+        #expect(!plan.shallowPaths.contains(container.path))
+    }
+
+    @Test("listing snapshot ignores unrelated admin churn")
+    func listingSnapshotIgnoresUnrelatedAdminChurn() async throws {
+        let container = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-listing-snapshot-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: container) }
+        let worktrees = container.appendingPathComponent("worktrees", isDirectory: true)
+        let linked = worktrees.appendingPathComponent("linked", isDirectory: true)
+        try FileManager.default.createDirectory(at: linked, withIntermediateDirectories: true)
+        let head = linked.appendingPathComponent("HEAD")
+        let locked = linked.appendingPathComponent("locked")
+        try Data("ref: refs/heads/main\n".utf8).write(to: head)
+        try Data("/tmp/linked/.git\n".utf8).write(
+            to: linked.appendingPathComponent("gitdir")
+        )
+        let plan = WorktreeSidebarListingWatchPathResolver().makePlan(
+            commonDirectory: container.path
+        )
+        let loader = WorktreeSidebarListingMetadataSnapshotLoader()
+        let initial = await loader.load(plan: plan)
+
+        try Data().write(to: linked.appendingPathComponent("index.lock"))
+        #expect(await loader.load(plan: plan) == initial)
+
+        try Data("ref: refs/heads/next\n".utf8).write(to: head)
+        let changedHead = await loader.load(plan: plan)
+        #expect(changedHead != initial)
+
+        try Data("editor\n".utf8).write(to: locked)
+        let changedLock = await loader.load(plan: plan)
+        #expect(changedLock != changedHead)
+
+        try FileManager.default.createDirectory(
+            at: worktrees.appendingPathComponent("other", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        #expect(await loader.load(plan: plan) != changedLock)
+    }
+
     private func runGit(_ arguments: [String], in directory: URL) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")

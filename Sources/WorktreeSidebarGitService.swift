@@ -212,7 +212,7 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
         return creation
     }
 
-    func listingWatchPaths(projectRootPath: String) async -> [String] {
+    func listingWatchPlan(projectRootPath: String) async -> WorktreeSidebarListingWatchPlan {
         guard let rawCommonDirectory = try? await checkedGit(
             projectRootPath: projectRootPath,
             arguments: ["rev-parse", "--git-common-dir"],
@@ -222,7 +222,12 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
               !rawCommonDirectory.isEmpty else {
             let marker = URL(fileURLWithPath: projectRootPath, isDirectory: true)
                 .appendingPathComponent(".git", isDirectory: false)
-            return FileManager.default.fileExists(atPath: marker.path) ? [marker.path] : []
+            return FileManager.default.fileExists(atPath: marker.path)
+                ? WorktreeSidebarListingWatchPlan(
+                    membershipDirectory: nil,
+                    metadataPaths: [marker.path]
+                )
+                : .empty
         }
 
         let projectRoot = URL(fileURLWithPath: projectRootPath, isDirectory: true)
@@ -230,15 +235,9 @@ actor WorktreeSidebarGitService: WorktreeSidebarGitOperating {
             fileURLWithPath: rawCommonDirectory,
             relativeTo: projectRoot
         ).standardizedFileURL
-        let worktrees = commonDirectory.appendingPathComponent("worktrees", isDirectory: true)
-        let head = commonDirectory.appendingPathComponent("HEAD", isDirectory: false)
-        var paths = [head.path]
-        paths.append(
-            FileManager.default.fileExists(atPath: worktrees.path)
-                ? worktrees.path
-                : commonDirectory.path
+        return WorktreeSidebarListingWatchPathResolver().makePlan(
+            commonDirectory: commonDirectory.path
         )
-        return Array(Set(paths.filter { FileManager.default.fileExists(atPath: $0) })).sorted()
     }
 
     func statusWatchPlan(

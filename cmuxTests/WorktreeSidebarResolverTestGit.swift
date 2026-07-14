@@ -62,7 +62,7 @@ actor WorktreeSidebarResolverTestGit: WorktreeSidebarGitOperating {
         throw WorktreeSidebarGitError.invalidBranchName(userInput)
     }
 
-    func listingWatchPaths(projectRootPath: String) async -> [String] { [] }
+    func listingWatchPlan(projectRootPath: String) async -> WorktreeSidebarListingWatchPlan { .empty }
 
     func statusWatchPlan(
         worktreePath: String,

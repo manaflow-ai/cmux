@@ -23,7 +23,7 @@ protocol WorktreeSidebarGitOperating: Sendable {
         userInput: String
     ) async throws -> WorktreeSidebarCreationResult
 
-    func listingWatchPaths(projectRootPath: String) async -> [String]
+    func listingWatchPlan(projectRootPath: String) async -> WorktreeSidebarListingWatchPlan
 
     func statusWatchPlan(
         worktreePath: String,
