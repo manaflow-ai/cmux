@@ -97,6 +97,63 @@ import Testing
 }
 
 @MainActor
+@Test func retainedOutputSurvivesEmptyFollowUpReplay() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "replay-A"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let coldReplaySettled = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(coldReplaySettled)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+
+    let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
+    let replayAChunk = try #require(await iterator.next())
+    #expect(String(data: replayAChunk.data, encoding: .utf8) == "replay-A")
+
+    let retainedAccepted = store.deliverTerminalBytes(
+        Data("retained-during-A".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(!retainedAccepted)
+    await router.enqueueEmptyReplayResponses()
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayAChunk.streamToken)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 2)
+
+    let emptyFollowUpSettled = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(emptyFollowUpSettled)
+    let retainedOutputQueued = store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == false
+    #expect(
+        retainedOutputQueued,
+        "an empty follow-up is not authoritative and must reconcile A-era retained output"
+    )
+    guard retainedOutputQueued else { return }
+
+    let retainedChunk = try #require(await iterator.next())
+    #expect(String(data: retainedChunk.data, encoding: .utf8) == "retained-during-A")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retainedChunk.streamToken)
+
+    _ = store.deliverTerminalBytes(Data("live-after-empty-B".utf8), surfaceID: surfaceID)
+    let liveAfterChunk = try #require(await iterator.next())
+    #expect(String(data: liveAfterChunk.data, encoding: .utf8) == "live-after-empty-B")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: liveAfterChunk.streamToken)
+}
+
+@MainActor
 @Test func replayRequestedAfterResponseEnqueueWaitsForAcknowledgementOwnedFollowUp() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
