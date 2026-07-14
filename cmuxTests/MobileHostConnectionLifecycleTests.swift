@@ -13,6 +13,35 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
+    @Test func testMobileHostConnectionRunOwnsTransportUntilRemoteClose() async {
+        let connectionID = UUID()
+        let transport = GatedMobileHostByteTransport()
+        let closeRecorder = MobileHostConnectionCloseRecorder()
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { id in
+                await closeRecorder.record(id)
+            }
+        )
+
+        let runTask = Task {
+            await session.run()
+        }
+        await transport.waitUntilReceiveStarted()
+        #expect(await closeRecorder.recordedIDs().isEmpty)
+
+        await transport.finishReceiving()
+        await runTask.value
+
+        #expect(await transport.observedConnectCount() == 1)
+        #expect(await transport.observedCloseCount() == 1)
+        #expect(await closeRecorder.recordedIDs() == [connectionID])
+    }
+
     @Test func testIrohEventWriterTimesOutBackpressureWithInjectedClock() async {
         let stream = BlockingMobileHostIrohSendStream()
         let writer = MobileHostIrohServerEventWriter(
@@ -241,5 +270,58 @@ extension MobileHostAuthorizationTests {
             )
         }
         #expect(!TerminalController.mobileAllowsWorkspaceAction(nil))
+    }
+}
+
+private actor GatedMobileHostByteTransport: CmxByteTransport {
+    private let receiveStartedStream: AsyncStream<Void>
+    private let receiveStartedContinuation: AsyncStream<Void>.Continuation
+    private var receiveContinuation: CheckedContinuation<Data?, Never>?
+    private var connectCount = 0
+    private var closeCount = 0
+
+    init() {
+        let receiveStarted = AsyncStream<Void>.makeStream()
+        receiveStartedStream = receiveStarted.stream
+        receiveStartedContinuation = receiveStarted.continuation
+    }
+
+    func connect() {
+        connectCount += 1
+    }
+
+    func receive() async -> Data? {
+        receiveStartedContinuation.yield()
+        return await withCheckedContinuation { continuation in
+            receiveContinuation = continuation
+        }
+    }
+
+    func send(_: Data) {}
+
+    func close() {
+        closeCount += 1
+        receiveContinuation?.resume(returning: nil)
+        receiveContinuation = nil
+        receiveStartedContinuation.finish()
+    }
+
+    func waitUntilReceiveStarted() async {
+        for await _ in receiveStartedStream {
+            return
+        }
+    }
+
+    func finishReceiving() {
+        receiveContinuation?.resume(returning: nil)
+        receiveContinuation = nil
+    }
+
+    func observedConnectCount() -> Int {
+        connectCount
+    }
+
+    func observedCloseCount() -> Int {
+        closeCount
     }
 }
