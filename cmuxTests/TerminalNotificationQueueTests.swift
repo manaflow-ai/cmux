@@ -93,6 +93,39 @@ final class TerminalNotificationQueueTests: XCTestCase {
         )
     }
 
+    func testNotifyTargetAsyncReturnsLocalizedSaturationResponse() {
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.discardPendingNotifications()
+            bus.drainForTesting()
+            bus.setDrainsSuspendedForTesting(false)
+        }
+
+        for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
+            XCTAssertTrue(bus.enqueueNotification(
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "Seed \(index)",
+                subtitle: "",
+                body: ""
+            ))
+        }
+
+        let response = TerminalController.debugNotifyTargetQueuedResponseForTesting(
+            "\(UUID().uuidString) \(UUID().uuidString) Saturated|Retry|Body"
+        )
+
+        XCTAssertEqual(
+            response,
+            String(
+                localized: "notification.queue.error.saturated",
+                defaultValue: "ERROR: notification queue saturated; retry"
+            )
+        )
+    }
+
     func testClearNotificationsDropsQueuedNotifyBeforeDrain() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()

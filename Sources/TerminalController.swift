@@ -12286,7 +12286,11 @@ class TerminalController {
             }
 #endif
             return "OK"
-        case .saturated, .cancelled: return "ERROR: notification queue saturated; retry"
+        case .saturated, .cancelled:
+            return String(
+                localized: "notification.queue.error.saturated",
+                defaultValue: "ERROR: notification queue saturated; retry"
+            )
         case .accepted: break
         }
 #if DEBUG
