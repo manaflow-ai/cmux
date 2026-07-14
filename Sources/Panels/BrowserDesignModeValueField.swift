@@ -34,7 +34,7 @@ struct BrowserDesignModeValueField: View {
                     if wasFocused && !focused { commit() }
                 }
                 .onChange(of: currentValue) { _, next in
-                    if !isFocused || submittedValue != next {
+                    if submittedValue == value || (!isFocused && submittedValue == nil) {
                         value = next
                         submittedValue = nil
                     }

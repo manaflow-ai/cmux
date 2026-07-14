@@ -32,6 +32,7 @@
   const maxSnippetCharacters = 2400;
   const maxSnippetNodes = 512;
   const maxSelectionRecoveryAttempts = 8;
+  const mutationEmissionInterval = 100;
   const redactedValue = "<redacted>";
   const sensitiveNamePattern = /(?:^|[-_:])(api[-_]?key|auth|authorization|credential|csrf|password|passwd|secret|session|token)(?:$|[-_:])/i;
   const sensitiveAutocompletePattern = /(?:current-password|new-password|one-time-code|cc-number|cc-csc)/i;
@@ -54,6 +55,9 @@
   let overlayFrame = 0;
   let captureHidden = false;
   let captureSelectionValid = true;
+  let mutationEmissionFrame = 0;
+  let lastMutationEmissionAt = 0;
+  let lastMutationEmissionSignature = "";
   const edits = new Map();
   const styleOriginals = new Map();
   const textOriginals = new Map();
@@ -428,12 +432,48 @@
     return { revision, enabled, selection: null, edits: [], css_diff: "" };
   };
 
-  const emit = () => {
-    const value = snapshot();
+  const presentationSignature = (value) => JSON.stringify([
+    value.enabled, value.selection, value.edits, value.css_diff,
+  ]);
+
+  const postSnapshot = (value) => {
     try {
       handler?.postMessage({ type: "snapshot", snapshot: value });
     } catch (_) {}
     return value;
+  };
+
+  const emit = () => {
+    const value = snapshot();
+    lastMutationEmissionSignature = presentationSignature(value);
+    return postSnapshot(value);
+  };
+
+  const flushMutationEmission = (timestamp) => {
+    if (!enabled) {
+      mutationEmissionFrame = 0;
+      return;
+    }
+    if (timestamp - lastMutationEmissionAt < mutationEmissionInterval) {
+      mutationEmissionFrame = requestAnimationFrame(flushMutationEmission);
+      return;
+    }
+    mutationEmissionFrame = 0;
+    lastMutationEmissionAt = timestamp;
+    const value = snapshot();
+    const signature = presentationSignature(value);
+    if (signature === lastMutationEmissionSignature) return;
+    lastMutationEmissionSignature = signature;
+    postSnapshot(value);
+  };
+
+  const scheduleMutationEmission = () => {
+    if (!mutationEmissionFrame) mutationEmissionFrame = requestAnimationFrame(flushMutationEmission);
+  };
+
+  const cancelMutationEmission = () => {
+    if (mutationEmissionFrame) cancelAnimationFrame(mutationEmissionFrame);
+    mutationEmissionFrame = 0;
   };
 
   const resolveSelectedElement = (allowRecovery = false) => {
@@ -791,7 +831,7 @@
         selectionRecoveryAttemptsRemaining = 0;
         cancelSelectionRecovery();
         revision += 1;
-        emit();
+        scheduleMutationEmission();
         scheduleOverlayRefresh();
         return;
       }
@@ -813,7 +853,7 @@
     }
     if (observedMutation || previous !== current || identityChanged || editsChanged || (emitRecoveredSelection && current)) {
       revision += 1;
-      emit();
+      scheduleMutationEmission();
     }
     scheduleOverlayRefresh();
   };
@@ -923,6 +963,7 @@
   const selectElement = (element) => {
     if (!element || element === overlayHost || overlayHost?.contains(element)) return snapshot();
     cancelSelectionRecovery();
+    cancelMutationEmission();
     if (selectedElement === element && selectedBaseline) {
       hoveredElement = null;
       scheduleOverlayRefresh();
@@ -1032,6 +1073,7 @@
     if (overlayFrame) cancelAnimationFrame(overlayFrame);
     overlayFrame = 0;
     cancelSelectionRecovery();
+    cancelMutationEmission();
   };
 
   const api = {
@@ -1063,6 +1105,8 @@
       overlay = null;
       captureHidden = false;
       captureSelectionValid = true;
+      lastMutationEmissionAt = 0;
+      lastMutationEmissionSignature = "";
       const finalSnapshot = snapshot();
       try { delete globalThis.__cmuxDesignMode; } catch (_) { globalThis.__cmuxDesignMode = undefined; }
       return finalSnapshot;

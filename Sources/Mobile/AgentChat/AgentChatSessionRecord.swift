@@ -67,6 +67,11 @@ struct AgentChatSessionRecord: Sendable {
         hasHookLifecycleState = false
     }
 
+    mutating func setTranscriptObservedIdle() {
+        state = .idle
+        hasHookLifecycleState = false
+    }
+
     /// Adopts terminal/transcript bindings from a hook-store entry. The
     /// store is rewritten by every hook event, so its non-nil fields are
     /// fresher than the record's (panel UUIDs change across app

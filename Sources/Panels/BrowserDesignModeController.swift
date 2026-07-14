@@ -169,7 +169,7 @@ final class BrowserDesignModeController {
                 return true
             } catch let enableError {
                 guard operation == operationRevision else { return false }
-                if enableError as? BrowserDesignModeSendError == .operationTimedOut {
+                if enableError is CancellationError || enableError as? BrowserDesignModeSendError == .operationTimedOut {
                     invalidateOperation()
                     bestEffortDestroyRuntime(in: webView)
                     resetNativeState()

@@ -317,7 +317,7 @@ final class AgentChatSessionRegistry {
     func noteAssistantTurnCompleted(sessionID: String, at timestamp: Date) {
         update(sessionID: sessionID) { record in
             guard case .working = record.state else { return }
-            record.state = .idle
+            record.setTranscriptObservedIdle()
             if timestamp > record.lastActivityAt {
                 record.lastActivityAt = timestamp
             }

@@ -96,6 +96,7 @@ extension TerminalController {
             allowSoleBrowserFallback: true
         ) { context in
             let panel = context.browserPanel
+            var cliTask: Task<Void, Never>?
             let outcome: (
                 handled: Bool,
                 enabled: Bool,
@@ -104,7 +105,8 @@ extension TerminalController {
                 editCount: Int,
                 error: String?
             )? = v2AwaitCallback(timeout: 10) { finish in
-                Task { @MainActor in
+                cliTask = Task { @MainActor in
+                    guard !Task.isCancelled else { return }
                     let controller = panel.designModeController
                     let handled: Bool
                     if statusOnly {
@@ -116,6 +118,7 @@ extension TerminalController {
                     } else {
                         handled = await controller.toggle(reason: "cli.designMode")
                     }
+                    guard !Task.isCancelled else { return }
                     finish((
                         handled,
                         controller.isActive,
@@ -127,6 +130,7 @@ extension TerminalController {
                 }
             }
             guard let outcome else {
+                cliTask?.cancel()
                 return .err(
                     code: "timeout",
                     message: String(
