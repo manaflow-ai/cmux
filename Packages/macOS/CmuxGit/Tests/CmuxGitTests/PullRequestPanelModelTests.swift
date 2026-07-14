@@ -152,4 +152,38 @@ import Testing
         await activation.value
         model.setVisible(false)
     }
+
+    @Test @MainActor func hidingDuringRefreshAllowsRefreshAfterReopening() async {
+        let input = PullRequestWorkspaceInput(directory: "/repo", branchHint: "feature")
+        let context = PullRequestPanelContext(
+            repositoryRoot: "/repo",
+            branch: "feature",
+            repositorySlug: "example/repo"
+        )
+        let content = PullRequestPanelContent.noPullRequest(context)
+        let service = StubPullRequestPanelService(
+            cached: nil,
+            refreshResult: .success(content),
+            suspendsRefresh: true
+        )
+        let model = PullRequestPanelModel(service: service)
+        model.setVisible(true)
+
+        let firstActivation = Task { await model.activate(input) }
+        await service.waitForRefreshCallCount(1)
+        model.setVisible(false)
+
+        #expect(model.phase == .idle)
+        #expect(!model.phase.isRefreshInFlight)
+
+        model.setVisible(true)
+        let secondActivation = Task { await model.activate(input) }
+        await service.waitForRefreshCallCount(2)
+
+        #expect(await service.refreshCallCount == 2)
+        await service.resumeRefreshes()
+        await firstActivation.value
+        await secondActivation.value
+        model.setVisible(false)
+    }
 }

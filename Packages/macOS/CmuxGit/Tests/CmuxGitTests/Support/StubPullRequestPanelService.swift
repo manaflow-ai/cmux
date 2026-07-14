@@ -7,7 +7,7 @@ actor StubPullRequestPanelService: PullRequestPanelServing {
     private(set) var disableAutoMergeCallCount = 0
     private(set) var createPullRequestCallCount = 0
     private(set) var refreshCallCount = 0
-    private var refreshStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var refreshCallCountWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var refreshContinuations: [CheckedContinuation<Void, Never>] = []
     private let suspendsRefresh: Bool
 
@@ -29,8 +29,7 @@ actor StubPullRequestPanelService: PullRequestPanelServing {
     func refresh(for input: PullRequestWorkspaceInput) async throws -> PullRequestPanelContent {
         _ = input
         refreshCallCount += 1
-        let waiters = refreshStartWaiters
-        refreshStartWaiters.removeAll()
+        let waiters = refreshCallCountWaiters.removeValue(forKey: refreshCallCount) ?? []
         waiters.forEach { $0.resume() }
         if suspendsRefresh {
             await withCheckedContinuation { refreshContinuations.append($0) }
@@ -64,8 +63,14 @@ actor StubPullRequestPanelService: PullRequestPanelServing {
     }
 
     func waitForRefreshStart() async {
-        guard refreshCallCount == 0 else { return }
-        await withCheckedContinuation { refreshStartWaiters.append($0) }
+        await waitForRefreshCallCount(1)
+    }
+
+    func waitForRefreshCallCount(_ count: Int) async {
+        guard refreshCallCount < count else { return }
+        await withCheckedContinuation { continuation in
+            refreshCallCountWaiters[count, default: []].append(continuation)
+        }
     }
 
     func resumeRefreshes() {

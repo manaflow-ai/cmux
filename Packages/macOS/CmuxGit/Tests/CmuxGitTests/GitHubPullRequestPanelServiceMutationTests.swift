@@ -63,21 +63,25 @@ import Testing
         ])
     }
 
-    @Test func createPullRequestPinsRepositoryAndKeepsCurrentBranchInference() async throws {
+    @Test func createPullRequestFailsClosedWhenDisplayedContextCannotBeRevalidated() async {
         let runner = RecordingPullRequestCommandRunner()
         let service = GitHubPullRequestPanelService(commandRunner: runner)
         let context = PullRequestPanelContext(
-            repositoryRoot: "/repo",
+            repositoryRoot: "/path/that/does/not/exist",
             branch: "feature",
             repositorySlug: "example/repo"
         )
 
-        try await service.createPullRequest(context: context)
+        do {
+            try await service.createPullRequest(context: context)
+            Issue.record("Expected pull-request creation to fail closed")
+        } catch let error as PullRequestPanelServiceError {
+            #expect(error == .createFailed)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
 
-        #expect(await runner.lastArguments == [
-            "pr", "create", "--web",
-            "--repo", "example/repo",
-        ])
+        #expect(await runner.lastArguments.isEmpty)
     }
 
     @Test func commentsFailureIsOptionalAndRepositoryBound() async {
@@ -94,6 +98,7 @@ import Testing
         #expect(comments == nil)
         #expect(await runner.lastArguments == [
             "pr", "view", "42", "--repo", "example/repo", "--json", "comments",
+            "--jq", "{comments: [.comments[] | select(.threadId != null and .isResolved != null) | {threadId, isResolved}]}",
         ])
     }
 
