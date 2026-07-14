@@ -7740,7 +7740,9 @@ extension CMUXCLI {
             }
             return errno == EWOULDBLOCK
         }
-        let activeTypedSessionTokens = Set(entries.compactMap { manifestURL -> String? in
+        var activeTypedSessionTokens: Set<String> = []
+        var activeTypedSessionFiles: Set<String> = []
+        for manifestURL in entries {
             let name = manifestURL.lastPathComponent
             guard name.hasPrefix(".manifest-"), manifestURL.pathExtension == "json",
                   let data = try? Data(contentsOf: manifestURL),
@@ -7758,10 +7760,17 @@ extension CMUXCLI {
                           && fileURL.pathExtension == "patch"
                           && FileManager.default.fileExists(atPath: fileURL.path)
                   }) else {
-                return nil
+                continue
             }
-            return token
-        })
+            activeTypedSessionTokens.insert(token)
+            for file in files {
+                guard file["remote_url"] == nil || file["remote_url"] is NSNull,
+                      let path = file["file_path"] as? String else {
+                    continue
+                }
+                activeTypedSessionFiles.insert(URL(fileURLWithPath: path).standardizedFileURL.path)
+            }
+        }
         let sorted = entries.compactMap { url -> (url: URL, date: Date)? in
             guard url.pathExtension == "html",
                   let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey, .isRegularFileKey]),
@@ -7772,6 +7781,9 @@ extension CMUXCLI {
         }.sorted { $0.date > $1.date }
 
         for (index, entry) in sorted.enumerated() where index >= 50 && now.timeIntervalSince(entry.date) > 24 * 60 * 60 {
+            guard !activeTypedSessionFiles.contains(entry.url.standardizedFileURL.path) else {
+                continue
+            }
             try? FileManager.default.removeItem(at: entry.url)
             try? FileManager.default.removeItem(at: diffViewerPatchFileURL(for: entry.url))
         }

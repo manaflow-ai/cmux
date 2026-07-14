@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::OpenOptions;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -88,6 +88,13 @@ const ORPHAN_SESSION_FINAL_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60)
 const MAX_ORPHAN_SCAN_ENTRIES: usize = 4096;
 const MAX_ORPHAN_REMOVALS: usize = 64;
 const MAX_TEMP_INDEX_ENTRIES: usize = 4096;
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionOwner {
+    session_id: String,
+    capability_token: String,
+}
 // Branch regeneration runs Git commands with 60-second deadlines, then writes
 // the page, patch, assets, and manifest. Keep the outer safety deadline above
 // that complete contract while still releasing a stuck child eventually.
@@ -543,10 +550,19 @@ async fn open_session(
     let request_path = format!("/{file_name}");
     let final_path = state.config.root.join(&file_name);
     let temporary_path = state.config.root.join(format!(".{file_name}.tmp"));
+    let owner_path =
+        reserve_session_owner(&state.config.root, &session_id, &params.capability_token)
+            .map_err(|_| SessionOpenError::Failed)?;
     reserve_session_temp(&state.config.root, &temporary_path)
+        .inspect_err(|_| {
+            let _ = std::fs::remove_file(&owner_path);
+        })
         .map_err(|_| SessionOpenError::Failed)?;
-    let mut temporary_file =
-        TemporaryPatchFile::new(state.config.root.clone(), temporary_path.clone());
+    let mut temporary_file = TemporaryPatchFile::new(
+        state.config.root.clone(),
+        temporary_path.clone(),
+        owner_path,
+    );
 
     let source = resolve_session_source(state, params.source, &canonical_repo).await?;
     run_git_patch(&source, &canonical_repo, &temporary_path).await?;
@@ -591,14 +607,16 @@ async fn open_session(
 struct TemporaryPatchFile {
     root: PathBuf,
     path: PathBuf,
+    owner_path: PathBuf,
     armed: bool,
 }
 
 impl TemporaryPatchFile {
-    fn new(root: PathBuf, path: PathBuf) -> Self {
+    fn new(root: PathBuf, path: PathBuf, owner_path: PathBuf) -> Self {
         Self {
             root,
             path,
+            owner_path,
             armed: true,
         }
     }
@@ -616,6 +634,7 @@ impl Drop for TemporaryPatchFile {
     fn drop(&mut self) {
         if self.armed {
             remove_owned_patch_sync(&self.root, &self.path);
+            let _ = std::fs::remove_file(&self.owner_path);
         }
     }
 }
@@ -833,6 +852,7 @@ async fn prune_orphaned_session_temp_files(
 ) {
     let root = root.to_owned();
     let _ = tokio::task::spawn_blocking(move || {
+        reconcile_session_owners(&root, temporary_minimum_age, scan_limit);
         mutate_temp_index(&root, |entries| {
             let take = scan_limit.min(MAX_ORPHAN_REMOVALS).min(entries.len());
             let mut rotated = entries.drain(..take).collect::<Vec<_>>();
@@ -855,9 +875,21 @@ async fn prune_orphaned_session_temp_files(
                     if !name.starts_with('.') && final_patch_is_manifest_owned(&root, &path) {
                         return true;
                     }
+                    if !name.starts_with('.')
+                        && remove_abandoned_session_manifest_entry(&root, name).is_err()
+                    {
+                        return true;
+                    }
                     match std::fs::remove_file(path) {
-                        Ok(()) => false,
-                        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+                        Ok(()) => {
+                            remove_session_owner_for_name(&root, name);
+                            false
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                            remove_session_owner_for_name(&root, name);
+                            false
+                        }
+                        Err(_) => true,
                     }
                 } else {
                     true
@@ -868,6 +900,79 @@ async fn prune_orphaned_session_temp_files(
         })
     })
     .await;
+}
+
+fn reconcile_session_owners(root: &Path, minimum_age: Duration, scan_limit: usize) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten().take(scan_limit) {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let Some(session_id) = name
+            .strip_prefix(".diff-session-")
+            .and_then(|value| value.strip_suffix(".owner.json"))
+            .filter(|value| uuid::Uuid::parse_str(value).is_ok())
+        else {
+            continue;
+        };
+        let temporary_name = format!(".diff-session-{session_id}.patch.tmp");
+        let final_name = format!("diff-session-{session_id}.patch");
+        let owned_name = if root.join(&final_name).exists() {
+            Some(final_name)
+        } else if root.join(&temporary_name).exists() {
+            Some(temporary_name)
+        } else {
+            None
+        };
+        if let Some(owned_name) = owned_name {
+            let _ = mutate_temp_index(root, |indexed| {
+                indexed.retain(|value| session_temp_id(value) != Some(session_id));
+                if indexed.len() >= MAX_TEMP_INDEX_ENTRIES {
+                    return Err("temp index full".to_owned());
+                }
+                indexed.push(owned_name);
+                Ok(())
+            });
+        } else {
+            let old_enough = entry
+                .metadata()
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+                .is_some_and(|age| age >= minimum_age);
+            if old_enough {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
+fn remove_session_owner_for_name(root: &Path, name: &str) {
+    if let Some(session_id) = session_temp_id(name) {
+        let _ = std::fs::remove_file(session_owner_path(root, session_id));
+    }
+}
+
+fn remove_abandoned_session_manifest_entry(root: &Path, name: &str) -> Result<(), String> {
+    let session_id = session_temp_id(name).ok_or("invalid session patch")?;
+    let owner_bytes = match std::fs::read(session_owner_path(root, session_id)) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    };
+    let owner: SessionOwner =
+        serde_json::from_slice(&owner_bytes).map_err(|error| error.to_string())?;
+    if owner.session_id != session_id || !valid_token(&owner.capability_token) {
+        return Err("invalid session owner".to_owned());
+    }
+    let request_path = format!("/diff-session-{session_id}.patch");
+    mutate_manifest(root, &owner.capability_token, |manifest| {
+        manifest
+            .files
+            .retain(|file| file.request_path != request_path);
+        Ok(())
+    })
 }
 
 fn final_patch_is_manifest_owned(root: &Path, patch_path: &Path) -> bool {
@@ -942,6 +1047,29 @@ fn session_temp_id(name: &str) -> Option<&str> {
                 .and_then(|value| value.strip_suffix(".patch"))
                 .filter(|session_id| uuid::Uuid::parse_str(session_id).is_ok())
         })
+}
+
+fn session_owner_path(root: &Path, session_id: &str) -> PathBuf {
+    root.join(format!(".diff-session-{session_id}.owner.json"))
+}
+
+fn reserve_session_owner(root: &Path, session_id: &str, token: &str) -> Result<PathBuf, String> {
+    let path = session_owner_path(root, session_id);
+    let owner = SessionOwner {
+        session_id: session_id.to_owned(),
+        capability_token: token.to_owned(),
+    };
+    let bytes = serde_json::to_vec(&owner).map_err(|error| error.to_string())?;
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&path)
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = file.write_all(&bytes).and_then(|()| file.sync_all()) {
+        let _ = std::fs::remove_file(&path);
+        return Err(error.to_string());
+    }
+    Ok(path)
 }
 
 #[cfg(test)]
@@ -1089,10 +1217,24 @@ async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
     match std::fs::remove_file(&file_path) {
         Ok(()) => {
             let _ = unregister_session_temp(&state.config.root, &file_path);
+            remove_session_owner_for_name(
+                &state.config.root,
+                file_path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or(""),
+            );
             true
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let _ = unregister_session_temp(&state.config.root, &file_path);
+            remove_session_owner_for_name(
+                &state.config.root,
+                file_path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or(""),
+            );
             true
         }
         // The manifest commit is the logical close. Retain index ownership so
@@ -1718,7 +1860,7 @@ mod tests {
         AllowedFile, DiffSource, FileExt, Manifest, OpenOptions, RpcRequestRead, SessionOpenError,
         TemporaryPatchFile, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request,
         prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
-        run_git_patch_with_limit, valid_group_id,
+        reserve_session_owner, run_git_patch_with_limit, valid_group_id,
     };
 
     #[tokio::test]
@@ -1769,7 +1911,8 @@ mod tests {
         std::fs::write(&temporary, b"private diff").expect("write temporary patch");
 
         {
-            let mut guard = TemporaryPatchFile::new(root.clone(), temporary.clone());
+            let mut guard =
+                TemporaryPatchFile::new(root.clone(), temporary.clone(), root.join("owner.json"));
             std::fs::rename(&temporary, &final_path).expect("rename patch");
             guard.retarget(final_path.clone());
         }
@@ -1856,6 +1999,64 @@ mod tests {
         prune_orphaned_session_temp_files(&root, Duration::ZERO, Duration::ZERO, 16).await;
         assert!(!active_final.exists());
         assert!(unrelated.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn owner_descriptor_recovers_rename_crash_and_repairs_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-diff-sidecar-owner-recovery-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).expect("create root");
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let token = "b".repeat(64);
+        let temporary = root.join(format!(".diff-session-{session_id}.patch.tmp"));
+        let final_path = root.join(format!("diff-session-{session_id}.patch"));
+        reserve_session_owner(&root, &session_id, &token).expect("reserve owner");
+        register_session_temp(&root, &temporary).expect("index temporary name");
+        std::fs::write(&final_path, b"private diff after rename").expect("write final patch");
+        let page = root.join("index.html");
+        std::fs::write(&page, b"page").expect("write page");
+        let manifest = Manifest {
+            token: token.clone(),
+            files: vec![
+                AllowedFile {
+                    request_path: "/index.html".to_owned(),
+                    file_path: page.to_string_lossy().into_owned(),
+                    mime_type: "text/html".to_owned(),
+                    remote_url: None,
+                },
+                AllowedFile {
+                    request_path: format!("/diff-session-{session_id}.patch"),
+                    file_path: final_path.to_string_lossy().into_owned(),
+                    mime_type: "text/x-diff".to_owned(),
+                    remote_url: None,
+                },
+            ],
+        };
+        std::fs::write(
+            root.join(format!(".manifest-{token}.json")),
+            serde_json::to_vec(&manifest).expect("encode manifest"),
+        )
+        .expect("write manifest");
+
+        prune_orphaned_session_temp_files(&root, Duration::ZERO, Duration::ZERO, 64).await;
+
+        assert!(!final_path.exists());
+        assert!(
+            !root
+                .join(format!(".diff-session-{session_id}.owner.json"))
+                .exists()
+        );
+        let repaired: Manifest = serde_json::from_slice(
+            &std::fs::read(root.join(format!(".manifest-{token}.json")))
+                .expect("read repaired manifest"),
+        )
+        .expect("decode repaired manifest");
+        assert_eq!(repaired.files.len(), 1);
+        assert_eq!(repaired.files[0].request_path, "/index.html");
         let _ = std::fs::remove_dir_all(root);
     }
 
