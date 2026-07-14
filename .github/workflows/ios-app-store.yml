@@ -45,6 +45,7 @@ jobs:
       INPUT_COPY_METADATA_FROM: ${{ github.event.inputs.copy_metadata_from }}
       INPUT_SUBMIT_FOR_REVIEW: ${{ github.event.inputs.submit_for_review }}
       INPUT_RETARGET_INITIAL_DRAFT: ${{ github.event.inputs.retarget_initial_draft }}
+      CMUX_XCODE_SOURCE_PACKAGES_DIR: ${{ github.workspace }}/.spm-cache
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -62,6 +63,16 @@ jobs:
 
       - name: Provision GhosttyKit
         run: ./scripts/ensure-ghosttykit.sh
+
+      - name: Cache Swift package repositories
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          # Keep machine-specific workspace state and the 2.8 GB Sentry artifact
+          # out of the cache. The bare repositories cover the failure-prone
+          # network fetch while remaining small enough to restore quickly.
+          path: .spm-cache/repositories
+          key: spm-repositories-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-repositories-
 
       - name: Install asc CLI
         run: |

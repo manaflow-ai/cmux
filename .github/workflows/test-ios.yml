@@ -243,6 +243,14 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Cache Swift package repositories
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .spm-cache/repositories
+          key: spm-repositories-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-repositories-
+
       - name: Install zig
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: ./scripts/install-zig-ci.sh
@@ -354,9 +362,11 @@ jobs:
         run: |
           set -euo pipefail
           IOS_DERIVED_DATA="${RUNNER_TEMP:-$PWD/.tmp}/cmux-ios-${DEVICE_FAMILY}"
+          IOS_SOURCE_PACKAGES_DIR="$PWD/.spm-cache"
           rm -rf "$IOS_DERIVED_DATA"
-          mkdir -p "$IOS_DERIVED_DATA/logs"
+          mkdir -p "$IOS_DERIVED_DATA/logs" "$IOS_SOURCE_PACKAGES_DIR"
           echo "IOS_DERIVED_DATA=$IOS_DERIVED_DATA" >> "$GITHUB_ENV"
+          echo "IOS_SOURCE_PACKAGES_DIR=$IOS_SOURCE_PACKAGES_DIR" >> "$GITHUB_ENV"
 
       - name: Resolve packages
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
@@ -365,6 +375,7 @@ jobs:
             -scheme cmux-ios \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath "$IOS_DERIVED_DATA" \
+            -clonedSourcePackagesDirPath "$IOS_SOURCE_PACKAGES_DIR" \
             -resolvePackageDependencies
 
       - name: Run iOS simulator tests
@@ -378,6 +389,7 @@ jobs:
             -scheme cmux-ios
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
             -derivedDataPath "$IOS_DERIVED_DATA"
+            -clonedSourcePackagesDirPath "$IOS_SOURCE_PACKAGES_DIR"
           )
           if [ -n "${TEST_FILTER:-}" ]; then
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
