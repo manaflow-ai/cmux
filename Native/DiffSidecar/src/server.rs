@@ -971,27 +971,26 @@ async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
     }
     let request_path = format!("/diff-session-{}.patch", params.session_id);
     let file_path = state.config.root.join(request_path.trim_start_matches('/'));
-    match std::fs::remove_file(&file_path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => return false,
-    }
-    let root = state.config.root.clone();
-    let token = params.capability_token.clone();
-    let transaction = tokio::task::spawn_blocking(move || {
-        mutate_manifest(&root, &token, |manifest| {
-            manifest
-                .files
-                .retain(|entry| entry.request_path != request_path);
-            Ok(())
-        })
-    })
-    .await;
-    let Ok(Ok(())) = transaction else {
+    let transaction = mutate_manifest(&state.config.root, &params.capability_token, |manifest| {
+        manifest
+            .files
+            .retain(|entry| entry.request_path != request_path);
+        Ok(())
+    });
+    if transaction.is_err() {
         return false;
-    };
-    let _ = unregister_session_temp(&state.config.root, &file_path);
-    true
+    }
+    match std::fs::remove_file(&file_path) {
+        Ok(()) => {
+            let _ = unregister_session_temp(&state.config.root, &file_path);
+            true
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let _ = unregister_session_temp(&state.config.root, &file_path);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 fn mutate_manifest<T>(

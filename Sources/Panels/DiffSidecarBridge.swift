@@ -32,8 +32,12 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     private static let pendingSessionID = "00000000-0000-0000-0000-000000000000"
     // Longer than the sidecar's 120-second branch regeneration limit.
     private nonisolated static let requestTimeout: TimeInterval = 130
+    private struct ViewerInvocationKey: Hashable {
+        let webView: ObjectIdentifier
+        let token: String
+    }
     private var invocations: [UUID: Task<Void, Never>] = [:]
-    private var sessionInvocationByViewerToken: [String: UUID] = [:]
+    private var sessionInvocationByViewer: [ViewerInvocationKey: UUID] = [:]
 
     /// Faults the Rust executable and its dynamic dependencies into the OS cache
     /// during app startup. The handshake uses stdio and exits; it never binds a
@@ -83,8 +87,11 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         let invocationID = UUID()
         let method = (message.body as? [String: Any])?["method"] as? String
         let viewerToken = DiffCommentsBridge.diffViewerToken(from: message.frameInfo.request.url)
-        if method == "sessionClose", let viewerToken,
-           let pendingID = sessionInvocationByViewerToken[viewerToken] {
+        let viewerKey = message.webView.flatMap { webView in
+            viewerToken.map { ViewerInvocationKey(webView: ObjectIdentifier(webView), token: $0) }
+        }
+        if method == "sessionClose", let viewerKey,
+           let pendingID = sessionInvocationByViewer[viewerKey] {
             invocations[pendingID]?.cancel()
         }
         if method == "sessionClose",
@@ -97,8 +104,8 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             ], nil)
             return
         }
-        if method == "sessionOpen", let viewerToken,
-           let previousID = sessionInvocationByViewerToken[viewerToken] {
+        if method == "sessionOpen", let viewerKey,
+           let previousID = sessionInvocationByViewer[viewerKey] {
             invocations[previousID]?.cancel()
         }
 
@@ -114,25 +121,25 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             case .success(let responseData):
                 guard let response = try? JSONSerialization.jsonObject(with: responseData) else {
                     replyHandler(Self.failureResponse(body: message.body, code: "invalidResponse", message: "Diff sidecar returned invalid JSON"), nil)
-                    self.finishInvocation(invocationID, viewerToken: viewerToken)
+                    self.finishInvocation(invocationID, viewerKey: viewerKey)
                     return
                 }
                 replyHandler(response, nil)
             case .failure:
                 replyHandler(Self.failureResponse(body: message.body, code: "sidecarUnavailable", message: "Diff sidecar is unavailable"), nil)
             }
-            self.finishInvocation(invocationID, viewerToken: viewerToken)
+            self.finishInvocation(invocationID, viewerKey: viewerKey)
         }
         invocations[invocationID] = task
-        if method == "sessionOpen", let viewerToken {
-            sessionInvocationByViewerToken[viewerToken] = invocationID
+        if method == "sessionOpen", let viewerKey {
+            sessionInvocationByViewer[viewerKey] = invocationID
         }
     }
 
-    private func finishInvocation(_ invocationID: UUID, viewerToken: String?) {
+    private func finishInvocation(_ invocationID: UUID, viewerKey: ViewerInvocationKey?) {
         invocations.removeValue(forKey: invocationID)
-        if let viewerToken, sessionInvocationByViewerToken[viewerToken] == invocationID {
-            sessionInvocationByViewerToken.removeValue(forKey: viewerToken)
+        if let viewerKey, sessionInvocationByViewer[viewerKey] == invocationID {
+            sessionInvocationByViewer.removeValue(forKey: viewerKey)
         }
     }
 
