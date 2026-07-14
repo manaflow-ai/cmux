@@ -369,9 +369,11 @@ struct UnifiedFileExplorerSearchScopeTests {
         let state = FileExplorerState.unifiedTestState(mode: .files)
         let store = FileExplorerStore()
         store.rootPath = "/repo"
-        let match = FileExplorerNode(name: "Needle.swift", path: "/repo/Needle.swift", isDirectory: false)
-        let staleSelection = FileExplorerNode(name: "Other.swift", path: "/repo/Other.swift", isDirectory: false)
-        store.rootNodes = [match, staleSelection]
+        let directory = FileExplorerNode(name: "Sources", path: "/repo/Sources", isDirectory: true)
+        let match = FileExplorerNode(name: "Needle.swift", path: "/repo/Sources/Needle.swift", isDirectory: false)
+        let staleSelection = FileExplorerNode(name: "Other.swift", path: "/repo/Sources/Other.swift", isDirectory: false)
+        directory.children = [match, staleSelection]
+        store.rootNodes = [directory]
         store.select(node: staleSelection)
         var openedPath: String?
         let coordinator = FileExplorerPanelView.Coordinator(

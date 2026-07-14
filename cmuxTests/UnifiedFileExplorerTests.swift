@@ -336,10 +336,13 @@ struct UnifiedFileExplorerTests {
         state.mode = .find
         focusController.rememberRightSidebarMode(.find)
         container.updatePresentation(.unified)
-        #expect(!container.searchResultsView.isHiddenOrHasHiddenAncestor)
+        #expect(container.searchResultsView.isHiddenOrHasHiddenAncestor)
         #expect(searchController.searchRequests.count == searchCountBeforeFindActivation)
         #expect(container.searchSnapshot == snapshot)
         #expect(window.firstResponder === outlineResponder)
+        try #require(outlineResponder as? FileExplorerNSOutlineView).keyDown(with: try Self.keyEvent(characters: "/", keyCode: 44))
+        #expect(state.mode == .files)
+        state.mode = .find
         searchController.emitsEmptySnapshotOnSearch = false
 
         _ = window.makeFirstResponder(nil)
