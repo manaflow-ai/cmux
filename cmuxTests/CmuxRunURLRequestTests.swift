@@ -225,6 +225,30 @@ struct CmuxRunURLRequestTests {
         #expect(counts.total == 4)
     }
 
+    @Test @MainActor func mixedExternalURLsTakePriorityOverRunBusyRejection() {
+        let mixedCounts = AppDelegate.CmuxExternalURLIntentCounts(
+            run: 1,
+            ssh: 1,
+            navigation: 0,
+            text: 0
+        )
+        let runCounts = AppDelegate.CmuxExternalURLIntentCounts(
+            run: 1,
+            ssh: 0,
+            navigation: 0,
+            text: 0
+        )
+
+        #expect(AppDelegate.cmuxExternalURLAdmission(
+            intentCounts: mixedCounts,
+            isRunBusy: true
+        ) == .multipleLinks)
+        #expect(AppDelegate.cmuxExternalURLAdmission(
+            intentCounts: runCounts,
+            isRunBusy: true
+        ) == .busy)
+    }
+
     @Test func resolvesAndCanonicalizesExistingDirectories() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let real = root.appendingPathComponent("real", isDirectory: true)
@@ -252,6 +276,18 @@ struct CmuxRunURLRequestTests {
         #expect(
             CmuxRunWorkingDirectoryResolver().resolve(file.path)
                 == .failure(.workingDirectoryNotFound)
+        )
+    }
+
+    @Test func rejectsWorkingDirectoriesChangedByWhitespaceTrimming() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let trailingSpace = root.appendingPathComponent("approved-target ", isDirectory: true)
+        try FileManager.default.createDirectory(at: trailingSpace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        #expect(
+            CmuxRunWorkingDirectoryResolver().resolve(trailingSpace.path)
+                == .failure(.workingDirectoryContainsSurroundingWhitespace)
         )
     }
 
