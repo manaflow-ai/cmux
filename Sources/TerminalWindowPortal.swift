@@ -619,6 +619,7 @@ private final class SplitDividerOverlayView: NSView {
 final class WindowTerminalPortal: NSObject {
 #if DEBUG
     static var isPointerDragActiveForTesting = false
+    static var isWindowLiveResizeActiveForTesting = false
 #endif
     static let tinyHideThreshold: CGFloat = 1
     private static let minimumRevealWidth: CGFloat = 24
@@ -757,6 +758,16 @@ final class WindowTerminalPortal: NSObject {
 
     fileprivate func scheduleExternalGeometrySynchronize() {
         scheduleExternalGeometrySynchronize(forceImmediate: true)
+    }
+
+    /// True while the hosting window is in an interactive live resize
+    /// (title-bar/edge drag). Split-divider drags are deliberately NOT
+    /// window live resizes — they keep the immediate per-callback sync path.
+    private var isWindowLiveResizeActive: Bool {
+#if DEBUG
+        if Self.isWindowLiveResizeActiveForTesting { return true }
+#endif
+        return hostView.inLiveResize || window?.inLiveResize == true
     }
 
     /// The portal whose sync pass is currently on the stack, if any. A
@@ -1382,14 +1393,25 @@ final class WindowTerminalPortal: NSObject {
         // the passes our own syncs run — and treating each one as a
         // synchronous full-portal sync (hierarchy layout + every hosted
         // view + a deferred follow-up) kept the display cycle busy
-        // indefinitely under churn. Outside a live drag they coalesce into
-        // the scheduled pass like every other trigger; during a drag the
-        // immediate path below keeps the dragged split visually glued.
-        let interactive = hostView.inLiveResize
-            || window?.inLiveResize == true
-            || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-        guard interactive else {
-            pruneDeadEntries()
+        // indefinitely under churn. Outside a split-divider drag they
+        // coalesce into the scheduled pass like every other trigger; during
+        // a divider drag the immediate path below keeps the dragged split
+        // visually glued.
+        //
+        // A live WINDOW resize takes the coalesced path too, on purpose.
+        // Unlike a divider drag (one or two anchors move), a window resize
+        // fires this callback for EVERY visible pane in the same layout
+        // pass, so the full-portal fan-out below did panes × callbacks
+        // work per display frame. Syncing just this anchor's hosted view
+        // keeps the pane glued to the geometry the layout pass produced;
+        // the per-tick scheduled pass (windowDidResize) catches panes whose
+        // window-relative position changed without their own frame
+        // changing, and the end-of-resize sync (windowDidEndLiveResize →
+        // scheduleExternalGeometrySynchronize) stays unconditional.
+        guard TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive else {
+            if !isWindowLiveResizeActive {
+                pruneDeadEntries()
+            }
             let anchorId = ObjectIdentifier(anchorView)
             if let hostedId = hostedByAnchorId[anchorId] {
                 synchronizeHostedView(withId: hostedId, syncLayout: false)
@@ -1419,6 +1441,14 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String) {
+        // During a live window resize this pass would re-reconcile every
+        // visible surface once per resize tick, right after
+        // synchronizeHostedView already reconciled the ones whose geometry
+        // changed — and then force a redraw per surface per frame. Skip it
+        // mid-resize; the end-of-resize sync (windowDidEndLiveResize →
+        // scheduleExternalGeometrySynchronize) runs it unconditionally once
+        // live resize is over.
+        guard !isWindowLiveResizeActive else { return }
         for entry in entriesByHostedId.values {
             guard entry.visibleInUI, let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
             if hostedView.reconcileGeometryNow() {
@@ -1765,7 +1795,15 @@ final class WindowTerminalPortal: NSObject {
             if geometryChanged {
                 _ = hostedView.reconcileGeometryNow()
                 // Hidden surfaces keep geometry bookkeeping and redraw on reveal.
-                if entry.visibleInUI, !shouldHide, !hostedView.isHidden {
+                // Mid window live-resize, skip the synchronous redraw for visible
+                // ones too: reconcileGeometryNow already pushed the new size into
+                // the runtime (a ghostty size change schedules its own repaint),
+                // and forcing displayIfNeeded plus an extra surface refresh for
+                // every visible pane on every resize tick — sometimes before the
+                // pane's Metal layer was even realized — is what made resizing a
+                // window full of mirrored panes drag. The end-of-resize sync runs
+                // after live resize is over and takes this branch normally.
+                if entry.visibleInUI, !shouldHide, !hostedView.isHidden, !isWindowLiveResizeActive {
                     hostedView.refreshSurfaceNow(reason: "portal.frameChange")
                 }
             }
