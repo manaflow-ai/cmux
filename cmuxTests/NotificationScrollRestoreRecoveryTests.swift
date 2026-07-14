@@ -209,7 +209,10 @@ struct NotificationScrollRestoreRecoveryTests {
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: surfaceView,
-            userInfo: [GhosttyNotificationKey.scrollbar: scrollbar]
+            userInfo: [
+                GhosttyNotificationKey.scrollbar: scrollbar,
+                GhosttyNotificationKey.renderedFrameGeneration: UInt64.max,
+            ]
         )
     }
 

@@ -3413,7 +3413,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// read and cleared on the main thread by `flushPendingScrollbar()`.
     /// Access is guarded by `_scrollbarLock` because the action callback
     /// fires on Ghostty's I/O thread while the flush runs on main.
-    private var _pendingScrollbar: GhosttyScrollbar?
+    private var _pendingScrollbar: (scrollbar: GhosttyScrollbar, frameGeneration: UInt64)?
     private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
@@ -3480,7 +3480,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _scrollbarLock.lock()
         defer { _scrollbarLock.unlock() }
         // Store the latest value (always overwrites — only the newest matters).
-        _pendingScrollbar = newValue
+        _pendingScrollbar = (newValue, currentRenderedFrameSourceGeneration())
         let needsSchedule = !_scrollbarFlushScheduled
         if needsSchedule { _scrollbarFlushScheduled = true }
 
@@ -3498,11 +3498,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let pending = _pendingScrollbar
         _pendingScrollbar = nil
         _scrollbarLock.unlock()
-
         guard let pending else { return }
         let wasPendingViewportJumpSync = keyboardCopyModePendingViewportJumpSync
-        scrollbar = pending
-        finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: pending)
+        scrollbar = pending.scrollbar
+        finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: pending.scrollbar)
         if !wasPendingViewportJumpSync,
            keyboardCopyModeVisualLineActive,
            let surface {
@@ -3511,10 +3510,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,
-            userInfo: [GhosttyNotificationKey.scrollbar: pending]
+            userInfo: [
+                GhosttyNotificationKey.scrollbar: pending.scrollbar,
+                GhosttyNotificationKey.renderedFrameGeneration: pending.frameGeneration,
+            ]
         )
     }
-
     func flushPendingScrollbarIfAvailable() -> Bool {
         _scrollbarLock.lock()
         let hasPending = _pendingScrollbar != nil
@@ -8181,7 +8182,8 @@ final class GhosttySurfaceScrollView: NSView {
     var notificationScrollRestoreState: NotificationScrollRestoreState = .inactive
     var notificationScrollRestoreDidCompleteReplay = false
     var notificationScrollRestoreBoundaryFrameGeneration: UInt64?
-    var notificationScrollRestoreHasPostBoundaryScrollbar = false
+    var notificationScrollRestoreDidObserveFrame = false
+    var notificationScrollRestorePostBoundaryScrollbarGeneration: UInt64?
     var notificationScrollRestoreRenderedFrameObserver: NSObjectProtocol?
     var releaseNotificationScrollRestoreFrameDemand: (() -> Void)?
     var notificationScrollRestoreFrameDeadlineTimer: Timer?
@@ -8199,8 +8201,6 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingSuppressedFirstResponderFocusReapply = false
     // Hidden/tiny focus retry is bounded by layout/visibility signals, not a timer loop.
 
-    /// Tracks whether keyboard focus should go to the search field or the terminal
-    /// when the window becomes key while the find bar is open.
     enum SearchFocusTarget {
         case searchField
         case terminal
@@ -11424,11 +11424,11 @@ final class GhosttySurfaceScrollView: NSView {
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
-            restorePendingNotificationScrollPositionAfterScrollbarUpdate()
+            restorePendingNotificationScrollPositionAfterScrollbarUpdate(notification)
             return
         }
         synchronizeScrollView()
-        restorePendingNotificationScrollPositionAfterScrollbarUpdate()
+        restorePendingNotificationScrollPositionAfterScrollbarUpdate(notification)
     }
 
     @discardableResult
