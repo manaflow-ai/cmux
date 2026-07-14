@@ -48,8 +48,11 @@ struct PullRequestPanelWorkspaceView: View {
         }
     }
 
-    private static func pullRequestInput(for workspace: Workspace) -> PullRequestWorkspaceInput {
-        PullRequestWorkspaceInput(
+    static func pullRequestInput(for workspace: Workspace) -> PullRequestWorkspaceInput {
+        guard !workspace.usesRemoteDirectoryProvenance else {
+            return PullRequestWorkspaceInput(directory: "", branchHint: nil)
+        }
+        return PullRequestWorkspaceInput(
             directory: workspace.presentedCurrentDirectory ?? "",
             branchHint: workspace.presentedGitBranch?.branch
         )

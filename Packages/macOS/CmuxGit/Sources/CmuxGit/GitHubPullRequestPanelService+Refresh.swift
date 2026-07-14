@@ -26,6 +26,9 @@ extension GitHubPullRequestPanelService {
         }
         let viewOutput = try requiredOutput(from: viewResult, failure: .refreshFailed)
         let pullRequest: GitHubPullRequest = try decode(viewOutput)
+        guard pullRequest.headRefName == context.branch else {
+            throw PullRequestPanelServiceError.refreshFailed
+        }
 
         let cachedSnapshot: PullRequestPanelSnapshot?
         if case .pullRequest(let snapshot)? = cacheByContext[context],
