@@ -9,7 +9,8 @@ extension ClosedItemHistoryStore {
     }
 
     /// Records the core close snapshot immediately, then enriches it from an
-    /// off-main capture while the caller retains the terminal being closed.
+    /// off-main capture after terminal runtime teardown. The caller retains
+    /// only the lightweight panel and snapshot state until capture completes.
     @discardableResult
     func pushPreservingAgentMetadata(
         _ entry: ClosedItemHistoryEntry,

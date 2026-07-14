@@ -179,8 +179,9 @@ final class SharedLiveAgentIndex {
         latestCompletedLoadResult?.index ?? index
     }
 
-    /// Captures agent metadata off-main before the caller performs destructive teardown.
-    /// Callers retain the terminal until this bounded generation resolves.
+    /// Captures agent metadata off-main for a committed destructive close.
+    /// The caller may tear down terminal runtime immediately while retaining
+    /// the lightweight close snapshot until this bounded generation resolves.
     func indexRefreshTaskForDestructiveClose() -> Task<RestorableAgentSessionIndex?, Never> {
         let firstRefreshTask = requestRefresh(
             freshness: .captureAfterRequest,
