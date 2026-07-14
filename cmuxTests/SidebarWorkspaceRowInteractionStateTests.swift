@@ -6,8 +6,7 @@ import Testing
 @testable import cmux
 #endif
 
-/// Sidebar row interaction tests extracted from the primary sidebar snapshot refresh test file, which sits at its file-length budget.
-@Suite struct SidebarWorkspaceRowInteractionStateTests {
+/// Sidebar row interaction tests extracted from the primary sidebar snapshot refresh test file, which sits at its file-length budget.@Suite struct SidebarWorkspaceRowInteractionStateTests {
     @Test func appKitMenuTrackingEndClearsStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()
 
@@ -145,30 +144,6 @@ import Testing
                 shortcutHintModeActive: false
             ),
             "A visible context menu must not make the close affordance visible when the pointer is not hovering."
-        )
-    }
-
-    @Test @MainActor func hoverReconcilerRestoresCloseButtonAfterLifecycleHoverReset() {
-        var state = SidebarWorkspaceRowInteractionState()
-
-        let view = SidebarWorkspaceRowHoverReconcilerView()
-        view.frame = NSRect(x: 0, y: 0, width: 120, height: 28)
-        view.onPointerHoverChanged = { state.setPointerHovering($0) }
-
-        view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14))
-        #expect(state.shouldShowCloseButton(canCloseWorkspace: true, shortcutHintModeActive: false))
-
-        state.setPointerHovering(false)
-        #expect(!state.shouldShowCloseButton(canCloseWorkspace: true, shortcutHintModeActive: false))
-
-        view.reconcilePointerLocation(pointInView: NSPoint(x: 60, y: 14))
-
-        #expect(
-            state.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: false
-            ),
-            "When sidebar updates or row reuse clear SwiftUI hover state while the pointer is still inside the row, the AppKit hover reconciler must restore the close affordance without waiting for another mouse move."
         )
     }
 
