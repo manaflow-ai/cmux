@@ -7,7 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Secure command deep links")
+@Suite("Secure command deep links", .serialized)
 struct CmuxRunURLRequestTests {
     private let scheme = "cmux-test"
 

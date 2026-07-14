@@ -284,7 +284,7 @@ final class CmuxRunURLCoordinator {
         case .newWindow:
             _ = appDelegate.createMainWindow(
                 initialWorkingDirectory: plan.workingDirectory,
-                initialTerminalInput: plan.launchCommand + "\n"
+                initialTerminalCommand: plan.launchCommand
             )
             return .success(())
 

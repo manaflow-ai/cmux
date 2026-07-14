@@ -8614,6 +8614,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func createMainWindow(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
+        initialTerminalCommand: String? = nil,
         initialTerminalInput: String? = nil,
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
         preferredWindowId: UUID? = nil,
@@ -8629,8 +8630,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let tabManager = TabManager(
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
+            initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: initialTerminalInput == nil
+            autoWelcomeIfNeeded: initialTerminalCommand == nil && initialTerminalInput == nil
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

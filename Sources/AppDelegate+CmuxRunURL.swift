@@ -83,7 +83,8 @@ extension AppDelegate {
             }
             return .multipleNonRunLinks
         }
-        if intentCounts.run == 1, isRunBusy {
+        let executableIntentCount = intentCounts.run + intentCounts.ssh + intentCounts.text
+        if executableIntentCount == 1, isRunBusy {
             return .busy
         }
         return .route
