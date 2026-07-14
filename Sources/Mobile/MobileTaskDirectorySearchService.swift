@@ -15,18 +15,26 @@ actor MobileTaskDirectorySearchService {
 
     private struct Snapshot: Sendable {
         let rootIDs: Set<Data>
-        let paths: [String]
+        let paths: [SearchablePath]
         let builtAt: Date
     }
 
     private struct PendingBuild: Sendable {
         let id: UUID
         let rootIDs: Set<Data>
-        let task: Task<[String], Never>
+        let task: Task<[SearchablePath], Never>
+    }
+
+    private struct SearchablePath: Sendable {
+        let path: String
+        let pathBytes: [UInt8]
+        let foldedPath: String
+        let components: [String]
+        let basename: String
     }
 
     private struct RankedPath {
-        let path: String
+        let candidate: SearchablePath
         let tier: Int
         let unmatchedComponents: Int
     }
@@ -54,15 +62,21 @@ actor MobileTaskDirectorySearchService {
         guard !query.isEmpty, limit > 0 else { return [] }
         let roots = Self.searchRoots(homeDirectory: homeDirectory, seedPaths: seedPaths)
         let paths = await indexedPaths(roots: roots, now: now)
+        guard !Task.isCancelled else { return [] }
         let expandedQuery = Self.expandHome(query, homeDirectory: homeDirectory.path)
-        return Self.rank(paths: paths, query: expandedQuery, limit: min(limit, 64))
+        return await withTaskGroup(of: [String].self) { group in
+            group.addTask {
+                Self.rank(searchablePaths: paths, query: expandedQuery, limit: min(limit, 64))
+            }
+            return await group.next() ?? []
+        }
     }
 
-    private func indexedPaths(roots: [URL], now: Date) async -> [String] {
+    private func indexedPaths(roots: [URL], now: Date) async -> [SearchablePath] {
         let rootIDs = Set(roots.map { Data($0.path.utf8) })
         if let snapshot,
            now.timeIntervalSince(snapshot.builtAt) < configuration.cacheLifetime,
-           rootIDs.isSubset(of: snapshot.rootIDs) {
+           rootIDs == snapshot.rootIDs {
             return snapshot.paths
         }
         if let pendingBuild, rootIDs == pendingBuild.rootIDs {
@@ -71,8 +85,9 @@ actor MobileTaskDirectorySearchService {
 
         let id = UUID()
         let configuration = configuration
+        pendingBuild?.task.cancel()
         let task = Task.detached(priority: .utility) {
-            Self.scan(roots: roots, configuration: configuration)
+            Self.prepare(paths: Self.scan(roots: roots, configuration: configuration))
         }
         pendingBuild = PendingBuild(id: id, rootIDs: rootIDs, task: task)
         let paths = await task.value
@@ -84,23 +99,32 @@ actor MobileTaskDirectorySearchService {
     }
 
     nonisolated static func rank(paths: [String], query: String, limit: Int) -> [String] {
+        rank(searchablePaths: prepare(paths: paths), query: query, limit: limit)
+    }
+
+    private nonisolated static func rank(
+        searchablePaths: [SearchablePath],
+        query: String,
+        limit: Int
+    ) -> [String] {
         guard limit > 0 else { return [] }
         let foldedQuery = fold(query)
         let queryComponents = components(foldedQuery)
         let queryBasename = queryComponents.last ?? foldedQuery
         var top: [RankedPath] = []
-        top.reserveCapacity(min(limit, paths.count))
+        top.reserveCapacity(min(limit, searchablePaths.count))
 
-        for path in paths {
+        for candidate in searchablePaths {
+            guard !Task.isCancelled else { return [] }
             guard let match = match(
-                path: path,
+                candidate: candidate,
                 rawQuery: query,
                 foldedQuery: foldedQuery,
                 queryBasename: queryBasename,
                 queryComponents: queryComponents
             ) else { continue }
             let ranked = RankedPath(
-                path: path,
+                candidate: candidate,
                 tier: match.tier,
                 unmatchedComponents: match.unmatchedComponents
             )
@@ -110,7 +134,25 @@ actor MobileTaskDirectorySearchService {
                 top.removeLast()
             }
         }
-        return top.map(\.path)
+        return top.map(\.candidate.path)
+    }
+
+    private nonisolated static func prepare(paths: [String]) -> [SearchablePath] {
+        var prepared: [SearchablePath] = []
+        prepared.reserveCapacity(paths.count)
+        for path in paths {
+            guard !Task.isCancelled else { return [] }
+            let foldedPath = fold(path)
+            let pathComponents = components(foldedPath)
+            prepared.append(SearchablePath(
+                path: path,
+                pathBytes: Array(path.utf8),
+                foldedPath: foldedPath,
+                components: pathComponents,
+                basename: pathComponents.last ?? foldedPath
+            ))
+        }
+        return prepared
     }
 
     private nonisolated static func scan(
@@ -169,38 +211,39 @@ actor MobileTaskDirectorySearchService {
             let expanded = expandHome(trimmed, homeDirectory: homeDirectory.path)
             let seedURL = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
             guard seedURL.path != homeDirectory.path, !seedURL.path.hasPrefix(homePrefix) else { continue }
-            let root = seedURL.deletingLastPathComponent()
+            let root = parentSearchRoot(for: seedURL)
             guard seen.insert(Data(root.path.utf8)).inserted else { continue }
             roots.append(root)
         }
         return roots
     }
 
+    nonisolated static func parentSearchRoot(for seedURL: URL) -> URL {
+        seedURL.path == "/" ? seedURL : seedURL.deletingLastPathComponent()
+    }
+
     private nonisolated static func match(
-        path: String,
+        candidate: SearchablePath,
         rawQuery: String,
         foldedQuery: String,
         queryBasename: String,
         queryComponents: [String]
     ) -> (tier: Int, unmatchedComponents: Int)? {
-        let foldedPath = fold(path)
-        let pathComponents = components(foldedPath)
-        let basename = pathComponents.last ?? foldedPath
-        let unmatched = max(0, pathComponents.count - queryComponents.count)
-        if Data(path.utf8) == Data(rawQuery.utf8) { return (6, 0) }
-        if path.hasPrefix(rawQuery) { return (5, unmatched) }
-        if foldedPath.hasPrefix(foldedQuery)
-            || (queryComponents.count == 1 && basename.hasPrefix(queryBasename)) {
+        let unmatched = max(0, candidate.components.count - queryComponents.count)
+        if candidate.pathBytes.elementsEqual(rawQuery.utf8) { return (6, 0) }
+        if candidate.path.hasPrefix(rawQuery) { return (5, unmatched) }
+        if candidate.foldedPath.hasPrefix(foldedQuery)
+            || (queryComponents.count == 1 && candidate.basename.hasPrefix(queryBasename)) {
             return (4, unmatched)
         }
-        if matchesOrderedComponentPrefixes(queryComponents, in: pathComponents) {
+        if matchesOrderedComponentPrefixes(queryComponents, in: candidate.components) {
             return (3, unmatched)
         }
-        if foldedPath.contains(foldedQuery)
-            || (queryComponents.count == 1 && basename.contains(queryBasename)) {
+        if candidate.foldedPath.contains(foldedQuery)
+            || (queryComponents.count == 1 && candidate.basename.contains(queryBasename)) {
             return (2, unmatched)
         }
-        if queryComponents.count == 1, hasFuzzyComponent(queryBasename, in: pathComponents) {
+        if queryComponents.count == 1, hasFuzzyComponent(queryBasename, in: candidate.components) {
             return (1, unmatched)
         }
         return nil
@@ -211,8 +254,8 @@ actor MobileTaskDirectorySearchService {
         if lhs.unmatchedComponents != rhs.unmatchedComponents {
             return lhs.unmatchedComponents < rhs.unmatchedComponents
         }
-        let lhsBytes = Array(lhs.path.utf8)
-        let rhsBytes = Array(rhs.path.utf8)
+        let lhsBytes = lhs.candidate.pathBytes
+        let rhsBytes = rhs.candidate.pathBytes
         if lhsBytes.count != rhsBytes.count { return lhsBytes.count < rhsBytes.count }
         return lhsBytes.lexicographicallyPrecedes(rhsBytes)
     }

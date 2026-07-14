@@ -79,8 +79,11 @@ import Testing
             homeDirectory: home,
             configuration: .init(maximumDirectories: 200, maximumDepth: 6, cacheLifetime: 30)
         )
-
-        #expect(await service.search(query: "removed-root-project", seedPaths: [project.path]) == [project.path])
+        let initialMatches = await service.search(query: "removed-root-project", seedPaths: [project.path])
+        #expect(
+            initialMatches.contains { $0.hasSuffix("/external/removed-root-project") },
+            "Initial matches: \(initialMatches)"
+        )
         #expect(await service.search(query: "removed-root-project", seedPaths: []).isEmpty)
     }
 
@@ -93,5 +96,13 @@ import Testing
         task.cancel()
 
         #expect(await task.value.isEmpty)
+    }
+
+    @Test func filesystemRootNeverNormalizesToDotDot() {
+        let root = MobileTaskDirectorySearchService.parentSearchRoot(
+            for: URL(fileURLWithPath: "/", isDirectory: true)
+        )
+
+        #expect(root.path == "/")
     }
 }

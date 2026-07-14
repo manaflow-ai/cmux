@@ -1,7 +1,7 @@
 import Foundation
 
 extension TerminalController {
-    final class WorkspaceCreateIdempotencyDefaultsStore: WorkspaceCreateIdempotencyPersisting {
+    final class WorkspaceCreateIdempotencyDefaultsStore: WorkspaceCreateIdempotencyPersisting, @unchecked Sendable {
         private enum StoreError: Error {
             case writeRejected
         }

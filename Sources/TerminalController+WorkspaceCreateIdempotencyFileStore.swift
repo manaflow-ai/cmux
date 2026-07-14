@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 extension TerminalController {
-    final class WorkspaceCreateIdempotencyFileStore: WorkspaceCreateIdempotencyPersisting {
+    final class WorkspaceCreateIdempotencyFileStore: WorkspaceCreateIdempotencyPersisting, @unchecked Sendable {
         private struct Snapshot: Codable {
             let version: Int
             let operationIDs: [UUID]

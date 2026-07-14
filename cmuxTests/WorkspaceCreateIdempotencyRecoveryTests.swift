@@ -23,21 +23,39 @@ import Testing
         #expect(persistence.savedOperationIDs == [operationID])
         #expect(cache.containsCompletedOperation(operationID))
     }
+
+    @Test func asynchronousAcceptPersistsOffTheMainThread() async throws {
+        let persistence = TransientLoadFailurePersistence(failFirstLoad: false)
+        let cache = TerminalController.WorkspaceCreateIdempotencyCache(
+            capacity: 8,
+            persistence: persistence
+        )
+
+        #expect(try await cache.acceptAsynchronously(operationID: UUID()))
+        #expect(persistence.saveWasOnMainThread == false)
+    }
 }
 
 private final class TransientLoadFailurePersistence:
-    TerminalController.WorkspaceCreateIdempotencyPersisting
+    TerminalController.WorkspaceCreateIdempotencyPersisting, @unchecked Sendable
 {
+    private let failFirstLoad: Bool
     private(set) var loadCount = 0
     private(set) var savedOperationIDs: [UUID] = []
+    private(set) var saveWasOnMainThread: Bool?
+
+    init(failFirstLoad: Bool = true) {
+        self.failFirstLoad = failFirstLoad
+    }
 
     func loadOperationIDs() throws -> [UUID] {
         loadCount += 1
-        if loadCount == 1 { throw TransientLoadFailure.injected }
+        if failFirstLoad, loadCount == 1 { throw TransientLoadFailure.injected }
         return []
     }
 
     func saveOperationIDs(_ operationIDs: [UUID]) {
+        saveWasOnMainThread = Thread.isMainThread
         savedOperationIDs = operationIDs
     }
 }

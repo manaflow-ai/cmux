@@ -7,7 +7,7 @@ let workspaceCreateIdempotencyLogger = Logger(
 )
 
 extension TerminalController {
-    protocol WorkspaceCreateIdempotencyPersisting {
+    protocol WorkspaceCreateIdempotencyPersisting: Sendable {
         func loadOperationIDs() throws -> [UUID]
         func saveOperationIDs(_ operationIDs: [UUID]) throws
     }

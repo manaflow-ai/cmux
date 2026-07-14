@@ -80,7 +80,8 @@ extension TerminalController {
     private func v2PerformWorkspaceCreate(
         params: [String: Any],
         preparation: WorkspaceCreatePreparation,
-        workingDirectory: String?
+        workingDirectory: String?,
+        operationAlreadyAccepted: Bool = false
     ) -> V2CallResult {
         let tabManager = preparation.tabManager
         let operationID = preparation.operationID
@@ -193,7 +194,7 @@ extension TerminalController {
                 )
             }
         }
-        if let operationID {
+        if let operationID, !operationAlreadyAccepted {
             // Acceptance must be durable before addWorkspace constructs a
             // terminal and can execute the task command. A crash in between
             // intentionally favors at-most-once startup over workspace recovery.
@@ -366,12 +367,8 @@ extension TerminalController {
                 resolution: resolution,
                 params: createParams
             )
-        case let .completed(tabManager, _):
-            return v2MobileWorkspaceList(
-                params: createParams,
-                tabManager: tabManager,
-                createdWorkspaceID: nil
-            )
+        case let .completed(_, operationID):
+            return Self.v2MobileCompletedOperationResult(operationID: operationID)
         case let .ready(ready):
             preparation = ready
         }
@@ -424,28 +421,22 @@ extension TerminalController {
         case .cancelled:
             return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
         }
-        if let operationID = preparation.operationID {
-            switch taskCreateOperationResolution(
-                operationID: operationID,
-                candidates: taskCreateWorkspaceCandidates(requested: preparation.tabManager),
-                idempotencyCache: preparation.idempotencyCache
-            ) {
-            case let .live(resolution):
-                return mobileWorkspaceCreateResult(resolution: resolution, params: createParams)
-            case .completed:
-                return v2MobileWorkspaceList(
-                    params: createParams,
-                    tabManager: preparation.tabManager,
-                    createdWorkspaceID: nil
-                )
-            case nil:
-                break
-            }
+        var operationAlreadyAccepted = false
+        switch await v2ReserveMobileWorkspaceCreate(preparation: preparation) {
+        case .notRequired:
+            break
+        case .accepted:
+            operationAlreadyAccepted = true
+        case let .live(resolution):
+            return mobileWorkspaceCreateResult(resolution: resolution, params: createParams)
+        case let .failure(result):
+            return result
         }
         let createResult = v2PerformWorkspaceCreate(
             params: createParams,
             preparation: preparation,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            operationAlreadyAccepted: operationAlreadyAccepted
         )
         switch createResult {
         case let .ok(payload):

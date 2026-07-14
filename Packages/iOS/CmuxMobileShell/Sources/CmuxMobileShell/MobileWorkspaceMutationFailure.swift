@@ -17,6 +17,8 @@ public enum MobileWorkspaceMutationFailure: Error, Equatable, Sendable {
     case invalidWorkingDirectory(hostDisplayName: String?)
     /// The target Mac could not durably reserve an idempotent task request.
     case persistenceUnavailable(hostDisplayName: String?)
+    /// The Mac accepted the task but no recoverable workspace is available.
+    case alreadyCompleted(hostDisplayName: String?)
     /// The current host does not support the requested mutation.
     case unsupported(hostDisplayName: String?)
 }

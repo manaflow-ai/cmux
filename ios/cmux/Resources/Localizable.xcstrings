@@ -7471,6 +7471,23 @@
         }
       }
     },
+    "mobile.taskComposer.failure.alreadyCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac already accepted this task. Refresh workspaces before trying again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macはこのタスクをすでに受け付けています。ワークスペースを更新してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "mobile.taskComposer.failure.authorization": {
       "extractionState": "manual",
       "localizations": {
@@ -10547,6 +10564,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "the working directory isn't available on your Mac; choose another directory" } },
         "ja": { "stringUnit": { "state": "translated", "value": "Mac で作業ディレクトリを使用できません。別のディレクトリを選択してください" } }
+      }
+    },
+    "mobile.workspaceAction.failure.reason.alreadyCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "your Mac already accepted the request; refresh workspaces before trying again" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macはリクエストをすでに受け付けています。ワークスペースを更新してから、もう一度お試しください" } }
       }
     },
     "mobile.workspaceAction.failure.reason.persistence": {

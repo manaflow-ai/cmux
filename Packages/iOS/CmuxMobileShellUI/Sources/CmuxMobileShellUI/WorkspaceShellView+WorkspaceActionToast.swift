@@ -171,6 +171,11 @@ extension WorkspaceShellView {
                 "mobile.workspaceAction.failure.reason.persistence",
                 defaultValue: "your Mac could not safely reserve the request"
             )
+        case .alreadyCompleted:
+            return L10n.string(
+                "mobile.workspaceAction.failure.reason.alreadyCompleted",
+                defaultValue: "your Mac already accepted the request; refresh workspaces before trying again"
+            )
         case let .unsupported(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {
                 return String.localizedStringWithFormat(

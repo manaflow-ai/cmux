@@ -8,12 +8,14 @@ extension TerminalController {
 
         private let capacity: Int
         private let persistence: any WorkspaceCreateIdempotencyPersisting
+        private let persistenceWriter: WorkspaceCreateIdempotencyPersistenceWriter
         private let legacyDefaults: UserDefaults?
         private let legacyPersistenceKey: String?
         private var loadFailure: (any Error)?
         private var workspaceIDs: [UUID: UUID] = [:]
         private var completedOperationIDs: Set<UUID> = []
         private var insertionOrder: [UUID] = []
+        private var pendingAcceptance: (id: UUID, task: Task<Bool, any Error>)?
 
         convenience init(capacity: Int) {
             self.init(
@@ -33,6 +35,7 @@ extension TerminalController {
             precondition(capacity > 0)
             self.capacity = capacity
             self.persistence = persistence
+            persistenceWriter = WorkspaceCreateIdempotencyPersistenceWriter(persistence: persistence)
             self.legacyDefaults = legacyDefaults
             self.legacyPersistenceKey = legacyPersistenceKey
 
@@ -96,18 +99,47 @@ extension TerminalController {
         /// Memory changes only after the durable transaction commits.
         func accept(operationID: UUID) throws {
             guard !completedOperationIDs.contains(operationID) else { return }
-            if let loadFailure { throw loadFailure }
+            guard pendingAcceptance == nil else {
+                throw WorkspaceCreateIdempotencyCacheError.acceptanceInProgress
+            }
+            try retryInitialLoadSynchronouslyIfNeeded()
 
-            var nextOrder = insertionOrder
-            if nextOrder.count == capacity {
-                nextOrder.removeFirst()
-            }
-            nextOrder.append(operationID)
+            let nextOrder = orderByAppending(operationID)
             try persistence.saveOperationIDs(nextOrder)
-            if let legacyDefaults, let legacyPersistenceKey {
-                legacyDefaults.removeObject(forKey: legacyPersistenceKey)
+            commitAcceptedOrder(nextOrder)
+        }
+
+        /// Persists on a serial background actor while the caller awaits. The
+        /// main actor remains available for UI and later RPCs, and concurrent
+        /// accepts are ordered from the last committed snapshot.
+        func acceptAsynchronously(operationID: UUID) async throws -> Bool {
+            while let pendingAcceptance {
+                _ = try? await pendingAcceptance.task.value
+                if self.pendingAcceptance?.id == pendingAcceptance.id {
+                    self.pendingAcceptance = nil
+                }
             }
-            commitInMemory(nextOrder)
+            guard !completedOperationIDs.contains(operationID) else { return false }
+
+            let task = Task { @MainActor [weak self] in
+                guard let self else { return false }
+                try await retryInitialLoadAsynchronouslyIfNeeded()
+                guard !completedOperationIDs.contains(operationID) else { return false }
+                let nextOrder = orderByAppending(operationID)
+                try await persistenceWriter.saveOperationIDs(nextOrder)
+                commitAcceptedOrder(nextOrder)
+                return true
+            }
+            let pendingID = UUID()
+            pendingAcceptance = (pendingID, task)
+            do {
+                let accepted = try await task.value
+                if pendingAcceptance?.id == pendingID { pendingAcceptance = nil }
+                return accepted
+            } catch {
+                if pendingAcceptance?.id == pendingID { pendingAcceptance = nil }
+                throw error
+            }
         }
 
         /// Associates a live workspace after construction. This mapping is an
@@ -145,10 +177,62 @@ extension TerminalController {
             completedOperationIDs = Set(nextOrder)
         }
 
+        private func orderByAppending(_ operationID: UUID) -> [UUID] {
+            var nextOrder = insertionOrder
+            if nextOrder.count == capacity { nextOrder.removeFirst() }
+            nextOrder.append(operationID)
+            return nextOrder
+        }
+
+        private func commitAcceptedOrder(_ nextOrder: [UUID]) {
+            if let legacyDefaults, let legacyPersistenceKey {
+                legacyDefaults.removeObject(forKey: legacyPersistenceKey)
+            }
+            commitInMemory(nextOrder)
+        }
+
+        private func retryInitialLoadSynchronouslyIfNeeded() throws {
+            guard loadFailure != nil else { return }
+            let loaded = try persistence.loadOperationIDs()
+            reconcileReloadedOperationIDs(loaded)
+        }
+
+        private func retryInitialLoadAsynchronouslyIfNeeded() async throws {
+            guard loadFailure != nil else { return }
+            let loaded = try await persistenceWriter.loadOperationIDs()
+            reconcileReloadedOperationIDs(loaded)
+        }
+
+        private func reconcileReloadedOperationIDs(_ loaded: [UUID]) {
+            let retained = Self.uniqueSuffix(loaded + insertionOrder, capacity: capacity)
+            commitInMemory(retained)
+            loadFailure = nil
+        }
+
         private static func uniqueSuffix(_ operationIDs: [UUID], capacity: Int) -> [UUID] {
             var seen: Set<UUID> = []
             let uniqueReversed = operationIDs.reversed().filter { seen.insert($0).inserted }
             return Array(uniqueReversed.prefix(capacity).reversed())
         }
+    }
+}
+
+private enum WorkspaceCreateIdempotencyCacheError: Error {
+    case acceptanceInProgress
+}
+
+private actor WorkspaceCreateIdempotencyPersistenceWriter {
+    private let persistence: any TerminalController.WorkspaceCreateIdempotencyPersisting
+
+    init(persistence: any TerminalController.WorkspaceCreateIdempotencyPersisting) {
+        self.persistence = persistence
+    }
+
+    func loadOperationIDs() throws -> [UUID] {
+        try persistence.loadOperationIDs()
+    }
+
+    func saveOperationIDs(_ operationIDs: [UUID]) throws {
+        try persistence.saveOperationIDs(operationIDs)
     }
 }

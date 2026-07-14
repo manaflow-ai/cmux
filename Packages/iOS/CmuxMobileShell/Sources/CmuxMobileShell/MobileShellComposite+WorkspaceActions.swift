@@ -428,6 +428,7 @@ extension MobileShellComposite {
             if normalizedCode == "busy" { return .busy(hostDisplayName: hostDisplayName) }
             if normalizedCode == "invalid_working_directory" { return .invalidWorkingDirectory(hostDisplayName: hostDisplayName) }
             if normalizedCode == "persistence_failed" { return .persistenceUnavailable(hostDisplayName: hostDisplayName) }
+            if normalizedCode == "already_completed" { return .alreadyCompleted(hostDisplayName: hostDisplayName) }
             return .rejected(hostDisplayName: hostDisplayName)
         case .invalidResponse:
             return .rejected(hostDisplayName: hostDisplayName)
