@@ -210,6 +210,16 @@ cmux_computer_use_resolve_driver() {
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
     bundled_driver="$self_dir/cmux-cua-driver"
     if [[ -x "$bundled_driver" ]]; then
+        # No wrapper-side signature/ownership gate on the bundled path, on
+        # purpose: the wrapper only emits CONFIG here — the MCP client execs
+        # the driver later, so any check-now-exec-later validation is
+        # inherently TOCTOU; a same-UID attacker able to swap the driver can
+        # equally swap this wrapper or the app bundle itself (dev builds are
+        # ad-hoc signed, so a team-identity requirement would also break every
+        # Debug build). Exec-time integrity belongs to OS-level signing/launch
+        # constraints on the app bundle, not shell checks. The trust checks
+        # below exist for the OVERRIDE path because it takes attacker-visible
+        # env input.
         printf '%s' "$bundled_driver"
         return 0
     fi
@@ -251,8 +261,8 @@ cmux_codex_emit_computer_use_args() {
         "mcp_servers.cmux-computer-use.env.BUN_OPTIONS=\"\""
 }
 
-# The interactive session, `exec`/`e`, and `resume` entrypoints all START a
-# Codex session, so all three must receive cmux's hook injection; everything
+# The interactive session, `exec`/`e`, `resume`, and `fork` entrypoints all
+# START a Codex session, so all of them must receive cmux's hook injection; everything
 # else (review, login, mcp, doctor, --help, --version, ...) passes through
 # untouched. `resume` is critical: cmux auto-resumes a session as `codex resume
 # <id>` after a Mac relaunch, and without hooks the resumed process fires no
@@ -263,10 +273,14 @@ cmux_codex_emit_computer_use_args() {
 # `--dangerously-bypass-hook-trust` / `-c hooks.X=...` flags before the `resume`
 # subcommand, so prepending them is safe. Mirrors should_inject_claude_hooks: a
 # leading non-option token that is a known Codex subcommand means "not a session"
-# unless it is exec or resume.
+# unless it is exec, resume, or fork.
 codex_subcommand_starts_session() {
+    # `fork` duplicates a previous interactive session into a new live one:
+    # it takes an optional prompt and accepts the same global flags before
+    # the subcommand as `resume` (verified against codex-cli 0.144), so it
+    # needs hook and computer-use injection exactly like exec/resume.
     case "$1" in
-        exec|e|resume) return 0 ;;
+        exec|e|resume|fork) return 0 ;;
         *) return 1 ;;
     esac
 }

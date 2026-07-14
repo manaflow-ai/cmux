@@ -224,6 +224,34 @@ def test_codex_uses_trusted_cua_driver_override(failures: list[str]) -> None:
     expect_scrubbed_mcp_env(args, failures, "override cua-driver")
 
 
+def test_codex_fork_gets_hooks_and_cua_driver(failures: list[str]) -> None:
+    # `codex fork` starts a new interactive session from a previous one, so it
+    # must receive hook injection and the computer-use MCP like exec/resume.
+    code, args, stderr, _ = run_wrapper(["fork", "0e2f4bd8-2c34-4e6e-9d2b-000000000000"])
+    expect(code == 0, f"fork wrapper exited {code}: {stderr}", failures)
+    expect(
+        "--enable" in args and "hooks" in args and "hooks.cmux-test=true" in args,
+        f"expected hook injection for fork sessions, got {args}",
+        failures,
+    )
+    expect("fork" in args, f"expected fork subcommand to survive, got {args}", failures)
+    cmd = command_config(args)
+    expect(cmd is not None, f"missing computer-use command config for fork in {args}", failures)
+    if cmd is not None:
+        expect(
+            Path(json.loads(cmd)).name == "cmux-cua-driver",
+            f"expected bundled driver command for fork, got {cmd}",
+            failures,
+        )
+    first_config_index = args.index("-c") if "-c" in args else -1
+    fork_index = args.index("fork") if "fork" in args else -1
+    expect(
+        0 <= first_config_index < fork_index,
+        f"expected injected config before the fork subcommand, got {args}",
+        failures,
+    )
+
+
 def test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures: list[str]) -> None:
     code, args, stderr, _ = run_wrapper(
         ["hello"],
@@ -340,6 +368,7 @@ def main() -> int:
     test_codex_rejects_cua_driver_override_under_world_writable_ancestor(failures)
     test_codex_skips_when_driver_unavailable(failures)
     test_codex_skips_when_disabled(failures)
+    test_codex_fork_gets_hooks_and_cua_driver(failures)
     test_codex_gets_cua_driver_when_hooks_disabled(failures)
     test_codex_gets_cua_driver_when_socket_dead(failures)
     test_codex_rejects_group_writable_cua_driver_override(failures)

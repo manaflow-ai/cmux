@@ -152,6 +152,24 @@ else
   # pinned contents and `clean -fdx` drops untracked/ignored files.
   git -C "$SRC_ROOT" checkout --quiet --force --detach "$CMUX_CUA_PINNED_SHA"
   git -C "$SRC_ROOT" clean -qfdx
+  # Bound the cache: each pin bump creates a new src-<sha> dir, so prune
+  # sibling revisions that have been idle for 7+ days. The stamp is refreshed
+  # on every build of a revision (clean -fdx removes it; we re-touch it), and
+  # a concurrent build of another pin is protected twice over: its fresh
+  # stamp fails the idle check, and pruning requires acquiring that
+  # revision's own lock.
+  touch "$SRC_ROOT/.cmux-last-used"
+  for old_src in "$CACHE_DIR"/src-*; do
+    [[ -d "$old_src" ]] || continue
+    [[ "$old_src" == "$SRC_ROOT" || "$old_src" == *.lock ]] && continue
+    stamp="$old_src/.cmux-last-used"
+    [[ -e "$stamp" ]] || stamp="$old_src"
+    [[ -n "$(find "$stamp" -maxdepth 0 -mtime +7 2>/dev/null)" ]] || continue
+    if mkdir "$old_src.lock" 2>/dev/null; then
+      rm -rf "$old_src"
+      rm -rf "$old_src.lock"
+    fi
+  done
 fi
 
 ACTUAL_SHA="$(git -C "$SRC_ROOT" rev-parse HEAD)"

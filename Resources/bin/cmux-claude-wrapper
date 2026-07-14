@@ -827,6 +827,16 @@ cmux_computer_use_resolve_driver() {
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
     bundled_driver="$self_dir/cmux-cua-driver"
     if [[ -x "$bundled_driver" ]]; then
+        # No wrapper-side signature/ownership gate on the bundled path, on
+        # purpose: the wrapper only emits CONFIG here — the MCP client execs
+        # the driver later, so any check-now-exec-later validation is
+        # inherently TOCTOU; a same-UID attacker able to swap the driver can
+        # equally swap this wrapper or the app bundle itself (dev builds are
+        # ad-hoc signed, so a team-identity requirement would also break every
+        # Debug build). Exec-time integrity belongs to OS-level signing/launch
+        # constraints on the app bundle, not shell checks. The trust checks
+        # below exist for the OVERRIDE path because it takes attacker-visible
+        # env input.
         printf '%s' "$bundled_driver"
         return 0
     fi
