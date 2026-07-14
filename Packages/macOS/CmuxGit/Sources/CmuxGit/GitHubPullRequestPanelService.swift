@@ -1,5 +1,4 @@
 public import CmuxFoundation
-public import Foundation
 
 /// Resolves and mutates one workspace branch's GitHub pull request exclusively through `gh`.
 public actor GitHubPullRequestPanelService: PullRequestPanelServing {

@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Foundation
 
 actor RecordingPullRequestCommandRunner: CommandRunning {
     private(set) var lastArguments: [String] = []
