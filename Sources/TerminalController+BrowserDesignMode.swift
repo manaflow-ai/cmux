@@ -3,10 +3,21 @@ import Darwin
 import Foundation
 
 extension TerminalController {
-    func sendDesignModePrompt(_ prompt: String, in workspace: Workspace) throws {
+    func sendDesignModePrompt(
+        _ prompt: String,
+        in workspace: Workspace,
+        replacingUnknownDraft: Bool
+    ) async throws {
         guard let service = agentChatTranscriptService else {
             throw BrowserDesignModeSendError.terminalUnavailable
         }
+        let terminalSurfaceIDs = Set(workspace.panels.compactMap { panelID, panel in
+            panel is TerminalPanel ? panelID : nil
+        })
+        _ = await service.observeAgentProcessesForListing(
+            surfaceIDs: terminalSurfaceIDs,
+            waitUpTo: .milliseconds(750)
+        )
         let targets = service.sessionRecords(workspaceID: nil).compactMap { record -> (
             record: AgentChatSessionRecord,
             terminal: TerminalPanel
@@ -37,6 +48,9 @@ extension TerminalController {
         }
         guard terminal.sessionTextBoxDraftSnapshot() == nil else {
             throw BrowserDesignModeSendError.agentComposerNotEmpty
+        }
+        guard replacingUnknownDraft else {
+            throw BrowserDesignModeSendError.draftReplacementNotConfirmed
         }
         guard clearAgentPrompt(terminal).accepted else {
             throw BrowserDesignModeSendError.promptClearUnavailable

@@ -3009,9 +3009,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 && self?.isMainFrameProvisionalNavigationActive == false
                 && self?.webView.url != nil
         },
-        promptSender: { [weak self] prompt in
+        promptSender: { [weak self] prompt, replacingUnknownDraft in
             guard let self else { throw BrowserDesignModeSendError.terminalUnavailable }
-            try self.sendDesignModePromptToAgent(prompt)
+            try await self.sendDesignModePromptToAgent(prompt, replacingUnknownDraft: replacingUnknownDraft)
         },
         onActivityChanged: { [weak self] in self?.reevaluateHiddenWebViewDiscardScheduling(reason: "design_mode_changed") }
     )

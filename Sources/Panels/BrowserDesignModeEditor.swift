@@ -3,6 +3,7 @@ import SwiftUI
 
 struct BrowserDesignModeEditor: View {
     let controller: BrowserDesignModeController
+    @State private var replacementConfirmationPresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -213,13 +214,40 @@ struct BrowserDesignModeEditor: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Button {
-                Task { @MainActor in await controller.sendToAgent() }
+                replacementConfirmationPresented = true
             } label: {
                 Label(sendButtonTitle, systemImage: sendButtonIcon)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .disabled(!controller.canSendToAgent || controller.handoffState == .preparing)
+            .alert(
+                String(
+                    localized: "browser.designMode.send.confirm.title",
+                    defaultValue: "Replace the agent prompt?"
+                ),
+                isPresented: $replacementConfirmationPresented
+            ) {
+                Button(
+                    String(
+                        localized: "browser.designMode.send.confirm.action",
+                        defaultValue: "Replace and Send"
+                    ),
+                    role: .destructive
+                ) {
+                    Task { @MainActor in
+                        await controller.sendToAgent(replacingUnknownDraft: true)
+                    }
+                }
+                Button(String(localized: "common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+            } message: {
+                Text(
+                    String(
+                        localized: "browser.designMode.send.confirm.message",
+                        defaultValue: "Sending this design replaces any text currently typed directly in the agent terminal."
+                    )
+                )
+            }
         }
     }
 

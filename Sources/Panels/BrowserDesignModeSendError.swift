@@ -6,6 +6,7 @@ enum BrowserDesignModeSendError: LocalizedError, Equatable {
     case multipleAgentTerminals
     case agentBusy
     case agentComposerNotEmpty
+    case draftReplacementNotConfirmed
     case promptClearUnavailable
     case captureChanged
     case submitUnavailable
@@ -37,6 +38,11 @@ enum BrowserDesignModeSendError: LocalizedError, Equatable {
             String(
                 localized: "browser.designMode.error.agentComposerNotEmpty",
                 defaultValue: "The agent composer already has a draft. Send or clear it before sending this design."
+            )
+        case .draftReplacementNotConfirmed:
+            String(
+                localized: "browser.designMode.error.draftReplacementNotConfirmed",
+                defaultValue: "Confirm replacing the agent prompt before sending this design."
             )
         case .promptClearUnavailable:
             String(
