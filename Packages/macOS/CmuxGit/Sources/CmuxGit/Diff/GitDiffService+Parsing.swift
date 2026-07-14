@@ -142,6 +142,11 @@ extension GitDiffService {
 
     private func parseUntrackedTokens(_ paths: [String?], into partials: inout [String: GitDiffSummaryPartial]) {
         for case let path? in paths {
+            // Git represents an embedded untracked repository as a
+            // trailing-slash directory record. This API publishes files and
+            // symlinks only; treating the record as a file lets a later
+            // no-index diff expand directory content under the wrong path.
+            guard !path.hasSuffix("/") else { continue }
             if var partial = partials[path], partial.status == .deleted {
                 partial.applyUntrackedReplacement()
                 partials[path] = partial

@@ -164,12 +164,15 @@ struct GitSubprocessSupervisor {
         var processExited = false
         var escalationDeadline: TimeInterval?
         var didSendSIGKILL = false
+        var terminatedForOutputCap = false
 
-        func beginTermination(_ reason: GitProcessFailure?) {
-            guard escalationDeadline == nil else { return }
+        @discardableResult
+        func beginTermination(_ reason: GitProcessFailure?) -> Bool {
+            guard escalationDeadline == nil else { return false }
             failure = reason
-            _ = kill(-processIdentifier, SIGTERM)
+            let didSignalLiveProcess = !processExited && kill(-processIdentifier, SIGTERM) == 0
             escalationDeadline = Self.uptime + Self.sigkillGraceSeconds
+            return didSignalLiveProcess
         }
 
         while !(processExited && outputDescriptor < 0) {
@@ -236,7 +239,7 @@ struct GitSubprocessSupervisor {
                         capped: &capped
                     )
                     if capped {
-                        beginTermination(nil)
+                        terminatedForOutputCap = beginTermination(nil)
                     }
                     if reachedEnd || (event.flags & UInt16(EV_EOF)) != 0 {
                         close(outputDescriptor)
@@ -251,6 +254,7 @@ struct GitSubprocessSupervisor {
             rawOutput: output,
             output: nil,
             capped: capped,
+            terminatedForOutputCap: terminatedForOutputCap,
             failure: failure,
             terminationStatus: terminationStatus
         )

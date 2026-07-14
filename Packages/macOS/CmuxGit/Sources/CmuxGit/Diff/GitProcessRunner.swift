@@ -262,6 +262,16 @@ struct GitProcessRunner: Sendable {
             )
         }
         if supervised.capped, let output = supervised.rawOutput {
+            if !supervised.terminatedForOutputCap {
+                guard let terminationStatus = supervised.terminationStatus,
+                      acceptedTerminationStatuses.contains(terminationStatus) else {
+                    return GitProcessResult(
+                        output: nil,
+                        failure: .unsuccessfulExit,
+                        terminationStatus: supervised.terminationStatus
+                    )
+                }
+            }
             return GitProcessResult(
                 rawOutput: output,
                 output: decodeUTF8Lossy(output, maxOutputBytes: maxOutputBytes),
