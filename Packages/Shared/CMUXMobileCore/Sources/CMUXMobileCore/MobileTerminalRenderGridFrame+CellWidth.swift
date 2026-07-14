@@ -21,6 +21,11 @@ extension String {
 }
 
 extension MobileTerminalRenderGridFrame.RowSpan {
+    /// The producer-reported cell width, or a Unicode-aware fallback.
+    public var resolvedCellWidth: Int {
+        gridCellWidth
+    }
+
     var hasWidthSensitiveScalars: Bool {
         text.unicodeScalars.contains { $0.isRenderGridWidthSensitiveScalar }
     }

@@ -304,6 +304,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// A truthful released-Mac-update recommendation for the connected host.
     public internal(set) var macUpdateHint: MobileMacUpdateHint?
     @ObservationIgnored var macUpdateHintSessionState = MacUpdateHintSessionState()
+    @ObservationIgnored let previewGridSessionState = PreviewGridSessionState()
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.
@@ -648,6 +649,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public let diagnosticLog: DiagnosticLog?
     var remoteClient: MobileCoreRPCClient? {
         didSet {
+            if remoteClient !== oldValue { previewGridConnectionDidChange() }
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
                 cancelRemoteOperationTasks()
@@ -5982,12 +5984,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private var terminalEventStreamID: String {
+    var terminalEventStreamID: String {
         "ios-terminal-events-\(clientID)"
     }
 
     /// Outcome of a `mobile.events.subscribe` round-trip.
-    private enum TerminalEventSubscriptionAck {
+    enum TerminalEventSubscriptionAck {
         case failed
         /// The host registered (or re-asserted) the subscription.
         /// `alreadySubscribed == false` means this acknowledgement INSTALLED
@@ -6002,7 +6004,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func requestTerminalEventSubscription(
+    func requestTerminalEventSubscription(
         client: MobileCoreRPCClient,
         reason: String,
         topics: [String]
@@ -6011,10 +6013,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         do {
             requestData = try MobileCoreRPCClient.requestData(
                 method: "mobile.events.subscribe",
-                params: [
-                    "stream_id": terminalEventStreamID,
-                    "topics": topics,
-                ]
+                params: terminalEventSubscriptionParameters(topics: topics)
             )
         } catch {
             mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
@@ -6267,6 +6266,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.markMacConnectionHealthy()
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
+            self.requestPreviewGridBaselines()
             self.scheduleNotificationReconcile(client: client)
         }
     }
@@ -6466,6 +6466,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
                         self.requestTerminalReplay(surfaceID: surfaceID)
                     }
+                    self.requestPreviewGridBaselines()
                     // The same registration carries `workspace.updated`, so
                     // workspace create/rename/delete events emitted during the
                     // gap were missed too; re-fetch the authoritative list.
@@ -6616,6 +6617,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
     ) {
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
+        scheduleRenderGridDemandRefresh()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -6637,6 +6639,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+        scheduleRenderGridDemandRefresh()
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -7140,14 +7143,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // The frame may arrive nested under `render_grid` or as the bare payload;
         // try the wrapper first, then fall back to decoding the whole payload.
         let renderGridDTO = try? MobileTerminalRenderGridEvent.decode(json)
-        guard let renderGrid = renderGridDTO?.frame ?? (try? MobileTerminalRenderGridFrame.decode(json)),
-              hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
-            return
-        }
-        #if DEBUG
-        mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
-        #endif
-        deliverAuthoritativeTerminalRenderGrid(renderGrid, source: "event")
+        guard let renderGrid = renderGridDTO?.frame
+            ?? (try? MobileTerminalRenderGridFrame.decode(json)) else { return }
+        routeIncomingRenderGrid(renderGrid)
     }
 
     private func handleTerminalSetFontEvent(_ event: MobileEventEnvelope) {
