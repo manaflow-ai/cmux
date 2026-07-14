@@ -5,6 +5,16 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitProcessDeadlineTests {
+    @Test func postSIGKILLWaitHasNoExpiredDeadline() {
+        let plan = GitProcessWaitPlan(
+            processDeadline: 10,
+            escalationDeadline: 5,
+            didSendSIGKILL: true
+        )
+
+        #expect(plan.deadline == nil)
+    }
+
     @Test func subprocessClosesUnspecifiedInheritedDescriptors() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }

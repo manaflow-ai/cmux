@@ -172,6 +172,52 @@ import Testing
         }
     }
 
+    @Test func fileDiffRejectsGitlinkDirtySinceStatusSnapshot() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let path = "Nested"
+        let nested = repo.appendingPathComponent(path)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        for arguments in [
+            ["init", "--quiet"],
+            ["config", "user.email", "tests@cmux.dev"],
+            ["config", "user.name", "cmux tests"],
+        ] {
+            try runTestGit(in: nested, arguments)
+        }
+        let nestedFile = nested.appendingPathComponent("Value.txt")
+        try Data("value 0\n".utf8).write(to: nestedFile)
+        try runTestGit(in: nested, ["add", "--", "Value.txt"])
+        try runTestGit(in: nested, ["commit", "--quiet", "-m", "nested value zero"])
+        try runTestGit(in: repo, ["add", "--", path])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add gitlink fixture"])
+
+        try Data("value 1\n".utf8).write(to: nestedFile)
+        try runTestGit(in: nested, ["add", "--", "Value.txt"])
+        try runTestGit(in: nested, ["commit", "--quiet", "-m", "nested value one"])
+        let service = GitDiffService()
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let visible = try #require(changed.files.first { $0.path == path })
+
+        // The parent gitlink IDs and nested HEAD stay fixed, but Git changes
+        // the rendered target from the commit to that commit plus `-dirty`.
+        try Data("value 2\n".utf8).write(to: nestedFile)
+
+        let result = service.fileDiffResult(
+            repoRoot: repo.path,
+            path: visible.path,
+            oldPath: visible.oldPath,
+            status: visible.status,
+            additions: visible.additions,
+            deletions: visible.deletions,
+            snapshotToken: visible.snapshotToken
+        )
+        guard case .notFound = result else {
+            Issue.record("Expected submodule dirtiness to invalidate the status snapshot, got \(result)")
+            return
+        }
+    }
+
     @Test func cappedStatusDropsUnverifiedUntrackedReplacement() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
