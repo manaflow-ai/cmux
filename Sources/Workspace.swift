@@ -672,7 +672,7 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: cefBrowserPanel.currentURL,
-                profileID: nil,
+                profileID: cefBrowserPanel.profileID,
                 shouldRenderWebView: true,
                 pageZoom: 1,
                 developerToolsVisible: false,
@@ -1682,6 +1682,7 @@ extension Workspace {
             guard let cefBrowserPanel = newCEFBrowserSurface(
                 inPane: paneId,
                 url: snapshot.browser?.urlString ?? "about:blank",
+                profileID: snapshot.browser?.profileID,
                 focus: false
             ) else {
                 return nil

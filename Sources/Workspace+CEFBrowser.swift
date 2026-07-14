@@ -9,6 +9,7 @@ extension Workspace {
     func newCEFBrowserSurface(
         inPane paneId: PaneID,
         url: String = "about:blank",
+        profileID: UUID? = nil,
         focus: Bool? = nil
     ) -> CEFBrowserPanel? {
         guard !isRemoteTmuxMirror else { return nil }
@@ -20,7 +21,11 @@ extension Workspace {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
-        let cefBrowserPanel = CEFBrowserPanel(workspaceId: id, initialURL: url)
+        let cefBrowserPanel = CEFBrowserPanel(
+            workspaceId: id,
+            profileID: profileID,
+            initialURL: url
+        )
         panels[cefBrowserPanel.id] = cefBrowserPanel
         panelTitles[cefBrowserPanel.id] = cefBrowserPanel.displayTitle
 
@@ -128,7 +133,9 @@ extension Workspace {
 
     private func installCEFBrowserPanelSubscription(_ cefBrowserPanel: CEFBrowserPanel) {
         let subscription = Publishers.CombineLatest(
-            cefBrowserPanel.$title.removeDuplicates(),
+            cefBrowserPanel.$title
+                .removeDuplicates()
+                .coalesceLatest(for: .milliseconds(100), scheduler: RunLoop.main),
             cefBrowserPanel.$isLoading.removeDuplicates()
         )
         .sink { [weak self, weak cefBrowserPanel] _, isLoading in

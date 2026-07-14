@@ -1,6 +1,7 @@
 import AppKit
 import CEFKit
 import Combine
+import CmuxSettings
 import Foundation
 import OSLog
 
@@ -15,6 +16,10 @@ nonisolated let cefBrowserLogger = Logger(
 /// with `@preconcurrency` while this panel remains main-actor isolated.
 @MainActor
 final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrowserDelegate {
+    private struct CEFProfileResolution {
+        let profile: CEFProfile?
+    }
+
     let id: UUID
     let workspaceId: UUID
     let profileID: UUID
@@ -34,6 +39,7 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
         .preserveFieldEditorSelection
 
     private(set) var browser: CEFBrowser?
+    private var cefProfile: CEFProfile?
     private var hasStarted = false
     private var isCreatingBrowser = false
     private var isClosing = false
@@ -42,6 +48,10 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
     private(set) var isVisibleInUI = true
     private var pendingNavigationURL: String?
     private var lastEmbeddedURL: String
+
+    var cefProfileName: String {
+        profileID.uuidString.lowercased()
+    }
 
     /// Keeps the panel and its browser alive while asynchronous CEF teardown runs.
     private var closingRetain: CEFBrowserPanel?
@@ -336,11 +346,18 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
 
     private func createBrowser(url: String) {
         guard !isClosing else { return }
+        guard let profileResolution = resolveCEFProfile() else {
+            hasStarted = false
+            pendingNavigationURL = nil
+            cefBrowserLogger.error("CEF profile creation failed")
+            return
+        }
         isCreatingBrowser = true
         CEFBrowser.create(
             in: containerView,
             frame: containerView.bounds,
             url: url,
+            profile: profileResolution.profile,
             delegate: self
         ) { [weak self] browser in
             guard let self else {
@@ -402,9 +419,28 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
             return
         }
 
-        CEFApp.shared.onContextInitialized {
-            CEFBrowser.openChromeStyleWindow(url: url)
+        CEFApp.shared.onContextInitialized { [weak self] in
+            guard let self, let profileResolution = self.resolveCEFProfile() else {
+                cefBrowserLogger.error("CEF profile creation failed")
+                return
+            }
+            CEFBrowser.openChromeStyleWindow(url: url, profile: profileResolution.profile)
         }
+    }
+
+    /// The built-in browser profile intentionally uses CEF's global request
+    /// context. Every named cmux profile gets a stable UUID-backed context so
+    /// restored panes retain the same cookies and storage across launches.
+    private func resolveCEFProfile() -> CEFProfileResolution? {
+        if profileID == BrowserProfileStore.shared.builtInDefaultProfileID {
+            return CEFProfileResolution(profile: nil)
+        }
+        if let cefProfile {
+            return CEFProfileResolution(profile: cefProfile)
+        }
+        guard let profile = CEFProfile(name: cefProfileName) else { return nil }
+        cefProfile = profile
+        return CEFProfileResolution(profile: profile)
     }
 
     private static func normalizedURLString(_ rawURL: String) -> String? {

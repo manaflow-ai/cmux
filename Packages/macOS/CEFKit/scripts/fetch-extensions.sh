@@ -20,12 +20,14 @@ mkdir -p "$EXT_DIR"
 # by the network service and block in embedded panes out of the box.
 UBOL_VERSION="2026.711.25"
 UBOL_URL="https://github.com/uBlockOrigin/uBOL-home/releases/download/${UBOL_VERSION}/uBOLite_${UBOL_VERSION}.chromium.zip"
+UBOL_SHA256="720b12cbc52b480599cd7becca99efce5babea9b52af4373de6bdb2d935215ee"
 
 BITWARDEN_VERSION="2026.6.1"
 BITWARDEN_URL="https://github.com/bitwarden/clients/releases/download/browser-v${BITWARDEN_VERSION}/dist-chrome-${BITWARDEN_VERSION}.zip"
+BITWARDEN_SHA256="fcd29c5971d9b218ad9159717a19c38cca5150f2a0aa909ddf805bd7695d097e"
 
 fetch_zip() {
-  local name="$1" version="$2" url="$3" inner_dir="$4"
+  local name="$1" version="$2" url="$3" sha256="$4" inner_dir="$5"
   local dest="$EXT_DIR/$name"
   local stamp="$dest/.fetched-version"
   if [[ -f "$stamp" && "$(cat "$stamp")" == "$version" && -f "$dest/manifest.json" ]]; then
@@ -36,6 +38,11 @@ fetch_zip() {
   tmp="$(mktemp -d)"
   echo "fetch-extensions: downloading $name $version"
   curl -fsSL -o "$tmp/ext.zip" "$url"
+  if ! printf '%s  %s\n' "$sha256" "$tmp/ext.zip" | shasum -a 256 -c - >/dev/null; then
+    echo "fetch-extensions: $name $version SHA-256 mismatch" >&2
+    rm -rf "$tmp"
+    exit 1
+  fi
   unzip -q "$tmp/ext.zip" -d "$tmp/unpacked"
   local src="$tmp/unpacked"
   if [[ -n "$inner_dir" ]]; then
@@ -55,7 +62,7 @@ fetch_zip() {
   echo "fetch-extensions: $name $version -> $dest"
 }
 
-fetch_zip "ublock-origin-lite" "$UBOL_VERSION" "$UBOL_URL" ""
-fetch_zip "bitwarden" "$BITWARDEN_VERSION" "$BITWARDEN_URL" ""
+fetch_zip "ublock-origin-lite" "$UBOL_VERSION" "$UBOL_URL" "$UBOL_SHA256" ""
+fetch_zip "bitwarden" "$BITWARDEN_VERSION" "$BITWARDEN_URL" "$BITWARDEN_SHA256" ""
 
 echo "fetch-extensions: done ($EXT_DIR)"
