@@ -125,6 +125,30 @@ struct AgentLaunchCaptureTrustTests {
             )
         )
         #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "node",
+                arguments: ["node", "/opt/homebrew/lib/node_modules/opencode-ai/bin/opencode.js"]
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "bun",
+                arguments: ["bun", "/Users/alice/.bun/install/global/node_modules/opencode-ai/bin/cli.js"]
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessIsAmbiguousInterpreterHost(
+                processName: "deno",
+                arguments: ["deno", "run", "/Users/alice/future-agent/src/cli.ts"]
+            )
+        )
+        #expect(
+            !AgentLaunchCaptureTrust.nativeProcessIsAmbiguousInterpreterHost(
+                processName: "node",
+                arguments: ["node", "/opt/homebrew/lib/node_modules/opencode-ai/bin/opencode.js"]
+            )
+        )
+        #expect(
             AgentLaunchCaptureTrust.nativeProcessDescribesKind(
                 processName: "acme-agent",
                 arguments: ["/Users/alice/bin/acme-agent", "--session", "native-session"],
