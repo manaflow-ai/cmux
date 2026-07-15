@@ -136,6 +136,18 @@ final class MirrorHostProbeView: NSView {
     /// margin outside the split tree; it must never swallow a click there.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        // A window live-resize whose final geometry arrived BEFORE mouse-up
+        // leaves a parked oversized reading with no edge to consume it —
+        // onGeometryChange fires only on value change, and the parked-reading
+        // consumer holds while inLiveResize is true. By the time this
+        // coalesced pass runs, inLiveResize is false so the consume proceeds.
+        // setNeedsSizingPass (not IgnoringInputs): the consume sits above the
+        // inputs == lastCompletedSizingInputs check.
+        mirror?.setNeedsSizingPass()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard window != nil else {
