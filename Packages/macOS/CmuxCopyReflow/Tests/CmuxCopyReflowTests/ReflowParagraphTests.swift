@@ -292,15 +292,21 @@ struct ReflowParagraphTests {
     @Test func standaloneNonBreakingSpaceIsPreserved() {
         let nbsp = "\u{00A0}"
         let input = "\(nbsp)\(nbsp)padded both sides\(nbsp)\(nbsp)\n"
-        #expect(reflow(input) == "\(nbsp)\(nbsp)padded both sides\n")
+        #expect(reflow(input) == input)
     }
 
-    @Test func noLineKeepsTrailingWhitespace() {
+    @Test func standaloneTrailingWhitespaceIsPreserved() {
         let input = "first standalone line that is short   \n\nsecond standalone line also short\t\n"
-        let result = reflow(input)
-        for line in result.split(separator: "\n", omittingEmptySubsequences: false) {
-            #expect(!line.hasSuffix(" ") && !line.hasSuffix("\t"), "line kept trailing whitespace: \(line)")
-        }
+        #expect(reflow(input) == input)
+    }
+
+    @Test func standaloneWhitespaceSurvivesBesideJoinedParagraph() {
+        let lead = "This wrapped paragraph is long enough to reach the terminal width and the"
+        let input = "Markdown hard break  \n\n\(lead)\ncontinuation is joined here\n"
+        #expect(
+            reflow(input)
+                == "Markdown hard break  \n\n\(lead) continuation is joined here\n"
+        )
     }
 
     /// The shape of the originally reported paste: multiple paragraphs, every
