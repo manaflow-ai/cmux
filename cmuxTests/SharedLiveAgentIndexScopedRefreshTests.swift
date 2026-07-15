@@ -10,6 +10,34 @@ import Testing
 
 extension SharedLiveAgentIndexLoadCoalescingTests {
     @Test
+    func scopedRefreshPropagatesItsProcessCaptureBoundary() async {
+        let requestedAt = Date(timeIntervalSince1970: 100)
+        let receivedBoundary = OSAllocatedUnfairLock<Date?>(initialState: nil)
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scoped-process-boundary-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let sharedIndex = SharedLiveAgentIndex(
+            capturingIndexLoader: { boundary, processMetadataCaptured in
+                receivedBoundary.withLock { $0 = boundary }
+                processMetadataCaptured()
+                return (
+                    index: .empty,
+                    surfaceResumeBindingIndex: .empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            hookStoreDirectoryProvider: { hookDirectory.path },
+            dateProvider: { requestedAt }
+        )
+
+        _ = await sharedIndex.scopedIndexCapturedAfterRequest()
+
+        #expect(receivedBoundary.withLock { $0 } == requestedAt)
+    }
+
+    @Test
     func scopedCompletionInvalidatesPublishedForkValidation() async {
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let hookDirectory = FileManager.default.temporaryDirectory
