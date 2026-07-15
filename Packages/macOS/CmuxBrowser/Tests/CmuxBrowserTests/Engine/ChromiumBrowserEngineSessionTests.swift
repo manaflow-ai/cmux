@@ -31,6 +31,14 @@ struct ChromiumBrowserEngineSessionTests {
             "Input.imeSetComposition",
             "Input.insertText",
         ])
+        #expect(session.viewportInputQueue.commands[0].parameters == [
+            "text": .string("に"),
+            "selectionStart": .number(1),
+            "selectionEnd": .number(1),
+        ])
+        #expect(session.viewportInputQueue.commands[1].parameters == [
+            "text": .string("日本"),
+        ])
     }
 
     @Test

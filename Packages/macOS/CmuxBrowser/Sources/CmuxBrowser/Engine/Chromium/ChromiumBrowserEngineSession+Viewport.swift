@@ -54,6 +54,22 @@ struct ChromiumViewportInputCommand: Equatable {
         )
     }
 
+    static func text(parameters: [String: CDPJSONValue]) -> Self {
+        Self(
+            method: "Input.insertText",
+            parameters: parameters,
+            coalescingKind: nil
+        )
+    }
+
+    static func composition(parameters: [String: CDPJSONValue]) -> Self {
+        Self(
+            method: "Input.imeSetComposition",
+            parameters: parameters,
+            coalescingKind: nil
+        )
+    }
+
     func coalescing(with newer: Self) -> Self {
         guard coalescingKind == .mouseWheel, newer.coalescingKind == .mouseWheel else {
             return newer
@@ -167,6 +183,10 @@ extension ChromiumBrowserEngineSession {
             dispatchMouse(payload)
         case "key":
             dispatchKey(payload)
+        case "text":
+            dispatchText(payload)
+        case "composition":
+            dispatchComposition(payload)
         default:
             break
         }
@@ -231,6 +251,22 @@ extension ChromiumBrowserEngineSession {
             "modifiers": .number(Double(payload["modifiers"] as? Int ?? 0)),
         ]
         enqueueViewportInput(.key(parameters: parameters))
+    }
+
+    private func dispatchText(_ payload: [String: Any]) {
+        guard let text = payload["text"] as? String, !text.isEmpty else { return }
+        enqueueViewportInput(.text(parameters: ["text": .string(text)]))
+    }
+
+    private func dispatchComposition(_ payload: [String: Any]) {
+        guard let text = payload["text"] as? String else { return }
+        let selectionStart = max(0, payload["selectionStart"] as? Int ?? text.utf16.count)
+        let selectionEnd = max(selectionStart, payload["selectionEnd"] as? Int ?? selectionStart)
+        enqueueViewportInput(.composition(parameters: [
+            "text": .string(text),
+            "selectionStart": .number(Double(selectionStart)),
+            "selectionEnd": .number(Double(selectionEnd)),
+        ]))
     }
 
     private func enqueueViewportInput(_ command: ChromiumViewportInputCommand) {
