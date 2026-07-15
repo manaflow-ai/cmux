@@ -14,6 +14,7 @@ final class SharedLiveAgentIndex {
     private var loadedAt: Date?
     private var eventReloadBackpressureCompletedAt: Date?
     private var eventReloadBackpressureEntryCount = 0
+    private var eventReloadBackpressureLiveAgentCount = 0
     var latestCompletedLoadResult: LoadResult?
     var latestCompletedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
@@ -396,7 +397,11 @@ final class SharedLiveAgentIndex {
         validatedMissingForkPanels.removeAll()
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
-        recordEventReloadBackpressure(for: newIndex, completedAt: loadedAt)
+        recordEventReloadBackpressure(
+            indexedSessionCount: newIndex.entryCount,
+            liveAgentCount: liveAgentProcessFingerprint.count,
+            completedAt: loadedAt
+        )
 #if DEBUG
         ProcessPerformanceMetrics.shared.operationCompleted(
             applyMetricsToken,
@@ -435,11 +440,13 @@ final class SharedLiveAgentIndex {
     }
 
     func recordEventReloadBackpressure(
-        for loadedIndex: RestorableAgentSessionIndex,
+        indexedSessionCount: Int,
+        liveAgentCount: Int,
         completedAt: Date
     ) {
         eventReloadBackpressureCompletedAt = completedAt
-        eventReloadBackpressureEntryCount = loadedIndex.entryCount
+        eventReloadBackpressureEntryCount = indexedSessionCount
+        eventReloadBackpressureLiveAgentCount = liveAgentCount
     }
 
     private func validatedForkPanelKey(
@@ -463,7 +470,10 @@ final class SharedLiveAgentIndex {
 
     func scheduleHookStoreRefresh() {
         let reloadInterval = Self.hookEventReloadInterval(
-            liveAgentCount: liveAgentProcessFingerprint.count,
+            liveAgentCount: max(
+                liveAgentProcessFingerprint.count,
+                eventReloadBackpressureLiveAgentCount
+            ),
             indexedSessionCount: max(index?.entryCount ?? 0, eventReloadBackpressureEntryCount)
         )
         let completedAt = eventReloadBackpressureCompletedAt ?? loadedAt
