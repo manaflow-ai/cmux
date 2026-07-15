@@ -12,6 +12,14 @@ nonisolated struct VerifiedReplayRendererSurfaceIdentity: Equatable, Sendable {
     let seed: UInt32
     let pixelWidth: Int
     let pixelHeight: Int
+
+    func referencesSameAllocation(
+        as other: VerifiedReplayRendererSurfaceIdentity
+    ) -> Bool {
+        id == other.id
+            && pixelWidth == other.pixelWidth
+            && pixelHeight == other.pixelHeight
+    }
 }
 
 /// Event-driven fence for one explicitly tokened Ghostty Metal submission.
@@ -69,7 +77,7 @@ nonisolated struct VerifiedReplayPresentationFence: Sendable {
               let acknowledgedIdentity,
               let modelIdentity,
               let presentationIdentity,
-              modelIdentity.id == acknowledgedIdentity.id,
+              modelIdentity.referencesSameAllocation(as: acknowledgedIdentity),
               geometryRevision == expectedGeometryRevision,
               modelGeometry == expectedGeometry,
               presentationGeometry == expectedGeometry,
@@ -86,10 +94,11 @@ nonisolated struct VerifiedReplayPresentationFence: Sendable {
         // The token identifies the exact completed Metal command and its
         // assigned IOSurface allocation. IOSurface's seed is a mutable content
         // version and can advance while Core Animation adopts that allocation,
-        // so comparing the later seed to the callback-time seed deadlocks a
-        // correctly presented frame. Ordinary rendering remains suppressed
-        // for the lifetime of this fence, so no later command can reuse it.
-        return presentationIdentity == modelIdentity
+        // including between the sequential model- and presentation-tree reads.
+        // Compare the allocation ID and pixel extent, which remain stable.
+        // Ordinary rendering remains suppressed for the lifetime of this
+        // fence, so no later command can reuse it.
+        return presentationIdentity.referencesSameAllocation(as: modelIdentity)
     }
 }
 
