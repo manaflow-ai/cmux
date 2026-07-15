@@ -1446,6 +1446,7 @@ class TerminalController {
                         trimmed,
                         socket: socket,
                         authorizationGeneration: authorizationGeneration,
+                        authorizationRevocationSignal: authorizationRevocationSignal,
                         passwordAuthorization: passwordAuthorization
                     )
                     shouldCloseSocket = true

@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import Darwin
+import Dispatch
 import Foundation
 
 extension TerminalController {
@@ -17,6 +18,7 @@ extension TerminalController {
         _ line: String,
         socket: Int32,
         authorizationGeneration: UInt64,
+        authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
         passwordAuthorization: SocketPasswordAuthorization
     ) {
         var streamPasswordAuthorization = passwordAuthorization
@@ -49,7 +51,14 @@ extension TerminalController {
             names: names,
             categories: categories
         )
-        defer { CmuxEventBus.shared.unsubscribe(snapshot.subscription) }
+        let revocationSource = socketEventStreamRevocationSource(
+            authorizationRevocationSignal,
+            subscription: snapshot.subscription
+        )
+        defer {
+            revocationSource?.cancel()
+            CmuxEventBus.shared.unsubscribe(snapshot.subscription)
+        }
 
         guard socketEventStreamAuthorizationIsCurrent(
                   authorizationGeneration,
@@ -99,6 +108,26 @@ extension TerminalController {
                 return
             }
         }
+    }
+
+    private nonisolated func socketEventStreamRevocationSource(
+        _ signal: SocketAuthorizationRevocationSignal,
+        subscription: CmuxEventSubscription
+    ) -> (any DispatchSourceRead)? {
+        let descriptor = signal.readFileDescriptor
+        guard descriptor >= 0 else { return nil }
+
+        // DispatchSource bridges the pollable revocation pipe into the
+        // subscription's existing wake signal without a timer or polling loop.
+        let source = DispatchSource.makeReadSource(
+            fileDescriptor: descriptor,
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler {
+            subscription.close()
+        }
+        source.activate()
+        return source
     }
 
     nonisolated func publishSocketEvents(command: String, response: String) {
