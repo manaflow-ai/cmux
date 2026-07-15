@@ -25873,7 +25873,25 @@ struct CMUXCLI {
                 }
                 sawRelevantTurn = true
                 sawTerminalTurn = true
-                if let lastMessage = payload["last_agent_message"] as? String,
+                // Codex persists fatal turn failures inside task_complete.error. Standalone
+                // error events are transient, and a failed turn may still contain partial
+                // assistant output, so the terminal error must be authoritative.
+                if let terminalError = payload["error"] as? [String: Any],
+                   let failure = codexHookFailureCandidate(
+                       from: terminalError,
+                       requireFailureSignal: false
+                   ) {
+                    candidate = failure
+                    candidateCanPublishBeforeTerminal = false
+                } else if let terminalError = codexHookStringValue(payload["error"]) {
+                    candidate = CodexHookFailureCandidate(
+                        message: terminalError,
+                        codexErrorInfo: nil,
+                        additionalDetails: nil,
+                        isStreamError: false
+                    )
+                    candidateCanPublishBeforeTerminal = false
+                } else if let lastMessage = payload["last_agent_message"] as? String,
                    !lastMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     sawAssistantMessage = true
                     candidate = nil
