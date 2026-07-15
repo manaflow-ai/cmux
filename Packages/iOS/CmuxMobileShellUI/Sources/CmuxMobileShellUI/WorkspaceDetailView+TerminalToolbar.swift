@@ -21,6 +21,10 @@ extension WorkspaceDetailView {
             selectedID: store.selectedTerminalID
         )
         return Button {
+            terminalHierarchyProfilingGeneration = interactionProfilingSignposts?
+                .beginTerminalHierarchyOpen(
+                workspaceID: workspace.id.rawValue
+            )
             dismissTerminalKeyboardForChrome()
             isTerminalHierarchyPresented = true
         } label: {

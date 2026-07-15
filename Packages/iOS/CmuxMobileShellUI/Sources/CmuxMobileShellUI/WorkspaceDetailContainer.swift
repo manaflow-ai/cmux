@@ -20,6 +20,7 @@ struct WorkspaceDetailContainer: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
+    @Environment(\.mobileInteractionProfilingSignposts) private var interactionProfilingSignposts
     @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
 
     private var workspace: MobileWorkspacePreview? {
@@ -38,6 +39,10 @@ struct WorkspaceDetailContainer: View {
     var body: some View {
         Group {
             if let workspace {
+                let profilingWorkspaceID = workspace.id.rawValue
+                let profilingSignposts = interactionProfilingSignposts
+                let profilingGeneration = profilingSignposts?
+                    .workspaceOpenGeneration(workspaceID: profilingWorkspaceID)
                 WorkspaceDetailView(
                     host: store.connectedHostName,
                     connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
@@ -81,8 +86,42 @@ struct WorkspaceDetailContainer: View {
                 .onChange(of: workspace) { _, workspace in
                     rememberRouteWorkspace(workspace)
                 }
+                .onDisappear {
+                    profilingSignposts?.cancelWorkspaceOpen(
+                        workspaceID: profilingWorkspaceID,
+                        generation: profilingGeneration
+                    )
+                }
+                .background {
+                    if let profilingSignposts, profilingSignposts.isActive {
+                        MobileInteractionPresentationDidAppearProbe {
+                            profilingSignposts.markWorkspaceOpenPresented(
+                                workspaceID: profilingWorkspaceID,
+                                generation: profilingGeneration
+                            )
+                        }
+                        .id(profilingGeneration)
+                        .frame(width: 0, height: 0)
+                    }
+                }
                 .task(id: workspace.id) {
                     await store.openWorkspace(workspace.id)
+                    if Task.isCancelled {
+                        profilingSignposts?.cancelWorkspaceOpen(
+                            workspaceID: profilingWorkspaceID,
+                            generation: profilingGeneration
+                        )
+                    } else if store.selectedWorkspaceID == workspace.id {
+                        profilingSignposts?.markWorkspaceOpenModelSettled(
+                            workspaceID: profilingWorkspaceID,
+                            generation: profilingGeneration
+                        )
+                    } else {
+                        profilingSignposts?.failWorkspaceOpen(
+                            workspaceID: profilingWorkspaceID,
+                            generation: profilingGeneration
+                        )
+                    }
                 }
             } else {
                 ContentUnavailableView(

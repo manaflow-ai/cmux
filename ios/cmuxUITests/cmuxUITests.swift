@@ -232,6 +232,114 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testP8InstrumentsWorkloadThreeIterations() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["CMUX_RUN_P8_INSTRUMENTS"] == "1" else {
+            throw XCTSkip("Set CMUX_RUN_P8_INSTRUMENTS=1 only for the tagged P8 Instruments workload.")
+        }
+        guard let bundleIdentifier = environment["CMUX_P8_INSTRUMENTS_BUNDLE_ID"],
+              !bundleIdentifier.isEmpty else {
+            XCTFail("CMUX_P8_INSTRUMENTS_BUNDLE_ID must identify the already traced tagged app.")
+            return
+        }
+        let workspaceNames = (environment["CMUX_P8_INSTRUMENTS_WORKSPACE_NAMES"]
+            ?? (1...10).map { String(format: "P8 Profile %02d", $0) }.joined(separator: "|"))
+            .split(separator: "|")
+            .map(String.init)
+        XCTAssertEqual(workspaceNames.count, 10, "The workload requires exactly ten named workspaces.")
+
+        let app = XCUIApplication(bundleIdentifier: bundleIdentifier)
+        guard app.state == .runningBackground || app.state == .runningForeground else {
+            XCTFail("Start the tagged Release app under Instruments before attaching this workload.")
+            return
+        }
+        app.activate()
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: 8),
+            "The already traced tagged app must reach the foreground without relaunching."
+        )
+
+        p8ReturnToWorkspaceList(in: app)
+        p8ValidateWorkspaceNames(workspaceNames, in: app)
+
+        var totals = P8WorkloadTotals()
+        for iteration in 0..<3 {
+            p8OpenWorkspace(named: workspaceNames[0], in: app)
+            totals.workspaceOpens += 1
+            let fixture = p8CaptureHierarchyFixture(
+                expectedWorkspaceName: workspaceNames[0],
+                in: app
+            )
+            totals.terminalHierarchyOpens += 1
+
+            let terminalSwitchBatch = p8PerformTerminalSwitches(
+                count: 10,
+                paneNumber: fixture.activePaneNumber,
+                fixture: fixture,
+                hierarchyIsOpen: true,
+                in: app
+            )
+            totals.terminalSwitches += terminalSwitchBatch.actionCount
+            totals.terminalHierarchyOpens += terminalSwitchBatch.hierarchyOpenCount
+            totals.terminalReorders += p8PerformTerminalReorders(
+                count: 10,
+                paneNumber: fixture.activePaneNumber,
+                fixture: fixture,
+                in: app
+            )
+            totals.terminalHierarchyOpens += 1
+            let baselineTerminalIDs = Set(fixture.rowsByPane.values.flatMap { $0 })
+            let createdTerminalIDs = p8CreateTerminals(
+                count: 5,
+                excluding: baselineTerminalIDs,
+                in: app
+            )
+            totals.terminalCreates += createdTerminalIDs.count
+            totals.terminalCloses += p8CloseTerminals(
+                createdTerminalIDs,
+                expectedInitialTerminalIDs: baselineTerminalIDs.union(createdTerminalIDs),
+                in: app
+            )
+            let paneSwitchBatch = p8PerformPaneSwitches(
+                count: 10,
+                fixture: fixture,
+                hierarchyIsOpen: true,
+                in: app
+            )
+            totals.paneSwitches += paneSwitchBatch.actionCount
+            totals.terminalHierarchyOpens += paneSwitchBatch.hierarchyOpenCount
+
+            for workspaceName in workspaceNames.dropFirst() {
+                p8OpenWorkspace(named: workspaceName, in: app)
+                totals.workspaceSwitches += 1
+                totals.workspaceOpens += 1
+            }
+            p8OpenWorkspace(named: workspaceNames[0], in: app)
+            totals.workspaceSwitches += 1
+            totals.workspaceOpens += 1
+
+            let completedIterations = iteration + 1
+            XCTAssertEqual(totals.terminalSwitches, completedIterations * 10)
+            XCTAssertEqual(totals.terminalReorders, completedIterations * 10)
+            XCTAssertEqual(totals.terminalCreates, completedIterations * 5)
+            XCTAssertEqual(totals.terminalCloses, completedIterations * 5)
+            XCTAssertEqual(totals.paneSwitches, completedIterations * 10)
+            XCTAssertEqual(totals.workspaceSwitches, completedIterations * 10)
+            XCTAssertEqual(totals.workspaceOpens, completedIterations * 11)
+            XCTAssertEqual(totals.terminalHierarchyOpens, completedIterations * 20)
+        }
+
+        XCTAssertEqual(totals.terminalSwitches, 30)
+        XCTAssertEqual(totals.terminalReorders, 30)
+        XCTAssertEqual(totals.terminalCreates, 15)
+        XCTAssertEqual(totals.terminalCloses, 15)
+        XCTAssertEqual(totals.paneSwitches, 30)
+        XCTAssertEqual(totals.workspaceSwitches, 30)
+        XCTAssertEqual(totals.workspaceOpens, 33)
+        XCTAssertEqual(totals.terminalHierarchyOpens, 60)
+    }
+
+    @MainActor
     func testTerminalHierarchyProtectedCloseExplainsUnpinRecovery() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TERMINAL_HIERARCHY_PREVIEW": "1",
@@ -2214,6 +2322,870 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    private struct P8HierarchyFixture {
+        let rowsByPane: [Int: [String]]
+        let activePaneNumber: Int
+        let activeTerminalID: String
+    }
+
+    private struct P8HierarchyScan {
+        let terminalIDs: Set<String>
+        let activeTerminalIDs: Set<String>
+    }
+
+    private struct P8SwitchBatch {
+        let actionCount: Int
+        let hierarchyOpenCount: Int
+    }
+
+    private struct P8WorkloadTotals {
+        var workspaceOpens = 0
+        var workspaceSwitches = 0
+        var terminalHierarchyOpens = 0
+        var terminalSwitches = 0
+        var paneSwitches = 0
+        var terminalReorders = 0
+        var terminalCreates = 0
+        var terminalCloses = 0
+    }
+
+    @MainActor
+    private func p8ReturnToWorkspaceList(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertFalse(
+            app.otherElements["MobileTerminalHierarchySheet"].exists,
+            "Dismiss the terminal hierarchy before returning to the workspace list.",
+            file: file,
+            line: line
+        )
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        if backButton.exists {
+            tap(backButton, in: app, file: file, line: line)
+        }
+        let anyWorkspaceRow = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "MobileWorkspaceRow-"))
+            .firstMatch
+        XCTAssertTrue(
+            anyWorkspaceRow.waitForExistence(timeout: 8),
+            "Expected at least one stable workspace row after navigating back.",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func p8ValidateWorkspaceNames(
+        _ expectedNames: [String],
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        var namesByID: [String: String] = [:]
+        func collectRows() {
+            for row in p8WorkspaceRows(in: app) where !row.identifier.isEmpty {
+                namesByID[row.identifier] = row.label
+            }
+        }
+
+        collectRows()
+        let expectedNameSet = Set(expectedNames)
+        for swipeUp in [true, false] {
+            var unchangedSwipes = 0
+            for _ in 0..<16 {
+                let previousCount = namesByID.count
+                if swipeUp {
+                    app.swipeUp(velocity: .slow)
+                } else {
+                    app.swipeDown(velocity: .slow)
+                }
+                collectRows()
+                unchangedSwipes = namesByID.count == previousCount ? unchangedSwipes + 1 : 0
+                if unchangedSwipes >= 4 { break }
+            }
+        }
+
+        XCTAssertEqual(
+            namesByID.count,
+            10,
+            "The profiling tag must expose exactly ten workspace row identities. rows=\(namesByID)",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            Set(namesByID.values),
+            expectedNameSet,
+            "The profiling workspace names must match the frozen fixture.",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func p8WorkspaceRows(in app: XCUIApplication) -> [XCUIElement] {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "MobileWorkspaceRow-"))
+            .allElementsBoundByIndex
+    }
+
+    @MainActor
+    private func p8WorkspaceRow(named name: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "identifier BEGINSWITH %@ AND label == %@",
+                "MobileWorkspaceRow-",
+                name
+            ))
+            .firstMatch
+    }
+
+    @MainActor
+    private func p8OpenWorkspace(
+        named name: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        p8ReturnToWorkspaceList(in: app, file: file, line: line)
+        let row = p8WorkspaceRow(named: name, in: app)
+        XCTAssertTrue(
+            p8ScrollWorkspaceRowIntoView(row, in: app),
+            "Could not make workspace \(name) hittable.",
+            file: file,
+            line: line
+        )
+        tap(row, in: app, file: file, line: line)
+        XCTAssertTrue(
+            app.buttons["MobileWorkspaceBackButton"].waitForExistence(timeout: 12),
+            "Workspace \(name) did not push its detail view.",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            app.buttons["MobileTerminalHierarchyButton"].waitForExistence(timeout: 12),
+            "Workspace \(name) did not settle its terminal toolbar.",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func p8ScrollWorkspaceRowIntoView(_ row: XCUIElement, in app: XCUIApplication) -> Bool {
+        if row.exists, row.isHittable { return true }
+        for _ in 0..<16 {
+            app.swipeUp(velocity: .slow)
+            if row.exists, row.isHittable { return true }
+        }
+        for _ in 0..<16 {
+            app.swipeDown(velocity: .slow)
+            if row.exists, row.isHittable { return true }
+        }
+        return row.exists && row.isHittable
+    }
+
+    @MainActor
+    private func p8OpenTerminalHierarchy(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        tap(app.buttons["MobileTerminalHierarchyButton"], in: app, file: file, line: line)
+        XCTAssertTrue(
+            app.otherElements["MobileTerminalHierarchySheet"].waitForExistence(timeout: 8),
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            p8HierarchyList(in: app).waitForExistence(timeout: 4),
+            "Terminal hierarchy must expose its stable List identity.",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func p8CaptureHierarchyFixture(
+        expectedWorkspaceName: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> P8HierarchyFixture {
+        p8OpenTerminalHierarchy(in: app, file: file, line: line)
+        let list = p8HierarchyList(in: app)
+        let workspaceElement = app.descendants(matching: .any)["MobileTerminalHierarchyWorkspace"]
+        XCTAssertTrue(workspaceElement.waitForExistence(timeout: 4), file: file, line: line)
+        XCTAssertEqual(
+            workspaceElement.value as? String,
+            expectedWorkspaceName,
+            "Hierarchy fixture opened the wrong workspace.",
+            file: file,
+            line: line
+        )
+        var rowIDsByPane: [Int: Set<String>] = [:]
+        var rowLabelsByID: [String: String] = [:]
+        var paneHeaderIDs: Set<String> = []
+        var focusedPaneNumbers: Set<Int> = []
+        var activeRows: [(id: String, paneNumber: Int)] = []
+
+        func collectHierarchy() {
+            for header in p8HierarchyPaneHeaders(in: app) where !header.identifier.isEmpty {
+                paneHeaderIDs.insert(header.identifier)
+                if header.label.localizedCaseInsensitiveContains("Focused"),
+                   let paneNumber = p8PaneNumber(fromHeaderLabel: header.label) {
+                    focusedPaneNumbers.insert(paneNumber)
+                }
+            }
+            for row in p8HierarchyRows(in: app) {
+                guard let terminalID = p8TerminalID(fromRowIdentifier: row.identifier),
+                      let paneNumber = p8PaneNumber(fromRowLabel: row.label) else { continue }
+                rowIDsByPane[paneNumber, default: []].insert(terminalID)
+                rowLabelsByID[terminalID] = row.label
+                if row.label.localizedCaseInsensitiveContains("Active"),
+                   !activeRows.contains(where: { $0.id == terminalID }) {
+                    activeRows.append((terminalID, paneNumber))
+                }
+            }
+        }
+
+        collectHierarchy()
+        for swipeUp in [true, false] {
+            var unchangedSwipes = 0
+            for _ in 0..<24 {
+                let previousIdentityCount = rowLabelsByID.count + paneHeaderIDs.count
+                if swipeUp {
+                    list.swipeUp(velocity: .slow)
+                } else {
+                    list.swipeDown(velocity: .slow)
+                }
+                collectHierarchy()
+                let identityCount = rowLabelsByID.count + paneHeaderIDs.count
+                unchangedSwipes = identityCount == previousIdentityCount ? unchangedSwipes + 1 : 0
+                if unchangedSwipes >= 4 { break }
+            }
+        }
+
+        XCTAssertEqual(paneHeaderIDs.count, 4, "Expected four stable pane headers.", file: file, line: line)
+        XCTAssertEqual(Set(rowIDsByPane.keys), Set(1...4), file: file, line: line)
+        for paneNumber in 1...4 {
+            XCTAssertEqual(
+                rowIDsByPane[paneNumber]?.count,
+                8,
+                "Pane \(paneNumber) must contain exactly eight stable terminal identities.",
+                file: file,
+                line: line
+            )
+        }
+        XCTAssertEqual(activeRows.count, 1, "Expected exactly one Active terminal row.", file: file, line: line)
+        XCTAssertEqual(focusedPaneNumbers.count, 1, "Expected exactly one Focused pane header.", file: file, line: line)
+        XCTAssertTrue(
+            rowLabelsByID.values.allSatisfy {
+                $0.localizedCaseInsensitiveContains("workspace \(expectedWorkspaceName)")
+            },
+            "Every terminal row must identify the profiled workspace.",
+            file: file,
+            line: line
+        )
+        let activeRow = activeRows.first ?? (id: "", paneNumber: -1)
+        XCTAssertEqual(
+            focusedPaneNumbers.first,
+            activeRow.paneNumber,
+            "The selected terminal and focused pane must agree before profiling.",
+            file: file,
+            line: line
+        )
+        return P8HierarchyFixture(
+            rowsByPane: rowIDsByPane.mapValues { $0.sorted() },
+            activePaneNumber: activeRow.paneNumber,
+            activeTerminalID: activeRow.id
+        )
+    }
+
+    @MainActor
+    private func p8HierarchyList(in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)["MobileTerminalHierarchyList"]
+    }
+
+    @MainActor
+    private func p8HierarchyRows(in app: XCUIApplication) -> [XCUIElement] {
+        app.buttons
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "MobileTerminalHierarchyRow-"))
+            .allElementsBoundByIndex
+    }
+
+    @MainActor
+    private func p8HierarchyPaneHeaders(in app: XCUIApplication) -> [XCUIElement] {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "MobileTerminalHierarchyPane-"))
+            .allElementsBoundByIndex
+    }
+
+    private func p8TerminalID(fromRowIdentifier identifier: String) -> String? {
+        let prefix = "MobileTerminalHierarchyRow-"
+        guard identifier.hasPrefix(prefix) else { return nil }
+        let terminalID = String(identifier.dropFirst(prefix.count))
+        return terminalID.isEmpty ? nil : terminalID
+    }
+
+    private func p8PaneNumber(fromRowLabel label: String) -> Int? {
+        guard let marker = label.range(of: ", pane ", options: .backwards) else { return nil }
+        return Int(label[marker.upperBound...].prefix(while: \.isNumber))
+    }
+
+    private func p8PaneNumber(fromHeaderLabel label: String) -> Int? {
+        guard let marker = label.range(of: "Pane ", options: [.caseInsensitive, .anchored]) else { return nil }
+        return Int(label[marker.upperBound...].prefix(while: \.isNumber))
+    }
+
+    @MainActor
+    private func p8PerformTerminalSwitches(
+        count: Int,
+        paneNumber: Int,
+        fixture: P8HierarchyFixture,
+        hierarchyIsOpen: Bool,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> P8SwitchBatch {
+        guard let paneTerminalIDs = fixture.rowsByPane[paneNumber], paneTerminalIDs.count >= 2 else {
+            XCTFail("The active pane needs at least two stable terminal IDs.", file: file, line: line)
+            return P8SwitchBatch(actionCount: 0, hierarchyOpenCount: 0)
+        }
+        let candidates = Array(paneTerminalIDs.prefix(2))
+        var currentTerminalID = fixture.activeTerminalID
+        var actionCount = 0
+        var hierarchyOpenCount = 0
+        for index in 0..<count {
+            if index > 0 || !hierarchyIsOpen {
+                p8OpenTerminalHierarchy(in: app, file: file, line: line)
+                hierarchyOpenCount += 1
+            }
+            guard let targetTerminalID = candidates.first(where: { $0 != currentTerminalID }) else {
+                XCTFail("No distinct same-pane terminal target remained.", file: file, line: line)
+                break
+            }
+            let target = p8HierarchyRow(terminalID: targetTerminalID, in: app)
+            XCTAssertTrue(
+                p8ScrollHierarchyRowIntoView(target, in: app),
+                "Could not reveal same-pane terminal \(targetTerminalID).",
+                file: file,
+                line: line
+            )
+            XCTAssertFalse(
+                target.label.localizedCaseInsensitiveContains("Active"),
+                "Every profiled terminal switch must change the selected terminal.",
+                file: file,
+                line: line
+            )
+            tap(target, in: app, file: file, line: line)
+            XCTAssertTrue(p8WaitForHierarchyDismissal(in: app), file: file, line: line)
+            currentTerminalID = targetTerminalID
+            actionCount += 1
+        }
+        return P8SwitchBatch(
+            actionCount: actionCount,
+            hierarchyOpenCount: hierarchyOpenCount
+        )
+    }
+
+    @MainActor
+    private func p8PerformTerminalReorders(
+        count: Int,
+        paneNumber: Int,
+        fixture: P8HierarchyFixture,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Int {
+        p8OpenTerminalHierarchy(in: app, file: file, line: line)
+        guard let paneTerminalIDs = fixture.rowsByPane[paneNumber],
+              let firstTerminalID = paneTerminalIDs.first else {
+            XCTFail("The reorder pane has no stable terminal IDs.", file: file, line: line)
+            return 0
+        }
+        XCTAssertTrue(
+            p8ScrollHierarchyRowIntoView(
+                p8HierarchyRow(terminalID: firstTerminalID, in: app),
+                in: app
+            ),
+            file: file,
+            line: line
+        )
+
+        let editButton = app.buttons["MobileTerminalHierarchyEdit"]
+        tap(editButton, in: app, file: file, line: line)
+        let editingExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Done"),
+            object: editButton
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [editingExpectation], timeout: 4),
+            .completed,
+            "The hierarchy must enter real List edit mode before dragging.",
+            file: file,
+            line: line
+        )
+
+        var completed = 0
+        for _ in 0..<count {
+            var visibleOrder = p8VisiblePaneCellOrder(
+                paneTerminalIDs: paneTerminalIDs,
+                in: app
+            )
+            if visibleOrder.count < 3 {
+                for _ in 0..<8 where visibleOrder.count < 3 {
+                    p8HierarchyList(in: app).swipeUp(velocity: .slow)
+                    visibleOrder = p8VisiblePaneCellOrder(
+                        paneTerminalIDs: paneTerminalIDs,
+                        in: app
+                    )
+                }
+            }
+            guard visibleOrder.count >= 3 else {
+                XCTFail("Edit mode did not expose three draggable cells in one pane.", file: file, line: line)
+                break
+            }
+
+            let beforeIDs = visibleOrder.map(\.id)
+            let source = visibleOrder[0]
+            let destination = visibleOrder[2]
+            guard let sourceIndexBefore = beforeIDs.firstIndex(of: source.id),
+                  let destinationIndexBefore = beforeIDs.firstIndex(of: destination.id) else {
+                XCTFail("The selected drag pair disappeared before the gesture.", file: file, line: line)
+                break
+            }
+            let sourceWasBeforeDestination = sourceIndexBefore < destinationIndexBefore
+            let listFrame = p8HierarchyList(in: app).frame
+            let dragX = min(source.cell.frame.maxX - 18, listFrame.maxX - 18)
+            let start = app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: dragX, dy: source.cell.frame.midY))
+            let end = app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: dragX, dy: destination.cell.frame.maxY - 3))
+            start.press(forDuration: 0.35, thenDragTo: end)
+
+            var afterIDs: [String] = []
+            let changedExpectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in
+                    afterIDs = self.p8VisiblePaneCellOrder(
+                        paneTerminalIDs: paneTerminalIDs,
+                        in: app
+                    ).map(\.id)
+                    guard let sourceIndex = afterIDs.firstIndex(of: source.id),
+                          let destinationIndex = afterIDs.firstIndex(of: destination.id) else {
+                        return false
+                    }
+                    let sourceIsBeforeDestination = sourceIndex < destinationIndex
+                    return sourceIsBeforeDestination != sourceWasBeforeDestination
+                        && app.buttons["MobileTerminalHierarchyNewTerminal"].isEnabled
+                },
+                object: app
+            )
+            XCTAssertEqual(
+                XCTWaiter.wait(for: [changedExpectation], timeout: 15),
+                .completed,
+                "A real Edit-mode drag must reverse the source/destination stable-ID order. before=\(beforeIDs) after=\(afterIDs)",
+                file: file,
+                line: line
+            )
+            XCTAssertFalse(
+                app.staticTexts["Couldn't Update Terminals"].exists,
+                "The profiling fixture rejected a terminal reorder.",
+                file: file,
+                line: line
+            )
+            completed += 1
+        }
+
+        tap(editButton, in: app, file: file, line: line)
+        return completed
+    }
+
+    @MainActor
+    private func p8CreateTerminals(
+        count: Int,
+        excluding initialTerminalIDs: Set<String>,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> [String] {
+        var knownTerminalIDs = p8ScanFullHierarchyTerminalIDs(
+            expectedMinimum: initialTerminalIDs.count,
+            in: app
+        )
+        XCTAssertEqual(
+            knownTerminalIDs,
+            initialTerminalIDs,
+            "The hierarchy drifted before terminal creation.",
+            file: file,
+            line: line
+        )
+        var createdTerminalIDs: [String] = []
+        let createButton = app.buttons["MobileTerminalHierarchyNewTerminal"]
+
+        for _ in 0..<count {
+            XCTAssertTrue(createButton.isEnabled, file: file, line: line)
+            tap(createButton, in: app, file: file, line: line)
+
+            let mutationStarted = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "isEnabled == false"),
+                object: createButton
+            )
+            XCTAssertEqual(
+                XCTWaiter.wait(for: [mutationStarted], timeout: 4),
+                .completed,
+                "Create must acquire the shared terminal mutation fence.",
+                file: file,
+                line: line
+            )
+            let mutationFinished = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "isEnabled == true"),
+                object: createButton
+            )
+            XCTAssertEqual(
+                XCTWaiter.wait(for: [mutationFinished], timeout: 15),
+                .completed,
+                "Create must release the shared terminal mutation fence.",
+                file: file,
+                line: line
+            )
+
+            let afterTerminalIDs = p8ScanFullHierarchyTerminalIDs(
+                expectedMinimum: knownTerminalIDs.count + 1,
+                in: app
+            )
+            let newTerminalIDs = afterTerminalIDs.subtracting(knownTerminalIDs)
+            XCTAssertEqual(
+                afterTerminalIDs.count,
+                knownTerminalIDs.count + 1,
+                "Create must add exactly one stable terminal identity.",
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(newTerminalIDs.count, 1, file: file, line: line)
+            guard let newTerminalID = newTerminalIDs.first else { break }
+            XCTAssertTrue(
+                afterTerminalIDs.isSuperset(of: knownTerminalIDs),
+                "Create must preserve every prior stable terminal identity.",
+                file: file,
+                line: line
+            )
+            let newRow = p8HierarchyRow(terminalID: newTerminalID, in: app)
+            XCTAssertTrue(
+                p8ScrollHierarchyRowIntoView(newRow, in: app),
+                "Could not reveal newly created terminal \(newTerminalID).",
+                file: file,
+                line: line
+            )
+            let activeExpectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in
+                    newRow.label.localizedCaseInsensitiveContains("Active")
+                        && createButton.isEnabled
+                },
+                object: app
+            )
+            XCTAssertEqual(
+                XCTWaiter.wait(for: [activeExpectation], timeout: 8),
+                .completed,
+                "The exact new stable ID must become Active after the mutation fence releases.",
+                file: file,
+                line: line
+            )
+            let settledScan = p8ScanFullHierarchy(
+                expectedMinimum: afterTerminalIDs.count,
+                in: app
+            )
+            XCTAssertEqual(settledScan.terminalIDs, afterTerminalIDs, file: file, line: line)
+            XCTAssertEqual(
+                settledScan.activeTerminalIDs,
+                Set([newTerminalID]),
+                "The exact new stable ID must be the hierarchy's single Active terminal.",
+                file: file,
+                line: line
+            )
+            createdTerminalIDs.append(newTerminalID)
+            knownTerminalIDs = afterTerminalIDs
+        }
+        return createdTerminalIDs
+    }
+
+    @MainActor
+    private func p8CloseTerminals(
+        _ terminalIDs: [String],
+        expectedInitialTerminalIDs: Set<String>,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Int {
+        var remainingTerminalIDs = p8ScanFullHierarchyTerminalIDs(
+            expectedMinimum: expectedInitialTerminalIDs.count,
+            in: app
+        )
+        XCTAssertEqual(
+            remainingTerminalIDs,
+            expectedInitialTerminalIDs,
+            "Close must start from the complete baseline plus five captured identities.",
+            file: file,
+            line: line
+        )
+        var completed = 0
+        for terminalID in terminalIDs {
+            XCTAssertTrue(remainingTerminalIDs.contains(terminalID), file: file, line: line)
+            let row = p8HierarchyRow(terminalID: terminalID, in: app)
+            XCTAssertTrue(
+                p8ScrollHierarchyRowIntoView(row, in: app),
+                "Could not reveal created terminal \(terminalID) for exact close.",
+                file: file,
+                line: line
+            )
+            tap(
+                app.buttons["MobileTerminalHierarchyClose-\(terminalID)"],
+                in: app,
+                file: file,
+                line: line
+            )
+            let confirmButton = app.buttons["MobileTerminalHierarchyCloseConfirm-\(terminalID)"]
+            let mutationGate = app.buttons["MobileTerminalHierarchyNewTerminal"]
+            var removed = false
+            for attempt in 0..<2 {
+                XCTAssertTrue(
+                    confirmButton.waitForExistence(timeout: 4),
+                    "Close confirmation did not appear for stable ID \(terminalID), attempt \(attempt + 1).",
+                    file: file,
+                    line: line
+                )
+                tap(confirmButton, in: app, file: file, line: line)
+
+                let mutationStarted = XCTNSPredicateExpectation(
+                    predicate: NSPredicate(format: "isEnabled == false"),
+                    object: mutationGate
+                )
+                XCTAssertEqual(
+                    XCTWaiter.wait(for: [mutationStarted], timeout: 4),
+                    .completed,
+                    "Close must acquire the shared terminal mutation fence.",
+                    file: file,
+                    line: line
+                )
+                let closeOutcome = XCTNSPredicateExpectation(
+                    predicate: NSPredicate { _, _ in
+                        mutationGate.isEnabled
+                            && (!row.exists || (confirmButton.exists && confirmButton.isHittable))
+                    },
+                    object: app
+                )
+                XCTAssertEqual(
+                    XCTWaiter.wait(for: [closeOutcome], timeout: 15),
+                    .completed,
+                    "Close must remove the exact row or re-request confirmation for the same stable ID.",
+                    file: file,
+                    line: line
+                )
+                if !row.exists {
+                    removed = true
+                    break
+                }
+            }
+            XCTAssertTrue(
+                removed,
+                "The exact created terminal remained after the bounded same-ID confirmation retry.",
+                file: file,
+                line: line
+            )
+            let expectedRemaining = remainingTerminalIDs.subtracting([terminalID])
+            let afterTerminalIDs = p8ScanFullHierarchyTerminalIDs(
+                expectedMinimum: expectedRemaining.count,
+                in: app
+            )
+            XCTAssertEqual(
+                afterTerminalIDs,
+                expectedRemaining,
+                "Close must remove only the captured stable terminal identity.",
+                file: file,
+                line: line
+            )
+            XCTAssertFalse(app.staticTexts["Couldn't Update Terminals"].exists, file: file, line: line)
+            remainingTerminalIDs = afterTerminalIDs
+            completed += 1
+        }
+        return completed
+    }
+
+    @MainActor
+    private func p8PerformPaneSwitches(
+        count: Int,
+        fixture: P8HierarchyFixture,
+        hierarchyIsOpen: Bool,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> P8SwitchBatch {
+        guard let alternatePaneNumber = fixture.rowsByPane.keys.sorted()
+            .first(where: { $0 != fixture.activePaneNumber }),
+              let activeTargetID = fixture.rowsByPane[fixture.activePaneNumber]?.first,
+              let alternateTargetID = fixture.rowsByPane[alternatePaneNumber]?.first else {
+            XCTFail("The fixture needs stable targets in two panes.", file: file, line: line)
+            return P8SwitchBatch(actionCount: 0, hierarchyOpenCount: 0)
+        }
+
+        var actionCount = 0
+        var hierarchyOpenCount = 0
+        for index in 0..<count {
+            if index > 0 || !hierarchyIsOpen {
+                p8OpenTerminalHierarchy(in: app, file: file, line: line)
+                hierarchyOpenCount += 1
+            }
+            guard let currentPaneNumber = p8FindActivePaneNumber(in: app) else {
+                XCTFail("Could not identify the currently selected terminal's pane.", file: file, line: line)
+                break
+            }
+            let targetID: String
+            let targetPaneNumber: Int
+            if currentPaneNumber == fixture.activePaneNumber {
+                targetID = alternateTargetID
+                targetPaneNumber = alternatePaneNumber
+            } else {
+                targetID = activeTargetID
+                targetPaneNumber = fixture.activePaneNumber
+            }
+            XCTAssertNotEqual(currentPaneNumber, targetPaneNumber, file: file, line: line)
+            let target = p8HierarchyRow(terminalID: targetID, in: app)
+            XCTAssertTrue(
+                p8ScrollHierarchyRowIntoView(target, in: app),
+                "Could not reveal cross-pane terminal \(targetID).",
+                file: file,
+                line: line
+            )
+            tap(target, in: app, file: file, line: line)
+            XCTAssertTrue(p8WaitForHierarchyDismissal(in: app), file: file, line: line)
+            actionCount += 1
+        }
+        return P8SwitchBatch(
+            actionCount: actionCount,
+            hierarchyOpenCount: hierarchyOpenCount
+        )
+    }
+
+    @MainActor
+    private func p8HierarchyRow(terminalID: String, in app: XCUIApplication) -> XCUIElement {
+        app.buttons["MobileTerminalHierarchyRow-\(terminalID)"]
+    }
+
+    @MainActor
+    private func p8ScrollHierarchyRowIntoView(
+        _ row: XCUIElement,
+        in app: XCUIApplication
+    ) -> Bool {
+        if row.exists, row.isHittable { return true }
+        let list = p8HierarchyList(in: app)
+        for _ in 0..<24 {
+            list.swipeUp(velocity: .slow)
+            if row.exists, row.isHittable { return true }
+        }
+        for _ in 0..<24 {
+            list.swipeDown(velocity: .slow)
+            if row.exists, row.isHittable { return true }
+        }
+        return row.exists && row.isHittable
+    }
+
+    @MainActor
+    private func p8WaitForHierarchyDismissal(in app: XCUIApplication) -> Bool {
+        let sheet = app.otherElements["MobileTerminalHierarchySheet"]
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: sheet
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: 8) == .completed
+    }
+
+    @MainActor
+    private func p8ScanFullHierarchyTerminalIDs(
+        expectedMinimum: Int,
+        in app: XCUIApplication
+    ) -> Set<String> {
+        p8ScanFullHierarchy(expectedMinimum: expectedMinimum, in: app).terminalIDs
+    }
+
+    @MainActor
+    private func p8ScanFullHierarchy(
+        expectedMinimum: Int,
+        in app: XCUIApplication
+    ) -> P8HierarchyScan {
+        let list = p8HierarchyList(in: app)
+        var labelsByTerminalID: [String: String] = [:]
+        func collectRows() {
+            for row in p8HierarchyRows(in: app) {
+                guard let terminalID = p8TerminalID(fromRowIdentifier: row.identifier) else { continue }
+                labelsByTerminalID[terminalID] = row.label
+            }
+        }
+
+        collectRows()
+        for swipeUp in [true, false] {
+            var unchangedSwipes = 0
+            for _ in 0..<24 {
+                let previousCount = labelsByTerminalID.count
+                if swipeUp {
+                    list.swipeUp(velocity: .slow)
+                } else {
+                    list.swipeDown(velocity: .slow)
+                }
+                collectRows()
+                unchangedSwipes = labelsByTerminalID.count == previousCount ? unchangedSwipes + 1 : 0
+                if unchangedSwipes >= 4 { break }
+            }
+        }
+        collectRows()
+        XCTAssertGreaterThanOrEqual(labelsByTerminalID.count, expectedMinimum)
+        return P8HierarchyScan(
+            terminalIDs: Set(labelsByTerminalID.keys),
+            activeTerminalIDs: Set(labelsByTerminalID.compactMap { terminalID, label in
+                label.localizedCaseInsensitiveContains("Active") ? terminalID : nil
+            })
+        )
+    }
+
+    @MainActor
+    private func p8FindActivePaneNumber(in app: XCUIApplication) -> Int? {
+        let list = p8HierarchyList(in: app)
+        func activePane() -> Int? {
+            p8HierarchyRows(in: app).first(where: {
+                $0.label.localizedCaseInsensitiveContains("Active")
+            }).flatMap { p8PaneNumber(fromRowLabel: $0.label) }
+        }
+        if let paneNumber = activePane() { return paneNumber }
+        for _ in 0..<24 {
+            list.swipeUp(velocity: .slow)
+            if let paneNumber = activePane() { return paneNumber }
+        }
+        for _ in 0..<24 {
+            list.swipeDown(velocity: .slow)
+            if let paneNumber = activePane() { return paneNumber }
+        }
+        return activePane()
+    }
+
+    @MainActor
+    private func p8VisiblePaneCellOrder(
+        paneTerminalIDs: [String],
+        in app: XCUIApplication
+    ) -> [(id: String, cell: XCUIElement)] {
+        let listFrame = p8HierarchyList(in: app).frame
+        return paneTerminalIDs.compactMap { terminalID in
+            let rowIdentifier = "MobileTerminalHierarchyRow-\(terminalID)"
+            let cell = app.cells.containing(.button, identifier: rowIdentifier).firstMatch
+            let frame = cell.frame
+            guard cell.exists,
+                  !frame.isNull,
+                  !frame.isEmpty,
+                  frame.maxY > listFrame.minY,
+                  frame.minY < listFrame.maxY else { return nil }
+            return (terminalID, cell)
+        }
+        .sorted { $0.cell.frame.minY < $1.cell.frame.minY }
     }
 
     @MainActor

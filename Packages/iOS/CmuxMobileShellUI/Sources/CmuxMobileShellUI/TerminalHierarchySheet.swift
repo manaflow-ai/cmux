@@ -24,7 +24,9 @@ struct TerminalHierarchySheet: View {
         MobileTerminalReorderReservation
     ) async -> Result<Void, MobileWorkspaceMutationFailure>
     let refreshTerminals: () async -> Bool
+    let presentationProfilingGeneration: UUID?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.mobileInteractionProfilingSignposts) private var interactionProfilingSignposts
     @State private var pendingClose: TerminalHierarchyRowSnapshot?
     @State private var closeConfirmationIncludesRunningProcess = false
     @State private var isCloseConfirmationPresented = false
@@ -38,6 +40,7 @@ struct TerminalHierarchySheet: View {
     @State private var refreshResultIsUnknown = false
     @State private var refreshStateWasStale = false
     @State private var optimisticTerminalIDsByPane: [MobilePanePreview.ID: [MobileTerminalPreview.ID]] = [:]
+    @State private var pendingMutationProfiling: TerminalHierarchyMutationProfilingPending?
     var body: some View {
         NavigationStack {
             List {
@@ -80,6 +83,7 @@ struct TerminalHierarchySheet: View {
                     }
                 }
             }
+            .accessibilityIdentifier("MobileTerminalHierarchyList")
             .navigationTitle(L10n.string("mobile.terminal.hierarchy.title", defaultValue: "Terminals"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { hierarchyToolbar }
@@ -165,6 +169,31 @@ struct TerminalHierarchySheet: View {
             .terminalHierarchyMoveUnavailableAlert(isPresented: $moveUnavailable)
         }
         .accessibilityIdentifier("MobileTerminalHierarchySheet")
+        .background {
+            if let interactionProfilingSignposts,
+               interactionProfilingSignposts.isActive {
+                MobileInteractionPresentationDidAppearProbe {
+                    interactionProfilingSignposts.endTerminalHierarchyOpen(
+                        workspaceID: snapshot.workspaceID.rawValue,
+                        generation: presentationProfilingGeneration
+                    )
+                }
+                .id(presentationProfilingGeneration)
+                .frame(width: 0, height: 0)
+            }
+            if let pendingMutationProfiling {
+                MobileInteractionLayoutDisplayCommitProbe(
+                    generation: pendingMutationProfiling.generation,
+                    isReady: pendingMutationProfiling.isReady(in: snapshot),
+                    onCommitted: settleProfilingMutation
+                )
+                .id(pendingMutationProfiling.generation)
+                .frame(width: 0, height: 0)
+            }
+        }
+        .onDisappear {
+            finishPendingProfilingMutation(outcome: .cancelled)
+        }
     }
 
     private var emptyState: some View {
@@ -254,6 +283,13 @@ struct TerminalHierarchySheet: View {
     }
 
     private func select(_ row: TerminalHierarchyRowSnapshot) {
+        if let selectionKind = snapshot.profilingSelectionKind(for: row.id) {
+            interactionProfilingSignposts?.beginTerminalSelection(
+                workspaceID: snapshot.workspaceID.rawValue,
+                terminalID: row.id.rawValue,
+                paneSwitch: selectionKind == .paneSwitch
+            )
+        }
         selectTerminal(row.id)
         announce(
             String(
@@ -270,18 +306,30 @@ struct TerminalHierarchySheet: View {
 
     private func createAndAnnounce() {
         guard reorderGate.canMutate(workspaceID: snapshot.workspaceID) else { return }
+        let profilingGeneration = beginProfilingMutation(
+            .create(baselineTerminalIDs: Set(snapshot.panes.flatMap(\.rows).map(\.id)))
+        )
         createTerminal { result in
-            switch result {
-            case .success:
+            let presentation = TerminalHierarchyCreationResultPresentation(result)
+            switch presentation {
+            case .created:
                 break
-            case .failure(.appliedNeedsRefresh):
+            case .appliedNeedsRefresh:
                 presentRefreshRequired(resultIsUnknown: false)
-            case .failure(.resultUnknownNeedsRefresh):
+            case .resultUnknownNeedsRefresh:
                 presentRefreshRequired(resultIsUnknown: true)
-            case .failure(.resultUnknownRefreshed):
+            case .resultUnknownRefreshed:
                 mutationResultUnknownRefreshed = true
-            case .failure:
+            case .failed:
                 mutationFailed = true
+            }
+            if presentation == .created {
+                markProfilingMutationAuthoritativelySuccessful(generation: profilingGeneration)
+            } else {
+                finishPendingProfilingMutation(
+                    generation: profilingGeneration,
+                    outcome: .failed
+                )
             }
         }
         announce(L10n.string("mobile.terminal.hierarchy.createdAnnouncement", defaultValue: "Creating terminal"))
@@ -307,6 +355,12 @@ struct TerminalHierarchySheet: View {
             mutationFailed = true
             return
         }
+        let profilingGeneration = beginProfilingMutation(
+            .reorder(
+                paneID: pane.id,
+                expectedTerminalIDs: action.optimisticOrder
+            )
+        )
         action.perform(
             workspaceID: snapshot.workspaceID,
             reorderGate: reorderGate,
@@ -314,6 +368,14 @@ struct TerminalHierarchySheet: View {
             updateOptimisticOrder: { optimisticTerminalIDsByPane[pane.id] = $0 }
         ) { outcome in
             presentMoveOutcome(outcome)
+            if TerminalHierarchyMoveResultPresentation(outcome) == .reordered {
+                markProfilingMutationAuthoritativelySuccessful(generation: profilingGeneration)
+            } else {
+                finishPendingProfilingMutation(
+                    generation: profilingGeneration,
+                    outcome: .failed
+                )
+            }
         }
     }
 
@@ -381,10 +443,20 @@ struct TerminalHierarchySheet: View {
             presentCloseUnavailable()
             return
         }
+        let profilingGeneration: UUID?
+        if let operation = TerminalHierarchyMutationProfilingPending.Operation(
+            closing: pendingClose.id,
+            snapshot: snapshot
+        ) {
+            profilingGeneration = beginProfilingMutation(operation)
+        } else {
+            profilingGeneration = nil
+        }
         clearPendingClose()
         Task { @MainActor in
             let result = await closeTerminal(pendingClose.id, confirmation.confirmed, reservation)
-            switch TerminalHierarchyCloseResultPresentation(result) {
+            let presentation = TerminalHierarchyCloseResultPresentation(result)
+            switch presentation {
             case .closed:
                 announce(L10n.string("mobile.terminal.hierarchy.closedAnnouncement", defaultValue: "Terminal closed"))
             case .confirmationRequired:
@@ -404,7 +476,78 @@ struct TerminalHierarchySheet: View {
             case .failed:
                 mutationFailed = true
             }
+            if presentation == .closed {
+                markProfilingMutationAuthoritativelySuccessful(generation: profilingGeneration)
+            } else {
+                finishPendingProfilingMutation(
+                    generation: profilingGeneration,
+                    outcome: .failed
+                )
+            }
         }
+    }
+
+    private func beginProfilingMutation(
+        _ operation: TerminalHierarchyMutationProfilingPending.Operation
+    ) -> UUID? {
+        finishPendingProfilingMutation(outcome: .superseded)
+        guard let interactionProfilingSignposts else { return nil }
+        let interval: MobileInteractionProfilingSignposts.Interval?
+        switch operation {
+        case .create:
+            interval = interactionProfilingSignposts.beginTerminalCreate()
+        case .reorder:
+            interval = interactionProfilingSignposts.beginTerminalReorder()
+        case .close:
+            interval = interactionProfilingSignposts.beginTerminalClose()
+        }
+        guard let interval else { return nil }
+        let generation = UUID()
+        pendingMutationProfiling = TerminalHierarchyMutationProfilingPending(
+            generation: generation,
+            interval: interval,
+            operation: operation
+        )
+        return generation
+    }
+
+    private func markProfilingMutationAuthoritativelySuccessful(generation: UUID?) {
+        guard var pendingMutationProfiling,
+              pendingMutationProfiling.generation == generation else { return }
+        pendingMutationProfiling.authoritativeSuccess = true
+        self.pendingMutationProfiling = pendingMutationProfiling
+    }
+
+    private func settleProfilingMutation(generation: UUID) {
+        guard pendingMutationProfiling?.generation == generation,
+              pendingMutationProfiling?.isReady(in: snapshot) == true else { return }
+        finishPendingProfilingMutation(generation: generation, outcome: .settled)
+    }
+
+    private func finishPendingProfilingMutation(
+        generation: UUID? = nil,
+        outcome: MobileInteractionProfilingSignposts.Outcome
+    ) {
+        guard let pendingMutationProfiling,
+              generation == nil || pendingMutationProfiling.generation == generation else { return }
+        switch pendingMutationProfiling.operation {
+        case .create:
+            interactionProfilingSignposts?.endTerminalCreate(
+                pendingMutationProfiling.interval,
+                outcome: outcome
+            )
+        case .reorder:
+            interactionProfilingSignposts?.endTerminalReorder(
+                pendingMutationProfiling.interval,
+                outcome: outcome
+            )
+        case .close:
+            interactionProfilingSignposts?.endTerminalClose(
+                pendingMutationProfiling.interval,
+                outcome: outcome
+            )
+        }
+        self.pendingMutationProfiling = nil
     }
 
     private func requestClose(_ row: TerminalHierarchyRowSnapshot) {

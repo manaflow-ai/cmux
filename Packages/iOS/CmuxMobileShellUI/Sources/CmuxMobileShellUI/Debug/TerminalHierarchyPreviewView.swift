@@ -81,7 +81,8 @@ public struct TerminalHierarchyPreviewView: View {
             reorderGate: reorderGate,
             reorderTerminal: reorderTerminal,
             closeTerminal: closeTerminal,
-            refreshTerminals: { true }
+            refreshTerminals: { true },
+            presentationProfilingGeneration: nil
         )
         .terminalHierarchyCloseUnavailableAlert(isPresented: $isCloseUnavailablePresented)
     }

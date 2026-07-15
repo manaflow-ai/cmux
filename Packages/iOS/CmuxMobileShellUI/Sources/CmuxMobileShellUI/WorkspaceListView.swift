@@ -8,6 +8,7 @@ import AppKit
 #endif
 
 struct WorkspaceListView: View {
+    @Environment(\.mobileInteractionProfilingSignposts) var interactionProfilingSignposts
     let workspaces: [MobileWorkspacePreview]
     /// The Mac's workspace groups, in section order. Empty when the Mac reports no
     /// groups; the list then renders flat. Passed as value snapshots so no

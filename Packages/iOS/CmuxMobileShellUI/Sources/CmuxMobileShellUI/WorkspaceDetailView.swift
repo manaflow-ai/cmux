@@ -44,6 +44,7 @@ struct WorkspaceDetailView: View {
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
+    @Environment(\.mobileInteractionProfilingSignposts) var interactionProfilingSignposts
     @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
@@ -64,6 +65,7 @@ struct WorkspaceDetailView: View {
     @State private var textSheetSurfaceID: String?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     @State var isTerminalHierarchyPresented = false
+    @State var terminalHierarchyProfilingGeneration: UUID?
     @State var terminalCreationResultUnknownRefreshed = false
     @State var terminalCreationFailed = false
     @State var terminalCreationNeedsRefresh = false
@@ -146,7 +148,17 @@ struct WorkspaceDetailView: View {
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
-            .sheet(isPresented: $isTerminalHierarchyPresented) {
+            .sheet(isPresented: $isTerminalHierarchyPresented, onDismiss: {
+                interactionProfilingSignposts?.cancelTerminalHierarchyOpen(
+                    workspaceID: workspace.id.rawValue,
+                    generation: terminalHierarchyProfilingGeneration
+                )
+                interactionProfilingSignposts?.endTerminalSelection(
+                    workspaceID: workspace.id.rawValue,
+                    selectedTerminalID: store.selectedTerminalID?.rawValue
+                )
+                terminalHierarchyProfilingGeneration = nil
+            }) {
                 TerminalHierarchySheet(
                     snapshot: TerminalHierarchySnapshot(
                         workspace: workspace,
@@ -162,7 +174,8 @@ struct WorkspaceDetailView: View {
                     closeTerminal: closeTerminal,
                     refreshTerminals: {
                         await store.refreshTerminalHierarchy(workspaceID: workspace.id)
-                    }
+                    },
+                    presentationProfilingGeneration: terminalHierarchyProfilingGeneration
                 )
             }
             .workspaceRenameDialog(
