@@ -79,6 +79,33 @@ struct CEFOmnibarIntegrationTests {
     }
 
     @Test
+    func staleCEFHostReleaseCannotHideReplacement() {
+        let panel = CEFBrowserPanel(workspaceId: UUID())
+        let staleOwner = UUID()
+        let replacementOwner = UUID()
+
+        panel.setVisibleInUI(true, ownerID: staleOwner)
+        panel.setVisibleInUI(true, ownerID: replacementOwner)
+        panel.releaseVisibilityOwner(staleOwner)
+
+        #expect(panel.isVisibleInUI)
+        #expect(!panel.hostView.isHidden)
+
+        panel.releaseVisibilityOwner(replacementOwner)
+        #expect(!panel.isVisibleInUI)
+        #expect(panel.hostView.isHidden)
+    }
+
+    @Test
+    func popupNavigationRoutesIntoOwnedChromiumPanel() {
+        let panel = CEFBrowserPanel(workspaceId: UUID())
+
+        panel.routePopupNavigation("https://example.com/oauth/callback")
+
+        #expect(panel.currentURL == "https://example.com/oauth/callback")
+    }
+
+    @Test
     func hiddenDockReconcilesChromiumPanelVisibility() {
         let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
         let panel = CEFBrowserPanel(workspaceId: store.workspaceId)

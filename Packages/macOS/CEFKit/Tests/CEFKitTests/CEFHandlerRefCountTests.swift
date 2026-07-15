@@ -66,16 +66,21 @@ struct CEFHandlerRefCountTests {
 
 @Suite("CEFClientImpl ownership")
 struct CEFClientImplOwnershipTests {
-    @Test func lifeSpanHandlerRejectsUnownedPopupBrowsers() {
+    @Test func lifeSpanHandlerRoutesPopupTargetBeforeRejectingUnownedBrowser() {
         let impl = CEFClientImpl()
+        var routedURL: String?
+        impl.onPopupRequestedForTesting = { routedURL = $0 }
         let clientPtr = impl.makeClientStruct()
         let lifeSpan = clientPtr.pointee.get_life_span_handler?(clientPtr)
         let disposition = cef_window_open_disposition_t(rawValue: CEF_WOD_UNKNOWN.rawValue)
-        let cancelled = lifeSpan?.pointee.on_before_popup?(
-            lifeSpan, nil, nil, 0, nil, nil, disposition, 0,
-            nil, nil, nil, nil, nil, nil
-        )
+        let cancelled = withCEFString("https://example.com/popup") { targetURL in
+            lifeSpan?.pointee.on_before_popup?(
+                lifeSpan, nil, nil, 0, targetURL, nil, disposition, 0,
+                nil, nil, nil, nil, nil, nil
+            )
+        }
         #expect(cancelled == 1)
+        #expect(routedURL == "https://example.com/popup")
         cefRelease(UnsafeMutableRawPointer(lifeSpan!))
         impl.releaseCachedSubHandlers()
         cefRelease(UnsafeMutableRawPointer(clientPtr))
