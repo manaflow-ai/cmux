@@ -4,6 +4,21 @@ import Testing
 
 @Suite("Authoritative terminal grid state")
 struct AuthoritativeTerminalGridStateTests {
+    @Test func blinkingTextAlternatesWhileSteadyTextRemainsVisible() {
+        #expect(AuthoritativeTerminalBlinkPolicy.shouldDrawText(
+            styleBlinks: true,
+            blinkPhaseVisible: true
+        ))
+        #expect(!AuthoritativeTerminalBlinkPolicy.shouldDrawText(
+            styleBlinks: true,
+            blinkPhaseVisible: false
+        ))
+        #expect(AuthoritativeTerminalBlinkPolicy.shouldDrawText(
+            styleBlinks: false,
+            blinkPhaseVisible: false
+        ))
+    }
+
     @Test("renderer suppression starts before the first authoritative frame commits")
     func rendererSuppressionCoversPrecommitGeometry() {
         #expect(GhosttyPresentationSuppression.shouldHideRenderer(

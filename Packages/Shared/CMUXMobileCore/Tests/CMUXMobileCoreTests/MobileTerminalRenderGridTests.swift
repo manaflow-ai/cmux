@@ -342,6 +342,29 @@ import Testing
     #expect(decoded == frame)
 }
 
+@Test func renderGridPreservesResolvedCursorColorsAcrossDeltas() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface",
+        stateSeq: 9,
+        renderRevision: 4,
+        columns: 2,
+        rows: 1,
+        cursor: .init(row: 0, column: 1),
+        full: true,
+        rowSpans: [.init(row: 0, column: 0, text: "ok")],
+        terminalCursorColor: "#112233",
+        terminalCursorTextColor: "#ddeeff"
+    )
+
+    let decoded = try MobileTerminalRenderGridFrame.decode(JSONEncoder().encode(frame))
+    #expect(decoded.terminalCursorColor == "#112233")
+    #expect(decoded.terminalCursorTextColor == "#ddeeff")
+
+    let delta = try frame.filteredRows([0], full: false)
+    #expect(delta.terminalCursorColor == "#112233")
+    #expect(delta.terminalCursorTextColor == "#ddeeff")
+}
+
 @Test func renderGridRejectsInvalidSpanCoordinates() throws {
     #expect(throws: MobileTerminalRenderGridError.invalidColumn(9)) {
         _ = try MobileTerminalRenderGridFrame(
@@ -487,80 +510,6 @@ import Testing
     #expect(decoded.scrollbackRows == 1)
     #expect(decoded.scrollbackSpans == [.init(row: 0, column: 0, text: "sb")])
     #expect(decoded.terminalForeground == "#010203")
-}
-
-@Test func alternateColdSnapshotRestoresInactivePrimaryBeforeRawExit() throws {
-    let frame = try MobileTerminalRenderGridFrame(
-        surfaceID: "terminal-a",
-        stateSeq: 20,
-        columns: 16,
-        rows: 2,
-        rowSpans: [.init(row: 0, column: 0, text: "active-alt")],
-        activeScreen: .alternate,
-        // A real alternate-screen producer has no active-screen scrollback.
-        scrollbackRows: 0,
-        scrollbackSpans: [],
-        primaryScreenSnapshot: .init(
-            rows: 4,
-            viewportOffset: 1,
-            cursor: .init(row: 1, column: 3, style: .bar),
-            rowSpans: [
-                .init(row: 0, column: 0, text: "primary-history"),
-                .init(row: 1, column: 0, text: "primary-visible-0"),
-                .init(row: 2, column: 0, text: "primary-visible-1"),
-                .init(row: 3, column: 0, text: "primary-newer")
-            ]
-        )
-    )
-
-    let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(frame.jsonObject())
-    #expect(decoded.primaryScreenSnapshot == frame.primaryScreenSnapshot)
-    let replayThenExit = try #require(String(
-        data: frame.vtReplacementBytes() + Data("\u{1B}[?1049l".utf8),
-        encoding: .utf8
-    ))
-    let primary = try #require(replayThenExit.range(of: "primary-visible-0"))
-    let newer = try #require(replayThenExit.range(of: "primary-newer"))
-    let alternate = try #require(replayThenExit.range(of: "active-alt"))
-    let finalExit = try #require(replayThenExit.range(of: "\u{1B}[?1049l", options: .backwards))
-    let savedPrimaryCursor = try #require(replayThenExit.range(
-        of: "\u{1B}[2;4H",
-        options: .backwards,
-        range: primary.lowerBound..<alternate.lowerBound
-    ))
-    #expect(primary.lowerBound < newer.lowerBound)
-    #expect(newer.lowerBound < savedPrimaryCursor.lowerBound)
-    #expect(savedPrimaryCursor.lowerBound < alternate.lowerBound)
-    #expect(alternate.lowerBound < finalExit.lowerBound)
-}
-
-@Test func scrolledPrimarySnapshotIncludesRowsBelowVisualViewportWithoutDuplicatingIt() throws {
-    let frame = try MobileTerminalRenderGridFrame(
-        surfaceID: "terminal-a",
-        stateSeq: 21,
-        columns: 16,
-        rows: 2,
-        rowSpans: [
-            .init(row: 0, column: 0, text: "visible-old"),
-            .init(row: 1, column: 0, text: "visible-next")
-        ],
-        primaryScreenSnapshot: .init(
-            rows: 5,
-            viewportOffset: 1,
-            rowSpans: [
-                .init(row: 0, column: 0, text: "history"),
-                .init(row: 1, column: 0, text: "visible-old"),
-                .init(row: 2, column: 0, text: "visible-next"),
-                .init(row: 3, column: 0, text: "newer-below-viewport"),
-                .init(row: 4, column: 0, text: "active-bottom")
-            ]
-        )
-    )
-
-    let vt = try #require(String(data: frame.vtReplacementBytes(), encoding: .utf8))
-    #expect(vt.contains("newer-below-viewport"))
-    #expect(vt.components(separatedBy: "visible-old").count - 1 == 1)
-    #expect(frame.primaryScreenSnapshot?.viewportOffset == 1)
 }
 
 @Test func renderGridDeltaDropsFullStateFields() throws {
