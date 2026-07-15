@@ -1,10 +1,9 @@
 # CI/CD for the device presence service (workers/presence).
 #
-# Manual runs test the service. The deploy job remains restricted to pushes to
-# main, so it stays skipped while this workflow is manual-only. `wrangler
-# deploy` applies the Durable Object migrations declared in wrangler.toml
-# atomically with the code upload, so the service's schema can never lag a
-# deploy when automatic triggers are restored.
+# Manual runs test the service. Path-filtered pushes to main additionally deploy
+# to Cloudflare. `wrangler deploy` applies the Durable Object migrations declared
+# in wrangler.toml atomically with the code upload, so the service's schema can
+# never lag a deploy.
 #
 # Required repository secrets (deploy job):
 #   CLOUDFLARE_API_TOKEN   API token with Workers Scripts:Edit on the account
@@ -17,8 +16,14 @@
 name: presence
 
 on:
-  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI/CD.
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "workers/presence/**"
+      - "config/iroh/managed-relay-catalog.json"
+      - "scripts/generate-managed-iroh-relay-catalog.ts"
+      - ".github/workflows/presence.yml"
 
 permissions:
   contents: read
@@ -46,6 +51,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Validate managed relay catalog
+        run: bun run relay-catalog:check
 
       - name: Typecheck
         run: bun run typecheck

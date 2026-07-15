@@ -134,6 +134,9 @@ struct ClaudeHookSessionRecord: Codable {
     var transcriptPath: String?
     var pid: Int?
     var launchCommand: AgentHookLaunchCommandRecord?
+    /// Last hook-observed `permission_mode`, re-applied as `--permission-mode`
+    /// on user-owned session restore (https://github.com/manaflow-ai/cmux/issues/8066).
+    var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
     var lastSubtitle: String?
@@ -269,6 +272,23 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
             state.sessions[normalized]
+        }
+    }
+
+    /// Records the hook-observed permission mode on an existing session record.
+    /// The already-current check happens INSIDE the lock: an unlocked pre-check
+    /// can race an overlapping hook's write and skip persisting the newest mode,
+    /// leaving restore on a stale (possibly more permissive) mode. Unknown
+    /// sessions are left alone (the session-start upsert owns record creation).
+    func updateLastPermissionMode(sessionId: String, permissionMode: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        let mode = permissionMode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, !mode.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.lastPermissionMode != mode else { return }
+            record.lastPermissionMode = mode
+            state.sessions[normalized] = record
         }
     }
 
@@ -4386,6 +4406,15 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
+        case "todo":
+            try runTodoNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
         case "layout": try runLayoutNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
 
         case "list-workspaces":
@@ -8111,7 +8140,7 @@ struct CMUXCLI {
         guard let sub = commandArgs.first?.lowercased() else {
             throw CLIError(message: String(
                 localized: "cli.error.workspaceSubcommandRequired",
-                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
+                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
             ))
         }
         let rest = Array(commandArgs.dropFirst())
@@ -8170,6 +8199,14 @@ struct CMUXCLI {
                 windowOverride: windowOverride,
                 mode: .namespace
             )
+        case "status":
+            try runWorkspaceStatusCommand(
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
         case "select":
             try runWorkspaceSelectCommand(
                 commandName: "workspace select",
@@ -8206,7 +8243,7 @@ struct CMUXCLI {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.error.workspaceSubcommandUnknown",
-                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
+                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
                 ),
                 locale: .current,
                 sub
@@ -10138,20 +10175,20 @@ struct CMUXCLI {
         let attachScript = buildSSHPTYAttachScriptBody(
             remoteShellCommand: remoteShellCommand
         )
-        let scriptBody = [
+        let authScript = [
             "command \(authCommand) <&0",
             "cmux_auth_status=$?",
             "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
-            attachScript,
         ]
             .joined(separator: "\n")
         return buildReusableSSHStartupCommand(
-            sshCommand: scriptBody,
+            sshCommand: attachScript,
             shellFeatures: "",
             remoteRelayPort: options.remoteRelayPort,
             isShellSnippet: true,
             passwordCredential: passwordCredential,
             controlPathPreflightShellFunction: controlPathPreflightShellFunction,
+            oneTimeCommand: authScript,
             retryPTYAttachStatus: true
         )
     }
@@ -12264,20 +12301,20 @@ struct CMUXCLI {
     private func sshPTYAttachRetryLoopLines(command: String) -> [String] {
         // Retryable 254|255 is owned by SSHPTYAttachExitCode; keep in sync with SSHPTYAttachStartupCommandBuilder.retryingAttachLines.
         [
-            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
-            "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=20 ;; esac",
-            "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
-            "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
+            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"\ncase \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
+            "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"\ncase \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*|0*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
+            "cmux_ssh_attach_reconnect_max_delay=\"${CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS:-30}\"\ncase \"$cmux_ssh_attach_reconnect_max_delay\" in ''|*[!0-9]*|0*) cmux_ssh_attach_reconnect_max_delay=30 ;; esac",
+            "if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi",
+            "cmux_ssh_attach_reconnect_initial_delay=\"$cmux_ssh_attach_reconnect_delay\"",
             "cmux_ssh_attach_retry=0",
             "while :; do",
-            "  if [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
-            "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" \(command)",
+            "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi\n  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" \(command)",
             "  cmux_ssh_attach_status=$?",
-            "  case \"$cmux_ssh_attach_status\" in 254|255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
-            "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
+            "  case \"$cmux_ssh_attach_status\" in 254) cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\" ;; 255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac\n  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
             "  if [ -t 2 ]; then printf '\\n\\033[33m[cmux] remote PTY bridge closed; reattaching (attempt %s/%s).\\033[0m\\n' \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\" >&2 || true; fi",
             "  if [ \"$cmux_ssh_attach_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_attach_reconnect_delay\"; fi",
+            "  if [ \"$cmux_ssh_attach_reconnect_delay\" -lt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=$((cmux_ssh_attach_reconnect_delay * 2)); if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi; fi",
             "done",
         ]
     }
@@ -13031,6 +13068,7 @@ struct CMUXCLI {
         }
         let subcommand = subcommandRaw.lowercased()
         let subArgs = Array(args.dropFirst())
+        let browserValueTextFormatter = BrowserValueTextFormatter()
 
         func requireSurface() throws -> String {
             guard let raw = surfaceRaw else {
@@ -13077,32 +13115,6 @@ struct CMUXCLI {
             return lines.joined(separator: "\n")
         }
 
-        func displayBrowserValue(_ value: Any) -> String {
-            if let dict = value as? [String: Any],
-               let type = dict["__cmux_t"] as? String,
-               type == "undefined" {
-                return "undefined"
-            }
-            if value is NSNull {
-                return "null"
-            }
-            if let string = value as? String {
-                return string
-            }
-            if let bool = value as? Bool {
-                return bool ? "true" : "false"
-            }
-            if let number = value as? NSNumber {
-                return number.stringValue
-            }
-            if JSONSerialization.isValidJSONObject(value),
-               let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted]),
-               let text = String(data: data, encoding: .utf8) {
-                return text
-            }
-            return String(describing: value)
-        }
-
         func displayBrowserLogItems(_ value: Any?) -> String? {
             guard let items = value as? [Any], !items.isEmpty else {
                 return nil
@@ -13110,7 +13122,7 @@ struct CMUXCLI {
 
             let lines = items.map { item -> String in
                 guard let dict = item as? [String: Any] else {
-                    return displayBrowserValue(item)
+                    return browserValueTextFormatter.string(from: item)
                 }
 
                 let text = (dict["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -13122,7 +13134,7 @@ struct CMUXCLI {
                        !message.isEmpty {
                         return "[error] \(message)"
                     }
-                    return displayBrowserValue(dict)
+                    return browserValueTextFormatter.string(from: dict)
                 }
                 return "[\(level)] \(text)"
             }
@@ -13761,7 +13773,7 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "browser.eval", params: ["surface_id": sid, "script": trimmed])
             let fallback: String
             if let value = payload["value"] {
-                fallback = displayBrowserValue(value)
+                fallback = browserValueTextFormatter.string(from: value)
             } else {
                 fallback = "OK"
             }
@@ -15007,6 +15019,8 @@ struct CMUXCLI {
         switch command {
         case "remotes", "remote":
             return Self.remotesUsage
+        case "todo":
+            return Self.todoUsage
         case "ai-accounts":
             return Self.aiAccountsUsage
         case "ping":
@@ -15750,40 +15764,7 @@ struct CMUXCLI {
               cmux list-workspaces
             """
         case "workspace":
-            return String(localized: "cli.workspace.usage", defaultValue: """
-            Usage: cmux workspace <subcommand> [flags]
-
-            Canonical noun for workspace operations. Legacy verbs
-            (new-workspace, list-workspaces, close-workspace,
-            rename-workspace, select-workspace) keep working and print a
-            one-time deprecation hint pointing here.
-
-            Subcommands:
-              list                    List workspaces in a window
-              create [flags]          Create a workspace (same flags as new-workspace)
-              env [workspace] [--mask]
-                                      Print a workspace's configured environment
-                                      variables (--mask redacts the values)
-              close <workspace>       Close a workspace
-              rename <workspace> --title <new>
-              select <workspace>      Make a workspace active
-              reconnect [workspace]   Reconnect a remote (SSH) workspace, including one
-                                      whose automatic reconnect paused because the host
-                                      was unreachable
-              disconnect [workspace]  Stop a remote (SSH) workspace's connection
-              loading <on|off> [--id <name>] Toggle the workspace loading spinner.
-              group <subcommand>      Workspace group operations (see cmux workspace-group --help)
-            env/reconnect/disconnect accept a positional handle or --workspace
-            <id|ref|index>, defaulting to the caller's workspace, then the
-            selected one (of --window's window when given).
-            Examples:
-              cmux workspace list --json
-              cmux workspace create --name Build --cwd ~/projects/myapp
-              cmux workspace env workspace:3 --mask
-              cmux workspace close workspace:3
-              cmux workspace reconnect
-              cmux workspace disconnect --workspace workspace:3
-            """)
+            return Self.workspaceCommandUsage
         case "layout":
             return Self.layoutHelpText()
         case "workspace-group":
@@ -16943,7 +16924,7 @@ struct CMUXCLI {
               wait [--selector <css>] [--text <text>] [--url-contains <text>|--url <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>|--timeout <seconds>]
               click|dblclick|hover|focus|check|uncheck|scroll-into-view [--selector <css> | <css>] [--snapshot-after]
               type|fill [--selector <css> | <css>] [--text <text> | <text>] [--snapshot-after]
-              press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]
+              press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]  \(String(localized: "cli.browser.help.keyboardNaming", defaultValue: "Named keys follow Playwright/W3C names. Space, Spacebar, and space emit DOM key \" \" with code \"Space\"; --key ' ' passes the raw DOM key."))
               select [--selector <css> | <css>] [--value <value> | <value>] [--snapshot-after]
               scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
               screenshot [--out <path>]
@@ -23946,9 +23927,32 @@ struct CMUXCLI {
             return callerTTYBindingCache
         }
         let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = preferCallerTTYRouting ? callerTTYBinding : nil
+        let hookRouting = ClaudeHookRoutingContext(
+            workspaceArg: workspaceArg,
+            surfaceArg: surfaceArg,
+            surfaceFlagIsExplicit: hookSurfaceFlag != nil,
+            preferCallerTTYRouting: preferCallerTTYRouting,
+            callerTerminalBinding: callerTTYBindingProvider,
+            agentPid: claudeAgentPID(from: ProcessInfo.processInfo.environment)
+        )
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
+        // Record the hook-observed permission mode (shift+tab auto-accept, plan
+        // mode, bypass toggle): it is runtime state that never appears in the
+        // captured launch argv, and session restore re-applies it as
+        // `--permission-mode`. Read from rawObject — the compacted hook object
+        // keeps only an allowlist of keys and does not retain permission_mode.
+        // https://github.com/manaflow-ai/cmux/issues/8066
+        let observedHookPermissionMode = (parsedInput.rawObject?["permission_mode"] as? String)
+            ?? (parsedInput.rawObject?["permissionMode"] as? String)
+        if let hookSessionId = parsedInput.sessionId,
+           let observedHookPermissionMode {
+            try? sessionStore.updateLastPermissionMode(
+                sessionId: hookSessionId,
+                permissionMode: observedHookPermissionMode
+            )
+        }
         telemetry.breadcrumb(
             "claude-hook.input",
             data: [
@@ -23958,7 +23962,6 @@ struct CMUXCLI {
                 "has_surface_flag": optionValue(hookArgs, name: "--surface") != nil
             ]
         )
-
         var didSendFeedTelemetry = false
         func sendClaudeFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil) {
             didSendFeedTelemetry = true
@@ -23980,11 +23983,9 @@ struct CMUXCLI {
         switch subcommand {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
-            guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                preferred: nil,
-                fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+            guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
+                mappedSession: nil,
+                routing: hookRouting,
                 client: client
             ) else {
                 didSendFeedTelemetry = true
@@ -23992,14 +23993,8 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
-            let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
-                preferred: nil,
-                fallback: surfaceArg,
-                fallbackIsExplicit: hookSurfaceFlag != nil,
-                workspaceId: workspaceId,
-                callerTerminalBinding: callerTTYBindingProvider,
-                client: client
-            )
+            let workspaceId = resolvedTarget.workspaceId
+            let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
@@ -24059,7 +24054,8 @@ struct CMUXCLI {
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
                         cwd: parsedInput.cwd,
-                        launchCommand: launchCommand
+                        launchCommand: launchCommand,
+                        observedPermissionMode: observedHookPermissionMode
                     )
                 }
             }
@@ -24090,7 +24086,7 @@ struct CMUXCLI {
                 )
             }
             if isClearSessionStart, !suppressVisibleMutations {
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
@@ -24116,11 +24112,9 @@ struct CMUXCLI {
                 // Turn ended. Don't consume session or clear PID — Claude is still alive.
                 // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
                 let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-                guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                    preferred: mappedSession?.workspaceId,
-                    fallback: workspaceArg,
-                    preferCallerTTYOverFallback: preferCallerTTYRouting,
-                    callerTerminalBinding: callerTTYBindingProvider,
+                guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
+                    mappedSession: mappedSession,
+                    routing: hookRouting,
                     client: client
                 ) else {
                     didSendFeedTelemetry = true
@@ -24128,14 +24122,8 @@ struct CMUXCLI {
                     printClaudeHookAck()
                     return
                 }
-                let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
-                    preferred: mappedSession?.surfaceId,
-                    fallback: surfaceArg,
-                    fallbackIsExplicit: hookSurfaceFlag != nil,
-                    workspaceId: workspaceId,
-                    callerTerminalBinding: callerTTYBindingProvider,
-                    client: client
-                )
+                let workspaceId = resolvedTarget.workspaceId
+                let resolvedSurface = resolvedTarget
                 let surfaceId = resolvedSurface.surfaceId
                 let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
                 let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -24199,7 +24187,9 @@ struct CMUXCLI {
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
                         cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                        launchCommand: mappedSession?.launchCommand
+                        launchCommand: mappedSession?.launchCommand,
+                        observedPermissionMode: observedHookPermissionMode
+                            ?? mappedSession?.lastPermissionMode
                     )
                 }
 
@@ -24259,11 +24249,9 @@ struct CMUXCLI {
         case "prompt-submit":
             telemetry.breadcrumb("claude-hook.prompt-submit")
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                preferred: mappedSession?.workspaceId,
-                fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+            guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
+                mappedSession: mappedSession,
+                routing: hookRouting,
                 client: client
             ) else {
                 didSendFeedTelemetry = true
@@ -24271,14 +24259,8 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
-            let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
-                preferred: mappedSession?.surfaceId,
-                fallback: surfaceArg,
-                fallbackIsExplicit: hookSurfaceFlag != nil,
-                workspaceId: workspaceId,
-                callerTerminalBinding: callerTTYBindingProvider,
-                client: client
-            )
+            let workspaceId = resolvedTarget.workspaceId
+            let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
@@ -24347,10 +24329,12 @@ struct CMUXCLI {
                     displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                     sessionId: sessionId,
                     cwd: parsedInput.cwd ?? mappedSession?.cwd,
-                    launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand
+                    launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
+                    observedPermissionMode: observedHookPermissionMode
+                        ?? mappedSession?.lastPermissionMode
                 )
             }
-            _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            _ = try sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
@@ -24419,11 +24403,9 @@ struct CMUXCLI {
             let classifiedSubtitle = summary.subtitle
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                preferred: mappedSession?.workspaceId,
-                fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+            guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
+                mappedSession: mappedSession,
+                routing: hookRouting,
                 client: client
             ) else {
                 didSendFeedTelemetry = true
@@ -24431,19 +24413,13 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
+            let workspaceId = resolvedTarget.workspaceId
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
-                preferred: mappedSession?.surfaceId,
-                fallback: surfaceArg,
-                fallbackIsExplicit: hookSurfaceFlag != nil,
-                workspaceId: workspaceId,
-                callerTerminalBinding: callerTTYBindingProvider,
-                client: client
-            )
+            let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             guard shouldApplyClaudeHookVisibleMutation(
@@ -24566,7 +24542,7 @@ struct CMUXCLI {
             }
             _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             printClaudeHookAck()
-        case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, workspaceArg: workspaceArg, surfaceArg: surfaceArg, hookSurfaceFlagIsExplicit: hookSurfaceFlag != nil, preferCallerTTYRouting: preferCallerTTYRouting, callerTTYBindingProvider: callerTTYBindingProvider, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
+        case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, routing: hookRouting, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
             // A fork launch that exits before its first prompt fires SessionEnd
@@ -24593,25 +24569,18 @@ struct CMUXCLI {
                     currentAgentPID: forkClaudePid,
                     env: ProcessInfo.processInfo.environment
                 )
+                // Resolve through the live target resolver so the cleanup
+                // follows the fork pane even after a pane move (live pid
+                // probe, then legacy chain, then identity-surface re-home).
                 if !suppressForkVisibleMutations,
-                   let forkWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
-                       preferred: nil,
-                       fallback: workspaceArg,
-                       preferCallerTTYOverFallback: preferCallerTTYRouting,
-                       callerTerminalBinding: callerTTYBindingProvider,
+                   let forkTarget = try? resolveClaudeHookDeliveryTarget(
+                       mappedSession: nil,
+                       routing: hookRouting,
                        client: client
                    ),
-                   let forkSurface = try? resolvePreferredSurfaceForClaudeHookDetailed(
-                       preferred: nil,
-                       fallback: surfaceArg,
-                       fallbackIsExplicit: hookSurfaceFlag != nil,
-                       workspaceId: forkWorkspaceId,
-                       callerTerminalBinding: callerTTYBindingProvider,
-                       client: client
-                   ),
-                   forkSurface.isAuthoritative {
+                   forkTarget.isAuthoritative {
                     _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkWorkspaceId)\(socketPanelOption(forkSurface.surfaceId)) --clear-status",
+                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(forkTarget.workspaceId)\(socketPanelOption(forkTarget.surfaceId)) --clear-status",
                         client: client
                     )
                 }
@@ -24623,48 +24592,72 @@ struct CMUXCLI {
             // If Stop already consumed the session, consumedSession is nil and we skip
             // to avoid wiping the completion notification that Stop just delivered.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let fallbackWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
-                preferred: mappedSession?.workspaceId,
-                fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+            // Resolve the pane's CURRENT owner before consuming the record:
+            // SessionEnd can be the only hook after a pane move (Ctrl-C exit
+            // with no later Stop/Notification to heal the record), and cleanup
+            // must clear status/notifications where the pane lives NOW.
+            // Clearing the record's stale workspace instead leaves the moved
+            // pane stuck and `clear_notifications --tab=` would wipe unrelated
+            // panes' notifications in the old workspace.
+            guard let liveEndTarget = try? resolveClaudeHookDeliveryTarget(
+                mappedSession: mappedSession,
+                routing: hookRouting,
                 client: client
-            )
-            let fallbackSurfaceId: String? = {
-                guard let fallbackWorkspaceId else { return nil }
-                return try? resolvePreferredSurfaceIdForClaudeHook(
-                    preferred: mappedSession?.surfaceId,
-                    fallback: surfaceArg,
-                    fallbackIsExplicit: hookSurfaceFlag != nil,
-                    workspaceId: fallbackWorkspaceId,
-                    callerTerminalBinding: callerTTYBindingProvider,
-                    client: client
-                )
-            }()
+            ) else {
+                // Keep the persisted route so a later authoritative cleanup
+                // can still clear the visible state this attempt could not.
+                didSendFeedTelemetry = true
+                telemetry.breadcrumb("claude-hook.session-end.unresolved")
+                printClaudeHookAck()
+                return
+            }
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
-                workspaceId: fallbackWorkspaceId,
-                surfaceId: fallbackSurfaceId,
+                workspaceId: liveEndTarget.workspaceId,
+                surfaceId: liveEndTarget.surfaceId,
                 turnId: parsedInput.turnId
             )
             // consume() calls clearActiveSessionIfMatching before returning
             // consumedSession, so isCurrent can treat consumedSession.sessionId
             // as current only when the consumed session was the active one.
             if let consumedSession {
-                let workspaceId = consumedSession.workspaceId
+                // App-visible cleanup targets the live owner of the session's
+                // pane when the resolver answered authoritatively; the
+                // consumed record's address is the fallback. Store-side calls
+                // keep the record's own address.
+                let workspaceId: String
+                let cleanupSurfaceId: String
+                if liveEndTarget.isAuthoritative {
+                    workspaceId = liveEndTarget.workspaceId
+                    cleanupSurfaceId = liveEndTarget.surfaceId
+                } else {
+                    workspaceId = consumedSession.workspaceId
+                    cleanupSurfaceId = consumedSession.surfaceId
+                }
                 clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
-                    surfaceId: consumedSession.surfaceId,
+                    surfaceId: cleanupSurfaceId,
                     sessionId: consumedSession.sessionId
                 )
-                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: consumedSession.surfaceId)
+                if cleanupSurfaceId != consumedSession.surfaceId {
+                    clearAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: consumedSession.workspaceId,
+                        surfaceId: consumedSession.surfaceId,
+                        sessionId: consumedSession.sessionId
+                    )
+                }
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: cleanupSurfaceId)
+                // Staleness is judged on the pane being CLEANED: gating on a
+                // polluted record surface (#7391) could false-skip cleanup of
+                // the real pane, stranding its ring/status after exit.
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
                     turnId: parsedInput.turnId,
                     workspaceId: workspaceId,
-                    surfaceId: consumedSession.surfaceId,
+                    surfaceId: cleanupSurfaceId,
                     telemetry: telemetry
                 )
                 let claudePid = consumedSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
@@ -24674,15 +24667,20 @@ struct CMUXCLI {
                 )
                 if shouldClearVisibleState, !suppressVisibleMutations {
                     _ = try? sendV1Command(
-                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
+                        "clear_agent_pid \(Self.claudeCodeStatusKey) --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId)) --clear-status",
                         client: client
                     )
                     try? sessionStore.clearAgentLifecycleIfPresent(
                         sessionId: consumedSession.sessionId,
-                        workspaceId: workspaceId,
+                        workspaceId: consumedSession.workspaceId,
                         surfaceId: consumedSession.surfaceId
                     )
-                    _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                    // Lifecycle cleanup is always pane-scoped: a workspace can
+                    // host multiple agents whose notifications are independent.
+                    _ = try? sendV1Command(
+                        "clear_notifications --tab=\(workspaceId)\(socketPanelOption(cleanupSurfaceId))",
+                        client: client
+                    )
                 } else {
                     telemetry.breadcrumb("claude-hook.session-end.stale")
                 }
@@ -24701,11 +24699,15 @@ struct CMUXCLI {
             // Clears "Needs input" status and notification when Claude resumes work
             // (e.g. after permission grant). Runs async so it doesn't block tool execution.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            guard let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                preferred: mappedSession?.workspaceId,
-                fallback: workspaceArg,
-                preferCallerTTYOverFallback: preferCallerTTYRouting,
-                callerTerminalBinding: callerTTYBindingProvider,
+            // Skip only the pid/tty scan per tool call; the cheap
+            // `{surface_id}` re-home probe stays enabled so a mid-turn pane
+            // move cannot make this hook mutate (and re-record) the old
+            // workspace's focused pane.
+            var preToolUseRouting = hookRouting
+            preToolUseRouting.allowsPidProbe = false
+            guard let resolvedTarget = try resolveClaudeHookDeliveryTarget(
+                mappedSession: mappedSession,
+                routing: preToolUseRouting,
                 client: client
             ) else {
                 didSendFeedTelemetry = true
@@ -24713,14 +24715,8 @@ struct CMUXCLI {
                 printClaudeHookAck()
                 return
             }
-            let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
-                preferred: mappedSession?.surfaceId,
-                fallback: surfaceArg,
-                fallbackIsExplicit: hookSurfaceFlag != nil,
-                workspaceId: workspaceId,
-                callerTerminalBinding: callerTTYBindingProvider,
-                client: client
-            )
+            let workspaceId = resolvedTarget.workspaceId
+            let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
@@ -24776,9 +24772,14 @@ struct CMUXCLI {
                 } else {
                     needsInputBody = describeExitPlanMode(parsedInput.object) ?? waitingBody
                 }
-                // Preserve a non-empty surfaceId from SessionStart; passing ""
-                // would overwrite it and cause notifications to target the wrong workspace.
-                let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
+                // An authoritative live resolution outranks the persisted
+                // session surface (stale after a pane move); re-preferring it
+                // would re-pollute the record and pin the blocking prompt on
+                // the wrong pane. A focused-guess resolution keeps the
+                // recorded surface ("" would overwrite it and misroute).
+                let existingSurfaceId = resolvedSurface.isAuthoritative
+                    ? surfaceId
+                    : (nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId)
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -24853,7 +24854,7 @@ struct CMUXCLI {
                     agentLifecycle: .running
                 )
             }
-            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
@@ -27701,7 +27702,8 @@ struct CMUXCLI {
         displayName: String,
         sessionId: String,
         cwd: String?,
-        launchCommand: AgentHookLaunchCommandRecord?
+        launchCommand: AgentHookLaunchCommandRecord?,
+        observedPermissionMode: String? = nil
     ) {
         if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
             clearAgentSurfaceResumeBinding(client: client, workspaceId: workspaceId, surfaceId: surfaceId, sessionId: sessionId)
@@ -27719,7 +27721,8 @@ struct CMUXCLI {
             sessionId: sessionId,
             launchCommand: launchCommand,
             workingDirectory: resumeWorkingDirectory,
-            environment: resumeEnvironment
+            environment: resumeEnvironment,
+            observedPermissionMode: observedPermissionMode
         ) else {
             clearAgentSurfaceResumeBinding(
                 client: client,
@@ -27770,7 +27773,8 @@ struct CMUXCLI {
         sessionId: String,
         launchCommand: AgentHookLaunchCommandRecord?,
         workingDirectory: String?,
-        environment: [String: String]?
+        environment: [String: String]?,
+        observedPermissionMode: String? = nil
     ) -> String? {
         let normalizedSessionId = normalizedHookValue(sessionId)
         guard let normalizedSessionId else { return nil }
@@ -27783,13 +27787,17 @@ struct CMUXCLI {
             arguments: launchCommand?.arguments ?? []
         ) {
         case .resolved(let resolved):
+            // Wrapper launchers include the claude-teams orphan-respawn path,
+            // which must never regain permission state a restored teammate did
+            // not explicitly opt into; observed mode applies only below.
             argv = resolved
         case .passthrough:
             argv = AgentResumeArgv().builtInKind(
                 kind: kind,
                 sessionId: normalizedSessionId,
                 executablePath: launchCommand?.executablePath,
-                arguments: launchCommand?.arguments ?? []
+                arguments: launchCommand?.arguments ?? [],
+                observedPermissionMode: observedPermissionMode
             )
         }
 
@@ -35198,6 +35206,8 @@ export default CMUXSessionRestore;
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
           reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
           workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
+          workspace status [set <lane|auto>] [--workspace <id|ref|index>] [--window <id|ref|index>]
+          todo <add|list|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
