@@ -419,7 +419,7 @@ struct CMUXMobileRootView: View {
 
     private func updateAutomaticAddDevicePresentation(_ isPresented: Bool) {
         if isPresented {
-            addDevicePresentation.present(origin: .automaticFirstConnection)
+            addDevicePresentation.presentAutomaticallyIfUnowned()
         } else {
             addDevicePresentation.dismissAutomaticForAvailableSession()
         }

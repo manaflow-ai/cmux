@@ -287,7 +287,7 @@ struct WorkspaceShellView: View {
 
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
-        store.selectedWorkspaceID = id
+        store.selectWorkspaceFromUserAction(id)
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
         }

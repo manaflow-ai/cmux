@@ -1089,6 +1089,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             analytics.setSuperProperties(["is_authenticated": .bool(false)])
         }
         suppressNextConnectionOutageEdge = true
+        invalidateRegistrySessionHandoffAttempt()
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
         connectionGeneration = UUID()
@@ -1219,6 +1220,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// lists" behavior).
     public func currentTeamDidChange() {
         secondaryAggregationScopeGeneration &+= 1
+        invalidateRegistrySessionHandoffAttempt()
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
         presenceTask?.cancel()
@@ -1560,7 +1562,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
         activeRoute = directRoute
-        let attemptID = recordsPairingAttempt ? beginPairingAttempt(method: "manual") : beginPairingValidationAttempt()
+        let attemptID = recordsPairingAttempt
+            ? beginPairingAttempt(
+                method: "manual",
+                invalidatesRegistryHandoff: ifStillCurrent == nil
+            )
+            : beginPairingValidationAttempt()
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
         let manualRoutes = directRoute.map { [$0] } ?? []
@@ -2013,6 +2020,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Switch the foreground connection to another paired Mac.
     @discardableResult
     public func switchToMac(macDeviceID: String) async -> Bool {
+        invalidateRegistrySessionHandoffAttempt()
         guard let pairedMacStore else { return false }
         let switchAttemptID = beginMacSwitchAttempt()
         let liveForegroundRestoreBaseline = liveForegroundMacForSwitchRestore()
@@ -2166,10 +2174,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func restorePreviousMacIfNeeded(
         _ previousActive: MobilePairedMac?,
         switchAttemptID: UUID? = nil,
-        cancelRestoreGeneration: UInt64? = nil
+        cancelRestoreGeneration: UInt64? = nil,
+        ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
         func isRestoreCurrent() -> Bool {
-            guard isSignedIn else { return false }
+            guard isSignedIn, ifStillCurrent?() ?? true else { return false }
             if let switchAttemptID {
                 return isCurrentMacSwitchAttempt(switchAttemptID)
             }
@@ -3682,6 +3691,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var deeplinkWorkspaceNavigationRequest: DeeplinkWorkspaceNavigationRequest?
     /// One-shot exact agent-session intent created by a registry handoff.
     public internal(set) var registrySessionHandoffNavigationRequest: RegistrySessionHandoffNavigationRequest?
+    @ObservationIgnored var registrySessionHandoffAttemptID: UUID?
 
     /// Selects `id` as a chrome action (the terminal picker), so the surface
     /// that comes up does not grab the keyboard.
@@ -3692,6 +3702,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// surface's next autofocus. Re-confirming the already-selected terminal is
     /// a no-op suppression, since no surface re-attach happens.
     public func selectTerminalFromChrome(_ id: MobileTerminalPreview.ID) {
+        invalidateRegistrySessionHandoffAttempt()
         if id != selectedTerminalID {
             terminalAutoFocusSuppressedSurfaceIDs.insert(id.rawValue)
         }
@@ -5038,10 +5049,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The one shared entry every pairing flow funnels through, so it is also the
     /// single `ios_pairing_started` fire-site. `method` is `qr`/`manual`/
     /// `attach_url`; pass `nil` for non-instrumented internal flows (preview).
-    private func beginPairingAttempt(method: String? = nil) -> UUID {
+    private func beginPairingAttempt(
+        method: String? = nil,
+        invalidatesRegistryHandoff: Bool = true
+    ) -> UUID {
         // Any explicit connect supersedes launch/network recovery, including a
         // recovery suspended in a registry refresh for the same device id.
         storedMacReconnectGeneration &+= 1
+        if invalidatesRegistryHandoff {
+            invalidateRegistrySessionHandoffAttempt()
+        }
         let attemptID = beginPairingValidationAttempt(method: method)
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()

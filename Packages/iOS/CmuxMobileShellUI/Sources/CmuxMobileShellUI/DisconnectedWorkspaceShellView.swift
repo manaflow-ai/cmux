@@ -246,17 +246,12 @@ struct DisconnectedWorkspaceShellView: View {
         pendingHandoffID = session.id
         Task { @MainActor in
             defer { pendingHandoffID = nil }
-            guard let workspaceID = await store.prepareRegistrySessionHandoff(
+            _ = await store.prepareRegistrySessionHandoff(
                 deviceID: session.deviceID,
                 instanceTag: session.instanceTag,
                 sessionID: session.sessionID,
                 expectedAgentSessionID: session.agentSessionID
-            ) else {
-                return
-            }
-            // The shell mounts after this first successful connection. Reuse its
-            // one-shot navigation request so the selected workspace opens there.
-            store.navigateToWorkspaceForDeeplink(workspaceID)
+            )
         }
     }
 

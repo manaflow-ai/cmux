@@ -52,6 +52,11 @@ public struct MobileAddDevicePresentationState: Equatable, Sendable {
         self.origin = origin
     }
 
+    public mutating func presentAutomaticallyIfUnowned() {
+        guard origin == nil else { return }
+        origin = .automaticFirstConnection
+    }
+
     public mutating func dismiss() {
         origin = nil
     }

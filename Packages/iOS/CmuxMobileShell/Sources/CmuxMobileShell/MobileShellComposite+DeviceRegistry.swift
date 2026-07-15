@@ -1,4 +1,5 @@
 public import CmuxMobileShellModel
+import Foundation
 
 extension MobileShellComposite {
     /// Reload ``registryDevices`` from the account-scoped device registry.
@@ -72,33 +73,100 @@ extension MobileShellComposite {
         expectedAgentSessionID: String?
     ) async -> MobileWorkspacePreview.ID? {
         guard let scope = await currentScopeSnapshot() else { return nil }
+        let requestID = beginRegistrySessionHandoffAttempt()
+        defer { finishRegistrySessionHandoffAttempt(requestID) }
         isRegistryHandoffFailurePresented = false
+        guard await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope) else {
+            return nil
+        }
         guard let session = registryDevices
             .first(where: { $0.deviceId == deviceID })?
             .instances.first(where: { $0.tag == instanceTag })?
             .sessions.first(where: { $0.id == sessionID }),
               session.agentSessionID == expectedAgentSessionID else {
-            await presentRegistryHandoffFailure(ifScopeCurrent: scope)
+            await presentRegistryHandoffFailure(requestID: requestID, ifScopeCurrent: scope)
             return nil
         }
         let workspaceID = await prepareRegistrySessionHandoff(
             deviceID: deviceID,
             instanceTag: instanceTag,
             sessionID: sessionID,
-            agentSessionID: expectedAgentSessionID
+            agentSessionID: expectedAgentSessionID,
+            ifStillCurrent: { [weak self] in
+                self?.isRegistrySessionHandoffAttemptCurrent(requestID) == true
+            }
         )
-        guard await isScopeCurrent(scope) else { return nil }
-        guard let workspaceID else {
-            await presentRegistryHandoffFailure(ifScopeCurrent: scope)
+        guard await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope) else {
             return nil
         }
+        guard let workspaceID else {
+            await presentRegistryHandoffFailure(requestID: requestID, ifScopeCurrent: scope)
+            return nil
+        }
+        guard await completeRegistrySessionHandoffNavigation(
+            workspaceID: workspaceID,
+            requestID: requestID,
+            scope: scope
+        ) else { return nil }
         return workspaceID
     }
 
+    func beginRegistrySessionHandoffAttempt() -> UUID {
+        let requestID = UUID()
+        registrySessionHandoffAttemptID = requestID
+        return requestID
+    }
+
+    func isRegistrySessionHandoffAttemptCurrent(_ requestID: UUID) -> Bool {
+        registrySessionHandoffAttemptID == requestID && isSignedIn
+    }
+
+    func isRegistrySessionHandoffAttemptCurrent(
+        _ requestID: UUID,
+        scope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        guard isRegistrySessionHandoffAttemptCurrent(requestID) else { return false }
+        return await isScopeCurrent(scope)
+    }
+
+    func finishRegistrySessionHandoffAttempt(_ requestID: UUID) {
+        guard registrySessionHandoffAttemptID == requestID else { return }
+        registrySessionHandoffAttemptID = nil
+    }
+
+    func invalidateRegistrySessionHandoffAttempt() {
+        guard registrySessionHandoffAttemptID != nil else { return }
+        registrySessionHandoffAttemptID = nil
+        registrySessionHandoffNavigationRequest = nil
+    }
+
+    public func selectWorkspaceFromUserAction(_ id: MobileWorkspacePreview.ID) {
+        invalidateRegistrySessionHandoffAttempt()
+        selectedWorkspaceID = id
+    }
+
+    @discardableResult
+    func completeRegistrySessionHandoffNavigation(
+        workspaceID: MobileWorkspacePreview.ID,
+        requestID: UUID,
+        scope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        guard await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope) else {
+            return false
+        }
+        selectedWorkspaceID = workspaceID
+        deeplinkWorkspaceNavigationRequest = DeeplinkWorkspaceNavigationRequest(
+            token: UUID(),
+            workspaceID: workspaceID
+        )
+        return true
+    }
+
     private func presentRegistryHandoffFailure(
+        requestID: UUID,
         ifScopeCurrent scope: MobileShellScopeSnapshot
     ) async {
-        guard await isScopeCurrent(scope) else { return }
+        guard await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope) else { return }
         isRegistryHandoffFailurePresented = true
     }
 

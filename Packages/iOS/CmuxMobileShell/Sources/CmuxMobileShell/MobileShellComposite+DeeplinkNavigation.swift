@@ -20,6 +20,7 @@ extension CMUXMobileShellStore {
     /// stack). Called by the push coordinator when a parked notification tap
     /// resolves; the workspace is expected to exist in ``workspaces``.
     public func navigateToWorkspaceForDeeplink(_ id: MobileWorkspacePreview.ID) {
+        invalidateRegistrySessionHandoffAttempt()
         selectedWorkspaceID = id
         deeplinkWorkspaceNavigationRequest = DeeplinkWorkspaceNavigationRequest(
             token: UUID(),

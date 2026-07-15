@@ -405,10 +405,13 @@ extension MobileShellComposite {
             recordsPairingAttempt: true,
             ifStillCurrent: ifStillCurrent
         )
-        guard connectedRoute, ifStillCurrent?() ?? true else {
-            if previousActive != nil,
-               (!hasActiveMacConnection || !(ifStillCurrent?() ?? true)) {
-                await restorePreviousMacAfterInterruptedFlow(previousActive)
+        let isCurrent = ifStillCurrent?() ?? true
+        guard connectedRoute, isCurrent else {
+            if previousActive != nil, !hasActiveMacConnection, isCurrent {
+                await restorePreviousMacAfterInterruptedFlow(
+                    previousActive,
+                    ifStillCurrent: ifStillCurrent ?? { true }
+                )
             }
             return
         }
