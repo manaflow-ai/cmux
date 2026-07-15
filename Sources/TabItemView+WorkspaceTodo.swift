@@ -122,6 +122,19 @@ extension TabItemView {
             },
             openPane: { [tab] in
                 WorkspaceTodoActions.openTodoPane(for: tab)
+            },
+            addAttachments: { [tab] itemId in
+                WorkspaceTodoActions.addImageAttachments(to: itemId, in: tab)
+            },
+            removeAttachment: { [tab] itemId, attachmentId in
+                WorkspaceTodoActions.removeImageAttachment(itemId: itemId, attachmentId: attachmentId, from: tab)
+            },
+            openAttachments: { [tab] itemId, selectedAttachmentId in
+                guard let item = tab.todoState.checklist.first(where: { $0.id == itemId }) else { return }
+                WorkspaceTodoActions.openImageAttachments(
+                    item.attachments,
+                    selectedAttachmentId: selectedAttachmentId
+                )
             }
         )
     }

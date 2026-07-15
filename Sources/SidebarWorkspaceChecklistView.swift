@@ -2,6 +2,29 @@ import AppKit
 import CmuxWorkspaces
 import SwiftUI
 
+// MARK: - Minimal visibility policy
+
+/// Pure mount/compact policy for todo affordances in compact sidebar rows.
+/// Checklist content must stay mounted while it is visible or anchoring an
+/// open/add-requested popover; status stays visible only when the row is in
+/// compact detail mode and the workspace has opted into status display.
+enum SidebarWorkspaceTodoMinimalVisibility {
+    static func showsChecklistSection(
+        itemCount: Int,
+        addFieldActivationToken: Int,
+        isPopoverPresented: Bool
+    ) -> Bool {
+        itemCount > 0 || addFieldActivationToken > 0 || isPopoverPresented
+    }
+
+    static func showsCompactStatus(
+        hidesAllDetails: Bool,
+        taskStatus: WorkspaceTaskStatus?
+    ) -> Bool {
+        hidesAllDetails && taskStatus != nil
+    }
+}
+
 // MARK: - Display policy
 
 /// Pure display ordering/clamping for the sidebar checklist. Kept free of
@@ -47,6 +70,93 @@ struct SidebarWorkspaceChecklistActions {
     let moveItem: @MainActor (UUID, Int) -> Void
     /// Opens the workspace's todo pane (checklist popover footer).
     let openPane: @MainActor () -> Void
+    /// Opens an image picker and attaches selected images to one item.
+    let addAttachments: @MainActor (UUID) -> Void
+    /// Removes one attachment reference from one item.
+    let removeAttachment: @MainActor (UUID, UUID) -> Void
+    /// Opens one item's attachments in Quick Look.
+    let openAttachments: @MainActor (UUID, UUID?) -> Void
+}
+
+// MARK: - Attachment menu
+
+struct WorkspaceChecklistAttachmentMenu: View {
+    let item: WorkspaceChecklistItem
+    let iconPointSize: CGFloat
+    let foregroundColor: Color
+    let countFont: Font
+    let addAttachments: @MainActor (UUID) -> Void
+    let removeAttachment: @MainActor (UUID, UUID) -> Void
+    let openAttachments: @MainActor (UUID, UUID?) -> Void
+
+    var body: some View {
+        Menu {
+            Button(String(localized: "sidebar.checklist.attachImages", defaultValue: "Attach Images…")) {
+                addAttachments(item.id)
+            }
+            if !item.attachments.isEmpty {
+                Divider()
+                ForEach(item.attachments) { attachment in
+                    let exists = FileManager.default.fileExists(atPath: attachment.filePath)
+                    Menu(attachment.displayName) {
+                        Button(String(localized: "sidebar.checklist.openAttachment", defaultValue: "Open")) {
+                            openAttachments(item.id, attachment.id)
+                        }
+                        .disabled(!exists)
+                        if !exists {
+                            Text(String(
+                                localized: "sidebar.checklist.attachmentUnavailable",
+                                defaultValue: "File unavailable"
+                            ))
+                        }
+                        Button(String(
+                            localized: "sidebar.checklist.removeAttachment",
+                            defaultValue: "Remove Attachment"
+                        )) {
+                            removeAttachment(item.id, attachment.id)
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 2) {
+                CmuxSystemSymbolImage(systemName: "paperclip", pointSize: iconPointSize)
+                if item.attachmentCount > 0 {
+                    Text(verbatim: "\(item.attachmentCount)")
+                        .font(countFont)
+                        .monospacedDigit()
+                }
+            }
+            .foregroundColor(foregroundColor)
+            .frame(minWidth: iconPointSize + 8, minHeight: iconPointSize + 8, alignment: .center)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .safeHelp(String(localized: "sidebar.checklist.attachmentsTooltip", defaultValue: "Manage images"))
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityIdentifier("WorkspaceChecklistAttachmentMenu")
+    }
+
+    private var accessibilityLabel: String {
+        switch item.attachmentCount {
+        case 0:
+            return String(
+                localized: "sidebar.checklist.attachments.noneAccessibility",
+                defaultValue: "No images attached. Attach images."
+            )
+        case 1:
+            return String(localized: "sidebar.checklist.attachments.oneAccessibility", defaultValue: "1 image attached")
+        default:
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "sidebar.checklist.attachments.manyAccessibility",
+                    defaultValue: "%lld images attached"
+                ),
+                Int64(item.attachmentCount)
+            )
+        }
+    }
 }
 
 // MARK: - Section (summary line + optional expansion)
@@ -290,6 +400,16 @@ struct SidebarWorkspaceChecklistSection: View {
                     .onTapGesture { beginItemEdit(item) }
             }
             Spacer(minLength: 0)
+            WorkspaceChecklistAttachmentMenu(
+                item: item,
+                iconPointSize: 9 * fontScale,
+                foregroundColor: secondaryColor,
+                countFont: itemFont,
+                addAttachments: actions.addAttachments,
+                removeAttachment: actions.removeAttachment,
+                openAttachments: actions.openAttachments
+            )
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
             removeItemButton(for: item)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }

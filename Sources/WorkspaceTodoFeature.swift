@@ -1,6 +1,8 @@
+import AppKit
 import CmuxSettings
 import CmuxWorkspaces
 import Foundation
+import UniformTypeIdentifiers
 
 /// The `sidebar.beta.workspaceTodos.enabled` feature gate and the shared UI
 /// entry points for mutating a workspace's todo state. Every UI surface
@@ -103,6 +105,35 @@ enum WorkspaceTodoActions {
         WorkspaceTodoFeature.markUsed()
     }
 
+    /// Adds one or more user-selected image files to a checklist item.
+    @discardableResult
+    static func addImageAttachments(to itemId: UUID, in workspace: Workspace) -> Bool {
+        let attachments = WorkspaceChecklistImageAttachmentPicker.pickAttachments()
+        guard !attachments.isEmpty,
+              workspace.addChecklistAttachments(itemId: itemId, attachments: attachments) else {
+            return false
+        }
+        WorkspaceTodoFeature.markUsed()
+        return true
+    }
+
+    /// Removes one image attachment reference from a checklist item.
+    static func removeImageAttachment(itemId: UUID, attachmentId: UUID, from workspace: Workspace) {
+        guard workspace.removeChecklistAttachment(itemId: itemId, attachmentId: attachmentId) else { return }
+        WorkspaceTodoFeature.markUsed()
+    }
+
+    /// Opens a checklist item's image attachments in native Quick Look.
+    static func openImageAttachments(
+        _ attachments: [WorkspaceChecklistAttachment],
+        selectedAttachmentId: UUID?
+    ) {
+        WorkspaceChecklistAttachmentQuickLookController.shared.present(
+            attachments: attachments,
+            selectedAttachmentId: selectedAttachmentId
+        )
+    }
+
     /// Moves one checklist item toward a new 0-based position (staying within
     /// its completion partition). Shared by the todo pane's drag reorder, the
     /// `workspace.todo.move` socket verb, and `cmux todo move`.
@@ -141,6 +172,33 @@ enum WorkspaceTodoActions {
     }
 
     static let workspaceIdUserInfoKey = "workspaceId"
+}
+
+private enum WorkspaceChecklistImageAttachmentPicker {
+    @MainActor
+    static func pickAttachments() -> [WorkspaceChecklistAttachment] {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "sidebar.checklist.attachImages", defaultValue: "Attach Images…")
+        panel.prompt = String(localized: "sidebar.checklist.attachImages.confirm", defaultValue: "Attach")
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.image]
+
+        guard panel.runModal() == .OK else { return [] }
+        return panel.urls.map(Self.attachment(for:))
+    }
+
+    private static func attachment(for url: URL) -> WorkspaceChecklistAttachment {
+        let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey, .localizedNameKey])
+        let displayName = resourceValues?.localizedName ?? FileManager.default.displayName(atPath: url.path)
+        return WorkspaceChecklistAttachment(
+            displayName: displayName,
+            fileURL: url,
+            byteCount: resourceValues?.fileSize.map(Int64.init),
+            contentTypeIdentifier: resourceValues?.contentType?.identifier
+        )
+    }
 }
 
 extension Notification.Name {

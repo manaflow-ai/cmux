@@ -242,6 +242,22 @@ private struct WorkspaceTodoPaneContent: View {
                 remove: {
                     WorkspaceTodoActions.removeChecklistItem(id: item.id, from: workspace)
                 },
+                addAttachments: {
+                    WorkspaceTodoActions.addImageAttachments(to: item.id, in: workspace)
+                },
+                removeAttachment: { attachmentId in
+                    WorkspaceTodoActions.removeImageAttachment(
+                        itemId: item.id,
+                        attachmentId: attachmentId,
+                        from: workspace
+                    )
+                },
+                openAttachments: { selectedAttachmentId in
+                    WorkspaceTodoActions.openImageAttachments(
+                        item.attachments,
+                        selectedAttachmentId: selectedAttachmentId
+                    )
+                },
                 handleDrop: { payload, displayIndex in
                     handleReorderDrop(payload: payload, onto: displayIndex)
                 }
@@ -380,6 +396,9 @@ private struct WorkspaceTodoPaneItemRowActions {
     let select: () -> Void
     let markInProgress: () -> Void
     let remove: () -> Void
+    let addAttachments: () -> Void
+    let removeAttachment: (UUID) -> Void
+    let openAttachments: (UUID?) -> Void
     let handleDrop: ([String], Int) -> Bool
 }
 
@@ -458,6 +477,16 @@ private struct WorkspaceTodoPaneItemRow: View {
                     .onTapGesture { actions.beginEdit() }
             }
             Spacer(minLength: 0)
+            WorkspaceChecklistAttachmentMenu(
+                item: item,
+                iconPointSize: checkboxPointSize - 2,
+                foregroundColor: .secondary,
+                countFont: .system(size: itemFontSize - 1),
+                addAttachments: { _ in actions.addAttachments() },
+                removeAttachment: { _, attachmentId in actions.removeAttachment(attachmentId) },
+                openAttachments: { _, selectedAttachmentId in actions.openAttachments(selectedAttachmentId) }
+            )
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 2)

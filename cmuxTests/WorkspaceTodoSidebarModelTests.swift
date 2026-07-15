@@ -58,6 +58,48 @@ struct WorkspaceTodoSidebarModelTests {
         #expect(Set(names).count == names.count)
     }
 
+    // MARK: - Minimal todo visibility
+
+    @Test
+    func compactStatusOnlyShowsWhenDetailsAreHiddenAndStatusIsEngaged() {
+        #expect(!SidebarWorkspaceTodoMinimalVisibility.showsCompactStatus(
+            hidesAllDetails: false,
+            taskStatus: .working
+        ))
+        #expect(!SidebarWorkspaceTodoMinimalVisibility.showsCompactStatus(
+            hidesAllDetails: true,
+            taskStatus: nil
+        ))
+        #expect(SidebarWorkspaceTodoMinimalVisibility.showsCompactStatus(
+            hidesAllDetails: true,
+            taskStatus: .working
+        ))
+    }
+
+    @Test
+    func checklistSectionStaysMountedForUseAndCompactsWhenIdle() {
+        #expect(!SidebarWorkspaceTodoMinimalVisibility.showsChecklistSection(
+            itemCount: 0,
+            addFieldActivationToken: 0,
+            isPopoverPresented: false
+        ))
+        #expect(SidebarWorkspaceTodoMinimalVisibility.showsChecklistSection(
+            itemCount: 1,
+            addFieldActivationToken: 0,
+            isPopoverPresented: false
+        ))
+        #expect(SidebarWorkspaceTodoMinimalVisibility.showsChecklistSection(
+            itemCount: 0,
+            addFieldActivationToken: 1,
+            isPopoverPresented: false
+        ))
+        #expect(SidebarWorkspaceTodoMinimalVisibility.showsChecklistSection(
+            itemCount: 0,
+            addFieldActivationToken: 0,
+            isPopoverPresented: true
+        ))
+    }
+
     // MARK: - Checklist display policy
 
     private func item(_ text: String, _ state: WorkspaceChecklistItem.State) -> WorkspaceChecklistItem {

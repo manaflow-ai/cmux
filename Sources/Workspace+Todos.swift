@@ -143,6 +143,36 @@ extension Workspace {
         todoState.checklist.setChecklistItemText(id: id, text: text)
     }
 
+    /// Appends image attachment references to one checklist item.
+    ///
+    /// The referenced image files remain user-owned; removing checklist state
+    /// deletes only these references, never the files on disk.
+    @discardableResult
+    func addChecklistAttachments(
+        itemId: UUID,
+        attachments: [WorkspaceChecklistAttachment]
+    ) -> Bool {
+        guard !attachments.isEmpty,
+              let index = todoState.checklist.firstIndex(where: { $0.id == itemId }) else {
+            return false
+        }
+        todoState.checklist[index].attachments.append(contentsOf: attachments)
+        return true
+    }
+
+    /// Removes one image attachment reference from one checklist item.
+    ///
+    /// - Returns: `true` if both the item and attachment reference existed.
+    @discardableResult
+    func removeChecklistAttachment(itemId: UUID, attachmentId: UUID) -> Bool {
+        guard let itemIndex = todoState.checklist.firstIndex(where: { $0.id == itemId }),
+              let attachmentIndex = todoState.checklist[itemIndex].attachments.firstIndex(where: { $0.id == attachmentId }) else {
+            return false
+        }
+        todoState.checklist[itemIndex].attachments.remove(at: attachmentIndex)
+        return true
+    }
+
     /// Removes one checklist item.
     ///
     /// - Returns: `true` if the item existed.

@@ -13267,6 +13267,61 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    private func compactWorkspaceStatusMenu(status: WorkspaceTaskStatus) -> some View {
+        let title = String(
+            format: String(
+                localized: "sidebar.status.compactLabel",
+                defaultValue: "Status: %@"
+            ),
+            locale: .current,
+            status.displayName
+        )
+        return Menu {
+            let lanes = WorkspaceTodoStatusLane.lanes(
+                inferred: status,
+                activeOverride: status,
+                isHidden: false
+            )
+            ForEach(lanes) { lane in
+                if lane.isNone {
+                    Divider()
+                }
+                Button {
+                    if lane.isNone {
+                        WorkspaceTodoActions.hideStatus(for: [tab])
+                    } else {
+                        WorkspaceTodoActions.applyStatusOverride(lane.status, to: [tab])
+                    }
+                } label: {
+                    if lane.isSelected {
+                        Label(lane.title, systemImage: "checkmark")
+                    } else {
+                        Text(lane.title)
+                    }
+                }
+                if lane.status == nil, !lane.isNone {
+                    Divider()
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                CmuxSystemSymbolImage(magnified: "flag", pointSize: scaledFontSize(8))
+                    .foregroundColor(activeSecondaryColor(0.65))
+                Text(title)
+                    .font(magnifiedFont(scaledFontSize(10), weight: .semibold))
+                    .foregroundColor(activeSecondaryColor(0.9))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize(horizontal: false, vertical: true)
+        .safeHelp(String(localized: "sidebar.status.compactTooltip", defaultValue: "Change workspace status"))
+        .accessibilityIdentifier("SidebarWorkspaceCompactStatusMenu")
+    }
+
     @ViewBuilder
     private var remoteWorkspaceSection: some View {
         let workspaceSnapshot = self.workspaceSnapshot
@@ -13474,6 +13529,14 @@ struct TabItemView: View, Equatable {
                     .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if SidebarWorkspaceTodoMinimalVisibility.showsCompactStatus(
+                hidesAllDetails: settings.hidesAllDetails,
+                taskStatus: workspaceSnapshot.taskStatus
+            ), let taskStatus = workspaceSnapshot.taskStatus {
+                compactWorkspaceStatusMenu(status: taskStatus)
+                    .transition(.opacity)
             }
 
             remoteWorkspaceSection
@@ -13690,8 +13753,11 @@ struct TabItemView: View, Equatable {
 
             // Rendered whenever there is content, a pending add request, or an OPEN
             // popover — unmounting dismantles the popover's anchor mid-presentation.
-            if !workspaceSnapshot.checklistItems.isEmpty || checklistAddFieldActivationToken > 0
-                || isChecklistPopoverPresented {
+            if SidebarWorkspaceTodoMinimalVisibility.showsChecklistSection(
+                itemCount: workspaceSnapshot.checklistItems.count,
+                addFieldActivationToken: checklistAddFieldActivationToken,
+                isPopoverPresented: isChecklistPopoverPresented
+            ) {
                 SidebarWorkspaceChecklistSection(
                     items: workspaceSnapshot.checklistItems,
                     completedCount: workspaceSnapshot.checklistCompletedCount,
@@ -13712,6 +13778,7 @@ struct TabItemView: View, Equatable {
                     onConsumeAddFieldActivation: onConsumeChecklistAddFieldActivation,
                     actions: workspaceTodoChecklistActions
                 )
+                .transition(.opacity)
             }
         }
         // Done rows read as settled: dim the row content (not the selection

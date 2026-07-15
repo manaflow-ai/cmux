@@ -238,6 +238,16 @@ struct SidebarWorkspaceChecklistPopover: View {
                     .onTapGesture { beginItemEdit(item) }
             }
             Spacer(minLength: 0)
+            WorkspaceChecklistAttachmentMenu(
+                item: item,
+                iconPointSize: Self.checkboxPointSize - 2,
+                foregroundColor: .secondary,
+                countFont: .system(size: Self.itemFontSize - 1),
+                addAttachments: actions.addAttachments,
+                removeAttachment: actions.removeAttachment,
+                openAttachments: actions.openAttachments
+            )
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
             removeItemButton(for: item)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }
