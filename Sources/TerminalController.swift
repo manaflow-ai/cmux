@@ -8246,27 +8246,37 @@ class TerminalController {
                     return
                 }
                 guard let context = dockResolution.context else { return }
-                let handled: Bool
+                let zoomResult: Result<Bool, BrowserAutomationViewportError>
                 switch direction {
-                case "in": handled = context.browserPanel.zoomIn()
-                case "out": handled = context.browserPanel.zoomOut()
-                default: handled = context.browserPanel.resetZoom()
+                case "in": zoomResult = context.browserPanel.zoomInResult()
+                case "out": zoomResult = context.browserPanel.zoomOutResult()
+                default: zoomResult = context.browserPanel.resetZoomResult()
                 }
-                result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled, "direction": direction]))
+                switch zoomResult {
+                case .success(let handled):
+                    result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled, "direction": direction]))
+                case .failure(let error):
+                    result = v2BrowserAutomationViewportError(error)
+                }
                 return
             }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
-            let handled: Bool
+            let zoomResult: Result<Bool, BrowserAutomationViewportError>
             switch direction {
-            case "in": handled = target.panel.zoomIn()
-            case "out": handled = target.panel.zoomOut()
-            default: handled = target.panel.resetZoom()
+            case "in": zoomResult = target.panel.zoomInResult()
+            case "out": zoomResult = target.panel.zoomOutResult()
+            default: zoomResult = target.panel.resetZoomResult()
             }
-            result = .ok(v2BrowserActionPayload(
-                workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
-                extra: ["handled": handled, "direction": direction]
-            ))
+            switch zoomResult {
+            case .success(let handled):
+                result = .ok(v2BrowserActionPayload(
+                    workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                    extra: ["handled": handled, "direction": direction]
+                ))
+            case .failure(let error):
+                result = v2BrowserAutomationViewportError(error)
+            }
         }
         return result
     }
@@ -10130,8 +10140,8 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserViewportSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.viewport.set", details: "WKWebView does not provide a per-tab programmable viewport emulation API equivalent to CDP")
+    private func v2BrowserViewportSet(params: [String: Any]) -> V2CallResult {
+        v2BrowserViewportSetWKWebView(params: params)
     }
 
     private func v2BrowserGeolocationSet(params _: [String: Any]) -> V2CallResult {
