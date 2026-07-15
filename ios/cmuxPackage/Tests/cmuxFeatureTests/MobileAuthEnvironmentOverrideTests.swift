@@ -163,6 +163,26 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(overrides["AuthEnvironment"] == nil)
     }
 
+    @Test func taggedBuildBakesItsIsolatedWebOrigin() {
+        let overrides = MobileAuthComposition.authOverrides(
+            localConfig: [:],
+            bakedAuthEnvironment: nil,
+            bakedAPIBaseURL: "http://localhost:9450"
+        )
+
+        #expect(overrides["ApiBaseURL"] == "http://localhost:9450")
+    }
+
+    @Test func localAPIBaseURLWinsOverTaggedBuildBake() {
+        let overrides = MobileAuthComposition.authOverrides(
+            localConfig: ["ApiBaseURL": "http://localhost:8123"],
+            bakedAuthEnvironment: nil,
+            bakedAPIBaseURL: "http://localhost:9450"
+        )
+
+        #expect(overrides["ApiBaseURL"] == "http://localhost:8123")
+    }
+
     // MARK: - Dev sign-in shortcut gating
 
     @Test func productionAuthDisablesTheFortyTwoShortcut() {
