@@ -56,7 +56,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         }
     }
 
-    @Test func synthesizedClickPresentsComposerAutomatically() async throws {
+    @Test func synthesizedClickKeepsPageRuntimeOutOfTheNativeComposerInputPath() async throws {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let controller = BrowserDesignModeController(
             surfaceID: UUID(),
@@ -104,11 +104,33 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         )
         let state = try #require(value as? [String: Any])
 
-        #expect(state["visible"] as? Bool == true)
+        #expect(state["visible"] as? Bool == false)
         #expect(state["tag_name"] as? String == "button")
         #expect(state["can_copy"] as? Bool == true)
-        #expect(state["focused"] as? Bool == true)
+        #expect(state["focused"] as? Bool == false)
+        #expect(state["requested_change"] == nil)
         _ = navigationDelegate
+    }
+
+    @Test func sharedDesignModeActivationDeactivatesReactGrab() async throws {
+        let panel = await loadedBrowserPanel()
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+
+        let enabled = await panel.setDesignModeEnabled(true, reason: "test.designMode")
+
+        #expect(enabled)
+        #expect(panel.designModeController.isActive)
+        #expect(!panel.isReactGrabActive)
+    }
+
+    @Test func sharedReactGrabActivationPreparationDeactivatesDesignMode() async throws {
+        let panel = await loadedBrowserPanel()
+        #expect(await panel.setDesignModeEnabled(true, reason: "test.designMode"))
+
+        let prepared = await panel.prepareForReactGrabActivation(reason: "test.reactGrab")
+
+        #expect(prepared)
+        #expect(!panel.designModeController.isActive)
     }
 
     @Test func composerCopyRequestWritesSelectedContextWithoutDescriptionOrRuntimeEdits() async throws {
@@ -290,6 +312,21 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         )
         let data = try #require(Data(base64Encoded: String(prompt[start..<end])))
         return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func loadedBrowserPanel() async -> BrowserPanel {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let existingDidFinish = panel.navigationDelegate?.didFinish
+        panel.navigationDelegate?.didFinish = { webView in
+            existingDidFinish?(webView)
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        panel.navigate(to: URL(string: "about:blank")!)
+        var iterator = loaded.makeAsyncIterator()
+        _ = await iterator.next()
+        return panel
     }
 }
 
