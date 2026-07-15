@@ -4,6 +4,7 @@ import Foundation
 
 private enum TerminalControllerChatArtifactIndexProvider {
     static let shared = AgentChatArtifactIndex()
+    static let ordering = ChatArtifactGalleryOrderingCache()
 }
 
 extension TerminalController {
@@ -43,10 +44,16 @@ extension TerminalController {
             let pageSize = min(max(v2Int(params, "page_size") ?? 60, 1), 100)
             let query = v2RawString(params, "query")
             let includeDirectories = v2Bool(params, "include_directories") ?? false
+            let orderedItems = await TerminalControllerChatArtifactIndexProvider.ordering.ordered(
+                indexedSession.snapshot.artifacts,
+                indexID: indexedSession.sessionID,
+                generation: indexedSession.snapshot.generation
+            )
             let page = await Task.detached(priority: .utility) {
                 AgentChatArtifactGalleryBuilder().page(
                     sessionID: indexedSession.sessionID,
                     items: indexedSession.snapshot.artifacts,
+                    orderedItems: orderedItems,
                     generation: indexedSession.snapshot.generation,
                     cursor: cursor,
                     pageSize: pageSize,

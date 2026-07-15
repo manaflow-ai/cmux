@@ -10,6 +10,7 @@ public struct ChatArtifactGalleryBuilder: Sendable {
     /// - Parameters:
     ///   - sessionID: Session represented by the artifact index.
     ///   - items: De-duplicated transcript artifact references.
+    ///   - orderedItems: Optional generation-cached stable ordering of `items`.
     ///   - generation: Stable snapshot generation carried by page cursors.
     ///   - cursor: Per-section positions after which paging continues.
     ///   - pageSize: Maximum entries to stat and include per section.
@@ -20,6 +21,7 @@ public struct ChatArtifactGalleryBuilder: Sendable {
     public func page(
         sessionID: String,
         items: [ChatArtifactIndexedReference],
+        orderedItems: [ChatArtifactIndexedReference]? = nil,
         generation: String,
         cursor: ChatArtifactGalleryCursor?,
         pageSize: Int,
@@ -27,6 +29,7 @@ public struct ChatArtifactGalleryBuilder: Sendable {
         includeDirectories: Bool = false
     ) -> ChatArtifactGalleryPage {
         let ordering = ChatArtifactGalleryOrdering()
+        let stableItems = orderedItems ?? ordering.sorted(items)
         let normalizedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines)
         let isSearch = normalizedQuery?.isEmpty == false
         let createdCandidates: [ChatArtifactIndexedReference]
@@ -35,11 +38,11 @@ public struct ChatArtifactGalleryBuilder: Sendable {
         if let normalizedQuery, !normalizedQuery.isEmpty {
             createdCandidates = []
             attachedCandidates = []
-            referencedCandidates = ordering.search(items, query: normalizedQuery)
+            referencedCandidates = ordering.matching(stableItems, query: normalizedQuery)
         } else {
-            createdCandidates = ordering.sorted(items.filter { $0.provenance == .created })
-            attachedCandidates = ordering.sorted(items.filter { $0.provenance == .attached })
-            referencedCandidates = ordering.sorted(items.filter { $0.provenance == .referenced })
+            createdCandidates = stableItems.filter { $0.provenance == .created }
+            attachedCandidates = stableItems.filter { $0.provenance == .attached }
+            referencedCandidates = stableItems.filter { $0.provenance == .referenced }
         }
         let count = max(1, pageSize)
         let starts = pageStarts(
