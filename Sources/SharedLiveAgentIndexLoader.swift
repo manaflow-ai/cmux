@@ -15,7 +15,6 @@ struct SharedLiveAgentIndexLoader {
     private let processSnapshotProvider: () -> CmuxTopProcessSnapshot
     private let capturedAtProvider: () -> TimeInterval
     private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
-    private let injectedProcessArgumentsProvider: ((Int) -> CmuxTopProcessArguments?)?
     private let processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
     private let cachedAgentProcessValidator: CachedAgentProcessIdentityValidator
 
@@ -23,11 +22,15 @@ struct SharedLiveAgentIndexLoader {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         registry: CmuxVaultAgentRegistry? = nil,
-        processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot,
+        processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot = {
+            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        },
         capturedAtProvider: @escaping () -> TimeInterval = {
             Date().timeIntervalSince1970
         },
-        processArgumentsProvider: ((Int) -> CmuxTopProcessArguments?)? = nil,
+        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        },
         processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -39,10 +42,7 @@ struct SharedLiveAgentIndexLoader {
         self.registry = registry
         self.processSnapshotProvider = processSnapshotProvider
         self.capturedAtProvider = capturedAtProvider
-        self.injectedProcessArgumentsProvider = processArgumentsProvider
-        self.processArgumentsProvider = processArgumentsProvider ?? {
-            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
-        }
+        self.processArgumentsProvider = processArgumentsProvider
         self.processIdentityProvider = processIdentityProvider
         self.cachedAgentProcessValidator = cachedAgentProcessValidator
     }
@@ -55,18 +55,12 @@ struct SharedLiveAgentIndexLoader {
         let resolvedRegistry = registry
             ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()
-#if DEBUG
-        let loadMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
-            .restorableLoad,
-            inputCount: processSnapshot.processesByPID.count
-        )
-#endif
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: resolvedRegistry,
             fileManager: fileManager,
             processSnapshot: processSnapshot,
             capturedAt: capturedAtProvider(),
-            processArgumentsProvider: injectedProcessArgumentsProvider
+            processArgumentsProvider: processArgumentsProvider
         )
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
@@ -76,12 +70,6 @@ struct SharedLiveAgentIndexLoader {
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider
         )
-#if DEBUG
-        ProcessPerformanceMetrics.shared.operationCompleted(
-            loadMetricsToken,
-            outputCount: index.forkValidationEntries().count
-        )
-#endif
         return (
             index: index,
             liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
