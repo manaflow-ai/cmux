@@ -12,6 +12,8 @@ struct SidebarWorkspaceChecklistPopoverModel: Equatable {
     /// Bumped by the container when "Add Checklist Item…" wants the add
     /// field armed on open.
     let addFieldActivationToken: Int
+    /// Whether the remote controls flag allows adding new checklist items.
+    let canAddItems: Bool
 }
 
 /// The checklist popover anchored to a workspace row's summary line
@@ -129,9 +131,11 @@ struct SidebarWorkspaceChecklistPopover: View {
                     }
                 }
             }
-            addItemRow(visible: ordered)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
+            if model.canAddItems {
+                addItemRow(visible: ordered)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+            }
             Divider()
             footer
         }
@@ -158,7 +162,7 @@ struct SidebarWorkspaceChecklistPopover: View {
         // remove-item "x" stops revealing on hover. `SidebarWorkspaceStatusPopover`
         // already carries this same fix for its own popover.
         .background(PopoverKeyWindowElevator())
-        .onAppear { addFieldFocused = true }
+        .onAppear { if model.canAddItems { addFieldFocused = true } }
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
         }
@@ -166,7 +170,7 @@ struct SidebarWorkspaceChecklistPopover: View {
         // popover child window keep focus over the terminal-backed pane.
         // Bump-driven add activations still explicitly re-arm the add field.
         .task(id: model.addFieldActivationToken) {
-            guard model.addFieldActivationToken > 0 else { return }
+            guard model.canAddItems, model.addFieldActivationToken > 0 else { return }
             addFieldFocused = true
         }
         .accessibilityIdentifier("SidebarWorkspaceChecklistPopover")

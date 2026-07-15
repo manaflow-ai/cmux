@@ -4,21 +4,18 @@ import CmuxWorkspaces
 import Foundation
 import UniformTypeIdentifiers
 
-/// The `sidebar.beta.workspaceTodos.enabled` feature gate and the shared UI
+/// The remote workspace todo controls feature gate and the shared UI
 /// entry points for mutating a workspace's todo state. Every UI surface
 /// (sidebar row, context menu, command palette, keyboard shortcut) funnels
-/// through ``WorkspaceTodoActions`` so the progressive-disclosure auto-enable
-/// and the backend caps/anti-rot apply identically everywhere; the socket
-/// handler in `TerminalController+ControlWorkspaceTodoContext.swift` calls
-/// ``WorkspaceTodoFeature/markUsed()`` on its own successful mutations.
+/// through ``WorkspaceTodoActions`` so gated status/add-item mutations and the
+/// backend caps/anti-rot apply identically everywhere.
 enum WorkspaceTodoFeature {
-    /// Synchronous read of the feature flag for on-demand paths. Reads only
-    /// the beta catalog section, not the whole `SettingCatalog`, so a
-    /// body-path access stays cheap (see issue #5970); reactive row reads go
-    /// through `SidebarTabItemSettingsSnapshot`.
-    /// The workspace-todos feature is always on (accessed via the row context
-    /// menu and status glyph); the Settings feature-flag toggle was removed.
-    static var isEnabled: Bool { true }
+    /// Synchronous read of the remote-enabled feature flag for status and
+    /// add-item controls. Existing checklist items stay visible/usable when
+    /// this is off; only the controls that create items or set workspace
+    /// completion/status lanes are hidden.
+    @MainActor
+    static var isEnabled: Bool { CmuxFeatureFlags.shared.isWorkspaceTodoControlsEnabled }
 
     /// The checklist presentation style (popover or inline), user-selectable.
     static var checklistStyle: WorkspaceTodoChecklistStyle {
@@ -43,6 +40,7 @@ enum WorkspaceTodoActions {
     /// Applies a manual status override (`nil` returns the status to
     /// automatic) to every target workspace.
     static func applyStatusOverride(_ status: WorkspaceTaskStatus?, to workspaces: [Workspace]) {
+        guard WorkspaceTodoFeature.isEnabled else { return }
         guard !workspaces.isEmpty else { return }
         for workspace in workspaces {
             if let status {
@@ -56,6 +54,7 @@ enum WorkspaceTodoActions {
 
     /// Opts each workspace out of the status feature (None).
     static func hideStatus(for workspaces: [Workspace]) {
+        guard WorkspaceTodoFeature.isEnabled else { return }
         guard !workspaces.isEmpty else { return }
         for workspace in workspaces {
             workspace.hideTaskStatus()
@@ -67,6 +66,7 @@ enum WorkspaceTodoActions {
     /// `Workspace.cycleTaskStatus`). Shared by the `cycleWorkspaceStatus`
     /// shortcut and the `workspace.status.cycle` socket verb / CLI.
     static func cycleStatus(for workspace: Workspace) {
+        guard WorkspaceTodoFeature.isEnabled else { return }
         workspace.cycleTaskStatus()
         WorkspaceTodoFeature.markUsed()
     }
@@ -74,6 +74,7 @@ enum WorkspaceTodoActions {
     /// Adds a user checklist item; returns whether the add succeeded.
     @discardableResult
     static func addChecklistItem(text: String, to workspace: Workspace) -> Bool {
+        guard WorkspaceTodoFeature.isEnabled else { return false }
         switch workspace.addChecklistItem(text: text, state: .pending, origin: .user) {
         case .success:
             WorkspaceTodoFeature.markUsed()
@@ -163,6 +164,7 @@ enum WorkspaceTodoActions {
     /// which have no direct handle on the row's transient UI state). Also
     /// enables the feature so the checklist UI is actually visible.
     static func requestChecklistAddField(workspaceId: UUID) {
+        guard WorkspaceTodoFeature.isEnabled else { return }
         WorkspaceTodoFeature.markUsed()
         NotificationCenter.default.post(
             name: .workspaceChecklistAddItemRequested,

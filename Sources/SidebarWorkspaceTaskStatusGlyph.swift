@@ -95,12 +95,25 @@ struct SidebarWorkspaceTaskStatusGlyphModel: Equatable {
     }
 }
 
+/// Policy for the sidebar row's restored status indicator. Rows only show a
+/// glyph for a human-set status while the remote todo-controls flag is on;
+/// inferred/automatic status stays out of the row chrome.
+enum SidebarWorkspaceManualTaskStatusIndicatorModel {
+    static func showsIndicator(
+        featureEnabled: Bool,
+        taskStatus: WorkspaceTaskStatus?,
+        hasManualOverride: Bool
+    ) -> Bool {
+        featureEnabled && hasManualOverride && taskStatus != nil
+    }
+}
+
 // MARK: - Glyph view
 
 /// The custom-drawn circular progress-pie status glyph shown in the todo
-/// pane's header and the status popover's lane rows. Deliberately NOT drawn
-/// on sidebar workspace rows (the leading status circles were removed; see
-/// `SidebarWorkspaceRowStatusGlyphRemovalTests`). Drawn in a fixed-width slot
+/// pane's header, the status popover's lane rows, and the sidebar row only
+/// when a manual workspace status is set. Automatic status never draws a row
+/// glyph. Drawn in a fixed-width slot
 /// (~9pt base, font-scaled). Modeled on `PullRequestOpenIcon`/
 /// `PullRequestMergedIcon` (custom `Path` drawing, caller passes resolved
 /// colors; no store access).

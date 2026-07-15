@@ -12,16 +12,18 @@ enum SidebarWorkspaceTodoMinimalVisibility {
     static func showsChecklistSection(
         itemCount: Int,
         addFieldActivationToken: Int,
-        isPopoverPresented: Bool
+        isPopoverPresented: Bool,
+        canAddItems: Bool
     ) -> Bool {
-        itemCount > 0 || addFieldActivationToken > 0 || isPopoverPresented
+        itemCount > 0 || (canAddItems && (addFieldActivationToken > 0 || isPopoverPresented))
     }
 
     static func showsCompactStatus(
         hidesAllDetails: Bool,
-        taskStatus: WorkspaceTaskStatus?
+        taskStatus: WorkspaceTaskStatus?,
+        featureEnabled: Bool
     ) -> Bool {
-        hidesAllDetails && taskStatus != nil
+        featureEnabled && hidesAllDetails && taskStatus != nil
     }
 }
 
@@ -189,6 +191,8 @@ struct SidebarWorkspaceChecklistSection: View {
     let summaryFont: Font
     let itemFont: Font
     let fontScale: CGFloat
+    /// Whether add-item entry points are exposed by the remote controls flag.
+    let canAddItems: Bool
     let onToggleExpansion: () -> Void
     let onPopoverPresentedChange: @MainActor (Bool) -> Void
     let onConsumeAddFieldActivation: () -> Void
@@ -253,7 +257,8 @@ struct SidebarWorkspaceChecklistSection: View {
                 items: items,
                 completedCount: completedCount,
                 totalCount: totalCount,
-                addFieldActivationToken: addFieldActivationToken
+                addFieldActivationToken: addFieldActivationToken,
+                canAddItems: canAddItems
             ),
             actions: actions,
             onConsumeAddFieldActivation: onConsumeAddFieldActivation,
@@ -264,6 +269,7 @@ struct SidebarWorkspaceChecklistSection: View {
             // checklist popover instead; arming the (hidden) inline field
             // here would fight the popover's own add field for focus.
             guard addFieldActivationToken > 0, !presentsPopover else { return }
+            guard canAddItems else { return }
             isAddingItem = true
             inlineAddGeneration += 1
         }
@@ -329,7 +335,9 @@ struct SidebarWorkspaceChecklistSection: View {
                 }
                 .frame(height: scrollViewportHeight(forItemCount: ordered.count))
             }
-            addItemRow
+            if canAddItems {
+                addItemRow
+            }
         }
         .padding(.leading, 2)
     }

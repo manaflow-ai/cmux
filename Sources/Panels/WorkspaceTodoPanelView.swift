@@ -19,28 +19,51 @@ struct WorkspaceTodoPanelView: View {
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
-        Group {
-            if let workspace = panel.workspace {
-                WorkspaceTodoPaneContent(
-                    workspace: workspace,
-                    todoState: workspace.todoState,
-                    isFocused: isFocused,
-                    addFieldArmToken: panel.addFieldArmToken
-                )
-            } else {
-                Text(String(
-                    localized: "workspaceTodoPane.workspaceUnavailable",
-                    defaultValue: "This workspace is no longer available."
-                ))
-                .font(.system(size: 13))
-                .foregroundColor(.secondary)
+        ZStack(alignment: .topLeading) {
+            WorkspaceTodoPanelOpaqueBackground()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Group {
+                if let workspace = panel.workspace {
+                    WorkspaceTodoPaneContent(
+                        workspace: workspace,
+                        todoState: workspace.todoState,
+                        isFocused: isFocused,
+                        addFieldArmToken: panel.addFieldArmToken
+                    )
+                } else {
+                    Text(String(
+                        localized: "workspaceTodoPane.workspaceUnavailable",
+                        defaultValue: "This workspace is no longer available."
+                    ))
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(NSColor.windowBackgroundColor))
         .contentShape(Rectangle())
         .onTapGesture { onRequestPanelFocus() }
+    }
+}
+
+private struct WorkspaceTodoPanelOpaqueBackground: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        WorkspaceTodoPanelOpaqueBackgroundView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        nsView.needsDisplay = true
+    }
+}
+
+private final class WorkspaceTodoPanelOpaqueBackgroundView: NSView {
+    override var isOpaque: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        dirtyRect.fill()
     }
 }
 
@@ -78,12 +101,13 @@ private struct WorkspaceTodoPaneContent: View {
             override: todoState.statusOverride,
             inferred: inferred
         )
-        let hasOverride = todoState.statusOverride != nil && !resolution.shouldClearOverride
+        let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
+        let hasOverride = todoControlsEnabled && todoState.statusOverride != nil && !resolution.shouldClearOverride
         let progress = todoState.checklist.checklistProgressSummary
 
         VStack(alignment: .leading, spacing: 0) {
             header(
-                effective: resolution.effective,
+                effective: todoControlsEnabled ? resolution.effective : nil,
                 inferred: inferred,
                 hasOverride: hasOverride,
                 progress: progress
@@ -127,17 +151,21 @@ private struct WorkspaceTodoPaneContent: View {
                 }
             }
             Divider()
-            addItemRow
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+            if todoControlsEnabled {
+                addItemRow
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+            }
         }
         // The add field is armed whenever the pane holds focus, so typing a
         // new item needs zero extra clicks after `cmux todo open`.
-        .onAppear { if isFocused { addFieldFocused = true } }
+        .onAppear { if todoControlsEnabled, isFocused { addFieldFocused = true } }
         .onChange(of: isFocused) { _, focused in
-            if focused, editingItemId == nil { addFieldFocused = true }
+            if todoControlsEnabled, focused, editingItemId == nil { addFieldFocused = true }
         }
-        .onChange(of: addFieldArmToken) { _, _ in if editingItemId == nil { addFieldFocused = true } }
+        .onChange(of: addFieldArmToken) { _, _ in
+            if todoControlsEnabled, editingItemId == nil { addFieldFocused = true }
+        }
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
         }
@@ -147,58 +175,62 @@ private struct WorkspaceTodoPaneContent: View {
     // MARK: Header
 
     private func header(
-        effective: WorkspaceTaskStatus,
+        effective: WorkspaceTaskStatus?,
         inferred: WorkspaceTaskStatus,
         hasOverride: Bool,
         progress: WorkspaceChecklistProgressSummary
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Button {
-                isStatusPopoverPresented.toggle()
-            } label: {
-                SidebarWorkspaceTaskStatusGlyph(
-                    status: effective,
-                    hasOverride: hasOverride,
-                    usesMonochrome: false,
-                    monochromeColor: .primary,
-                    neutralColor: .secondary,
-                    fontScale: Self.headerGlyphFontScale
-                )
-                .contentShape(Rectangle().inset(by: -3))
-            }
-            .buttonStyle(.plain)
-            .background(
-                SidebarWorkspaceTodoPopoverHost(
-                    isPresented: $isStatusPopoverPresented,
-                    model: SidebarWorkspaceStatusPopoverModel(
-                        inferred: inferred,
-                        activeOverride: hasOverride ? effective : nil
-                    ),
-                    minWidth: 200,
-                    maxHeight: 400,
-                    preferredEdge: .maxY
-                ) { model, close in
-                    SidebarWorkspaceStatusPopover(
-                        model: model,
-                        onSelectLane: { [workspace] status in
-                            WorkspaceTodoActions.applyStatusOverride(status, to: [workspace])
-                        },
-                        onSelectNone: { [workspace] in
-                            WorkspaceTodoActions.hideStatus(for: [workspace])
-                        },
-                        onClose: close
+            if let effective {
+                Button {
+                    isStatusPopoverPresented.toggle()
+                } label: {
+                    SidebarWorkspaceTaskStatusGlyph(
+                        status: effective,
+                        hasOverride: hasOverride,
+                        usesMonochrome: false,
+                        monochromeColor: .primary,
+                        neutralColor: .secondary,
+                        fontScale: Self.headerGlyphFontScale
                     )
+                    .contentShape(Rectangle().inset(by: -3))
                 }
-            )
-            .accessibilityIdentifier("WorkspaceTodoPaneStatusGlyph")
+                .buttonStyle(.plain)
+                .background(
+                    SidebarWorkspaceTodoPopoverHost(
+                        isPresented: $isStatusPopoverPresented,
+                        model: SidebarWorkspaceStatusPopoverModel(
+                            inferred: inferred,
+                            activeOverride: hasOverride ? effective : nil
+                        ),
+                        minWidth: 200,
+                        maxHeight: 400,
+                        preferredEdge: .maxY
+                    ) { model, close in
+                        SidebarWorkspaceStatusPopover(
+                            model: model,
+                            onSelectLane: { [workspace] status in
+                                WorkspaceTodoActions.applyStatusOverride(status, to: [workspace])
+                            },
+                            onSelectNone: { [workspace] in
+                                WorkspaceTodoActions.hideStatus(for: [workspace])
+                            },
+                            onClose: close
+                        )
+                    }
+                )
+                .accessibilityIdentifier("WorkspaceTodoPaneStatusGlyph")
+            }
             Text(workspace.title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(effective.displayName)
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
+            if let effective {
+                Text(effective.displayName)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
             Spacer(minLength: 8)
             if progress.totalCount > 0 {
                 Text(verbatim: "\(progress.completedCount)/\(progress.totalCount)")
@@ -343,6 +375,7 @@ private struct WorkspaceTodoPaneContent: View {
 
     /// Enter commits the trimmed text and re-arms the field for the next item.
     private func commitPendingItem() {
+        guard WorkspaceTodoFeature.isEnabled else { return }
         let text = pendingItemText
         pendingItemText = ""
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }

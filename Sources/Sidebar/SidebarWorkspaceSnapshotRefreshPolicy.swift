@@ -9,6 +9,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         let taskStatus: WorkspaceTaskStatus?
+        let hasManualTaskStatus: Bool
         let checklistItems: [WorkspaceChecklistItem]
         let checklistCompletedCount: Int
         let checklistTotalCount: Int
@@ -25,6 +26,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity,
             taskStatus: taskStatus,
+            hasManualTaskStatus: hasManualTaskStatus,
             checklistItems: checklistItems,
             checklistCompletedCount: checklistCompletedCount,
             checklistTotalCount: checklistTotalCount,
@@ -69,6 +71,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             // submenu, Mark as Done, checkbox clicks), so the done-row dim and
             // checklist must reflect the change immediately, not on menu close.
             taskStatus: snapshot.taskStatus,
+            hasManualTaskStatus: snapshot.hasManualTaskStatus,
             checklistItems: snapshot.checklistItems,
             checklistCompletedCount: snapshot.checklistCompletedCount,
             checklistTotalCount: snapshot.checklistTotalCount,

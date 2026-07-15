@@ -13431,6 +13431,7 @@ struct TabItemView: View, Equatable {
             scaledFontSize(12.5),
             percent: globalFontMagnificationPercent
         ) * 0.6
+        let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
         let scaledCloseButtonWidth = max(
             SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
@@ -13470,6 +13471,23 @@ struct TabItemView: View, Equatable {
                     symbolPointSize: scaledFontSize(9),
                     audioColor: activeSecondaryColor(0.8)
                 )
+
+                if SidebarWorkspaceManualTaskStatusIndicatorModel.showsIndicator(
+                    featureEnabled: todoControlsEnabled,
+                    taskStatus: workspaceSnapshot.taskStatus,
+                    hasManualOverride: workspaceSnapshot.hasManualTaskStatus
+                ), let taskStatus = workspaceSnapshot.taskStatus {
+                    SidebarWorkspaceTaskStatusGlyph(
+                        status: taskStatus,
+                        hasOverride: true,
+                        usesMonochrome: usesInvertedActiveForeground,
+                        monochromeColor: activeSecondaryColor(0.8),
+                        neutralColor: activeSecondaryColor(0.8),
+                        fontScale: fontScale
+                    )
+                    .alignmentGuide(.sidebarTitleFirstLineCenter) { $0[VerticalAlignment.center] }
+                    .transition(.opacity)
+                }
 
                 if isEditing {
                     SidebarInlineRenameField(
@@ -13536,7 +13554,8 @@ struct TabItemView: View, Equatable {
 
             if SidebarWorkspaceTodoMinimalVisibility.showsCompactStatus(
                 hidesAllDetails: settings.hidesAllDetails,
-                taskStatus: workspaceSnapshot.taskStatus
+                taskStatus: workspaceSnapshot.taskStatus,
+                featureEnabled: todoControlsEnabled
             ), let taskStatus = workspaceSnapshot.taskStatus {
                 let compactStatusModel = SidebarWorkspaceCompactStatusMenuModel.resolve(
                     inferred: tab.inferredTaskStatus,
@@ -13766,7 +13785,8 @@ struct TabItemView: View, Equatable {
             if SidebarWorkspaceTodoMinimalVisibility.showsChecklistSection(
                 itemCount: workspaceSnapshot.checklistItems.count,
                 addFieldActivationToken: checklistAddFieldActivationToken,
-                isPopoverPresented: isChecklistPopoverPresented
+                isPopoverPresented: isChecklistPopoverPresented,
+                canAddItems: todoControlsEnabled
             ) {
                 SidebarWorkspaceChecklistSection(
                     items: workspaceSnapshot.checklistItems,
@@ -13783,6 +13803,7 @@ struct TabItemView: View, Equatable {
                     summaryFont: magnifiedFont(scaledFontSize(10), weight: .semibold, monospacedDigit: true),
                     itemFont: magnifiedFont(scaledFontSize(10)),
                     fontScale: fontScale,
+                    canAddItems: todoControlsEnabled,
                     onToggleExpansion: onToggleChecklistExpansion,
                     onPopoverPresentedChange: onChecklistPopoverPresentedChange,
                     onConsumeAddFieldActivation: onConsumeChecklistAddFieldActivation,
@@ -14322,9 +14343,10 @@ struct TabItemView: View, Equatable {
         }()
         // Pure reads only: effective-status resolution never mutates; the
         // expired-override cleanup happens at explicit mutation entry points.
-        // Sidebar rows draw no status glyph; the resolved status only feeds
-        // the done-row dim, and a workspace can opt out entirely (None).
-        let workspaceStatusVisible = !tab.todoState.statusHidden
+        // The resolved status feeds done-row dim, and a manual override also
+        // restores the compact row indicator while the todo-controls flag is on.
+        let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
+        let workspaceStatusVisible = todoControlsEnabled && !tab.todoState.statusHidden
         let inferredTaskStatus = workspaceStatusVisible ? tab.inferredTaskStatus : nil
         let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
             WorkspaceTaskStatusOverride.effectiveStatus(
@@ -14332,6 +14354,9 @@ struct TabItemView: View, Equatable {
                 inferred: inferred
             )
         }
+        let hasManualTaskStatus = workspaceStatusVisible
+            && tab.todoState.statusOverride != nil
+            && taskStatusResolution?.shouldClearOverride == false
         let checklistProgress = tab.checklistProgressSummary
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
@@ -14365,6 +14390,7 @@ struct TabItemView: View, Equatable {
             finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab),
             mediaActivity: tab.browserMediaActivity,
             taskStatus: taskStatusResolution?.effective,
+            hasManualTaskStatus: hasManualTaskStatus,
             checklistItems: tab.todoState.checklist,
             checklistCompletedCount: checklistProgress.completedCount,
             checklistTotalCount: checklistProgress.totalCount,
