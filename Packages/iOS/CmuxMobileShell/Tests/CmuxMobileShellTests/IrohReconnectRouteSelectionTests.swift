@@ -202,6 +202,78 @@ extension ReconnectRouteSelectionTests {
         #expect(after.routes.contains { $0.id == iroh.id })
     }
 
+    @Test func switchUpgradesLegacyTargetWhileAnotherMacStaysConnected() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let macAIroh = try registryIroh(
+            id: "iroh-a",
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let macBIroh = try registryIroh(
+            id: "iroh-b",
+            endpointID: String(repeating: "b", count: 64)
+        )
+        let macBLegacy = try tailscale(51_005)
+        let registry = SnapshotCountingDeviceRegistry(outcome: .ok([
+            RegistryDevice(
+                deviceId: "mac-b",
+                platform: "mac",
+                displayName: "Mac B",
+                lastSeenAt: clock.now,
+                instances: [
+                    RegistryAppInstance(
+                        tag: "stable",
+                        routes: [macBIroh, macBLegacy],
+                        lastSeenAt: clock.now
+                    ),
+                ]
+            ),
+        ]))
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mac A",
+            routes: [macAIroh],
+            instanceTag: "stable",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-b",
+            displayName: "Mac B",
+            routes: [macBLegacy],
+            instanceTag: "stable",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now.addingTimeInterval(1)
+        )
+        let store = await makeMigrationShell(
+            pairedStore: pairedStore,
+            registry: registry,
+            runtime: runtime
+        )
+        await router.setHostIdentity(deviceID: "mac-a", instanceTag: "stable")
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.foregroundMacDeviceID == "mac-a")
+
+        await router.setHostIdentity(deviceID: "mac-b", instanceTag: "stable")
+        #expect(await store.switchToMac(macDeviceID: "mac-b"))
+        #expect(store.foregroundMacDeviceID == "mac-b")
+        #expect(store.activeRoute?.id == macBIroh.id)
+        #expect(await registry.counts() == .init(list: 1, fresh: 0))
+    }
+
     @Test func legacySavedMacWithoutPublishedIrohIsRetainedAndRequestsMacUpdate() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
