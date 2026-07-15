@@ -11142,12 +11142,6 @@ final class Workspace: Identifiable, ObservableObject {
         forkAgentConversationContextMenuPresentationAvailability(forPanelId: panelId).isAvailable
     }
 
-    /// Snapshot used by the right-click fork path. The shared context-menu selection verifies
-    /// probe-required agents before returning a process-sensitive snapshot.
-    func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        forkAgentConversationContextMenuOpenSelection(forPanelId: panelId).snapshot
-    }
-
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
     /// to the right of `anchorTabId` in `paneId`. Uses the same `claude --resume --fork-session`
     /// startup input the existing split/new-workspace forks rely on, so divergence is owned by

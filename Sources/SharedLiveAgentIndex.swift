@@ -6,15 +6,26 @@ import Foundation
 final class SharedLiveAgentIndex {
     static let shared = SharedLiveAgentIndex()
 
+    private struct ForkProbeKey: Hashable {
+        let panelKey: RestorableAgentSessionIndex.PanelKey
+        let isRemoteContext: Bool
+    }
+
+    private struct ForkSupportValidation {
+        let command: String
+        let isSupported: Bool
+        let completedAt: Date
+    }
+
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
-    private var validatedForkPanelProbeCompletedAt: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
+    private var validatedForkSupport: [ForkProbeKey: ForkSupportValidation] = [:]
     private var validatedForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var validatedMissingForkPanels: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
-    private var pendingForkValidationPanels = Set<RestorableAgentSessionIndex.PanelKey>()
+    private var pendingForkValidationPanels = Set<ForkProbeKey>()
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
     private var deferredReloadTimer: DispatchSourceTimer?
@@ -46,6 +57,7 @@ final class SharedLiveAgentIndex {
     /// Loaders must move synchronous CPU and file-I/O work off the main actor
     /// before their first suspension point. This owner awaits the closure directly.
     private let indexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
+    private let forkSupportProvider: @Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
 
@@ -62,6 +74,11 @@ final class SharedLiveAgentIndex {
                 ).loadResultSynchronously()
             }.value
         },
+        forkSupportProvider: @escaping @Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool = {
+            snapshot,
+            isRemoteContext in
+            await AgentForkSupport.supportsFork(snapshot: snapshot, isRemoteContext: isRemoteContext)
+        },
         hookStoreDirectoryProvider: @escaping @MainActor () -> String = {
             RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path
         },
@@ -70,6 +87,7 @@ final class SharedLiveAgentIndex {
         }
     ) {
         self.indexLoader = indexLoader
+        self.forkSupportProvider = forkSupportProvider
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
     }
@@ -98,37 +116,69 @@ final class SharedLiveAgentIndex {
     }
 
     /// Read the cached snapshot for an enabled Fork Conversation action. Never blocks.
-    func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+    func snapshotForForkAvailability(
+        workspaceId: UUID,
+        panelId: UUID,
+        isRemoteContext: Bool = false
+    ) -> SessionRestorableAgentSnapshot? {
         let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
         guard let validationKey = validatedForkPanelKey(for: panelKey),
-              hasFreshForkAvailabilityProbe(for: validationKey),
-              let index else {
+              let index,
+              let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId),
+              hasFreshForkAvailabilityProbe(
+                for: ForkProbeKey(panelKey: validationKey, isRemoteContext: isRemoteContext),
+                snapshot: snapshot
+              ),
+              validatedForkSupport[
+                ForkProbeKey(panelKey: validationKey, isRemoteContext: isRemoteContext)
+              ]?.isSupported == true else {
             return nil
         }
-        return index.snapshot(workspaceId: workspaceId, panelId: panelId)
+        return snapshot
     }
 
-    func prepareForkAvailabilityProbe(workspaceId: UUID, panelId: UUID) -> Bool {
+    func forkSupportProbeRejected(
+        workspaceId: UUID,
+        panelId: UUID,
+        isRemoteContext: Bool = false
+    ) -> Bool {
         let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-        scheduleRefreshIfStale(validating: panelKey)
-        guard let index else {
-            requestForkAvailabilityRefresh(validating: panelKey)
+        guard let validationKey = validatedForkPanelKey(for: panelKey),
+              let snapshot = index?.snapshot(workspaceId: workspaceId, panelId: panelId) else {
             return false
         }
-        guard index.snapshot(workspaceId: workspaceId, panelId: panelId) != nil else {
+        let probeKey = ForkProbeKey(panelKey: validationKey, isRemoteContext: isRemoteContext)
+        return hasFreshForkAvailabilityProbe(for: probeKey, snapshot: snapshot)
+            && validatedForkSupport[probeKey]?.isSupported == false
+    }
+
+    func prepareForkAvailabilityProbe(
+        workspaceId: UUID,
+        panelId: UUID,
+        isRemoteContext: Bool = false
+    ) -> Bool {
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let probeKey = ForkProbeKey(panelKey: panelKey, isRemoteContext: isRemoteContext)
+        scheduleRefreshIfStale(validating: panelKey, isRemoteContext: isRemoteContext)
+        guard let index else {
+            requestForkAvailabilityRefresh(validating: probeKey)
+            return false
+        }
+        guard let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) else {
             if let validatedAt = validatedMissingForkPanels[panelKey],
                dateProvider().timeIntervalSince(validatedAt) < Self.minEventReloadInterval {
                 return true
             }
-            requestForkAvailabilityRefresh(validating: panelKey)
+            requestForkAvailabilityRefresh(validating: probeKey)
             return false
         }
         guard let validationKey = validatedForkPanelKey(for: panelKey) else {
-            requestForkAvailabilityRefresh(validating: panelKey)
+            requestForkAvailabilityRefresh(validating: probeKey)
             return false
         }
-        guard hasFreshForkAvailabilityProbe(for: validationKey) else {
-            requestForkAvailabilityRefresh(validating: panelKey)
+        let resolvedProbeKey = ForkProbeKey(panelKey: validationKey, isRemoteContext: isRemoteContext)
+        guard hasFreshForkAvailabilityProbe(for: resolvedProbeKey, snapshot: snapshot) else {
+            requestForkAvailabilityRefresh(validating: probeKey)
             return false
         }
         return true
@@ -140,11 +190,16 @@ final class SharedLiveAgentIndex {
         return index
     }
 
-    func scheduleRefreshIfStale(validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil) {
+    func scheduleRefreshIfStale(
+        validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil,
+        isRemoteContext: Bool = false
+    ) {
         ensureWatchingHookStoreDirectory()
         guard refreshTask == nil, forkAvailabilityRefreshTask == nil else {
             if let panelKey {
-                pendingForkValidationPanels.insert(panelKey)
+                pendingForkValidationPanels.insert(
+                    ForkProbeKey(panelKey: panelKey, isRemoteContext: isRemoteContext)
+                )
             }
             return
         }
@@ -152,22 +207,34 @@ final class SharedLiveAgentIndex {
             return
         }
         if let panelKey {
-            pendingForkValidationPanels.insert(panelKey)
+            pendingForkValidationPanels.insert(
+                ForkProbeKey(panelKey: panelKey, isRemoteContext: isRemoteContext)
+            )
         }
         startReload()
     }
 
-    func refreshForkAvailabilityNow(workspaceId: UUID? = nil, panelId: UUID? = nil) async {
+    func refreshForkAvailabilityNow(
+        workspaceId: UUID? = nil,
+        panelId: UUID? = nil,
+        isRemoteContext: Bool = false
+    ) async {
         if let workspaceId, let panelId {
             pendingForkValidationPanels.insert(
-                RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+                ForkProbeKey(
+                    panelKey: RestorableAgentSessionIndex.PanelKey(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ),
+                    isRemoteContext: isRemoteContext
+                )
             )
         }
         _ = await reloadIfLiveAgentProcessFingerprintChanged()
     }
 
-    private func requestForkAvailabilityRefresh(validating panelKey: RestorableAgentSessionIndex.PanelKey) {
-        pendingForkValidationPanels.insert(panelKey)
+    private func requestForkAvailabilityRefresh(validating probeKey: ForkProbeKey) {
+        pendingForkValidationPanels.insert(probeKey)
         guard refreshTask == nil,
               forkAvailabilityRefreshTask == nil else {
             return
@@ -229,12 +296,8 @@ final class SharedLiveAgentIndex {
             self.loadedAt = loadedAt
             self.processScopeFingerprint = result.processScopeFingerprint
             self.validatedForkPanels = result.forkValidatedPanels
-            self.validatedForkPanelProbeCompletedAt = forkPanelProbeTimestamps(
-                for: result.forkValidatedPanels,
-                completedAt: loadedAt
-            )
         }
-        applyPendingForkValidations()
+        await applyPendingForkValidations()
     }
 
     private func applyReloadedIndex(
@@ -253,10 +316,6 @@ final class SharedLiveAgentIndex {
         index = newIndex
         self.loadedAt = loadedAt
         validatedForkPanels = forkValidatedPanels
-        validatedForkPanelProbeCompletedAt = forkPanelProbeTimestamps(
-            for: forkValidatedPanels,
-            completedAt: loadedAt
-        )
         validatedMissingForkPanels.removeAll()
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
@@ -268,32 +327,48 @@ final class SharedLiveAgentIndex {
 #endif
     }
 
-    private func applyPendingForkValidations() {
+    private func applyPendingForkValidations() async {
+        let pendingProbeKeys = pendingForkValidationPanels
+        pendingForkValidationPanels.removeAll()
         guard let index else {
-            pendingForkValidationPanels.removeAll()
             return
         }
         let now = dateProvider()
-        for panelKey in pendingForkValidationPanels {
+        for probeKey in pendingProbeKeys {
+            let panelKey = probeKey.panelKey
             if index.snapshot(workspaceId: panelKey.workspaceId, panelId: panelKey.panelId) == nil {
                 validatedMissingForkPanels[panelKey] = now
-            } else if let validationKey = validatedForkPanelKey(for: panelKey) {
-                validatedForkPanelProbeCompletedAt[validationKey] = now
+            } else if let validationKey = validatedForkPanelKey(for: panelKey),
+                      let snapshot = index.snapshot(
+                        workspaceId: panelKey.workspaceId,
+                        panelId: panelKey.panelId
+                      ) {
+                let resolvedProbeKey = ForkProbeKey(
+                    panelKey: validationKey,
+                    isRemoteContext: probeKey.isRemoteContext
+                )
+                if let command = snapshot.forkCommand {
+                    validatedForkSupport[resolvedProbeKey] = ForkSupportValidation(
+                        command: command,
+                        isSupported: await forkSupportProvider(snapshot, probeKey.isRemoteContext),
+                        completedAt: now
+                    )
+                } else {
+                    validatedForkSupport.removeValue(forKey: resolvedProbeKey)
+                }
             }
         }
-        pendingForkValidationPanels.removeAll()
     }
 
-    private func forkPanelProbeTimestamps(
-        for panelKeys: Set<RestorableAgentSessionIndex.PanelKey>,
-        completedAt: Date
-    ) -> [RestorableAgentSessionIndex.PanelKey: Date] {
-        Dictionary(uniqueKeysWithValues: panelKeys.map { ($0, completedAt) })
-    }
-
-    private func hasFreshForkAvailabilityProbe(for panelKey: RestorableAgentSessionIndex.PanelKey) -> Bool {
-        guard let completedAt = validatedForkPanelProbeCompletedAt[panelKey] else { return false }
-        return dateProvider().timeIntervalSince(completedAt) < Self.forkAvailabilityProbeTTL
+    private func hasFreshForkAvailabilityProbe(
+        for probeKey: ForkProbeKey,
+        snapshot: SessionRestorableAgentSnapshot
+    ) -> Bool {
+        guard let validation = validatedForkSupport[probeKey],
+              validation.command == snapshot.forkCommand else {
+            return false
+        }
+        return dateProvider().timeIntervalSince(validation.completedAt) < Self.forkAvailabilityProbeTTL
     }
 
     private func validatedForkPanelKey(

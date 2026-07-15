@@ -446,11 +446,12 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func validatedDirectOpenCodeSnapshotAppearsInContextMenu() async throws {
+    func directOpenCodeContextMenuReconcilesLivenessAndVersionSupport() async throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let snapshot = makeProbeRequiredOpenCodeSnapshot()
         workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: panelId)
+        workspace.restoredAgentResumeStatesByPanelId[panelId] = .completedAgentExit
 
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -472,11 +473,13 @@ struct WorkspaceForkConversationContextMenuTests {
             ]
         )
 
+        let forkSupported = OSAllocatedUnfairLock(initialState: false)
         let liveAgentIndex = SharedLiveAgentIndex(
             indexLoader: {
                 SharedLiveAgentIndexLoader(
                     homeDirectory: root.path,
                     fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
                     processSnapshotProvider: {
                         CmuxTopProcessSnapshot(
                             processes: [],
@@ -489,13 +492,30 @@ struct WorkspaceForkConversationContextMenuTests {
                 )
                 .loadResultSynchronously()
             },
+            forkSupportProvider: { _, _ in forkSupported.withLock { $0 } },
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path
             },
             dateProvider: { Date(timeIntervalSince1970: 42) }
         )
+        #expect(
+            workspace.forkAgentConversationContextMenuPresentationAvailability(
+                forPanelId: panelId,
+                liveAgentIndex: liveAgentIndex
+            ) == .agentIndexRefreshing
+        )
+
         await liveAgentIndex.refreshForkAvailabilityNow(workspaceId: workspace.id, panelId: panelId)
         #expect(liveAgentIndex.prepareForkAvailabilityProbe(workspaceId: workspace.id, panelId: panelId))
+        #expect(
+            workspace.forkAgentConversationContextMenuOpenAvailability(
+                forPanelId: panelId,
+                liveAgentIndex: liveAgentIndex
+            ) == .unsupported
+        )
+
+        forkSupported.withLock { $0 = true }
+        await liveAgentIndex.refreshForkAvailabilityNow(workspaceId: workspace.id, panelId: panelId)
 
         #expect(
             workspace.forkAgentConversationContextMenuOpenAvailability(
@@ -503,6 +523,7 @@ struct WorkspaceForkConversationContextMenuTests {
                 liveAgentIndex: liveAgentIndex
             ) == .available
         )
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit)
     }
 
     private func makeForkableClaudeSnapshot(

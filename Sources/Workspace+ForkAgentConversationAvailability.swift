@@ -54,7 +54,7 @@ extension Workspace {
         liveAgentIndex: SharedLiveAgentIndex
     ) -> WorkspaceForkAgentConversationAvailability {
         let candidateAvailability = forkAgentConversationContextMenuAvailability(forPanelId: panelId)
-        guard candidateAvailability == .requiresProbe else {
+        guard candidateAvailability == .requiresProbe || candidateAvailability == .noAgentSnapshot else {
             return candidateAvailability
         }
         return forkAgentConversationContextMenuOpenAvailability(
@@ -83,11 +83,9 @@ extension Workspace {
         snapshot: SessionRestorableAgentSnapshot?
     ) {
         guard panels[panelId] is TerminalPanel else { return (.notTerminalPanel, nil) }
-        guard allowsAgentContinuation(forPanelId: panelId) else {
-            return (.noAgentSnapshot, nil)
-        }
 
-        if let restoredSnapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
+        if allowsAgentContinuation(forPanelId: panelId),
+           let restoredSnapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
             switch ContentView.commandPaletteSnapshotForkAvailability(
                 restoredSnapshot,
                 isRemoteTerminal: isRemoteTerminalSurface(panelId)
@@ -103,14 +101,23 @@ extension Workspace {
 
         guard liveAgentIndex.prepareForkAvailabilityProbe(
             workspaceId: id,
-            panelId: panelId
+            panelId: panelId,
+            isRemoteContext: isRemoteTerminalSurface(panelId)
         ) else {
             return (.agentIndexRefreshing, nil)
         }
         guard let verifiedSnapshot = liveAgentIndex.snapshotForForkAvailability(
             workspaceId: id,
-            panelId: panelId
+            panelId: panelId,
+            isRemoteContext: isRemoteTerminalSurface(panelId)
         ) else {
+            if liveAgentIndex.forkSupportProbeRejected(
+                workspaceId: id,
+                panelId: panelId,
+                isRemoteContext: isRemoteTerminalSurface(panelId)
+            ) {
+                return (.unsupported, nil)
+            }
             return (.noAgentSnapshot, nil)
         }
         if let observation = liveAgentIndex.index?.entry(workspaceId: id, panelId: panelId) {
