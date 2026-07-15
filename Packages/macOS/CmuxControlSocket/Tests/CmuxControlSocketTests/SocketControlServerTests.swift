@@ -81,6 +81,7 @@ private struct ServerHarness: ~Copyable {
         recorder = ServerEventRecorder()
         server = SocketControlServer(
             initialSocketPath: socketPath,
+            notificationCenter: NotificationCenter(),
             events: recorder.makeEvents()
         )
     }
