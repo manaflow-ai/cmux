@@ -180,14 +180,14 @@ final class RepositoryScriptLifecycleCoordinator {
                       let workspaceIDs = pendingAuthorizations.removeValue(forKey: fingerprint) else {
                     return
                 }
-                workspaceIDs.forEach { completeAuthorization(workspaceID: $0) }
+                workspaceIDs.forEach { self.completeAuthorization(workspaceID: $0) }
             },
             onDenied: { [weak self] in
                 guard let self,
                       let workspaceIDs = pendingAuthorizations.removeValue(forKey: fingerprint) else {
                     return
                 }
-                workspaceIDs.forEach { denyAuthorization(workspaceID: $0) }
+                workspaceIDs.forEach { self.denyAuthorization(workspaceID: $0) }
             }
         )
     }
