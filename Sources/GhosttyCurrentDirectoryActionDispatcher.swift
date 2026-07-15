@@ -2,15 +2,16 @@ import CmuxTerminal
 import Foundation
 
 /// Nonblocking ordered handoff from Ghostty's serialized PTY callback to the
-/// main actor. Mutable delivery state lives in `AsyncStream`; atomics only tag
-/// the two replay markers that must survive ordinary PWD coalescing.
-final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
+/// main actor. The latest-directory snapshot is confined to that serialized
+/// callback and preserves callback order for later OSC notifications.
+final class GhosttyCurrentDirectoryActionDispatcher {
     typealias Delivery = @MainActor @Sendable (GhosttyCurrentDirectoryAction) -> Void
 
     private let startBoundaryHash: UInt64?
     private let endBoundaryHash: UInt64?
     private let replayBoundaryContinuation: AsyncStream<GhosttyCurrentDirectoryAction>.Continuation
     private let ordinaryContinuation: AsyncStream<GhosttyCurrentDirectoryAction>.Continuation
+    private var latestDirectory: String?
 
     init(
         startBoundary: String? = nil,
@@ -55,6 +56,7 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
         surfaceView: GhosttyNSView,
         terminalSurface: TerminalSurface?
     ) {
+        latestDirectory = directory.isEmpty ? nil : directory
         let directoryHash = Self.stableHash(directory)
         let isStartBoundary = directoryHash == startBoundaryHash
         let isEndBoundary = directoryHash == endBoundaryHash
@@ -70,6 +72,12 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
         } else {
             replayBoundaryContinuation.yield(action)
         }
+    }
+
+    /// The last PWD value observed before the current callback in Ghostty's
+    /// serialized surface action stream.
+    func directorySnapshot() -> String? {
+        latestDirectory
     }
 
     @MainActor

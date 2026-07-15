@@ -1,30 +1,9 @@
 import Foundation
 import Combine
 import CmuxTerminal
-import CmuxWorkspaces
-
-enum BackgroundWorkspacePrimeWorkState: Sendable {
-    case workspaceRemoved
-    case noSurfaceWork
-    case needsSurfaceStart
-    case ready
-}
-
-@MainActor
-protocol BackgroundWorkspacePrimeHosting: AnyObject, Sendable {
-    var pendingBackgroundWorkspaceLoadIds: Set<UUID> { get }
-    var backgroundWorkspacePrimePendingPublisher: AnyPublisher<Set<UUID>, Never> { get }
-    var backgroundWorkspacePrimeWorkspaceIDsPublisher: AnyPublisher<Set<UUID>, Never> { get }
-
-    func backgroundWorkspacePrimeWorkState(for workspaceID: UUID) -> BackgroundWorkspacePrimeWorkState
-    func requestBackgroundWorkspacePrimeSurfaceStart(for workspaceID: UUID)
-    func completeBackgroundWorkspaceLoad(for workspaceID: UUID)
-}
 
 @MainActor
 final class BackgroundWorkspacePrimeCoordinator {
-    typealias TimeoutSleep = @Sendable () async throws -> Void
-
     private nonisolated enum PrimeCompletionReason: String {
         case alreadyCleared = "already_cleared"
         case cancelled
@@ -39,7 +18,9 @@ final class BackgroundWorkspacePrimeCoordinator {
         case completed(reason: PrimeCompletionReason)
     }
 
-    private let timeoutSleep: TimeoutSleep
+    private nonisolated enum Policy {
+        static let timeoutSeconds: TimeInterval = 2.0
+    }
 
     private nonisolated final class Waiter: @unchecked Sendable {
         // Cancellation handlers cannot await an actor hop; this lock keeps continuation
@@ -114,85 +95,61 @@ final class BackgroundWorkspacePrimeCoordinator {
         }
     }
 
-    init(timeoutSleep: @escaping TimeoutSleep = {
-        try await Task.sleep(nanoseconds: 2_000_000_000)
-    }) {
-        self.timeoutSleep = timeoutSleep
-    }
-
     deinit {
         // Explicit for the required_deinit lint; per-prime resources live on Waiter.
     }
 
-    func taskKey(for host: any BackgroundWorkspacePrimeHosting) -> [String] {
-        host.pendingBackgroundWorkspaceLoadIds
+    func taskKey(for tabManager: TabManager) -> [String] {
+        tabManager.pendingBackgroundWorkspaceLoadIds
             .map(\.uuidString)
             .sorted()
     }
 
     func primePendingBackgroundWorkspaces(tabManager: TabManager) async {
-        await primePendingBackgroundWorkspaces(host: tabManager)
-    }
-
-    func primePendingBackgroundWorkspaces(host: any BackgroundWorkspacePrimeHosting) async {
-        var schedule = BackgroundWorkspaceHeadlessPrimeSchedule<UUID>()
-
         while !Task.isCancelled {
-            let workspaceIds = host.pendingBackgroundWorkspaceLoadIds
-                .sorted { $0.uuidString < $1.uuidString }
-            guard let workspaceId = schedule.nextWorkspaceID(
-                orderedPendingWorkspaceIDs: workspaceIds
-            ) else {
-                return
-            }
-            let reason = await primeBackgroundWorkspaceIfNeeded(
-                workspaceId: workspaceId,
-                host: host
-            )
-            guard !Task.isCancelled else {
-                schedule.resolve(workspaceID: workspaceId, resolution: .cancelled)
-                return
-            }
+            let workspaceIds = tabManager.pendingBackgroundWorkspaceLoadIds.sorted { $0.uuidString < $1.uuidString }
+            guard !workspaceIds.isEmpty else { return }
+            for workspaceId in workspaceIds {
+                guard !Task.isCancelled else { return }
+                let reason = await primeBackgroundWorkspaceIfNeeded(workspaceId: workspaceId, tabManager: tabManager)
+                guard !Task.isCancelled else { return }
 
-            switch reason {
-            case .timeout:
-                schedule.resolve(workspaceID: workspaceId, resolution: .timeout)
-            case .cancelled:
-                schedule.resolve(workspaceID: workspaceId, resolution: .cancelled)
-                return
-            case .workspaceRemoved:
-                schedule.resolve(workspaceID: workspaceId, resolution: .workspaceRemoved)
-            case .alreadyCleared, .noSurfaceWork, .surfaceReady:
-                schedule.resolve(workspaceID: workspaceId, resolution: .completed)
+                switch reason {
+                case .timeout:
+                    // Keep the hidden mount retained; pending background initial commands
+                    // must stay eligible to start until the surface is actually ready.
+                    continue
+                case .cancelled:
+                    continue
+                case .alreadyCleared, .noSurfaceWork, .surfaceReady, .workspaceRemoved:
+                    continue
+                }
             }
         }
     }
 
     private func primeBackgroundWorkspaceIfNeeded(
         workspaceId: UUID,
-        host: any BackgroundWorkspacePrimeHosting
+        tabManager: TabManager
     ) async -> PrimeCompletionReason {
-        guard host.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else {
+        guard tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else {
+            tabManager.releaseBackgroundWorkspaceMount(for: workspaceId)
             return .alreadyCleared
         }
-
-        switch host.backgroundWorkspacePrimeWorkState(for: workspaceId) {
-        case .workspaceRemoved:
-            host.completeBackgroundWorkspaceLoad(for: workspaceId)
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .workspaceRemoved
-        case .noSurfaceWork:
-            host.completeBackgroundWorkspaceLoad(for: workspaceId)
+        }
+        guard workspace.hasBackgroundPrimeTerminalSurfaceStartWork() else {
+            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .noSurfaceWork
-        case .ready:
-            host.completeBackgroundWorkspaceLoad(for: workspaceId)
+        }
+        guard !workspace.hasLoadedBackgroundPrimeTerminalSurface() else {
+            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .surfaceReady
-        case .needsSurfaceStart:
-            break
         }
 
-        // CmuxTerminal starts deferred terminal runtimes in its own invisible AppKit host.
-        // The coordinator can therefore start the runtime without building a background
-        // SwiftUI workspace tree.
+        tabManager.retainBackgroundWorkspaceMount(for: workspaceId)
 
 #if DEBUG
         let startedAt = ProcessInfo.processInfo.systemUptime
@@ -200,13 +157,14 @@ final class BackgroundWorkspacePrimeCoordinator {
 #endif
 
         let completionReason: PrimeCompletionReason
-        switch stepBackgroundWorkspacePrime(workspaceId: workspaceId, host: host) {
+        switch stepBackgroundWorkspacePrime(workspaceId: workspaceId, tabManager: tabManager) {
         case .completed(let reason):
             completionReason = reason
         case .pending:
             completionReason = await waitForBackgroundWorkspacePrimeCompletion(
                 workspaceId: workspaceId,
-                host: host
+                timeoutSeconds: Policy.timeoutSeconds,
+                tabManager: tabManager
             )
         }
 
@@ -220,48 +178,37 @@ final class BackgroundWorkspacePrimeCoordinator {
         return completionReason
     }
 
-    private func stepBackgroundWorkspacePrime(
-        workspaceId: UUID,
-        host: any BackgroundWorkspacePrimeHosting
-    ) -> PrimeState {
-        guard host.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else {
+    private func stepBackgroundWorkspacePrime(workspaceId: UUID, tabManager: TabManager) -> PrimeState {
+        guard tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else {
+            tabManager.releaseBackgroundWorkspaceMount(for: workspaceId)
             return .completed(reason: .alreadyCleared)
         }
-
-        switch host.backgroundWorkspacePrimeWorkState(for: workspaceId) {
-        case .workspaceRemoved:
-            host.completeBackgroundWorkspaceLoad(for: workspaceId)
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .completed(reason: .workspaceRemoved)
-        case .noSurfaceWork:
-            host.completeBackgroundWorkspaceLoad(for: workspaceId)
+        }
+        guard workspace.hasBackgroundPrimeTerminalSurfaceStartWork() else {
+            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .completed(reason: .noSurfaceWork)
-        case .ready:
-            host.completeBackgroundWorkspaceLoad(for: workspaceId)
+        }
+        guard !workspace.hasLoadedBackgroundPrimeTerminalSurface() else {
+            tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .completed(reason: .surfaceReady)
-        case .needsSurfaceStart:
-            break
         }
 
-        host.requestBackgroundWorkspacePrimeSurfaceStart(for: workspaceId)
-
-        switch host.backgroundWorkspacePrimeWorkState(for: workspaceId) {
-        case .workspaceRemoved:
-            host.completeBackgroundWorkspaceLoad(for: workspaceId)
-            return .completed(reason: .workspaceRemoved)
-        case .noSurfaceWork:
-            host.completeBackgroundWorkspaceLoad(for: workspaceId)
-            return .completed(reason: .noSurfaceWork)
-        case .needsSurfaceStart:
+        workspace.requestBackgroundPrimeTerminalSurfaceStartIfNeeded()
+        guard workspace.hasLoadedBackgroundPrimeTerminalSurface() else {
             return .pending
-        case .ready:
-            host.completeBackgroundWorkspaceLoad(for: workspaceId)
-            return .completed(reason: .surfaceReady)
         }
+
+        tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
+        return .completed(reason: .surfaceReady)
     }
 
     private func waitForBackgroundWorkspacePrimeCompletion(
         workspaceId: UUID,
-        host: any BackgroundWorkspacePrimeHosting
+        timeoutSeconds: TimeInterval,
+        tabManager: TabManager
     ) async -> PrimeCompletionReason {
         let waiter = Waiter()
         return await withTaskCancellationHandler {
@@ -272,20 +219,20 @@ final class BackgroundWorkspacePrimeCoordinator {
                 installReadinessObservers(
                     waiter: waiter,
                     workspaceId: workspaceId,
-                    host: host
+                    tabManager: tabManager
                 )
 
-                let timeoutSleep = self.timeoutSleep
-                let timeoutTask = Task { @MainActor [weak self, weak waiter, weak host] in
+                let timeoutNanoseconds = UInt64(timeoutSeconds * 1_000_000_000)
+                let timeoutTask = Task { @MainActor [weak self, weak waiter, weak tabManager] in
                     do {
-                        try await timeoutSleep()
+                        try await Task.sleep(nanoseconds: timeoutNanoseconds)
                     } catch {
                         return
                     }
-                    guard !Task.isCancelled, let self, let waiter, let host else { return }
+                    guard !Task.isCancelled, let self, let waiter, let tabManager else { return }
                     if case .completed(let reason) = self.stepBackgroundWorkspacePrime(
                         workspaceId: workspaceId,
-                        host: host
+                        tabManager: tabManager
                     ) {
                         waiter.finish(reason: reason)
                     } else {
@@ -294,7 +241,7 @@ final class BackgroundWorkspacePrimeCoordinator {
                 }
                 waiter.addTask(timeoutTask)
 
-                evaluate(waiter: waiter, workspaceId: workspaceId, host: host)
+                evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
             }
         } onCancel: {
             waiter.finish(reason: .cancelled)
@@ -304,20 +251,20 @@ final class BackgroundWorkspacePrimeCoordinator {
     private func installReadinessObservers(
         waiter: Waiter,
         workspaceId: UUID,
-        host: any BackgroundWorkspacePrimeHosting
+        tabManager: TabManager
     ) {
         let readyObserver = NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
             object: nil,
             queue: .main
-        ) { [weak self, weak waiter, weak host] notification in
+        ) { [weak self, weak waiter, weak tabManager] notification in
             guard let readyWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
                   readyWorkspaceId == workspaceId,
                   let self,
                   let waiter,
-                  let host else { return }
+                  let tabManager else { return }
             Task { @MainActor in
-                self.evaluate(waiter: waiter, workspaceId: workspaceId, host: host)
+                self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
             }
         }
         waiter.addObserver(readyObserver)
@@ -326,85 +273,51 @@ final class BackgroundWorkspacePrimeCoordinator {
             forName: .terminalSurfaceHostedViewDidMoveToWindow,
             object: nil,
             queue: .main
-        ) { [weak self, weak waiter, weak host] notification in
+        ) { [weak self, weak waiter, weak tabManager] notification in
             guard let readyWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
                   readyWorkspaceId == workspaceId,
                   let self,
                   let waiter,
-                  let host else { return }
+                  let tabManager else { return }
             Task { @MainActor in
-                self.evaluate(waiter: waiter, workspaceId: workspaceId, host: host)
+                self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
             }
         }
         waiter.addObserver(hostedViewObserver)
 
-        let pendingObserver = host.backgroundWorkspacePrimePendingPublisher
+        let pendingObserver = tabManager.$pendingBackgroundWorkspaceLoadIds
             .dropFirst()
-            .sink { [weak self, weak waiter, weak host] pendingIds in
+            .sink { [weak self, weak waiter, weak tabManager] pendingIds in
                 guard !pendingIds.contains(workspaceId),
                       let self,
                       let waiter,
-                      let host else { return }
+                      let tabManager else { return }
                 Task { @MainActor in
-                    self.evaluate(waiter: waiter, workspaceId: workspaceId, host: host)
+                    self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
                 }
             }
         waiter.addCancellable(pendingObserver)
 
-        let tabsObserver = host.backgroundWorkspacePrimeWorkspaceIDsPublisher
+        let tabsObserver = tabManager.tabsPublisher
             .dropFirst()
-            .sink { [weak self, weak waiter, weak host] workspaceIDs in
-                guard !workspaceIDs.contains(workspaceId),
+            .sink { [weak self, weak waiter, weak tabManager] tabs in
+                guard !tabs.contains(where: { $0.id == workspaceId }),
                       let self,
                       let waiter,
-                      let host else { return }
+                      let tabManager else { return }
                 Task { @MainActor in
-                    self.evaluate(waiter: waiter, workspaceId: workspaceId, host: host)
+                    self.evaluate(waiter: waiter, workspaceId: workspaceId, tabManager: tabManager)
                 }
             }
         waiter.addCancellable(tabsObserver)
     }
 
-    private func evaluate(
-        waiter: Waiter,
-        workspaceId: UUID,
-        host: any BackgroundWorkspacePrimeHosting
-    ) {
-        switch stepBackgroundWorkspacePrime(workspaceId: workspaceId, host: host) {
+    private func evaluate(waiter: Waiter, workspaceId: UUID, tabManager: TabManager) {
+        switch stepBackgroundWorkspacePrime(workspaceId: workspaceId, tabManager: tabManager) {
         case .pending:
             break
         case .completed(let reason):
             waiter.finish(reason: reason)
         }
-    }
-}
-
-extension TabManager: BackgroundWorkspacePrimeHosting {
-    var backgroundWorkspacePrimePendingPublisher: AnyPublisher<Set<UUID>, Never> {
-        $pendingBackgroundWorkspaceLoadIds.eraseToAnyPublisher()
-    }
-
-    var backgroundWorkspacePrimeWorkspaceIDsPublisher: AnyPublisher<Set<UUID>, Never> {
-        tabsPublisher
-            .map { Set($0.map(\.id)) }
-            .eraseToAnyPublisher()
-    }
-
-    func backgroundWorkspacePrimeWorkState(for workspaceID: UUID) -> BackgroundWorkspacePrimeWorkState {
-        guard let workspace = tabs.first(where: { $0.id == workspaceID }) else {
-            return .workspaceRemoved
-        }
-        guard workspace.hasBackgroundPrimeTerminalSurfaceStartWork() else {
-            return .noSurfaceWork
-        }
-        guard !workspace.hasLoadedBackgroundPrimeTerminalSurface() else {
-            return .ready
-        }
-        return .needsSurfaceStart
-    }
-
-    func requestBackgroundWorkspacePrimeSurfaceStart(for workspaceID: UUID) {
-        tabs.first(where: { $0.id == workspaceID })?
-            .requestBackgroundPrimeTerminalSurfaceStartIfNeeded()
     }
 }
