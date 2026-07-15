@@ -212,3 +212,84 @@ import Testing
     #expect(updated.focusedPaneID == "pane-focused")
     #expect(store.selectedTerminalID == created.id)
 }
+
+@MainActor
+@Test func terminalCreateRoutesToOwningSecondaryMacWithCollidingWorkspaceID() async throws {
+    let foregroundRouter = RoutingHostRouter()
+    let secondaryRouter = RoutingHostRouter()
+    let store = try await makeRoutingConnectedStore(
+        router: foregroundRouter,
+        connectionState: .connected
+    )
+    try installSecondaryClient(
+        on: store,
+        macDeviceID: "secondary-mac",
+        router: secondaryRouter
+    )
+
+    let foregroundWorkspace = MobileWorkspacePreview(
+        id: .init(rawValue: RoutingHostRouter.workspaceID),
+        macDeviceID: "test-mac",
+        name: "Foreground collision",
+        terminals: [MobileTerminalPreview(id: "foreground-terminal", name: "Foreground")]
+    )
+    let secondaryWorkspace = MobileWorkspacePreview(
+        id: .init(rawValue: RoutingHostRouter.workspaceID),
+        macDeviceID: "secondary-mac",
+        name: "Secondary collision",
+        terminals: [
+            MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalA), name: "A"),
+            MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalB), name: "B"),
+        ],
+        selectedTerminalID: .init(rawValue: RoutingHostRouter.terminalB)
+    )
+    store.setWorkspaceStatesForTesting(
+        [
+            "test-mac": MacWorkspaceState(
+                macDeviceID: "test-mac",
+                displayName: "Foreground Mac",
+                workspaces: [foregroundWorkspace],
+                status: .connected
+            ),
+            "secondary-mac": MacWorkspaceState(
+                macDeviceID: "secondary-mac",
+                displayName: "Secondary Mac",
+                workspaces: [secondaryWorkspace],
+                status: .connected
+            ),
+        ],
+        foregroundMacDeviceID: "test-mac"
+    )
+    let secondaryRowID = try #require(
+        store.workspaces.first(where: { $0.macDeviceID == "secondary-mac" })?.id
+    )
+    let foregroundRowID = try #require(
+        store.workspaces.first(where: { $0.macDeviceID == "test-mac" })?.id
+    )
+    store.setSelectedWorkspaceID(secondaryRowID)
+    store.selectTerminal(.init(rawValue: RoutingHostRouter.terminalB))
+
+    let result = await withCheckedContinuation { continuation in
+        store.createTerminal(in: secondaryRowID) { result in
+            continuation.resume(returning: result)
+        }
+    }
+
+    guard case .success = result else {
+        Issue.record("Expected secondary terminal creation to succeed, got \(result)")
+        return
+    }
+    #expect(await foregroundRouter.recordedTerminalCreateCount() == 0)
+    #expect(await secondaryRouter.recordedTerminalCreateCount() == 1)
+    #expect(await secondaryRouter.recordedTerminalCreateWorkspaceIDs() == [RoutingHostRouter.workspaceID])
+    #expect(store.selectedWorkspaceID == secondaryRowID)
+    #expect(store.selectedTerminalID?.rawValue == "terminal-route-created")
+    #expect(
+        store.workspaces.first(where: { $0.id == secondaryRowID })?.terminals.map(\.id.rawValue)
+            == [RoutingHostRouter.terminalA, RoutingHostRouter.terminalB, "terminal-route-created"]
+    )
+    #expect(
+        store.workspaces.first(where: { $0.id == foregroundRowID })?.terminals.map(\.id.rawValue)
+            == ["foreground-terminal"]
+    )
+}

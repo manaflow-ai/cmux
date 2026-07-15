@@ -108,6 +108,7 @@ actor RoutingHostRouter {
     private var firstTerminalCreateHeld = false
     private var dropTerminalCreateResponse = false
     private var terminalCreateCount = 0
+    private var terminalCreateWorkspaceIDs: [String?] = []
     private var heldTerminalCreateCount = 0
     private var terminalCreateContinuations: [CheckedContinuation<Void, Never>] = []
     private var firstTerminalCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
@@ -208,6 +209,7 @@ actor RoutingHostRouter {
     func recordedTerminalCloseCount() -> Int { terminalCloseCount }
     func recordedTerminalReorderCount() -> Int { terminalReorderCount }
     func recordedTerminalCreateCount() -> Int { terminalCreateCount }
+    func recordedTerminalCreateWorkspaceIDs() -> [String?] { terminalCreateWorkspaceIDs }
     func recordedHeldTerminalCreateCount() -> Int { heldTerminalCreateCount }
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
@@ -304,6 +306,7 @@ actor RoutingHostRouter {
             ])
         case "terminal.create":
             terminalCreateCount += 1
+            terminalCreateWorkspaceIDs.append(info.workspaceID)
             terminalHasBeenCreated = true
             selectedHostWorkspaceID = info.workspaceID ?? Self.workspaceID
             if terminalCreateCount == 1 && holdFirstTerminalCreate {

@@ -142,6 +142,331 @@ extension RemoteTmuxMirrorTargetingTests {
         }
     }
 
+    @Test func confirmedMobileRemoteCloseWaitsForAuthoritativeWindowCloseBeforeClearingViewport() async throws {
+        try await withMobileRPCActivityHarness { harness, windowID in
+            let panelID = try harness.panelID(forWindow: 1)
+            let controller = TerminalController.shared
+            controller.debugResetMobileViewportReportsForTesting()
+            defer { controller.debugResetMobileViewportReportsForTesting() }
+            controller.debugSetMobileViewportReportForTesting(
+                surfaceID: panelID,
+                clientID: "ipad-close",
+                columns: 92,
+                rows: 31
+            )
+            var observedResult: TerminalController.V2CallResult?
+            let close = Task { @MainActor in
+                let result = await controller.v2MobileTerminalClose(params: mobileCloseParams(
+                    windowID: windowID,
+                    workspaceID: harness.workspace.id,
+                    panelID: panelID
+                ))
+                observedResult = result
+                return result
+            }
+            await waitForPendingCommand(on: harness.connection)
+
+            #expect(observedResult == nil)
+            #expect(controller.debugMobileViewportReportClientIDsForTesting(surfaceID: panelID) == ["ipad-close"])
+            #expect(harness.workspace.terminalPanel(for: panelID) != nil)
+
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 100,
+                lines: [],
+                isError: false
+            ))
+            #expect(observedResult == nil)
+            harness.connection.handleMessageForTesting(.windowClose(windowId: 1))
+
+            let result = await close.value
+            guard case .ok = result else {
+                Issue.record("Expected confirmed close to succeed after %window-close")
+                return
+            }
+            #expect(harness.workspace.terminalPanel(for: panelID) == nil)
+            #expect(controller.debugMobileViewportReportClientIDsForTesting(surfaceID: panelID) == nil)
+        }
+    }
+
+    @Test func rejectedMobileRemoteClosePreservesViewportAndTerminal() async throws {
+        try await withMobileRPCActivityHarness { harness, windowID in
+            let panelID = try harness.panelID(forWindow: 1)
+            let controller = TerminalController.shared
+            controller.debugResetMobileViewportReportsForTesting()
+            defer { controller.debugResetMobileViewportReportsForTesting() }
+            controller.debugSetMobileViewportReportForTesting(
+                surfaceID: panelID,
+                clientID: "ipad-rejected-close",
+                columns: 92,
+                rows: 31
+            )
+            let close = Task { @MainActor in
+                await controller.v2MobileTerminalClose(params: mobileCloseParams(
+                    windowID: windowID,
+                    workspaceID: harness.workspace.id,
+                    panelID: panelID
+                ))
+            }
+            await waitForPendingCommand(on: harness.connection)
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 101,
+                lines: ["can't find window: @1"],
+                isError: true
+            ))
+
+            guard case .err = await close.value else {
+                Issue.record("Expected rejected remote close to fail")
+                return
+            }
+            #expect(harness.workspace.terminalPanel(for: panelID) != nil)
+            #expect(
+                controller.debugMobileViewportReportClientIDsForTesting(surfaceID: panelID)
+                    == ["ipad-rejected-close"]
+            )
+        }
+    }
+
+    @Test func timedOutMobileRemoteClosePreservesViewportAndTerminal() async throws {
+        let deadlines = CapturingActivityQueryDeadlineScheduler()
+        try await withMobileRPCActivityHarness(deadlineScheduler: deadlines) { harness, windowID in
+            let panelID = try harness.panelID(forWindow: 1)
+            let controller = TerminalController.shared
+            controller.debugResetMobileViewportReportsForTesting()
+            defer { controller.debugResetMobileViewportReportsForTesting() }
+            controller.debugSetMobileViewportReportForTesting(
+                surfaceID: panelID,
+                clientID: "ipad-timeout-close",
+                columns: 92,
+                rows: 31
+            )
+            let close = Task { @MainActor in
+                await controller.v2MobileTerminalClose(params: mobileCloseParams(
+                    windowID: windowID,
+                    workspaceID: harness.workspace.id,
+                    panelID: panelID
+                ))
+            }
+            await waitForPendingCommand(on: harness.connection)
+
+            #expect(deadlines.scheduledCount == 1)
+            deadlines.fireAll()
+            guard case .err = await close.value else {
+                Issue.record("Expected timed-out remote close to fail")
+                return
+            }
+            #expect(harness.workspace.terminalPanel(for: panelID) != nil)
+            #expect(
+                controller.debugMobileViewportReportClientIDsForTesting(surfaceID: panelID)
+                    == ["ipad-timeout-close"]
+            )
+        }
+    }
+
+    @Test func disconnectedMobileRemoteClosePreservesViewportAndTerminal() async throws {
+        try await withMobileRPCActivityHarness { harness, windowID in
+            let panelID = try harness.panelID(forWindow: 1)
+            let controller = TerminalController.shared
+            controller.debugResetMobileViewportReportsForTesting()
+            defer { controller.debugResetMobileViewportReportsForTesting() }
+            controller.debugSetMobileViewportReportForTesting(
+                surfaceID: panelID,
+                clientID: "ipad-disconnect-close",
+                columns: 92,
+                rows: 31
+            )
+            let close = Task { @MainActor in
+                await controller.v2MobileTerminalClose(params: mobileCloseParams(
+                    windowID: windowID,
+                    workspaceID: harness.workspace.id,
+                    panelID: panelID
+                ))
+            }
+            await waitForPendingCommand(on: harness.connection)
+            harness.connection.beginReconnecting()
+
+            guard case .err = await close.value else {
+                Issue.record("Expected disconnected remote close to fail")
+                return
+            }
+            #expect(harness.workspace.terminalPanel(for: panelID) != nil)
+            #expect(
+                controller.debugMobileViewportReportClientIDsForTesting(surfaceID: panelID)
+                    == ["ipad-disconnect-close"]
+            )
+        }
+    }
+
+    @Test func cancelledMobileRemoteClosePreservesViewportAndTerminal() async throws {
+        try await withMobileRPCActivityHarness { harness, windowID in
+            let panelID = try harness.panelID(forWindow: 1)
+            let controller = TerminalController.shared
+            controller.debugResetMobileViewportReportsForTesting()
+            defer { controller.debugResetMobileViewportReportsForTesting() }
+            controller.debugSetMobileViewportReportForTesting(
+                surfaceID: panelID,
+                clientID: "ipad-cancel-close",
+                columns: 92,
+                rows: 31
+            )
+            let close = Task { @MainActor in
+                await controller.v2MobileTerminalClose(params: mobileCloseParams(
+                    windowID: windowID,
+                    workspaceID: harness.workspace.id,
+                    panelID: panelID
+                ))
+            }
+            await waitForPendingCommand(on: harness.connection)
+            close.cancel()
+
+            guard case .err = await close.value else {
+                Issue.record("Expected cancelled remote close to fail")
+                return
+            }
+            #expect(harness.workspace.terminalPanel(for: panelID) != nil)
+            #expect(
+                controller.debugMobileViewportReportClientIDsForTesting(surfaceID: panelID)
+                    == ["ipad-cancel-close"]
+            )
+        }
+    }
+
+    @Test func mobileRemoteReorderWaitsForAuthoritativeMismatchAndReconciles() async throws {
+        try await withMobileRPCActivityHarness { harness, windowID in
+            let firstPanelID = try harness.panelID(forWindow: 1)
+            let secondPanelID = try harness.panelID(forWindow: 2)
+            let paneID = try #require(harness.workspace.paneId(forPanelId: firstPanelID))
+            var observedResult: TerminalController.V2CallResult?
+            let reorder = Task { @MainActor in
+                let result = await TerminalController.shared.v2MobileTerminalReorder(params: [
+                    "window_id": windowID.uuidString,
+                    "workspace_id": harness.workspace.id.uuidString,
+                    "pane_id": paneID.id.uuidString,
+                    "surface_id": firstPanelID.uuidString,
+                    "index": 1,
+                ])
+                observedResult = result
+                return result
+            }
+            await waitForPendingCommand(on: harness.connection)
+
+            #expect(observedResult == nil)
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 110,
+                lines: [],
+                isError: false
+            ))
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 111,
+                lines: ["@1", "@2"],
+                isError: false
+            ))
+
+            guard case .err = await reorder.value else {
+                Issue.record("Expected authoritative reorder mismatch to fail")
+                return
+            }
+            let reconciledOrder = harness.workspace.bonsplitController.tabs(inPane: paneID).compactMap {
+                harness.workspace.panelIdFromSurfaceId($0.id)
+            }
+            #expect(reconciledOrder == [firstPanelID, secondPanelID])
+        }
+    }
+
+    @Test func mobileRemoteReorderTimeoutReturnsFailure() async throws {
+        let deadlines = CapturingActivityQueryDeadlineScheduler()
+        try await withMobileRPCActivityHarness(deadlineScheduler: deadlines) { harness, windowID in
+            let firstPanelID = try harness.panelID(forWindow: 1)
+            let paneID = try #require(harness.workspace.paneId(forPanelId: firstPanelID))
+            let reorder = Task { @MainActor in
+                await TerminalController.shared.v2MobileTerminalReorder(params: [
+                    "window_id": windowID.uuidString,
+                    "workspace_id": harness.workspace.id.uuidString,
+                    "pane_id": paneID.id.uuidString,
+                    "surface_id": firstPanelID.uuidString,
+                    "index": 1,
+                ])
+            }
+            await waitForPendingCommand(on: harness.connection)
+
+            #expect(deadlines.scheduledCount == 1)
+            deadlines.fireAll()
+            guard case .err = await reorder.value else {
+                Issue.record("Expected timed-out remote reorder to fail")
+                return
+            }
+        }
+    }
+
+    @Test func mobileRemoteReorderDisconnectReturnsFailure() async throws {
+        try await withMobileRPCActivityHarness { harness, windowID in
+            let firstPanelID = try harness.panelID(forWindow: 1)
+            let paneID = try #require(harness.workspace.paneId(forPanelId: firstPanelID))
+            let reorder = Task { @MainActor in
+                await TerminalController.shared.v2MobileTerminalReorder(params: [
+                    "window_id": windowID.uuidString,
+                    "workspace_id": harness.workspace.id.uuidString,
+                    "pane_id": paneID.id.uuidString,
+                    "surface_id": firstPanelID.uuidString,
+                    "index": 1,
+                ])
+            }
+            await waitForPendingCommand(on: harness.connection)
+            harness.connection.beginReconnecting()
+
+            guard case .err = await reorder.value else {
+                Issue.record("Expected disconnected remote reorder to fail")
+                return
+            }
+        }
+    }
+
+    @MainActor
+    private func withMobileRPCActivityHarness(
+        deadlineScheduler: CapturingActivityQueryDeadlineScheduler? = nil,
+        _ body: @MainActor (ActivityQueryHarness, UUID) async throws -> Void
+    ) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let manager = TabManager()
+            let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            AppDelegate.shared = appDelegate
+            let harness = try ActivityQueryHarness(
+                controller: appDelegate.remoteTmuxController,
+                manager: manager,
+                windowCount: 2,
+                scheduleActivityQueryDeadline: deadlineScheduler?.schedule
+            )
+            defer {
+                harness.tearDown()
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+                AppDelegate.shared = previousAppDelegate
+            }
+            try await body(harness, windowID)
+        }
+    }
+
+    private func mobileCloseParams(
+        windowID: UUID,
+        workspaceID: UUID,
+        panelID: UUID
+    ) -> [String: Any] {
+        [
+            "window_id": windowID.uuidString,
+            "workspace_id": workspaceID.uuidString,
+            "terminal_id": panelID.uuidString,
+            "confirmed": true,
+        ]
+    }
+
+    @MainActor
+    private func waitForPendingCommand(on connection: RemoteTmuxControlConnection) async {
+        for _ in 0..<50 where connection.pendingCommandKindsForTesting.isEmpty {
+            await Task.yield()
+        }
+        #expect(!connection.pendingCommandKindsForTesting.isEmpty)
+    }
+
     @MainActor private struct ActivityQueryHarness {
         let controller: RemoteTmuxController
         let manager: TabManager
