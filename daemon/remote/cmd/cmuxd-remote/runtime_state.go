@@ -236,8 +236,59 @@ func loadRuntimeStateDocument(path string) (*runtimeStateDocument, error) {
 	return &document, nil
 }
 
+type runtimeStateTemporaryFile interface {
+	Name() string
+	Chmod(os.FileMode) error
+	Write([]byte) (int, error)
+	Sync() error
+	Close() error
+}
+
+type runtimeStateDirectory interface {
+	Sync() error
+	Close() error
+}
+
+type runtimeStateFileSystem interface {
+	MkdirAll(string, os.FileMode) error
+	CreateTemp(string, string) (runtimeStateTemporaryFile, error)
+	Remove(string) error
+	Rename(string, string) error
+	OpenDirectory(string) (runtimeStateDirectory, error)
+}
+
+type osRuntimeStateFileSystem struct{}
+
+func (osRuntimeStateFileSystem) MkdirAll(path string, mode os.FileMode) error {
+	return os.MkdirAll(path, mode)
+}
+
+func (osRuntimeStateFileSystem) CreateTemp(directory string, pattern string) (runtimeStateTemporaryFile, error) {
+	return os.CreateTemp(directory, pattern)
+}
+
+func (osRuntimeStateFileSystem) Remove(path string) error {
+	return os.Remove(path)
+}
+
+func (osRuntimeStateFileSystem) Rename(oldPath string, newPath string) error {
+	return os.Rename(oldPath, newPath)
+}
+
+func (osRuntimeStateFileSystem) OpenDirectory(path string) (runtimeStateDirectory, error) {
+	return os.Open(path)
+}
+
 func persistRuntimeStateDocument(path string, document runtimeStateDocument) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	return persistRuntimeStateDocumentWithFileSystem(path, document, osRuntimeStateFileSystem{})
+}
+
+func persistRuntimeStateDocumentWithFileSystem(
+	path string,
+	document runtimeStateDocument,
+	fileSystem runtimeStateFileSystem,
+) error {
+	if err := fileSystem.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create runtime state directory: %w", err)
 	}
 	data, err := json.Marshal(document)
@@ -245,12 +296,12 @@ func persistRuntimeStateDocument(path string, document runtimeStateDocument) err
 		return fmt.Errorf("encode runtime state: %w", err)
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".runtime-state-*.tmp")
+	temporary, err := fileSystem.CreateTemp(filepath.Dir(path), ".runtime-state-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create runtime state temporary file: %w", err)
 	}
 	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
+	defer fileSystem.Remove(temporaryPath)
 	if err := temporary.Chmod(0o600); err != nil {
 		_ = temporary.Close()
 		return fmt.Errorf("secure runtime state temporary file: %w", err)
@@ -266,7 +317,7 @@ func persistRuntimeStateDocument(path string, document runtimeStateDocument) err
 	if err := temporary.Close(); err != nil {
 		return fmt.Errorf("close runtime state: %w", err)
 	}
-	if err := os.Rename(temporaryPath, path); err != nil {
+	if err := fileSystem.Rename(temporaryPath, path); err != nil {
 		return fmt.Errorf("install runtime state: %w", err)
 	}
 	return nil
