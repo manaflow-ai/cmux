@@ -63,6 +63,10 @@ extension SidebarLazyLayoutScaleTests {
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
+        #expect(
+            harness.window.acceptsMouseMovedEvents,
+            "A mounted sidebar must enable mouse movement without discovering SwiftUI's private scroll-view hierarchy."
+        )
         let rootView = try #require(harness.window.contentView)
         let scrollView = try #require(Self.firstScrollView(in: rootView))
         let pointerInScrollView = NSPoint(
