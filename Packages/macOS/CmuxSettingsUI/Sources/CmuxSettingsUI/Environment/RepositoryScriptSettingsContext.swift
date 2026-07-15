@@ -9,10 +9,10 @@ public struct RepositoryScriptSettingsContext: Sendable, Equatable {
     /// Canonical root of the active work tree.
     public let repositoryRoot: String
 
-    /// Effective setup script after applying the user's private override.
+    /// Private setup-script override, or an empty string when none is configured.
     public let setup: String
 
-    /// Effective archive script after applying the user's private override.
+    /// Private archive-script override, or an empty string when none is configured.
     public let archive: String
 
     /// Setup script read from the project config, when present.
@@ -27,8 +27,8 @@ public struct RepositoryScriptSettingsContext: Sendable, Equatable {
     ///   - repositoryID: Stable identity derived from Git's common directory.
     ///   - repositoryName: Repository name shown in Settings.
     ///   - repositoryRoot: Canonical work-tree root.
-    ///   - setup: Effective setup script.
-    ///   - archive: Effective archive script.
+    ///   - setup: Private setup-script override.
+    ///   - archive: Private archive-script override.
     ///   - projectSetup: Project-config setup script.
     ///   - projectArchive: Project-config archive script.
     public init(

@@ -15,12 +15,21 @@ extension HostSettingsActions {
             directory: directory,
             preferences: preferences
         ) else { return nil }
+        let privateScripts: CmuxRepositoryScriptsDefinition
+        if let preference = resolution.preference, preference.overridesProjectScripts {
+            privateScripts = CmuxRepositoryScriptsDefinition(
+                setup: preference.setup,
+                archive: preference.archive
+            ).normalized
+        } else {
+            privateScripts = CmuxRepositoryScriptsDefinition()
+        }
         return RepositoryScriptSettingsContext(
             repositoryID: resolution.identity.id,
             repositoryName: URL(fileURLWithPath: resolution.identity.workTreeRoot).lastPathComponent,
             repositoryRoot: resolution.identity.workTreeRoot,
-            setup: resolution.setup ?? "",
-            archive: resolution.archive ?? "",
+            setup: privateScripts.setup ?? "",
+            archive: privateScripts.archive ?? "",
             projectSetup: resolution.projectScripts.normalized.setup,
             projectArchive: resolution.projectScripts.normalized.archive
         )
