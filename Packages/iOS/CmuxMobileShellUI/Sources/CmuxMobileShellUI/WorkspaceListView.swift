@@ -220,6 +220,13 @@ struct WorkspaceListView: View {
         return workspaces.filter { currentFilter.matches($0) }
     }
 
+    /// Whether the body renders the filter-empty escape row instead of rows.
+    /// Shared with ``scrollPinModel`` so the pin model can never drift from
+    /// what the body actually mounted.
+    var showsFilterEmptyRow: Bool {
+        activeFilter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty
+    }
+
     var body: some View {
         let currentMachineSnapshots = liveMachineSnapshots
         let currentVisibleMacSelection = visibleMacSelection
@@ -275,7 +282,7 @@ struct WorkspaceListView: View {
             Section {
                 if rendersGroupedSections {
                     groupedRows
-                } else if activeFilter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
+                } else if showsFilterEmptyRow {
                     // The filter alone (not the Mac, and not a search query)
                     // emptied the list; offer the way back. While searching, the
                     // standard empty search result is shown instead, since "Show
@@ -293,6 +300,7 @@ struct WorkspaceListView: View {
         .listStyle(.plain)
         // Let the invisible footer use its 16pt boundary height. Real rows are taller.
         .environment(\.defaultMinListRowHeight, 16)
+        .workspaceListScrollIndicatorStabilized(scrollPinModel)
         .workspaceListRefreshable(refresh)
         .onChange(of: currentFilterMenuPresentMachineIDs) { _, present in
             // Drop machine filters whose Mac left the aggregated list (a secondary
