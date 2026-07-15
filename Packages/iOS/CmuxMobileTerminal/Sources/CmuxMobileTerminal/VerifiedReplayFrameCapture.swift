@@ -136,13 +136,46 @@ nonisolated struct VerifiedReplayPresentationFence: Sendable {
         modelGeometry: VerifiedReplayPresentationGeometry?,
         presentationGeometry: VerifiedReplayPresentationGeometry?
     ) -> String {
+        if let reason = readinessFailureReason(
+            modelIdentity: modelIdentity,
+            presentationIdentity: presentationIdentity
+        ) {
+            return reason
+        }
+        if let reason = geometryFailureReason(
+            modelIdentity: modelIdentity,
+            presentationIdentity: presentationIdentity,
+            geometryRevision: geometryRevision,
+            modelGeometry: modelGeometry,
+            presentationGeometry: presentationGeometry
+        ) {
+            return reason
+        }
+        return "satisfied"
+    }
+
+    private func readinessFailureReason(
+        modelIdentity: VerifiedReplayRendererSurfaceIdentity?,
+        presentationIdentity: VerifiedReplayRendererSurfaceIdentity?
+    ) -> String? {
         if !observedFrameReady { return "frame_not_ready" }
         guard let acknowledgedIdentity else { return "submission_not_acknowledged" }
         guard let modelIdentity else { return "model_surface_missing" }
-        guard let presentationIdentity else { return "presentation_surface_missing" }
+        guard presentationIdentity != nil else { return "presentation_surface_missing" }
         if !modelIdentity.referencesSameAllocation(as: acknowledgedIdentity) {
             return "model_allocation_changed"
         }
+        return nil
+    }
+
+    private func geometryFailureReason(
+        modelIdentity: VerifiedReplayRendererSurfaceIdentity?,
+        presentationIdentity: VerifiedReplayRendererSurfaceIdentity?,
+        geometryRevision: UInt64,
+        modelGeometry: VerifiedReplayPresentationGeometry?,
+        presentationGeometry: VerifiedReplayPresentationGeometry?
+    ) -> String? {
+        guard let modelIdentity, let presentationIdentity else { return nil }
         if geometryRevision != expectedGeometryRevision { return "geometry_revision_changed" }
         if modelGeometry != expectedGeometry { return "model_geometry_changed" }
         if presentationGeometry != expectedGeometry { return "presentation_geometry_not_committed" }
@@ -155,7 +188,7 @@ nonisolated struct VerifiedReplayPresentationFence: Sendable {
         if !presentationIdentity.referencesSameAllocation(as: modelIdentity) {
             return "presentation_allocation_not_committed"
         }
-        return "satisfied"
+        return nil
     }
 }
 
