@@ -20,14 +20,14 @@ on:
     paths:
       - "workers/presence/**"
       - "config/iroh/managed-relay-catalog.json"
-      - "scripts/generate-managed-iroh-relay-catalog.ts"
+      - "web/tools/generate-managed-iroh-relay-catalog.ts"
       - ".github/workflows/presence.yml"
   push:
     branches: [main]
     paths:
       - "workers/presence/**"
       - "config/iroh/managed-relay-catalog.json"
-      - "scripts/generate-managed-iroh-relay-catalog.ts"
+      - "web/tools/generate-managed-iroh-relay-catalog.ts"
       - ".github/workflows/presence.yml"
 
 permissions:
