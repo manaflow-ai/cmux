@@ -150,6 +150,48 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func feedSurfaceExposesFeedNativeHandler() async throws {
+        let feedURL = try #require(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
+            token: CmuxDiffViewerURLSchemeHandler.bundledFeedToken,
+            requestPath: "/feed.html"
+        ))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: feedURL,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+        #expect(panel.nativeCapabilities == [.feed])
+
+        let webView = panel.webView
+        let loadDelegate = BrowserWebContentProcessLoadDelegate()
+        webView.navigationDelegate = loadDelegate
+        defer { webView.navigationDelegate = nil }
+
+        try await loadDelegate.load(
+            """
+            <!doctype html>
+            <html><body>feed capability control</body></html>
+            """,
+            in: webView,
+            baseURL: feedURL
+        )
+
+        let handlerVisible = try await webView.evaluateJavaScript(
+            """
+            !!(
+              window.webkit &&
+              window.webkit.messageHandlers &&
+              window.webkit.messageHandlers.cmuxFeed &&
+              typeof window.webkit.messageHandlers.cmuxFeed.postMessage === "function"
+            )
+            """
+        ) as? Bool
+
+        #expect(handlerVisible == true)
+    }
+
+    @Test
     func webAuthnPageBridgeRelaysCredentialGetThroughContentWorldHandler() async throws {
         let configuration = WKWebViewConfiguration()
         BrowserPanel.configureWebViewConfiguration(

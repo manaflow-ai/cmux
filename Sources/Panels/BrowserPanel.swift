@@ -1842,6 +1842,10 @@ enum BrowserInsecureHTTPNavigationResolution {
     }
 }
 
+enum BrowserNativeCapability: Hashable, Sendable {
+    case feed
+}
+
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
@@ -2845,6 +2849,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    let nativeCapabilities: Set<BrowserNativeCapability>
+
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
 
@@ -3647,12 +3653,14 @@ final class BrowserPanel: Panel, ObservableObject {
     // identical configuration, making adoption a drop-in swap.
     static func makeWebView(
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        nativeCapabilities: Set<BrowserNativeCapability> = []
     ) -> CmuxWebView {
         let config = WKWebViewConfiguration()
         configureWebViewConfiguration(
             config,
-            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
+            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID),
+            nativeCapabilities: nativeCapabilities
         )
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
@@ -3671,7 +3679,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        nativeCapabilities: Set<BrowserNativeCapability> = []
     ) {
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
@@ -3687,7 +3696,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // The handler itself rejects every frame that is not a registered diff
         // viewer session, so installing it on all browser webviews is safe.
         DiffCommentsBridge.installIfNeeded(on: configuration.userContentController)
-        FeedSurfaceBridge.installIfNeeded(on: configuration.userContentController)
+        if nativeCapabilities.contains(.feed) {
+            FeedSurfaceBridge.installIfNeeded(on: configuration.userContentController)
+        }
 
         // Enable developer extras (DevTools)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -4056,13 +4067,18 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        nativeCapabilities: Set<BrowserNativeCapability>? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
+        let initialNavigationURL = initialRequest?.url ?? initialURL
+        let resolvedNativeCapabilities = nativeCapabilities
+            ?? (FeedSurfaceBridge.isTrustedFeedURL(initialNavigationURL) ? [.feed] : [])
+        self.nativeCapabilities = resolvedNativeCapabilities
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -4080,7 +4096,8 @@ final class BrowserPanel: Panel, ObservableObject {
         self.websiteDataStore = websiteDataStore
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
-        if let prewarmed = Self.claimedPrewarmedWebView(
+        if resolvedNativeCapabilities.isEmpty,
+           let prewarmed = Self.claimedPrewarmedWebView(
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
@@ -4093,7 +4110,8 @@ final class BrowserPanel: Panel, ObservableObject {
         } else {
             webView = Self.makeWebView(
                 profileID: resolvedProfileID,
-                websiteDataStore: websiteDataStore
+                websiteDataStore: websiteDataStore,
+                nativeCapabilities: resolvedNativeCapabilities
             )
         }
         self.webView = webView
@@ -4748,7 +4766,8 @@ final class BrowserPanel: Panel, ObservableObject {
         clearBrowserAutomationUserScripts()
         let replacement = Self.makeWebView(
             profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            nativeCapabilities: nativeCapabilities
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -6267,7 +6286,8 @@ extension BrowserPanel {
         clearBrowserAutomationUserScripts()
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            nativeCapabilities: nativeCapabilities
         )
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
