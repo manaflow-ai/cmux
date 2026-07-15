@@ -247,6 +247,7 @@ struct CMUXMobileRootView: View {
             // auto-presents the pairing sheet since there is nothing to list).
             DisconnectedWorkspaceShellView(
                 hasKnownPairedMac: store.hasKnownPairedMac,
+                discoveryScopeID: firstConnectionDiscoveryScopeID,
                 showAddDevice: showAddDevice,
                 signOut: signOut,
                 setupHelpHighlight: disconnectedSetupHelpHighlight,
@@ -274,6 +275,10 @@ struct CMUXMobileRootView: View {
                 }
             }
         )
+    }
+
+    private var firstConnectionDiscoveryScopeID: String {
+        "\(authManager.currentUser?.id ?? "")\t\(authManager.selectedTeamID ?? "")"
     }
 
     @ViewBuilder

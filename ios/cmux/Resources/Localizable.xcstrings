@@ -2551,6 +2551,40 @@
         }
       }
     },
+    "mobile.handoff.auth.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We couldn't verify your cmux account for session discovery. Try again, or sign out and sign back in."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション検出のために cmux アカウントを確認できませんでした。もう一度試すか、サインアウトしてから再度サインインしてください。"
+          }
+        }
+      }
+    },
+    "mobile.handoff.auth.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Discovery Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション検出を利用できません"
+          }
+        }
+      }
+    },
     "mobile.handoff.failure.message": {
       "extractionState": "manual",
       "localizations": {
@@ -4417,6 +4451,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "再試行"
+          }
+        }
+      }
+    },
+    "mobile.recovery.switchAccount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out & Switch Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトしてアカウントを切り替える"
           }
         }
       }

@@ -1,3 +1,5 @@
+public import Foundation
+
 /// Whether the account registry produced an authoritative first-connection result.
 public enum MobileFirstConnectionRegistryState: Equatable, Sendable {
     case loading
@@ -11,6 +13,16 @@ public enum MobileRegistryLoadResult: Equatable, Sendable {
     case loaded
     case authRejected
     case unavailable
+}
+
+/// Keeps account-discovered sessions fresh before their two-minute registry lease expires.
+public enum MobileFirstConnectionRegistryRefreshPolicy {
+    public static let refreshInterval: TimeInterval = 90
+
+    public static func shouldRefresh(lastRefreshAt: Date?, now: Date = Date()) -> Bool {
+        guard let lastRefreshAt else { return true }
+        return now.timeIntervalSince(lastRefreshAt) >= refreshInterval
+    }
 }
 
 /// Mutually exclusive connection activity on the first-connection screen.

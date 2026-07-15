@@ -10,15 +10,11 @@ import AppKit
 #endif
 
 struct DisconnectedWorkspaceShellView: View {
-    /// Whether this install has ever paired a Mac. Used to distinguish first
-    /// setup from reconnect guidance.
     let hasKnownPairedMac: Bool
+    let discoveryScopeID: String
     let showAddDevice: () -> Void
     let signOut: () -> Void
-    /// The setup gate to highlight in the "Trouble connecting?" help (iOS only).
-    /// The root passes `.macUnreachable` for a returning device whose stored Mac
-    /// just failed to reconnect, and `.signedInNeverPaired` for a device that has
-    /// never paired, so the help marks the user's real recovery step.
+    /// Setup gate highlighted by the iOS recovery sheet.
     var setupHelpHighlight: MobileSetupGuidanceState = .signedInNeverPaired
     /// The shell store, forwarded to the reused Settings sheet so the user can
     /// still switch to another paired Mac from the no-devices/offline state
@@ -43,7 +39,9 @@ struct DisconnectedWorkspaceShellView: View {
     /// The account-discovered session currently attaching.
     @State private var pendingHandoffID: String?
     @State private var registryState: MobileFirstConnectionRegistryState = .loading
-    @State private var registryRefreshInFlight = false
+    @State private var registryRefreshScopeID: String?
+    @State private var registryLastRefreshAt: Date?
+    @State private var activeDiscoveryScopeID: String?
     @State private var didPresentManualPairing = false
     #endif
 
@@ -70,26 +68,25 @@ struct DisconnectedWorkspaceShellView: View {
                     #endif
                 }
                 .accessibilityIdentifier("MobileDisconnectedWorkspaceShell")
-                .task {
-                    // Load (and, via the backup decorator, restore) saved Macs so a
-                    // known/restored Mac shows up here for one-tap reconnect. Only
-                    // auto-present manual pairing when neither a saved Mac nor an
-                    // account-discovered session can connect this installation.
+                .task(id: discoveryScopeID) {
+                    let scopeID = discoveryScopeID
+                    resetFirstConnectionState(for: scopeID)
                     await store?.loadPairedMacs()
                     #if os(iOS)
-                    await refreshRegistryAndPresentation()
-                    // Presence enriches the rows (online dots, build labels).
-                    // The loop keeps presence and last-seen fresh
-                    // while the app is parked on this screen; like the Computers
-                    // screen it deliberately does NOT dial offline Macs (see
-                    // `refreshComputersScreen()`). Registry discovery refreshes
-                    // on entry, pull-to-refresh, and explicit Retry rather than
-                    // repeatedly fetching the complete account device tree.
-                    // Cancellation is wired to this `.task`'s lifecycle.
+                    guard !Task.isCancelled, activeDiscoveryScopeID == scopeID else { return }
+                    await refreshRegistryAndPresentation(scopeID: scopeID)
+                    // Presence refreshes every 10 seconds; registry discovery is
+                    // coalesced at 90 seconds so live sessions never age past the
+                    // server's two-minute lease.
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(10))
                         guard !Task.isCancelled else { break }
                         await store?.refreshComputersScreen()
+                        if MobileFirstConnectionRegistryRefreshPolicy.shouldRefresh(
+                            lastRefreshAt: registryLastRefreshAt
+                        ) {
+                            await refreshRegistryAndPresentation(scopeID: scopeID)
+                        }
                     }
                     #else
                     if store?.pairedMacs.isEmpty ?? true {
@@ -150,9 +147,7 @@ struct DisconnectedWorkspaceShellView: View {
 
     @ViewBuilder
     private var content: some View {
-        if registryState == .authRejected {
-            registryAuthenticationRequiredState
-        } else if !savedComputers.isEmpty || !handoffSessions.isEmpty {
+        if !savedComputers.isEmpty || !handoffSessions.isEmpty {
             connectionOptionsList(savedComputers)
         } else {
             switch registryState {
@@ -249,7 +244,7 @@ struct DisconnectedWorkspaceShellView: View {
             // Refresh both the lightweight presence snapshot and the complete
             // account registry when the user explicitly asks for fresh data.
             await store?.refreshComputersScreen()
-            await refreshRegistryAndPresentation()
+            await refreshRegistryAndPresentation(scopeID: discoveryScopeID)
         }
         .accessibilityIdentifier("MobileDisconnectedSavedMacList")
     }
@@ -272,11 +267,24 @@ struct DisconnectedWorkspaceShellView: View {
         }
     }
 
-    private func refreshRegistryAndPresentation() async {
-        guard !registryRefreshInFlight else { return }
-        registryRefreshInFlight = true
-        defer { registryRefreshInFlight = false }
+    private func resetFirstConnectionState(for scopeID: String) {
+        activeDiscoveryScopeID = scopeID
+        registryState = .loading
+        registryRefreshScopeID = nil
+        registryLastRefreshAt = nil
+        didPresentManualPairing = false
+    }
+
+    private func refreshRegistryAndPresentation(scopeID: String) async {
+        guard activeDiscoveryScopeID == scopeID,
+              registryRefreshScopeID == nil else { return }
+        registryRefreshScopeID = scopeID
+        registryLastRefreshAt = Date()
+        defer {
+            if registryRefreshScopeID == scopeID { registryRefreshScopeID = nil }
+        }
         let loadResult = await store?.loadRegistryDevices() ?? .unavailable
+        guard !Task.isCancelled, activeDiscoveryScopeID == scopeID else { return }
         let nextState: MobileFirstConnectionRegistryState = switch loadResult {
         case .loaded:
             .loaded(hasAccountSession: !handoffSessions.isEmpty)
@@ -301,44 +309,38 @@ struct DisconnectedWorkspaceShellView: View {
             isRefreshing: registryRefreshInFlight,
             retry: {
                 registryState = .loading
-                Task { await refreshRegistryAndPresentation() }
+                Task { await refreshRegistryAndPresentation(scopeID: discoveryScopeID) }
             },
             addComputer: showAddDevice
         )
     }
 
     private var registryAuthenticationRequiredState: some View {
-        DisconnectedRegistryAuthenticationRequiredView(switchAccount: signOut)
+        DisconnectedRegistryAuthenticationRequiredView(
+            isRefreshing: registryRefreshInFlight,
+            retry: {
+                registryState = .loading
+                Task { await refreshRegistryAndPresentation(scopeID: discoveryScopeID) }
+            },
+            switchAccount: signOut
+        )
     }
 
     /// The never-paired/empty state (also previews, where `store` is `nil`).
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label(
-                L10n.string("mobile.devices.emptyTitle", defaultValue: "No devices"),
-                systemImage: "desktopcomputer.and.iphone"
-            )
-        } description: {
-            Text(L10n.string(
-                "mobile.devices.emptyDescription",
-                defaultValue: "Add a computer to start syncing terminal workspaces."
-            ))
-        } actions: {
-            Button(action: showAddDevice) {
-                Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.blue)
-            .accessibilityIdentifier("MobileShowAddDeviceButton")
-            Button {
+        DisconnectedRegistryEmptyView(
+            isRefreshing: registryRefreshInFlight,
+            addComputer: showAddDevice,
+            showSetupHelp: {
                 isShowingSetupHelp = true
-            } label: {
-                Text(L10n.string("mobile.devices.setupHelp", defaultValue: "Trouble connecting?"))
+            },
+            retry: {
+                Task { await refreshRegistryAndPresentation(scopeID: discoveryScopeID) }
             }
-            .font(.callout)
-            .accessibilityIdentifier("MobileDisconnectedSetupHelpButton")
-        }
+        )
     }
+
+    private var registryRefreshInFlight: Bool { registryRefreshScopeID != nil }
 
     /// Reconnect this row's computer. `switchToMac` promotes a live secondary
     /// connection or re-dials the Mac after refreshing its routes from the
