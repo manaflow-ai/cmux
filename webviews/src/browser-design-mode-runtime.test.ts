@@ -612,13 +612,15 @@ describe("browser design-mode runtime", () => {
     button.addEventListener("pointerdown", () => { pagePointerDowns += 1; });
     Object.defineProperty(dom.window.document, "elementFromPoint", { value: () => button });
 
-    overlay.dispatchEvent(new dom.window.MouseEvent("pointerdown", {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: 4,
-      clientY: 4,
-    }));
+    for (const name of ["pointerdown", "pointerup"]) {
+      overlay.dispatchEvent(new dom.window.MouseEvent(name, {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 4,
+        clientY: 4,
+      }));
+    }
 
     expect(runtime.snapshot().selection?.selector).toBe("#danger");
     expect(pagePointerDowns).toBe(0);
@@ -634,15 +636,61 @@ describe("browser design-mode runtime", () => {
     const targets = dom.window.document.querySelectorAll("cite");
     const second = targets[1] as HTMLElement;
     Object.defineProperty(dom.window.document, "elementFromPoint", { value: () => second });
-    dom.window.document.dispatchEvent(
-      new dom.window.MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, clientX: 4, clientY: 4 }),
-    );
+    for (const name of ["pointerdown", "pointerup"]) {
+      dom.window.document.dispatchEvent(
+        new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: 4, clientY: 4 }),
+      );
+    }
     const state = runtime.composerState();
     expect(state.selection_count).toBe(1);
     const snapshot = runtime.snapshot();
     const selector = snapshot.selections?.[0]?.selector ?? "";
     expect(selector).not.toBe("");
     expect(dom.window.document.querySelector(selector)).toBe(second);
+  });
+
+  test("dragging draws a marquee that captures a screenshot region", () => {
+    const { dom, runtime } = fixture(`<main><button id="b">B</button></main>`);
+    const doc = dom.window.document;
+    const at = (name: string, x: number, y: number) => doc.dispatchEvent(
+      new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
+    );
+
+    at("pointerdown", 10, 20);
+    at("pointermove", 40, 50);
+    at("pointermove", 110, 140);
+    at("pointerup", 110, 140);
+
+    const state = runtime.composerState();
+    expect(state.selection_count).toBe(1);
+    expect(state.can_copy).toBe(true);
+    const selection = runtime.snapshot().selections?.[0];
+    expect(selection?.tag_name).toBe("region");
+    expect(selection?.bounds).toEqual({ x: 10, y: 20, width: 100, height: 120 });
+
+    // The trailing click from the same gesture must not add an element selection.
+    at("click", 110, 140);
+    expect(runtime.composerState().selection_count).toBe(1);
+
+    // Escape clears regions before exiting design mode.
+    doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(runtime.composerState().selection_count).toBe(0);
+  });
+
+  test("a sub-threshold drag still selects the element under the pointer", () => {
+    const { dom, runtime } = fixture(`<main><button id="b">B</button></main>`);
+    const doc = dom.window.document;
+    const button = doc.querySelector("#b") as HTMLElement;
+    Object.defineProperty(doc, "elementFromPoint", { value: () => button });
+    const at = (name: string, x: number, y: number) => doc.dispatchEvent(
+      new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
+    );
+
+    at("pointerdown", 10, 10);
+    at("pointermove", 12, 12);
+    at("pointerup", 12, 12);
+
+    expect(runtime.snapshot().selection?.selector).toBe("#b");
   });
 
   test("escape clears the selection first, then requests design-mode exit", () => {
@@ -667,9 +715,13 @@ describe("browser design-mode runtime", () => {
     const second = dom.window.document.querySelector("#second") as HTMLButtonElement;
     let underPoint: HTMLElement = first;
     Object.defineProperty(dom.window.document, "elementFromPoint", { value: () => underPoint });
-    const pointerDown = (init: Record<string, unknown> = {}) => dom.window.document.dispatchEvent(
-      new dom.window.MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, clientX: 4, clientY: 4, ...init }),
-    );
+    const pointerDown = (init: Record<string, unknown> = {}) => {
+      for (const name of ["pointerdown", "pointerup"]) {
+        dom.window.document.dispatchEvent(
+          new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: 4, clientY: 4, ...init }),
+        );
+      }
+    };
 
     pointerDown();
     underPoint = second;

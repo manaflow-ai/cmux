@@ -27,6 +27,7 @@ struct BrowserDesignModeSelectionChip: View {
         case "table", "thead", "tbody", "tr", "td", "th": "tablecells"
         case "svg", "canvas", "path": "paintbrush.pointed"
         case "iframe": "globe"
+        case "region": "crop"
         default: "square.dashed"
         }
     }

@@ -64,6 +64,13 @@
   const styleOriginals = new Map();
   const textOriginals = new Map();
   const selectedReferences = [];
+  // Marquee region captures: page-anchored rects drawn by dragging.
+  const regionReferences = [];
+  const maxRegionReferences = 6;
+  const marqueeThresholdPixels = 5;
+  let pendingPointer = null;
+  let marqueeActive = false;
+  let suppressClicksUntil = 0;
 
   const number = (value) => {
     const parsed = Number.parseFloat(String(value || "0"));
@@ -494,9 +501,28 @@
     };
   };
 
+  // Region snapshots translate page-anchored rects to current viewport
+  // coordinates so capture crops stay correct after scrolling.
+  const regionSnapshotFor = (region) => {
+    const x = region.pageX - (globalThis.scrollX || 0);
+    const y = region.pageY - (globalThis.scrollY || 0);
+    return {
+      selector: `@region(${Math.round(x)},${Math.round(y)},${Math.round(region.width)},${Math.round(region.height)})`,
+      selectors: [],
+      tag_name: "region",
+      dom_snippet: "",
+      text_content: "",
+      text_editable: false,
+      bounds: { x, y, width: region.width, height: region.height },
+      viewport: { width: globalThis.innerWidth || 0, height: globalThis.innerHeight || 0 },
+      computed_styles: {},
+    };
+  };
+
   const selectionSnapshots = () => selectedReferences
     .map((reference) => selectionSnapshotFor(reference))
-    .filter(Boolean);
+    .filter(Boolean)
+    .concat(regionReferences.map(regionSnapshotFor));
 
   const cssDiff = () => {
     if (!selectedBaseline) return "";
@@ -835,19 +861,32 @@
       textOverflow: "ellipsis",
     });
 
-    shadow.append(shield, selectionLayer, margin, border, padding, content, badge);
+    const marqueeBox = document.createElement("div");
+    Object.assign(marqueeBox.style, {
+      display: "none",
+      position: "fixed",
+      pointerEvents: "none",
+      boxSizing: "border-box",
+      border: "1.5px dashed rgb(10, 132, 255)",
+      borderRadius: "3px",
+      background: "rgba(10, 132, 255, 0.10)",
+    });
+
+    shadow.append(shield, selectionLayer, marqueeBox, margin, border, padding, content, badge);
     document.documentElement.appendChild(overlayHost);
     overlay = {
-      shield, selectionLayer, selectionOutlines: [], margin, border, padding, content, badge,
+      shield, selectionLayer, selectionOutlines: [], regionOutlines: [], marqueeBox,
+      margin, border, padding, content, badge,
     };
   };
 
   const hideOverlay = () => {
     if (!overlay) return;
-    for (const name of ["margin", "border", "padding", "content", "badge"]) {
+    for (const name of ["margin", "border", "padding", "content", "badge", "marqueeBox"]) {
       overlay[name].style.display = "none";
     }
     for (const outline of overlay.selectionOutlines) outline.style.display = "none";
+    for (const outline of overlay.regionOutlines) outline.style.display = "none";
     overlay.shield.style.display = enabled && !captureHidden ? "block" : "none";
   };
 
@@ -895,6 +934,31 @@
         : "rgb(10, 132, 255)";
       place(outline, element.getBoundingClientRect());
     }
+    refreshRegionOutlines();
+  };
+
+  const refreshRegionOutlines = () => {
+    if (!overlay) return;
+    while (overlay.regionOutlines.length < regionReferences.length) {
+      const outline = selectedOutline();
+      outline.style.borderStyle = "dashed";
+      overlay.regionOutlines.push(outline);
+      overlay.selectionLayer.append(outline);
+    }
+    for (let index = 0; index < overlay.regionOutlines.length; index += 1) {
+      const outline = overlay.regionOutlines[index];
+      const region = regionReferences[index];
+      if (!region) {
+        outline.style.display = "none";
+        continue;
+      }
+      place(outline, {
+        x: region.pageX - (globalThis.scrollX || 0),
+        y: region.pageY - (globalThis.scrollY || 0),
+        width: region.width,
+        height: region.height,
+      });
+    }
   };
 
   const displaySelectorFor = (element) => {
@@ -907,11 +971,12 @@
 
   const composerState = () => ({
     visible: false,
-    tag_name: selectedBaseline?.tag_name || null,
-    selection_count: selectedReferences.length,
-    selectors: selectedReferences.map((reference) => reference.baseline?.selector).filter(Boolean),
+    tag_name: selectedBaseline?.tag_name || (regionReferences.length ? "region" : null),
+    selection_count: selectedReferences.length + regionReferences.length,
+    selectors: selectedReferences.map((reference) => reference.baseline?.selector).filter(Boolean)
+      .concat(regionReferences.map((region) => regionSnapshotFor(region).selector)),
     hovered_selector: displaySelectorFor(hoveredElement),
-    can_copy: Boolean(selectedReferences.length && selectedBaseline),
+    can_copy: Boolean(selectedReferences.length && selectedBaseline) || regionReferences.length > 0,
     focused: false,
   });
 
@@ -1107,9 +1172,10 @@
   };
 
   const clearSelection = () => {
-    if (!selectedReferences.length) return snapshot();
+    if (!selectedReferences.length && !regionReferences.length) return snapshot();
     restoreAll();
     selectedReferences.length = 0;
+    regionReferences.length = 0;
     setActiveReference(null);
     hoveredElement = null;
     selectionIdentityNeedsRefresh = false;
@@ -1122,6 +1188,15 @@
   };
 
   const removeSelectionAt = (index) => {
+    // Regions are appended after element selections in snapshots, so indexes
+    // past the element count address regionReferences.
+    if (Number.isInteger(index) && index >= selectedReferences.length
+        && index < selectedReferences.length + regionReferences.length) {
+      regionReferences.splice(index - selectedReferences.length, 1);
+      revision += 1;
+      scheduleOverlayRefresh();
+      return emit();
+    }
     if (!Number.isInteger(index) || index < 0 || index >= selectedReferences.length) {
       return snapshot();
     }
@@ -1186,10 +1261,41 @@
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
+    if (pendingPointer) {
+      const dx = event.clientX - pendingPointer.x;
+      const dy = event.clientY - pendingPointer.y;
+      if (marqueeActive || Math.hypot(dx, dy) > marqueeThresholdPixels) {
+        marqueeActive = true;
+        hoveredElement = null;
+        updateMarqueeBox(pendingPointer, event.clientX, event.clientY);
+        return;
+      }
+    }
     const candidate = elementUnderPoint(event.clientX, event.clientY);
     if (!candidate || candidate === hoveredElement) return;
     hoveredElement = candidate;
     scheduleOverlayRefresh();
+  };
+
+  const marqueeRect = (origin, clientX, clientY) => ({
+    x: Math.min(origin.x, clientX),
+    y: Math.min(origin.y, clientY),
+    width: Math.abs(clientX - origin.x),
+    height: Math.abs(clientY - origin.y),
+  });
+
+  const updateMarqueeBox = (origin, clientX, clientY) => {
+    createOverlay();
+    if (!overlay) return;
+    const rect = marqueeRect(origin, clientX, clientY);
+    place(overlay.marqueeBox, rect);
+    hideHoverFeedback();
+  };
+
+  const hideHoverFeedback = () => {
+    if (!overlay) return;
+    overlay.content.style.display = "none";
+    overlay.badge.style.display = "none";
   };
 
   const onPointerLeave = () => {
@@ -1211,12 +1317,62 @@
     }
   };
 
+  // Pointer protocol: pointerdown arms; drag past the threshold draws a
+  // marquee whose pointerup captures a region; a sub-threshold pointerup
+  // selects the element. Real pointer sequences suppress the trailing click;
+  // a standalone synthetic click still selects (fallback for tests/automation).
   const onPointerDown = (event) => {
     if (!enabled || captureHidden) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
     if (event.button !== 0) return;
+    pendingPointer = { x: event.clientX, y: event.clientY, shift: event.shiftKey === true };
+    marqueeActive = false;
+  };
+
+  const onPointerUp = (event) => {
+    if (!enabled || captureHidden) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    const armed = pendingPointer;
+    const wasMarquee = marqueeActive;
+    pendingPointer = null;
+    marqueeActive = false;
+    if (!armed) return;
+    suppressClicksUntil = (globalThis.performance?.now?.() || 0) + 500;
+    if (overlay) overlay.marqueeBox.style.display = "none";
+    if (wasMarquee) {
+      finalizeRegion(marqueeRect(armed, event.clientX, event.clientY));
+      return;
+    }
+    const candidate = elementUnderPoint(armed.x, armed.y);
+    if (candidate) selectElement(candidate, armed.shift);
+  };
+
+  const finalizeRegion = (rect) => {
+    if (rect.width < 8 || rect.height < 8) return;
+    if (regionReferences.length >= maxRegionReferences) return;
+    regionReferences.push({
+      pageX: rect.x + (globalThis.scrollX || 0),
+      pageY: rect.y + (globalThis.scrollY || 0),
+      width: rect.width,
+      height: rect.height,
+    });
+    hoveredElement = null;
+    revision += 1;
+    scheduleOverlayRefresh();
+    emit();
+  };
+
+  const onClickFallback = (event) => {
+    if (!enabled || captureHidden) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    if (event.button !== 0) return;
+    if ((globalThis.performance?.now?.() || 0) < suppressClicksUntil) return;
     const candidate = elementUnderPoint(event.clientX, event.clientY);
     if (candidate) selectElement(candidate, event.shiftKey === true);
   };
@@ -1233,7 +1389,7 @@
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    if (selectedBaseline) {
+    if (selectedBaseline || regionReferences.length) {
       clearSelection();
       return;
     }
@@ -1245,12 +1401,14 @@
     document.addEventListener("pointermove", onPointerMove, true);
     document.addEventListener("pointerleave", onPointerLeave, true);
     document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("click", onPointerDown, true);
+    document.addEventListener("pointerup", onPointerUp, true);
+    document.addEventListener("click", onClickFallback, true);
     overlay?.shield.addEventListener("pointermove", onPointerMove, true);
     overlay?.shield.addEventListener("pointerleave", onPointerLeave, true);
     overlay?.shield.addEventListener("pointerdown", onPointerDown, true);
-    overlay?.shield.addEventListener("click", onPointerDown, true);
-    for (const name of ["pointerup", "mousedown", "mouseup", "dblclick", "contextmenu"]) {
+    overlay?.shield.addEventListener("pointerup", onPointerUp, true);
+    overlay?.shield.addEventListener("click", onClickFallback, true);
+    for (const name of ["mousedown", "mouseup", "dblclick", "contextmenu"]) {
       document.addEventListener(name, blockPageGesture, true);
       overlay?.shield.addEventListener(name, blockPageGesture, true);
     }
@@ -1271,15 +1429,19 @@
     document.removeEventListener("pointermove", onPointerMove, true);
     document.removeEventListener("pointerleave", onPointerLeave, true);
     document.removeEventListener("pointerdown", onPointerDown, true);
-    document.removeEventListener("click", onPointerDown, true);
+    document.removeEventListener("pointerup", onPointerUp, true);
+    document.removeEventListener("click", onClickFallback, true);
     overlay?.shield.removeEventListener("pointermove", onPointerMove, true);
     overlay?.shield.removeEventListener("pointerleave", onPointerLeave, true);
     overlay?.shield.removeEventListener("pointerdown", onPointerDown, true);
-    overlay?.shield.removeEventListener("click", onPointerDown, true);
-    for (const name of ["pointerup", "mousedown", "mouseup", "dblclick", "contextmenu"]) {
+    overlay?.shield.removeEventListener("pointerup", onPointerUp, true);
+    overlay?.shield.removeEventListener("click", onClickFallback, true);
+    for (const name of ["mousedown", "mouseup", "dblclick", "contextmenu"]) {
       document.removeEventListener(name, blockPageGesture, true);
       overlay?.shield.removeEventListener(name, blockPageGesture, true);
     }
+    pendingPointer = null;
+    marqueeActive = false;
     document.removeEventListener("keydown", onKeyDown, true);
     globalThis.removeEventListener("scroll", scheduleOverlayRefresh, true);
     globalThis.removeEventListener("resize", scheduleOverlayRefresh, true);
@@ -1304,11 +1466,12 @@
     },
 
     destroy() {
-      if (enabled || selectedReferences.length || edits.size || overlayHost) revision += 1;
+      if (enabled || selectedReferences.length || regionReferences.length || edits.size || overlayHost) revision += 1;
       enabled = false;
       removeListeners();
       restoreAll();
       selectedReferences.length = 0;
+      regionReferences.length = 0;
       setActiveReference(null);
       selectionIdentityNeedsRefresh = false;
       selectionRecoveryAttemptsRemaining = 0;
