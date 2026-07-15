@@ -257,6 +257,57 @@ import Testing
 }
 
 @MainActor
+@Test func foregroundMutationRefreshFollowsReplacementChainToNewestSuccess() async throws {
+    let router = RoutingHostRouter()
+    let store = MobileShellComposite(
+        connectionState: .connected,
+        workspaces: MobileShellComposite.preview().workspaces
+    )
+    try installFreshRemoteClient(on: store, router: router)
+    await router.workspaceListGate.setHoldFirst(true)
+    await router.workspaceListGate.setHoldSecond(true)
+    await router.workspaceListGate.setHoldThird(true)
+
+    let firstRefresh = Task { @MainActor in
+        await store.refreshForegroundWorkspaceListAfterMutation()
+    }
+    await router.workspaceListGate.waitUntilFirstReached()
+    let firstInnerRefresh = try #require(store.foregroundWorkspaceMutationRefreshTask)
+
+    let secondRefresh = Task { @MainActor in
+        await store.refreshForegroundWorkspaceListAfterMutation()
+    }
+    await router.workspaceListGate.waitUntilSecondReached()
+    let secondInnerRefresh = try #require(store.foregroundWorkspaceMutationRefreshTask)
+
+    await router.workspaceListGate.releaseFirst()
+    let firstInnerResult = await firstInnerRefresh.value
+    #expect(!firstInnerResult.succeeded)
+    await Task { @MainActor in }.value
+
+    let thirdRefresh = Task { @MainActor in
+        await store.refreshForegroundWorkspaceListAfterMutation()
+    }
+    await router.workspaceListGate.waitUntilThirdReached()
+    let authoritativeEpoch = store.foregroundWorkspaceListMutationEpoch
+
+    await router.workspaceListGate.releaseSecond()
+    let secondInnerResult = await secondInnerRefresh.value
+    #expect(!secondInnerResult.succeeded)
+    await Task { @MainActor in }.value
+
+    await router.workspaceListGate.releaseThird()
+    let results = await (firstRefresh.value, secondRefresh.value, thirdRefresh.value)
+
+    #expect(results.0, "the first caller must not surface a superseded recovery failure")
+    #expect(results.1, "the second caller must share the authoritative successor")
+    #expect(results.2, "the newest authoritative refresh must succeed")
+    #expect(store.foregroundWorkspaceListAppliedMutationEpoch >= authoritativeEpoch)
+    #expect(await router.workspaceListGate.requestCount() == 3)
+    #expect(store.foregroundWorkspaceMutationRefreshTask == nil)
+}
+
+@MainActor
 @Test func olderSecondaryAggregationCannotOverwritePostMutationRefresh() async throws {
     let router = RoutingHostRouter()
     await router.workspaceListGate.setHoldFirst(true)

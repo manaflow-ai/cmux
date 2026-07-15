@@ -4,13 +4,17 @@ actor WorkspaceListRequestGate {
     private var count = 0
     private var holdFirst = false
     private var holdSecond = false
+    private var holdThird = false
     private var usesOrdinalTitles = false
     private var firstHeld = false
     private var secondHeld = false
+    private var thirdHeld = false
     private var releaseContinuation: CheckedContinuation<Void, Never>?
     private var secondReleaseContinuation: CheckedContinuation<Void, Never>?
+    private var thirdReleaseContinuation: CheckedContinuation<Void, Never>?
     private var reachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var secondReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var thirdReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var countWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
 
     func setHoldFirst(_ hold: Bool) {
@@ -19,6 +23,10 @@ actor WorkspaceListRequestGate {
 
     func setHoldSecond(_ hold: Bool) {
         holdSecond = hold
+    }
+
+    func setHoldThird(_ hold: Bool) {
+        holdThird = hold
     }
 
     func setUsesOrdinalTitles(_ usesTitles: Bool) {
@@ -45,6 +53,13 @@ actor WorkspaceListRequestGate {
             for waiter in waiters { waiter.resume() }
             await withCheckedContinuation { secondReleaseContinuation = $0 }
         }
+        if ordinal == 3, holdThird {
+            thirdHeld = true
+            let waiters = thirdReachedWaiters
+            thirdReachedWaiters = []
+            for waiter in waiters { waiter.resume() }
+            await withCheckedContinuation { thirdReleaseContinuation = $0 }
+        }
         guard usesOrdinalTitles else { return nil }
         return ordinal == 1 ? "Stale Workspace" : "Fresh Workspace"
     }
@@ -57,6 +72,11 @@ actor WorkspaceListRequestGate {
     func waitUntilSecondReached() async {
         if secondHeld { return }
         await withCheckedContinuation { secondReachedWaiters.append($0) }
+    }
+
+    func waitUntilThirdReached() async {
+        if thirdHeld { return }
+        await withCheckedContinuation { thirdReachedWaiters.append($0) }
     }
 
     func waitUntilRequestCount(_ expectedCount: Int) async {
@@ -72,6 +92,11 @@ actor WorkspaceListRequestGate {
     func releaseSecond() {
         secondReleaseContinuation?.resume()
         secondReleaseContinuation = nil
+    }
+
+    func releaseThird() {
+        thirdReleaseContinuation?.resume()
+        thirdReleaseContinuation = nil
     }
 
     func requestCount() -> Int { count }
