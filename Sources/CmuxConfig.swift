@@ -1815,6 +1815,7 @@ final class CmuxConfigStore: ObservableObject {
     private var localFallbackDirectoryDescriptor: Int32 = -1
     private var globalWatcher: FileWatcher?
     private var globalWatchTask: Task<Void, Never>?
+    private var savedTerminalCommandsWatchTask: Task<Void, Never>?
     private let watchQueue = DispatchQueue(label: "com.cmux.config-file-watch")
 
     private static let maxReattachAttempts = 5
@@ -1846,6 +1847,21 @@ final class CmuxConfigStore: ObservableObject {
             ?? JSONConfigStore(fileURL: URL(fileURLWithPath: globalConfigPath))
         self.settingCatalog = settingCatalog
         self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
+        let initialSavedCommands = self.terminalScriptSettingsStore.snapshotValue(
+            for: settingCatalog.terminal.savedCommands
+        )
+        let savedCommands = self.terminalScriptSettingsStore.values(
+            for: settingCatalog.terminal.savedCommands
+        )
+        savedTerminalCommandsWatchTask = Task { @MainActor [weak self] in
+            var previous = initialSavedCommands
+            for await current in savedCommands {
+                guard current != previous else { continue }
+                previous = current
+                guard let self else { break }
+                self.loadAll()
+            }
+        }
         NotificationCenter.default.publisher(for: CmuxActionTrust.didChangeNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -1866,6 +1882,7 @@ final class CmuxConfigStore: ObservableObject {
         localFallbackDirectoryWatchSource?.cancel()
         hookWatchTasks.values.forEach { $0.cancel() }
         globalWatchTask?.cancel()
+        savedTerminalCommandsWatchTask?.cancel()
     }
 
     // MARK: - Public API
