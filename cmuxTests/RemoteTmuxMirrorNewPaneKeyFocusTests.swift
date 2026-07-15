@@ -71,25 +71,21 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
             workspace.isRemoteTmuxMirror = true
             let host = RemoteTmuxHost(destination: "user@newpanefocus")
             let connection = RemoteTmuxControlConnection(host: host, sessionName: "focus-map")
-            // Bound after the stored properties are set so the mirror's seam
-            // closure can record onto `self` without capturing a half-built
-            // instance during `init`. The mirror's own init reconcile creates
-            // pane %4 while `recorder` is still the no-op, so only the split's
-            // %5 (driven post-init) is recorded — matching the repro.
-            var recorder: (Int, TerminalPanel) -> Void = { _, _ in }
             let mirror = RemoteTmuxWindowMirror(
                 windowId: 2,
                 panelId: UUID(),
                 connection: connection,
                 layout: RemoteTmuxMirrorNewPaneKeyFocusTests.singlePaneLayout(4),
-                onEstablishPaneKeyFocus: { paneId, panel in recorder(paneId, panel) },
                 makePanel: { _ in workspace.makeRemoteTmuxPanePanel(onInput: { _ in }) }
             )
             self.manager = manager
             self.workspace = workspace
             self.connection = connection
             self.mirror = mirror
-            recorder = { [weak self] paneId, panel in
+            // Installed after the mirror's own init reconcile (which creates the
+            // initial pane %4), so only the split's %5 — driven later — is
+            // recorded, matching the repro.
+            mirror.onEstablishPaneKeyFocus = { [weak self] paneId, panel in
                 self?.focusRequests.append((paneId, panel.id))
             }
         }

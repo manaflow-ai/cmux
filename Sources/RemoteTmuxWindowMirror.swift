@@ -50,8 +50,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// visibility false→true edge fires — the pane shows the selection highlight
     /// but owns no key focus until clicked. This drives the same first-responder
     /// establishment a click does, on the creation event edge. `nil` in headless
-    /// and direct-construction callers.
-    @ObservationIgnored let onEstablishPaneKeyFocus: ((_ tmuxPaneId: Int, _ panel: TerminalPanel) -> Void)?
+    /// and direct-construction callers. Set after construction so it can capture
+    /// the mirror weakly (see ``RemoteTmuxSessionMirror``).
+    @ObservationIgnored var onEstablishPaneKeyFocus: ((_ tmuxPaneId: Int, _ panel: TerminalPanel) -> Void)?
     /// Session-owned control identity lookup. Render nodes are replaceable.
     @ObservationIgnored private let controlPaneID: (Int) -> PaneID?
     @ObservationIgnored private let onControlSurfaceChanged: ((Int, UUID?) -> Void)?
@@ -122,6 +123,11 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored var paneIdByTabId: [TabID: Int] = [:]
     @ObservationIgnored var paneIndexByPaneId: [Int: Int] = [:]
     @ObservationIgnored var cwdByPaneId: [Int: String] = [:]
+    /// Panes whose panel this mirror just created and which have not yet had
+    /// key focus established. A member is consumed the first time it becomes the
+    /// active pane, so exactly one creation drives key focus — never a later
+    /// active-pane echo or a co-attached client's pane switch.
+    @ObservationIgnored private var panesAwaitingCreationFocus: Set<Int> = []
     @ObservationIgnored var isApplyingRemoteLayout = false
     @ObservationIgnored var isApplyingTmuxFocus = false
     @ObservationIgnored var lastDividerPositions: [UUID: CGFloat] = [:]
@@ -301,14 +307,12 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         controlPaneID: @escaping (Int) -> PaneID? = { _ in nil },
         onControlSurfaceChanged: ((Int, UUID?) -> Void)? = nil,
         adoptedPanes: [AdoptedPane] = [],
-        onEstablishPaneKeyFocus: ((_ tmuxPaneId: Int, _ panel: TerminalPanel) -> Void)? = nil,
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
         self.panelId = panelId
         self.connection = connection
         self.workspaceBonsplitController = workspaceBonsplitController
-        self.onEstablishPaneKeyFocus = onEstablishPaneKeyFocus
         self.makePanel = makePanel
         self.geometrySource = geometrySource
         self.hostingContentSizeSource = hostingContentSizeSource
@@ -375,6 +379,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         for paneId in livePaneIDsInOrder where panelsByPaneId[paneId] == nil {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
+            panesAwaitingCreationFocus.insert(paneId)
             onControlSurfaceChanged?(paneId, panel.id)
             configurePanePanel(panel, paneId: paneId, needsSeed: true)
         }
@@ -391,6 +396,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             connection?.unsubscribePaneHeader(paneId: paneId)
             panelsByPaneId[paneId] = nil
             cwdByPaneId[paneId] = nil
+            panesAwaitingCreationFocus.remove(paneId)
             if activePaneId == paneId { activePaneId = nil }
         }
         lastRenderedGrids = lastRenderedGrids.filter { livePaneIds.contains($0.key) }
@@ -480,6 +486,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     func noteRemoteActivePane(_ paneId: Int) {
         if activePaneId != paneId { activePaneId = paneId }
         focusBonsplitPane(forTmuxPane: paneId)
+        establishCreationKeyFocusIfPending(forPane: paneId)
     }
 
     func setActivePane(_ paneId: Int, fromTmux: Bool) {
@@ -489,6 +496,23 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         if !fromTmux {
             connection?.send("select-pane -t @\(windowId).%\(paneId)")
         }
+        establishCreationKeyFocusIfPending(forPane: paneId)
+    }
+
+    /// Drives keyboard (first-responder) focus onto a pane the moment it first
+    /// becomes active after this mirror created it. A freshly split pane is born
+    /// active and visible inside an already-visible tab, so the surface's own
+    /// active/visibility false→true edges never fire the first-responder apply,
+    /// and — because a mirror pane panel is not a workspace Bonsplit tab — the
+    /// workspace focus path cannot resolve it either. The result is the reported
+    /// bug: the new pane is highlighted but takes no keys until clicked. Consume
+    /// the creation marker so this runs once per created pane, never on a later
+    /// active-pane echo or a co-attached client's pane switch.
+    private func establishCreationKeyFocusIfPending(forPane paneId: Int) {
+        guard panesAwaitingCreationFocus.contains(paneId),
+              let panel = panelsByPaneId[paneId] else { return }
+        panesAwaitingCreationFocus.remove(paneId)
+        onEstablishPaneKeyFocus?(paneId, panel)
     }
 
     /// Records the user-focused pane and asks tmux to make it active.
@@ -562,8 +586,50 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         paneIdByBonsplitPane.removeAll()
         paneIdByTabId.removeAll()
         cwdByPaneId.removeAll()
+        panesAwaitingCreationFocus.removeAll()
         lastRenderedGrids.removeAll()
         activePaneId = nil
         connection = nil
+    }
+
+    /// Establishes key focus on a freshly created pane the way a click does —
+    /// `moveFocus()` makes the pane surface the window's first responder directly,
+    /// since a mirror pane surface is not a workspace Bonsplit tab and so cannot
+    /// travel the guarded `applyFirstResponderIfNeeded` path. Retries briefly
+    /// because the seam fires from the control-stream event that makes the pane
+    /// active, which can land before SwiftUI has mounted the pane's hosted view.
+    ///
+    /// Every attempt re-checks the mirror is still on screen and this pane is
+    /// still its active pane, so a pane switch (a click elsewhere, a co-attached
+    /// client, or a tab change) that lands within the retry window cancels the
+    /// pending focus rather than stealing it back. A mirror whose panes are not
+    /// hosted in a key window — a background tab, or any headless caller — never
+    /// moves the first responder at all.
+    static func establishPaneKeyFocusWhenMounted(
+        paneId: Int,
+        panel: TerminalPanel,
+        mirror: RemoteTmuxWindowMirror?,
+        attemptsRemaining: Int = 6
+    ) {
+        guard attemptsRemaining > 0,
+              let mirror,
+              !mirror.isTornDown,
+              mirror.activePaneId == paneId,
+              mirror.isEffectivelyVisibleForSizing else { return }
+        let hostedView = panel.hostedView
+        if hostedView.isVisibleInUI,
+           let window = hostedView.uiWindow,
+           window.isKeyWindow {
+            hostedView.moveFocus()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak mirror] in
+            establishPaneKeyFocusWhenMounted(
+                paneId: paneId,
+                panel: panel,
+                mirror: mirror,
+                attemptsRemaining: attemptsRemaining - 1
+            )
+        }
     }
 }
