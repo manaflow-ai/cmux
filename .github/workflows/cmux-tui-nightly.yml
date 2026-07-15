@@ -1,8 +1,8 @@
 name: cmux-tui nightly
 
 on:
-  schedule:
-    - cron: "23 9 * * *"
+  # CI pause: the macOS Nightly and rolling iOS beta remain automatic; this
+  # separate TUI package build remains available on demand.
   workflow_dispatch:
 
 permissions: {}
