@@ -130,8 +130,8 @@ enum AgentForkSupport {
                 }
             }
             process.environment = AgentForkSupport.processEnvironmentForOpenCodeProbe(environment: environment)
-            process.terminationHandler = { [weak self] _ in
-                self?.finish()
+            process.terminationHandler = { [weak self] process in
+                self?.finish(exitStatus: process.terminationStatus)
             }
 
             lock.lock()
@@ -255,7 +255,7 @@ enum AgentForkSupport {
             timer.resume()
         }
 
-        private func finish() {
+        private func finish(exitStatus: Int32? = nil) {
             let continuation: CheckedContinuation<String?, Never>?
             let pipe: Pipe?
             let process: Process?
@@ -291,7 +291,7 @@ enum AgentForkSupport {
                 let remainingData = readHandle.readDataToEndOfFileOrEmpty()
                 outputBuffer.append(remainingData)
             }
-            guard !timedOut else {
+            guard !timedOut, exitStatus == 0 else {
                 continuation?.resume(returning: nil)
                 return
             }
@@ -338,7 +338,7 @@ enum AgentForkSupport {
             return await supportsLocalForkProbe(
                 probe: probe,
                 snapshot: snapshot,
-                cacheDiscriminator: "pi-family-version",
+                cacheDiscriminator: "pi-family-version:\(agentID)",
                 probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: true,
                 boundedCacheTTL: piFamilyVersionProbeCacheTTL,
                 outputSupportsFork: { output in

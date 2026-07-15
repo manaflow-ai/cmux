@@ -531,6 +531,28 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(!(await AgentForkSupport.supportsFork(snapshot: ompWrappedSnapshot)))
         ompWrappedSnapshot.launchCommand?.launcher = nil
         #expect(!(await AgentForkSupport.supportsFork(snapshot: ompWrappedSnapshot)))
+
+        let failedPi = root.appendingPathComponent("failed-pi", isDirectory: false)
+        try "#!/bin/sh\nprintf '%s\\n' '0.80.6'\nexit 1\n"
+            .write(to: failedPi, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: failedPi.path)
+        var failedSnapshot = snapshot
+        failedSnapshot.launchCommand?.executablePath = failedPi.path
+        failedSnapshot.launchCommand?.arguments = [failedPi.path, "--session", "pi-session"]
+        #expect(!(await AgentForkSupport.supportsFork(snapshot: failedSnapshot)))
+
+        let sharedWrapper = root.appendingPathComponent("agent-wrapper", isDirectory: false)
+        try "#!/bin/sh\nprintf '%s\\n' '1.0.0'\n"
+            .write(to: sharedWrapper, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sharedWrapper.path)
+        var sharedPiSnapshot = snapshot
+        sharedPiSnapshot.launchCommand?.launcher = "pi"
+        sharedPiSnapshot.launchCommand?.executablePath = sharedWrapper.path
+        sharedPiSnapshot.launchCommand?.arguments = [sharedWrapper.path]
+        #expect(await AgentForkSupport.supportsFork(snapshot: sharedPiSnapshot))
+        var sharedOmpSnapshot = sharedPiSnapshot
+        sharedOmpSnapshot.launchCommand?.launcher = "omp"
+        #expect(!(await AgentForkSupport.supportsFork(snapshot: sharedOmpSnapshot)))
     }
 
     @Test
