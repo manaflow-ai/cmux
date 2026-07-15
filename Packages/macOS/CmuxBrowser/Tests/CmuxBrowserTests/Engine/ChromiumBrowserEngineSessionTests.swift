@@ -7,6 +7,33 @@ import WebKit
 @MainActor
 struct ChromiumBrowserEngineSessionTests {
     @Test
+    func forwardsCompositionAndCommittedTextToCDPInputCommands() {
+        let session = ChromiumBrowserEngineSession(
+            viewportWebView: WKWebView(),
+            application: nil,
+            userDataDirectory: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        )
+        defer { session.close() }
+
+        session.handleViewportMessage([
+            "type": "composition",
+            "text": "に",
+            "selectionStart": 1,
+            "selectionEnd": 1,
+        ])
+        session.handleViewportMessage([
+            "type": "text",
+            "text": "日本",
+        ])
+
+        #expect(session.viewportInputQueue.commands.map(\.method) == [
+            "Input.imeSetComposition",
+            "Input.insertText",
+        ])
+    }
+
+    @Test
     func rejectsNavigationRequestsWhoseSemanticsCannotBePreserved() {
         let url = URL(string: "https://example.com/submit")!
 
