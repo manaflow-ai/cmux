@@ -27,7 +27,7 @@ final class SharedLiveAgentIndex {
     private static let minEventReloadInterval: TimeInterval = 5.0
     private static let maxEventReloadInterval: TimeInterval = 30.0
     // Reach the cap near the profiled large-history fixtures, not at modest history sizes.
-    private static let indexedSessionsPerReloadIntervalStep = 45
+    private static let historyRecordsPerReloadIntervalStep = 45
     private static let liveAgentsPerReloadIntervalStep = 11
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
@@ -295,7 +295,7 @@ final class SharedLiveAgentIndex {
         }
         let reloadInterval = Self.hookEventReloadInterval(
             liveAgentCount: index?.liveAgentProcessCount ?? 0,
-            indexedSessionCount: index?.entryCount ?? 0
+            historyWorkloadCount: index?.loadWorkloadCount ?? 0
         )
         let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
         if elapsed >= reloadInterval {
@@ -376,14 +376,14 @@ final class SharedLiveAgentIndex {
 
     private static func hookEventReloadInterval(
         liveAgentCount: Int,
-        indexedSessionCount: Int
+        historyWorkloadCount: Int
     ) -> TimeInterval {
         let intervalSteps = max(
             1,
             max(
                 reloadIntervalSteps(
-                    workloadCount: indexedSessionCount,
-                    unitsPerStep: indexedSessionsPerReloadIntervalStep
+                    workloadCount: historyWorkloadCount,
+                    unitsPerStep: historyRecordsPerReloadIntervalStep
                 ),
                 reloadIntervalSteps(
                     workloadCount: liveAgentCount,
