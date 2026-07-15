@@ -248,6 +248,22 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(resolution?.line == 4)
     }
 
+    @Test func distinctFallbackMatchesFailClosed() {
+        let repositoryFile = "/Users/dev/repository/Sources/App.swift"
+        let workspaceFile = "/Users/dev/workspace/Sources/App.swift"
+        let resolution = TerminalPathResolver(
+            fileExists: existsIn([repositoryFile, workspaceFile])
+        ).resolveOpenURLFileReference(
+            "Sources/App.swift:4",
+            context: TerminalPathResolutionContext(
+                workingDirectory: "/Users/dev/workspace/build",
+                fallbackDirectories: ["/Users/dev/repository", "/Users/dev/workspace"]
+            )
+        )
+
+        #expect(resolution == nil)
+    }
+
     @Test func literalFileEndingInNumericSuffixWins() {
         let literalFile = "/Users/dev/project/report.txt:12"
         let strippedFile = "/Users/dev/project/report.txt"

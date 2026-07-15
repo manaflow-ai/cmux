@@ -9,8 +9,8 @@ import CmuxTerminalCore
             !policy.shouldOpenFallback(
                 ghosttyConsumed: true,
                 isSnapshotResolution: true,
-                resolvedPath: "/repo/Sources/App.swift",
-                handledOpenURLPath: "/repo/Sources/App.swift"
+                resolvedReference: reference(line: 12, column: 4),
+                handledOpenURLReference: reference(line: 12, column: 4)
             )
         )
     }
@@ -20,8 +20,28 @@ import CmuxTerminalCore
             policy.shouldOpenFallback(
                 ghosttyConsumed: true,
                 isSnapshotResolution: true,
-                resolvedPath: "/repo/Sources/Wrapped.swift",
-                handledOpenURLPath: "/repo/Sources/Other.swift"
+                resolvedReference: reference(path: "/repo/Sources/Wrapped.swift"),
+                handledOpenURLReference: reference(path: "/repo/Sources/Other.swift")
+            )
+        )
+    }
+
+    @Test(arguments: [
+        (TerminalPathResolution(path: "/repo/Sources/App.swift", line: 37, column: 4),
+         TerminalPathResolution(path: "/repo/Sources/App.swift", line: 12, column: 4)),
+        (TerminalPathResolution(path: "/repo/Sources/App.swift", line: 12, column: 9),
+         TerminalPathResolution(path: "/repo/Sources/App.swift", line: 12, column: 4)),
+    ])
+    func preservesSnapshotFallbackForDifferentSourceLocation(
+        resolvedReference: TerminalPathResolution,
+        handledReference: TerminalPathResolution
+    ) {
+        #expect(
+            policy.shouldOpenFallback(
+                ghosttyConsumed: true,
+                isSnapshotResolution: true,
+                resolvedReference: resolvedReference,
+                handledOpenURLReference: handledReference
             )
         )
     }
@@ -31,8 +51,8 @@ import CmuxTerminalCore
             !policy.shouldOpenFallback(
                 ghosttyConsumed: true,
                 isSnapshotResolution: false,
-                resolvedPath: "/repo/Sources/App.swift",
-                handledOpenURLPath: nil
+                resolvedReference: reference(),
+                handledOpenURLReference: nil
             )
         )
     }
@@ -42,9 +62,17 @@ import CmuxTerminalCore
             policy.shouldOpenFallback(
                 ghosttyConsumed: false,
                 isSnapshotResolution: false,
-                resolvedPath: "/repo/Sources/App.swift",
-                handledOpenURLPath: nil
+                resolvedReference: reference(),
+                handledOpenURLReference: nil
             )
         )
+    }
+
+    private func reference(
+        path: String = "/repo/Sources/App.swift",
+        line: Int? = nil,
+        column: Int? = nil
+    ) -> TerminalPathResolution {
+        TerminalPathResolution(path: path, line: line, column: column)
     }
 }

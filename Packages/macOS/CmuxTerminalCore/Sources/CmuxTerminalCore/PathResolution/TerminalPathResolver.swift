@@ -36,13 +36,14 @@ public nonisolated struct TerminalPathResolver: Sendable {
     ///
     /// Literal spellings are probed before treating a numeric suffix as source
     /// location metadata. Relative spellings are resolved against the surface
-    /// working directory, then each fallback root. Only an existing path is
-    /// returned.
+    /// working directory, then the fallback roots. A fallback is returned only
+    /// when every existing fallback candidate identifies the same reference.
     ///
     /// - Parameters:
     ///   - rawText: The raw terminal token or selected text.
     ///   - context: The surface working directory and ordered fallback roots.
-    /// - Returns: The first existing path reference, or `nil`.
+    /// - Returns: The cwd match or one unambiguous fallback reference; otherwise
+    ///   `nil`.
     public func resolvePath(
         _ rawText: String,
         context: TerminalPathResolutionContext
@@ -56,24 +57,35 @@ public nonisolated struct TerminalPathResolver: Sendable {
         let references = spellings.filter { !shouldBypassPathResolutionForURL($0) }.flatMap {
             $0.terminalPathReferenceCandidates()
         }
-        let directories = resolutionDirectories(context: context)
         var seenPaths: Set<String> = []
 
-        for directory in directories {
-            for reference in references {
-                let expandedPath = (reference.path as NSString).expandingTildeInPath
-                guard !expandedPath.hasPrefix("/") else { continue }
-                let candidatePath = (directory as NSString).appendingPathComponent(expandedPath)
-                if let resolution = existingResolution(
-                    path: candidatePath,
-                    line: reference.line,
-                    column: reference.column,
-                    seenPaths: &seenPaths
-                ) {
-                    return resolution
-                }
-            }
+        let workingDirectories = resolutionDirectories(
+            [context.workingDirectory].compactMap { $0 }
+        )
+        if let workingDirectory = workingDirectories.first,
+           let resolution = firstRelativeResolution(
+               references: references,
+               directory: workingDirectory,
+               seenPaths: &seenPaths
+           ) {
+            return resolution
         }
+
+        let fallbackDirectories = resolutionDirectories(context.fallbackDirectories)
+            .filter { !workingDirectories.contains($0) }
+        var fallbackResolution: TerminalPathResolution?
+        for directory in fallbackDirectories {
+            guard let resolution = firstRelativeResolution(
+                references: references,
+                directory: directory,
+                seenPaths: &seenPaths
+            ) else { continue }
+            if let fallbackResolution, fallbackResolution != resolution {
+                return nil
+            }
+            fallbackResolution = resolution
+        }
+        if let fallbackResolution { return fallbackResolution }
 
         for reference in references {
             let expandedPath = (reference.path as NSString).expandingTildeInPath
@@ -268,11 +280,9 @@ public nonisolated struct TerminalPathResolver: Sendable {
         Self.explicitURLSchemes.contains(parsedScheme) || rawText.contains("://")
     }
 
-    private func resolutionDirectories(
-        context: TerminalPathResolutionContext
-    ) -> [String] {
+    private func resolutionDirectories(_ rawDirectories: [String]) -> [String] {
         var directories: [String] = []
-        for rawDirectory in [context.workingDirectory].compactMap({ $0 }) + context.fallbackDirectories {
+        for rawDirectory in rawDirectories {
             let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
             let expanded = (trimmed as NSString).expandingTildeInPath
@@ -282,6 +292,27 @@ public nonisolated struct TerminalPathResolver: Sendable {
             directories.append(standardized)
         }
         return directories
+    }
+
+    private func firstRelativeResolution(
+        references: [(path: String, line: Int?, column: Int?)],
+        directory: String,
+        seenPaths: inout Set<String>
+    ) -> TerminalPathResolution? {
+        for reference in references {
+            let expandedPath = (reference.path as NSString).expandingTildeInPath
+            guard !expandedPath.hasPrefix("/") else { continue }
+            let candidatePath = (directory as NSString).appendingPathComponent(expandedPath)
+            if let resolution = existingResolution(
+                path: candidatePath,
+                line: reference.line,
+                column: reference.column,
+                seenPaths: &seenPaths
+            ) {
+                return resolution
+            }
+        }
+        return nil
     }
 
     private func existingResolution(

@@ -1637,6 +1637,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */; };
 		A5F10000000000000000000D /* TerminalNotificationStore+WorkspaceNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000E /* TerminalNotificationStore+WorkspaceNotifications.swift */; };
 		A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
+		C80970010000000000000006 /* TerminalOpenURLTargetResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C80970010000000000000005 /* TerminalOpenURLTargetResolutionTests.swift */; };
 		0A110711000000000000001C /* TerminalOutputTeeCallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A110711000000000000001D /* TerminalOutputTeeCallback.swift */; };
 		0A110711000000000000001E /* TerminalOutputTeeContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A110711000000000000001F /* TerminalOutputTeeContext.swift */; };
 		D0B10000A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */; };
@@ -3505,6 +3506,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+NativeNotificationDeliveryTesting.swift"; sourceTree = "<group>"; };
 		A5F10000000000000000000E /* TerminalNotificationStore+WorkspaceNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+WorkspaceNotifications.swift"; sourceTree = "<group>"; };
 		A5001092 /* TerminalNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationStore.swift; sourceTree = "<group>"; };
+		C80970010000000000000005 /* TerminalOpenURLTargetResolutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOpenURLTargetResolutionTests.swift; sourceTree = "<group>"; };
 		0A110711000000000000001D /* TerminalOutputTeeCallback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOutputTeeCallback.swift; sourceTree = "<group>"; };
 		0A110711000000000000001F /* TerminalOutputTeeContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOutputTeeContext.swift; sourceTree = "<group>"; };
 		D0B10001A1B2C3D4E5F60001 /* TerminalPaneDropTargetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneDropTargetView.swift; sourceTree = "<group>"; };
@@ -5429,6 +5431,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */,
 				EC010C02 /* TerminalUploadCommandTests.swift */,
 				02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */,
+				C80970010000000000000005 /* TerminalOpenURLTargetResolutionTests.swift */,
 				7863B0020000000000000001 /* GhosttyBackgroundAndPanelAppearanceTests.swift */,
 				A11E5E1E0000000000000012 /* TerminalSelectionAccessibilityIngressGateTests.swift */,
 				570ED364A7E41085FB2D31FE /* MainWindowSelfSizingTests.swift */,
@@ -7928,6 +7931,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5A5A503A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift in Sources */,
 				A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
+				C80970010000000000000006 /* TerminalOpenURLTargetResolutionTests.swift in Sources */,
 				C7261F020000000000000001 /* TerminalPointerFocusActivationPolicyTests.swift in Sources */,
 				D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */,
 				C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */,

@@ -2,9 +2,9 @@ import Foundation
 
 /// A preferred-editor command with shell-aware executable recognition.
 ///
-/// Source locations are emitted only for editor CLIs whose argument contract
-/// is known. Unknown commands receive the plain file path so cmux never asks
-/// an editor to open a nonexistent colon-suffixed filename.
+/// Source locations are emitted only for simple editor CLI commands whose
+/// argument contract is known. Unknown or compound shell commands receive the
+/// plain file path so cmux never guesses where location arguments would bind.
 nonisolated struct PreferredEditorLaunchCommand: Equatable, Sendable {
     let command: String
 
@@ -43,13 +43,13 @@ nonisolated struct PreferredEditorLaunchCommand: Equatable, Sendable {
     }
 
     private var hasGotoFlag: Bool {
-        shellWords.contains { token in
+        shellWords?.contains { token in
             token == "-g" || token == "--goto"
-        }
+        } ?? false
     }
 
     private var executableName: String? {
-        let words = shellWords
+        guard let words = shellWords, !words.contains("--") else { return nil }
         var index = 0
         while index < words.count, isEnvironmentAssignment(words[index]) {
             index += 1
@@ -76,7 +76,7 @@ nonisolated struct PreferredEditorLaunchCommand: Equatable, Sendable {
         return (words[index] as NSString).lastPathComponent.lowercased()
     }
 
-    private var shellWords: [String] {
+    private var shellWords: [String]? {
         var words: [String] = []
         var current = ""
         var quote: Character?
@@ -97,11 +97,15 @@ nonisolated struct PreferredEditorLaunchCommand: Equatable, Sendable {
             } else if let activeQuote = quote {
                 if character == activeQuote {
                     quote = nil
+                } else if activeQuote == "\"", character == "$" || character == "`" {
+                    return nil
                 } else {
                     current.append(character)
                 }
             } else if character == "'" || character == "\"" {
                 quote = character
+            } else if character.isNewline || "$`#;|&<>()".contains(character) {
+                return nil
             } else if character.isWhitespace {
                 finishWord()
             } else {
@@ -109,7 +113,7 @@ nonisolated struct PreferredEditorLaunchCommand: Equatable, Sendable {
             }
         }
 
-        if escaping { current.append("\\") }
+        guard quote == nil, !escaping else { return nil }
         finishWord()
         return words
     }

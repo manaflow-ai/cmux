@@ -149,6 +149,26 @@ struct PreferredEditorServiceTests {
         #expect(PreferredEditorLaunchCommand(command: command).supportsSourceLocation)
     }
 
+    @Test(arguments: [
+        "code -w && osascript -e 'display dialog 1'",
+        "code -w | tee /tmp/editor.log",
+        "code -w; osascript -e 'display dialog 1'",
+        "code -w > /tmp/editor.log",
+        "code $(printf '%s' -w)",
+        "code --",
+    ])
+    func compoundCommandsDoNotClaimSourceLocationSupport(command: String) {
+        let launchCommand = PreferredEditorLaunchCommand(command: command)
+        #expect(!launchCommand.supportsSourceLocation)
+        #expect(
+            !launchCommand.shellCommand(
+                url: URL(fileURLWithPath: "/tmp/App.swift"),
+                line: 42,
+                column: 7
+            ).contains("App.swift:42:7")
+        )
+    }
+
     @Test func colonLocationEditorsReceiveLocationWithoutGotoFlag() {
         let command = PreferredEditorLaunchCommand(command: "zed")
 

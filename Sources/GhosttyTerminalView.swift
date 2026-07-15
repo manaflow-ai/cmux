@@ -3003,7 +3003,7 @@ class GhosttyApp {
                             preferConfiguredEditor: false
                         )
                     }
-                    surfaceView.noteHandledOpenURLFile(path: resolution.path)
+                    surfaceView.noteHandledOpenURLFile(resolution)
                     return (true, resolution)
                 }
                 resolvedFileReference = filePathResolution.resolution
@@ -3029,7 +3029,7 @@ class GhosttyApp {
                 envKey: "CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH",
                 line: target.url.absoluteString
             ) {
-                if let resolvedFileReference { performOnMain { surfaceView.noteHandledOpenURLFile(path: resolvedFileReference.path) } }
+                if let resolvedFileReference { performOnMain { surfaceView.noteHandledOpenURLFile(resolvedFileReference) } }
                 return true
             }
             #endif
@@ -3055,7 +3055,7 @@ class GhosttyApp {
                     ) {
                         NSWorkspace.shared.open(fileURL)
                     }
-                    surfaceView.noteHandledOpenURLFile(path: resolution.path)
+                    surfaceView.noteHandledOpenURLFile(resolution)
                     return true
                 }
                 if routed {
@@ -3068,7 +3068,7 @@ class GhosttyApp {
                         resolvedFileReference,
                         preferConfiguredEditor: false
                     )
-                    if handled { surfaceView.noteHandledOpenURLFile(path: resolvedFileReference.path) }
+                    if handled { surfaceView.noteHandledOpenURLFile(resolvedFileReference) }
                     return handled
                 }
             }
@@ -3078,7 +3078,7 @@ class GhosttyApp {
                 cmuxDebugLog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
                 #endif
                 return performOnMain {
-                    surfaceView.openURLExternally(target.url, resolvedFilePath: resolvedFileReference?.path)
+                    surfaceView.openURLExternally(target.url, resolvedFileReference: resolvedFileReference)
                 }
             }
             switch target {
@@ -3087,7 +3087,7 @@ class GhosttyApp {
                 cmuxDebugLog("link.openURL target=external, opening externally url=\(url)")
                 #endif
                 return performOnMain {
-                    surfaceView.openURLExternally(url, resolvedFilePath: resolvedFileReference?.path)
+                    surfaceView.openURLExternally(url, resolvedFileReference: resolvedFileReference)
                 }
             case let .embeddedBrowser(url):
                 if BrowserLinkOpenSettings.shouldOpenExternally(url) {
@@ -3501,7 +3501,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyTables: [String] = []
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
-    private var handledOpenURLFilePathForMouseRelease: String?
+    private var handledOpenURLFileReferenceForMouseRelease: TerminalPathResolution?
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
@@ -6508,35 +6508,36 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
         let release = dispatchLeftMouseRelease(surface: surface, mods: mouseModsFromEvent(event))
-        _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: release.consumed, handledOpenURLPath: release.handledOpenURLPath)
+        _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: release.consumed, handledOpenURLReference: release.handledOpenURLReference)
         return true
     }
 
-    fileprivate func noteHandledOpenURLFile(path: String) { handledOpenURLFilePathForMouseRelease = path }
-    fileprivate func openURLExternally(_ url: URL, resolvedFilePath: String?) -> Bool {
+    fileprivate func noteHandledOpenURLFile(_ reference: TerminalPathResolution) { handledOpenURLFileReferenceForMouseRelease = reference }
+    fileprivate func openURLExternally(_ url: URL, resolvedFileReference: TerminalPathResolution?) -> Bool {
         let handled = NSWorkspace.shared.open(url)
-        if handled, let path = resolvedFilePath ?? (url.isFileURL ? url.path : nil) { noteHandledOpenURLFile(path: path) }
+        if handled, let reference = resolvedFileReference ?? (url.isFileURL ? TerminalPathResolution(path: url.path, line: nil, column: nil) : nil) { noteHandledOpenURLFile(reference) }
         return handled
     }
 
     private func dispatchLeftMouseRelease(
         surface: ghostty_surface_t,
         mods: ghostty_input_mods_e
-    ) -> (consumed: Bool, handledOpenURLPath: String?) {
-        handledOpenURLFilePathForMouseRelease = nil
+    ) -> (consumed: Bool, handledOpenURLReference: TerminalPathResolution?) {
+        handledOpenURLFileReferenceForMouseRelease = nil
         let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
-        defer { handledOpenURLFilePathForMouseRelease = nil }
-        return (consumed, handledOpenURLFilePathForMouseRelease)
+        defer { handledOpenURLFileReferenceForMouseRelease = nil }
+        return (consumed, handledOpenURLFileReferenceForMouseRelease)
     }
 
-    private func resolveWordUnderCursorPath(at point: NSPoint? = nil) -> WordPathResolution? {
+    private func resolveWordUnderCursorPath(at point: NSPoint? = nil, includeFallbackDirectories: Bool = true) -> WordPathResolution? {
         guard let surface = surface else { return nil }
 
         guard let termSurface = terminalSurface,
               let workspace = termSurface.owningWorkspace(),
               !workspace.isRemoteTerminalSurface(termSurface.id) else { return nil }
 
-        let context = resolvedWordPathContext(workspace: workspace, terminalSurface: termSurface)
+        let fullContext = resolvedWordPathContext(workspace: workspace, terminalSurface: termSurface)
+        let context = includeFallbackDirectories ? fullContext : TerminalPathResolutionContext(workingDirectory: fullContext.workingDirectory)
         guard context.workingDirectory != nil || !context.fallbackDirectories.isEmpty else {
             return nil
         }
@@ -6667,7 +6668,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        let resolution = resolveWordUnderCursorPath(at: point)
+        let resolution = resolveWordUnderCursorPath(at: point, includeFallbackDirectories: false)
         if resolution != nil {
             if !wordPathHoverActive {
                 wordPathHoverActive = true
@@ -6833,7 +6834,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         at point: NSPoint,
         modifierFlags: NSEvent.ModifierFlags,
         ghosttyConsumed: Bool,
-        handledOpenURLPath: String?
+        handledOpenURLReference: TerminalPathResolution?
     ) -> WordPathResolution? {
         guard let surface else { return nil }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: modifierFlags)
@@ -6895,16 +6896,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard TerminalCommandClickFallbackPolicy().shouldOpenFallback(
             ghosttyConsumed: ghosttyConsumed,
             isSnapshotResolution: resolution.source == .snapshot,
-            resolvedPath: resolution.path,
-            handledOpenURLPath: handledOpenURLPath
+            resolvedReference: resolution.resolution,
+            handledOpenURLReference: handledOpenURLReference
         ) else {
 #if DEBUG
             runtimeDebugLog(
                 hypothesisID: "h3",
                 name: "command_click_release",
                 expected: "ghostty-consumed clicks should only skip fallback for real ghostty targets",
-                actual: handledOpenURLPath == resolution.path
-                    ? "open_url_already_handled_same_path"
+                actual: handledOpenURLReference == resolution.resolution
+                    ? "open_url_already_handled_same_reference"
                     : "consumed_quicklook_resolution_skipped",
                 data: runtimeDebugResolutionPayload(resolution)
             )
@@ -7040,7 +7041,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         )
 
-        let resolution = suppressCommandPathHover ? nil : resolveWordUnderCursorPath(at: clampedPoint)
+        let resolution = suppressCommandPathHover ? nil : resolveWordUnderCursorPath(at: clampedPoint, includeFallbackDirectories: false)
         updateWordPathHover(
             at: clampedPoint,
             cmdHeld: true,
@@ -7076,7 +7077,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             at: clampedPoint,
             modifierFlags: flags,
             ghosttyConsumed: release.consumed,
-            handledOpenURLPath: release.handledOpenURLPath
+            handledOpenURLReference: release.handledOpenURLReference
         )
 
         var payload: [String: Any] = [
