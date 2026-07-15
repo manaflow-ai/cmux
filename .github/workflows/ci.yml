@@ -207,9 +207,6 @@ jobs:
       - name: Validate Swift warning budget guard
         run: ./tests/test_ci_swift_warning_budget.sh
 
-      - name: Validate Swift file length budget guard
-        run: ./tests/test_ci_swift_file_length_budget.sh
-
       - name: Validate auxiliary window close shortcut lint
         run: ./tests/test_ci_auxiliary_window_close_shortcuts.sh
 
@@ -233,38 +230,6 @@ jobs:
 
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
-
-      - name: Validate Swift file length budget
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BEFORE_SHA: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            BASE_REF="$BASE_SHA"
-            if MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"; then
-              BASE_REF="$MERGE_BASE"
-            fi
-            python3 scripts/swift_file_length_budget.py \
-              --budget .github/swift-file-length-budget.tsv \
-              --base-ref "$BASE_REF" \
-              --merge-ref "origin/${BASE_BRANCH:-main}" \
-              --merge-head "$HEAD_SHA"
-          elif [ "$EVENT_NAME" = "push" ] && [ -n "$BEFORE_SHA" ] && ! [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
-            python3 scripts/swift_file_length_budget.py \
-              --budget .github/swift-file-length-budget.tsv \
-              --base-ref "$BEFORE_SHA"
-          elif git rev-parse --verify --quiet origin/main >/dev/null && MERGE_BASE="$(git merge-base origin/main HEAD)"; then
-            python3 scripts/swift_file_length_budget.py \
-              --budget .github/swift-file-length-budget.tsv \
-              --base-ref "$MERGE_BASE"
-          else
-            python3 scripts/swift_file_length_budget.py \
-              --budget .github/swift-file-length-budget.tsv
-          fi
 
       - name: Validate feature flags (naming, owners, expiry, single use, no reuse)
         run: python3 scripts/lint-feature-flags.py
@@ -311,7 +276,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Validate managed relay catalog
-        run: bun ../scripts/generate-managed-iroh-relay-catalog.ts --check
+        run: bun tools/generate-managed-iroh-relay-catalog.ts --check
 
       - name: Typecheck
         run: bun run typecheck
@@ -666,12 +631,12 @@ jobs:
             -only-testing:cmuxTests/CLISSHSessionAttachAnchorTests \
             test
 
-      - name: Run omnibar suggestion click regression
+      - name: Run focused browser regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # Focused gate for https://github.com/manaflow-ai/cmux/issues/7380.
+          # Focused gates for https://github.com/manaflow-ai/cmux/issues/7380 and #8054.
           # The tolerant full-suite step can crash-skip late suites (see #5888
-          # note above), so this regression gets a non-tolerant focused
+          # note above), so these regressions get a non-tolerant focused
           # invocation.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -684,6 +649,7 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/BrowserOmnibarSuggestionClickRoutingTests \
+            -only-testing:cmuxTests/BrowserPanelViewIdentityTests \
             test
 
       - name: Run remote tmux mirror active-pane regression

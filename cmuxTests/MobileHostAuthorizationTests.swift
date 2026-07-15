@@ -146,6 +146,7 @@ struct MobileHostAuthorizationTests {
         }
     }
     #endif
+
     @Test func testMobileHostRPCRejectsInvalidParamsShape() {
         let data = Data(#"{"id":"bad-params","method":"workspace.list","params":[]}"#.utf8)
         let result = MobileHostRPCEnvelope.decodeRequest(data)
@@ -1171,7 +1172,6 @@ actor TestMobileHostIndependentEventWriter: MobileHostIndependentEventWriting {
 }
 struct ImmediateMobileHostIrohClock: CmxIrohRelayClock {
     private let instant = Date(timeIntervalSince1970: 1_700_000_000)
-
     func now() -> Date { instant }
     func sleep(until _: Date) async throws {}
 }

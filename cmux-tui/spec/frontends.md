@@ -38,6 +38,8 @@ Call [`list-workspaces`](commands.md#list-workspaces) to load the authoritative 
 
 Treat `tree-changed` as an instruction to call `list-workspaces`, `layout-changed` as an instruction to refresh layout/tree data, and surface/title/notification events as invalidations according to [`events.md`](events.md). Responses and events can be interleaved; route a message with `event` as an event and a message without it as a response.
 
+When creating PTY surfaces with `new-workspace`, `new-screen`, `new-tab`, `split`, or `apply-layout`, pass the pane's cell `cols` and `rows` in the creation request. This lets the shell render its first prompt at the client's real width instead of producing incorrectly wrapped scrollback before a later resize. If a creation request omits the pair, protocol v6 uses the session's most recently requested client size, then the legacy server default only when no client size has been observed.
+
 ## 4. Attach and Render a Terminal Surface
 
 For a PTY tab, send [`attach-surface`](commands.md#attach-surface) with its numeric surface id. The stream begins with a `vt-state` event containing `cols`, `rows`, and a standard-base64 `data` field. Decode `data` to bytes and feed the VT replay into a fresh terminal emulator, such as xterm.js.
