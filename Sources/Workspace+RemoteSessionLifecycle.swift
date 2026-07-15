@@ -45,15 +45,27 @@ extension Workspace {
             } else {
                 cleanupScope = finalCleanup ? .persistentSlot : .transport
             }
-            let succeeded = await owner.controller.stopAndWait(cleanupScope: cleanupScope)
+            guard remoteSessionTransitionID == id else { return }
             guard remoteSessionCleanupControllers[controllerID]?.controller === owner.controller else { continue }
-            if hasSamePersistentIdentity, !succeeded {
-                sameIdentityCleanupFailed = true
+            let succeeded: Bool
+            switch cleanupScope {
+            case .transport:
+                succeeded = await owner.controller.stopAndWait(cleanupScope: .transport)
+            case .persistentSlot:
+                _ = await owner.controller.stopAndWait(cleanupScope: .transport)
+                guard remoteSessionTransitionID == id else { return }
+                guard remoteSessionCleanupControllers[controllerID]?.controller === owner.controller else { continue }
+                succeeded = await owner.controller.stopAndWait(cleanupScope: .persistentSlot)
             }
+            guard remoteSessionCleanupControllers[controllerID]?.controller === owner.controller else { continue }
             if owner.configuration.persistentDaemonSlot == nil {
                 remoteSessionCleanupControllers.removeValue(forKey: controllerID)
             } else if case .persistentSlot = cleanupScope, succeeded {
                 remoteSessionCleanupControllers.removeValue(forKey: controllerID)
+            }
+            guard remoteSessionTransitionID == id else { return }
+            if hasSamePersistentIdentity, !succeeded {
+                sameIdentityCleanupFailed = true
             }
         }
 

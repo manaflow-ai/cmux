@@ -28,10 +28,12 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(workspace.remoteSessionCleanupControllers.count == 1)
 
         workspace.disconnectRemoteConnection(clearConfiguration: true)
-        let finalCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let finalTransportCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let finalPersistentCleanup = try #require(await Self.nextCleanupCommand(runner))
         await workspace.remoteSessionTransitionTask?.value
-        #expect(finalCleanup.contains("serve --persistent-stop --slot"))
-        #expect(finalCleanup.contains("64007.shell"))
+        #expect(!finalTransportCleanup.contains("serve --persistent-stop --slot"))
+        #expect(finalPersistentCleanup.contains("serve --persistent-stop --slot"))
+        #expect(finalPersistentCleanup.contains("64007.shell"))
         #expect(workspace.remoteSessionCleanupControllers.isEmpty)
     }
 
@@ -75,13 +77,57 @@ struct RemoteSessionCleanupLifecycleTests {
 
         let transition = try #require(workspace.remoteSessionTransitionTask)
         runner.releaseBlockedCleanup()
+        let handoffCleanup = try #require(await Self.nextCleanupCommand(runner))
         await transition.value
         #expect(!cleanup.contains("serve --persistent-stop --slot"))
         #expect(cleanup.contains("64007.slot"))
+        #expect(!handoffCleanup.contains("serve --persistent-stop --slot"))
         #expect(workspace.remoteConfiguration == configurationA.scopedToOwnerWorkspace(workspace.id))
         #expect(workspace.remoteSessionController != nil)
 
         workspace.disconnectRemoteConnection(clearConfiguration: true)
+        let finalTransportCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let finalPersistentCleanup = try #require(await Self.nextCleanupCommand(runner))
+        await workspace.remoteSessionTransitionTask?.value
+        #expect(!finalTransportCleanup.contains("serve --persistent-stop --slot"))
+        #expect(finalPersistentCleanup.contains("serve --persistent-stop --slot"))
+        workspace.teardownAllPanels()
+    }
+
+    @Test
+    func completedPersistentCleanupIsReconciledAfterTransitionIsSuperseded() async throws {
+        let runner = CleanupLifecycleRecordingRunner()
+        let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let configurationA = Self.configuration(slot: "ssh-lifecycle-a", relayPort: 64_007)
+        let configurationB = Self.configuration(slot: "ssh-lifecycle-b", relayPort: 64_008)
+        workspace.configureRemoteConnection(configurationA, autoConnect: true)
+        _ = try #require(await Self.nextBootstrapRequest(runner))
+        await workspace.remoteSessionTransitionTask?.value
+
+        runner.blockNextCleanup()
+        workspace.configureRemoteConnection(configurationB, autoConnect: true)
+        let transportCleanup = try #require(await Self.nextCleanupCommand(runner))
+        runner.blockNextCleanup()
+        runner.releaseBlockedCleanup()
+        let persistentCleanup = try #require(await Self.nextCleanupCommand(runner))
+
+        workspace.configureRemoteConnection(configurationA, autoConnect: true)
+        let transition = try #require(workspace.remoteSessionTransitionTask)
+        runner.releaseBlockedCleanup()
+        _ = try #require(await Self.nextBootstrapRequest(runner))
+        await transition.value
+
+        #expect(!transportCleanup.contains("serve --persistent-stop --slot"))
+        #expect(persistentCleanup.contains("serve --persistent-stop --slot"))
+        #expect(persistentCleanup.contains("'ssh-lifecycle-a'"))
+        #expect(runner.recordedCleanupCommands.isEmpty)
+        #expect(workspace.remoteSessionCleanupControllers.isEmpty)
+        #expect(workspace.remoteConfiguration == configurationA.scopedToOwnerWorkspace(workspace.id))
+        #expect(workspace.remoteSessionController != nil)
+
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+        _ = try #require(await Self.nextCleanupCommand(runner))
         _ = try #require(await Self.nextCleanupCommand(runner))
         await workspace.remoteSessionTransitionTask?.value
         workspace.teardownAllPanels()
@@ -147,44 +193,56 @@ struct RemoteSessionCleanupLifecycleTests {
             Self.configuration(slot: "ssh-lifecycle-next", relayPort: 64_008),
             autoConnect: false
         )
-        let finalCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let finalTransportCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let finalPersistentCleanup = try #require(await Self.nextCleanupCommand(runner))
         await workspace.remoteSessionTransitionTask?.value
-        #expect(finalCleanup.contains("'ssh-lifecycle-test'"))
+        #expect(!finalTransportCleanup.contains("serve --persistent-stop --slot"))
+        #expect(finalPersistentCleanup.contains("serve --persistent-stop --slot"))
+        #expect(finalPersistentCleanup.contains("'ssh-lifecycle-test'"))
         #expect(workspace.remoteSessionCleanupControllers.isEmpty)
     }
 
     @Test
     func failedFinalCleanupSurvivesReplacementAndRetries() async throws {
-        let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [1, 0, 0])
+        let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [0, 1, 0, 0, 0, 0])
         let workspace = Workspace()
         workspace.remoteSessionProcessRunnerOverrideForTesting = runner
         workspace.configureRemoteConnection(Self.configuration(slot: "ssh-lifecycle-a"), autoConnect: true)
         _ = try #require(await Self.nextBootstrapRequest(runner))
 
         workspace.disconnectRemoteConnection(clearConfiguration: true)
-        let failedCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let failedTransportCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let failedPersistentCleanup = try #require(await Self.nextCleanupCommand(runner))
         await workspace.remoteSessionTransitionTask?.value
-        #expect(failedCleanup.contains("'ssh-lifecycle-a'"))
+        #expect(!failedTransportCleanup.contains("serve --persistent-stop --slot"))
+        #expect(failedPersistentCleanup.contains("serve --persistent-stop --slot"))
+        #expect(failedPersistentCleanup.contains("'ssh-lifecycle-a'"))
         #expect(workspace.remoteSessionCleanupControllers.count == 1)
 
         workspace.configureRemoteConnection(
             Self.configuration(slot: "ssh-lifecycle-b", relayPort: 64_008),
             autoConnect: true
         )
-        let retriedCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let retriedTransportCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let retriedPersistentCleanup = try #require(await Self.nextCleanupCommand(runner))
         _ = try #require(await Self.nextBootstrapRequest(runner))
-        #expect(retriedCleanup.contains("'ssh-lifecycle-a'"))
+        #expect(!retriedTransportCleanup.contains("serve --persistent-stop --slot"))
+        #expect(retriedPersistentCleanup.contains("serve --persistent-stop --slot"))
+        #expect(retriedPersistentCleanup.contains("'ssh-lifecycle-a'"))
 
         workspace.disconnectRemoteConnection(clearConfiguration: true)
-        let replacementCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let replacementTransportCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let replacementPersistentCleanup = try #require(await Self.nextCleanupCommand(runner))
         await workspace.remoteSessionTransitionTask?.value
-        #expect(replacementCleanup.contains("'ssh-lifecycle-b'"))
+        #expect(!replacementTransportCleanup.contains("serve --persistent-stop --slot"))
+        #expect(replacementPersistentCleanup.contains("serve --persistent-stop --slot"))
+        #expect(replacementPersistentCleanup.contains("'ssh-lifecycle-b'"))
         #expect(workspace.remoteSessionCleanupControllers.isEmpty)
     }
 
     @Test
     func failedFinalCleanupTransfersRetryOwnershipToSameIdentityReplacement() async throws {
-        let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [1, 0, 0])
+        let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [0, 1, 0, 0, 0])
         let workspace = Workspace()
         workspace.remoteSessionProcessRunnerOverrideForTesting = runner
         let configuration = Self.configuration(slot: "ssh-lifecycle-a")
@@ -192,9 +250,12 @@ struct RemoteSessionCleanupLifecycleTests {
         _ = try #require(await Self.nextBootstrapRequest(runner))
 
         workspace.disconnectRemoteConnection(clearConfiguration: true)
-        let failedCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let failedTransportCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let failedPersistentCleanup = try #require(await Self.nextCleanupCommand(runner))
         await workspace.remoteSessionTransitionTask?.value
-        #expect(failedCleanup.contains("'ssh-lifecycle-a'"))
+        #expect(!failedTransportCleanup.contains("serve --persistent-stop --slot"))
+        #expect(failedPersistentCleanup.contains("serve --persistent-stop --slot"))
+        #expect(failedPersistentCleanup.contains("'ssh-lifecycle-a'"))
         #expect(workspace.remoteSessionCleanupControllers.count == 1)
 
         workspace.configureRemoteConnection(configuration, autoConnect: true)
@@ -206,9 +267,12 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(workspace.remoteSessionController != nil)
 
         workspace.disconnectRemoteConnection(clearConfiguration: true)
-        let replacementCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let replacementTransportCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let replacementPersistentCleanup = try #require(await Self.nextCleanupCommand(runner))
         await workspace.remoteSessionTransitionTask?.value
-        #expect(replacementCleanup.contains("'ssh-lifecycle-a'"))
+        #expect(!replacementTransportCleanup.contains("serve --persistent-stop --slot"))
+        #expect(replacementPersistentCleanup.contains("serve --persistent-stop --slot"))
+        #expect(replacementPersistentCleanup.contains("'ssh-lifecycle-a'"))
         #expect(workspace.remoteSessionCleanupControllers.isEmpty)
     }
 
