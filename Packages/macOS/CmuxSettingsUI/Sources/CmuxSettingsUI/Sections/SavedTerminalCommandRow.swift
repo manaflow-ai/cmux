@@ -23,6 +23,10 @@ struct SavedTerminalCommandRow: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel(String(
+                localized: "settings.terminal.savedCommands.delete",
+                defaultValue: "Delete"
+            ))
         }
     }
 }

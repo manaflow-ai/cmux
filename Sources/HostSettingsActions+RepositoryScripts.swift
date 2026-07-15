@@ -41,18 +41,20 @@ extension HostSettingsActions {
            resolution.identity.workTreeRoot == context.repositoryRoot else { return nil }
         let normalizedSetup = Self.nonblankRepositoryScript(setup)
         let normalizedArchive = Self.nonblankRepositoryScript(archive)
-        let preference = RepositoryScriptPreference(
-            repositoryID: resolution.identity.id,
-            repositoryRoot: resolution.identity.workTreeRoot,
-            setup: normalizedSetup,
-            archive: normalizedArchive,
-            overridesProjectScripts: true,
-            promptDismissed: normalizedSetup != nil
-        )
         do {
             try await runtime.jsonStore.update(for: runtime.catalog.terminal.repositoryScripts) { current in
                 var updated = current
-                if let index = updated.firstIndex(where: { $0.repositoryID == resolution.identity.id }) {
+                let index = updated.firstIndex(where: { $0.repositoryID == resolution.identity.id })
+                let promptDismissed = index.map { updated[$0].promptDismissed } ?? false
+                let preference = RepositoryScriptPreference(
+                    repositoryID: resolution.identity.id,
+                    repositoryRoot: resolution.identity.workTreeRoot,
+                    setup: normalizedSetup,
+                    archive: normalizedArchive,
+                    overridesProjectScripts: true,
+                    promptDismissed: promptDismissed || normalizedSetup != nil
+                )
+                if let index {
                     updated[index] = preference
                 } else {
                     updated.append(preference)
