@@ -88,7 +88,7 @@ struct ForkParentFallbackGeneralizationTests {
         let detected = detectedSnapshots(
             fixture: fixture,
             registry: registry,
-            argv: ["/usr/local/bin/pi", "--session", fixture.parentPiPath, "--fork"],
+            argv: ["/usr/local/bin/pi", "--fork", fixture.parentPiPath],
             launchKind: "pi",
             processName: "pi",
             processPath: "/usr/local/bin/pi"
@@ -113,7 +113,7 @@ struct ForkParentFallbackGeneralizationTests {
         let detected = detectedSnapshots(
             fixture: fixture,
             registry: registry,
-            argv: ["/usr/local/bin/pi", "--session", fixture.parentPiPath, "--fork"],
+            argv: ["/usr/local/bin/pi", "--fork", fixture.parentPiPath],
             launchKind: "pi",
             processName: "pi",
             processPath: "/usr/local/bin/pi"
