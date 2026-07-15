@@ -389,13 +389,13 @@ import Testing
         store.finishRegistrySessionHandoffAttempt(connectedRequestID)
     }
 
-    @Test func cancellationRestoresOnlyWhileTheHandoffOwnsTheConnection() {
+    @Test func navigationCancellationRestoresUnlessAnotherConnectionSupersededTheHandoff() {
         #expect(CMUXMobileShellStore.registryHandoffShouldRestorePreviousMac(
             hasPreviousActive: true,
             canContinue: false,
             stillOwnsAttempt: true
         ))
-        #expect(!CMUXMobileShellStore.registryHandoffShouldRestorePreviousMac(
+        #expect(CMUXMobileShellStore.registryHandoffShouldRestorePreviousMac(
             hasPreviousActive: true,
             canContinue: false,
             stillOwnsAttempt: false

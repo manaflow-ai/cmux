@@ -341,30 +341,49 @@ describe("device registry route", () => {
         tag: `poll-${tagIndex}`,
         routes: [{ id: `iroh-${tagIndex}`, kind: "iroh", endpoint: publicIrohRoute.endpoint }],
         instanceLabels: { padding },
-        sessions: [{
-          id: `workspace-${tagIndex}`,
-          workspaceID: `workspace-${tagIndex}`,
-          title: `Review workspace ${tagIndex}`,
+        sessions: Array.from({ length: 20 }, (_, sessionIndex) => ({
+          id: `workspace-${tagIndex}-${sessionIndex}-${"i".repeat(96)}`,
+          workspaceID: `workspace-${tagIndex}-${sessionIndex}-${"w".repeat(96)}`,
+          terminalID: `terminal-${tagIndex}-${sessionIndex}-${"t".repeat(96)}`,
+          agentSessionID: `agent-${tagIndex}-${sessionIndex}-${"a".repeat(96)}`,
+          title: "Reviewer workspace ".padEnd(160, "r"),
+          agent: "codex".padEnd(32, "x"),
           status: "idle",
-          lastActivityAt: 1_800_000_000 + tagIndex,
-        }],
+          lastActivityAt: 1_800_000_000 + (tagIndex * 20) + sessionIndex,
+        })),
       }));
       expect(response.status).toBe(200);
     }
 
-    const response = await GET(new Request(
-      "https://cmux.test/api/devices?view=live-sessions",
-      { method: "GET", headers: authHeaders() },
-    ));
+    const NativeTextEncoder = globalThis.TextEncoder;
+    let encodedInputBytes = 0;
+    class TrackingTextEncoder extends NativeTextEncoder {
+      override encode(input?: string): Uint8Array {
+        const encoded = super.encode(input);
+        encodedInputBytes += encoded.byteLength;
+        return encoded;
+      }
+    }
+    globalThis.TextEncoder = TrackingTextEncoder;
+    let response: Response;
+    try {
+      response = await GET(new Request(
+        "https://cmux.test/api/devices?view=live-sessions",
+        { method: "GET", headers: authHeaders() },
+      ));
+    } finally {
+      globalThis.TextEncoder = NativeTextEncoder;
+    }
     expect(response.status).toBe(200);
     const body = await response.text();
     expect(new TextEncoder().encode(body).byteLength).toBeLessThanOrEqual(512 * 1024);
+    expect(encodedInputBytes).toBeLessThanOrEqual(512 * 1024);
 
     const list = JSON.parse(body) as {
       devices: Array<Record<string, unknown> & { instances: Array<Record<string, unknown>> }>;
     };
     expect(list.devices).toHaveLength(1);
-    expect(list.devices[0]).not.toHaveProperty("displayName");
+    expect(list.devices[0].displayName).toBe("Reviewer Mac");
     expect(list.devices[0]).not.toHaveProperty("labels");
     expect(list.devices[0].instances).toHaveLength(25);
     for (const instance of list.devices[0].instances) {
