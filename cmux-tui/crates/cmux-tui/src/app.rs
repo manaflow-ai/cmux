@@ -1345,12 +1345,13 @@ impl OrderedSession {
     pub fn set_cell_pixel_size(&self, width: u16, height: u16) {
         let ownership = self.surface_resize_ownership.clone();
         self.enqueue("set cell pixel size", move |session| {
-            let accepted = session.set_cell_pixel_size(width, height)?;
-            let mut ownership = ownership.lock().unwrap();
-            for (surface, desired) in accepted {
-                ownership.insert(surface, desired);
-            }
-            Ok(())
+            session.set_cell_pixel_size(
+                width,
+                height,
+                Arc::new(move |surface, desired, accepted| {
+                    record_surface_resize_dispatch_result(&ownership, surface, desired, accepted);
+                }),
+            )
         });
     }
 

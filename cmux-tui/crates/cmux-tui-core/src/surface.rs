@@ -736,9 +736,19 @@ impl Surface {
     }
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
+        self.set_cell_pixel_size_reporting(width_px, height_px, Box::new(|_| {}))
+    }
+
+    pub fn set_cell_pixel_size_reporting(
+        &self,
+        width_px: u16,
+        height_px: u16,
+        report: Box<dyn FnOnce(bool) + Send>,
+    ) -> anyhow::Result<bool> {
         if let Some(browser) = self.as_browser() {
-            browser.set_cell_pixel_size(width_px, height_px)
+            browser.set_cell_pixel_size_reporting(width_px, height_px, report)
         } else {
+            report(false);
             Ok(false)
         }
     }

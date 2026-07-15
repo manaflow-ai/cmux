@@ -13,6 +13,8 @@ use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
 
+pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), bool) + Send + Sync>;
+
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
 pub enum MuxEvent {
@@ -735,6 +737,15 @@ impl Mux {
         width_px: u16,
         height_px: u16,
     ) -> Vec<(SurfaceId, (u16, u16))> {
+        self.set_cell_pixel_size_reporting(width_px, height_px, Arc::new(|_, _, _| {}))
+    }
+
+    pub fn set_cell_pixel_size_reporting(
+        &self,
+        width_px: u16,
+        height_px: u16,
+        report: SurfaceResizeReporter,
+    ) -> Vec<(SurfaceId, (u16, u16))> {
         let next = (width_px.max(1), height_px.max(1));
         {
             let mut cell = self.cell_pixels.lock().unwrap();
@@ -746,8 +757,18 @@ impl Mux {
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         let mut accepted = Vec::new();
         for surface in surfaces {
-            if surface.set_cell_pixel_size(next.0, next.1).unwrap_or(false) {
-                accepted.push((surface.id, surface.size()));
+            let id = surface.id;
+            let size = surface.size();
+            let callback = report.clone();
+            if surface
+                .set_cell_pixel_size_reporting(
+                    next.0,
+                    next.1,
+                    Box::new(move |accepted| callback(id, size, accepted)),
+                )
+                .unwrap_or(false)
+            {
+                accepted.push((id, size));
             }
         }
         accepted

@@ -15,7 +15,8 @@ use std::sync::atomic::Ordering;
 
 use cmux_tui_core::{
     BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
-    SidebarPluginStatus, SplitDir, Surface, SurfaceId, SurfaceKind, WorkspaceId, ZoomMode,
+    SidebarPluginStatus, SplitDir, Surface, SurfaceId, SurfaceKind, SurfaceResizeReporter,
+    WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{RenderState, Terminal};
 use serde_json::json;
@@ -395,10 +396,19 @@ impl Session {
         &self,
         width_px: u16,
         height_px: u16,
-    ) -> anyhow::Result<Vec<(SurfaceId, (u16, u16))>> {
+        report: SurfaceResizeReporter,
+    ) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => Ok(mux.set_cell_pixel_size(width_px, height_px)),
-            Session::Remote(remote) => remote.set_cell_pixel_size(width_px, height_px),
+            Session::Local(mux) => {
+                mux.set_cell_pixel_size_reporting(width_px, height_px, report);
+                Ok(())
+            }
+            Session::Remote(remote) => {
+                for (surface, desired) in remote.set_cell_pixel_size(width_px, height_px)? {
+                    report(surface, desired, true);
+                }
+                Ok(())
+            }
         }
     }
 

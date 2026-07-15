@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
@@ -107,7 +107,8 @@ struct BrowserState {
     pane_pixels: (u32, u32),
     capture_pixels: (u32, u32),
     capture_scale: f64,
-    pending_reconfigure: Option<BrowserGeometry>,
+    pending_reconfigures: VecDeque<QueuedBrowserGeometry>,
+    next_reconfigure_id: u64,
     reconfigure_failure: Option<BrowserReconfigureFailure>,
     page_viewport: Option<(u32, u32)>,
     status: BrowserStatus,
@@ -125,6 +126,12 @@ struct BrowserGeometry {
     pane_pixels: (u32, u32),
     capture_pixels: (u32, u32),
     capture_scale: f64,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct QueuedBrowserGeometry {
+    id: u64,
+    geometry: BrowserGeometry,
 }
 
 #[derive(Clone, Copy)]
@@ -163,8 +170,7 @@ enum BrowserCommand {
     Reload,
     Activate,
     Reconfigure {
-        cols: u16,
-        rows: u16,
+        queued: QueuedBrowserGeometry,
         report: Option<Box<dyn FnOnce(bool) + Send>>,
     },
     #[cfg(test)]
@@ -190,11 +196,15 @@ impl BrowserCommand {
     }
 }
 
-fn reject_reconfigure(mut command: BrowserCommand) {
+fn reject_reconfigure(mut command: BrowserCommand) -> Option<QueuedBrowserGeometry> {
     if let BrowserCommand::Reconfigure { report, .. } = &mut command
         && let Some(report) = report.take()
     {
         report(false);
+    }
+    match command {
+        BrowserCommand::Reconfigure { queued, .. } => Some(queued),
+        _ => None,
     }
 }
 
@@ -420,7 +430,8 @@ pub(crate) fn new_surface(
             pane_pixels: (pixel_w, pixel_h),
             capture_pixels,
             capture_scale,
-            pending_reconfigure: None,
+            pending_reconfigures: VecDeque::new(),
+            next_reconfigure_id: 1,
             reconfigure_failure: None,
             page_viewport: None,
             status: BrowserStatus::Starting,
@@ -789,11 +800,10 @@ fn run_browser_worker_command(
     }
     let is_input = command.is_input();
     let is_reconfigure = matches!(command, BrowserCommand::Reconfigure { .. });
-    let reconfigure_size = match &command {
-        BrowserCommand::Reconfigure { cols, rows, .. } => Some((*cols, *rows)),
+    let reconfigure = match &command {
+        BrowserCommand::Reconfigure { queued, .. } => Some(*queued),
         _ => None,
     };
-    let mut resize_changed = false;
     let result = {
         let Some(browser) = surface.as_browser() else {
             return;
@@ -825,10 +835,8 @@ fn run_browser_worker_command(
             BrowserCommand::Forward => browser.forward_blocking(),
             BrowserCommand::Reload => browser.reload_blocking(),
             BrowserCommand::Activate => browser.activate_blocking(),
-            BrowserCommand::Reconfigure { cols, rows, .. } => {
-                browser.reconfigure_resize_blocking(cols, rows).map(|changed| {
-                    resize_changed = changed;
-                })
+            BrowserCommand::Reconfigure { queued, .. } => {
+                browser.reconfigure_reserved_blocking(queued)
             }
             #[cfg(test)]
             BrowserCommand::Hold { entered, release } => {
@@ -838,19 +846,20 @@ fn run_browser_worker_command(
         }
     };
     if is_reconfigure
-        && resize_changed
         && result.is_ok()
         && let Some(mux) = mux.upgrade()
+        && let Some(queued) = reconfigure
     {
-        let (cols, rows) = surface.size();
+        let (cols, rows) = queued.geometry.size;
         mux.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
     }
-    if let Some((cols, rows)) = reconfigure_size
+    if let Some(queued) = reconfigure
         && let Err(error) = &result
         && let Some(browser) = surface.as_browser()
-        && let Some((_, retry_delay)) = browser.fail_reconfigure((cols, rows))
+        && let Some((_, retry_delay)) = browser.fail_reconfigure(queued)
         && let Some(mux) = mux.upgrade()
     {
+        let (cols, rows) = queued.geometry.size;
         mux.emit(MuxEvent::SurfaceResizeFailed {
             surface: id,
             cols,
@@ -1004,60 +1013,79 @@ impl BrowserSurface {
         report: Box<dyn FnOnce(bool) + Send>,
     ) -> anyhow::Result<bool> {
         let (cols, rows) = (cols.max(1), rows.max(1));
-        if !self.resize_needed(cols, rows) {
+        let Some(queued) = self.reserve_reconfigure(cols, rows) else {
             report(false);
             return Ok(false);
-        }
-        self.enqueue_reconfigure(BrowserCommand::Reconfigure { cols, rows, report: Some(report) })?;
+        };
+        self.enqueue_reconfigure(BrowserCommand::Reconfigure { queued, report: Some(report) })?;
         Ok(true)
     }
 
-    fn reconfigure_resize_blocking(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
-        let needed = self.resize_needed(cols, rows);
-        let Some((width, height)) = self.update_resize_state(cols, rows) else {
-            return Ok(false);
-        };
-        self.reconfigure_blocking(width, height)?;
-        self.confirm_reconfigure(width, height);
-        Ok(needed)
+    fn reconfigure_reserved_blocking(&self, queued: QueuedBrowserGeometry) -> anyhow::Result<()> {
+        self.reconfigure_blocking(
+            queued.geometry.capture_pixels.0,
+            queued.geometry.capture_pixels.1,
+        )?;
+        self.confirm_reconfigure(queued);
+        Ok(())
     }
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
+        self.set_cell_pixel_size_reporting(width_px, height_px, Box::new(|_| {}))
+    }
+
+    pub fn set_cell_pixel_size_reporting(
+        &self,
+        width_px: u16,
+        height_px: u16,
+        report: Box<dyn FnOnce(bool) + Send>,
+    ) -> anyhow::Result<bool> {
         {
             let mut cell = self.cell_pixels.lock().unwrap();
             let next = (width_px.max(1), height_px.max(1));
             if *cell == next {
+                report(false);
                 return Ok(false);
             }
             *cell = next;
         }
         let (cols, rows) = self.size();
-        self.resize(cols, rows)
+        self.resize_reporting_acceptance(cols, rows, report)
     }
 
-    fn update_resize_state(&self, cols: u16, rows: u16) -> Option<(u32, u32)> {
+    fn reserve_reconfigure(&self, cols: u16, rows: u16) -> Option<QueuedBrowserGeometry> {
         let geometry = self.resize_geometry(cols, rows);
         let mut state = self.state.lock().unwrap();
-        let unchanged = browser_geometry_locked(&state) == geometry;
-        if unchanged && state.pending_reconfigure.is_none() {
+        if state.pending_reconfigures.back().is_some_and(|queued| queued.geometry == geometry)
+            || state.pending_reconfigures.is_empty() && browser_geometry_locked(&state) == geometry
+        {
             return None;
         }
-        if state.reconfigure_failure.is_some_and(|failure| failure.geometry != geometry) {
-            state.reconfigure_failure = None;
+        if let Some(failure) = state.reconfigure_failure {
+            if failure.geometry == geometry {
+                if failure.retry_at.is_none_or(|retry_at| Instant::now() < retry_at) {
+                    return None;
+                }
+            } else {
+                state.reconfigure_failure = None;
+            }
         }
-        state.pending_reconfigure = Some(geometry);
-        Some(geometry.capture_pixels)
+        let queued = QueuedBrowserGeometry { id: state.next_reconfigure_id, geometry };
+        state.next_reconfigure_id = state.next_reconfigure_id.wrapping_add(1).max(1);
+        state.pending_reconfigures.push_back(queued);
+        Some(queued)
     }
 
-    fn confirm_reconfigure(&self, width: u32, height: u32) {
+    fn confirm_reconfigure(&self, queued: QueuedBrowserGeometry) {
         let mut state = self.state.lock().unwrap();
-        let Some(geometry) =
-            state.pending_reconfigure.filter(|geometry| geometry.capture_pixels == (width, height))
+        let Some(index) =
+            state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)
         else {
             return;
         };
+        state.pending_reconfigures.remove(index);
+        let geometry = queued.geometry;
         let changed = browser_geometry_locked(&state) != geometry;
-        state.pending_reconfigure = None;
         state.reconfigure_failure = None;
         state.size = geometry.size;
         state.pane_pixels = geometry.pane_pixels;
@@ -1070,10 +1098,12 @@ impl BrowserSurface {
         }
     }
 
-    fn fail_reconfigure(&self, desired: (u16, u16)) -> Option<(u8, Option<Duration>)> {
+    fn fail_reconfigure(&self, queued: QueuedBrowserGeometry) -> Option<(u8, Option<Duration>)> {
         let mut state = self.state.lock().unwrap();
-        let geometry = state.pending_reconfigure.filter(|geometry| geometry.size == desired)?;
-        state.pending_reconfigure = None;
+        let index =
+            state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)?;
+        state.pending_reconfigures.remove(index);
+        let geometry = queued.geometry;
         let attempts = state
             .reconfigure_failure
             .filter(|failure| failure.geometry == geometry)
@@ -1085,6 +1115,15 @@ impl BrowserSurface {
             retry_at: retry_delay.map(|delay| Instant::now() + delay),
         });
         Some((attempts, retry_delay))
+    }
+
+    fn release_reconfigure(&self, queued: QueuedBrowserGeometry) {
+        let mut state = self.state.lock().unwrap();
+        if let Some(index) =
+            state.pending_reconfigures.iter().position(|pending| pending.id == queued.id)
+        {
+            state.pending_reconfigures.remove(index);
+        }
     }
 
     fn reconfigure_blocking(&self, width: u32, height: u32) -> anyhow::Result<()> {
@@ -1101,7 +1140,7 @@ impl BrowserSurface {
         if state.reconfigure_failure.is_some_and(|failure| failure.geometry != geometry) {
             state.reconfigure_failure = None;
         }
-        if state.pending_reconfigure == Some(geometry) {
+        if state.pending_reconfigures.back().is_some_and(|queued| queued.geometry == geometry) {
             return false;
         }
         if let Some(failure) = state.reconfigure_failure
@@ -1110,7 +1149,7 @@ impl BrowserSurface {
         {
             return false;
         }
-        browser_geometry_locked(&state) != geometry || state.pending_reconfigure.is_some()
+        browser_geometry_locked(&state) != geometry || !state.pending_reconfigures.is_empty()
     }
 
     fn resize_geometry(&self, cols: u16, rows: u16) -> BrowserGeometry {
@@ -1376,24 +1415,32 @@ impl BrowserSurface {
 
     fn enqueue_reconfigure(&self, command: BrowserCommand) -> anyhow::Result<()> {
         if self.is_dead() {
-            reject_reconfigure(command);
+            if let Some(queued) = reject_reconfigure(command) {
+                self.release_reconfigure(queued);
+            }
             anyhow::bail!("browser surface is closed");
         }
         let tx = match self.command_sender() {
             Ok(tx) => tx,
             Err(error) => {
-                reject_reconfigure(command);
+                if let Some(queued) = reject_reconfigure(command) {
+                    self.release_reconfigure(queued);
+                }
                 return Err(error);
             }
         };
         match tx.try_send(command) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(command)) => {
-                reject_reconfigure(command);
+                if let Some(queued) = reject_reconfigure(command) {
+                    self.release_reconfigure(queued);
+                }
                 anyhow::bail!("browser command queue is full; browser may be unresponsive")
             }
             Err(TrySendError::Disconnected(command)) => {
-                reject_reconfigure(command);
+                if let Some(queued) = reject_reconfigure(command) {
+                    self.release_reconfigure(queued);
+                }
                 anyhow::bail!("browser command worker is closed")
             }
         }
@@ -2494,7 +2541,7 @@ mod tests {
         }
         assert!(browser.frames_stalled_at(now));
 
-        browser.reconfigure_resize_blocking(10, 5).unwrap();
+        assert!(browser.reserve_reconfigure(10, 5).is_none());
         {
             let state = browser.state.lock().unwrap();
             assert_eq!(state.last_frame_at, Some(now - Duration::from_secs(3)));
@@ -2502,7 +2549,8 @@ mod tests {
         }
         assert!(browser.frames_stalled_at(now));
 
-        browser.reconfigure_resize_blocking(11, 5).unwrap();
+        let queued = browser.reserve_reconfigure(11, 5).expect("changed geometry");
+        browser.reconfigure_reserved_blocking(queued).unwrap();
         let state = browser.state.lock().unwrap();
         assert_eq!(state.last_frame_at, None);
         assert!(!state.stall_nudged);
@@ -2561,6 +2609,17 @@ mod tests {
                 .unwrap()
         );
         assert!(!accepted.load(Ordering::Acquire));
+        let (duplicate_tx, duplicate_rx) = mpsc::channel();
+        assert!(
+            !browser
+                .resize_reporting_acceptance(
+                    11,
+                    5,
+                    Box::new(move |accepted| duplicate_tx.send(accepted).unwrap()),
+                )
+                .unwrap()
+        );
+        assert!(!duplicate_rx.recv_timeout(Duration::from_secs(1)).unwrap());
 
         release.send(()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
@@ -2580,12 +2639,13 @@ mod tests {
         let browser = surface.as_browser().expect("browser surface");
         *browser.cell_pixels.lock().unwrap() = (9, 16);
 
-        let _ = browser.update_resize_state(10, 5).expect("changed geometry");
+        let queued = browser.reserve_reconfigure(10, 5).expect("changed geometry");
         assert!(!browser.resize_needed(10, 5));
+        assert!(browser.reserve_reconfigure(10, 5).is_none());
 
-        assert!(!browser.reconfigure_resize_blocking(10, 5).unwrap());
+        browser.reconfigure_reserved_blocking(queued).unwrap();
         assert!(!browser.resize_needed(10, 5));
-        assert!(!browser.reconfigure_resize_blocking(10, 5).unwrap());
+        assert!(browser.reserve_reconfigure(10, 5).is_none());
     }
 
     #[test]
@@ -2594,9 +2654,10 @@ mod tests {
         let browser = surface.as_browser().expect("browser surface");
 
         for attempt in 1..=3 {
-            browser.update_resize_state(11, 5).expect("resize must enter pending state");
+            let queued =
+                browser.reserve_reconfigure(11, 5).expect("resize must enter pending state");
             let (recorded_attempt, retry_delay) =
-                browser.fail_reconfigure((11, 5)).expect("pending resize failure must be recorded");
+                browser.fail_reconfigure(queued).expect("pending resize failure must be recorded");
             assert_eq!(recorded_attempt, attempt);
             assert_eq!(retry_delay.is_some(), attempt < 3);
             assert!(!browser.resize_needed(11, 5));
