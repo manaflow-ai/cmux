@@ -83,6 +83,11 @@ extension AppDelegate {
         return true
     }
 
+    func toggleSidebar(in context: MainWindowContext) {
+        guard !toggleFocusedSettingsPaneSidebar(tabManager: context.tabManager) else { return }
+        context.sidebarState.toggle()
+    }
+
     @discardableResult
     func openMobilePairingPane(
         debugSource: String,

@@ -11,7 +11,7 @@ import SwiftUI
 public struct SettingsWindowRoot: View {
     private let runtime: SettingsRuntime
     private let searchIndex: SettingsSearchIndex
-    private let navigationScope: String?
+    private let navigationRouter: SettingsNavigationNotificationRouter
     private let presentationStyle: SettingsPresentationStyle
     private let selectionDefaults: UserDefaults
 
@@ -25,7 +25,7 @@ public struct SettingsWindowRoot: View {
     ) {
         self.runtime = runtime
         self.searchIndex = runtime.searchIndex
-        self.navigationScope = navigationScope
+        self.navigationRouter = SettingsNavigationNotificationRouter(scope: navigationScope)
         self.presentationStyle = presentationStyle
         self.selectionDefaults = selectionDefaults
         let selection = SettingsInitialSelectionResolver(defaults: selectionDefaults)
@@ -130,11 +130,11 @@ public struct SettingsWindowRoot: View {
         )
         .settingsErrorAlert(log: runtime.errorLog)
         .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
-            guard acceptsNavigationNotification(notification) else { return }
+            guard navigationRouter.accepts(notification) else { return }
             applyNavigationRequest(notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: Self.sidebarToggleRequestName)) { notification in
-            guard acceptsNavigationNotification(notification) else { return }
+            guard navigationRouter.accepts(notification) else { return }
             // AppKit hosts this window, so SwiftUI's SidebarCommands cannot
             // reach the split view; the host app routes its sidebar-toggle
             // menu command here when the Settings window is key.
@@ -249,7 +249,7 @@ public struct SettingsWindowRoot: View {
             selectedSectionRaw = section.rawValue
         }
         persistSelection()
-        postNavigationRequest(target: section, anchorID: entry.anchorID, highlight: isSearching)
+        navigationRouter.post(target: section, anchorID: entry.anchorID, highlight: isSearching)
     }
 
     /// Maps a resolved search-index entry to its target section,
@@ -263,26 +263,6 @@ public struct SettingsWindowRoot: View {
         case .setting(let parent):
             return parent
         }
-    }
-
-    /// Posts a `cmux.settings.navigate` notification with the same
-    /// userInfo shape legacy `SettingsNavigationRequest.post` uses,
-    /// so host-side listeners and the package's own detail scroll
-    /// receive a consistent stream of navigation events.
-    private func postNavigationRequest(
-        target: SettingsSectionID,
-        anchorID: String,
-        highlight: Bool
-    ) {
-        NotificationCenter.default.post(
-            name: Self.navigationRequestName,
-            object: navigationScope,
-            userInfo: [
-                "target": target.rawValue,
-                "anchor": anchorID,
-                "highlight": highlight
-            ]
-        )
     }
 
     /// Navigates from outside (e.g., a `cmux.settings.navigate`
@@ -366,14 +346,14 @@ public struct SettingsWindowRoot: View {
                     let anchor = selectedSidebarEntryID.isEmpty
                         ? sectionEntryID(for: section)
                         : searchIndex.entries.first { $0.id == selectedSidebarEntryID }?.anchorID ?? selectedSidebarEntryID
-                    postNavigationRequest(
+                    navigationRouter.post(
                         target: section,
                         anchorID: anchor,
                         highlight: false
                     )
                 }
                 .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
-                    guard acceptsNavigationNotification(notification) else { return }
+                    guard navigationRouter.accepts(notification) else { return }
                     applyScrollNavigation(notification, proxy: proxy)
                 }
             }
@@ -436,13 +416,6 @@ public struct SettingsWindowRoot: View {
             guard navigationGeneration == settingsNavigationGeneration else { return }
             proxy.scrollTo(anchorID, anchor: anchor)
         }
-    }
-
-    private func acceptsNavigationNotification(_ notification: Notification) -> Bool {
-        guard let navigationScope else {
-            return notification.object == nil
-        }
-        return notification.object as? String == navigationScope
     }
 
     @ViewBuilder

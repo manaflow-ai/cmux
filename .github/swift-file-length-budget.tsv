@@ -1,10 +1,10 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-35405	CLI/cmux.swift
-17782	Sources/AppDelegate.swift
-15818	Sources/ContentView.swift
-14701	Sources/TerminalController.swift
+35380	CLI/cmux.swift
+17780	Sources/AppDelegate.swift
+15771	Sources/ContentView.swift
+14603	Sources/TerminalController.swift
 12829	Sources/Workspace.swift
 12554	Sources/GhosttyTerminalView.swift
 12262	cmuxTests/AppDelegateShortcutRoutingTests.swift

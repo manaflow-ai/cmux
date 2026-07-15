@@ -21,6 +21,8 @@ extension ContentView {
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        case .workspaceTodo:
+            return String(localized: "commandPalette.kind.workspaceTodo", defaultValue: "Todos")
         case .cloudVMLoading:
             return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
         case .appUtility:
@@ -48,6 +50,8 @@ extension ContentView {
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
+        case .workspaceTodo:
+            return ["todo", "todos", "checklist", "task", "status"]
         case .cloudVMLoading:
             return ["cloud", "vm", "loading"]
         case .appUtility:
