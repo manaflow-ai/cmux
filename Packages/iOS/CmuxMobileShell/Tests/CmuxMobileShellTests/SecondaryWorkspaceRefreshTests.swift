@@ -374,17 +374,24 @@ import Testing
     // remain unchanged across a successful scoped create.
     await pairedMacStore.waitUntilLoadStarted(teamID: "team-a")
 
-    let createResult = await store.createRemoteTerminal(in: rowID)
-    guard case .success = createResult else {
-        await pairedMacStore.release(teamID: "team-a")
-        Issue.record("Expected secondary terminal creation to succeed: \(createResult)")
-        return
+    let createTask = Task { @MainActor in
+        await store.createRemoteTerminal(in: rowID)
+    }
+    for _ in 0..<300 where store.workspaces.first?.terminals.contains(where: {
+        $0.id.rawValue == "terminal-route-created"
+    }) != true {
+        await Task.yield()
     }
     #expect(store.workspaces.first?.terminals.contains(where: {
         $0.id.rawValue == "terminal-route-created"
     }) == true)
 
     await pairedMacStore.release(teamID: "team-a")
+    let createResult = await createTask.value
+    guard case .success = createResult else {
+        Issue.record("Expected secondary terminal creation to succeed: \(createResult)")
+        return
+    }
     await olderRefresh.value
 
     #expect(await router.workspaceListGate.requestCount() == 2)

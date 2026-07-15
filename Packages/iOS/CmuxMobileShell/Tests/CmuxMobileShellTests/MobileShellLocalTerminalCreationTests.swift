@@ -1,4 +1,3 @@
-import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
@@ -221,9 +220,9 @@ import Testing
 @Test func terminalCreateRoutesToOwningSecondaryMacWithCollidingWorkspaceID() async throws {
     let foregroundRouter = RoutingHostRouter()
     let secondaryRouter = RoutingHostRouter()
-    let store = try await makeRoutingConnectedStore(
+    let store = makeAuthorizedSecondaryMutationStore(
         router: foregroundRouter,
-        connectionState: .connected
+        macID: "secondary-mac"
     )
     try installSecondaryClient(
         on: store,
@@ -303,29 +302,7 @@ import Testing
     let router = RoutingHostRouter()
     await router.workspaceListGate.setHoldFirst(true)
     let macID = "secondary-create-authority"
-    let route = try CmxAttachRoute(
-        id: "debug_loopback_secondary_create_authority",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56587)
-    )
-    let pairedMacStore = DelayedTeamPairedMacStore(
-        recordsByTeam: [
-            "team-a": [
-                MobilePairedMac(
-                    macDeviceID: macID,
-                    displayName: "Secondary Mac",
-                    routes: [route],
-                    createdAt: Date(timeIntervalSince1970: 1),
-                    lastSeenAt: Date(timeIntervalSince1970: 2),
-                    isActive: false,
-                    stackUserID: "user-1",
-                    teamID: "team-a"
-                ),
-            ],
-        ],
-        blockedTeams: []
-    )
-    let store = makeRoutingMultiMacStore(router: router, pairedMacStore: pairedMacStore)
+    let store = makeAuthorizedSecondaryMutationStore(router: router, macID: macID)
     let capabilities = MobileWorkspaceActionCapabilities(
         supportsTerminalCloseActions: true,
         supportsTerminalCreateInPane: true,
@@ -388,6 +365,66 @@ import Testing
     }
     #expect(!store.terminalCreationRequestOwner.isActive)
     #expect(store.terminalReorderGate.canMutate(workspaceID: rowID))
+}
+
+@MainActor
+@Test func secondaryPublicCreateFailureKeepsHierarchyRefreshRequired() async throws {
+    let router = RoutingHostRouter()
+    await router.setRejectWorkspaceList(true)
+    let macID = "secondary-create-refresh-required"
+    let capabilities = MobileWorkspaceActionCapabilities(
+        supportsTerminalCloseActions: true,
+        supportsTerminalCreateInPane: true,
+        supportsTerminalReorderActions: true
+    )
+    let store = makeAuthorizedSecondaryMutationStore(router: router, macID: macID)
+    try installSecondaryClient(
+        on: store,
+        macDeviceID: macID,
+        router: router,
+        actionCapabilities: capabilities
+    )
+    var workspace = MobileWorkspacePreview(
+        id: .init(rawValue: RoutingHostRouter.workspaceID),
+        macDeviceID: macID,
+        name: "Routing Workspace",
+        terminals: [
+            MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalA), name: "A"),
+            MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalB), name: "B"),
+        ],
+        selectedTerminalID: .init(rawValue: RoutingHostRouter.terminalB)
+    )
+    workspace.actionCapabilities = capabilities
+    store.setWorkspaceStatesForTesting(
+        [macID: MacWorkspaceState(
+            macDeviceID: macID,
+            displayName: "Secondary Mac",
+            workspaces: [workspace],
+            status: .connected,
+            actionCapabilities: capabilities
+        )],
+        foregroundMacDeviceID: "foreground-mac"
+    )
+    let rowID = try #require(store.workspaces.first?.id)
+
+    let result = await withCheckedContinuation { continuation in
+        store.createTerminal(in: rowID) { result in
+            continuation.resume(returning: result)
+        }
+    }
+
+    guard case let .failure(failure) = result else {
+        Issue.record("failed authority refresh should not report create success")
+        return
+    }
+    #expect(failure == .appliedNeedsRefresh(hostDisplayName: "Secondary Mac"))
+    #expect(store.workspaces.first?.terminals.contains(where: {
+        $0.id.rawValue == "terminal-route-created"
+    }) == true, "the mutation-scoped response should remain visible after refresh failure")
+    #expect(await router.workspaceListGate.requestCount() == 1)
+    #expect(!store.terminalCreationRequestOwner.isActive)
+    #expect(store.terminalReorderGate.requiresRefresh(workspaceID: rowID))
+    #expect(!store.terminalReorderGate.canMutate(workspaceID: rowID))
 }
 
 @MainActor
@@ -497,4 +534,29 @@ import Testing
         secondaryState.workspaces.last?.terminals.map(\.id.rawValue)
             == [RoutingHostRouter.terminalA, RoutingHostRouter.terminalB, "terminal-route-created"]
     )
+}
+
+@MainActor
+private func makeAuthorizedSecondaryMutationStore(
+    router: RoutingHostRouter,
+    macID: String
+) -> MobileShellComposite {
+    let pairedMacStore = DelayedTeamPairedMacStore(
+        recordsByTeam: [
+            "team-a": [
+                MobilePairedMac(
+                    macDeviceID: macID,
+                    displayName: "Secondary Mac",
+                    routes: [],
+                    createdAt: Date(timeIntervalSince1970: 1),
+                    lastSeenAt: Date(timeIntervalSince1970: 2),
+                    isActive: false,
+                    stackUserID: "user-1",
+                    teamID: "team-a"
+                ),
+            ],
+        ],
+        blockedTeams: []
+    )
+    return makeRoutingMultiMacStore(router: router, pairedMacStore: pairedMacStore)
 }

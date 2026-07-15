@@ -91,8 +91,8 @@ extension MobileShellComposite {
                 if let macDeviceID = target.macDeviceID,
                    let secondarySubscription,
                    let secondaryRefreshStartedGeneration,
-                   let secondaryHierarchyMutationRevision,
-                   applySecondaryCreateResponseIfCurrent(
+                   let secondaryHierarchyMutationRevision {
+                    _ = applySecondaryCreateResponseIfCurrent(
                        response,
                        macID: macDeviceID,
                        remoteWorkspaceID: requestedWorkspaceID,
@@ -100,19 +100,20 @@ extension MobileShellComposite {
                        refreshStartedGeneration: secondaryRefreshStartedGeneration,
                        listStartedAtMutationRevision: secondaryHierarchyMutationRevision,
                        listStartedAtFocusRevision: focusRevision
-                   ) {
-                    responseOutcome = .appliedScopedResponse
-                } else {
-                    let reconciled = await refreshAfterWorkspaceMutation(target)
-                    guard isCurrentWorkspaceMutationTarget(
-                        target,
-                        client: client,
-                        generation: generation
-                    ), !Task.isCancelled else { return .success(()) }
-                    responseOutcome = reconciled
-                        ? .reconciledAuthoritativeList
-                        : .reconciliationRequired
+                    )
                 }
+                // Keep the scoped response visible immediately, but retain the
+                // public request owner and mutation fence until a FIFO-following
+                // full list confirms the secondary hierarchy.
+                let reconciled = await refreshAfterWorkspaceMutation(target)
+                guard isCurrentWorkspaceMutationTarget(
+                    target,
+                    client: client,
+                    generation: generation
+                ), !Task.isCancelled else { return .success(()) }
+                responseOutcome = reconciled
+                    ? .reconciledAuthoritativeList
+                    : .reconciliationRequired
             }
             switch responseOutcome {
             case .invalidated:
