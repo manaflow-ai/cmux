@@ -235,7 +235,31 @@ extension CMUXCLI {
                     arguments: [branch]
                 ))
         }
-        try confirmWorktreeMutation(preview: preview, assumeYes: assumeYes, jsonOutput: jsonOutput)
+        let stalePlan = try await service.prune(repoRoot: repoRoot, on: host, dryRun: true)
+        if !stalePlan.output.isEmpty {
+            preview.append(String(
+                localized: "cli.worktree.preview.pruneStale",
+                defaultValue: "Will also prune these stale worktree records:"
+            ))
+            preview.append(contentsOf: stalePlan.output.split(separator: "\n").map(String.init))
+        }
+        let prompted = try confirmWorktreeMutation(preview: preview, assumeYes: assumeYes)
+        if prompted {
+            // The prompt can stay open indefinitely; refuse to act on a
+            // worktree whose branch or HEAD moved since it was previewed.
+            let recheck = try await service.list(repoRoot: repoRoot, on: host).first {
+                $0.identity.worktreePath == worktree.identity.worktreePath
+            }
+            guard let recheck,
+                  recheck.headOID == worktree.headOID,
+                  recheck.branch == worktree.branch else {
+                throw CLIError(message: worktreeLocalizedFormat(
+                    "cli.worktree.error.changedSinceConfirmation",
+                    defaultValue: "Worktree %@ changed while awaiting confirmation; run the command again to review the new state.",
+                    arguments: [worktree.identity.worktreePath]
+                ))
+            }
+        }
         let result = try await service.remove(
             worktree: worktree.identity,
             mode: WorktreeRemovalMode(
@@ -252,6 +276,12 @@ extension CMUXCLI {
                 defaultValue: "Removed %@",
                 arguments: [result.worktree.worktreePath]
             ))
+            if result.prunedStaleAdministrativeData {
+                print(String(
+                    localized: "cli.worktree.output.prunedStale",
+                    defaultValue: "Pruned stale worktree records."
+                ))
+            }
             if case let .preserved(branch, reason) = result.branchCleanup {
                 print(worktreeLocalizedFormat(
                     "cli.worktree.output.preservedBranch",
@@ -288,7 +318,7 @@ extension CMUXCLI {
             localized: "cli.worktree.preview.prune",
             defaultValue: "Will prune these stale worktree records:"
         )] + planned.output.split(separator: "\n").map(String.init)
-        try confirmWorktreeMutation(preview: preview, assumeYes: assumeYes, jsonOutput: jsonOutput)
+        try confirmWorktreeMutation(preview: preview, assumeYes: assumeYes)
         let result = try await service.prune(repoRoot: repoRoot, on: host)
         if jsonOutput {
             try printWorktreeJSON(result)
@@ -301,19 +331,21 @@ extension CMUXCLI {
 
     /// Prints a destructive-operation preview, then requires `--yes` or an
     /// interactive confirmation before proceeding.
+    ///
+    /// All confirmation messaging goes to standard error so redirecting
+    /// standard output never hides the plan behind a live prompt.
+    ///
+    /// - Returns: `true` when an interactive prompt was answered.
+    @discardableResult
     private func confirmWorktreeMutation(
         preview: [String],
-        assumeYes: Bool,
-        jsonOutput: Bool
-    ) throws {
-        let emit: (String) -> Void = jsonOutput
-            ? { cliWriteStderr($0 + "\n") }
-            : { print($0) }
+        assumeYes: Bool
+    ) throws -> Bool {
         for line in preview {
-            emit(line)
+            cliWriteStderr(line + "\n")
         }
         if assumeYes {
-            return
+            return false
         }
         guard isatty(STDIN_FILENO) == 1 else {
             throw CLIError(message: String(
@@ -334,6 +366,7 @@ extension CMUXCLI {
                 defaultValue: "Aborted; no changes were made."
             ))
         }
+        return true
     }
     private func runWorktreeStatus(
         arguments: [String],

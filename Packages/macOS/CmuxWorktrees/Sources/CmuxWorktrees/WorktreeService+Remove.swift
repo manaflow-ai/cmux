@@ -110,10 +110,12 @@ extension WorktreeService {
         worktree: WorktreeIdentity,
         on host: any WorktreeExecutionHost
     ) async throws -> Int {
+        // Collapsed untracked directories keep this gate's output bounded;
+        // the gate needs a clean/dirty verdict, not a per-file inventory.
         let result = try await runGit(
             on: host,
             directory: worktree.worktreePath,
-            arguments: ["status", "--porcelain", "--untracked-files=all"]
+            arguments: ["status", "--porcelain", "--untracked-files=normal"]
         )
         return (result.stdout ?? "").split(whereSeparator: \Character.isNewline).count
     }

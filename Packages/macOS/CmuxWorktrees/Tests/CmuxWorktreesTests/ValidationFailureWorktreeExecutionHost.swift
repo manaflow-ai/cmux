@@ -38,7 +38,7 @@ actor ValidationFailureWorktreeExecutionHost: WorktreeExecutionHost {
                 timedOut: false,
                 executionError: nil
             )
-        case ["status", "--porcelain", "--untracked-files=all"]:
+        case ["status", "--porcelain", "--untracked-files=normal"]:
             return CommandResult(
                 stdout: "",
                 stderr: nil,
