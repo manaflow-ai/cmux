@@ -509,7 +509,38 @@ import Testing
 }
 
 @MainActor
-private func hierarchyGateScopedOwnerAdoptionFixture() throws -> (
+@Test func hierarchyGateDoesNotGuessScopedOwnerAdoptionWhenRPCIdentityIsAmbiguous() throws {
+    let fixture = try hierarchyGateScopedOwnerAdoptionFixture(
+        secondaryWorkspaceID: "workspace-stable"
+    )
+    fixture.store.terminalReorderGate.requireRefresh(workspaceID: fixture.anonymousRowID)
+
+    fixture.store.adoptForegroundMacIdentity("mac-adopted")
+    let adoptedRowID = try hierarchyGateAdoptedRowID(in: fixture.store)
+    let secondaryRowID = try #require(
+        fixture.store.workspaces.first(where: { workspace in
+            workspace.rpcWorkspaceID == "workspace-stable"
+                && workspace.macDeviceID == "mac-secondary"
+        })?.id
+    )
+
+    #expect(fixture.anonymousRowID != adoptedRowID)
+    #expect(!fixture.store.terminalReorderGate.requiresRefresh(workspaceID: adoptedRowID))
+    #expect(!fixture.store.terminalReorderGate.requiresRefresh(workspaceID: secondaryRowID))
+    #expect(fixture.store.terminalReorderGate.refreshRequiredWorkspaceIDs == [
+        fixture.anonymousRowID,
+    ])
+
+    fixture.store.terminalReorderGate.reconcileAfterAuthoritativeRefresh(
+        workspaceIDs: [fixture.anonymousRowID]
+    )
+    #expect(fixture.store.terminalReorderGate.refreshRequiredWorkspaceIDs.isEmpty)
+}
+
+@MainActor
+private func hierarchyGateScopedOwnerAdoptionFixture(
+    secondaryWorkspaceID: MobileWorkspacePreview.ID = "workspace-secondary"
+) throws -> (
     store: MobileShellComposite,
     anonymousRowID: MobileWorkspacePreview.ID
 ) {
@@ -517,7 +548,7 @@ private func hierarchyGateScopedOwnerAdoptionFixture() throws -> (
     let anonymousWorkspace = hierarchyGateWorkspace(macID: nil)
     let secondaryWorkspace = hierarchyGateWorkspace(
         macID: "mac-secondary",
-        id: "workspace-secondary"
+        id: secondaryWorkspaceID
     )
     store.setWorkspaceStatesForTesting(
         [
@@ -533,7 +564,10 @@ private func hierarchyGateScopedOwnerAdoptionFixture() throws -> (
         foregroundMacDeviceID: nil
     )
     let anonymousRowID = try #require(
-        store.workspaces.first(where: { $0.rpcWorkspaceID == anonymousWorkspace.id })?.id
+        store.workspaces.first(where: { workspace in
+            workspace.rpcWorkspaceID == anonymousWorkspace.id
+                && workspace.macDeviceID == nil
+        })?.id
     )
     return (store, anonymousRowID)
 }

@@ -20,7 +20,7 @@ public final class MobileTerminalReorderGate {
         MobileWorkspaceOwnerIdentity: MobileWorkspacePreview.ID
     ] = [:]
     /// One-way aliases created when an anonymous foreground workspace adopts
-    /// its durable Mac identity without changing presentation rows.
+    /// its durable Mac identity.
     private var canonicalOwnerIdentityByAlias: [
         MobileWorkspaceOwnerIdentity: MobileWorkspaceOwnerIdentity
     ] = [:]
@@ -132,10 +132,62 @@ public final class MobileTerminalReorderGate {
     /// State remains keyed by owner identity; old row aliases survive only while
     /// that owner is still visible or has an active/fenced lifecycle.
     func updateWorkspacePresentationIdentities(_ workspaces: [MobileWorkspacePreview]) {
+        let lifecycleOwnerIdentities = Set(activeReservationsByOwner.keys)
+            .union(recoveringOwnerIdentities)
+            .union(refreshRequiredOwnerIdentities)
+            .map(canonicalOwnerIdentity(for:))
+        let priorOwnerIdentities = Set(ownerIdentityByPresentationWorkspaceID.values)
+            .union(currentPresentationWorkspaceIDByOwner.keys)
+            .union(lastPresentationWorkspaceIDByOwner.keys)
+            .union(lifecycleOwnerIdentities)
+            .map(canonicalOwnerIdentity(for:))
+        let priorOwnersByRPCWorkspaceID = priorOwnerIdentities.reduce(
+            into: [
+                MobileWorkspacePreview.ID: Set<MobileWorkspaceOwnerIdentity>
+            ]()
+        ) { result, ownerIdentity in
+            result[ownerIdentity.rpcWorkspaceID, default: []].insert(ownerIdentity)
+        }
+        let incomingOwnerIdentities = workspaces.map {
+            canonicalOwnerIdentity(for: MobileWorkspaceOwnerIdentity(workspace: $0))
+        }
+        let incomingDurableOwnersByRPCWorkspaceID = incomingOwnerIdentities.reduce(
+            into: [
+                MobileWorkspacePreview.ID: Set<MobileWorkspaceOwnerIdentity>
+            ]()
+        ) { result, ownerIdentity in
+            guard ownerIdentity.ownerMacID != nil else { return }
+            result[ownerIdentity.rpcWorkspaceID, default: []].insert(ownerIdentity)
+        }
+
         for workspace in workspaces {
-            let incomingOwnerIdentity = MobileWorkspaceOwnerIdentity(workspace: workspace)
-            guard let previousOwnerIdentity =
-                    ownerIdentityByPresentationWorkspaceID[workspace.id] else { continue }
+            let incomingOwnerIdentity = canonicalOwnerIdentity(
+                for: MobileWorkspaceOwnerIdentity(workspace: workspace)
+            )
+            if let previousOwnerIdentity =
+                ownerIdentityByPresentationWorkspaceID[workspace.id] {
+                migrateAnonymousOwnerIdentityIfNeeded(
+                    from: previousOwnerIdentity,
+                    to: incomingOwnerIdentity
+                )
+                continue
+            }
+
+            // Aggregation can replace the anonymous sentinel-scoped row with a
+            // durable Mac-scoped row in the same publication. Match that owner
+            // by RPC identity only when both the prior and incoming owner are
+            // unique, so a same-ID workspace on another Mac cannot steal it.
+            guard incomingOwnerIdentity.ownerMacID != nil,
+                  incomingDurableOwnersByRPCWorkspaceID[
+                    incomingOwnerIdentity.rpcWorkspaceID
+                  ]?.count == 1,
+                  let priorOwners = priorOwnersByRPCWorkspaceID[
+                    incomingOwnerIdentity.rpcWorkspaceID
+                  ],
+                  priorOwners.count == 1,
+                  let previousOwnerIdentity = priorOwners.first,
+                  previousOwnerIdentity.ownerMacID == nil,
+                  lifecycleOwnerIdentities.contains(previousOwnerIdentity) else { continue }
             migrateAnonymousOwnerIdentityIfNeeded(
                 from: previousOwnerIdentity,
                 to: incomingOwnerIdentity
