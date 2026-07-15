@@ -182,19 +182,13 @@ extension CMUXCLI {
             guard let handle = (surface["id"] as? String) ?? (surface["ref"] as? String) else {
                 throw CLIError(message: iosSubcommandUsage())
             }
-            var target: [String: Any]
-            do {
-                target = try iosContextPayload(
-                    surface: handle, client: client, windowOverride: windowOverride
-                )
-            } catch {
-                target = [
-                    "surface_id": surface["id"] ?? NSNull(),
-                    "surface_ref": surface["ref"] ?? handle,
-                    "simulator_id": NSNull(),
-                    "error": (error as? CLIError)?.message ?? error.localizedDescription,
-                ]
-            }
+            var target: [String: Any] = [
+                "surface_id": surface["id"] ?? NSNull(),
+                "surface_ref": surface["ref"] ?? handle,
+                "simulator_id": surface["simulator_id"] ?? NSNull(),
+                "runtime_id": surface["runtime_id"] ?? NSNull(),
+                "device_type_id": surface["device_type_id"] ?? NSNull(),
+            ]
             target["workspace_id"] = listed["workspace_id"] ?? workspaceID
             target["workspace_ref"] = listed["workspace_ref"] ?? NSNull()
             return target

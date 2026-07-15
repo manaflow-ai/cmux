@@ -247,12 +247,12 @@ private func expectProcessExited(_ processIdentifier: Int32) async {
 }
 
 private func eventuallyAsync(
-    attempts: Int = 20_000,
+    attempts: Int = 2_000,
     _ condition: @escaping @Sendable () async -> Bool
 ) async {
     for _ in 0..<attempts {
         if await condition() { return }
-        await Task.yield()
+        try? await ContinuousClock().sleep(for: .milliseconds(1))
     }
     Issue.record("Condition did not become true")
 }

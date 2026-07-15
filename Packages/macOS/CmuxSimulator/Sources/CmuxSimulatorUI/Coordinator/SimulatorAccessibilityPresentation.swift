@@ -9,6 +9,7 @@ struct SimulatorAccessibilityPresentationRow: Identifiable, Equatable {
 
 extension SimulatorPaneCoordinator {
     func applyAccessibilitySnapshot(_ snapshot: SimulatorAccessibilitySnapshot) {
+        guard accessibilitySnapshot != snapshot else { return }
         accessibilitySnapshot = snapshot
         accessibilityRows = simulatorAccessibilityPresentationRows(snapshot.roots)
     }

@@ -62,9 +62,12 @@ struct SimulatorDeviceStage: View {
                 let snapshot = coordinator.accessibilitySnapshot
             {
                 SimulatorAccessibilityOverlay(
-                    coordinator: coordinator,
                     snapshot: snapshot,
-                    chrome: coordinator.chromeProfile
+                    rows: coordinator.accessibilityRows,
+                    selectedNodeID: coordinator.accessibilityOverlaySelectedNodeID,
+                    highlightedNodeID: coordinator.highlightedAccessibilityNodeID,
+                    chrome: coordinator.chromeProfile,
+                    onSelect: { coordinator.selectAccessibilityOverlayNode($0) }
                 )
             }
         }

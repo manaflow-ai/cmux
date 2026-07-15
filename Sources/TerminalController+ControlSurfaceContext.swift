@@ -134,6 +134,7 @@ extension TerminalController: ControlSurfaceContext {
         let focusedSurfaceId = dock.focusedPanelId
         let surfaces: [ControlSurfaceSummary] = orderedPanels(in: dock).map { panel in
             let terminalPanel = panel as? TerminalPanel
+            let simulatorPanel = panel as? SimulatorPanel
             return ControlSurfaceSummary(
                 surfaceID: panel.id,
                 typeRawValue: panel.panelType.rawValue,
@@ -153,7 +154,10 @@ extension TerminalController: ControlSurfaceContext {
                     v2NonEmptyString($0.surface.debugTmuxStartCommand())
                 },
                 isTerminal: terminalPanel != nil,
-                resumeBinding: nil
+                resumeBinding: nil,
+                simulatorDeviceID: simulatorPanel?.selectedDeviceID,
+                simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
+                simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier
             )
         }
 

@@ -2,9 +2,12 @@ import CmuxSimulator
 import SwiftUI
 
 struct SimulatorAccessibilityOverlay: View {
-    let coordinator: SimulatorPaneCoordinator
     let snapshot: SimulatorAccessibilitySnapshot
+    let rows: [SimulatorAccessibilityPresentationRow]
+    let selectedNodeID: String?
+    let highlightedNodeID: String?
     let chrome: SimulatorDeviceChromeProfile?
+    let onSelect: (SimulatorAccessibilityNode) -> Void
 
     var body: some View {
         GeometryReader { proxy in
@@ -21,20 +24,20 @@ struct SimulatorAccessibilityOverlay: View {
                 height: appKitScreen.height
             )
             let frames = simulatorAccessibilityOverlayFrames(
-                rows: coordinator.accessibilityRows,
+                rows: rows,
                 screenRect: screen
             )
             ZStack(alignment: .topLeading) {
                 ForEach(frames) { item in
                     Button {
-                        coordinator.selectAccessibilityOverlayNode(item.node)
+                        onSelect(item.node)
                     } label: {
                         Rectangle()
                             .fill(.blue.opacity(0.08))
                             .overlay(
                                 Rectangle().stroke(
-                                    coordinator.accessibilityOverlaySelectedNodeID == item.node.id
-                                        || coordinator.highlightedAccessibilityNodeID == item.node.id
+                                    selectedNodeID == item.node.id
+                                        || highlightedNodeID == item.node.id
                                         ? Color.red : Color.blue,
                                     lineWidth: 1
                                 ))
