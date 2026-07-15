@@ -34,7 +34,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
         guard let cachedAgentIndex else {
             return await fullLoad()
         }
-        let cachedResult = await Task.detached(priority: .utility) {
+        let cachedResult: ProcessDetectedResumeIndexes? = await Task.detached(priority: .utility) {
             let processSnapshot = processSnapshotProvider()
             let currentProcessScopeFingerprint = processScopeFingerprintProvider(processSnapshot)
             guard currentProcessScopeFingerprint == cachedAgentIndex.processScopeFingerprint else {
