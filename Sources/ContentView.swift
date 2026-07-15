@@ -14121,78 +14121,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var remoteStateHelpText: String {
-        let target = tab.remoteDisplayTarget ?? String(
-            localized: "sidebar.remote.help.targetFallback",
-            defaultValue: "remote host"
-        )
-        let detail = tab.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch tab.remoteConnectionState {
-        case .connected:
-            return String(
-                format: String(
-                    localized: "sidebar.remote.help.connected",
-                    defaultValue: "Remote connected to %@"
-                ),
-                locale: .current,
-                target
-            )
-        case .connecting:
-            return String(
-                format: String(
-                    localized: "sidebar.remote.help.connecting",
-                    defaultValue: "Remote connecting to %@"
-                ),
-                locale: .current,
-                target
-            )
-        case .reconnecting:
-            return String(
-                format: String(
-                    localized: "sidebar.remote.help.reconnecting",
-                    defaultValue: "Remote reconnecting to %@"
-                ),
-                locale: .current,
-                target
-            )
-        case .error:
-            if let detail, !detail.isEmpty {
-                return String(
-                    format: String(
-                        localized: "sidebar.remote.help.errorWithDetail",
-                        defaultValue: "Remote error for %@: %@"
-                    ),
-                    locale: .current,
-                    target,
-                    detail
-                )
-            }
-            return String(
-                format: String(
-                    localized: "sidebar.remote.help.error",
-                    defaultValue: "Remote error for %@"
-                ),
-                locale: .current,
-                target
-            )
-        case .disconnected:
-            return String(
-                format: String(
-                    localized: "sidebar.remote.help.disconnected",
-                    defaultValue: "Remote disconnected from %@"
-                ),
-                locale: .current,
-                target
-            )
-        case .suspended:
-            return String(
-                format: String(
-                    localized: "sidebar.remote.help.suspended",
-                    defaultValue: "SSH host %@ is unreachable. Automatic reconnect is paused — use Reconnect to retry."
-                ),
-                locale: .current,
-                target
-            )
-        }
+        sidebarRemoteStateHelpText(for: tab)
     }
 
     private func makeWorkspaceSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {

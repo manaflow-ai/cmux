@@ -7,8 +7,10 @@ Go remote daemon for `cmux ssh` bootstrap, capability negotiation, and remote pr
 1. `cmuxd-remote version`
 2. `cmuxd-remote serve --stdio`
 3. `cmuxd-remote serve --stdio --persistent --slot <slot>`
-4. `cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]`
-5. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
+4. `cmuxd-remote serve --persistent-server --slot <slot> [--idle-timeout <seconds>]` — the per-slot daemon itself; `--idle-timeout` overrides the empty-slot idle exit (`0` disables it, `-1`/omitted uses the 5-minute default)
+5. `cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]`
+6. `cmuxd-remote daemon-status --slot <slot> --json` — read-only host-side probe that enumerates every version dir for the slot and reports each daemon's `running`, `pid`, `version`, `uptime_seconds`, and `pty_sessions` without ever spawning a daemon
+7. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
 
 `serve --ws` is explicit opt-in for cloud VM images only. The normal `cmux ssh`
 code path uses `serve --stdio --persistent --slot <slot>` over an SSH exec
@@ -41,6 +43,7 @@ When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the bin
 17. `pty.detach`
 18. `pty.close`
 19. `pty.list`
+20. `daemon.status` — daemon self-report: `name`, `version`, `pid`, `started_at_unix`, `uptime_seconds`, `pty_sessions`
 
 Current integration in cmux:
 1. `workspace.remote.configure` now bootstraps this binary over SSH when missing.
