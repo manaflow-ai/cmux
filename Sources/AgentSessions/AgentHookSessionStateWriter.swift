@@ -3,13 +3,49 @@ import Darwin
 import Foundation
 
 /// Completes a hook-store session after cmux observes the root TUI return to its
-/// shell prompt. Work runs on a utility queue and uses the same sidecar lock as
+/// shell prompt. Work runs on a utility-priority task and uses the same sidecar lock as
 /// hook writers, so terminal UI delivery never waits on disk or JSON work.
 struct AgentHookSessionStateWriter: Sendable {
-    private static let queue = DispatchQueue(
-        label: "com.cmux.agent-session-completion",
-        qos: .utility
-    )
+    /// The hook stores are process-wide files, so app-originated mutations share
+    /// one actor. Timestamp fences make each mutation safe even if independently
+    /// created tasks reach this actor in a different order.
+    private actor WriteCoordinator {
+        func complete(
+            using writer: AgentHookSessionStateWriter,
+            provider: String,
+            stateURL: URL,
+            sessionId: String,
+            expectedRecordUpdatedAt: TimeInterval?,
+            now: TimeInterval
+        ) {
+            writer.complete(
+                provider: provider,
+                stateURL: stateURL,
+                sessionId: sessionId,
+                expectedRecordUpdatedAt: expectedRecordUpdatedAt,
+                now: now
+            )
+        }
+
+        func setLifecycle(
+            _ lifecycle: AgentSessionLifecycleState,
+            using writer: AgentHookSessionStateWriter,
+            provider: String,
+            stateURL: URL,
+            sessionId: String,
+            now: TimeInterval
+        ) {
+            writer.setLifecycle(
+                lifecycle,
+                provider: provider,
+                stateURL: stateURL,
+                sessionId: sessionId,
+                now: now
+            )
+        }
+    }
+
+    private static let writeCoordinator = WriteCoordinator()
     private let homeDirectory: String
     private let environment: [String: String]
 
@@ -69,8 +105,9 @@ struct AgentHookSessionStateWriter: Sendable {
             homeDirectory: homeDirectory,
             environment: environment
         )
-        Self.queue.async {
-            complete(
+        Task(priority: .utility) {
+            await Self.writeCoordinator.complete(
+                using: self,
                 provider: kind.rawValue,
                 stateURL: stateURL,
                 sessionId: normalized,
@@ -112,9 +149,10 @@ struct AgentHookSessionStateWriter: Sendable {
             homeDirectory: homeDirectory,
             environment: environment
         )
-        Self.queue.async {
-            setLifecycle(
+        Task(priority: .utility) {
+            await Self.writeCoordinator.setLifecycle(
                 state,
+                using: self,
                 provider: kind.rawValue,
                 stateURL: stateURL,
                 sessionId: normalized,
