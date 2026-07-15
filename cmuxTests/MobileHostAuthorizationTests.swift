@@ -739,7 +739,7 @@ struct MobileHostAuthorizationTests {
         let service = MobileHostService.shared
         let connectionID = UUID()
         service.debugResetMobileLifecycleStateForTesting()
-        service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
+        service.recordClientID("ios-client", for: connectionID)
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == Set(["ios-client"]))
         service.debugRemoveConnectionForTesting(id: connectionID)
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == nil)
@@ -774,7 +774,7 @@ struct MobileHostAuthorizationTests {
             columns: 84,
             rows: 15
         )
-        service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
+        service.recordClientID("ios-client", for: connectionID)
         service.debugRemoveConnectionForTesting(id: connectionID)
         #expect(
             terminalController.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID) == Set(["ipad-client"]),

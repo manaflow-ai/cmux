@@ -44,6 +44,7 @@ final class MobileWorkspaceListObserver {
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
+    private var perWorkspaceAgentTasks: [UUID: Task<Void, Never>] = [:]
     private var lastSummaryHash: Int = 0
     private var workspaceSummaryHashes: [UUID: Int] = [:]
     private var lastPreviewSignatures: [UUID: Int] = [:]
@@ -102,6 +103,12 @@ final class MobileWorkspaceListObserver {
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
         attach(to: tabManager)
+    }
+
+    deinit {
+        for task in perWorkspaceAgentTasks.values {
+            task.cancel()
+        }
     }
 
     private func attach(to tabManager: TabManager) {
@@ -195,7 +202,7 @@ final class MobileWorkspaceListObserver {
 
     /// A per-workspace signature of the notification-store state the mobile
     /// payload serializes: the latest-notification preview (its id + timestamp)
-    /// and the workspace's unread flag. The hash changes when a new notification
+    /// and the workspace's unread count. The hash changes when a new notification
     /// arrives, the latest one is cleared, or the workspace flips between read
     /// and unread (mark-read, manual mark-unread, panel-derived or restored
     /// indicators). A workspace with no notification and no unread state is
@@ -212,12 +219,12 @@ final class MobileWorkspaceListObserver {
         var signatures: [UUID: Int] = [:]
         for workspace in tabs {
             let latest = notificationStore.latestNotification(forTabId: workspace.id)
-            let isUnread = notificationStore.workspaceIsUnread(forTabId: workspace.id)
-            guard latest != nil || isUnread else { continue }
+            let unreadCount = notificationStore.unreadCount(forTabId: workspace.id)
+            guard latest != nil || unreadCount > 0 else { continue }
             var hasher = Hasher()
             hasher.combine(latest?.id)
             hasher.combine(latest?.createdAt)
-            hasher.combine(isUnread)
+            hasher.combine(unreadCount)
             signatures[workspace.id] = hasher.finalize()
         }
         return signatures
@@ -228,6 +235,9 @@ final class MobileWorkspaceListObserver {
         // Drop subscriptions for workspaces that vanished.
         for id in perWorkspaceCancellables.keys where !currentIDs.contains(id) {
             perWorkspaceCancellables.removeValue(forKey: id)
+        }
+        for id in perWorkspaceAgentTasks.keys where !currentIDs.contains(id) {
+            perWorkspaceAgentTasks.removeValue(forKey: id)?.cancel()
         }
         // Merge the per-workspace publishers behind the mobile workspace
         // list: terminal set, terminal titles, workspace title, and displayed
@@ -263,6 +273,14 @@ final class MobileWorkspaceListObserver {
                     .map { _ in () }
                     .eraseToAnyPublisher(),
                 workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher(),
+                // The richer remote-state payload reuses the exact git/PR
+                // metadata the sidebar renders. Observe both workspace mirrors
+                // and per-panel maps because background panels need to publish
+                // without first becoming focused.
+                workspace.sidebarMetadata.gitBranchPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.sidebarMetadata.panelGitBranchesPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.sidebarMetadata.pullRequestPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.sidebarMetadata.panelPullRequestsPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
                 // set; bonsplit selection state is not `@Published`, so this counter
                 // is the only signal the observer gets for a reorder.
@@ -272,6 +290,18 @@ final class MobileWorkspaceListObserver {
             let workspaceID = workspace.id
             perWorkspaceCancellables[workspace.id] = merged.sink { [weak self] _ in
                 self?.scheduleInvalidation(.workspace(workspaceID))
+            }
+
+            // Agent lifecycles use the runtime model's AsyncStream rather than
+            // Combine. Feed/Workstream needs-input overlays and direct agent
+            // lifecycle hooks both mutate this one source, so one subscription
+            // covers every entrypoint without polling.
+            let agentChanges = workspace.sidebarAgentRuntimeObservation.changes()
+            perWorkspaceAgentTasks[workspace.id] = Task { [weak self] in
+                for await _ in agentChanges {
+                    guard !Task.isCancelled else { return }
+                    self?.scheduleInvalidation(.workspace(workspaceID))
+                }
             }
         }
     }
@@ -436,40 +466,7 @@ final class MobileWorkspaceListObserver {
         for workspace: Workspace,
         previewSignature: Int?
     ) -> Int {
-        var hasher = Hasher()
-        hasher.combine(workspace.title)
-        hasher.combine(workspace.isPinned)
-        // Group membership is iOS-facing (the phone nests members under the
-        // group header), and a pure move-into/out-of-group need not change the
-        // panel set or title, so hash it here.
-        hasher.combine(workspace.groupId)
-        // Last-activity preview line + timestamp shown on each row. Sourced
-        // from the notification store (not the TabManager graph), so it is
-        // folded in here as a precomputed signature.
-        hasher.combine(previewSignature)
-        // Spatial order is significant: hash the ordered id sequence so a
-        // reorder of the same panel set changes the hash.
-        let panelIDs = workspace.orderedPanelIds
-        hasher.combine(panelIDs)
-        for id in panelIDs {
-            hasher.combine(workspace.panelTitle(panelId: id))
-            hasher.combine(workspace.reportedPanelDirectory(panelId: id))
-        }
-        hasher.combine(workspace.presentedCurrentDirectory)
-        // Todo mutations change the list-facing shape; without these the
-        // hash-diff would suppress the re-emit the publishers above fire.
-        hasher.combine(workspace.todoState.statusOverride)
-        hasher.combine(workspace.todoState.checklist)
-        // Hash every panelDirectories entry (including ids not yet in
-        // `panels`) so a directory update is detected even before its panel
-        // registers. The ordered loop above already covers in-panel
-        // directories; this preserves the pre-existing behavior the mobile
-        // hash test relies on.
-        for id in workspace.panelDirectories.keys.sorted() {
-            hasher.combine(id)
-            hasher.combine(workspace.panelDirectories[id])
-        }
-        return hasher.finalize()
+        workspace.mobileWorkspaceSummaryHash(previewSignature: previewSignature)
     }
 
     #if DEBUG

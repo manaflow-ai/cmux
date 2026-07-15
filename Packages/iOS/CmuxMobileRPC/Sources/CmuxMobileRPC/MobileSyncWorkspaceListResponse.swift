@@ -39,6 +39,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         /// Whether the workspace has unread activity on the Mac. `nil` on Macs
         /// old enough not to emit it (the row then shows no unread dot).
         public let hasUnread: Bool?
+        /// Versioned semantic state for richer remote views. `nil` on hosts
+        /// that predate `workspace.remote_state.v1`.
+        public let remoteState: MobileWorkspaceRemoteState?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
 
@@ -54,6 +57,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case previewAt = "preview_at"
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
+            case remoteState = "remote_state"
             case terminals
         }
     }
@@ -115,6 +119,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     /// Group sections, in section order. Empty on Macs old enough not to emit
     /// groups (the field is decoded with `decodeIfPresent`).
     public let groups: [Group]
+    /// Versioned presence for views currently attached to this runtime. `nil`
+    /// on hosts that predate `view.presence.v1`.
+    public let viewPresence: MobileViewPresence?
     /// Identifier of a workspace created by the request, if any.
     public let createdWorkspaceID: String?
     /// Identifier of a terminal created by the request, if any.
@@ -123,6 +130,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case workspaces
         case groups
+        case viewPresence = "view_presence"
         case createdWorkspaceID = "created_workspace_id"
         case createdTerminalID = "created_terminal_id"
     }
@@ -136,6 +144,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         workspaces = try container.decode([Workspace].self, forKey: .workspaces)
         groups = try container.decodeIfPresent([Group].self, forKey: .groups) ?? []
+        viewPresence = try container.decodeIfPresent(MobileViewPresence.self, forKey: .viewPresence)
         createdWorkspaceID = try container.decodeIfPresent(String.self, forKey: .createdWorkspaceID)
         createdTerminalID = try container.decodeIfPresent(String.self, forKey: .createdTerminalID)
     }
