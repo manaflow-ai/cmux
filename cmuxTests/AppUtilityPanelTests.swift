@@ -1,3 +1,4 @@
+import Bonsplit
 import CmuxWorkspaces
 import Foundation
 import Testing
@@ -11,6 +12,19 @@ import Testing
 @MainActor
 @Suite
 struct AppUtilityPanelTests {
+    private final class SplitRequestRecorder: BonsplitDelegate {
+        var splitRequestCount = 0
+
+        func splitTabBar(
+            _ controller: BonsplitController,
+            shouldSplitPane pane: PaneID,
+            orientation: SplitOrientation
+        ) -> Bool {
+            splitRequestCount += 1
+            return false
+        }
+    }
+
     @Test func initialSettingsTargetDoesNotScheduleACompetingNavigationPost() {
         let panel = AppUtilityPanel(
             workspaceId: UUID(),
@@ -60,6 +74,26 @@ struct AppUtilityPanelTests {
         )
     }
 
+    @Test func remoteTmuxMirrorDoesNotRequestSplitForAppUtilityPane() throws {
+        let workspace = Workspace()
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let panelsBefore = workspace.panels.count
+        let recorder = SplitRequestRecorder()
+        workspace.isRemoteTmuxMirror = true
+        workspace.bonsplitController.delegate = recorder
+
+        let panel = workspace.openOrFocusAppUtilityPane(
+            fromPane: paneId,
+            kind: .settings,
+            focus: true
+        )
+
+        #expect(panel == nil)
+        #expect(recorder.splitRequestCount == 0)
+        #expect(workspace.panels.count == panelsBefore)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+    }
+
     @Test func appUtilityKindsCreateIndependentPanes() throws {
         let workspace = Workspace()
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
@@ -102,6 +136,23 @@ struct AppUtilityPanelTests {
         workspace.focusPanel(utilityPanel.id)
 
         #expect(workspace.bonsplitController.selectedTab(inPane: terminalPaneId)?.id == utilityTabId)
+        #expect(!terminalPanel.hostedView.debugPortalVisibleInUI)
+    }
+
+    @Test func selectingAppUtilityPaneDoesNotReconcilePortalInAnotherPane() throws {
+        let workspace = Workspace()
+        let terminalPaneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminalPanelId = try #require(workspace.focusedPanelId)
+        let terminalPanel = try #require(workspace.panels[terminalPanelId] as? TerminalPanel)
+        let utilityPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: terminalPaneId,
+            kind: .mobilePairing,
+            focus: false
+        ))
+
+        terminalPanel.hostedView.setVisibleInUI(false)
+        workspace.focusPanel(utilityPanel.id)
+
         #expect(!terminalPanel.hostedView.debugPortalVisibleInUI)
     }
 }

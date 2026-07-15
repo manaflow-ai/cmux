@@ -10515,17 +10515,25 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout(candidatePanelIds: nil)
+    }
+
+    @discardableResult
+    private func reconcileTerminalPortalVisibilityForCurrentRenderedLayout(
+        candidatePanelIds: Set<UUID>?
+    ) -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
         // Focus-exclusivity: when the right sidebar (Dock) owns input focus in this
         // window, no main terminal should be (re)marked active even if it is still
         // this workspace's focused panel — mirroring the SwiftUI `isFocused` gate so
         // a layout reconcile cannot steal focus back from the sidebar.
         let rightSidebarOwnsFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
+        let visibleCandidatePanelIds = candidatePanelIds.map { visiblePanelIds.intersection($0) } ?? visiblePanelIds
         var didChange = agentHibernationAutoResumePresentationVisible
-            ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
+            ? resumeVisibleAgentHibernationPanels(panelIds: visibleCandidatePanelIds)
             : false
 
-        for panel in panels.values {
+        for panel in portalReconciliationCandidates(candidatePanelIds) {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
             // A multi-pane remote-tmux window-tab is rendered by its
             // RemoteTmuxWindowMirrorSplitView (its own panel's surface is not mounted),
@@ -10581,10 +10589,18 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason, candidatePanelIds: nil)
+    }
+
+    @discardableResult
+    private func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
+        reason: String,
+        candidatePanelIds: Set<UUID>?
+    ) -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
         var didChange = false
 
-        for panel in panels.values {
+        for panel in portalReconciliationCandidates(candidatePanelIds) {
             guard let browserPanel = panel as? BrowserPanel else { continue }
             // Canvas-inline-hosted webviews live in the pane hierarchy; portal
             // rebinds/refreshes here would steal them back into the portal.
@@ -10651,6 +10667,25 @@ final class Workspace: Identifiable, ObservableObject {
         let terminalChanged = reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         let browserChanged = reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
         return terminalChanged || browserChanged
+    }
+
+    /// A tab selection can only change portal ownership inside its pane. Keep
+    /// the selection hot path proportional to that pane's tab count while
+    /// layout and zoom changes continue to use workspace-wide reconciliation.
+    private func reconcilePortalVisibilityForTabSelection(inPane pane: PaneID, reason: String) {
+        let candidatePanelIds = Set(
+            bonsplitController.tabs(inPane: pane).compactMap { panelIdFromSurfaceId($0.id) }
+        )
+        _ = reconcileTerminalPortalVisibilityForCurrentRenderedLayout(candidatePanelIds: candidatePanelIds)
+        _ = reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
+            reason: reason,
+            candidatePanelIds: candidatePanelIds
+        )
+    }
+
+    private func portalReconciliationCandidates(_ candidatePanelIds: Set<UUID>?) -> [any Panel] {
+        guard let candidatePanelIds else { return Array(panels.values) }
+        return candidatePanelIds.compactMap { panels[$0] }
     }
 
     private func browserPortalVisibilityNeedsFollowUp() -> Bool {
@@ -11563,7 +11598,7 @@ extension Workspace: BonsplitDelegate {
             focusIntent: activationIntent,
             reassertAppKitFocus: reassertAppKitFocus
         )
-        reconcilePortalVisibilityForCurrentRenderedLayout(reason: "workspace.tabSelection")
+        reconcilePortalVisibilityForTabSelection(inPane: focusedPane, reason: "workspace.tabSelection")
         let focusIntentAllowsBrowserOmnibarAutofocus =
             explicitFocusIntent ||
             TerminalController.socketCommandAllowsInAppFocusMutations()

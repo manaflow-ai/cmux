@@ -14,6 +14,11 @@ extension Workspace {
         settingsNavigationTarget: SettingsNavigationTarget? = nil,
         focus: Bool = true
     ) -> AppUtilityPanel? {
+        // A remote tmux mirror is a 1:1 view of the remote layout. App utility
+        // panes are local-only, and asking Bonsplit to split would route the
+        // delegate callback to `tmux split-window` before vetoing the local pane.
+        guard !isRemoteTmuxMirror else { return nil }
+
         for (existingId, panel) in panels {
             guard let utilityPanel = panel as? AppUtilityPanel,
                   utilityPanel.kind == kind else {
