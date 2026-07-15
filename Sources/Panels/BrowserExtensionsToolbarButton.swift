@@ -9,10 +9,21 @@ struct BrowserExtensionsToolbarButton: View {
     let performAction: @MainActor (String) -> Bool
 
     @State private var snapshot = BrowserWebExtensionsPresentationSnapshot.loading
+    @State private var isLoadingPresentation = false
 
     var body: some View {
         Button {
-            isPresented.toggle()
+            if isPresented {
+                isPresented = false
+                return
+            }
+            guard !isLoadingPresentation else { return }
+            isLoadingPresentation = true
+            Task { @MainActor in
+                snapshot = await loadSnapshot()
+                isLoadingPresentation = false
+                isPresented = true
+            }
         } label: {
             CmuxSystemSymbolImage(
                 systemName: "puzzlepiece.extension",
@@ -24,6 +35,7 @@ struct BrowserExtensionsToolbarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(OmnibarAddressButtonStyle())
+        .disabled(isLoadingPresentation)
         .frame(width: hitSize, height: hitSize, alignment: .center)
         .safeHelp(String(localized: "browser.extensions.title", defaultValue: "Extensions"))
         .accessibilityLabel(String(localized: "browser.extensions.title", defaultValue: "Extensions"))
@@ -37,11 +49,6 @@ struct BrowserExtensionsToolbarButton: View {
                     return performAction(identifier)
                 }
             )
-        }
-        .task(id: isPresented) {
-            guard isPresented else { return }
-            snapshot = .loading
-            snapshot = await loadSnapshot()
         }
     }
 }
