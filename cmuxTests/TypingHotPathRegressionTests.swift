@@ -351,6 +351,30 @@ struct GhosttyTitleUpdateIngressTests {
             title: "stable"
         ))
     }
+
+    @Test func retiringAttachmentAllowsItsFirstRepeatedTitleAfterReattach() {
+        let ingress = GhosttyTitleUpdateIngress()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let source = NSObject()
+
+        #expect(ingress.submit(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurface: source,
+            title: "stable"
+        ))
+        ingress.retire(GhosttyTitleUpdateSurfaceKey(
+            surfaceId: surfaceId,
+            sourceSurface: source
+        ))
+        #expect(ingress.submit(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurface: source,
+            title: "stable"
+        ))
+    }
 }
 
 @Suite("Right-sidebar mode shortcut matcher")

@@ -67,12 +67,37 @@ struct CmuxNotificationHookCacheTests {
         )
         #expect(atomicallyReplaced.map(\.id) == ["global", "child-updated-longeR"])
 
+        let stableAttributes = try FileManager.default.attributesOfItem(atPath: childConfig.path)
+        let stableSize = try #require((stableAttributes[.size] as? NSNumber)?.uint64Value)
+        let stableFileIdentifier = try #require(
+            (stableAttributes[.systemFileNumber] as? NSNumber)?.uint64Value
+        )
+        let stableModificationDate = try #require(stableAttributes[.modificationDate] as? Date)
+        try writeHook(id: "child-updated-longeS", to: childConfig, atomically: false)
+        try FileManager.default.setAttributes(
+            [.modificationDate: stableModificationDate],
+            ofItemAtPath: childConfig.path
+        )
+        let restoredAttributes = try FileManager.default.attributesOfItem(atPath: childConfig.path)
+        #expect((restoredAttributes[.size] as? NSNumber)?.uint64Value == stableSize)
+        #expect(
+            (restoredAttributes[.systemFileNumber] as? NSNumber)?.uint64Value
+                == stableFileIdentifier
+        )
+        #expect(restoredAttributes[.modificationDate] as? Date == stableModificationDate)
+
+        let rewrittenInPlace = await cache.hooks(
+            startingFrom: childDirectory.path,
+            globalConfigPath: globalConfig.path
+        )
+        #expect(rewrittenInPlace.map(\.id) == ["global", "child-updated-longeS"])
+
         try writeHook(id: "project", to: projectConfig)
         let added = await cache.hooks(
             startingFrom: childDirectory.path,
             globalConfigPath: globalConfig.path
         )
-        #expect(added.map(\.id) == ["global", "project", "child-updated-longeR"])
+        #expect(added.map(\.id) == ["global", "project", "child-updated-longeS"])
     }
 
     @Test func leastRecentlyUsedDirectoryEntriesAreEvicted() async throws {
@@ -104,7 +129,7 @@ struct CmuxNotificationHookCacheTests {
         #expect(finalHitCount == hitsAfterReusingFirst)
     }
 
-    private func writeHook(id: String, to url: URL) throws {
+    private func writeHook(id: String, to url: URL, atomically: Bool = true) throws {
         try """
         {
           // JSONC is supported by cmux config files.
@@ -112,6 +137,6 @@ struct CmuxNotificationHookCacheTests {
             "hooks": [{ "id": "\(id)", "command": "cat" }],
           },
         }
-        """.write(to: url, atomically: true, encoding: .utf8)
+        """.write(to: url, atomically: atomically, encoding: .utf8)
     }
 }
