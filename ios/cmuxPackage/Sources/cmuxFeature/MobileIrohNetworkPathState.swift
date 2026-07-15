@@ -7,6 +7,14 @@ actor MobileIrohNetworkPathState {
     private var generation: UInt64 = 1
     private var lanProfiles: [CmxIrohNetworkProfileKey: UInt32] = [:]
     private var observationTask: Task<Void, Never>?
+    private let networkInterfaces: any NetworkInterfaceAddressProviding
+
+    init(
+        networkInterfaces: any NetworkInterfaceAddressProviding =
+            SystemNetworkInterfaceAddressProvider()
+    ) {
+        self.networkInterfaces = networkInterfaces
+    }
 
     func start(
         reachability: any ReachabilityProviding,
@@ -23,9 +31,16 @@ actor MobileIrohNetworkPathState {
     }
 
     func snapshot() -> CmxIrohNetworkPathSnapshot {
-        CmxIrohNetworkPathSnapshot(
+        var profiles = Set(lanProfiles.keys)
+        if TailscaleStatus(
+            interfaces: networkInterfaces.currentInterfaceAddresses()
+        ) == .active,
+           let tailscaleProfile = CmxIrohNetworkProfileKey.activeTailscaleTunnel {
+            profiles.insert(tailscaleProfile)
+        }
+        return CmxIrohNetworkPathSnapshot(
             generation: generation,
-            activeNetworkProfiles: Set(lanProfiles.keys)
+            activeNetworkProfiles: profiles
         )
     }
 
