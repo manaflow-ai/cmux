@@ -140,16 +140,8 @@ fn forward_mux_events(
         let title_snapshot_epoch = mux_titles.current_epoch();
         let recovered = event_source.refresh_tree().map_err(|error| error.to_string());
         let recovery_succeeded = recovered.is_ok();
-        if let Ok(tree) = &recovered {
-            let live_surfaces = tree
-                .workspaces
-                .iter()
-                .flat_map(|workspace| workspace.screens.iter())
-                .flat_map(|screen| screen.panes.iter())
-                .flat_map(|pane| pane.tabs.iter())
-                .map(|tab| tab.surface)
-                .collect::<HashSet<_>>();
-            mux_titles.reconcile_authoritative(&live_surfaces, title_snapshot_epoch);
+        if recovered.is_ok() {
+            mux_titles.reconcile_authoritative(title_snapshot_epoch);
         }
         if tx
             .send(AppEvent::MuxSubscriptionRecovered {
@@ -278,11 +270,9 @@ impl MuxTitleIngress {
         self.state.lock().unwrap().epoch
     }
 
-    fn reconcile_authoritative(&self, live_surfaces: &HashSet<SurfaceId>, through_epoch: u64) {
+    fn reconcile_authoritative(&self, through_epoch: u64) {
         let mut state = self.state.lock().unwrap();
-        state.titles.retain(|surface, retained| {
-            live_surfaces.contains(surface) || retained.epoch > through_epoch
-        });
+        state.titles.retain(|_, retained| retained.epoch > through_epoch);
         let retained_surfaces = state.titles.keys().copied().collect::<HashSet<_>>();
         state.dirty.retain(|surface| retained_surfaces.contains(surface));
     }
@@ -1815,6 +1805,7 @@ pub struct App {
     pty_failures: Arc<PtyFailureIngress>,
     mux_recovery_generation: Arc<AtomicU64>,
     drag: Option<Drag>,
+    ignored_pty_mouse_buttons: HashSet<MouseButton>,
     encoder: KeyEncoder,
     mouse_encoder: MouseEncoder,
     encode_buf: Vec<u8>,
@@ -2123,6 +2114,7 @@ pub fn run(
         pty_failures,
         mux_recovery_generation,
         drag: None,
+        ignored_pty_mouse_buttons: HashSet::new(),
         encoder,
         mouse_encoder,
         encode_buf: Vec::with_capacity(64),
@@ -4723,9 +4715,12 @@ impl App {
         // This TUI tracks one active pointer button. Ignore additional presses
         // until its release so a second button cannot orphan the inner app's
         // pressed state.
-        if matches!(mouse.kind, MouseEventKind::Down(_))
-            && matches!(self.drag, Some(Drag::PtyMouse { .. }))
+        if let MouseEventKind::Down(button) = mouse.kind
+            && let Some(Drag::PtyMouse { button: active, .. }) = &self.drag
         {
+            if button != *active {
+                self.ignored_pty_mouse_buttons.insert(button);
+            }
             return Ok(RenderAction::None);
         }
         match mouse.kind {
@@ -4909,6 +4904,7 @@ impl App {
             position: (x, y),
             modifiers,
         });
+        self.ignored_pty_mouse_buttons.clear();
         PtyMousePressResult::Started
     }
 
@@ -5034,12 +5030,13 @@ impl App {
         };
         let (surface, handle, reservation_id, fallback, content, button) =
             (*surface, handle.clone(), *reservation_id, release_bytes.clone(), *content, *button);
-        if reported_button != button {
+        if reported_button != button && self.ignored_pty_mouse_buttons.remove(&reported_button) {
             return true;
         }
         let content = self.current_pty_content(surface).unwrap_or(content);
         let release = self.capture_pty_mouse_release(surface, content, x, y, button, modifiers);
         self.drag = None;
+        self.ignored_pty_mouse_buttons.clear();
         match release {
             PtyMouseReleaseCapture::Bytes(bytes) => {
                 if !self.enqueue_pty_release(surface, handle, reservation_id, bytes) {
@@ -5151,6 +5148,7 @@ impl App {
         let release = self
             .capture_pty_mouse_release(surface, content, position.0, position.1, button, modifiers);
         self.drag = None;
+        self.ignored_pty_mouse_buttons.clear();
         match release {
             PtyMouseReleaseCapture::Bytes(bytes) => {
                 if !self.enqueue_pty_release(surface, handle, reservation_id, bytes) {
@@ -6557,6 +6555,13 @@ mod tests {
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
         assert!(app.drag.is_none());
 
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right), KeyModifiers::NONE))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
+        assert!(app.drag.is_none());
+
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
         app.pane_areas[0].content.x += 3;
@@ -7148,13 +7153,13 @@ mod tests {
     }
 
     #[test]
-    fn title_ingress_prunes_pre_snapshot_orphans_but_keeps_concurrent_updates() {
+    fn title_ingress_prunes_all_pre_snapshot_titles_but_keeps_concurrent_updates() {
         let titles = MuxTitleIngress::default();
         titles.push(41, "stale-title");
         let snapshot_epoch = titles.current_epoch();
         titles.push(42, "concurrent-title");
 
-        titles.reconcile_authoritative(&HashSet::new(), snapshot_epoch);
+        titles.reconcile_authoritative(snapshot_epoch);
 
         let retained = titles.snapshot();
         assert!(!retained.contains_key(&41));
@@ -8879,6 +8884,7 @@ mod tests {
             pty_failures: Arc::new(PtyFailureIngress::default()),
             mux_recovery_generation: Arc::new(AtomicU64::new(0)),
             drag: None,
+            ignored_pty_mouse_buttons: HashSet::new(),
             encoder: KeyEncoder::new().unwrap(),
             mouse_encoder: MouseEncoder::new().unwrap(),
             encode_buf: Vec::new(),
