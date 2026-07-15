@@ -2,6 +2,19 @@ import CmuxRemoteDaemon
 import CmuxSidebar
 import Foundation
 
+extension SessionWorkspaceSnapshot {
+    func portableRemoteRuntimeStateSnapshot() -> SessionWorkspaceSnapshot {
+        var snapshot = self
+        snapshot.remote = nil
+        for index in snapshot.panels.indices {
+            guard var terminal = snapshot.panels[index].terminal else { continue }
+            terminal.scrollback = nil
+            snapshot.panels[index].terminal = terminal
+        }
+        return snapshot
+    }
+}
+
 extension Workspace {
     func restoreRemoteConfiguration(
         from snapshot: SessionWorkspaceSnapshot,
@@ -48,26 +61,13 @@ extension Workspace {
         }
     }
 
-    func remoteRuntimeStateSnapshot(
-        from sourceSnapshot: SessionWorkspaceSnapshot
-    ) -> SessionWorkspaceSnapshot {
-        var snapshot = sourceSnapshot
-        snapshot.remote = remoteConfiguration?.sessionSnapshot()
-        for index in snapshot.panels.indices {
-            guard var terminal = snapshot.panels[index].terminal else { continue }
-            terminal.scrollback = nil
-            snapshot.panels[index].terminal = terminal
-        }
-        return snapshot
-    }
-
     func enqueueRemoteRuntimeState(_ sourceSnapshot: SessionWorkspaceSnapshot) {
         guard !isApplyingRemoteRuntimeState,
               let configuration = remoteConfiguration,
               configuration.persistentDaemonSlot != nil,
               let controller = remoteSessionControllerForRuntimeState else { return }
 
-        let runtimeSnapshot = remoteRuntimeStateSnapshot(from: sourceSnapshot)
+        let runtimeSnapshot = sourceSnapshot.portableRemoteRuntimeStateSnapshot()
         let baseRevision = remoteRuntimeStateRevision
         let schemaVersion = SessionSnapshotSchema.currentVersion
         // The app target remains Swift 5/Xcode 16 compatible, where

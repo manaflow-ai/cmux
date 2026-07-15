@@ -24,7 +24,8 @@ struct RemoteRuntimeStateRestoreTests {
             firstStarted.signal()
             releaseFirst.wait()
         }
-        #expect(firstStarted.wait(timeout: .now() + 1) == .success)
+        let firstStartResult = await Self.wait(for: firstStarted, timeout: 1)
+        #expect(firstStartResult == .success)
 
         _ = pipeline.enqueue {
             staleStarted.signal()
@@ -33,14 +34,18 @@ struct RemoteRuntimeStateRestoreTests {
             latestStarted.signal()
         }
 
-        #expect(staleStarted.wait(timeout: .now() + 0.1) == .timedOut)
-        #expect(latestStarted.wait(timeout: .now() + 0.1) == .timedOut)
+        let staleBeforeRelease = await Self.wait(for: staleStarted, timeout: 0.1)
+        let latestBeforeRelease = await Self.wait(for: latestStarted, timeout: 0.1)
+        #expect(staleBeforeRelease == .timedOut)
+        #expect(latestBeforeRelease == .timedOut)
 
         releaseFirst.signal()
         await latest.value
 
-        #expect(staleStarted.wait(timeout: .now()) == .timedOut)
-        #expect(latestStarted.wait(timeout: .now()) == .success)
+        let staleAfterRelease = await Self.wait(for: staleStarted, timeout: 0)
+        let latestAfterRelease = await Self.wait(for: latestStarted, timeout: 0)
+        #expect(staleAfterRelease == .timedOut)
+        #expect(latestAfterRelease == .success)
     }
 
     @MainActor
@@ -54,16 +59,19 @@ struct RemoteRuntimeStateRestoreTests {
             finalSnapshotStarted.signal()
             releaseFinalSnapshot.wait()
         }
-        #expect(finalSnapshotStarted.wait(timeout: .now() + 1) == .success)
+        let finalSnapshotStartResult = await Self.wait(for: finalSnapshotStarted, timeout: 1)
+        #expect(finalSnapshotStartResult == .success)
 
         let stop = pipeline.finishPendingWork {
             stopped.signal()
         }
 
-        #expect(stopped.wait(timeout: .now() + 0.1) == .timedOut)
+        let stopBeforeRelease = await Self.wait(for: stopped, timeout: 0.1)
+        #expect(stopBeforeRelease == .timedOut)
         releaseFinalSnapshot.signal()
         await stop.value
-        #expect(stopped.wait(timeout: .now()) == .success)
+        let stopAfterRelease = await Self.wait(for: stopped, timeout: 0)
+        #expect(stopAfterRelease == .success)
     }
 
     @MainActor
@@ -74,7 +82,7 @@ struct RemoteRuntimeStateRestoreTests {
         let source = workspace.sessionSnapshot(includeScrollback: false)
         let sourceRemote = try #require(source.remote)
 
-        let portable = workspace.remoteRuntimeStateSnapshot(from: source)
+        let portable = source.portableRemoteRuntimeStateSnapshot()
 
         #expect(sourceRemote.destination == "developer@example.test")
         #expect(sourceRemote.identityFile == "/tmp/cmux-runtime-test-key")
@@ -242,5 +250,16 @@ struct RemoteRuntimeStateRestoreTests {
             preserveAfterTerminalExit: true,
             persistentDaemonSlot: slot
         )
+    }
+
+    private static func wait(
+        for semaphore: DispatchSemaphore,
+        timeout: TimeInterval
+    ) async -> DispatchTimeoutResult {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: semaphore.wait(timeout: .now() + timeout))
+            }
+        }
     }
 }
