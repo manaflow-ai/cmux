@@ -60,8 +60,7 @@ actor GitHubPullRequestRequestCoordinator {
 
     func response(
         endpoint: String,
-        authHeader: String?,
-        sessionOverride: URLSession? = nil
+        authHeader: String?
     ) async -> WorkspacePullRequestHTTPResponse? {
         guard let authHeader,
               !authHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -82,14 +81,12 @@ actor GitHubPullRequestRequestCoordinator {
 
         let requestID = UUID()
         let predecessor = transportTail
-        let requestSession = sessionOverride ?? session
         let task = Task<WorkspacePullRequestHTTPResponse?, Never> { [weak self] in
             _ = await predecessor?.value
             guard let self else { return nil }
             return await self.executeRequest(
                 requestKey: requestKey,
-                authHeader: authHeader,
-                session: requestSession
+                authHeader: authHeader
             )
         }
         inFlightRequestByRequestKey[requestKey] = InFlightRequest(id: requestID, task: task)
@@ -109,8 +106,7 @@ actor GitHubPullRequestRequestCoordinator {
 
     private func executeRequest(
         requestKey: RequestKey,
-        authHeader: String,
-        session: URLSession
+        authHeader: String
     ) async -> WorkspacePullRequestHTTPResponse? {
         guard activeRateLimitRetryDate(
             for: requestKey.authorizationFingerprint

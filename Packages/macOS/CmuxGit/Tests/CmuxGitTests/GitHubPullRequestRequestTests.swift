@@ -112,10 +112,9 @@ struct GitHubPullRequestRequestTests {
         GitHubPullRequestStubURLProtocol.reset(stubs: [
             .init(statusCode: 200, data: Data("[]".utf8)),
         ])
-        let service = PullRequestProbeService()
+        let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
 
-        let response = await service.performRequest(
-            session: makeSession(),
+        let response = await coordinator.response(
             endpoint: endpoint,
             authHeader: nil
         )
@@ -130,16 +129,13 @@ struct GitHubPullRequestRequestTests {
             .init(statusCode: 200, headers: ["ETag": "\"issue-8175\""], data: body),
             .init(statusCode: 304),
         ])
-        let service = PullRequestProbeService()
-        let session = makeSession()
+        let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
 
-        let first = await service.performRequest(
-            session: session,
+        let first = await coordinator.response(
             endpoint: endpoint,
             authHeader: "Bearer test-token"
         )
-        let second = await service.performRequest(
-            session: session,
+        let second = await coordinator.response(
             endpoint: endpoint,
             authHeader: "Bearer test-token"
         )
@@ -160,23 +156,19 @@ struct GitHubPullRequestRequestTests {
             .init(statusCode: 304),
             .init(statusCode: 304),
         ])
-        let coordinator = GitHubPullRequestRequestCoordinator()
-        let session = makeSession()
+        let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
 
         _ = await coordinator.response(
             endpoint: endpoint,
-            authHeader: "Bearer first-account-token",
-            sessionOverride: session
+            authHeader: "Bearer first-account-token"
         )
         let changedAccountResponse = await coordinator.response(
             endpoint: endpoint,
-            authHeader: "Bearer second-account-token",
-            sessionOverride: session
+            authHeader: "Bearer second-account-token"
         )
         let originalAccountResponse = await coordinator.response(
             endpoint: endpoint,
-            authHeader: "Bearer first-account-token",
-            sessionOverride: session
+            authHeader: "Bearer first-account-token"
         )
 
         #expect(changedAccountResponse?.statusCode == 304)
@@ -202,25 +194,24 @@ struct GitHubPullRequestRequestTests {
             .init(statusCode: 304),
             .init(statusCode: 200, data: firstBody),
         ])
-        let coordinator = GitHubPullRequestRequestCoordinator(maximumCachedResponseCount: 2)
-        let session = makeSession()
+        let coordinator = GitHubPullRequestRequestCoordinator(
+            session: makeSession(),
+            maximumCachedResponseCount: 2
+        )
 
         for endpoint in [firstEndpoint, secondEndpoint, thirdEndpoint] {
             _ = await coordinator.response(
                 endpoint: endpoint,
-                authHeader: "Bearer test-token",
-                sessionOverride: session
+                authHeader: "Bearer test-token"
             )
         }
         let retained = await coordinator.response(
             endpoint: secondEndpoint,
-            authHeader: "Bearer test-token",
-            sessionOverride: session
+            authHeader: "Bearer test-token"
         )
         _ = await coordinator.response(
             endpoint: firstEndpoint,
-            authHeader: "Bearer test-token",
-            sessionOverride: session
+            authHeader: "Bearer test-token"
         )
 
         #expect(retained?.data == secondBody)
@@ -231,7 +222,8 @@ struct GitHubPullRequestRequestTests {
     }
 
     @Test func exhaustedRateLimitSuppressesRequestsUntilReset() async {
-        let reset = Int(Date().addingTimeInterval(300).timeIntervalSince1970)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let reset = Int(now.addingTimeInterval(300).timeIntervalSince1970)
         GitHubPullRequestStubURLProtocol.reset(stubs: [
             .init(
                 statusCode: 403,
@@ -242,16 +234,16 @@ struct GitHubPullRequestRequestTests {
             ),
             .init(statusCode: 200, data: Data("[]".utf8)),
         ])
-        let service = PullRequestProbeService()
-        let session = makeSession()
+        let coordinator = GitHubPullRequestRequestCoordinator(
+            session: makeSession(),
+            now: { now }
+        )
 
-        _ = await service.performRequest(
-            session: session,
+        _ = await coordinator.response(
             endpoint: endpoint,
             authHeader: "Bearer test-token"
         )
-        let suppressed = await service.performRequest(
-            session: session,
+        let suppressed = await coordinator.response(
             endpoint: "repos/manaflow-ai/cmux/pulls?state=open",
             authHeader: "Bearer test-token"
         )
@@ -273,24 +265,23 @@ struct GitHubPullRequestRequestTests {
             ),
             .init(statusCode: 200, data: Data("[]".utf8)),
         ])
-        let coordinator = GitHubPullRequestRequestCoordinator(now: { now })
-        let session = makeSession()
+        let coordinator = GitHubPullRequestRequestCoordinator(
+            session: makeSession(),
+            now: { now }
+        )
 
         _ = await coordinator.response(
             endpoint: endpoint,
-            authHeader: "Bearer exhausted-token",
-            sessionOverride: session
+            authHeader: "Bearer exhausted-token"
         )
         let changedCredentialResponse = await coordinator.response(
             endpoint: endpoint,
-            authHeader: "Bearer available-token",
-            sessionOverride: session
+            authHeader: "Bearer available-token"
         )
         let changedCredentialRetryDate = await coordinator.retryDate()
         let originalCredentialResponse = await coordinator.response(
             endpoint: "repos/manaflow-ai/cmux/pulls?state=open",
-            authHeader: "Bearer exhausted-token",
-            sessionOverride: session
+            authHeader: "Bearer exhausted-token"
         )
 
         #expect(changedCredentialResponse?.statusCode == 200)
@@ -300,7 +291,8 @@ struct GitHubPullRequestRequestTests {
     }
 
     @Test func permissionDeniedResponseDoesNotTriggerPrimaryRateLimitBackoff() async {
-        let reset = Int(Date().addingTimeInterval(300).timeIntervalSince1970)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let reset = Int(now.addingTimeInterval(300).timeIntervalSince1970)
         GitHubPullRequestStubURLProtocol.reset(stubs: [
             .init(
                 statusCode: 403,
@@ -311,16 +303,16 @@ struct GitHubPullRequestRequestTests {
             ),
             .init(statusCode: 200, data: Data("[]".utf8)),
         ])
-        let service = PullRequestProbeService()
-        let session = makeSession()
+        let coordinator = GitHubPullRequestRequestCoordinator(
+            session: makeSession(),
+            now: { now }
+        )
 
-        _ = await service.performRequest(
-            session: session,
+        _ = await coordinator.response(
             endpoint: endpoint,
             authHeader: "Bearer test-token"
         )
-        let subsequent = await service.performRequest(
-            session: session,
+        let subsequent = await coordinator.response(
             endpoint: "repos/manaflow-ai/cmux/pulls?state=open",
             authHeader: "Bearer test-token"
         )
@@ -342,18 +334,18 @@ struct GitHubPullRequestRequestTests {
             ),
             .init(statusCode: 200, data: Data("[]".utf8)),
         ])
-        let coordinator = GitHubPullRequestRequestCoordinator(now: { now })
-        let session = makeSession()
+        let coordinator = GitHubPullRequestRequestCoordinator(
+            session: makeSession(),
+            now: { now }
+        )
 
         _ = await coordinator.response(
             endpoint: endpoint,
-            authHeader: "Bearer test-token",
-            sessionOverride: session
+            authHeader: "Bearer test-token"
         )
         let suppressed = await coordinator.response(
             endpoint: "repos/manaflow-ai/cmux/pulls?state=open",
-            authHeader: "Bearer test-token",
-            sessionOverride: session
+            authHeader: "Bearer test-token"
         )
 
         #expect(suppressed == nil)
@@ -367,16 +359,13 @@ struct GitHubPullRequestRequestTests {
             .init(statusCode: 200, data: body, delay: 0.05),
             .init(statusCode: 200, data: body, delay: 0.05),
         ])
-        let service = PullRequestProbeService()
-        let session = makeSession()
+        let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
 
-        async let first = service.performRequest(
-            session: session,
+        async let first = coordinator.response(
             endpoint: endpoint,
             authHeader: "Bearer test-token"
         )
-        async let second = service.performRequest(
-            session: session,
+        async let second = coordinator.response(
             endpoint: endpoint,
             authHeader: "Bearer test-token"
         )
@@ -391,18 +380,15 @@ struct GitHubPullRequestRequestTests {
             .init(statusCode: 200, data: Data("[]".utf8), delay: 0.05),
             .init(statusCode: 200, data: Data("[]".utf8)),
         ])
-        let coordinator = GitHubPullRequestRequestCoordinator()
-        let session = makeSession()
+        let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
 
         async let first = coordinator.response(
             endpoint: endpoint,
-            authHeader: "Bearer first-account-token",
-            sessionOverride: session
+            authHeader: "Bearer first-account-token"
         )
         async let second = coordinator.response(
             endpoint: endpoint,
-            authHeader: "Bearer second-account-token",
-            sessionOverride: session
+            authHeader: "Bearer second-account-token"
         )
         _ = await [first, second]
 
@@ -413,21 +399,18 @@ struct GitHubPullRequestRequestTests {
         }) == ["Bearer first-account-token", "Bearer second-account-token"])
     }
 
-    @Test func serviceCopiesUseAtMostOneGitHubConnectionAtATime() async {
+    @Test func coordinatorUsesAtMostOneGitHubConnectionAtATime() async {
         GitHubPullRequestStubURLProtocol.reset(stubs: [
             .init(statusCode: 200, data: Data("[]".utf8), delay: 0.05),
             .init(statusCode: 200, data: Data("[]".utf8), delay: 0.05),
         ])
-        let service = PullRequestProbeService()
-        let secondWindowService = service
+        let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
 
-        async let recent = service.performRequest(
-            session: makeSession(),
+        async let recent = coordinator.response(
             endpoint: endpoint,
             authHeader: "Bearer test-token"
         )
-        async let branch = secondWindowService.performRequest(
-            session: makeSession(),
+        async let branch = coordinator.response(
             endpoint: "repos/manaflow-ai/cmux/pulls?head=manaflow-ai:issue-8175",
             authHeader: "Bearer test-token"
         )

@@ -47,15 +47,14 @@ extension PullRequestPollService {
         var needsFollowUpPass = false
 
         defer {
-            if needsFollowUpPass {
+            if rateLimitRetryDate == nil,
+               needsFollowUpPass || workspacePullRequestFollowUpShouldBypassRepoCache {
                 let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache
                 workspacePullRequestFollowUpShouldBypassRepoCache = false
-                if rateLimitRetryDate == nil {
-                    refreshTrackedWorkspacePullRequestsIfNeeded(
-                        reason: "\(reason).followUp",
-                        allowCachedResultsOverride: shouldBypassRepoCache ? false : nil
-                    )
-                }
+                refreshTrackedWorkspacePullRequestsIfNeeded(
+                    reason: "\(reason).followUp",
+                    allowCachedResultsOverride: shouldBypassRepoCache ? false : nil
+                )
             }
         }
 
@@ -183,10 +182,6 @@ extension PullRequestPollService {
             if rerunPending {
                 workspacePullRequestNextPollAtByKey[key] = .distantPast
             }
-            if let rateLimitRetryDate,
-               workspacePullRequestNextPollAtByKey[key, default: .distantPast] < rateLimitRetryDate {
-                workspacePullRequestNextPollAtByKey[key] = rateLimitRetryDate
-            }
 
 #if DEBUG
             let label: String = {
@@ -208,6 +203,15 @@ extension PullRequestPollService {
 #endif
         }
 
+        if let rateLimitRetryDate {
+            for key in requestedKeys {
+                guard workspacePullRequestProbeStateByKey[key] != nil,
+                      workspacePullRequestNextPollAtByKey[key, default: .distantPast] < rateLimitRetryDate else {
+                    continue
+                }
+                workspacePullRequestNextPollAtByKey[key] = rateLimitRetryDate
+            }
+        }
         updateWorkspacePullRequestPollTimer()
     }
 

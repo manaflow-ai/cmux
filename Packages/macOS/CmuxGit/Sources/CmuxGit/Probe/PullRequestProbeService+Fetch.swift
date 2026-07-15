@@ -345,21 +345,6 @@ extension PullRequestProbeService {
         await requestCoordinator.response(endpoint: endpoint, authHeader: authHeader)
     }
 
-    /// Injected-session overload used by transport behavior tests. It still
-    /// exercises the same shared auth, ETag, backoff, queue, and coalescing
-    /// policy as production.
-    nonisolated func performRequest(
-        session: URLSession,
-        endpoint: String,
-        authHeader: String?
-    ) async -> WorkspacePullRequestHTTPResponse? {
-        await requestCoordinator.response(
-            endpoint: endpoint,
-            authHeader: authHeader,
-            sessionOverride: session
-        )
-    }
-
     /// The GitHub reset deadline currently suppressing transport, if any.
     public nonisolated func rateLimitRetryDate() async -> Date? {
         await requestCoordinator.retryDate()
