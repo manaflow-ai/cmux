@@ -287,7 +287,7 @@ extension SharedLiveAgentIndex {
             latestCompletedAt = completedAt
             recordEventReloadBackpressure(
                 indexedSessionCount: result.index.entryCount,
-                liveAgentCount: result.liveAgentProcessFingerprint.count,
+                liveAgentCount: result.index.liveAgentProcessCount,
                 completedAt: completedAt
             )
 
