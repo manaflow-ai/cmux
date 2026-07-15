@@ -14,7 +14,7 @@ public enum AgentLaunchCaptureTrust {
     private static let wrapperLaunchersByKind: [String: Set<String>] = [
         "claude": ["claudeteams"],
         "codex": ["codexteams"],
-        "opencode": ["omo", "omx", "omc"],
+        "opencode": ["omo", "omo-slim", "omos", "omx", "omc"],
         "pi": ["omp"],
     ]
 
@@ -31,7 +31,7 @@ public enum AgentLaunchCaptureTrust {
         "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
         "kiro": ["kiro", "kiro-cli"],
         "omp": ["omp"],
-        "opencode": ["opencode", "omo", "omx", "omc"],
+        "opencode": ["opencode", "omo", "omo-slim", "omos", "omx", "omc"],
         "pi": ["pi", "omp"],
         "qoder": ["qodercli", "qoder"],
         "rovodev": ["rovodev", "rovo", "rovo-dev"],
@@ -50,6 +50,12 @@ public enum AgentLaunchCaptureTrust {
             return true
         }
         return wrapperLaunchersByKind[normalizedKind]?.contains(normalizedLauncher) == true
+    }
+
+    public static func launcherIsOpenCodeSessionWrapper(_ launcher: String?) -> Bool {
+        guard let launcher = launcher?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !launcher.isEmpty else { return false }
+        return ["omo", "omo-slim", "omos"].contains(launcher.lowercased())
     }
 
     /// True when a captured argv describes a shell dispatcher (`sh -c …`,

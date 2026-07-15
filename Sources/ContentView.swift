@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxAppKitSupportUI
 import CmuxCommandPalette
 import CmuxCore
@@ -5545,7 +5546,7 @@ struct ContentView: View {
         case .claude, .codex:
             return .supportedWithoutProbe
         case .opencode:
-            return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
+            return AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(snapshot.launchCommand?.launcher) || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
         case .custom:
             return .supportedWithoutProbe
         default:

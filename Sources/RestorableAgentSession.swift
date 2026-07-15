@@ -437,7 +437,7 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?
     ) -> (executable: String, arguments: [String])? {
         switch launchCommand?.launcher {
-        case "omo":
+        case "omo", "omo-slim", "omos":
             return nil
         case "omx", "omc":
             return nil
