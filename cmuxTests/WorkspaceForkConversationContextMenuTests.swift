@@ -433,7 +433,8 @@ struct WorkspaceForkConversationContextMenuTests {
                     processArgumentsProvider: { _ in nil }
                 )
                 .loadResultSynchronously()
-            }
+            },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
         )
 
         #expect(
@@ -490,7 +491,8 @@ struct WorkspaceForkConversationContextMenuTests {
             },
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path
-            }
+            },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
         )
         await liveAgentIndex.refreshForkAvailabilityNow(workspaceId: workspace.id, panelId: panelId)
         #expect(liveAgentIndex.prepareForkAvailabilityProbe(workspaceId: workspace.id, panelId: panelId))
