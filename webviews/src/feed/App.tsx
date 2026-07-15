@@ -1,5 +1,6 @@
 import { useState, useSyncExternalStore } from "react";
 import { callFeedNative, feedSnapshotStore } from "./bridge";
+import type { CSSProperties } from "react";
 import type { FeedItem, FeedQuestion } from "./types";
 import "./styles.css";
 
@@ -48,7 +49,13 @@ export function FeedApp() {
             {filter === "actionable" ? snapshot.copy.emptyActionable : snapshot.copy.emptyActivity}
           </div>
         ) : items.map((item) => (
-          <FeedCard key={item.id} item={item} copy={snapshot.copy} perform={perform} />
+          <FeedCard
+            key={item.id}
+            item={item}
+            copy={snapshot.copy}
+            perform={perform}
+            sourceIcon={snapshot.sourceIcons[item.source]}
+          />
         ))}
         {snapshot.hasMore && (
           <button
@@ -64,17 +71,18 @@ export function FeedApp() {
   );
 }
 
-function FeedCard({ item, copy, perform }: {
+function FeedCard({ item, copy, perform, sourceIcon }: {
   item: FeedItem;
   copy: NonNullable<ReturnType<typeof feedSnapshotStore.getSnapshot>>["copy"];
   perform: (method: string, params: Record<string, unknown>) => Promise<void>;
+  sourceIcon?: string;
 }) {
   const title = item.title || item.tool_name || item.kind.replaceAll("_", " ");
   return (
     <article className={`feed-card feed-card-${item.status}`}>
       <div className="feed-card-heading">
-        <div>
-          <span className="feed-source">{item.source}</span>
+        <div className="feed-card-title">
+          <SourceIdentity icon={sourceIcon} source={item.source} />
           <h2>{title}</h2>
         </div>
         <time>{new Date(item.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time>
@@ -85,6 +93,29 @@ function FeedCard({ item, copy, perform }: {
         <FeedActions item={item} copy={copy} perform={perform} />
       )}
     </article>
+  );
+}
+
+const sourceLabels: Record<string, string> = {
+  claude: "Claude",
+  codex: "Codex",
+  "hermes-agent": "Hermes",
+  opencode: "OpenCode",
+  pi: "Pi",
+};
+
+function SourceIdentity({ icon, source }: { icon?: string; source: string }) {
+  const label = sourceLabels[source] ?? source;
+  const style = icon
+    ? ({ "--feed-source-icon": `url(${JSON.stringify(icon)})` } as CSSProperties)
+    : undefined;
+  return (
+    <span className="feed-source" data-feed-source={source}>
+      <span className="feed-source-logo" data-fallback={icon ? undefined : ""} style={style} aria-hidden="true">
+        {!icon && label.slice(0, 1).toUpperCase()}
+      </span>
+      <span>{label}</span>
+    </span>
   );
 }
 

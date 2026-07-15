@@ -60,6 +60,7 @@ export type FeedSnapshot = {
   hasMore: boolean;
   isLoadingOlder: boolean;
   items: FeedItem[];
+  sourceIcons: Record<string, string>;
 };
 
 export type FeedNativeEvent = {

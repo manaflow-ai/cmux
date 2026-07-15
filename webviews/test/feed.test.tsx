@@ -44,11 +44,22 @@ test("Feed React surface invokes the typed permission primitive", async () => {
         },
         hasMore: false,
         isLoadingOlder: false,
+        sourceIcons: {
+          claude: "data:image/png;base64,Y2xhdWRl",
+          codex: "data:image/png;base64,Y29kZXg=",
+          opencode: "data:image/png;base64,b3BlbmNvZGU=",
+        },
         items: [{
           created_at: "2026-07-13T12:00:00Z", id: "item-1", kind: "permissionRequest",
           request_id: "request-1", source: "claude", status: "pending", tool_name: "Bash",
           tool_input: "echo ok", workstream_id: "claude-session",
           allowed_permission_modes: ["deny", "once", "always", "all"],
+        }, {
+          created_at: "2026-07-13T12:01:00Z", id: "item-2", kind: "toolUse",
+          source: "codex", status: "telemetry", title: "Apply patch", workstream_id: "codex-session",
+        }, {
+          created_at: "2026-07-13T12:02:00Z", id: "item-3", kind: "toolUse",
+          source: "opencode", status: "telemetry", title: "Run tests", workstream_id: "opencode-session",
         }],
       } };
     }
@@ -59,6 +70,11 @@ test("Feed React surface invokes the typed permission primitive", async () => {
   root = createRoot(container);
   flushSync(() => root?.render(<FeedApp />));
   await waitFor(() => container.textContent?.includes("Bash") === true);
+  expect(container.querySelector('[data-feed-source="claude"] .feed-source-logo')).toBeTruthy();
+  expect(container.querySelector('[data-feed-source="claude"]')?.textContent).toContain("Claude");
+  flushSync(() => [...container.querySelectorAll("button")].find((button) => button.textContent === "All Activity")?.click());
+  expect(container.querySelector('[data-feed-source="codex"]')?.textContent).toContain("Codex");
+  expect(container.querySelector('[data-feed-source="opencode"]')?.textContent).toContain("OpenCode");
   const allowOnce = [...container.querySelectorAll("button")].find((button) => button.textContent === "Allow Once")!;
   allowOnce.click();
   await waitFor(() => calls.some((call: any) => call.method === "feed.permission.reply"));

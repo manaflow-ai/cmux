@@ -173,6 +173,7 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
         let store = FeedCoordinator.shared.store
         return [
             "items": (store?.items ?? []).map(itemDictionary),
+            "sourceIcons": Self.sourceIconDataURLs,
             "hasMore": store?.hasMorePersistedItems ?? false,
             "isLoadingOlder": store?.isLoadingOlderItems ?? false,
             "copy": [
@@ -197,6 +198,25 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
             ],
         ]
     }
+
+    private static let sourceIconDataURLs: [String: String] = {
+        let assetNames: [WorkstreamSource: String] = [
+            .claude: "AgentIcons/Claude",
+            .codex: "AgentIcons/Codex",
+            .opencode: "AgentIcons/OpenCode",
+            .pi: "AgentIcons/Pi",
+            .hermesAgent: "AgentIcons/HermesAgent",
+        ]
+        return assetNames.reduce(into: [:]) { result, entry in
+            guard let image = NSImage(named: NSImage.Name(entry.value)),
+                  let tiffData = image.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiffData),
+                  let pngData = bitmap.representation(using: .png, properties: [:]) else {
+                return
+            }
+            result[entry.key.rawValue] = "data:image/png;base64,\(pngData.base64EncodedString())"
+        }
+    }()
 
     private func itemDictionary(_ item: WorkstreamItem) -> [String: Any] {
         var dictionary = FeedSocketEncoding.itemDict(item)
