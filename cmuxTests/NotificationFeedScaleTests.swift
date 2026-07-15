@@ -26,7 +26,7 @@ struct NotificationFeedScaleTests {
         let eventBus = CmuxEventBus.shared
         let tabId = UUID()
         let surfaceId = UUID()
-        let limit = 20_000
+        let limit = TerminalNotificationStore.maximumNotificationFeedCount
 
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }

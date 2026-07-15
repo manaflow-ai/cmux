@@ -169,12 +169,14 @@ extension AppDelegate {
         return (owner.workspace.id, surfaceId)
     }
 
-    /// Once an event has been accepted, a pane disappearing must not erase its
-    /// feed row. Prefer the pane's live owner, then preserve the event as a
-    /// workspace-level row when the claimed workspace still exists.
+    /// Once an event has been accepted under an already validated surface, a
+    /// pane disappearing must not erase its feed row. Unknown or never-owned
+    /// surface ids fail closed instead of being inferred as workspace-level
+    /// rows.
     func agentNotificationRecordTarget(
         claimedTabId: UUID,
-        surfaceId: UUID?
+        surfaceId: UUID?,
+        allowWorkspaceFallbackForValidatedSurface: Bool = false
     ) -> (tabId: UUID, surfaceId: UUID?)? {
         if let target = agentNotificationDeliveryTarget(
             claimedTabId: claimedTabId,
@@ -182,7 +184,7 @@ extension AppDelegate {
         ) {
             return target
         }
-        guard surfaceId != nil else { return nil }
+        guard allowWorkspaceFallbackForValidatedSurface, surfaceId != nil else { return nil }
         return agentNotificationDeliveryTarget(claimedTabId: claimedTabId, surfaceId: nil)
     }
 

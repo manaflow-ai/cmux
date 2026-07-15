@@ -251,6 +251,7 @@ final class TerminalNotificationStore: ObservableObject {
     /// drift self-heals on the next event. Emitted from the same chokepoint that
     /// refreshes the Mac Dock badge, so every mutation lane is covered.
     static let badgeEventTopic = "notification.badge"
+    static let maximumNotificationFeedCount = 20_000
 
     /// The number of unread notification *entries* — the count the iOS app icon
     /// badge mirrors. The phone's banners mirror notification entries, so its
@@ -1290,7 +1291,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func commitInsertion(_ notification: TerminalNotification, at index: Int) {
-        if index == 0 {
+        if index == 0, notifications.count < Self.maximumNotificationFeedCount {
             notificationFeedRevision &+= 1
             notificationFeedStorage.oldestFirst.append(notification)
             notificationFeedDidChange(oldValue: nil, mutation: .insertion(notification))
@@ -1299,6 +1300,18 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = Array(notifications)
         updated.insert(notification, at: index)
         replaceNotificationFeed(updated, mutation: .insertion(notification))
+    }
+
+    private static func retainedNotificationFeed(
+        from newestFirst: [TerminalNotification]
+    ) -> (retained: [TerminalNotification], evicted: [TerminalNotification]) {
+        guard newestFirst.count > maximumNotificationFeedCount else {
+            return (newestFirst, [])
+        }
+        return (
+            Array(newestFirst.prefix(maximumNotificationFeedCount)),
+            Array(newestFirst.dropFirst(maximumNotificationFeedCount))
+        )
     }
 
     private func commitReadStateChange(
@@ -1314,9 +1327,16 @@ final class TerminalNotificationStore: ObservableObject {
         mutation: NotificationMutationHint? = nil
     ) {
         let previous = Array(notifications)
+        let retained = Self.retainedNotificationFeed(from: next)
+        if !retained.evicted.isEmpty {
+            externalBannerOwnership.clear(ids: retained.evicted.map { $0.id.uuidString })
+        }
         notificationFeedRevision &+= 1
-        notificationFeedStorage = TerminalNotificationFeedStorage(newestFirst: next)
-        notificationFeedDidChange(oldValue: previous, mutation: mutation)
+        notificationFeedStorage = TerminalNotificationFeedStorage(newestFirst: retained.retained)
+        notificationFeedDidChange(
+            oldValue: previous,
+            mutation: retained.evicted.isEmpty ? mutation : nil
+        )
     }
 
     private func notificationFeedDidChange(
@@ -2250,7 +2270,7 @@ final class TerminalNotificationStore: ObservableObject {
         TerminalMutationBus.shared.discardPendingNotifications()
         deferredUnreadNavigationIds.removeAll()
         replaceNotificationFeed(notifications)
-        externalBannerOwnership.resetAssumingOwners(from: notifications)
+        externalBannerOwnership.resetAssumingOwners(from: Array(self.notifications))
         clearWorkspaceManualUnread()
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()

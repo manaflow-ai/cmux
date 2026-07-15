@@ -113,7 +113,8 @@ extension TerminalNotificationStore {
         guard request.retargetsToLiveSurfaceOwner else { return request }
         guard let target = AppDelegate.shared?.agentNotificationRecordTarget(
             claimedTabId: request.tabId,
-            surfaceId: request.surfaceId
+            surfaceId: request.surfaceId,
+            allowWorkspaceFallbackForValidatedSurface: request.panelId != nil
         ) else { return nil }
         return TerminalNotificationPolicyRequest(
             tabId: target.tabId,
