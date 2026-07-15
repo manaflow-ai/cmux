@@ -30,6 +30,7 @@ import Testing
         let (coordinator, _) = makeCoordinator(client: FakeAuthClient())
         #expect(coordinator.isAuthenticated == false)
         #expect(coordinator.currentUser == nil)
+        #expect(coordinator.didResolveTeamScope == false)
     }
 
     @Test func passwordSignInAuthenticatesAndCaches() async throws {
@@ -41,6 +42,8 @@ import Testing
 
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.currentUser == user)
+        #expect(coordinator.didResolveTeamScope)
+        #expect(coordinator.resolvedTeamID == nil)
         #expect(store.bool(forKey: "has_tokens"))
         let recorded = await client.signedInWithCredential
         #expect(recorded?.email == "a@b.com")
@@ -380,6 +383,7 @@ import Testing
 
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.availableTeams.isEmpty)
+        #expect(coordinator.didResolveTeamScope)
     }
 
     @Test func signOutClearsTeamsAndSelection() async throws {
@@ -394,6 +398,7 @@ import Testing
         #expect(coordinator.availableTeams.isEmpty)
         #expect(coordinator.selectedTeamID == nil)
         #expect(coordinator.resolvedTeamID == nil)
+        #expect(coordinator.didResolveTeamScope == false)
         #expect(store.string(forKey: "selected_team") == nil)
     }
 
