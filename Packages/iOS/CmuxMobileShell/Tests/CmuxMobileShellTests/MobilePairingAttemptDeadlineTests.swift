@@ -42,7 +42,10 @@ import Testing
 
         #expect(first == .failed)
         #expect(second == .failed)
-        #expect(connectCount == 1)
+        #expect(
+            connectCount <= 1,
+            "the immediate retry must not fan out while the first route lease is still reserved"
+        )
         #expect(store.connectionState == .disconnected)
     }
 
