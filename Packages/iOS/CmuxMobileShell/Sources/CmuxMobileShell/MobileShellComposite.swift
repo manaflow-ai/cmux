@@ -3693,6 +3693,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var registrySessionHandoffNavigationRequest: RegistrySessionHandoffNavigationRequest?
     /// Keeps the disconnected handoff surface mounted until registry validation finishes.
     public internal(set) var isRegistrySessionHandoffInProgress = false
+    /// Keeps the first-connection surface mounted even after target persistence flips the paired-Mac hint.
+    public internal(set) var isFirstConnectionRegistrySessionHandoffInProgress = false
     @ObservationIgnored var registrySessionHandoffAttemptID: UUID?
 
     /// Selects `id` as a chrome action (the terminal picker), so the surface

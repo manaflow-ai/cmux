@@ -242,8 +242,8 @@ struct CMUXMobileRootView: View {
             // keyed only by onboarding completion so auto-pairing cannot defer
             // onboarding until the user later removes every computer.
             onboardingFlow
-        } else if !store.hasKnownPairedMac &&
-                    (store.isRegistrySessionHandoffInProgress || store.connectionState != .connected) {
+        } else if store.isFirstConnectionRegistrySessionHandoffInProgress ||
+                    (!store.hasKnownPairedMac && store.connectionState != .connected) {
             // ONLY when there are no saved Macs at all: the add-device flow (it
             // auto-presents the pairing sheet since there is nothing to list).
             DisconnectedWorkspaceShellView(
@@ -404,6 +404,7 @@ struct CMUXMobileRootView: View {
               MobileRootAuthGate.shouldReconnectStoredMac(
                 stackAuthenticated: authManager.isAuthenticated,
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+                hasResolvedTeamScope: authManager.resolvedTeamID != nil,
                 connectionState: store.connectionState
               ) else { return }
         let stackUserID = authManager.currentUser?.id

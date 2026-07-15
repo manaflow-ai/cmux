@@ -10,7 +10,7 @@
 // pairing — a phone keeps its own local paired-Mac store and falls back to it
 // when the registry is unreachable, so pairing survives the cloud being down.
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { cloudDb } from "../../../db/client";
 import { deviceAppInstances, devices } from "../../../db/schema";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
@@ -357,6 +357,7 @@ export async function GET(request: Request): Promise<Response> {
   if (!team.ok) return team.response;
 
   const db = cloudDb();
+  const liveSessionsOnly = new URL(request.url).searchParams.get("view") === "live-sessions";
 
   const deviceRows = (await db
     .select({
@@ -369,20 +370,29 @@ export async function GET(request: Request): Promise<Response> {
       lastSeenAt: devices.lastSeenAt,
     })
     .from(devices)
-    .where(eq(devices.teamId, team.teamId))
+    .where(liveSessionsOnly
+      ? and(eq(devices.teamId, team.teamId), eq(devices.userId, user.id))
+      : eq(devices.teamId, team.teamId))
     .orderBy(desc(devices.lastSeenAt))) as DeviceListRow[];
 
-  const instanceRows = await db
-    .select({
-      deviceId: deviceAppInstances.deviceId,
-      tag: deviceAppInstances.tag,
-      routes: deviceAppInstances.routes,
-      labels: deviceAppInstances.labels,
-      lastSeenAt: deviceAppInstances.lastSeenAt,
-    })
-    .from(deviceAppInstances)
-    .where(eq(deviceAppInstances.teamId, team.teamId))
-    .orderBy(desc(deviceAppInstances.lastSeenAt));
+  const instanceRows = deviceRows.length === 0
+    ? []
+    : await db
+      .select({
+        deviceId: deviceAppInstances.deviceId,
+        tag: deviceAppInstances.tag,
+        routes: deviceAppInstances.routes,
+        labels: deviceAppInstances.labels,
+        lastSeenAt: deviceAppInstances.lastSeenAt,
+      })
+      .from(deviceAppInstances)
+      .where(liveSessionsOnly
+        ? and(
+          eq(deviceAppInstances.teamId, team.teamId),
+          inArray(deviceAppInstances.deviceId, deviceRows.map((device) => device.id)),
+        )
+        : eq(deviceAppInstances.teamId, team.teamId))
+      .orderBy(desc(deviceAppInstances.lastSeenAt));
 
   const instancesByDevice = new Map<string, typeof instanceRows>();
   for (const row of instanceRows) {
@@ -413,24 +423,30 @@ export async function GET(request: Request): Promise<Response> {
     remainingLiveSessionBudget -= sessions.length;
   }
 
-  const devicesPayload = deviceRows.map((device) => ({
-    // The phone matches its stored `macDeviceID` (the cmux device UUID) against
-    // this, so expose `deviceUuid`, not the internal surrogate row id.
-    deviceId: device.deviceUuid,
-    platform: device.platform,
-    displayName: device.displayName,
-    labels: device.labels,
-    lastSeenAt: device.lastSeenAt.toISOString(),
-    instances: (instancesByDevice.get(device.id) ?? []).map((instance) => ({
-      tag: instance.tag,
-      routes: sanitizeServerPublishedRoutes(
-        Array.isArray(instance.routes) ? instance.routes : [],
-      ),
-      labels: publicInstanceLabels(instance.labels),
-      sessions: sessionsByInstance.get(instance) ?? [],
-      lastSeenAt: instance.lastSeenAt.toISOString(),
-    })),
-  }));
+  const devicesPayload = deviceRows.flatMap((device) => {
+    const instances = (instancesByDevice.get(device.id) ?? [])
+      .filter((instance) => !liveSessionsOnly || (sessionsByInstance.get(instance)?.length ?? 0) > 0)
+      .map((instance) => ({
+        tag: instance.tag,
+        routes: sanitizeServerPublishedRoutes(
+          Array.isArray(instance.routes) ? instance.routes : [],
+        ),
+        labels: publicInstanceLabels(instance.labels),
+        sessions: sessionsByInstance.get(instance) ?? [],
+        lastSeenAt: instance.lastSeenAt.toISOString(),
+      }));
+    if (liveSessionsOnly && instances.length === 0) return [];
+    return [{
+      // The phone matches its stored `macDeviceID` (the cmux device UUID) against
+      // this, so expose `deviceUuid`, not the internal surrogate row id.
+      deviceId: device.deviceUuid,
+      platform: device.platform,
+      displayName: device.displayName,
+      labels: device.labels,
+      lastSeenAt: device.lastSeenAt.toISOString(),
+      instances,
+    }];
+  });
 
   return jsonResponse({ teamId: team.teamId, devices: devicesPayload });
 }

@@ -39,6 +39,18 @@ public protocol DeviceRegistryRefreshing: Sendable {
     /// after the token/scope changed must NOT keep the previous scope's
     /// team-device data visible.
     func listDevices() async -> DeviceRegistryListOutcome
+
+    /// List only devices and instances carrying account-private live sessions.
+    ///
+    /// Implementations should use a bounded server projection when available.
+    /// The default preserves compatibility for injected registries and test doubles.
+    func listLiveSessionDevices() async -> DeviceRegistryListOutcome
+}
+
+public extension DeviceRegistryRefreshing {
+    func listLiveSessionDevices() async -> DeviceRegistryListOutcome {
+        await listDevices()
+    }
 }
 
 /// The outcome of a device-list registry read, distinguishing the cases that

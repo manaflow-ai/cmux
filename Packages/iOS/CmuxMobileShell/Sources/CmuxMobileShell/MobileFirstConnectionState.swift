@@ -28,4 +28,19 @@ public struct MobileFirstConnectionState: Equatable, Sendable {
         }
         return true
     }
+
+    /// Whether an automatically presented pairing sheet should be dismissed.
+    ///
+    /// Loading and transient unavailability preserve the user's in-progress form
+    /// or scanner. Only a saved computer, an account session, or an authoritative
+    /// scope rejection replaces the empty-registry state that opened the sheet.
+    public var shouldDismissAutomaticPairing: Bool {
+        if hasSavedComputer { return true }
+        switch registryState {
+        case .loaded(hasAccountSession: true), .authRejected:
+            return true
+        case .loading, .unavailable, .loaded(hasAccountSession: false):
+            return false
+        }
+    }
 }

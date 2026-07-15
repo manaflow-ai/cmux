@@ -253,13 +253,16 @@ struct DisconnectedWorkspaceShellView: View {
         guard connectionAttemptState.canStartConnection, let store else { return }
         pendingHandoffID = session.id
         Task { @MainActor in
-            defer { pendingHandoffID = nil }
-            _ = await store.prepareRegistrySessionHandoff(
+            let workspaceID = await store.prepareFirstConnectionRegistrySessionHandoff(
                 deviceID: session.deviceID,
                 instanceTag: session.instanceTag,
                 sessionID: session.sessionID,
                 expectedAgentSessionID: session.agentSessionID
             )
+            pendingHandoffID = nil
+            reconcileAutomaticPairingPresentation()
+            guard workspaceID == nil, !Task.isCancelled else { return }
+            await refreshRegistryAndPresentation(scopeID: discoveryScopeID)
         }
     }
 
@@ -280,7 +283,7 @@ struct DisconnectedWorkspaceShellView: View {
         defer {
             if registryRefreshScopeID == scopeID { registryRefreshScopeID = nil }
         }
-        let loadResult = await store?.loadRegistryDevices() ?? .unavailable
+        let loadResult = await store?.loadRegistryLiveSessionDevices() ?? .unavailable
         guard !Task.isCancelled, activeDiscoveryScopeID == scopeID else { return }
         let nextState: MobileFirstConnectionRegistryState = switch loadResult {
         case .loaded:
@@ -291,15 +294,20 @@ struct DisconnectedWorkspaceShellView: View {
             .unavailable
         }
         registryState = nextState
+        reconcileAutomaticPairingPresentation()
+    }
+
+    private func reconcileAutomaticPairingPresentation() {
         let presentation = MobileFirstConnectionState(
             hasSavedComputer: !savedComputers.isEmpty,
-            registryState: nextState
+            registryState: registryState
         )
-        if didPresentManualPairing, !presentation.shouldPresentManualPairing {
+        if didPresentManualPairing, presentation.shouldDismissAutomaticPairing {
             didPresentManualPairing = false
             updateAutomaticAddDevicePresentation(false)
         }
-        guard !didPresentManualPairing,
+        guard connectionAttemptState.canStartConnection,
+              !didPresentManualPairing,
               presentation.shouldPresentManualPairing else { return }
         didPresentManualPairing = true
         updateAutomaticAddDevicePresentation(true)

@@ -166,11 +166,19 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     }
 
     public func listDevices() async -> DeviceRegistryListOutcome {
+        await listDevices(path: "/api/devices")
+    }
+
+    public func listLiveSessionDevices() async -> DeviceRegistryListOutcome {
+        await listDevices(path: "/api/devices?view=live-sessions")
+    }
+
+    private func listDevices(path: String) async -> DeviceRegistryListOutcome {
         // No request could be built (no valid session/tokens): treat as a
         // transient failure rather than an auth rejection, since this is the
         // signed-out / not-yet-bootstrapped case, not the registry actively
         // rejecting the caller's scope.
-        guard let request = await makeRequest(method: "GET", path: "/api/devices", body: nil) else {
+        guard let request = await makeRequest(method: "GET", path: path, body: nil) else {
             return .transientFailure
         }
         let data: Data
@@ -274,16 +282,14 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// non-fractional form too. An absent/unparseable value yields
     /// ``Date/distantPast`` so the device still renders rather than being dropped.
     ///
-    /// The formatters are created per call rather than cached in a `static` so
-    /// this stays `Sendable`-clean under strict concurrency (`ISO8601DateFormatter`
-    /// is not `Sendable`). This runs once per `/api/devices` response, not on any
-    /// hot path, so the allocation is negligible.
+    /// Value-type format styles avoid allocating two reference-type formatters for
+    /// every device and instance in a registry response and remain `Sendable`-clean.
     static func parseTimestamp(_ value: String?) -> Date {
         guard let value, !value.isEmpty else { return .distantPast }
-        let withFraction = ISO8601DateFormatter()
-        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = withFraction.date(from: value) { return date }
-        if let date = ISO8601DateFormatter().date(from: value) { return date }
+        if let date = try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(value) {
+            return date
+        }
+        if let date = try? Date.ISO8601FormatStyle().parse(value) { return date }
         return .distantPast
     }
 

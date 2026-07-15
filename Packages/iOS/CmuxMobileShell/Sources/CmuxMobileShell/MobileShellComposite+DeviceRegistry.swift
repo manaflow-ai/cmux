@@ -8,12 +8,29 @@ extension MobileShellComposite {
     /// live-session summaries to the authenticated account before returning them.
     @discardableResult
     public func loadRegistryDevices() async -> MobileRegistryLoadResult {
+        await loadRegistryDevices(liveSessionsOnly: false)
+    }
+
+    /// Reload only the authenticated account's current live-session devices.
+    ///
+    /// The first-connection lease-renewal loop uses this bounded projection instead
+    /// of downloading every device and app instance visible to the team.
+    @discardableResult
+    public func loadRegistryLiveSessionDevices() async -> MobileRegistryLoadResult {
+        await loadRegistryDevices(liveSessionsOnly: true)
+    }
+
+    private func loadRegistryDevices(liveSessionsOnly: Bool) async -> MobileRegistryLoadResult {
         guard let deviceRegistry,
               let scope = await currentScopeSnapshot() else {
             registryDevices = []
             return .unavailable
         }
-        let outcome = await deviceRegistry.listDevices()
+        let outcome = if liveSessionsOnly {
+            await deviceRegistry.listLiveSessionDevices()
+        } else {
+            await deviceRegistry.listDevices()
+        }
         let loaded: [RegistryDevice]
         switch outcome {
         case .ok(let devices):
@@ -78,7 +95,44 @@ extension MobileShellComposite {
         sessionID: String,
         expectedAgentSessionID: String?
     ) async -> MobileWorkspacePreview.ID? {
-        let requestID = beginRegistrySessionHandoffAttempt()
+        await prepareRegistrySessionHandoff(
+            deviceID: deviceID,
+            instanceTag: instanceTag,
+            sessionID: sessionID,
+            expectedAgentSessionID: expectedAgentSessionID,
+            keepsFirstConnectionShellMounted: false
+        )
+    }
+
+    /// Prepare a request-owned handoff initiated from the first-connection shell.
+    ///
+    /// The explicit origin keeps that shell mounted after target persistence marks
+    /// the Mac as known but before the request finishes validation and navigation.
+    public func prepareFirstConnectionRegistrySessionHandoff(
+        deviceID: String,
+        instanceTag: String,
+        sessionID: String,
+        expectedAgentSessionID: String?
+    ) async -> MobileWorkspacePreview.ID? {
+        await prepareRegistrySessionHandoff(
+            deviceID: deviceID,
+            instanceTag: instanceTag,
+            sessionID: sessionID,
+            expectedAgentSessionID: expectedAgentSessionID,
+            keepsFirstConnectionShellMounted: true
+        )
+    }
+
+    private func prepareRegistrySessionHandoff(
+        deviceID: String,
+        instanceTag: String,
+        sessionID: String,
+        expectedAgentSessionID: String?,
+        keepsFirstConnectionShellMounted: Bool
+    ) async -> MobileWorkspacePreview.ID? {
+        let requestID = beginRegistrySessionHandoffAttempt(
+            keepsFirstConnectionShellMounted: keepsFirstConnectionShellMounted
+        )
         defer { finishRegistrySessionHandoffAttempt(requestID) }
         isRegistryHandoffFailurePresented = false
         guard let scope = await currentScopeSnapshot() else { return nil }
@@ -121,11 +175,14 @@ extension MobileShellComposite {
         return workspaceID
     }
 
-    func beginRegistrySessionHandoffAttempt() -> UUID {
+    func beginRegistrySessionHandoffAttempt(
+        keepsFirstConnectionShellMounted: Bool = false
+    ) -> UUID {
         invalidateRegistrySessionHandoffAttempt()
         let requestID = UUID()
         registrySessionHandoffAttemptID = requestID
         isRegistrySessionHandoffInProgress = true
+        isFirstConnectionRegistrySessionHandoffInProgress = keepsFirstConnectionShellMounted
         return requestID
     }
 
@@ -146,11 +203,13 @@ extension MobileShellComposite {
         guard registrySessionHandoffAttemptID == requestID else { return }
         registrySessionHandoffAttemptID = nil
         isRegistrySessionHandoffInProgress = false
+        isFirstConnectionRegistrySessionHandoffInProgress = false
     }
 
     func invalidateRegistrySessionHandoffAttempt() {
         registrySessionHandoffAttemptID = nil
         isRegistrySessionHandoffInProgress = false
+        isFirstConnectionRegistrySessionHandoffInProgress = false
         deeplinkWorkspaceNavigationRequest = nil
         registrySessionHandoffNavigationRequest = nil
     }
