@@ -69,21 +69,17 @@ extension Workspace {
     /// a lane re-engages the feature (clears any None opt-out).
     func setTaskStatusOverride(_ status: WorkspaceTaskStatus) {
         todoState.statusHidden = false
-        notifyingStatusTransition {
-            todoState.statusOverride = WorkspaceTaskStatusOverride(
-                status: status,
-                inferredAtOverride: inferredTaskStatus
-            )
-        }
+        todoState.statusOverride = WorkspaceTaskStatusOverride(
+            status: status,
+            inferredAtOverride: inferredTaskStatus
+        )
     }
 
     /// Returns the status to automatic by clearing the manual override (and
     /// any None opt-out), so the glyph shows the inferred lane again.
     func clearTaskStatusOverride() {
         todoState.statusHidden = false
-        notifyingStatusTransition {
-            todoState.statusOverride = nil
-        }
+        todoState.statusOverride = nil
     }
 
     /// Opts this workspace out of the status feature: no glyph is drawn before
