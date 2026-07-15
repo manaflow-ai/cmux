@@ -168,7 +168,7 @@ public struct ComputersSection: View {
             Button(String(localized: "settings.computers.copyLink.button", defaultValue: "Copy Pairing Link")) {
                 copyPairingLink()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
             .controlSize(.small)
             .disabled(isCopyingLink)
             .accessibilityIdentifier("SettingsComputersCopyPairingLinkButton")
