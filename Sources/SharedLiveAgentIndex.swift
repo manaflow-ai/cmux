@@ -147,6 +147,15 @@ final class SharedLiveAgentIndex {
         )
     }
 
+    func requestRefreshForAutosaveProcessScopeMismatch() {
+        guard refreshTask == nil,
+              forkAvailabilityRefreshTask == nil,
+              deferredReloadTimer == nil else {
+            return
+        }
+        startReload()
+    }
+
     func scheduleRefreshIfStale(validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil) {
         ensureWatchingHookStoreDirectory()
         guard refreshTask == nil, forkAvailabilityRefreshTask == nil else {

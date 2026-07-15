@@ -194,22 +194,33 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let loadCalls = OSAllocatedUnfairLock(initialState: 0)
-        let loadCompleted = DispatchSemaphore(value: 0)
+        let loadStarted = DispatchSemaphore(value: 0)
+        let refreshCompleted = DispatchSemaphore(value: 0)
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 loadCalls.withLock { $0 += 1 }
-                loadCompleted.signal()
+                loadStarted.signal()
                 return Self.loadResult(index: .empty)
             },
             hookStoreDirectoryProvider: { root.path },
             dateProvider: { Date(timeIntervalSince1970: 100) }
         )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: sharedIndex,
+            queue: nil
+        ) { _ in
+            refreshCompleted.signal()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
 
         sharedIndex.scheduleRefreshIfStale()
-        #expect(await Self.wait(for: loadCompleted))
+        #expect(await Self.wait(for: loadStarted))
+        #expect(await Self.wait(for: refreshCompleted))
 
         sharedIndex.requestRefreshForAutosaveProcessScopeMismatch()
-        #expect(await Self.wait(for: loadCompleted))
+        #expect(await Self.wait(for: loadStarted))
+        #expect(await Self.wait(for: refreshCompleted))
         #expect(loadCalls.withLock { $0 } == 2)
     }
 

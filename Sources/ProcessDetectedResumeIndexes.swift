@@ -26,7 +26,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
         },
         processScopeFingerprintProvider: @escaping @Sendable (CmuxTopProcessSnapshot) -> Set<String> = {
             SharedLiveAgentIndexLoader.processScopeFingerprint(from: $0)
-        }
+        },
+        processScopeMismatchHandler: @escaping @MainActor @Sendable () -> Void = {}
     ) async -> ProcessDetectedResumeIndexes? {
         guard let cachedAgentIndex else {
             return nil
@@ -43,6 +44,10 @@ struct ProcessDetectedResumeIndexes: Sendable {
                 processSnapshot: processSnapshot
             )
         }.value
+        guard let cachedResult else {
+            await processScopeMismatchHandler()
+            return nil
+        }
         return cachedResult
     }
 
