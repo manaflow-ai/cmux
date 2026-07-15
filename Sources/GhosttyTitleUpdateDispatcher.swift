@@ -13,24 +13,11 @@ actor GhosttyTitleUpdateDispatcher {
         @escaping @Sendable () async -> Void
     ) -> Cancellation
 
-    private struct SurfaceKey: Hashable {
-        let tabId: UUID
-        let surfaceId: UUID
-        let sourceSurfaceIdentifier: ObjectIdentifier
-    }
-
-    private struct SurfaceState {
-        var lastSequence: UInt64 = 0
-        var lastReceivedTitle: String?
-        var lastPublishedTitle: String?
-        var pendingUpdate: GhosttyTitleUpdate?
-    }
-
     private let coalescingInterval: Duration
     private let schedule: Scheduler
     private let publish: Publisher
-    private var states: [SurfaceKey: SurfaceState] = [:]
-    private var pendingKeys = Set<SurfaceKey>()
+    private var states: [GhosttyTitleUpdateSurfaceKey: GhosttyTitleUpdateSurfaceState] = [:]
+    private var pendingKeys = Set<GhosttyTitleUpdateSurfaceKey>()
     private var cancelScheduledFlush: Cancellation?
 
     init(
@@ -52,12 +39,12 @@ actor GhosttyTitleUpdateDispatcher {
     }
 
     func receive(_ update: GhosttyTitleUpdate) {
-        let key = SurfaceKey(
+        let key = GhosttyTitleUpdateSurfaceKey(
             tabId: update.tabId,
             surfaceId: update.surfaceId,
             sourceSurfaceIdentifier: update.sourceSurfaceIdentifier
         )
-        var state = states[key] ?? SurfaceState()
+        var state = states[key] ?? GhosttyTitleUpdateSurfaceState()
         guard update.sequence > state.lastSequence else { return }
         state.lastSequence = update.sequence
         guard update.title != state.lastReceivedTitle else {
@@ -82,7 +69,7 @@ actor GhosttyTitleUpdateDispatcher {
     }
 
     func retire(tabId: UUID, surfaceId: UUID, sourceSurfaceIdentifier: ObjectIdentifier) {
-        let key = SurfaceKey(
+        let key = GhosttyTitleUpdateSurfaceKey(
             tabId: tabId,
             surfaceId: surfaceId,
             sourceSurfaceIdentifier: sourceSurfaceIdentifier

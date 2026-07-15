@@ -10,16 +10,10 @@ final class RightSidebarModeShortcutMatcher {
     typealias Availability = (RightSidebarMode) -> Bool
     typealias LayoutCharacterProvider = (UInt16, NSEvent.ModifierFlags) -> String?
 
-    private struct Entry {
-        let mode: RightSidebarMode
-        let action: KeyboardShortcutSettings.Action
-        let shortcut: StoredShortcut
-    }
-
     private let shortcutProvider: ShortcutProvider
     private let availability: Availability
     private let layoutCharacterProvider: LayoutCharacterProvider
-    private var entriesByModifierRawValue: [UInt: [Entry]] = [:]
+    private var entriesByModifierRawValue: [UInt: [RightSidebarModeShortcutEntry]] = [:]
 
     init(
         shortcutProvider: @escaping ShortcutProvider = KeyboardShortcutSettings.shortcut(for:),
@@ -63,11 +57,11 @@ final class RightSidebarModeShortcutMatcher {
     }
 
     private func rebuildSnapshot() {
-        let entries = RightSidebarMode.allCases.compactMap { mode -> Entry? in
+        let entries = RightSidebarMode.allCases.compactMap { mode -> RightSidebarModeShortcutEntry? in
             guard let action = mode.shortcutAction else { return nil }
             let shortcut = shortcutProvider(action)
             guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
-            return Entry(mode: mode, action: action, shortcut: shortcut)
+            return RightSidebarModeShortcutEntry(mode: mode, action: action, shortcut: shortcut)
         }
         entriesByModifierRawValue = Dictionary(grouping: entries) {
             $0.shortcut.modifierFlags.rawValue

@@ -5,34 +5,10 @@ import Foundation
 /// files) and file metadata changes, so notification delivery never parses
 /// cmux.json on the Ghostty callback thread or main actor.
 actor CmuxNotificationHookCache {
-    private struct Key: Hashable {
-        let directory: String?
-        let globalConfigPath: String
-    }
-
-    private struct FileFingerprint: Equatable {
-        let path: String
-        let exists: Bool
-        let fileSize: UInt64
-        let modificationDate: Date?
-        let fileIdentifier: UInt64?
-    }
-
-    private struct Entry {
-        let fingerprints: [FileFingerprint]
-        let hooks: [CmuxResolvedNotificationHook]
-        var lastAccessSequence: UInt64
-    }
-
-    private struct ParsedConfig {
-        let fingerprint: FileFingerprint
-        let config: CmuxConfigFile?
-    }
-
     private let fileManager: FileManager
     private let maximumEntryCount: Int
-    private var entries: [Key: Entry] = [:]
-    private var parsedConfigs: [String: ParsedConfig] = [:]
+    private var entries: [CmuxNotificationHookCacheKey: CmuxNotificationHookCacheEntry] = [:]
+    private var parsedConfigs: [String: CmuxNotificationHookParsedConfig] = [:]
     private var accessSequence: UInt64 = 0
     private(set) var parseCount = 0
     private(set) var hitCount = 0
@@ -49,7 +25,7 @@ actor CmuxNotificationHookCache {
         guard let globalConfigPath, !globalConfigPath.isEmpty else { return [] }
         let normalizedDirectory = normalizedDirectory(directory)
         let normalizedGlobalPath = (globalConfigPath as NSString).standardizingPath
-        let key = Key(directory: normalizedDirectory, globalConfigPath: normalizedGlobalPath)
+        let key = CmuxNotificationHookCacheKey(directory: normalizedDirectory, globalConfigPath: normalizedGlobalPath)
         let localPaths = normalizedDirectory.map { findConfigHierarchy(startingFrom: $0) } ?? []
         let paths = [normalizedGlobalPath] + localPaths
         let fingerprints = paths.map(fingerprint(for:))
@@ -70,7 +46,7 @@ actor CmuxNotificationHookCache {
             globalConfigPath: normalizedGlobalPath,
             localConfigs: localConfigs
         )
-        entries[key] = Entry(
+        entries[key] = CmuxNotificationHookCacheEntry(
             fingerprints: fingerprints,
             hooks: hooks,
             lastAccessSequence: sequence
@@ -122,9 +98,9 @@ actor CmuxNotificationHookCache {
         return paths.reversed()
     }
 
-    private func fingerprint(for path: String) -> FileFingerprint {
+    private func fingerprint(for path: String) -> CmuxNotificationHookFileFingerprint {
         guard let attributes = try? fileManager.attributesOfItem(atPath: path) else {
-            return FileFingerprint(
+            return CmuxNotificationHookFileFingerprint(
                 path: path,
                 exists: false,
                 fileSize: 0,
@@ -132,7 +108,7 @@ actor CmuxNotificationHookCache {
                 fileIdentifier: nil
             )
         }
-        return FileFingerprint(
+        return CmuxNotificationHookFileFingerprint(
             path: path,
             exists: true,
             fileSize: (attributes[.size] as? NSNumber)?.uint64Value ?? 0,
@@ -141,7 +117,7 @@ actor CmuxNotificationHookCache {
         )
     }
 
-    private func parsedConfig(for fingerprint: FileFingerprint) -> CmuxConfigFile? {
+    private func parsedConfig(for fingerprint: CmuxNotificationHookFileFingerprint) -> CmuxConfigFile? {
         guard fingerprint.exists else {
             parsedConfigs.removeValue(forKey: fingerprint.path)
             return nil
@@ -157,7 +133,7 @@ actor CmuxNotificationHookCache {
         } else {
             config = nil
         }
-        parsedConfigs[fingerprint.path] = ParsedConfig(fingerprint: fingerprint, config: config)
+        parsedConfigs[fingerprint.path] = CmuxNotificationHookParsedConfig(fingerprint: fingerprint, config: config)
         return config
     }
 
