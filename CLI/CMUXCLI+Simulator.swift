@@ -1,3 +1,4 @@
+import CmuxSimulator
 import Foundation
 
 extension CMUXCLI {
