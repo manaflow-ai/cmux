@@ -78,19 +78,20 @@ extension MobileShellComposite {
             case .appliedScopedResponse, .reconciledAuthoritativeList:
                 break
             }
-            let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
-            let selectsCreatedWorkspace = createdWorkspace != nil
-                && ownsForegroundCreateSelection(createSelectionRevision)
-            if let createdWorkspace, selectsCreatedWorkspace {
-                setSelectedWorkspaceID(
-                    rowWorkspaceID(
-                        forRemoteWorkspaceID: createdWorkspace,
-                        macDeviceID: foregroundMacDeviceID
-                    ) ?? createdWorkspace
-                )
+            let didSelectCreatedWorkspace: Bool
+            if let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:)),
+               ownsForegroundCreateSelection(createSelectionRevision),
+               let createdWorkspaceRowID = rowWorkspaceID(
+                   forRemoteWorkspaceID: createdWorkspace,
+                   macDeviceID: foregroundMacDeviceID
+               ) {
+                setSelectedWorkspaceID(createdWorkspaceRowID)
+                didSelectCreatedWorkspace = true
+            } else {
+                didSelectCreatedWorkspace = false
             }
             syncSelectedTerminalForWorkspace()
-            if selectsCreatedWorkspace {
+            if didSelectCreatedWorkspace {
                 // A "+" actually created and selected a new workspace, so its terminal is freshly created.
                 suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
             }
