@@ -39,10 +39,10 @@ enum CmuxTopProcessScopeProbeResult: Equatable {
     case unavailable
 }
 
-// The raw enumerator is synchronous underneath the actor-owned process snapshot
-// store and the measured lifecycle compatibility seam. Keep this tiny lock
-// isolated to dictionary reads/writes; procargs/sysctl work must happen outside
-// the critical section.
+// CmuxTopProcessSnapshot.capture is intentionally synchronous because it backs
+// both async task-manager sampling and sync v2 system.top socket handling. Keep
+// this tiny lock isolated to dictionary reads/writes; procargs/sysctl work must
+// happen outside the critical section.
 private nonisolated let cmuxTopScopeCache = OSAllocatedUnfairLock(
     initialState: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheValue]()
 )
@@ -91,11 +91,12 @@ extension CmuxTopProcessSnapshot {
             // is eventually attributed. The key is pruned to live pids each
             // capture, so a recycled pid gets a fresh key.
             //
-            // A measured lifecycle fallback can overlap the actor-owned capture,
-            // and the probe happened outside the lock. Never let a stale negative
-            // from an older capture clobber a positive scope a newer capture already
-            // discovered for the same process: if we probed nil but a positive entry
-            // now exists, keep and return it.
+            // capture() runs concurrently (async task-manager sampling and sync
+            // system.top socket handling), and the probe happened outside the
+            // lock. Never let a stale negative from an older capture clobber a
+            // positive scope a newer capture already discovered for the same
+            // process: if we probed nil but a positive entry now exists, keep and
+            // return it.
             return cmuxTopScopeCache.withLock { cache -> CmuxTopProcessScope? in
                 if scope == nil, let existing = cache[cacheKey], let existingScope = existing.scope {
                     return existingScope
@@ -264,7 +265,7 @@ extension CmuxTopProcessSnapshot {
         return nil
     }
 
-    static func kinfoProc(for pid: Int) -> kinfo_proc? {
+    private static func kinfoProc(for pid: Int) -> kinfo_proc? {
         guard pid > 0, pid <= Int(Int32.max) else { return nil }
 
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]
