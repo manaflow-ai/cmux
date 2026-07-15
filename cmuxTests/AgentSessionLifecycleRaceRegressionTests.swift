@@ -9,6 +9,33 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func completedLegacyRecordRejectsHooksFromItsOriginalProcessGeneration() {
+        let record = ClaudeHookSessionRecord(
+            sessionId: "legacy-completed",
+            workspaceId: "workspace",
+            surfaceId: "surface",
+            startedAt: 100,
+            updatedAt: 200,
+            completedAt: 200,
+            runs: nil
+        )
+        let originalProcess = AgentHookSessionLineage(
+            runId: "pid:123@100",
+            pid: 123,
+            processStartedAt: 100,
+            parentRunId: nil,
+            parentSessionId: nil,
+            relationship: nil,
+            restoreAuthority: true
+        )
+
+        #expect(!AgentHookSessionActivationPolicy().canActivate(
+            record: record,
+            lineage: originalProcess,
+            hasIncomingPID: true
+        ))
+    }
+
     @Test func pidlessEventCannotBorrowVerifiedActiveProcessGeneration() {
         let activeRun = AgentSessionRunRecord(
             runId: "resumed-run", pid: 202, processStartedAt: 200,

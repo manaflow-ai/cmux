@@ -82,6 +82,27 @@ struct CmuxAgentSessionRegistryTests {
         #expect(stored.writerGeneration == 2)
     }
 
+    @Test("lifecycle patches promote imported legacy rows")
+    func patchPromotesLegacyWriterGeneration() throws {
+        let fixture = try Fixture()
+        try fixture.registry.apply(provider: "codex", records: [
+            try fixture.record(sessionID: "legacy", updatedAt: 10, generation: 0),
+        ])
+
+        let patched = try fixture.registry.patchRecord(
+            provider: "codex",
+            sessionID: "legacy",
+            updatedAt: 20
+        ) { object in
+            object["sessionState"] = "hibernated"
+            object["updatedAt"] = 20
+        }
+
+        #expect(patched)
+        let stored = try #require(fixture.registry.snapshot(provider: "codex").records.first)
+        #expect(stored.writerGeneration == CmuxAgentSessionRegistry.currentWriterGeneration)
+    }
+
     @Test("one thousand indexed session rows load within a bounded interval")
     func indexedSnapshotPerformance() throws {
         let fixture = try Fixture()

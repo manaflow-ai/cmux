@@ -35,4 +35,18 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(authority.relationship == .spawned)
         #expect(authority.restoreAuthority == false)
     }
+
+    @Test func explicitForkCanRecoverWhenItsExitedAncestorCannotBeRead() {
+        let authority = AgentHookSessionAuthorityPolicy().classify(
+            managedChild: false,
+            explicitRelationship: .forked,
+            processIdentityAvailable: true,
+            hasAgentAncestor: false,
+            ancestryProvenAbsent: false
+        )
+
+        #expect(authority.relationship == .forked)
+        #expect(authority.restoreAuthority)
+        #expect(authority.evidence == .verifiedForkRoot)
+    }
 }

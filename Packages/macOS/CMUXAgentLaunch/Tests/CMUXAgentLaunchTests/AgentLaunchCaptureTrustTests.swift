@@ -92,6 +92,12 @@ struct AgentLaunchCaptureTrustTests {
             )
         )
         #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "hermes",
+                arguments: ["/Users/alice/.local/bin/hermes", "chat"]
+            )
+        )
+        #expect(
             AgentLaunchCaptureTrust.nativeProcessDescribesKind(
                 processName: "bun",
                 arguments: ["bun", "/Users/alice/campfire/packages/session/bin/campfire.ts"],
