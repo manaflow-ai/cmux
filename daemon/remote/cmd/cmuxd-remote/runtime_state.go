@@ -100,6 +100,7 @@ func (s *runtimeStateSubscriber) stop() {
 type runtimeStateStore struct {
 	mu               sync.Mutex
 	filePath         string
+	persistDocument  func(string, runtimeStateDocument) error
 	document         *runtimeStateDocument
 	nextSubscriberID uint64
 	subscribers      map[uint64]*runtimeStateSubscriber
@@ -120,8 +121,9 @@ func newRuntimeStateStore(filePath string) (*runtimeStateStore, error) {
 
 func newEmptyRuntimeStateStore(filePath string) *runtimeStateStore {
 	return &runtimeStateStore{
-		filePath:    filePath,
-		subscribers: map[uint64]*runtimeStateSubscriber{},
+		filePath:        filePath,
+		persistDocument: persistRuntimeStateDocument,
+		subscribers:     map[uint64]*runtimeStateSubscriber{},
 	}
 }
 
@@ -161,7 +163,11 @@ func (s *runtimeStateStore) put(
 		State:           append(json.RawMessage(nil), state...),
 	}
 	if s.filePath != "" {
-		if err := persistRuntimeStateDocument(s.filePath, document); err != nil {
+		persistDocument := s.persistDocument
+		if persistDocument == nil {
+			persistDocument = persistRuntimeStateDocument
+		}
+		if err := persistDocument(s.filePath, document); err != nil {
 			s.mu.Unlock()
 			return runtimeStateDocument{}, err
 		}
